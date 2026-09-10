@@ -516,8 +516,8 @@ def note_after_terminal(session_id, agent_id, kind, detail="", timeout=5.0):
 
 
 def lifecycle_teams_dir():
-    """Where the platform's own worker event log lives, or None when it must
-    not be read.
+    """Where the platform's own worker event logs live, or None when they
+    must not be read.
 
     THE SECOND SOURCE (Frank R2 and R4, round two, 2026-09-10). The notes
     above are written by hooks under a 5-second flock that a catch-up sweep or
@@ -525,11 +525,36 @@ def lifecycle_teams_dir():
     announced on stderr and gone -- and a session can die with a run open. A
     record with one source and no expiry then holds every workspace of that
     agent forever while calling it a RETRY. The platform writes its own log of
-    the same two events (worker-started-handoff.sh / worker-ended-handoff.sh
-    -> <teams>/session-<sid8>/worker-events.jsonl), keyed by the registration
-    id for the run-level start and stop (Sage H3: all eleven post-terminal
-    restarts on record carry it), so it is read as a second source and neither
-    source alone decides.
+    the same two events (worker-started-handoff.sh / worker-ended-handoff.sh),
+    keyed by the registration id for the run-level start and stop (Sage H3:
+    all eleven post-terminal restarts on record at the time carried it), so it
+    is read as a second source and neither source alone decides.
+
+    WHAT THAT SUBSTRATE IS, STATED RATHER THAN IMPLIED (Sage D3 / Frank F1,
+    round three, 2026-09-10). It is PER-SESSION AND EPHEMERAL:
+
+      * <teams>/session-<sid8>/worker-events.jsonl exists only while the
+        session's team directory exists, and the platform deletes that
+        directory at session end -- no engine code removes one, and
+        session-d0eef867's log, which both round-two reviewers read, was
+        gone within an hour of that session ending on 2026-09-10.
+      * A session with NO team directory never had one: its rows went to the
+        FALLBACK file, ~/.claude/worker-events.jsonl, one file for every such
+        session, keyed by the full session id each row carries. Measured on
+        the operator's machine 2026-09-11 (round 14 record, section 2): of 49
+        sessions in the transaction store, 3 have a team directory (all 3
+        with a log), 31 have lifecycle rows only in the fallback, 15 have
+        neither. The fallback is the COMMON case, not an edge.
+
+    So platform_lifecycle_after() reads BOTH -- the session directory's log
+    when it exists and the fallback beside the teams directory -- with the
+    same exact join (this registration id, this full session id). After the
+    session ends the second source is gone with it; that is safe, because a
+    note can only be lost while hooks fire, and session_gone voids any open
+    run once the session is provably over (post_terminal_run_open). A number
+    read from these logs is a claim with a date on it: the measure script's
+    (b)/(c) lines say so and fall back to the start fact and the ledger
+    witness when the log is gone.
 
     HERMETIC ROOTING, FAIL-CLOSED, the same rule session_id_gone applies to
     the ledger: a transaction store away from its default with the event log
@@ -546,6 +571,18 @@ def lifecycle_teams_dir():
     return os.path.join(os.path.expanduser("~"), ".claude", "teams")
 
 
+def lifecycle_fallback_log():
+    """The platform's FALLBACK worker event log -- the sibling of the teams
+    directory (~/.claude/worker-events.jsonl beside ~/.claude/teams), where
+    worker-ended-handoff.sh writes a session's rows when it has no team
+    directory. Rooted with lifecycle_teams_dir(), so a redirected teams
+    directory redirects this too and a sandbox never reads the real file."""
+    root = lifecycle_teams_dir()
+    if not root:
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(root)), "worker-events.jsonl")
+
+
 def _parse_ts(value):
     try:
         return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
@@ -555,35 +592,48 @@ def _parse_ts(value):
 
 def platform_lifecycle_after(session_id, agent_id, since):
     """[(datetime, kind, 'events')] -- every WorkerStarted / WorkerRunEnded
-    row the platform's own event log holds for this EXACT registration id in
-    this session, strictly after `since`. An absent or unreadable log
-    contributes nothing (absence is never evidence); a row that does not
-    parse is skipped."""
+    row the platform's own event logs hold for this EXACT registration id in
+    this session, strictly after `since`. Read from the session directory's
+    log when it exists AND from the fallback file (lifecycle_teams_dir: a
+    session with no team directory has rows only there, and that is the
+    common case). An absent or unreadable log contributes nothing (absence
+    is never evidence); a row that does not parse is skipped; a fallback row
+    must carry this full session id, because that file holds every session's
+    rows in one place and the registration id is the only other key."""
     out = []
     root = lifecycle_teams_dir()
     since = _parse_ts(since)
     if not root or since is None or not session_id or not agent_id:
         return out
-    path = os.path.join(root, "session-%s" % session_id[:8], "worker-events.jsonl")
-    try:
-        with open(path, encoding="utf-8") as stream:
-            for line in stream:
-                if agent_id not in line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(row, dict) or row.get("agent_id") != agent_id:
-                    continue
-                if row.get("session_id") and row.get("session_id") != session_id:
-                    continue
-                kind = {"WorkerStarted": "start", "WorkerRunEnded": "stop"}.get(row.get("event"))
-                when = _parse_ts(row.get("timestamp"))
-                if kind and when and when > since:
-                    out.append((when, kind, "events"))
-    except OSError:
-        return out
+    sources = [(os.path.join(root, "session-%s" % session_id[:8], "worker-events.jsonl"), False),
+               (lifecycle_fallback_log(), True)]
+    seen = set()
+    for path, is_fallback in sources:
+        if not path:
+            continue
+        try:
+            with open(path, encoding="utf-8") as stream:
+                for line in stream:
+                    if agent_id not in line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(row, dict) or row.get("agent_id") != agent_id:
+                        continue
+                    if is_fallback:
+                        if row.get("session_id") != session_id:
+                            continue
+                    elif row.get("session_id") and row.get("session_id") != session_id:
+                        continue
+                    kind = {"WorkerStarted": "start", "WorkerRunEnded": "stop"}.get(row.get("event"))
+                    when = _parse_ts(row.get("timestamp"))
+                    if kind and when and when > since and (when, kind) not in seen:
+                        seen.add((when, kind))
+                        out.append((when, kind, "events"))
+        except OSError:
+            continue
     return out
 
 

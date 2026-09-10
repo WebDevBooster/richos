@@ -935,6 +935,44 @@ class Cleanup(unittest.TestCase):
             self.assertEqual(self.assess()[0],'remove')
             self.assert_reclaimed(self.run_cleanup())
 
+    def test_the_second_source_is_read_from_the_FALLBACK_log_for_a_session_with_no_team_directory(self):
+        # SAGE D3 / FRANK F1, ROUND THREE. The per-session log lives under the
+        # session's team directory, which the platform deletes at session end,
+        # and a session with NO team directory never had one: its rows went
+        # to ~/.claude/worker-events.jsonl, the fallback file, which the
+        # reader did not open -- 31 of 49 sessions in the operator's store on
+        # 2026-09-11. The reader opens it now, keyed by the FULL session id
+        # each row carries, with the same exact join as the session log.
+        from datetime import datetime,timezone,timedelta
+        t0=datetime.now(timezone.utc)-timedelta(minutes=5)
+        self.record['terminal']={'ingress':'SubagentStop','ts':t0.isoformat()}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        teams=self.root/'teams';teams.mkdir()                       # exists, but NO session-<sid8>/ under it
+        fallback=self.root/'worker-events.jsonl'                    # the sibling of the teams directory
+        def row(when,event,agent_id=AID,session_id=SID):
+            r={'timestamp':when.isoformat(),'event':event,'agent_id':agent_id,'source_hook':'fixture'}
+            if session_id is not None:r['session_id']=session_id
+            with open(fallback,'a') as stream:stream.write(json.dumps(r)+'\n')
+        with patch.dict(os.environ,{'RICHOS_TEAMS_DIR':str(teams)}):
+            self.assertEqual(tx.lifecycle_fallback_log(),str(fallback))
+            self.assertEqual(self.assess()[0],'remove')
+            # rows that never count: another agent; this agent in ANOTHER session; a row with NO session id
+            row(t0+timedelta(seconds=5),'WorkerStarted',agent_id='abcdef999999')
+            row(t0+timedelta(seconds=5),'WorkerStarted',session_id='other-session')
+            row(t0+timedelta(seconds=5),'WorkerStarted',session_id=None)
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            # THE LOST START NOTE, seen only in the fallback file: held
+            row(t0+timedelta(seconds=10),'WorkerStarted')
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn("platform's event log",reason)
+            self.assert_kept()
+            # and the run's end, in the same file, closes it
+            row(t0+timedelta(seconds=20),'WorkerRunEnded')
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual([(kind,src) for _w,kind,src in tx.post_terminal_events(tx.load_tx(SID,AID))],[('start','events'),('stop','events')])
+            self.assertEqual(self.assess()[0],'remove')
+            self.assert_reclaimed(self.run_cleanup())
+
     def test_a_post_terminal_run_cannot_outlive_its_session(self):
         # FRANK R2 (2): row 5 preceded row 10a, so `session_gone` never
         # overrode it — a session that died mid-run held the workspace on a

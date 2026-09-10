@@ -157,6 +157,11 @@ mutant second-source-ignored "test_a_lost_stop_note_is_closed_by_the_platforms_o
     "    pass  # mutant: the platform's own event log is never consulted" \
     "a stop note lost to the 5-second flock a sweep holds for a whole reclaim would leave the run open in the record FOREVER, and a lost start note would leave a restart invisible to the lane; the platform wrote both events down in its own log and nothing would read it (Type J: a claim with no condition that voids it)."
 
+mutant fallback-log-ignored "test_the_second_source_is_read_from_the_FALLBACK_log_for_a_session_with_no_team_directory" "$X" \
+    "               (lifecycle_fallback_log(), True)]" \
+    "               (None, True)]" \
+    "a session with no team directory -- 31 of 49 in the operator's store -- would have ONE source again: its lost start note would hold nothing and its lost stop note would hold everything (Sage D3, round three)."
+
 mutant session-death-does-not-void-an-open-run "test_a_post_terminal_run_cannot_outlive_its_session" "$D" \
     "    if gone:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \
     "    if False:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \

@@ -68,8 +68,19 @@ the ownership ledger):
 (a) is −48.7, −94.4, −42.9 and −101.6 ms (unl1, this agent, fix1, sage-fable-cert2). (b) is
 fix1's two restarts (19:57:02Z, 20:27:11Z) and sage-fable-cert2's one (21:01:09Z), each with the
 lock mtime unchanged since the worktree was created: held throughout, never released, never
-re-taken. (c) is the case the premise existed for, and it left nothing to read. **So "the
-platform re-locks before a restarted run" is UNMEASURED**, the script says so in those words,
+re-taken. (c) is the case the premise existed for, and it left nothing to read.
+
+> **Correction, round 14 (2026-09-11, Sage D3 / Frank F1).** The (a)/(b)/(c) block above was
+> measured on session `d0eef867`'s per-session event log, which the platform deleted with that
+> session's team directory when the session ended (~21:49Z the same day); the block cannot be
+> re-derived from its own command any more. The "second source" this section and §1.3 describe is
+> per-session and ephemeral, and a session with no team directory (31 of 49 in the store on
+> 2026-09-11) has its rows only in the fallback `~/.claude/worker-events.jsonl`, which the reader
+> did not open until round 14. The current output, the corpus lifetime, and the four (c) cases
+> re-derived from the ledger witness and the start fact are in `engine/docs/reclaim-decision-table.md`
+> §3 and the round-14 record. Nothing measured here was wrong when measured; it was undated.
+
+**So "the platform re-locks before a restarted run" is UNMEASURED**, the script says so in those words,
 and its suite (`restart-after-terminal-measure.test.sh`, 9 cases) pins (a), pins that a lock held
 throughout is not counted as a re-lock, pins (c) with the admin directory gone, and carries the
 positive probe: a lock re-taken 40 ms after a restart IS counted, so the zero is a measurement,
@@ -191,7 +202,13 @@ Not produced: any artifact of the code on this branch acting on a real event (se
 
 ## 5. Suites run at this tip
 
-(filled in below from the run logs; a suite that did not exit 0 is stated as such)
+**Never filled in** (Sage's round-three condition 5; removed rather than back-filled in round 14).
+The placeholder that stood here was written before the runs and the runs were never written into
+it. The suite record at this branch's landed tip `2b8a235d` is the two reviewers': Frank's §5
+(sixteen suites, sixteen exit 0, 165 mutants) and Sage's §5a (twenty rows, including the three
+red units CI refused on) in `certification-frank-round3-2026-09-10.md` and
+`certification-sage-round3-2026-09-10.md`; round 14's own runs are in
+`reclaim-round-14-zach-fable-fix3-2026-09-10.md` §7.
 
 ---
 

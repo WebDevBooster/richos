@@ -368,6 +368,18 @@ def post_terminal_run_open(tx, transaction):
          hooks missed (`worktree-transactions.py note-after-terminal`). That
          is an operator asserting a fact into the record, the same shape as
          `git worktree unlock`, not a flag that unlocks the class.
+
+    WHAT THE SECOND SOURCE IS (Sage D3 / Frank F1, round three): per-session
+    and ephemeral. The platform's per-session log lives under the session's
+    team directory, which the platform deletes at session end; a session
+    with no team directory — 31 of the 49 in the operator's transaction
+    store on 2026-09-11 — has its rows only in the fallback file
+    ~/.claude/worker-events.jsonl, which `platform_lifecycle_after` now reads
+    keyed by the full session id. So "two sources" is true exactly while the
+    owning session lives, which is exactly when a note can be lost (hooks
+    fire only then); after the session ends, item 2 takes over. The design
+    fails safe; the sentence saying so was missing (worktree-transactions.
+    lifecycle_teams_dir carries the measured substrate).
     """
     if not tx.running_after_terminal(transaction):
         return False, ''

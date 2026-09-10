@@ -34,7 +34,17 @@ INFORMATION:
             predating the team event log.
   events    ~/.claude/teams/session-*/worker-events.jsonl `WorkerStarted`
             rows, which keep every start, and exist only for sessions since
-            the start hook shipped.
+            the start hook shipped -- AND ONLY WHILE THE SESSION'S TEAM
+            DIRECTORY EXISTS. The platform deletes that directory at session
+            end (Sage D3 / Frank F1, round three, 2026-09-10: session
+            d0eef867's log, read by both round-two reviewers, was gone within
+            an hour of the session ending), so this source is per-session and
+            ephemeral. A session with no team directory writes to the
+            FALLBACK file ~/.claude/worker-events.jsonl instead, keyed by the
+            full session id, and that file is read here too (round 14): on
+            the operator's machine 31 of 49 store sessions have rows only
+            there. Every count that leans on `events` is therefore a claim
+            with a date on it; the start fact is the durable one.
 
 No time window is applied. A start strictly after the terminal record is a
 restart; the gap is reported so the reader can judge it rather than have an
@@ -101,9 +111,22 @@ def read_json(path):
         return None
 
 
+FALLBACK_LOG = os.path.join(os.path.dirname(os.path.abspath(TEAMS_DIR)), 'worker-events.jsonl')
+
+
+def event_log_paths():
+    """Every per-session log still on disk, then the fallback file (the
+    sibling of the teams directory, where a session with no team directory
+    writes). Both are the platform's; only the fallback outlives a session."""
+    paths = sorted(glob.glob(os.path.join(TEAMS_DIR, 'session-*', 'worker-events.jsonl')))
+    if os.path.isfile(FALLBACK_LOG):
+        paths.append(FALLBACK_LOG)
+    return paths
+
+
 def event_rows():
-    """Every row of every team event log, oldest first per file."""
-    for path in sorted(glob.glob(os.path.join(TEAMS_DIR, 'session-*', 'worker-events.jsonl'))):
+    """Every row of every event log the platform keeps, oldest first per file."""
+    for path in event_log_paths():
         try:
             with open(path, encoding='utf-8') as stream:
                 for line in stream:
@@ -115,6 +138,10 @@ def event_rows():
                         continue
         except OSError:
             continue
+
+
+def log_label(path):
+    return 'fallback (%s)' % FALLBACK_LOG if path == FALLBACK_LOG else os.path.basename(os.path.dirname(path))
 
 
 def terminal_transactions():
@@ -167,7 +194,7 @@ def census():
     RUN ended (worker-ended-handoff.sh says so in its own header)."""
     per_file = collections.OrderedDict()
     for path, row in event_rows():
-        name = os.path.basename(os.path.dirname(path))
+        name = log_label(path)
         bucket = per_file.setdefault(name, {'events': collections.Counter(),
                                             'ids': collections.defaultdict(set)})
         event = str(row.get('event') or '?')
@@ -239,7 +266,8 @@ def measure(as_json=False):
         'restarted_after_terminal': len(findings),
         'rate': (round(100.0 * len(findings) / len(workspace_owning), 3)
                  if workspace_owning else None),
-        'event_logs_scanned': len(glob.glob(os.path.join(TEAMS_DIR, 'session-*', 'worker-events.jsonl'))),
+        'event_logs_scanned': len(event_log_paths()),
+        'fallback_log_read': os.path.isfile(FALLBACK_LOG),
         'findings': findings,
     }
     if as_json:
@@ -252,8 +280,9 @@ def measure(as_json=False):
     print('  NUMERATOR  : those with a start strictly after their terminal record : %d'
           % result['restarted_after_terminal'])
     print('  rate       : %s%%' % result['rate'])
-    print('  event logs scanned (a session without one contributes only its start fact) : %d'
-          % result['event_logs_scanned'])
+    print('  event logs scanned (per-session logs still on disk, plus the fallback file if present) : %d%s'
+          % (result['event_logs_scanned'], '' if result['fallback_log_read'] else ' (no fallback file)'))
+    print('  a session whose log the platform has deleted contributes only its start fact')
     print('')
     if not findings:
         print('  no restart after a terminal record in this corpus.')
@@ -355,16 +384,37 @@ def locks(as_json=False):
                              'lock_mtime': lock_mtime.isoformat() if lock_mtime else None,
                              'lock_minus_start_ms': delta_ms})
     witnessed = unlocked_witness_rows()
+    session_of = {}
+    for transaction in all_transactions():
+        aid = transaction.get('agent_id') or ''
+        if aid and aid not in session_of:
+            session_of[aid] = transaction.get('session_id') or ''
     unlocked_restarts = []
     for aid, when in sorted(witnessed.items(), key=lambda kv: kv[1]):
         later = sorted(s for s in starts_by_id.get(aid, []) if s > when)
+        source = 'events'
+        sid = session_of.get(aid, '')
+        if not later and sid:
+            # THE EVENT LOG MAY BE GONE (Sage D3 / Frank F1, round three): the
+            # platform deletes a session's log with its team directory, and
+            # the four witnessed-unlocked restarts this mode was written on
+            # dropped out of (c) with no line saying so once that happened.
+            # The ledger witness is durable and so is the start fact; a start
+            # fact later than the witness IS the restart, and it is reported
+            # as known from that source rather than silently omitted.
+            fact_ts = parse_ts((start_fact(sid, aid) or {}).get('ts'))
+            if fact_ts and fact_ts > when:
+                later, source = [fact_ts], 'start-fact'
         if not later:
             continue
+        log_present = bool(sid) and os.path.isfile(os.path.join(TEAMS_DIR, 'session-%s' % sid[:8], 'worker-events.jsonl'))
         admin_present = any(r['agent_id'] == aid and r['admin_dir_present'] for r in rows)
         unlocked_restarts.append({'agent_id': aid, 'witnessed_unlocked_ts': when.isoformat(),
                                   'restart_ts': later[0].isoformat(),
                                   'gap_s': round((later[0] - when).total_seconds(), 1),
-                                  'admin_dir_present': admin_present})
+                                  'admin_dir_present': admin_present,
+                                  'restart_source': source,
+                                  'session_event_log_present': log_present})
     initial = [r for r in rows if r['kind'] == 'initial' and r['lock_present']]
     initial_before = [r for r in initial if r['lock_minus_start_ms'] < 0]
     restarts = [r for r in rows if r['kind'] == 'restart' and r['lock_present']]
@@ -378,6 +428,10 @@ def locks(as_json=False):
         'restarts_lock_retaken_after_restart': len(retaken),
         'restarts_into_witnessed_unlocked_tree': len(unlocked_restarts),
         'restarts_into_witnessed_unlocked_tree_with_admin_dir': sum(1 for r in unlocked_restarts if r['admin_dir_present']),
+        'restarts_into_witnessed_unlocked_tree_known_only_from_start_fact': sum(1 for r in unlocked_restarts if r['restart_source'] == 'start-fact'),
+        'corpus_lifetime': ('per-session event logs are deleted by the platform with the session\'s team directory; '
+                            '(a) and (b) can only be re-derived while a log exists, (c) falls back to the ledger '
+                            'witness and the start fact'),
         'rows': rows, 'unlocked_restarts': unlocked_restarts,
     }
     if as_json:
@@ -398,18 +452,24 @@ def locks(as_json=False):
           % (result['initial_starts_with_lock_on_disk'], result['initial_starts_lock_precedes_start']))
     print('  (b) restarts with a lock file on disk       : %d; lock mtime moved AFTER the restart (a re-lock OBSERVED) in %d of them'
           % (result['restarts_with_lock_on_disk'], result['restarts_lock_retaken_after_restart']))
-    print('  (c) restarts into a tree the reaper witnessed UNLOCKED : %d; admin directory still on disk for %d of them'
-          % (result['restarts_into_witnessed_unlocked_tree'], result['restarts_into_witnessed_unlocked_tree_with_admin_dir']))
+    print('  (c) restarts into a tree the reaper witnessed UNLOCKED : %d; admin directory still on disk for %d of them; '
+          'known only from the start fact (event log gone) for %d of them'
+          % (result['restarts_into_witnessed_unlocked_tree'], result['restarts_into_witnessed_unlocked_tree_with_admin_dir'],
+             result['restarts_into_witnessed_unlocked_tree_known_only_from_start_fact']))
     for r in unlocked_restarts:
-        print('      %-18s witnessed unlocked %s  restarted %s  (+%.0f s)  admin dir %s'
+        print('      %-18s witnessed unlocked %s  restarted %s  (+%.0f s)  admin dir %s; restart from %s%s'
               % (r['agent_id'][:18], r['witnessed_unlocked_ts'][:19], r['restart_ts'][:19], r['gap_s'],
-                 'present' if r['admin_dir_present'] else 'GONE -- re-lock unobservable'))
+                 'present' if r['admin_dir_present'] else 'GONE -- re-lock unobservable',
+                 r['restart_source'],
+                 '' if r['session_event_log_present'] else ' -- session event log GONE (the platform deleted it with the session), unobservable from the log'))
     print('')
     print('  READ (b) AND (c) BEFORE QUOTING (a). (a) is what round 12 measured and it holds; it')
     print('  says the platform locks before an INITIAL run. Whether the platform re-takes a RELEASED')
     print('  lock for a RESTARTED run is answered only by (b) on a tree whose lock was absent before')
     print('  the restart, and by (c) if an admin directory survives. A lock held throughout a restart')
     print('  (fix1, twice) is not a re-lock. Until (b) has a sample, "re-locks on restart" is UNMEASURED.')
+    print('')
+    print('  CORPUS LIFETIME: %s. Every (a)/(b) number is a claim with the date of the run on it.' % result['corpus_lifetime'])
     return 0
 
 
