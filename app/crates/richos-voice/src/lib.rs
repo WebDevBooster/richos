@@ -55,6 +55,12 @@ pub mod endpoint;
 pub mod event;
 pub mod noaudio;
 pub mod state;
+// Which whisper binary, which ggml backends and which weights are about to hear the CEO. Pure
+// except for four I/O functions, and native-dependency-free — it hashes with `sha2` rather than
+// shelling out, for the reason richos-core's own manifest gives: an integrity check whose answer
+// depends on parsing a subprocess's stdout is the exact shape of "exit 0 while doing the wrong
+// thing", which is also what whisper-cpp 1.8.3 does to `--version`.
+pub mod toolchain;
 pub mod voiced;
 pub mod wav;
 

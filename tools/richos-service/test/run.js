@@ -120,6 +120,7 @@ import {
   sameIdentity,
   provenanceString,
   probeWhisper,
+  fileIdentity,
   buildLock,
   resolveToolchain,
   assertToolchain,
@@ -4046,6 +4047,25 @@ test('every finding kind has a severity AND a sentence — a kind nobody describ
     const msg = describeFinding({ kind, severity: SEVERITY[kind] });
     assert.ok(msg && msg.length > 20 && !msg.startsWith('toolchain: '), `${kind} has no sentence`);
   }
+});
+
+test('the model-hash cache key is WHOLE milliseconds — the Rust consumer cannot express more', () => {
+  // A CROSS-CONSUMER CONTRACT, and it was a real defect before it was a test. `statSync` reports
+  // sub-millisecond mtime here (1787746219119.914 on the CEO's own ggml-small.en.bin); Rust's
+  // `as_millis()` reports 1787746219119. Both correct, never equal — so a lock written by the
+  // voice path silently missed on the call path and vice versa, costing a 3.1 s re-hash of a
+  // 1.6 GB model on every run with nothing anywhere saying why. Whole ms is the coarsest unit
+  // both produce exactly. `app/crates/richos-voice/src/toolchain.rs#file_identity` truncates to
+  // the same one.
+  const dir = tmp();
+  const f = path.join(dir, 'x.bin');
+  fs.writeFileSync(f, 'bytes');
+  const id = fileIdentity(f);
+  assert.equal(Number.isInteger(id.mtimeMs), true, 'a fractional mtime cannot survive the round trip to Rust');
+  assert.equal(id.mtimeMs, Math.trunc(fs.statSync(f).mtimeMs));
+  // dev is carried, not zeroed: the other side compares it, so a zero here would be a permanent miss.
+  assert.equal(Number.isInteger(id.dev), true);
+  assert.ok(id.dev !== 0 || process.platform === 'win32');
 });
 
 test('sameIdentity is the model-hash cache key, and every field of it is load-bearing', () => {

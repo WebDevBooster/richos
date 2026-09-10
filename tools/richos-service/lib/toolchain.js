@@ -466,11 +466,22 @@ export function hashFileSync(filePath) {
   }
 }
 
-/** I/O — the stat tuple that decides whether a cached hash still describes this file. */
+/**
+ * I/O — the stat tuple that decides whether a cached hash still describes this file.
+ *
+ * `mtimeMs` is TRUNCATED TO WHOLE MILLISECONDS, and that is a cross-consumer contract rather than
+ * tidiness. Node's `statSync` reports sub-millisecond precision (`1787746219119.914` on this
+ * machine); Rust's `SystemTime::duration_since(...).as_millis()` reports `1787746219119`. Both are
+ * correct and they are never equal, so a lock written by one surface would silently miss on the
+ * other — for the CALL pipeline that is a needless 3.1 s re-hash of a 1.6 GB model on every run,
+ * with nothing anywhere saying why. Whole milliseconds is the coarsest unit both can produce
+ * exactly, so it is the unit the lock stores. `app/crates/richos-voice/src/toolchain.rs` truncates
+ * to the same one; the drift test in the suite asserts they still agree.
+ */
 export function fileIdentity(filePath) {
   try {
     const st = fs.statSync(filePath);
-    return { bytes: st.size, mtimeMs: st.mtimeMs, ino: Number(st.ino), dev: Number(st.dev) };
+    return { bytes: st.size, mtimeMs: Math.trunc(st.mtimeMs), ino: Number(st.ino), dev: Number(st.dev) };
   } catch {
     return null;
   }

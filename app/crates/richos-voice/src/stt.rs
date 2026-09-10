@@ -44,6 +44,11 @@ pub const DEFAULT_MODEL_ID: &str = "small.en";
 pub enum SttError {
     BinaryNotFound(String),
     ModelNotFound(String),
+    /// The model file is not the model RichOS pinned, or strict mode refused a changed binary.
+    /// A SEPARATE variant from `ModelNotFound` on purpose: "not installed" and "installed but not
+    /// what it claims to be" need different words to the CEO and different actions from whoever
+    /// set the machine up.
+    ToolchainRefused(String),
     Io(String),
     Failed { status: String, stderr: String },
 }
@@ -60,6 +65,16 @@ impl SttError {
                  those. I can still read what you type."
                     .into()
             }
+            SttError::ToolchainRefused(_) => {
+                // DIFFERENT WORDS, because it is a different situation and the difference matters
+                // to him. "Not installed yet" would be false and would send whoever helps him to
+                // install something that is already there. Still no paths, no hashes, no
+                // filenames — the detail is on stderr and in the record, where it is useful.
+                "Something about my hearing changed on this machine and I'd rather not guess at \
+                 what you said than get it wrong. Whoever set RichOS up can put it right. I can \
+                 still read what you type."
+                    .into()
+            }
             SttError::Io(_) | SttError::Failed { .. } => {
                 "I didn't catch that — say it again?".into()
             }
@@ -72,6 +87,7 @@ impl std::fmt::Display for SttError {
         match self {
             SttError::BinaryNotFound(s) => write!(f, "whisper binary not found: {s}"),
             SttError::ModelNotFound(s) => write!(f, "whisper model not found: {s}"),
+            SttError::ToolchainRefused(s) => write!(f, "whisper toolchain refused: {s}"),
             SttError::Io(s) => write!(f, "stt io: {s}"),
             SttError::Failed { status, stderr } => write!(f, "whisper failed ({status}): {stderr}"),
         }
@@ -220,18 +236,50 @@ pub struct Recognizer {
     /// plugs in HERE — feed `loro/entities.json` terms and whisper biases toward the
     /// company's names and jargon. Not wired to loro in v1; the seam is one string.
     prompt: Option<String>,
+    /// Which binary, which ggml backends and which weights — established ONCE, here, and carried
+    /// so every utterance is attributed to what actually heard it.
+    toolchain: crate::toolchain::Report,
 }
 
 impl Recognizer {
+    /// Resolve the binary and the model, and CHECK THEM, before the mic is ever opened.
+    ///
+    /// Resolution has always happened once here rather than per utterance, so that a missing model
+    /// is a calm message at the toggle instead of a failure in the middle of a sentence. A
+    /// SUBSTITUTED one now gets the same treatment, which is the point of doing the check in this
+    /// function and not in `transcribe`: at 0.47–0.74 s per utterance there is no room to hash a
+    /// 487 MB model on each one, and there is no need to — the binary cannot change between two
+    /// sentences of one conversation, and the lock's cache means even this once is usually free.
+    ///
+    /// Weights that are not the pinned weights REFUSE. A binary or backend that is not the one
+    /// this machine locked WARNS, loudly, naming both identities — see `toolchain.rs` for why the
+    /// two differ. `RICHOS_WHISPER_STRICT_TOOLCHAIN=1` makes every warning a refusal.
     pub fn resolve() -> Result<Recognizer, SttError> {
         let model_id =
             std::env::var("RICHOS_VOICE_WHISPER_MODEL_ID").unwrap_or_else(|_| DEFAULT_MODEL_ID.to_string());
-        Ok(Recognizer {
-            bin: resolve_whisper_bin()?,
-            model: resolve_model(&model_id)?,
-            model_id,
-            prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()),
-        })
+        let bin = resolve_whisper_bin()?;
+        let model = resolve_model(&model_id)?;
+        let toolchain = crate::toolchain::check(&bin, &model, &model_id);
+        // Said out loud on stderr, not only stored. A warning nobody meets is not a warning, and
+        // this is the one channel a headless voice loop shares with whoever started it.
+        for w in toolchain.warnings() {
+            eprintln!("richos-voice: {w}");
+        }
+        if toolchain.verdict() == crate::toolchain::Severity::Refuse {
+            return Err(SttError::ToolchainRefused(toolchain.refusals().join(" ")));
+        }
+        Ok(Recognizer { bin, model, model_id, prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()), toolchain })
+    }
+
+    /// One line naming the binary and the weights that heard this conversation. The answer to
+    /// "which binary and which weights produced this?" for every turn this recognizer serves.
+    pub fn provenance(&self) -> &str {
+        &self.toolchain.provenance
+    }
+
+    /// The full identity report, for a caller that wants to record more than the line.
+    pub fn toolchain(&self) -> &crate::toolchain::Report {
+        &self.toolchain
     }
 
     pub fn model_id(&self) -> &str {
