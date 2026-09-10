@@ -1,5 +1,21 @@
 name: vouch-pr
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# NO RUN EXISTS, on any branch, and that is CORRECT rather than broken: this
+# triggers only on `pull_request_target`, which never fires on main, so no
+# amount of pushing will ever start it. ci-status.sh derives that from the
+# `on:` block and reports it BENIGN rather than as a defect.
+#
+# It also reports the part that is worth knowing and has never been written
+# down anywhere: THIS WORKFLOW HAS THEREFORE NEVER BEEN PROVEN TO WORK. The
+# first stranger to open a pull request is its first execution, and it is the
+# workflow that decides what happens to that stranger. Budget from a light API
+# job; there is nothing measured to set it from.
+# ci-budget: 5m
+# ci-evidence: UNPROVEN BY EXECUTION — no run has ever existed. Until one does, the only evidence for this workflow is vouch-template.js in app/ui/tests/, which joins the message text here to the suite that asserts it
+# ---------------------------------------------------------------------------
+
 # THE ONLY WORKFLOW HERE THAT ACTS ON A PERSON RATHER THAN ON CODE.
 #
 # The other five judge a diff. This one judges an author, and closes their pull

@@ -1,5 +1,16 @@
 name: windows-companion-ci
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# Measured 2026-09-10 over the last 11 runs: min 3s, median 61s, p90 75s,
+# max 81s. The 3s is run #2, which failed at startup and is exactly the shape
+# the HOLLOW axis watches for — it is not evidence of a fast job. The ceiling
+# is set off the p90 with room for a Windows runner's cold NuGet restore.
+# Job timeout-minutes is 30.
+# ci-budget: 6m
+# ci-evidence: `dotnet test RichOSCompanionCore.Tests` runs the companion's own assertions; the build step before it uses --no-restore, so a restore failure cannot be mistaken for a passing build
+# ---------------------------------------------------------------------------
+
 # THE FILE THAT TWO README LINES HAVE BEEN CITING SINCE 2026-08-24.
 #
 # `tools/richos-service/companion-windows/README.md` said, twice, that a GitHub

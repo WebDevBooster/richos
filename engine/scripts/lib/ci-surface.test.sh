@@ -163,20 +163,54 @@ printf 'gitdir: %s/.g%s/worktrees/side\n' "$ADOPTED" "it" > "$SANDBOX/side/.g""i
 cp "$ADOPTED/$WF/declared.yml" "$SANDBOX/side/$WF/" 2>/dev/null || true
 mkdir -p "$ADOPTED/.g""it/worktrees/side"
 if [ -f "$SANDBOX/side/.g""it" ]; then
+    RESOLVED="$(python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("cs", sys.argv[1])
+cs = importlib.util.module_from_spec(spec); spec.loader.exec_module(cs)
+print(cs._main_checkout(sys.argv[2]))' "$SURFACE" "$SANDBOX/side")"
+    if [ "$RESOLVED" = "$ADOPTED" ]; then
+        ok "S3a  a linked worktree resolves to its main checkout, read off the metadata file"
+    else
+        bad "S3a  resolved <$RESOLVED>, expected <$ADOPTED>"
+    fi
+
+    # S3b: DISCOVERY must not report the pair as two repositories. Both are
+    # adopters by the marker, so both are candidates; the deduplication is what
+    # is under test.
+    : > "$SANDBOX/side/orchestration.config"
     D2="$SANDBOX/doc2.json"
-    HOME="$SANDBOX/home" python3 "$SURFACE" --repo "$SANDBOX/side" --repo "$ADOPTED" \
+    HOME="$SANDBOX/home" python3 "$SURFACE" --neighborhood-root "$SANDBOX" \
         --offline --no-cache > "$D2" 2>/dev/null
-    N="$(python3 -c '
+    DUP="$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
-print("%d %s" % (len(d["repositories"]), d["repositories"][0]["root"] if d["repositories"] else ""))' "$D2")"
-    case "$N" in
-        "1 $ADOPTED") ok "S3   a linked worktree resolves to its main checkout and is not a second repository" ;;
-        *)            bad "S3   got <$N>, expected exactly one repository rooted at $ADOPTED" ;;
-    esac
+roots = [r["root"] for r in d["repositories"]]
+print(len([r for r in roots if r.endswith("/side") or r.endswith("/adopted")]))' "$D2" 2>/dev/null || echo -1)"
+    if [ "$DUP" = "1" ]; then
+        ok "S3b  discovery reports the worktree and its checkout as ONE repository, not two"
+    else
+        bad "S3b  counted $DUP entries for one repository — every finding would be double-counted"
+    fi
+
+    # S3c: an EXPLICIT --repo is the deliberate asymmetry. Somebody naming a
+    # tree means that tree, most often an engineer checking declarations they
+    # have not landed yet; silently reading a different directory would make
+    # this tool unable to answer the question its own author needs answered.
+    D4="$SANDBOX/doc4.json"
+    HOME="$SANDBOX/home" python3 "$SURFACE" --repo "$SANDBOX/side" \
+        --offline --no-cache > "$D4" 2>/dev/null
+    R4="$(python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(d["repositories"][0]["root"] if d["repositories"] else "")' "$D4" 2>/dev/null || echo "")"
+    if [ "$R4" = "$SANDBOX/side" ]; then
+        ok "S3c  an EXPLICIT --repo is read as given and never silently substituted"
+    else
+        bad "S3c  --repo $SANDBOX/side was read as <$R4>"
+    fi
 else
     # NAMED, not silently skipped: an unrun case is not a passing case.
-    bad "S3   COULD NOT RUN — the linked-worktree fixture was not created. The case is unproven, not passing."
+    bad "S3   COULD NOT RUN — the linked-worktree fixture was not created. Three cases are unproven, not passing."
 fi
 
 # --- S4 / S5 / S6 ----------------------------------------------------------

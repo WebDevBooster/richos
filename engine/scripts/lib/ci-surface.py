@@ -496,7 +496,13 @@ def discover_repos(explicit, blind, neighborhood_root=None):
         # the report. Worse, the DECLARATIONS would be read off the worktree's
         # copy, which is whatever that agent happens to be editing, rather than
         # off the checkout that holds the branch CI actually runs.
-        main = _main_checkout(root)
+        # AN EXPLICIT --repo IS NEVER REDIRECTED. Somebody naming a tree means
+        # that tree — most often an engineer checking the declarations they
+        # just wrote, before they land. Quietly reading a different directory
+        # than the one you were handed is the substitution scripts/lib/
+        # resolve-roots.sh refuses by name, and it would make this tool unable
+        # to answer the one question its own author needs it to answer.
+        main = root if source == "explicit" else _main_checkout(root)
         if main and main != root:
             if main in seen:
                 return
