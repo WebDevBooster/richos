@@ -1,0 +1,76 @@
+name: engine-run-record
+
+# ===========================================================================
+# THE ONLY CHECK HERE THAT ASKS WHETHER THE VERIFICATION HAPPENED
+# ===========================================================================
+# Every other workflow in this directory answers "did it pass?". This one
+# answers "did it RUN?", and the two are not the same question.
+#
+# GitHub Free allows 20 concurrent jobs ACCOUNT-WIDE. This account has seven
+# active workflows and `engine-self-verify` alone declares twelve shards, so the
+# ceiling is genuinely reachable. Per GitHub's documentation, a run that exceeds
+# the concurrency limit is DROPPED, not queued — and a dropped run leaves NO
+# RECORD: no cross, no yellow dot, no entry in `gh run list`. The commit looks
+# exactly as it did before anybody pushed.
+#
+# So every tool that answers "is main green?" by reading the LATEST run answers
+# with the PREVIOUS commit's verdict, indefinitely, and nothing anywhere says
+# otherwise. That failure is invisible by construction; it needs a check that
+# looks for absence rather than for redness.
+#
+# WHAT IT COMPARES: every PushEvent to main in the repository's event feed must
+# have a run of `engine-self-verify.yml` whose head_sha is that push's head. Not
+# every commit — a workflow with `on: push` fires once per PUSH, and five
+# commits pushed together correctly produce one run. The reasoning, the grace
+# window and the fallback predicate are all in
+# `engine/scripts/ci-run-record-check.sh`, which is runnable by hand.
+#
+# WHY IT DOES NOT LIVE INSIDE engine-self-verify.yml, which is the obvious place
+# and is wrong: if that workflow's run was the one dropped, a job inside it did
+# not run either. A check for absence cannot be hosted by the thing that might
+# be absent. Hence a separate workflow on a SCHEDULE, which fires from GitHub's
+# side and does not depend on anybody pushing.
+# ===========================================================================
+
+on:
+  schedule:
+    # Every six hours. The dropped-run failure is permanent once it happens, so
+    # detecting it within six hours is ample; more often would spend concurrency
+    # on the very resource whose exhaustion it is watching for.
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  run-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Every push to main must have a run record
+        working-directory: engine
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # --since IS THE DAY THE TRIGGER CAME BACK, and it is declared rather
+          # than derived. `push:` was absent from engine-self-verify.yml from
+          # 2026-09-01 to 2026-09-10, so 95 pushes to main in the event feed
+          # correctly have no run. Without this bound the check would be red on
+          # its first execution and every one after it, over history nobody can
+          # change — and a check that is red on arrival is a check nobody reads.
+          #
+          # DERIVING IT FROM THE RUN HISTORY WOULD BE CIRCULAR: if every run had
+          # been dropped there would be no history to derive it from.
+          #
+          # When the trigger changes again, change this date and say why.
+          scripts/ci-run-record-check.sh \
+            --repo "${{ github.repository }}" \
+            --workflow engine-self-verify.yml \
+            --branch main \
+            --since 2026-09-10 \
+            --grace-minutes 30
