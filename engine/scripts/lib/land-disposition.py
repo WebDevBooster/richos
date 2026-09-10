@@ -112,9 +112,37 @@ is borrowing. So a demand waits.
 
 HOW LONG IS MEASURED, by `scripts/land-disposition-measure.py`, which is the
 derivation rather than a note about one -- re-run it and get today's answer.
-Against 1114 teammate landings across five repositories the standing time is
-p50 0.025 h, p90 0.523 h, p95 1.338 h, and the entire upper tail above one hour
-is:
+
+    THE NUMBERS BELOW WERE REPUBLISHED 2026-09-10 AND THE OLD ONES DID NOT
+    REPRODUCE. This header used to say "against 1114 teammate landings ... 7 of
+    those 1114 (0.628%)". Run as cited it answers 7 of 259 (2.703%) -- the same
+    seven landings, a denominator 4.3x smaller. The gap is one flag the citation
+    omitted: the original run added `--repo /Users/alex/ab/prospects` by hand.
+    That repository is 857 of the 1,114 landings, appears in no ownership-ledger
+    row (so the cited command could never select it), and its SLOWEST landing is
+    0.81 h -- below the tail this threshold is chosen from. It contributed 77% of
+    the denominator and nothing to the decision. The measuring script now prints
+    the exact command that reproduces its corpus and warns by name when a
+    repository is denominator-only, so this cannot be published again.
+
+    Reproduced at richos `0b91d2f6`, threshold 3 h:
+
+      $ python3 engine/scripts/land-disposition-measure.py
+        corpus chosen by : every repository the ownership ledger has ever
+                           registered a worktree in (A MOVING CORPUS -- the
+                           ledger only grows, so tomorrow's answer is over
+                           more repositories than today's)
+        claude-orchestration-kit  landings=2    teammate=0
+        deeply                    landings=498  teammate=49
+        femcboost                 landings=323  teammate=121
+        richos                    landings=323  teammate=82
+        richos-hq                 landings=168  teammate=7
+        teammate landings measured : 259
+        p50 0.025 h   p75 0.072 h   p90 0.522 h
+        p95 1.294 h   p99 9.248 h   p100 47.443 h
+        3h : 7 of 259 landings would have been demanded (2.703%)
+
+and the entire upper tail above one hour is:
 
     1.01 1.03 1.09 1.25 1.69 1.70 2.10 2.29 2.63 2.92 | 3.95 5.63 6.90 6.93
     12.45 44.61 47.44
@@ -133,11 +161,17 @@ the landing history IS the defect the threshold is meant to catch, which is why
 no rule over that history alone can find the edge, and why any rule that
 produces the right answer here was tuned until it did.
 
-At 3 hours, 7 of those 1114 landings would have carried a demand (0.628%), and
+At 3 hours, 7 of those 259 landings would have carried a demand (2.703%), and
 six of the seven are strandings on the record -- the five of 2026-09-10 and a
 Reed brief written 2026-08-31 that reached main on 2026-09-02. The seventh, an
 ECS README at 5.63 h, is arguable. Nothing here reclassifies any of them to
-reach a prettier number.
+reach a prettier number, and the number got WORSE on republication rather than
+better, which is how you can tell nothing was reclassified.
+
+2.703% for a check that only REPORTS is a rate to state, not to hide: it means
+about one demand in every 37 teammate landings, against a real volume of two a
+week. The seven are printed by name above so the reader judges them one at a
+time rather than judging a percentage.
 
 ===========================================================================
 WHAT IS NEVER DEMANDED, AND WHY EACH ONE IS A DECISION

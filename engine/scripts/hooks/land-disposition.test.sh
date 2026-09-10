@@ -713,6 +713,55 @@ else
     bad "D21 the derivation refuses to propose a threshold, in the output" "missing $MEASURE"
 fi
 
+# ===========================================================================
+# D22 — a rate carries the corpus that produced it, or it is not a rate
+# ===========================================================================
+# 2026-09-10: the published false-positive rate was 7 of 1114 (0.628%) and the
+# script it cited answers 7 of 259 (2.703%) — the same seven landings, a
+# denominator 4.3x smaller. The gap was one flag the citation omitted
+# (`--repo .../prospects`, 857 landings, in no ledger row, slowest 0.81 h). So
+# the output must now carry the command that reproduces ITS corpus, and must
+# name a repository that is denominator and nothing else.
+if [ -f "$MEASURE" ]; then
+    OUT="$(python3 "$MEASURE" --repo "$SEAT" --ledger "$SANDBOX/none.jsonl" 2>&1)"
+    if printf '%s' "$OUT" | grep -q "reproduce EXACTLY THIS corpus with" \
+       && printf '%s' "$OUT" | grep -q -- "--repo $SEAT" \
+       && printf '%s' "$OUT" | grep -q "corpus chosen by"; then
+        ok "D22 the output carries the exact command that reproduces its own corpus"
+    else
+        bad "D22 the output carries the exact command that reproduces its own corpus" "$OUT"
+    fi
+else
+    bad "D22 the output carries the exact command that reproduces its own corpus" "missing $MEASURE"
+fi
+
+# ===========================================================================
+# D23 — a repository that is only denominator is NAMED
+# ===========================================================================
+# The positive case is built rather than asserted: FAST is a repository whose
+# every landing is instant, big enough to dominate the denominator and with
+# nothing above the threshold. It must be named. SEAT, which carries the tail,
+# must NOT be.
+FAST="$SANDBOX/fast"
+mk_repo "$FAST"
+i=0
+while [ "$i" -lt 12 ]; do
+    git -C "$FAST" checkout -q -b "zach-opus-f$i" main
+    printf 'x%s\n' "$i" >"$FAST/f$i.txt"
+    git -C "$FAST" add -A; git -C "$FAST" commit -q -m "work $i"
+    git -C "$FAST" checkout -q main
+    git -C "$FAST" merge -q --no-ff -m "Merge branch 'zach-opus-f$i'" "zach-opus-f$i"
+    i=$((i + 1))
+done
+OUT="$(python3 "$MEASURE" --repo "$SEAT" --repo "$FAST" --ledger "$SANDBOX/none.jsonl" --threshold 3 2>&1)"
+if printf '%s' "$OUT" | grep -q "DILUTION WARNING" \
+   && printf '%s' "$OUT" | grep -q "^      fast " \
+   && ! printf '%s' "$OUT" | grep -q "^      seat "; then
+    ok "D23 a repository that is denominator-only is named, and one carrying the tail is not"
+else
+    bad "D23 a repository that is denominator-only is named, and one carrying the tail is not" "$OUT"
+fi
+
 echo ""
 echo "  passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

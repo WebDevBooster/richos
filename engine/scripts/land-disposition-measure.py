@@ -232,9 +232,11 @@ def pct(values, q):
     return v[lo] + (v[hi] - v[lo]) * (i - lo)
 
 
-def measure(repos):
+def measure(repos, threshold_hours=0.0, corpus_rule="", reproduce_command=""):
     result = {"repos": [], "landings": [], "skipped_not_teammate": 0,
-              "unreadable": []}
+              "unreadable": [], "threshold_hours": threshold_hours,
+              "corpus_rule": corpus_rule or "(not stated)",
+              "reproduce_command": reproduce_command or "(not stated)"}
     for repo in repos:
         trunk = trunk_of(repo)
         if trunk is None:
@@ -258,9 +260,11 @@ def measure(repos):
                 "landed_epoch": mt, "tip_epoch": tip,
                 "standing_hours": round((mt - tip) / 3600.0, 4), "subject": subj,
             })
+        tip = git(repo, ["rev-parse", "--short=12", trunk])
         result["repos"].append({"repo": repo, "label": os.path.basename(repo),
                                 "trunk": trunk, "landings": len(rows),
-                                "teammate_landings": n_team})
+                                "teammate_landings": n_team,
+                                "trunk_tip": (tip or "?").strip()})
     hours = [r["standing_hours"] for r in result["landings"]]
     result["n"] = len(hours)
     if hours:
@@ -272,19 +276,53 @@ def measure(repos):
             result["demand_rate"].append(
                 {"threshold_hours": t, "landings_over": n,
                  "rate_percent": round(100.0 * n / len(hours), 3)})
+        # WHICH REPOSITORIES ARE ONLY DENOMINATOR? A repository holding a
+        # meaningful share of the corpus with nothing above the threshold
+        # shrinks every rate and changes no decision. It is exactly what
+        # produced 0.628% where the same seven landings are 2.703%.
+        threshold = result.get("threshold_hours") or 0
+        result["dilution"] = []
+        for row in result["repos"]:
+            if not row["teammate_landings"]:
+                continue
+            mine = [r["standing_hours"] for r in result["landings"]
+                    if r["repo"] == row["label"]]
+            if not mine:
+                continue
+            above = sum(1 for h in mine if h > threshold)
+            share = 100.0 * len(mine) / len(hours)
+            if above == 0 and share >= 10.0:
+                result["dilution"].append(dict(
+                    row, share_percent=round(share, 1),
+                    slowest_hours=round(max(mine), 3), above_threshold=above))
     return result
 
 
 def text_report(result):
     out = ["=== how long finished work stands before it lands ==="]
+    # THE PROVENANCE BLOCK, first, because a number quoted without it is how
+    # 0.628% was published (2026-09-10). The docstring cited THIS script as its
+    # derivation; re-run as cited the answer is 2.703%. The gap is one flag: the
+    # original run added `--repo /Users/alex/ab/prospects` by hand, which is 857
+    # of the 1,114 landings and is in no ownership-ledger row, so no re-run of
+    # the cited command could ever have reproduced it.
+    #
+    # So the corpus now prints the command that reproduces IT, exactly, and a
+    # quotation of any number below carries the corpus with it or it is
+    # incomplete.
+    out.append("  corpus chosen by : %s" % result["corpus_rule"])
+    out.append("  reproduce EXACTLY THIS corpus with:")
+    out.append("      %s" % result["reproduce_command"])
+    out.append("")
     for row in result["repos"]:
-        out.append("  %-28s trunk=%-7s landings=%-5d teammate=%d"
+        out.append("  %-28s trunk=%-7s landings=%-5d teammate=%-5d tip=%s"
                    % (row["label"], row["trunk"], row["landings"],
-                      row["teammate_landings"]))
+                      row["teammate_landings"], row.get("trunk_tip", "?")))
     for row in result["unreadable"]:
         out.append("  NOT EXAMINED: %s -- %s" % (row["repo"], row["why"]))
     out.append("")
-    out.append("  teammate landings measured : %d" % result["n"])
+    out.append("  teammate landings measured : %d      <- THE DENOMINATOR of every rate below"
+               % result["n"])
     out.append("  landings skipped (subject names no teammate branch): %d"
                % result["skipped_not_teammate"])
     if not result["n"]:
@@ -317,6 +355,24 @@ def text_report(result):
         out.append("      %5gh : %4d of %d landings would have been demanded (%.3f%%)"
                    % (row["threshold_hours"], row["landings_over"], result["n"],
                       row["rate_percent"]))
+    # DILUTION. A repository that lands fast and often contributes a large
+    # DENOMINATOR and nothing to the tail, so every rate above it shrinks
+    # without any behavior changing. That is not a hypothetical: `prospects`
+    # is 857 of the 1,114 landings the published 0.628% was measured over, its
+    # SLOWEST landing is 0.81 h — below the tail cut — and dropping it moves
+    # the same seven demanded landings from 0.628% to 2.703%. The seven names
+    # never changed. Only the denominator did.
+    if result.get("dilution"):
+        out.append("")
+        out.append("  DILUTION WARNING -- these repositories are a large part of the")
+        out.append("  denominator and contribute NOTHING above the threshold, so they")
+        out.append("  shrink every rate above without any behavior differing:")
+        for row in result["dilution"]:
+            out.append("      %-28s %4d of %d landings (%.1f%%), slowest %.2f h, %d above %gh"
+                       % (row["label"], row["teammate_landings"], result["n"],
+                          row["share_percent"], row["slowest_hours"],
+                          row["above_threshold"], result["threshold_hours"]))
+        out.append("      A rate is only comparable with another rate over the SAME corpus.")
     if result.get("at_threshold") is not None:
         t = result["threshold_hours"]
         named = result["at_threshold"]
@@ -372,7 +428,18 @@ def main(argv=None):
             "  which is not the same as a threshold of zero. Name one with --repo.\n")
         return 2
 
-    result = measure(repos)
+    rule = ("the repositories named with --repo on the command line"
+            if args.repo else
+            "every repository the ownership ledger (%s) has ever registered a "
+            "worktree in -- A MOVING CORPUS: the ledger only grows, so this "
+            "same command answers over more repositories tomorrow than today"
+            % (args.ledger or DEFAULT_LEDGER))
+    command = "python3 %s %s--threshold %g" % (
+        os.path.relpath(os.path.abspath(__file__), os.getcwd())
+        if os.path.abspath(__file__).startswith(os.getcwd()) else os.path.abspath(__file__),
+        "".join("--repo %s " % r for r in repos), threshold)
+    result = measure(repos, threshold_hours=threshold, corpus_rule=rule,
+                     reproduce_command=command)
     result["threshold_hours"] = threshold
     result["at_threshold"] = sorted(
         (r for r in result["landings"] if r["standing_hours"] > threshold),
