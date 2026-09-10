@@ -42,6 +42,23 @@
 #   R14 THE NEGATIVE CONTROL: with the stub forced to `red` and no ack, the
 #       gate must exit 2. Without this, every "silent" case above would also
 #       pass against a gate that had been accidentally disabled.
+#   R15 A PAYLOAD THE GATE CANNOT READ — empty, truncated and not-JSON — is
+#       ALLOWED AND SAID OUT LOUD. Until 2026-09-10 all three exited 0 with
+#       nothing on either stream, which is byte-for-byte what a gate that
+#       looked and approved does. The verdict is deliberately unchanged and
+#       argued in the guard's header; what this case pins is that it is
+#       DECLARED. An undeclared allow is indistinguishable from a guard that
+#       failed.
+#   R16 THE OTHER HALF, and it is the half that makes R15 mean anything: on a
+#       WELL-FORMED payload the gate must still refuse a red land (exit 2) and
+#       must still be silent on a non-land — with the notice library present
+#       and loaded. A guard that announced on every call would satisfy R15 and
+#       be pure noise.
+#
+# NOTE ON THE FAKE ENGINE BELOW: it now carries scripts/lib/unevaluated-notice.sh
+# as well. Before R15 existed it did not, so every case above ran against a copy
+# of the guard whose notice block was silently skipped for a MISSING FILE —
+# a suite testing a configuration that does not ship.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -96,7 +113,7 @@ git -C "$NO_ORIGIN" init -q -b main
 FAKE_ENGINE="$SANDBOX/engine"
 mkdir -p "$FAKE_ENGINE/scripts/hooks" "$FAKE_ENGINE/scripts/lib"
 cp "$GUARD" "$FAKE_ENGINE/scripts/hooks/"
-for f in resolve-roots.sh git-jurisdiction.sh; do
+for f in resolve-roots.sh git-jurisdiction.sh unevaluated-notice.sh; do
     cp "$SCRIPT_DIR/../lib/$f" "$FAKE_ENGINE/scripts/lib/"
 done
 STUB_GUARD="$FAKE_ENGINE/scripts/hooks/guard-ci-red-lands.sh"
@@ -264,6 +281,78 @@ if [ "$RC" -eq 2 ]; then
     ok "R14  NEGATIVE CONTROL: the gate still refuses, so the silences above are real silences"
 else
     bad "R14  rc=$RC — THE GATE REFUSES NOTHING. Every 'silent' case above is meaningless."
+fi
+
+# --- R15: A PAYLOAD THE GATE CANNOT READ -----------------------------------
+# THE STUB IS FORCED TO `red` FOR ALL THREE. That matters: red is the state in
+# which this gate would refuse if it could read the call, so these three arms
+# are the ones where silence would have hidden the most. The degraded shapes are
+# the survey's own — empty, truncated INSIDE the padding so only the JSON
+# structure is destroyed, and text that is not JSON at all.
+UE_LIB_PRESENT=0
+[ -f "$FAKE_ENGINE/scripts/lib/unevaluated-notice.sh" ] && UE_LIB_PRESENT=1
+
+run_raw() { # <stub-mode> <raw payload bytes>
+    OUT="$(printf '%s' "$2" \
+        | CI_RED_STUB="$1" CI_RED_ACK_LOG="$ACK_LOG" bash "$STUB_GUARD" 2>&1)"
+    RC=$?
+}
+
+WELL_FORMED_LAND="$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[1],
+                  "tool_input": {"command": sys.argv[2]},
+                  "padding": "z" * 400}))' "$REPO" "$G push origin main")"
+TRUNCATED="$(python3 -c '
+import sys
+s = sys.stdin.read()
+sys.stdout.write(s[:s.index(chr(34) + "padding" + chr(34)) + 40])' <<<"$WELL_FORMED_LAND")"
+
+R15_OK=1
+R15_WHY=""
+for shape in empty truncated non-json; do
+    case "$shape" in
+        empty)     PAYLOAD="" ;;
+        truncated) PAYLOAD="$TRUNCATED" ;;
+        *)         PAYLOAD="this is not JSON, it is a sentence" ;;
+    esac
+    run_raw red "$PAYLOAD"
+    if [ "$RC" -ne 0 ]; then
+        R15_OK=0; R15_WHY="$R15_WHY [$shape: rc=$RC, the gate refused a call it never read]"
+        continue
+    fi
+    if ! grep -q "could not read this call" <<<"$OUT" \
+       || ! grep -q "CI-RED-LANDS GUARD" <<<"$OUT" \
+       || ! grep -q "This ONE call is UNGATED" <<<"$OUT"; then
+        R15_OK=0; R15_WHY="$R15_WHY [$shape: allowed without saying so: <$OUT>]"
+    fi
+done
+
+if [ "$UE_LIB_PRESENT" -eq 0 ]; then
+    bad "R15  scripts/lib/unevaluated-notice.sh was not copied into the fake engine — this case proved nothing"
+elif [ "$R15_OK" -eq 1 ]; then
+    ok "R15  an empty, truncated or non-JSON payload is ALLOWED and SAID OUT LOUD — an unevaluated call is never silent"
+else
+    bad "R15 $R15_WHY"
+fi
+
+# --- R16: THE OTHER HALF, WITH THE LIBRARY LOADED --------------------------
+# R15 alone is satisfied by a guard that announces on everything, and by one
+# that has stopped gating. Both are checked here on WELL-FORMED payloads, in
+# the same configuration: the announcement must be absent, and the verdicts must
+# be exactly what R12 and R14 assert.
+run_raw red "$WELL_FORMED_LAND"
+R16_REFUSED=0
+[ "$RC" -eq 2 ] && ! grep -q "could not read this call" <<<"$OUT" && R16_REFUSED=1
+
+run clear "$REPO" "$G push origin main"
+R16_SILENT=0
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && R16_SILENT=1
+
+if [ "$R16_REFUSED" -eq 1 ] && [ "$R16_SILENT" -eq 1 ]; then
+    ok "R16  with the notice library loaded, a well-formed red land is still REFUSED and a clean land is still silent"
+else
+    bad "R16  refused-a-red-land=$R16_REFUSED silent-on-clear=$R16_SILENT — the notice changed a verdict, or it speaks on calls it could read"
 fi
 
 echo ""

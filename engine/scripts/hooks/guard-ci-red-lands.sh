@@ -84,6 +84,72 @@
 # command that would answer it, and the unattended watch job (ci-surface-
 # watch.sh) keeps a fresh reading on disk precisely so that this path is rare.
 #
+# ---------------------------------------------------------------------------
+# THE SECOND CANNOT-TELL: A PAYLOAD THIS GUARD CANNOT READ. SAME VERDICT,
+# AND UNTIL 2026-09-10 IT WAS TAKEN IN SILENCE.
+# ---------------------------------------------------------------------------
+# The paragraph above is about not being able to read CI. This one is about not
+# being able to read THE CALL. An empty, truncated or non-JSON payload reaches
+# the classifier below, which prints `skip  unparseable payload`, and the very
+# next line — `[ "$KIND" = "land" ] || exit 0` — takes the identical silent exit
+# that a `ls` takes. Byte for byte, a call this gate never looked at was
+# indistinguishable from a call it looked at and approved. That was the defect,
+# and it is the defect this whole engine is named after in
+# scripts/lib/unevaluated-notice.sh: THE ABSENCE OF A FINDING MUST BE
+# DISTINGUISHABLE FROM THE ABSENCE OF A CHECK.
+#
+# THE PREDICATE, DECIDED AND DECLARED: an unreadable payload ALLOWS, OUT LOUD.
+# It is announced on stderr and on the operator channel, logged to
+# .claude/state/unevaluated-payloads.log, and the call proceeds. Only the
+# silence changed; no verdict did.
+#
+# WHY NOT FAIL CLOSED, WHEN THE SIBLING BARRIER DOES. guard-sealed-worktree.sh
+# refuses an unparseable payload and probe Layer Q6 proves ten arms of it. The
+# difference is not nerve, it is the recovery path:
+#
+#   1. THE POPULATION. That barrier judges a worker's writes inside a sealed
+#      transaction. This one is PreToolUse[Bash] — it is handed EVERY shell
+#      command in the session, and its predicate is a four-clause conjunction
+#      whose FIRST clause is false for almost all of them. Measured over the 12
+#      most recently touched transcripts on this machine (2026-09-10): 313 Bash
+#      calls, 39 of which so much as mention `git merge` or `git push` — 12.5%,
+#      before the branch, the redness and the ack narrow it further. Refusing on
+#      an unreadable payload would refuse 100% of them, because an unreadable
+#      payload is exactly the state in which the narrowing cannot be applied. A
+#      land gate would have become a session brick.
+#   2. THE HATCH IS INSIDE THE THING THAT IS BROKEN. `ci-red-ack:` is read off
+#      the command line, and the command line arrives in the payload. If the
+#      payload cannot be read, the ack cannot be read either — so a fail-closed
+#      arm here has NO reachable escape hatch, and the only way out of a stuck
+#      session would be to disable the plugin, which disables all 29 PreToolUse
+#      guards at once. The cure would remove more protection than the disease.
+#      guard-sealed-worktree.sh has no such problem: its seal lives in the
+#      transaction store, out of band, so a refusal there is recoverable
+#      without reading the payload. THAT is the line between the two answers —
+#      fail closed when the recovery path does not run through the break.
+#   3. EVIDENCE. This gate refuses only on a fact it established. "Could not
+#      look" is not evidence of red; "could not read the call" is not even
+#      evidence that this call is a land.
+#
+# ALSO REJECTED: scanning the raw payload bytes for a land-shaped command and
+# refusing on that. It is tempting because it would keep the blast radius
+# narrow, and it is wrong three times over. The classifier below is written in
+# python with shlex precisely because a regex over a command line is how a
+# classifier acquires holes — and a TRUNCATED payload is a partial command by
+# construction, so `git push origin main-fix` cut mid-token reads as a push to
+# main. It would refuse a command it cannot quote back, on evidence it cannot
+# show, with an ack it also cannot read. And it would buy that risk for a case
+# that has never occurred in a live session: every payload in an ordinary
+# session is well-formed — the 2026-09-05 survey had to CONSTRUCT the degraded
+# ones.
+#
+# WHAT WOULD CHANGE THE ANSWER: a measured, recurring source of malformed
+# payloads in live sessions. Then "rare" stops being true, the announcement
+# stops being enough, and the right fix is a bounded, well-formed read at the
+# host boundary — not a guess made here. Cases R15/R16 of this guard's suite
+# pin both halves of the current answer, and unevaluated-payload.test.sh case
+# 4b holds every registered guard to it.
+#
 # ===========================================================================
 # WHY NOT A CHECK INSIDE THE LAND SKILL
 # ===========================================================================
@@ -145,6 +211,34 @@ WATCHED_BRANCH="${CI_RED_GATE_BRANCH:-main}"
 ACK_LOG="${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}"
 MAX_AGE="${CI_RED_GATE_MAX_AGE:-1800}"
 PROBE_TIMEOUT="${CI_RED_GATE_TIMEOUT:-12}"
+
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# On a payload it cannot read, this guard takes the SAME silent exit 0 that any
+# ordinary shell command takes: the classifier below answers `skip  unparseable
+# payload` and the dispatch line cannot tell that apart from `not a land`. That
+# is why 17 of 25 PreToolUse guards were measured passing a call in complete
+# silence on 2026-09-05. This separates the two. NO VERDICT CHANGES — the exit
+# is the one already taken, and the header above argues at length why allowing
+# is the right verdict for THIS gate where guard-sealed-worktree.sh refuses.
+# Only the silence changes. The measurement, the channel and the argument:
+# scripts/lib/unevaluated-notice.sh.
+#
+# THE ROOT ARGUMENT IS DELIBERATELY LEFT EMPTY-OR-INHERITED. Every sibling
+# passes the root it already resolved; this guard resolves none, because it
+# governs by GIT JURISDICTION per command (section 2 below) and resolving an
+# entity root here would put git calls in front of EVERY shell command in the
+# session for the sake of a log line. So the announcement is the record, and the
+# durable line in .claude/state/unevaluated-payloads.log is written only when a
+# root is already declared in the environment. An unadopted repository still
+# costs nothing and has nothing created inside it.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-ci-red-lands.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
+        "whether this command lands into a branch whose CI is red"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. IS THIS A LAND?
