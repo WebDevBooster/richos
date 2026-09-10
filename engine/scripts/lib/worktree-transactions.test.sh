@@ -36,6 +36,36 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 [ -f "$TX_PY" ] || { echo "FATAL: missing $TX_PY" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
+# ---------------------------------------------------------------------------
+# T00 — THE CLEANUP-ROUTING CONTRACT, RUN HERE BECAUSE THIS IS WHERE THE
+# DEFECT IS WRITTEN.
+#
+# Twice — 2afb9703 and 6472bb60 — a commit changed which member keys this
+# module's routing functions branch on, and left a fixture elsewhere replaying
+# a route it no longer selected. Both suites stayed red for three days and both
+# were read as Linux portability. Neither engineer was careless: each ran the
+# suites they thought were relevant, and both of them edited THIS file's module.
+#
+# So the contract runs at the top of THIS suite, ~0.3s, rather than only in the
+# runner. A check that lives only where CI can find it is a check the person
+# who breaks it meets tomorrow; this one they meet at their desk, on the run
+# they were already doing. It is not a second inventory of what to check: the
+# check derives everything from disk, and this is one invocation placed where
+# the causing edit happens.
+# ---------------------------------------------------------------------------
+ROUTING_CONTRACT="$SCRIPT_DIR/../cleanup-routing-contract.py"
+if [ -f "$ROUTING_CONTRACT" ]; then
+    ROUTING_OUT="$(python3 "$ROUTING_CONTRACT" 2>&1)"; ROUTING_RC=$?
+    if [ "$ROUTING_RC" -eq 0 ]; then
+        ok "T00  cleanup-routing contract: $ROUTING_OUT"
+    else
+        bad "T00  cleanup-routing contract BROKEN — a member key that routes cleanup changed without its fixtures"
+        printf '%s\n' "$ROUTING_OUT" | sed 's/^/        /'
+    fi
+else
+    bad "T00  $ROUTING_CONTRACT is missing — the routing contract is not being checked at all"
+fi
+
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 # These quarantine/capture regressions replay records from the pre-platform-owner
 # format. New native ownership is covered by native-platform-cleanup.test.py.
