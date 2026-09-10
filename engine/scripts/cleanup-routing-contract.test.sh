@@ -70,7 +70,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CHECK="$SCRIPT_DIR/cleanup-routing-contract.py"
-REPO="$(git -C "$ENGINE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+# The repository the two defects are replayed OUT OF. Normally the one this
+# engine sits in. RICHOS_ROUTING_HISTORY_REPO overrides it for exactly one
+# caller: the mutation harness runs this suite from a sandbox COPY of the
+# engine, which is not a git repository at all, and without the override
+# C2-C5 would go red for want of history on every mutant — a suite failing
+# for the wrong reason under a harness whose entire job is to tell "red for
+# this reason" from "red somewhere else".
+REPO="${RICHOS_ROUTING_HISTORY_REPO:-$(git -C "$ENGINE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)}"
 
 PASS=0
 FAIL=0
