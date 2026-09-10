@@ -1,0 +1,13 @@
+=== kill -9 proof: scripts/hooks/guard-worktree-isolation.mutation.sh at degree 8, killed after 150s ===
+witness = contents AND mtime (sub-second mtime proved)
+before: 403 shipped files witnessed; shipped guard sha=eb83220bd071
+purged 8 stale sandbox(es) from earlier runs, so the count below is this run's
+at the instant of the kill: 8 worker sandbox(es) present, 8 holding a MUTATED guard
+killing pgid 8331 with SIGKILL
+/Users/alex/ab/richos-wt/zach-opus-mu2/docs/measurements/mutant-concurrency-2026-09-10/tools/kill9-proof.sh: line 86:  8331 Killed: 9               RICHOS_MUTANT_JOBS="$JOBS" /bin/bash "$ENG/$HARNESS" > "$SC/zach-kill9-run.log" 2>&1
+after the kill: 8 orphaned sandbox(es) under TMPDIR — the only casualty
+RESULT: PROVEN — 8 live mutation(s) were in flight, the whole process group
+        was SIGKILLed, and every one of the 403 shipped engine files is
+        byte-identical AND its mtime is unchanged. A file written and restored
+        would show a MOVED MTIME here; a file written and NOT restored would
+        differ in contents.

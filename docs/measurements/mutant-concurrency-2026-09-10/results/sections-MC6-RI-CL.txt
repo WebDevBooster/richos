@@ -1,0 +1,6 @@
+SECTION        BEFORE        AFTER  SPEEDUP  VERDICT
+-------        ------        -----  -------  -------
+MC6           2m23.4s        40.5s     3.5x  ok rc=3 1 cases
+RI            8m41.3s      3m02.4s     2.8x  ok rc=3 3 cases
+CL            2m50.1s        50.2s     3.3x  ok rc=3 2 cases
+SECTIONS-COMPLETE

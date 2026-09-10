@@ -1,0 +1,4 @@
+SECTION        BEFORE        AFTER  SPEEDUP  VERDICT
+-------        ------        -----  -------  -------
+WTI          16m14.5s      4m05.6s     3.9x  ok rc=3 1 cases
+SECTIONS-COMPLETE
