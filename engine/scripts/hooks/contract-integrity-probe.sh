@@ -3332,6 +3332,16 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
         Q_DIAG=""
         mkdir -p "$Q_REPO/.claude/worktrees" 2>/dev/null || Q_SANDBOX_OK=0
         git -C "$Q_REPO" init -q -b main >/dev/null 2>&1 || Q_SANDBOX_OK=0
+        # A LOCAL IDENTITY, as layers AL and IL already set for their fixtures.
+        # Without one this fixture inherits the ambient identity, and where
+        # there is none (a container, a runner, or any caller that neutralized
+        # GIT_CONFIG_GLOBAL) `git commit` exits 128 and this whole canary
+        # reports DID NOT RUN — a probe that looks complete with the reaper
+        # unverified. Fixing it here rather than demanding an identity of every
+        # caller: the fixture is thrown away, so whose name is on its commits
+        # is nobody's business but this canary's.
+        git -C "$Q_REPO" config user.email probe@probe.invalid >/dev/null 2>&1 || true
+        git -C "$Q_REPO" config user.name probe >/dev/null 2>&1 || true
         printf 'seed\n' >"$Q_REPO/seed.txt" 2>/dev/null || Q_SANDBOX_OK=0
         git -C "$Q_REPO" add seed.txt >/dev/null 2>&1 || Q_SANDBOX_OK=0
         git -C "$Q_REPO" commit -q -m "probe sandbox seed" >/dev/null 2>&1 || Q_SANDBOX_OK=0

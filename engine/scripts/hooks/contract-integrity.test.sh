@@ -1435,7 +1435,27 @@ fi  # _section — worktree
 
 if _section N; then
 NOIGNORE_CFG="$(mktemp -t contract-integrity-noignore.XXXXXX)"
-printf '[core]\n\texcludesFile = /dev/null\n' > "$NOIGNORE_CFG"
+# AND AN IDENTITY, because this throwaway config REPLACES the global one for
+# the whole probe invocation below, not just for the ignore lookup.
+#
+# Case 33 was RED ON LINUX AND GREEN ON macOS for two days for exactly this,
+# and the failure pointed nowhere near the cause. With GIT_CONFIG_GLOBAL
+# pointed here and GIT_CONFIG_SYSTEM at /dev/null there is no user.name and no
+# user.email anywhere, so `git commit` inside the probe's own Layer Q fixture
+# exits 128, Q reports "FUNCTIONAL CANARY DID NOT RUN", the probe exits 2 — and
+# case 33, which is about Layer N WARNING rather than hard-failing, saw 2
+# instead of 0 for a reason that has nothing to do with Layer N. Case 32 was
+# worse: it EXPECTS 2, so it kept passing while testing two things at once.
+#
+# It survived on macOS by accident of the host. git falls back to
+# user@<canonicalized-hostname> and refuses only when that has no domain part;
+# a Mac's hostname canonicalizes to something with a dot and a container's
+# ('dec5b7ba7942') does not. Measured on both, 2026-09-10.
+#
+# So the config now replaces ONLY what it means to replace. The identity is the
+# same shape the workflow declares on the runner, and it is confined to this
+# section's two probe invocations.
+printf '[core]\n\texcludesFile = /dev/null\n[user]\n\tname = contract-integrity\n\temail = contract-integrity@example.invalid\n' > "$NOIGNORE_CFG"
 
 # Case 32 — THE TRAP: settings.local.json present on disk but untracked AND
 # matched by a (repo-local) gitignore rule -> Layer N HARD-fails and names the

@@ -20,7 +20,34 @@ MAX_METADATA_BYTES = 16 * 1024 * 1024
 MAX_METADATA_FILES = 10000
 MAX_SELECTION_BYTES = 128 * 1024
 MAX_SELECTED_BRANCHES = 128
-TRUSTED_GIT = '/Library/Developer/CommandLineTools/usr/bin/git'
+# THE TRUSTED GIT, PER PLATFORM — and this is a CONSOLIDATION, not a new policy.
+#
+# This constant named Apple's Command Line Tools binary and nothing else, so on
+# any host that is not macOS the default below resolves to a path under
+# `/Library`, which does not exist, and `_authority` raised FileNotFoundError
+# out of `Path(...).resolve(strict=True)` before it could reach any of its own
+# refusals. `legacy-workspace-orphan.acceptance` failed exactly that way on
+# Linux on 2026-09-09 (3 errors, "No such file or directory: '/Library'"),
+# while passing on macOS.
+#
+# THE POLICY THIS ENCODES ALREADY EXISTED, COPIED BY HAND INTO FIVE TEST FILES.
+# legacy-workspace-expiry, legacy-workspace-retirement, terminal-branch-shadow,
+# terminal-recovery-shadow and legacy-workspace-operator-integration each write
+# `shadow.TRUSTED_GIT if sys.platform == 'darwin' else '/usr/bin/git'` at their
+# call sites. So the platform answer was already decided; it just was not
+# written in the one place the DEFAULT is taken from, and the one acceptance
+# suite that did not copy the incantation is the one that went red.
+#
+# WHY `/usr/bin/git` IS THE RIGHT NON-DARWIN VALUE, and why that is not a
+# loosening: `_authority` already REFUSES `/usr/bin/git` `if sys.platform ==
+# 'darwin'`, because there it is the developer-selection shim rather than a
+# binary. Off darwin it is the real binary, root-owned, on the same
+# root-protected path the `require_root` arm walks. The refusal was always
+# darwin-gated; only the default was not.
+if sys.platform == 'darwin':
+    TRUSTED_GIT = '/Library/Developer/CommandLineTools/usr/bin/git'
+else:
+    TRUSTED_GIT = '/usr/bin/git'
 OID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')
 
 
@@ -48,7 +75,17 @@ def _private_directory(path, gate):
 def _authority(gate, scratch_root, executable):
     if gate.require_root and os.geteuid() != 0:
         raise ShadowError('root gate required')
-    executable = Path(executable).resolve(strict=True)
+    # A trusted binary that is not there is a REFUSAL, and it is spelled the same
+    # way as every other refusal in this function. `resolve(strict=True)` raises
+    # FileNotFoundError, which is not a ShadowError, so a caller catching
+    # ShadowError saw an unhandled exception with a traceback pointing at
+    # pathlib instead of a message naming the missing binary. That is how the
+    # macOS-only default above surfaced on Linux: as posixpath internals, three
+    # frames from anything a reader could act on.
+    try:
+        executable = Path(executable).resolve(strict=True)
+    except OSError as error:
+        raise ShadowError('fixed Git executable required: %s (%s)' % (executable, error)) from error
     if sys.platform == 'darwin' and str(executable) == '/usr/bin/git':
         raise ShadowError('developer-selection Git shim is not a trusted executable')
     if not executable.is_file():
