@@ -245,6 +245,33 @@ command -v python3 >/dev/null 2>&1 || { err "ERROR: python3 is required. $HOOK_T
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# --- CEO RULING, SECTION 31, AT THIS DOOR — BEFORE ANY BINDING IS ACCEPTED ---
+# (Sage D2, round two, 2026-09-10.) A `codex/` branch or a path under
+# ~/.codex/worktrees is the CEO's and is never removed without his express
+# word; the decision table's row 1 said "every door" while this one had no
+# refusal. This is the cheap check on what the CALLER SPELLED; the
+# authoritative one — on the branch git says is checked out at the path the
+# record derives — is `workspace-retire.excluded_by_ceo_ruling`, asked first
+# by `termination_authority()` on both routes.
+_S31_BRANCH="${BRANCH#refs/heads/}"
+case "$_S31_BRANCH" in
+    codex/*)
+        err "=== remove-agent-worktree: REFUSED — EXCLUDED BY CEO RULING (ceo-decisions.md section 31) ==="
+        err "  branch $BRANCH is the CEO's. There is no flag and no reason string that unlocks the class."
+        err "  Nothing was touched. $HOOK_TAG"
+        exit 3 ;;
+esac
+if [ -n "$WT_PATH" ]; then
+    _S31_REAL="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$WT_PATH" 2>/dev/null || printf '%s' "$WT_PATH")"
+    _S31_CODEX="$(python3 -c 'import os; print(os.path.realpath(os.path.expanduser("~/.codex/worktrees")))' 2>/dev/null || printf '%s' "$HOME/.codex/worktrees")"
+    case "$_S31_REAL" in
+        "$_S31_CODEX"|"$_S31_CODEX"/*)
+            err "=== remove-agent-worktree: REFUSED — EXCLUDED BY CEO RULING (ceo-decisions.md section 31) ==="
+            err "  $_S31_REAL is under $_S31_CODEX and is the CEO's. Nothing was touched. $HOOK_TAG"
+            exit 3 ;;
+    esac
+fi
+
 # --- Resolve the ENTITY main checkout — the authoritative liveness source ---
 # NOT this script's own location. Under a by-reference engine, SCRIPT_DIR/..
 # is the ENGINE, which is not the repository whose agents are being removed.

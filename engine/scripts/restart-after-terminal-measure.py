@@ -42,13 +42,31 @@ arbitrary threshold judge it for them. (A two-second window is why one
 independent run of this join reported 6 where another reported 7: it drops
 `zach-opus-auto1` at +1.3s.)
 
+THE LOCK AGAINST THE START (`--locks`, round 13, 2026-09-10). Round 12 wrote
+that the platform "re-locks the worktree BEFORE the run starts", measured as
+the lock file's mtime 43 ms and 49 ms ahead of the SubagentStart hook on two
+agents -- and both reviewers found the two samples were INITIAL starts, never a
+restart. This mode joins every native admin directory still on disk to every
+WorkerStarted for its agent, classifies each start as initial or restart, and
+reports separately: (a) initial starts whose lock precedes the start, (b)
+restarts with a lock file on disk whose lock mtime moved AFTER the restart --
+a re-lock actually observed -- and (c) restarts into a tree the reaper had
+witnessed UNLOCKED, whose admin directory is gone and whose re-lock is
+therefore unobservable. (b) is the number the round-12 sentence needed and did
+not have; when this mode was written it was 0 of 3 on this machine (fix1's
+two restarts and sage-fable-cert2's one, each with the lock held throughout --
+never released, never re-taken) and (c) was 4 (q1, inf1, gate1, own1 at
+14:34:37Z). UNMEASURED is reported as unmeasured; re-run rather than quote.
+
 USAGE
     python3 restart-after-terminal-measure.py            # the join
     python3 restart-after-terminal-measure.py --census   # the event vocabulary
+    python3 restart-after-terminal-measure.py --locks    # the lock against the start
     python3 restart-after-terminal-measure.py --json     # machine-readable
 
     RICHOS_WORKTREE_TX_DIR   transaction store (default ~/.claude/state/worktree-transactions)
     RICHOS_TEAMS_DIR         team event logs   (default ~/.claude/teams)
+    RICHOS_WORKTREE_LEDGER   ownership ledger  (default ~/.claude/state/worktree-ledger.jsonl)
 
 EXIT STATUS. 0 always. This is a measurement, not a gate: it reports what the
 record holds and the reader decides. A number that cannot be re-derived from
@@ -64,6 +82,7 @@ import sys
 TX_ROOT = os.environ.get('RICHOS_WORKTREE_TX_DIR') or os.path.expanduser(
     '~/.claude/state/worktree-transactions')
 TEAMS_DIR = os.environ.get('RICHOS_TEAMS_DIR') or os.path.expanduser('~/.claude/teams')
+LEDGER = os.environ.get('RICHOS_WORKTREE_LEDGER') or os.path.expanduser('~/.claude/state/worktree-ledger.jsonl')
 RESERVED = ('terminal', 'terminal-names')
 
 
@@ -256,9 +275,149 @@ def measure(as_json=False):
     return 0
 
 
+def all_transactions():
+    """Every sealed transaction, terminal or not: the lock join wants every
+    native admin directory the engine ever knew about."""
+    out = []
+    try:
+        sessions = sorted(os.listdir(TX_ROOT))
+    except OSError:
+        return out
+    for session in sessions:
+        if session in RESERVED:
+            continue
+        session_dir = os.path.join(TX_ROOT, session)
+        if not os.path.isdir(session_dir):
+            continue
+        for path in sorted(glob.glob(os.path.join(session_dir, '*.json'))):
+            record = read_json(path)
+            if isinstance(record, dict) and record.get('record') == 'transaction' and record.get('sealed'):
+                out.append(record)
+    return out
+
+
+def unlocked_witness_rows():
+    """{agent_id: ts} for every ownership-ledger row in which the reaper
+    WITNESSED a native isolation worktree registered and unlocked."""
+    out = {}
+    try:
+        with open(LEDGER, encoding='utf-8') as stream:
+            for line in stream:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(row, dict) or row.get('event') != 'terminated':
+                    continue
+                text = ' '.join(str(row.get(k) or '') for k in ('reason', 'detail', 'evidence'))
+                if 'registered and unlocked' not in text:
+                    continue
+                when = parse_ts(row.get('ts'))
+                aid = row.get('agent_id') or ''
+                if aid and when and (aid not in out or when < out[aid]):
+                    out[aid] = when
+    except OSError:
+        pass
+    return out
+
+
+def locks(as_json=False):
+    starts_by_id = collections.defaultdict(list)
+    for _path, row in event_rows():
+        if row.get('event') == 'WorkerStarted' and row.get('agent_id'):
+            when = parse_ts(row.get('timestamp'))
+            if when:
+                starts_by_id[row['agent_id']].append(when)
+    rows = []
+    seen = set()
+    for transaction in all_transactions():
+        aid = transaction.get('agent_id') or ''
+        for member in transaction.get('members') or []:
+            if not isinstance(member, dict) or member.get('class') != 'native':
+                continue
+            repo, path = member.get('repo') or '', member.get('path') or ''
+            if not repo or not path or (aid, path) in seen:
+                continue
+            seen.add((aid, path))
+            admin = os.path.join(repo, '.git', 'worktrees', os.path.basename(path))
+            lock = os.path.join(admin, 'locked')
+            admin_present = os.path.isdir(admin)
+            lock_mtime = None
+            if admin_present and os.path.lexists(lock):
+                lock_mtime = datetime.datetime.fromtimestamp(os.stat(lock).st_mtime, datetime.timezone.utc)
+            starts = sorted(starts_by_id.get(aid, []))
+            for index, start in enumerate(starts):
+                kind = 'initial' if index == 0 else 'restart'
+                delta_ms = round((lock_mtime - start).total_seconds() * 1000, 1) if lock_mtime else None
+                rows.append({'teammate': transaction.get('teammate') or '?', 'agent_id': aid, 'kind': kind,
+                             'start_ts': start.isoformat(), 'admin_dir_present': admin_present,
+                             'lock_present': lock_mtime is not None,
+                             'lock_mtime': lock_mtime.isoformat() if lock_mtime else None,
+                             'lock_minus_start_ms': delta_ms})
+    witnessed = unlocked_witness_rows()
+    unlocked_restarts = []
+    for aid, when in sorted(witnessed.items(), key=lambda kv: kv[1]):
+        later = sorted(s for s in starts_by_id.get(aid, []) if s > when)
+        if not later:
+            continue
+        admin_present = any(r['agent_id'] == aid and r['admin_dir_present'] for r in rows)
+        unlocked_restarts.append({'agent_id': aid, 'witnessed_unlocked_ts': when.isoformat(),
+                                  'restart_ts': later[0].isoformat(),
+                                  'gap_s': round((later[0] - when).total_seconds(), 1),
+                                  'admin_dir_present': admin_present})
+    initial = [r for r in rows if r['kind'] == 'initial' and r['lock_present']]
+    initial_before = [r for r in initial if r['lock_minus_start_ms'] < 0]
+    restarts = [r for r in rows if r['kind'] == 'restart' and r['lock_present']]
+    retaken = [r for r in restarts if r['lock_minus_start_ms'] > 0]
+    result = {
+        'corpus': 'native members of sealed transactions in %s whose admin directory is still on disk, '
+                  'joined to WorkerStarted rows under %s; unlocked witnesses from %s' % (TX_ROOT, TEAMS_DIR, LEDGER),
+        'initial_starts_with_lock_on_disk': len(initial),
+        'initial_starts_lock_precedes_start': len(initial_before),
+        'restarts_with_lock_on_disk': len(restarts),
+        'restarts_lock_retaken_after_restart': len(retaken),
+        'restarts_into_witnessed_unlocked_tree': len(unlocked_restarts),
+        'restarts_into_witnessed_unlocked_tree_with_admin_dir': sum(1 for r in unlocked_restarts if r['admin_dir_present']),
+        'rows': rows, 'unlocked_restarts': unlocked_restarts,
+    }
+    if as_json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print('THE LOCK AGAINST THE START -- is "the platform re-locks before a restarted run" measured?')
+    print('  corpus: %s' % result['corpus'])
+    print('')
+    print('  %-16s %-18s %-8s %-27s %-6s %-27s %s' % ('teammate', 'agent', 'kind', 'start_ts', 'lock', 'lock_mtime', 'lock-start'))
+    for r in rows:
+        print('  %-16s %-18s %-8s %-27s %-6s %-27s %s' % (
+            r['teammate'][:16], r['agent_id'][:18], r['kind'], r['start_ts'][:27],
+            'yes' if r['lock_present'] else ('gone' if not r['admin_dir_present'] else 'no'),
+            (r['lock_mtime'] or '-')[:27],
+            ('%+.1f ms' % r['lock_minus_start_ms']) if r['lock_minus_start_ms'] is not None else '-'))
+    print('')
+    print('  (a) initial starts with a lock file on disk : %d; lock PRECEDES the start in %d of them'
+          % (result['initial_starts_with_lock_on_disk'], result['initial_starts_lock_precedes_start']))
+    print('  (b) restarts with a lock file on disk       : %d; lock mtime moved AFTER the restart (a re-lock OBSERVED) in %d of them'
+          % (result['restarts_with_lock_on_disk'], result['restarts_lock_retaken_after_restart']))
+    print('  (c) restarts into a tree the reaper witnessed UNLOCKED : %d; admin directory still on disk for %d of them'
+          % (result['restarts_into_witnessed_unlocked_tree'], result['restarts_into_witnessed_unlocked_tree_with_admin_dir']))
+    for r in unlocked_restarts:
+        print('      %-18s witnessed unlocked %s  restarted %s  (+%.0f s)  admin dir %s'
+              % (r['agent_id'][:18], r['witnessed_unlocked_ts'][:19], r['restart_ts'][:19], r['gap_s'],
+                 'present' if r['admin_dir_present'] else 'GONE -- re-lock unobservable'))
+    print('')
+    print('  READ (b) AND (c) BEFORE QUOTING (a). (a) is what round 12 measured and it holds; it')
+    print('  says the platform locks before an INITIAL run. Whether the platform re-takes a RELEASED')
+    print('  lock for a RESTARTED run is answered only by (b) on a tree whose lock was absent before')
+    print('  the restart, and by (c) if an admin directory survives. A lock held throughout a restart')
+    print('  (fix1, twice) is not a re-lock. Until (b) has a sample, "re-locks on restart" is UNMEASURED.')
+    return 0
+
+
 def main(argv):
     if '--census' in argv:
         return census()
+    if '--locks' in argv:
+        return locks('--json' in argv)
     return measure('--json' in argv)
 
 

@@ -30,6 +30,33 @@ def module(name):
 filesystem = module('durable-filesystem-identity')
 
 
+def excluded_by_ceo_ruling(path='', branch=''):
+    """(excluded, why) — ceo-decisions.md section 31, AT THIS DOOR (Sage D2,
+    round two, 2026-09-10). This tool removes with `--force --force` from an
+    operator-typed manifest whose `authorization` is a free string; a manifest
+    naming the nine Codex trees on the operator's machine would have removed
+    all nine, locked or dirty, in one run, and the decision table's row 1
+    claimed "every door" while this one had no refusal. The classifier is the
+    ONE in daily-workspace-cleanup (`ceo_owned_workspace`) so the class has
+    one definition; if it cannot be loaded this door refuses rather than
+    guesses, because a deletion tool that cannot evaluate a ruling must not
+    proceed."""
+    try:
+        daily = module('daily-workspace-cleanup')
+        return daily.ceo_owned_workspace({'path': path, 'branch': branch})
+    except Exception as error:
+        return True, ('the section-31 classifier could not be loaded (%s); refusing rather than guessing'
+                      % error)
+
+
+def refuse_ceo_owned(path='', branch=''):
+    excluded, why = excluded_by_ceo_ruling(path, branch)
+    if excluded:
+        raise ValueError('EXCLUDED BY CEO RULING (ceo-decisions.md section 31): %s. There is no flag, no '
+                         'authorization string and no manifest that unlocks the class; nothing is removed'
+                         % why)
+
+
 def git(repo, *args, input=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
     env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null',
@@ -90,6 +117,10 @@ def validate(manifest):
             raise ValueError('Repository is not its canonical worktree')
         for row in group['worktrees']:
             path = Path(row['path'])
+            # SECTION 31, BEFORE ANYTHING ELSE ABOUT THIS ROW IS ACCEPTED: the
+            # path, and the branch git says is checked out there (never only
+            # what the manifest says).
+            refuse_ceo_owned(str(path), (current.get(str(path)) or {}).get('branch', ''))
             if (path in paths or not path.is_absolute() or path.resolve() != path
                     or any(path == p or path in p.parents
                            or (p not in canonical_roots and p in path.parents) for p in protected)):
@@ -105,6 +136,7 @@ def validate(manifest):
         seen_refs = set()
         for row in group['branches']:
             ref = row['ref']
+            refuse_ceo_owned(branch=ref)
             if (not ref.startswith('refs/heads/') or ref == group['integration_ref']
                     or ref in seen_refs):
                 raise ValueError('Duplicate or protected branch')

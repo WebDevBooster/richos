@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +14,10 @@ HERE = Path(__file__).resolve().parent
 
 def load(name):
     spec = importlib.util.spec_from_file_location(name, HERE / 'lib' / (name + '.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name.replace('-','_'), HERE / (name + '.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 daily = load('daily-workspace-cleanup')
@@ -168,6 +173,110 @@ class Cleanup(unittest.TestCase):
             self.assertEqual(tar.extractfile('extra').read(),b'ignored but not disposable\n')
         self.assertTrue(str(residue['archive']).startswith(str(self.root/'captures')))
         self.assertFalse(list((self.root/'captures').rglob('x.pyc')))
+
+    def test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped(self):
+        # FRANK R1, ROUND TWO -- the only loss path found in two rounds of
+        # review. `git ls-files --others --ignored --exclude-standard` reports a
+        # nested repository as ONE directory entry (`vendor/lib/`), and
+        # partition_ignored() dropped any path with a disposable component, so
+        # a clone under an ignored vendor/ was classified disposable by its
+        # parent's name, archived by nobody, and deleted by the non-force
+        # removal -- commits nowhere else, gone. Reproduced under the lane's
+        # binary: `nested: (0, '') | exists after: False`.
+        # (`vendor` left the disposable list in round 13, Sage D5; the same
+        # hole under `node_modules/` — a git dependency npm left its .git in,
+        # or a clone somebody made there — is the case pinned here.)
+        (self.repo/'.git/info/exclude').write_text('node_modules/\n')
+        nested=self.work/'node_modules'/'lib';nested.mkdir(parents=True)
+        self.git(nested,'init','-q','-b','main');self.git(nested,'config','user.name','Fixture');self.git(nested,'config','user.email','fixture@example.invalid')
+        (nested/'only-here').write_text('commits nobody else holds\n');self.git(nested,'add','only-here');self.git(nested,'commit','-q','-m','only here')
+        nested_head=self.git(nested,'rev-parse','HEAD').strip()
+        (self.work/'node_modules'/'plain-ignored').write_text('a disposable file beside it\n')
+        # the premise, asserted rather than assumed: git lists the nested
+        # repository as a trailing-slash entry and the plain file as itself
+        listed=daily.ignored_files(str(self.work))
+        self.assertIn('node_modules/lib/',listed);self.assertIn('node_modules/plain-ignored',listed)
+        keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
+        self.assertEqual((keep,residue),(['node_modules/plain-ignored'],['node_modules/lib/']))
+        self.assertNotIn('vendor',daily.disposable_paths(str(self.repo)))     # Sage D5: not regenerable by the list's own bar
+        # and a `.git` component is never disposable whatever it sits under
+        self.assertEqual(daily.partition_ignored(['node_modules/x/.git/HEAD'],{'node_modules'}),([],['node_modules/x/.git/HEAD']))
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('1 archived first',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertEqual(journal['ignored_disposable'],1)
+        residue=journal['ignored_residue']
+        self.assertEqual(residue['nested_repositories'],['node_modules/lib'])
+        self.assertEqual(residue['nested_repository_count'],1)
+        with tarfile.open(residue['archive']) as tar:
+            names=tar.getnames()
+            self.assertIn('node_modules/lib/only-here',names)
+            # THE COMMIT ITSELF is in the archive: the loose object of the
+            # nested HEAD, under its own .git, byte-identical and verified.
+            self.assertIn('node_modules/lib/.git/objects/%s/%s'%(nested_head[:2],nested_head[2:]),names)
+            self.assertIn('node_modules/lib/.git',names)                # a directory entry
+            self.assertTrue(tar.getmember('node_modules/lib/.git').isdir())
+            self.assertNotIn('node_modules/plain-ignored',names)        # the disposable file was dropped
+        self.assertGreater(residue['directories'],0)
+        # restore it and prove the commit is reachable again
+        dest=self.root/'restore';dest.mkdir()
+        with tarfile.open(residue['archive']) as tar:
+            tar.extractall(dest)
+        self.assertEqual(self.git(dest/'node_modules'/'lib','rev-parse','HEAD').strip(),nested_head)
+        self.assertEqual(self.git(dest/'node_modules'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
+
+    def test_an_ignored_file_written_after_the_archive_HOLDS_the_removal(self):
+        # SAGE D3, ROUND TWO. reconcile() archived and verified the residue,
+        # then re-checked the tracked side and the lock -- and never the
+        # ignored side -- before `git worktree remove`, which does not refuse
+        # on ignored changes. A writer the process probe did not see (one that
+        # started after the probe, or whose handle closed between writes)
+        # writing an ignored file in that window lost those bytes. Same
+        # last-look shape as the tracked side, on the ignored side.
+        (self.repo/'.git/info/exclude').write_text('extra\nlate\n')
+        (self.work/'extra').write_bytes(b'archived\n')
+        real_archive=daily.archive_residue
+        work=self.work
+        def write_during_preparation(*a,**k):
+            out=real_archive(*a,**k)
+            (work/'late').write_bytes(b'written after the archive\n')
+            return out
+        with patch.object(daily,'archive_residue',write_during_preparation):
+            with self.assertRaisesRegex(RuntimeError,'ignored bytes changed between the archive and the removal'):
+                self.run_cleanup()
+        self.assert_kept();self.assertTrue((self.work/'late').exists())
+        # the same shape when NOTHING was archived and a residue appears late
+        (self.work/'extra').unlink();(self.work/'late').unlink()
+        def write_late_file(*a,**k):
+            raise AssertionError('archive_residue must not be called with no residue')
+        real_partition=daily.partition_ignored
+        calls=[]
+        def partition_then_write(files,disposable):
+            calls.append(1)
+            out=real_partition(files,disposable)
+            if len(calls)==1:
+                (work/'late').write_bytes(b'appeared after the first listing\n')
+            return out
+        with patch.object(daily,'partition_ignored',partition_then_write):
+            with self.assertRaisesRegex(RuntimeError,'1 added'):
+                self.run_cleanup()
+        self.assert_kept()
+        # and with the tree quiet, the same workspace reclaims and the late
+        # file is in the archive rather than under the rubble
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        with tarfile.open(result['members'][0]['daily_cleanup']['ignored_residue']['archive']) as tar:
+            self.assertEqual(tar.getnames(),['late'])
+
+    def test_the_record_says_WHEN_a_workspace_was_removed(self):
+        # SAGE D6, ROUND TWO. `phase = complete` carried no timestamp, so
+        # ordering a restart against a removal -- the question the whole round
+        # turned on -- had to be inferred from grounds. Read, now, in UTC.
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        for key in ('worktree_removed_ts','removed_ts'):
+            self.assertIn(key,journal)
+            self.assertTrue(journal[key].endswith('+00:00'),journal[key])
+        self.assertLessEqual(journal['worktree_removed_ts'],journal['removed_ts'])
 
     def test_a_secret_bearing_file_is_ARCHIVED_and_NAMED_never_silently_dropped(self):
         # FRANK D13, 2026-09-10. The residue archive is where a workspace's
@@ -473,6 +582,21 @@ class Cleanup(unittest.TestCase):
             {'path': os.path.expanduser('~/.codex/worktrees/06e6/femcboost')})[0])
         self.assertFalse(daily.ceo_owned_workspace({'branch': 'zach-opus-x1'})[0])
         self.assertFalse(daily.ceo_owned_workspace({'branch': 'not-codex/thing'})[0])
+        # EVERY DOOR, BY NAME (Sage D2, round two): the two operator tools that
+        # remove outside this lane ask the same classifier first.
+        discard=load_script('discard-workspace-backlog')
+        with self.assertRaisesRegex(ValueError,'EXCLUDED BY CEO RULING.*section 31'):
+            discard.refuse_ceo_owned(str(self.work),'codex/owned-outcome')
+        with self.assertRaisesRegex(ValueError,'EXCLUDED BY CEO RULING.*section 31'):
+            discard.refuse_ceo_owned(branch='refs/heads/codex/x')
+        discard.refuse_ceo_owned(str(self.work),'worker')                  # the positive control
+        retire=load('workspace-retire')
+        auth=retire.termination_authority(str(self.repo),str(self.repo),str(self.work),owner=AID)
+        self.assertFalse(auth['authorized']);self.assertEqual(auth['reason_code'],'excluded-by-ceo-ruling')
+        self.assertIn('section 31',auth['reason'])
+        self.assertTrue(retire.excluded_by_ceo_ruling(str(self.work))[0])           # from the branch git reports
+        self.assertTrue(retire.excluded_by_ceo_ruling(os.path.expanduser('~/.codex/worktrees/06e6/x'))[0])
+        self.assertFalse(retire.excluded_by_ceo_ruling(str(self.repo))[0])          # main: not the class
 
     def test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity(self):
         later = self._second_workspace()
@@ -580,13 +704,21 @@ class Cleanup(unittest.TestCase):
         self.assert_reclaimed(self.run_cleanup())
 
     def test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL(self):
-        # THE RACE THE NEW GROUND RESTS ON, exercised rather than reasoned.
-        # The platform locks a native worktree BEFORE the run starts (measured
-        # on two live agents: the lock file's mtime precedes the SubagentStart
-        # hook by 43 ms and 49 ms). So if an agent is restarted between the
-        # lane's lock check and its `git worktree remove`, the lock is back —
-        # and non-force `git worktree remove` REFUSES a locked worktree
-        # ("cannot remove a locked working tree", exit 128, git 2.52.0).
+        # A LOCK THAT APPEARS DURING PREPARATION IS CAUGHT, exercised rather
+        # than reasoned: the last look re-reads the registration after the
+        # archive, and non-force `git worktree remove` refuses a locked tree
+        # by itself ("fatal: cannot remove a locked working tree", exit 128 —
+        # under whichever git this test finds on PATH; the lane's own binary,
+        # completion-proof.GIT, is Apple Git 2.50.1 on the operator's machine
+        # and refuses identically).
+        #
+        # WHAT THIS DOES NOT ESTABLISH (corrected round 13): that the platform
+        # re-locks a native worktree for a RESTARTED run. The comment that
+        # stood here said so on two initial-start samples; re-lock on restart
+        # is unmeasured (`restart-after-terminal-measure.py --locks`, (b) 0 of
+        # 3). The lock this test places by hand stands in for ANY lock that
+        # appears in the window; the protection for a restart into an
+        # unlocked tree is row 5 and the write barrier, not this.
         #
         # Simulated by locking the tree after the decision is taken and before
         # the removal runs, through the last-look check that exists for this.
@@ -676,6 +808,128 @@ class Cleanup(unittest.TestCase):
         self.assertEqual((counts['start'],counts['stop']),(1,1))
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
+
+    def _terminal_at(self, when):
+        self.record['terminal']['ts']=when.isoformat()
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+
+    def _event_log(self, rows, agent_id=AID, session_id=SID):
+        """Rows in the platform's own worker event log, the shape
+        worker-started-handoff.sh / worker-ended-handoff.sh write."""
+        team=self.root/'teams'/('session-'+session_id[:8]);team.mkdir(parents=True,exist_ok=True)
+        with open(team/'worker-events.jsonl','a') as stream:
+            for when,event in rows:
+                stream.write(json.dumps({'timestamp':when.isoformat(),'event':event,'agent_id':agent_id,
+                                         'session_id':session_id,'source_hook':'fixture'})+'\n')
+
+    def test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it(self):
+        # FRANK R2 / R4, ROUND TWO. The post-terminal notes are written under
+        # a 5-second flock that a catch-up sweep or the nightly pass holds for
+        # a whole reclaim; a note that loses that race is announced on stderr
+        # and lost. With ONE source and no expiry, a lost stop note held every
+        # workspace of the agent forever while the journal called it a RETRY;
+        # a lost start note left the restart invisible to the lane. The
+        # platform writes both events in its own log, keyed by the
+        # registration id (Sage H3: all eleven restarts on record), and that
+        # log is now the second source.
+        from datetime import datetime,timezone,timedelta
+        t0=datetime.now(timezone.utc)-timedelta(seconds=60)
+        self._terminal_at(t0)
+        # HERMETIC: a redirected store never reads the operator's real log
+        # unless the log is NAMED (the rule session_id_gone applies to the ledger)
+        self.assertIsNone(tx.lifecycle_teams_dir())
+        with patch.dict(os.environ,{'RICHOS_TEAMS_DIR':str(self.root/'teams')}):
+            self.assertEqual(self.assess()[0],'remove')
+            # rows for ANOTHER agent, and for this agent in ANOTHER session, never count: the join is exact
+            self._event_log([(t0+timedelta(seconds=5),'WorkerStarted')],agent_id='abcdef999999')
+            self._event_log([(t0+timedelta(seconds=5),'WorkerStarted')],session_id='other-session')
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            # (a) THE LOST START NOTE: only the platform's log saw the restart
+            self._event_log([(t0+timedelta(seconds=10),'WorkerStarted')])
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+            decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn('again after its terminal record',reason)
+            self.assertIn("platform's event log",reason)
+            self.assert_kept()
+            # (b) THE LOST STOP NOTE: the transaction's last note is a start,
+            # the platform's log says the run ended after it
+            tx.note_after_terminal(SID,AID,'start','/cwd')
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self._event_log([(datetime.now(timezone.utc)+timedelta(seconds=1),'WorkerRunEnded')])
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertTrue(tx.restarted_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual([(kind,src) for _when,kind,src in tx.post_terminal_events(tx.load_tx(SID,AID))],
+                             [('start','events'),('start','notes'),('stop','events')])
+            self.assertEqual(self.assess()[0],'remove')
+            self.assert_reclaimed(self.run_cleanup())
+
+    def test_a_post_terminal_run_cannot_outlive_its_session(self):
+        # FRANK R2 (2): row 5 preceded row 10a, so `session_gone` never
+        # overrode it — a session that died mid-run held the workspace on a
+        # note nothing could ever close. A run lives inside its session's
+        # process: a session provably gone (every recorded pid gone or reused,
+        # no running registration) voids the open run.
+        self.assertEqual(self.assess()[0],'remove')
+        tx.note_after_terminal(SID,AID,'start','/cwd')
+        # the session is running (this process is its recorded identity): held
+        self.ledger_row(session_pid=os.getpid(),pid_start='')
+        decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn('again after its terminal record',reason)
+        self.assert_kept()
+        # the session is provably gone: the open run is void, the reason says so
+        (self.root/'ledger.jsonl').write_text('')
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        self.assertTrue(daily.session_gone(tx.load_tx(SID,AID),tx)[0])
+        run_open,why=daily.post_terminal_run_open(tx,tx.load_tx(SID,AID))
+        self.assertFalse(run_open);self.assertIn('cannot outlive its session',why)
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works(self):
+        # FRANK R2 (4): a hold older than a bound names the remedy instead of
+        # "until the run ends". Every post-terminal run observed on this
+        # machine lasted under a minute; this one has been open two hours.
+        from datetime import datetime,timezone,timedelta
+        old=(datetime.now(timezone.utc)-timedelta(hours=2)).isoformat()
+        self.record['after_terminal']=[{'kind':'start','ts':old,'detail':'/cwd'}]
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        decision,reason=self.assess()
+        self.assertEqual(decision,'hold')
+        self.assertIn('POST_TERMINAL_RUN_STALE_SECONDS',reason);self.assertIn('note-after-terminal',reason)
+        self.assertIn('the remedy is a PERSON',reason);self.assertNotIn('held until the run ends',reason)
+        self.assert_kept()
+        with tx.tx_lock(SID,AID):
+            outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0)
+        self.assertEqual(outcome,'deferred');self.assertIn('note-after-terminal',str(why))
+        # a person confirms and records the stop both sources missed, through
+        # the exact command the reason names
+        r=subprocess.run(['python3',str(HERE/'lib'/'worktree-transactions.py'),'note-after-terminal',
+                          '--session-id',SID,'--agent-id',AID,'--kind','stop','--detail','operator'],
+                         capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stderr)
+        self.assertEqual(json.loads(r.stdout)['after_terminal_counts'],{'start':1,'stop':1})
+        self.assertEqual(self.assess()[0],'remove')
+        self.assert_reclaimed(self.run_cleanup())
+
+    def test_the_events_own_member_is_bounded_by_the_ceiling_and_the_hooks_deadline(self):
+        # SAGE D4, ROUND TWO. `_reclaim_in_event` ran with no ceiling and no
+        # deadline; "bound every candidate's work by the remaining budget" was
+        # true of the sweep and not of the event's own member. Both bounds now
+        # apply to it, read from the member's own repository config.
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_SWEEP_MAX_FILES=0\n')
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('above the in-event ceiling',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        (self.repo/'orchestration.config').unlink()
+        tx.terminalize(SID,AID,deadline=time.time()-1)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('no budget left',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        tx.terminalize(SID,AID,deadline=time.time()+30)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'reclaimed')
+        self.assertFalse(self.work.exists())
 
     def test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting(self):
         # FRANK D14. reclaim_now wrote one `immediate_reclaim` object, so the

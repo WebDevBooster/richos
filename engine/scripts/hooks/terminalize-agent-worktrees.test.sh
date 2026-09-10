@@ -493,6 +493,51 @@ run "$(stop_payload "a000000000000nada3")"
 SEAL_MODERN=0
 rm -f "$ENTITY/orchestration.config"
 
+# --- 9. THE STOP THAT CLOSES A POST-TERMINAL RUN, THROUGH THIS HOOK ---------
+# FRANK R2, ROUND TWO (2026-09-10): the branch of this hook that writes the
+# post-terminal stop note had no test and no mutant -- the only case that
+# touched the sequence called the library function by hand, so an `if False:`
+# on the branch would have survived every suite in the area while every
+# restarted agent's workspaces stayed held forever. This drives a real repeat
+# SubagentStop through the REAL hook after a noted post-terminal start, and
+# asserts the note that closes it. The workspace is dirty so the event holds
+# it: a held workspace is the one that needs the run to be closable.
+SEAL_MODERN=1
+A16="a000000000000t16"
+seal "$A16" dev-opus-t16
+R40="$ENTITY/.claude/worktrees/agent-$A16"
+printf 'unfinished\n' >"$R40/seed.txt"
+run "$(stop_payload "$A16")"                       # the terminal record
+r40_state() { python3 -c '
+import json, sys
+t = json.load(open(sys.argv[1]))
+e = t.get("after_terminal") or []
+print("%s %s" % (e[-1]["kind"] if e else "none", json.dumps(t.get("after_terminal_counts"), sort_keys=True)))' "$SANDBOX/tx/$SID/$A16.json"; }
+if T terminal-agent --agent-id "$A16" && [ -d "$R40" ]; then
+    # the platform runs it again -- the note record-subagent-start.sh writes
+    T note-after-terminal --session-id "$SID" --agent-id "$A16" --kind start --detail "$R40" >/dev/null
+    if T post-terminal --session-id "$SID" --agent-id "$A16" >/dev/null; then R40_OPEN=yes; else R40_OPEN=no; fi
+    run "$(stop_payload "$A16")"                   # the run ends: a repeat SubagentStop, through the hook
+    R40_STATE="$(r40_state)"
+    if T post-terminal --session-id "$SID" --agent-id "$A16" >/dev/null; then R40_STILL_OPEN=yes; else R40_STILL_OPEN=no; fi
+    if [ "$RC" -eq 0 ] && [ "$R40_OPEN" = yes ] && [ "$R40_STATE" = 'stop {"start": 1, "stop": 1}' ] \
+       && [ "$R40_STILL_OPEN" = no ] && [ -d "$R40" ]; then
+        ok "R40  a repeat SubagentStop for an agent whose post-terminal run is OPEN records the stop that closes it, through the hook -- the branch nothing tested"
+    else
+        bad "R40  open-before=$R40_OPEN rc=$RC state=[$R40_STATE] open-after=$R40_STILL_OPEN present=$([ -d "$R40" ] && echo yes || echo no) out=${OUT:0:200}"
+    fi
+    # R41: with NO open run, a further repeat ingress records nothing -- the
+    # idempotence R10/R12 pin. A duplicate event is not a run ending.
+    run "$(stop_payload "$A16")"
+    R41_STATE="$(r40_state)"
+    [ "$RC" -eq 0 ] && [ "$R41_STATE" = 'stop {"start": 1, "stop": 1}' ] \
+        && ok "R41  ...and a repeat ingress with NO open run records nothing: a duplicate event is not a run ending" \
+        || bad "R41  rc=$RC state=[$R41_STATE]"
+else
+    bad "R40  fixture: the transaction did not terminalize, or the dirty workspace was not held"
+fi
+SEAL_MODERN=0
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== terminalize-agent-worktrees tests: $FAIL FAILED, $PASS passed ==="

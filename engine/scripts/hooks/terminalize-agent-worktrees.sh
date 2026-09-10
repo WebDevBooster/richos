@@ -30,6 +30,19 @@
 # assignment, and RichOS never sends that agent another turn
 # (guard-resume-isolation.sh refuses, the write barrier refuses).
 #
+# CORRECTED 2026-09-10 (round 12, and this header in round 13): "never sends
+# that agent another turn" is RichOS's policy, not the platform's behavior.
+# The PLATFORM does run a terminal agent again — a message queued before the
+# stop, or a background task's exit notification, resumes it; measured by
+# `restart-after-terminal-measure.py` (eleven of 67 workspace-owning terminal
+# transactions on the operator's machine by the round-two reviews, the author
+# of round 12 among them, twice). The terminal record stays irrevocable and
+# the write barrier refuses that restarted agent EVERY tool; what this hook
+# adds is the record of it: a SubagentStop that arrives while a post-terminal
+# run is open is written down as the stop that closes it (below), so the
+# reclaim lane can hold a mid-run agent's workspaces and release them when
+# the run ends — from this note or from the platform's own event log.
+#
 # For a native worker the harness may begin its own removal before OR after
 # SubagentStop. This hook does not guess which: WorktreeRemove resolves the
 # same sealed manifest by the exact native path the harness names, and both
@@ -242,7 +255,9 @@ if t is None:
                          % (ingress, aid, tx.pending_terminal_path(sid, aid)))
     raise SystemExit(0)
 try:
-    t = tx.terminalize(sid, aid, first_path)
+    # The hook's own deadline rides along: the event's own members are bounded
+    # by it and by the tracked-file ceiling, like the sweep's candidates.
+    t = tx.terminalize(sid, aid, first_path, deadline=_DEADLINE)
 except Exception as e:
     sys.stderr.write("terminalize for agent %s raised: %s — the transaction is claimed; the reconciler resumes it from its persisted member states.\n" % (aid, e))
     raise SystemExit(0)

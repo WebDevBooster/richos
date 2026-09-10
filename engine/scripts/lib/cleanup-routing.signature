@@ -48,6 +48,7 @@ lib/shell-worktree-sparse.py	eligible	class	structural	literal(native)
 lib/shell-worktree-sparse.py	eligible	cleanup_owner	route	presence
 lib/shell-worktree-sparse.py	eligible	sparse	structural	is-none
 lib/shell-worktree-sparse.py	eligible	state	structural	literal(bound)
+lib/worktree-transactions.py	_reclaim_in_event	*no-member-variable*	canary	reads members, names none
 lib/worktree-transactions.py	_try_seal_locked	class	structural	literal(managed-image)
 lib/worktree-transactions.py	_verify_external_member	class	structural	literal(managed-image)
 lib/worktree-transactions.py	bound_members	*no-member-variable*	canary	reads members, names none
@@ -88,4 +89,5 @@ reconcile-terminal-worktrees.py	reconcile_transaction	cleanup_policy	route	liter
 reconcile-terminal-worktrees.py	reconcile_transaction	daily_cleanup	structural	truthy
 reconcile-terminal-worktrees.py	reconcile_transaction	retry_after_epoch	structural	truthy
 reconcile-terminal-worktrees.py	run	cleanup_policy	route	literal(integrated-daily)
+restart-after-terminal-measure.py	locks	class	structural	literal(native)
 restart-after-terminal-measure.py	owns_a_workspace	path	structural	truthy

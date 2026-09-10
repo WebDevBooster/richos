@@ -515,35 +515,134 @@ def note_after_terminal(session_id, agent_id, kind, detail="", timeout=5.0):
         return tx
 
 
+def lifecycle_teams_dir():
+    """Where the platform's own worker event log lives, or None when it must
+    not be read.
+
+    THE SECOND SOURCE (Frank R2 and R4, round two, 2026-09-10). The notes
+    above are written by hooks under a 5-second flock that a catch-up sweep or
+    the nightly reconciler holds for a whole reclaim, so a note can be LOST --
+    announced on stderr and gone -- and a session can die with a run open. A
+    record with one source and no expiry then holds every workspace of that
+    agent forever while calling it a RETRY. The platform writes its own log of
+    the same two events (worker-started-handoff.sh / worker-ended-handoff.sh
+    -> <teams>/session-<sid8>/worker-events.jsonl), keyed by the registration
+    id for the run-level start and stop (Sage H3: all eleven post-terminal
+    restarts on record carry it), so it is read as a second source and neither
+    source alone decides.
+
+    HERMETIC ROOTING, FAIL-CLOSED, the same rule session_id_gone applies to
+    the ledger: a transaction store away from its default with the event log
+    at its default would be a sandbox reading the OPERATOR'S REAL record.
+    RICHOS_TEAMS_DIR names it explicitly (tests, and the measure script);
+    otherwise it is read only when the transaction store is at its default.
+    """
+    explicit = os.environ.get("RICHOS_TEAMS_DIR")
+    if explicit:
+        return explicit
+    default_tx = os.path.join(os.path.expanduser("~"), ".claude", "state", "worktree-transactions")
+    if os.path.abspath(tx_root()) != os.path.abspath(default_tx):
+        return None
+    return os.path.join(os.path.expanduser("~"), ".claude", "teams")
+
+
+def _parse_ts(value):
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def platform_lifecycle_after(session_id, agent_id, since):
+    """[(datetime, kind, 'events')] -- every WorkerStarted / WorkerRunEnded
+    row the platform's own event log holds for this EXACT registration id in
+    this session, strictly after `since`. An absent or unreadable log
+    contributes nothing (absence is never evidence); a row that does not
+    parse is skipped."""
+    out = []
+    root = lifecycle_teams_dir()
+    since = _parse_ts(since)
+    if not root or since is None or not session_id or not agent_id:
+        return out
+    path = os.path.join(root, "session-%s" % session_id[:8], "worker-events.jsonl")
+    try:
+        with open(path, encoding="utf-8") as stream:
+            for line in stream:
+                if agent_id not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(row, dict) or row.get("agent_id") != agent_id:
+                    continue
+                if row.get("session_id") and row.get("session_id") != session_id:
+                    continue
+                kind = {"WorkerStarted": "start", "WorkerRunEnded": "stop"}.get(row.get("event"))
+                when = _parse_ts(row.get("timestamp"))
+                if kind and when and when > since:
+                    out.append((when, kind, "events"))
+    except OSError:
+        return out
+    return out
+
+
+def post_terminal_events(transaction):
+    """The observed post-terminal lifecycle of this agent, from BOTH sources,
+    merged and ordered: [(datetime, kind, source)] with source 'notes' (the
+    transaction's own after_terminal entries) or 'events' (the platform's
+    log). The same run appears in both when both saw it; that is harmless,
+    because only the LAST event's kind decides anything."""
+    if not isinstance(transaction, dict):
+        return []
+    out = []
+    for e in transaction.get("after_terminal") or []:
+        if isinstance(e, dict) and e.get("kind") in ("start", "stop"):
+            when = _parse_ts(e.get("ts"))
+            if when:
+                out.append((when, e["kind"], "notes"))
+    terminal_ts = (transaction.get("terminal") or {}).get("ts")
+    out.extend(platform_lifecycle_after(transaction.get("session_id") or "",
+                                        transaction.get("agent_id") or "", terminal_ts))
+    out.sort(key=lambda item: item[0])
+    return out
+
+
 def restarted_after_terminal(transaction):
     """Did the platform run this agent again after its terminal record?
 
     A CLAIM WITH A DATE ON IT, not a property: it answers from what has been
-    OBSERVED. A false answer here means nothing was seen, never that nothing
-    happened -- which is why no removal is authorized by this returning False.
+    OBSERVED, in either source. A false answer here means nothing was seen,
+    never that nothing happened -- which is why no removal is authorized by
+    this returning False.
     """
-    if not isinstance(transaction, dict):
-        return False
-    entries = transaction.get("after_terminal")
-    if not isinstance(entries, list):
-        return False
-    return any(e.get("kind") == "start" for e in entries if isinstance(e, dict))
+    return any(kind == "start" for _when, kind, _src in post_terminal_events(transaction))
 
 
 def running_after_terminal(transaction):
     """Is this terminal agent in a run RIGHT NOW, as far as the record shows?
 
-    True when the most recent observed post-terminal event is a start with no
-    stop after it. This is a positive fact from an event the platform fired,
-    never an inference from quiet; False means only that nothing has been
-    observed, so it authorizes nothing on its own.
+    True when the most recent observed post-terminal event -- in the
+    transaction's notes OR the platform's event log -- is a start with no stop
+    after it. A stop note lost to the flock is closed by the platform's own
+    WorkerRunEnded; a start note lost the same way is opened by its
+    WorkerStarted. This is a positive fact from events the platform fired,
+    never an inference from quiet; False means only that nothing open has
+    been observed, so it authorizes nothing on its own.
     """
-    if not isinstance(transaction, dict):
+    events = post_terminal_events(transaction)
+    if not events:
         return False
-    entries = [e for e in (transaction.get("after_terminal") or []) if isinstance(e, dict)]
-    if not entries:
-        return False
-    return entries[-1].get("kind") == "start"
+    return events[-1][1] == "start"
+
+
+def open_run_since(transaction):
+    """The datetime of the start that opened the run running_after_terminal
+    reports, or None. What a hold's AGE is measured from."""
+    events = post_terminal_events(transaction)
+    if not events or events[-1][1] != "start":
+        return None
+    return events[-1][0]
 
 
 def load_tx(session_id, agent_id):
@@ -1636,9 +1735,21 @@ def bind_late_members(session_id, agent_id):
         return load_tx(session_id, agent_id)
 
 
-def terminalize(session_id, agent_id, first_path=None):
+def terminalize(session_id, agent_id, first_path=None, deadline=None):
     """Persist terminal progress for the exact bound members, native first,
     AND RECLAIM WHAT IS ALREADY CLEAN — in this event, not on a timer.
+
+    `deadline` (absolute time.time(), optional) is what the calling hook has
+    left of its own budget. SAGE D4 (round two, 2026-09-10): the own-member
+    reclaim below ran with no ceiling and no deadline while the sentence
+    "bound every candidate's work by the remaining budget" was true only of
+    the catch-up sweep. Now the event's own members are held to the same two
+    bounds the sweep applies -- the lock wait ends at the hook's deadline, and
+    a member above IMMEDIATE_RECLAIM_SWEEP_MAX_FILES tracked files is not
+    started inside a 20-second hook at all (a clock cannot stop `lsof`, a hash
+    of every tracked file or a tar of every ignored one once begun; the
+    ceiling is the bound that can). The nightly pass has no budget and applies
+    the same refusals, so nothing is lost by deferring.
 
     Managed images delegate to their daemon. Historical linked worktrees keep
     the quarantine/capture route and its explicit erasure refusal.
@@ -1692,7 +1803,7 @@ def terminalize(session_id, agent_id, first_path=None):
                     observe_platform_native(session_id, agent_id, i)
                 except Exception as error:
                     _soft_failure(session_id, agent_id, i, str(error))
-                _reclaim_in_event(session_id, agent_id, i)
+                _reclaim_in_event(session_id, agent_id, i, deadline)
                 continue
             if member.get('class') == 'managed-image':
                 if member.get('state') == 'removed':
@@ -1713,16 +1824,23 @@ def terminalize(session_id, agent_id, first_path=None):
             # integrated, here, in this event. Dirty or unfinished bytes stay
             # at their original path — the lane refuses them exactly as it
             # always did, and the nightly pass retries.
-            _reclaim_in_event(session_id, agent_id, i)
+            _reclaim_in_event(session_id, agent_id, i, deadline)
         return load_tx(session_id, agent_id)
 
 
-def _reclaim_in_event(session_id, agent_id, index):
+def _reclaim_in_event(session_id, agent_id, index, deadline=None):
     """Run the reclaim lane for ONE member and swallow everything. The lane
     itself never raises; this is the second belt, because the caller is a
-    platform terminal event and the record it just wrote is what matters."""
+    platform terminal event and the record it just wrote is what matters.
+    `deadline` and the tracked-file ceiling bound it (Sage D4; see
+    terminalize)."""
     try:
-        outcome, detail = _daily().reclaim_now(_SELF, load_tx(session_id, agent_id), index)
+        daily = _daily()
+        tx = load_tx(session_id, agent_id)
+        repo = ((tx or {}).get("members") or [{}])[index].get("repo") if tx else None
+        outcome, detail = daily.reclaim_now(_SELF, tx, index,
+                                            budget_deadline=deadline,
+                                            max_files=daily.sweep_max_files(repo))
     except Exception as error:  # pragma: no cover - defended twice deliberately
         sys.stderr.write("immediate reclaim for %s/%s member %d raised: %s\n"
                          % (session_id[:8], agent_id, index, error))
@@ -2003,6 +2121,19 @@ def _main(argv):
     p.add_argument("--agent-id", required=True)
     p.add_argument("--session-id", default="")
 
+    p = sub.add_parser("note-after-terminal",
+                       help="record an observed post-terminal start or stop on a sealed terminal "
+                            "transaction (what the start and stop hooks write; the OPERATOR REMEDY "
+                            "for a run both sources missed the end of)")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--agent-id", required=True)
+    p.add_argument("--kind", required=True, choices=("start", "stop"))
+    p.add_argument("--detail", default="operator")
+
+    p = sub.add_parser("post-terminal", help="the merged post-terminal lifecycle from both sources; exit 0 if a run is open, 1 if not")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--agent-id", required=True)
+
     p = sub.add_parser("terminal-name")
     p.add_argument("--session-id", required=True)
     p.add_argument("--teammate", required=True)
@@ -2081,6 +2212,18 @@ def _main(argv):
         return 0 if won else 2
     if a.cmd == "terminal-agent":
         return 0 if is_terminal_agent(a.agent_id, a.session_id or None) else 1
+    if a.cmd == "note-after-terminal":
+        rec = note_after_terminal(a.session_id, a.agent_id, a.kind, a.detail)
+        if rec is None:
+            print(json.dumps({"noted": False, "reason": "no sealed transaction with a terminal record"}))
+            return 1
+        print(json.dumps({"noted": True, "after_terminal_counts": rec.get("after_terminal_counts")}, sort_keys=True))
+        return 0
+    if a.cmd == "post-terminal":
+        tx = load_tx(a.session_id, a.agent_id)
+        for when, kind, source in post_terminal_events(tx):
+            print("%s\t%s\t%s" % (when.isoformat(), kind, source))
+        return 0 if running_after_terminal(tx) else 1
     if a.cmd == "terminal-name":
         return 0 if is_terminal_name(a.session_id, a.teammate) else 1
     if a.cmd == "by-native-path":

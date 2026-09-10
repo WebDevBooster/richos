@@ -46,9 +46,19 @@ P="scripts/lib/completion-proof.py"
 X="scripts/lib/worktree-transactions.py"
 
 mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_residue_is_archived_verified_then_reclaimed" "$D" \
-    "        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None" \
-    "        residue_record = None" \
+    "        residue_record, residue_archived = (archive_residue(tx, transaction, index, member['path'], residue){NL}                                            if residue else (None, {}))" \
+    "        residue_record, residue_archived = None, residue_manifest(member['path'], residue) if residue else {}" \
     "an ignored file the disposable policy does not name would go with the tree and no copy would exist — PF9: git worktree remove deletes ignored files without refusing."
+
+mutant nested-repository-dropped-as-disposable "test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
+    "    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')" \
+    "    return False" \
+    "a clone an agent made under an ignored vendor/, .cache/ or node_modules/ -- with commits nowhere else -- would be classified disposable by its PARENT's name and deleted by the non-force removal with no copy taken. Frank R1, round two: reproduced under the lane's own binary, the only loss path found in two rounds."
+
+mutant ignored-last-look-removed "test_an_ignored_file_written_after_the_archive_HOLDS_the_removal" "$D" \
+    "        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)" \
+    "        unchanged, why_changed = True, ''" \
+    "an ignored file written between the archive and the rm -- by a writer the process probe did not see -- would be deleted with the tree while the journal named a verified archive that does not hold it (Sage D3, round two)."
 
 mutant residue-verification-skipped "test_unverifiable_residue_archive_holds_the_tree" "$D" \
     "    verify_residue_archive(tar_path, manifest)" \
@@ -94,19 +104,19 @@ mutant platform-ground-widened "test_native_of_an_engine_derived_terminal_fact_s
     "this engine's OWN derivation of terminality would be read as the platform saying the worker stopped, and a running session's checkout would be taken out of its hands on evidence the platform never gave."
 
 mutant ingress-hands-native-back-to-the-nightly "test_native_terminal_ingress_reclaims_in_the_same_event" "$X" \
-    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i)" \
+    "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                _reclaim_in_event(session_id, agent_id, i, deadline)" \
     "                    _soft_failure(session_id, agent_id, i, str(error)){NL}                pass" \
     "a finished agent's NATIVE checkout would be recorded at the terminal event and reclaimed up to 24 hours later by the 04:00 job — the gap the CEO was looking at on 2026-09-10."
 
 mutant ingress-hands-hand-rolled-back-to-the-nightly "test_hand_rolled_terminal_ingress_reclaims_in_the_same_event" "$X" \
-    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i)" \
+    "            # always did, and the nightly pass retries.{NL}            _reclaim_in_event(session_id, agent_id, i, deadline)" \
     "            # always did, and the nightly pass retries.{NL}            pass" \
     "the same gap for the CROSS-REPOSITORY worktree, which is 48 of the 53 worktrees on this machine."
 
 mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to_release_its_own_lock_and_never_removes_it" "$D" \
     "        absent, why = platform_lock_is_absent(holder, proof_api.registry(repo).get(path))" \
     "        absent, why = True, 'mutant: the platform lock is ignored'" \
-    "the ingress would walk past a lock the platform still holds — and after round 12 that lock is not a courtesy, it is the ONE present-tense liveness fact this platform provides (measured: it is written 43ms and 49ms BEFORE the run's start hook fires)."
+    "the ingress would walk past a lock the platform still holds — and after round 12 that lock is not a courtesy, it is the ONE present-tense liveness fact this platform provides (measured: written before the start hook on four of four INITIAL starts; whether it is re-taken for a RESTARTED run is unmeasured — restart-after-terminal-measure.py --locks)."
 
 # ROUND 12, 2026-09-10. The two mutants that stood here pinned
 # `lock_names_nobody` and `_release_unattributable_lock` — the route that took
@@ -117,9 +127,25 @@ mutant ingress-ignores-the-platform-lock "test_ingress_waits_for_the_platform_to
 # whose negative direction is covered by the mutants below instead.
 
 mutant restart-after-terminal-ignored "test_a_restart_after_terminal_is_recorded_and_HOLDS_every_workspace_of_that_agent" "$D" \
-    "    if tx.running_after_terminal(transaction):" \
-    "    if False:" \
+    "    if not tx.running_after_terminal(transaction):{NL}        return False, ''" \
+    "    if True:{NL}        return False, ''" \
     "the workspace of an agent the platform has STARTED AGAIN, mid-run, would be removed under it. Ten of the 66 workspace-owning terminal agents on this machine restarted after their terminal record; round 11 authorized deletion on the premise that none could."
+
+# ROUND 13 (2026-09-10), Frank R2/R4: row 5 had one source and no expiry.
+mutant second-source-ignored "test_a_lost_stop_note_is_closed_by_the_platforms_own_event_log_and_a_lost_start_note_is_opened_by_it" "$X" \
+    "    out.extend(platform_lifecycle_after(transaction.get(\"session_id\") or \"\",{NL}                                        transaction.get(\"agent_id\") or \"\", terminal_ts))" \
+    "    pass  # mutant: the platform's own event log is never consulted" \
+    "a stop note lost to the 5-second flock a sweep holds for a whole reclaim would leave the run open in the record FOREVER, and a lost start note would leave a restart invisible to the lane; the platform wrote both events down in its own log and nothing would read it (Type J: a claim with no condition that voids it)."
+
+mutant session-death-does-not-void-an-open-run "test_a_post_terminal_run_cannot_outlive_its_session" "$D" \
+    "    if gone:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \
+    "    if False:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \
+    "a session that died with a post-terminal run open would hold that agent's workspaces forever on a note nothing could ever close — a run cannot outlive the process it ran in."
+
+mutant stale-hold-never-names-a-person "test_a_stale_open_run_names_the_operator_remedy_and_the_remedy_works" "$D" \
+    "    if since and age > stale:" \
+    "    if False:" \
+    "a run open for hours past anything ever observed would keep saying 'held until the run ends' — the RETRY vocabulary over a hold that has no way to clear — instead of naming what a person can check and do."
 
 mutant process-probe-fails-open-again "test_a_process_probe_that_cannot_look_HOLDS_and_never_reports_an_empty_tree" "$D" \
     "    except Exception as error:{NL}        raise RuntimeError('RETRY, not a verdict: could not determine whether any process is standing '" \
@@ -129,7 +155,7 @@ mutant process-probe-fails-open-again "test_a_process_probe_that_cannot_look_HOL
 mutant last-look-before-removal-removed "test_a_relock_between_the_check_and_the_removal_makes_the_removal_FAIL" "$D" \
     "        if not fresh or 'locked' in fresh or 'prunable' in fresh:" \
     "        if False:" \
-    "a workspace re-locked by the platform DURING the reclaim's preparation (archiving residue takes seconds; the platform locks before a restarted run begins) would go to the removal anyway. git refuses it behind this, so the tree survives — but the journal would say nothing about why, which is how the same class stayed invisible for eleven rounds."
+    "a workspace locked DURING the reclaim's preparation (archiving residue takes seconds; a lock that appears in them is caught here — whether the platform re-locks for a RESTARTED run is unmeasured, see --locks) would go to the removal anyway. git refuses it behind this, so the tree survives — but the journal would say nothing about why, which is how the same class stayed invisible for eleven rounds."
 
 mutant journal-overwrites-again "test_the_immediate_reclaim_journal_APPENDS_instead_of_overwriting" "$D" \
     "            tx.update_member(sid, aid, index, immediate_reclaim=entry,{NL}                             immediate_reclaim_history=history," \

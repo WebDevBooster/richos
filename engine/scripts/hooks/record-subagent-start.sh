@@ -95,8 +95,10 @@ except Exception as e:
 # NOBODY (types A and O together). It is neither any more. This hook cannot
 # block -- SubagentStart is absent from the exit-code-2 table -- so it does
 # the two things it can: it writes the fact where the reclaim lane reads it,
-# and it announces it. The enforceable barrier is elsewhere and unchanged
-# (guard-sealed-worktree.sh refuses this worker's writing tool calls).
+# and it announces it. The enforceable barrier is elsewhere and unchanged:
+# guard-sealed-worktree.sh refuses a terminal agent EVERY tool, Read included
+# (Frank R5, round two: this hook used to announce "it can read and report but
+# not write", which was false -- it can do neither).
 try:
     if tx.is_terminal_agent(aid, sid):
         note = tx.note_after_terminal(sid, aid, "start", str(d.get("cwd") or ""))
@@ -104,9 +106,9 @@ try:
             "RESTART AFTER TERMINAL: agent %s has a terminal record and the platform has "
             "started it AGAIN, in %s. This is the fact round 11's section 7 named as its own "
             "falsifier, and it is now on the transaction where the reclaim lane reads it: no "
-            "workspace of this agent is reclaimed while this run is open. This worker's writing "
-            "tool calls are refused by guard-sealed-worktree.sh, so it can read and report but "
-            "not write.\n" % (aid, str(d.get("cwd") or "?")))
+            "workspace of this agent is reclaimed while this run is open. guard-sealed-worktree.sh "
+            "refuses this worker EVERY tool, Read included, so it can neither read, write nor "
+            "report; the run ends on its own and the stop is recorded.\n" % (aid, str(d.get("cwd") or "?")))
         if note is None:
             sys.stderr.write(
                 "  ...and the note could NOT be attached: this agent has no sealed transaction "

@@ -308,12 +308,12 @@ def owner_check(tx, transaction, member):
     # and this is the refusal that reads them. It covers EVERY member class,
     # which the native lock below cannot: a cross-repository worktree carries
     # no platform lock at all, and that is where the work actually lives.
-    if tx.running_after_terminal(transaction):
-        raise RuntimeError(
-            'RETRY, not a verdict: the platform started agent %s again after its terminal record '
-            'and that run is still open (the last observed lifecycle event is a start). Its '
-            'workspaces are held until the run ends. This is the fact round 11 assumed could not '
-            'happen; it is measured, and it is now refused rather than assumed away' % (aid[:8] or '?'))
+    #
+    # ROUND 13: read from TWO sources, voided by the session's death, and aged
+    # (post_terminal_run_open) — a hold that could never clear is Type J.
+    run_open, why_open = post_terminal_run_open(tx, transaction)
+    if run_open:
+        raise RuntimeError(why_open)
     # A live native lock vetoes everything above it. Never use the
     # cross-repository worktree as that lock.
     native = [m for m in transaction['members'] if m.get('class') == 'native']
@@ -321,6 +321,82 @@ def owner_check(tx, transaction, member):
     live = _load('agent-liveness').resolve(entity, aid)
     if live.get('verdict') != 'NOT-ALIVE':
         raise RuntimeError('native owner is live or unknown: ' + str(live.get('reason')))
+
+
+# ---------------------------------------------------------------------------
+# row 5 — a post-terminal run is open (or is not, or cannot be any more)
+# ---------------------------------------------------------------------------
+
+def post_terminal_run_stale_seconds(repo=None):
+    """How old an open post-terminal run may be before the hold names the
+    operator remedy instead of "until the run ends". Committed data. Every
+    post-terminal run observed on this machine to 2026-09-10 lasted under a
+    minute (fix1: 49 s and 17 s); an hour is far outside the population."""
+    try:
+        return max(0.0, float(config_value('POST_TERMINAL_RUN_STALE_SECONDS', '3600', repo)))
+    except (TypeError, ValueError):
+        return 3600.0
+
+
+def post_terminal_run_open(tx, transaction):
+    """(open, reason) — ROW 5 OF THE DECISION TABLE, with the two things
+    Frank R2 found missing from the first version: a SECOND SOURCE and a way
+    for the hold to END.
+
+    `running_after_terminal` used to read one source (the transaction's own
+    notes, written under a 5-second flock that a sweep or the nightly pass
+    holds for a whole reclaim) and had no expiry: a stop note lost to that
+    flock, or a session that died mid-run, held every workspace of the agent
+    FOREVER while the journal called it a RETRY and said "until the run ends"
+    — a reason false the moment the run had ended. Type J of the failure
+    record, in code written the day the record was published.
+
+    Three changes, each named in the reason it produces:
+
+      1. TWO SOURCES. `running_after_terminal` now merges the notes with the
+         platform's own event log (WorkerStarted / WorkerRunEnded for this
+         registration id), so a lost stop note is closed by the platform's
+         row and a lost start note is opened by it.
+      2. THE SESSION'S DEATH VOIDS IT. A run lives inside its session's
+         process; a session provably gone (row 10a's evidence, every recorded
+         pid gone or reused and no running registration) cannot have a run
+         open, whatever the last note says. session_gone overrides.
+      3. AGE. A run open longer than POST_TERMINAL_RUN_STALE_SECONDS is still
+         a hold — this lane never deletes on a guess — but the reason stops
+         saying "until the run ends" and names what a person can do: confirm
+         from the process table and the event log, then record the stop the
+         hooks missed (`worktree-transactions.py note-after-terminal`). That
+         is an operator asserting a fact into the record, the same shape as
+         `git worktree unlock`, not a flag that unlocks the class.
+    """
+    if not tx.running_after_terminal(transaction):
+        return False, ''
+    aid = transaction.get('agent_id') or ''
+    gone, why_gone = session_gone(transaction, tx)
+    if gone:
+        return False, ('a post-terminal run of agent %s was recorded open, but %s — a run cannot outlive '
+                       'its session, so the hold is void' % (aid[:8] or '?', why_gone))
+    since = tx.open_run_since(transaction)
+    age = (datetime.now(timezone.utc) - since).total_seconds() if since else 0.0
+    stale = post_terminal_run_stale_seconds()
+    if since and age > stale:
+        return True, (
+            'RETRY, not a verdict: the platform started agent %s again after its terminal record and '
+            'neither the transaction nor the platform\'s event log shows that run ending — it has been '
+            'open for %.0f s, longer than POST_TERMINAL_RUN_STALE_SECONDS (%.0f). This lane never '
+            'deletes on a guess, so the workspaces stay held; the remedy is a PERSON: confirm nothing '
+            'of this agent is running (`ps`, `agent-liveness.sh`, `restart-after-terminal-measure.py`), '
+            'then record the stop both sources missed: `worktree-transactions.py note-after-terminal '
+            '--session-id %s --agent-id %s --kind stop --detail operator`. If the whole session is '
+            'over, this hold clears by itself once its processes are gone'
+            % (aid[:8] or '?', age, stale, transaction.get('session_id') or '?', aid))
+    return True, (
+        'RETRY, not a verdict: the platform started agent %s again after its terminal record '
+        'and that run is still open (the last observed lifecycle event, in the transaction or the '
+        'platform\'s event log, is a start%s). Its workspaces are held until the run ends, the '
+        'session ends, or the hold ages past POST_TERMINAL_RUN_STALE_SECONDS and names an operator. '
+        'This is the fact round 11 assumed could not happen; it is measured, and it is refused '
+        'rather than assumed away' % (aid[:8] or '?', (' at %s' % since.isoformat(timespec='seconds')) if since else ''))
 
 
 # ---------------------------------------------------------------------------
@@ -442,23 +518,48 @@ def _release_dead_lock(repo, path, lock_line):
 #      again before the branch delete, and both reviewers confirmed it held.
 #      It is what makes a restart survivable instead of destructive.
 #   2. NOTHING IS WRITING HERE NOW. The platform writes its lock on a native
-#      worktree BEFORE the run begins — measured on two live agents on this
-#      machine, 43 ms and 49 ms before the SubagentStart hook fired — so an
-#      ABSENT lock is a fact about the present, not a guess about the future.
-#      And the race is closed by git rather than by our timing: `git worktree
-#      remove` without --force REFUSES a locked worktree ("cannot remove a
-#      locked working tree", exit 128, git 2.52.0, measured) and refuses a
-#      tree with modified or untracked files. If a restart begins between the
-#      check and the removal, the platform re-locks and the removal FAILS.
+#      worktree BEFORE an INITIAL run begins — measured, four of four initial
+#      starts on this machine, 42.9 to 101.6 ms before the SubagentStart hook
+#      (`restart-after-terminal-measure.py --locks`) — so an ABSENT lock is a
+#      fact about the present, not a guess about the future. Non-force `git
+#      worktree remove` refuses a locked worktree ("fatal: cannot remove a
+#      locked working tree", exit 128 — measured 2026-09-10 under
+#      completion-proof.GIT, /Library/Developer/CommandLineTools/usr/bin/git
+#      = `git version 2.50.1 (Apple Git-155)`, the binary this lane runs; the
+#      earlier citation named Homebrew's 2.52.0, which is on the operator's
+#      PATH and refuses the same way) and refuses a tree with modified or
+#      untracked files.
+#      CORRECTED ROUND 13: "if a restart begins between the check and the
+#      removal, the platform re-locks and the removal FAILS" stood here and
+#      was measured only on initial starts. Re-locking on a restart is
+#      UNMEASURED — `--locks` (b): 0 of 3 restarts with a lock on disk
+#      re-took it, all three held it throughout; (c): the 4 restarts into
+#      witnessed-unlocked trees are unobservable. The lock is defense in
+#      depth. What makes a restart into an UNLOCKED tree survivable is 1
+#      above, 4 below, and 5.
 #   3. NO PROCESS STANDS IN THE TREE, from a probe that fails closed.
-#   4. THE RECORD DOES NOT SHOW AN OPEN POST-TERMINAL RUN (owner_check).
+#   4. THE RECORD DOES NOT SHOW AN OPEN POST-TERMINAL RUN (owner_check, row
+#      5, from the transaction's notes AND the platform's own event log).
+#   5. THE WRITE BARRIER. guard-sealed-worktree.sh refuses a terminal agent
+#      EVERY tool, Read included — its own header: "refused EVERY tool,
+#      sealed or not, read-only or not" — observed live on fix1's restarts at
+#      19:57Z and 20:27Z and on sage-fable-cert2's at 21:01Z. A restarted
+#      terminal agent therefore cannot write, so a removal under it is a
+#      DISRUPTION (an agent waking to a directory that is gone) and never a
+#      loss. Load-bearing by mutant `terminal-not-refused` (G15) in
+#      guard-sealed-worktree.mutation.sh. This is the protection the decision
+#      table never named, and the one the next person to relax the barrier
+#      for terminal agents ("read and report but not write") would have
+#      removed without knowing.
 #
 # SO THE HONEST SAFETY CLAIM, WHICH IS SMALLER AND TRUE: a removal cannot
 # destroy work, because a workspace is only removed when its tracked bytes are
-# identical to a commit `main` already contains, its ignored bytes are
-# archived and verified first, and nothing holds it. A restart AFTER a removal
-# is a DISRUPTION — an agent waking in a directory that is gone — not a loss,
-# and it is now detected, recorded on the transaction and announced.
+# identical to a commit `main` already contains, its ignored bytes — nested
+# repositories included — are archived and verified first and re-checked
+# immediately before the removal, and nothing holds it. A restart AFTER a
+# removal is a DISRUPTION — an agent waking in a directory that is gone, and
+# refused every tool — not a loss, and it is detected, recorded on the
+# transaction from two sources, and announced.
 #
 # WHAT IS NOT CLAIMED, deliberately: that a terminal agent cannot run again
 # (it can, ten times over), that a released lock means an agent will not
@@ -559,26 +660,43 @@ def platform_lock_is_absent(member, row):
     in progress. Zero of five production reclaims happened in their own event.
     The lock is not a release signal and the wait was not generous.
 
-    WHAT IT IS INSTEAD, and this is the fact worth having: the platform takes
-    the lock BEFORE the run starts. Measured on this machine from the live
-    admin directories, two agents, both times the lock file's mtime PRECEDES
-    the SubagentStart hook:
+    WHAT IT IS INSTEAD: the platform takes the lock BEFORE an INITIAL run
+    starts. Measured on this machine from the live admin directories, four of
+    four initial starts, lock mtime 42.9 to 101.6 ms ahead of the SubagentStart
+    hook (`restart-after-terminal-measure.py --locks`, line (a)). agent-liveness
+    says the same thing from the other side: "a live agent isolation worktree
+    is always locked." So an ABSENT lock is a statement about the present —
+    nothing is running in there right now — never a prediction.
 
-        agent-a2de3c7d8d8590224  lock 16:07:26.643Z  start 16:07:26.692Z  (-49 ms)
-        agent-a97f2c691c34e2c0f  lock 17:43:41.993Z  start 17:43:42.036Z  (-43 ms)
+    WHAT IT IS NOT (round 13, 2026-09-10, after both reviewers). Round 12
+    wrote here that "a restart that re-locks between this check and the
+    removal makes the removal FAIL rather than race", and offered two
+    initial-start samples as the measurement. Whether the platform re-takes a
+    RELEASED lock for a RESTARTED run has never been observed on this
+    machine: every restart with a lock file on disk (three — fix1 twice,
+    sage-fable-cert2 once) held its lock THROUGHOUT, never released and never
+    re-taken, lock mtime unchanged; and the four restarts into trees the
+    reaper had witnessed unlocked (q1, inf1, gate1, own1 at 14:34:37Z) left
+    no admin directory to read. `--locks` reports that as (b) 0 of 3 and (c)
+    4, unobservable. So this predicate, and git's refusal behind it, catch a
+    lock that IS there; they promise nothing for a restart into an unlocked
+    tree. What protects THAT case is named where it lives:
 
-    agent-liveness says the same thing from the other side: "a live agent
-    isolation worktree is always locked."
+      * row 5, post_terminal_run_open — an open post-terminal run holds every
+        member, read from two sources;
+      * THE WRITE BARRIER — guard-sealed-worktree.sh refuses a terminal agent
+        EVERY tool, Read included, so a restarted terminal agent cannot write
+        into a workspace whether or not it still exists (mutant
+        `terminal-not-refused`, G15, in guard-sealed-worktree.mutation.sh
+        proves the refusal load-bearing);
+      * the ancestor gate, re-verified immediately before the removal.
 
-    So an ABSENT lock is a statement about the present — nothing is running in
-    there right now — rather than a prediction that nothing will. That is
-    exactly what a removal needs, because the removal is now protected against
-    the future by git: `git worktree remove` without --force refuses a locked
-    worktree, so a restart that re-locks between this check and the removal
-    makes the removal FAIL rather than race.
+    A removal under an unlocked restart is therefore a DISRUPTION, not a
+    loss. The lock is defense in depth, and this docstring no longer calls
+    it the fact the design rests on.
 
-    A HELD LOCK IS THEREFORE NOT A WAIT THAT EXPIRED. It is the platform
-    holding this workspace, and it is journaled in those words.
+    A HELD LOCK IS NOT A WAIT THAT EXPIRED. It is the platform holding this
+    workspace, and it is journaled in those words.
     """
     if row is None:
         return False, 'exact registration required'
@@ -645,14 +763,51 @@ def workspace_is_free_to_remove(tx, transaction, member, row):
 # ---------------------------------------------------------------------------
 
 def ignored_files(path):
+    """Every ignored path under `path`, one entry per FILE -- except where git
+    meets a NESTED REPOSITORY, which `ls-files --others --ignored` (without
+    --directory) reports as ONE directory entry with a trailing slash and
+    does not descend into. Measured 2026-09-10 under the lane's own binary
+    (completion-proof.GIT = /Library/Developer/CommandLineTools/usr/bin/git,
+    `git version 2.50.1 (Apple Git-155)`): a clone at `vendor/lib` inside an
+    ignored `vendor/` lists as `['extra', 'vendor/lib/', 'vendor/plain-ignored']`.
+    The trailing slash is therefore the signature of a nested repository, and
+    is_nested_repository() reads it as exactly that."""
     raw = _load('completion-proof').git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').stdout
     return [os.fsdecode(x) for x in raw.split(b'\0') if x]
+
+
+def is_nested_repository(rel):
+    """A trailing slash from ignored_files() is a directory git would not
+    enter: a nested repository (its own `.git`, its own commits)."""
+    return rel.endswith('/')
+
+
+def never_disposable(rel):
+    """FRANK R1 (round two, 2026-09-10), THE ONLY LOSS PATH FOUND IN TWO ROUNDS
+    OF REVIEW. partition_ignored() sent a path to the dropped set when ANY of
+    its components was on the disposable list -- and a nested repository under
+    `vendor/`, `.cache/`, `build/` or `node_modules/` arrives here as a single
+    directory entry whose parent component is on that list, so a clone an
+    agent made there, WITH ITS COMMITS, was classified disposable by its
+    parent's name, archived by nobody, and deleted by the non-force removal
+    that follows (reproduced: `nested: (0, '') | exists after: False`). The
+    disposable list's own bar is "a build reproduces it from what is
+    committed"; no build reproduces somebody's commits.
+
+    So two things are never disposable, whatever their parent is called: a
+    nested repository (the trailing-slash entry), and any path carrying a
+    `.git` component. Both go to the residue, which is archived and verified
+    before anything is removed -- or, if the archive cannot take them, HELD.
+    """
+    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
 
 
 def partition_ignored(files, disposable):
     keep, residue = [], []
     for rel in files:
-        if any(component in disposable for component in rel.split('/')):
+        if never_disposable(rel):
+            residue.append(rel)
+        elif any(component in disposable for component in rel.split('/')):
             keep.append(rel)
         else:
             residue.append(rel)
@@ -695,26 +850,70 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def archive_residue(tx, transaction, index, path, residue):
-    """Archive every ignored, non-disposable file under `path` into the
-    capture store, re-read the archive and verify every entry against its
-    manifest, and return the record the journal carries. Raises on any
-    mismatch — an unverified archive never authorizes a removal."""
-    _assert_capture_rooting(tx)
-    cdir = _capture_dir(tx, transaction, index)
-    _private_dirs(tx.capture_root(), cdir)
-    manifest = {}
-    total = 0
+def _expand_residue(path, residue):
+    """The residue as filesystem objects: every plain entry as itself, and
+    every NESTED REPOSITORY entry (trailing slash) expanded to every object
+    under it -- directories, files and symlinks, `.git` included, symlinks
+    never followed. Returns [(rel, kind)], with `rel` never carrying a
+    trailing slash. Anything that is not a directory, a regular file or a
+    symlink raises: the archive cannot take it, so the workspace is HELD."""
+    out = []
     for rel in sorted(residue):
+        if not is_nested_repository(rel):
+            out.append((rel, None))
+            continue
+        top = os.path.join(path, rel.rstrip('/'))
+        if os.path.islink(top) or not os.path.isdir(top):
+            raise RuntimeError('ignored entry %s is listed as a directory but is not one; retained' % rel)
+        for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+            reldir = os.path.relpath(dirpath, path)
+            out.append((reldir, 'dir'))
+            # os.walk lists a symlink-to-directory in dirnames and (with
+            # followlinks=False) never enters it; it is archived AS a symlink.
+            for name in sorted(dirnames):
+                if os.path.islink(os.path.join(dirpath, name)):
+                    out.append((os.path.join(reldir, name), None))
+            for name in sorted(filenames):
+                out.append((os.path.join(reldir, name), None))
+    return out
+
+
+def residue_manifest(path, residue):
+    """The manifest of the residue AS IT IS ON DISK NOW: kind, mode, size and
+    digest of every object. Computed once for the archive and ONCE MORE
+    immediately before the removal (Sage D3, round two, 2026-09-10): the
+    archive was verified against the manifest at archive time, and nothing
+    re-listed or re-digested the ignored files before the `rm`, so a writer
+    that started after the process probe and wrote an ignored file inside the
+    archive-to-remove window lost those bytes. The tracked side already had
+    its last look; this is the ignored side's."""
+    manifest = {}
+    for rel, kind in _expand_residue(path, residue):
         full = os.path.join(path, rel)
         info = os.lstat(full)
         if stat.S_ISLNK(info.st_mode):
             manifest[rel] = {'kind': 'symlink', 'target': os.readlink(full), 'mode': info.st_mode & 0o7777}
+        elif stat.S_ISDIR(info.st_mode) and kind == 'dir':
+            manifest[rel] = {'kind': 'dir', 'mode': info.st_mode & 0o7777}
         elif stat.S_ISREG(info.st_mode):
             manifest[rel] = {'kind': 'file', 'size': info.st_size, 'mode': info.st_mode & 0o7777, 'sha256': _sha256(full)}
-            total += info.st_size
         else:
-            raise RuntimeError('ignored residue %s is neither a file nor a symlink; retained' % rel)
+            raise RuntimeError('ignored residue %s is neither a file, a directory of a nested repository, nor a symlink; retained' % rel)
+    return manifest
+
+
+def archive_residue(tx, transaction, index, path, residue):
+    """Archive every ignored, non-disposable object under `path` into the
+    capture store -- a nested repository whole, `.git` and all -- re-read the
+    archive and verify every entry against its manifest, and return the record
+    the journal carries plus the manifest itself (for the last look before
+    the removal). Raises on any mismatch — an unverified archive never
+    authorizes a removal."""
+    _assert_capture_rooting(tx)
+    cdir = _capture_dir(tx, transaction, index)
+    _private_dirs(tx.capture_root(), cdir)
+    manifest = residue_manifest(path, residue)
+    total = sum(e['size'] for e in manifest.values() if e['kind'] == 'file')
     tar_path = os.path.join(cdir, 'ignored-residue.tar')
     tmp = tar_path + '.tmp'
     if os.path.lexists(tmp):
@@ -725,6 +924,11 @@ def archive_residue(tx, transaction, index, path, residue):
             entry = manifest[rel]
             if entry['kind'] == 'file':
                 tar.add(os.path.join(path, rel), arcname=rel, recursive=False)
+            elif entry['kind'] == 'dir':
+                ti = tarfile.TarInfo(rel)
+                ti.type = tarfile.DIRTYPE
+                ti.mode = entry['mode']
+                tar.addfile(ti)
             else:
                 ti = tarfile.TarInfo(rel)
                 ti.type = tarfile.SYMTYPE
@@ -735,9 +939,18 @@ def archive_residue(tx, transaction, index, path, residue):
         os.fsync(raw.fileno())
     os.replace(tmp, tar_path)
     verify_residue_archive(tar_path, manifest)
-    record = {'archive': tar_path, 'files': len(manifest), 'bytes': total,
+    nested = sorted(rel.rstrip('/') for rel in residue if is_nested_repository(rel))
+    record = {'archive': tar_path,
+              'files': sum(1 for e in manifest.values() if e['kind'] != 'dir'),
+              'directories': sum(1 for e in manifest.values() if e['kind'] == 'dir'),
+              'bytes': total,
               'manifest_sha256': hashlib.sha256(json.dumps(manifest, sort_keys=True).encode('utf-8')).hexdigest(),
               'archived_ts': tx.now_iso()}
+    if nested:
+        # A PERSON SHOULD KNOW A REPOSITORY WENT INTO THE ARCHIVE. Its commits
+        # are in there, verified, and nowhere else the engine knows of.
+        record['nested_repositories'] = nested[:20]
+        record['nested_repository_count'] = len(nested)
     # WHAT WENT IN THAT A PERSON SHOULD KNOW ABOUT (Frank D13, 2026-09-10).
     # The residue archive is where a workspace's IGNORED files go, and `.env`
     # files are ignored by construction — 51 archives on this machine, at least
@@ -757,7 +970,27 @@ def archive_residue(tx, transaction, index, path, residue):
         record['secret_bearing'] = secretish[:20]
         record['secret_bearing_count'] = len(secretish)
     tx.atomic_write_json(os.path.join(cdir, 'ignored-residue.json'), {'manifest': manifest, 'record': record})
-    return record
+    return record, manifest
+
+
+def residue_last_look(path, repo, archived_manifest):
+    """(unchanged, reason) — THE LAST LOOK ON THE IGNORED SIDE (Sage D3).
+    Re-list the ignored files and re-derive their manifest immediately before
+    `git worktree remove`; anything the archive does not hold byte for byte
+    is a RETRY. `archived_manifest` is {} when nothing was archived, and a
+    residue that has appeared since is a difference like any other. A new
+    DISPOSABLE file is not: by the committed policy a build reproduces it."""
+    _keep, residue = partition_ignored(ignored_files(path), disposable_paths(repo))
+    now = residue_manifest(path, residue) if residue else {}
+    archived = archived_manifest or {}
+    if now == archived:
+        return True, ''
+    added = sorted(set(now) - set(archived))
+    gone = sorted(set(archived) - set(now))
+    changed = sorted(rel for rel in set(now) & set(archived) if now[rel] != archived[rel])
+    return False, ('the ignored bytes changed between the archive and the removal (%d added, %d gone, '
+                   '%d changed; e.g. %s); the archive no longer matches the tree, so nothing is removed'
+                   % (len(added), len(gone), len(changed), (added + changed + gone)[:3]))
 
 
 # Filenames that conventionally hold credentials. A NAME check, deliberately:
@@ -788,7 +1021,10 @@ def verify_residue_archive(tar_path, manifest):
                 raise RuntimeError('residue archive lacks %s' % rel)
             if (ti.mode & 0o7777) != info['mode']:
                 raise RuntimeError('residue archive mode mismatch for %s' % rel)
-            if info['kind'] == 'file':
+            if info['kind'] == 'dir':
+                if not ti.isdir():
+                    raise RuntimeError('residue archive type mismatch for directory %s' % rel)
+            elif info['kind'] == 'file':
                 if not ti.isreg() or ti.size != info['size']:
                     raise RuntimeError('residue archive size/type mismatch for %s' % rel)
                 h = hashlib.sha256()
@@ -994,7 +1230,7 @@ def _absent_native_without_receipt(tx, transaction, index):
             if proof_api.git(repo, 'merge-base', '--is-ancestor', pinned, main, allowed=(0, 1)).returncode == 0:
                 _git(repo, 'update-ref', '--no-deref', '-d', backup, pinned)
     journal = {'version': 1, 'phase': 'complete', 'proof_source': 'recorded-head', 'head': member.get('head') or '',
-               'branch': ref, 'tip': tip, 'integration_tip': main}
+               'branch': ref, 'tip': tip, 'integration_tip': main, 'removed_ts': tx.now_iso()}
     return tx.update_member(sid, aid, index, daily_cleanup=journal, cleanup_policy='integrated-daily',
                             closed='integrated-daily-cleanup', blocked=False, retry_after_epoch=0, last_error=None)
 
@@ -1174,25 +1410,44 @@ def reconcile(tx, transaction, index):
                                'kills a process; the hold clears when they leave'
                                % (describe_processes(pids), member['path']))
         keep, residue = partition_ignored(ignored_files(member['path']), disposable_paths(repo))
-        residue_record = archive_residue(tx, transaction, index, member['path'], residue) if residue else None
+        residue_record, residue_archived = (archive_residue(tx, transaction, index, member['path'], residue)
+                                            if residue else (None, {}))
         owner_check(tx, transaction, member)
         proof_api.verify_member_proof(proof)
         # THE LAST LOOK, AFTER THE ARCHIVE AND BEFORE THE REMOVAL. Archiving a
-        # large residue takes seconds, and a restart can begin inside them: the
-        # platform re-locks the worktree BEFORE the run starts (measured, 43 ms
-        # and 49 ms ahead of the SubagentStart hook on two live agents), so
-        # re-reading the registration here is a present-tense check and not a
-        # guess. It is deliberately belt AND braces: `git worktree remove`
-        # without --force refuses a locked worktree by itself ("cannot remove a
-        # locked working tree", exit 128, git 2.52.0, measured), so the race
-        # closes even if this check is somehow skipped — but a refusal that
-        # says WHY is worth more to whoever reads the journal than git's.
+        # large residue takes seconds, and a restart can begin inside them.
+        # Re-reading the registration here is a present-tense check of the
+        # lock, and `git worktree remove` without --force refuses a locked
+        # worktree by itself ("fatal: cannot remove a locked working tree",
+        # exit 128 -- measured 2026-09-10 under completion-proof.GIT, Apple
+        # Git 2.50.1, and under Homebrew git 2.52.0; both refuse).
+        #
+        # WHAT THIS CHECK IS NOT (corrected round 13, 2026-09-10, after both
+        # reviewers): it is NOT the thing that makes a restart survivable.
+        # The sentence that stood here -- "the platform re-locks the worktree
+        # BEFORE the run starts (measured, 43 ms and 49 ms ...)" -- was
+        # measured on two INITIAL starts. Whether the platform re-takes a
+        # RELEASED lock for a RESTARTED run has not been observed on this
+        # machine, and the four restarts into trees the reaper had witnessed
+        # unlocked (q1, inf1, gate1, own1 at 14:34:37Z) left no artifact that
+        # says either way: `restart-after-terminal-measure.py --locks`. So
+        # this look catches a lock that IS there; it promises nothing about a
+        # lock that is not. What protects the unlocked-restart case is named
+        # in owner_check (row 5, from two sources) and in the write barrier
+        # (guard-sealed-worktree.sh refuses a terminal agent every tool), and
+        # the ancestor gate re-verified on the line above.
         fresh = proof_api.registry(repo).get(member['path'])
         if not fresh or 'locked' in fresh or 'prunable' in fresh:
             raise RuntimeError(
                 'RETRY, not a verdict: the platform holds this workspace again as of this instant '
                 '(%s). Something started in it while the reclaim was preparing; nothing is removed'
                 % ('re-locked' if fresh and 'locked' in fresh else 'registration changed'))
+        # THE LAST LOOK ON THE IGNORED SIDE (Sage D3): the archive was verified
+        # when it was written; the tree may have moved since. Nothing is
+        # removed that the archive does not hold byte for byte.
+        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)
+        if not unchanged:
+            raise RuntimeError('RETRY, not a verdict: ' + why_changed)
         saved = dict(saved, ignored_disposable=len(keep), ignored_residue=residue_record)
         tx.update_member(sid, aid, index, daily_cleanup=saved, cleanup_policy='integrated-daily')
         _git(repo, 'worktree', 'remove', '--', member['path'])
@@ -1200,7 +1455,10 @@ def reconcile(tx, transaction, index):
     registry = proof_api.registry(member['repo'])
     if member['path'] in registry or os.path.lexists(member['path']):
         raise RuntimeError('workspace removal is not complete')
-    saved = dict(saved, phase='worktree-removed')
+    # WHEN (Sage D6): the record could say a workspace was removed and not
+    # when, so ordering a restart against a removal had to be inferred from
+    # grounds. It is read now. UTC, like every other stamp in this store.
+    saved = dict(saved, phase='worktree-removed', worktree_removed_ts=tx.now_iso())
     tx.update_member(sid, aid, index, daily_cleanup=saved, cleanup_policy='integrated-daily')
     proof_api.verify_member_proof(proof, path_present=False)
     owner_check(tx, transaction, member)
@@ -1231,7 +1489,7 @@ def reconcile(tx, transaction, index):
                 raise RuntimeError('native recovery ref changed; retained')
             _git(member['repo'], 'merge-base', '--is-ancestor', head, proof['integration_ref'])
             _git(member['repo'], 'update-ref', '--no-deref', '-d', backup, head)
-    saved = dict(saved, phase='complete')
+    saved = dict(saved, phase='complete', removed_ts=tx.now_iso())
     return tx.update_member(sid, aid, index, daily_cleanup=saved, state='removed',
                             closed='integrated-daily-cleanup', blocked=False,
                             retry_after_epoch=0, last_error=None)
@@ -1320,7 +1578,7 @@ def await_platform_release(tx, transaction, member, deadline):
         time.sleep(0.1)
 
 
-def reclaim_now(tx, transaction, index, deadline=None):
+def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None):
     """Capture, verify and remove this member's workspace in the terminal
     event itself. Returns (outcome, detail) with outcome one of
 
@@ -1328,6 +1586,11 @@ def reclaim_now(tx, transaction, index, deadline=None):
         deferred    a refusal, a hold or an expired wait — the nightly
                     reconciler retries it with everything it always did
         skipped     not this lane's member at all
+
+    `deadline` bounds the wait for the platform's lock; `budget_deadline`
+    (the calling hook's own, Sage D4) caps that wait too, and `max_files` is
+    the tracked-file ceiling above which the member is not started here at
+    all — the same two bounds sweep_session applies to its candidates.
 
     NEVER RAISES. A terminal event must not be prevented by a cleanup, and a
     worker must never be kept alive by this function's own failure. Every
@@ -1386,15 +1649,30 @@ def reclaim_now(tx, transaction, index, deadline=None):
             return 'skipped', 'historical record keeps its own recovery protocol'
         if (member.get('daily_cleanup') or {}).get('phase') == 'complete':
             return 'skipped', 'already reclaimed'
-        if tx.running_after_terminal(transaction):
-            return journal('deferred',
-                           'the platform started this agent again after its terminal record and '
-                           'that run is still open; no workspace of an agent mid-run is touched')
+        if budget_deadline is not None and time.time() >= budget_deadline:
+            return journal('deferred', 'the terminal event had no budget left for its own member; the '
+                                       'next sweep or the nightly pass takes it with the same refusals')
+        if max_files is not None:
+            count = tracked_file_count(member.get('path') or '')
+            if count is None:
+                return journal('deferred', 'could not count the tracked files of this workspace, so the '
+                                           'in-event reclaim does not start it; the nightly pass has no '
+                                           'budget and will')
+            if count > max_files:
+                return journal('deferred', 'this workspace holds %d tracked files, above the in-event '
+                                           'ceiling of %d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second '
+                                           'hook is the wrong place to start it and the nightly pass is '
+                                           'the right one' % (count, max_files))
+        run_open, why_open = post_terminal_run_open(tx, transaction)
+        if run_open:
+            return journal('deferred', why_open)
         candidate, why = platform_recorded_a_stop(tx, transaction)
         if not candidate:
             return journal('deferred', why)
         if deadline is None:
             deadline = time.time() + unlock_wait_seconds(member.get('repo'))
+        if budget_deadline is not None:
+            deadline = min(deadline, budget_deadline)
         absent, lock_why = await_platform_release(tx, transaction, member, deadline)
         if not absent:
             return journal('deferred', lock_why)
