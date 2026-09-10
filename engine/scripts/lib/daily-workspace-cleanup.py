@@ -1106,12 +1106,20 @@ def assess(tx, transaction, index):
         return 'hold', str(error)
 
 
-def reconcile(tx, transaction, index, immediate=False):
-    """`immediate` = called from the terminal ingress rather than the nightly
-    pass. It changes exactly one thing: the ingress never releases a lock the
-    platform is holding, however unattributable, because in that instant the
-    platform is still putting the worker down. Every other refusal is
-    identical on both paths, deliberately."""
+def reconcile(tx, transaction, index):
+    """Capture, verify and remove ONE member's workspace, or refuse with a
+    reason. The ingress and the nightly pass call exactly this, identically.
+
+    THE `immediate` PARAMETER IS GONE (round 12, 2026-09-10). It existed to
+    make one branch behave differently when called from the stop event — the
+    ingress would not release an unattributable lock, because "in that instant
+    the platform is still putting the worker down". That whole route was
+    deleted with `_release_unattributable_lock`, and the parameter went on
+    being declared, passed and never read: a flag that distinguished two paths
+    which no longer differ. It is not in the decision table
+    (docs/reclaim-decision-table.md), so it is not in the code. Eleven rounds
+    added; the moves that worked were cuts.
+    """
     member = transaction['members'][index]
     if member.get('class') == 'managed-image':
         raise RuntimeError('managed image is not an ordinary worktree')
@@ -1390,7 +1398,7 @@ def reclaim_now(tx, transaction, index, deadline=None):
         absent, lock_why = await_platform_release(tx, transaction, member, deadline)
         if not absent:
             return journal('deferred', lock_why)
-        reconcile(tx, tx.load_tx(sid, aid), index, immediate=True)
+        reconcile(tx, tx.load_tx(sid, aid), index)
     except Exception as error:
         return journal('deferred', error)
     after = tx.load_tx(sid, aid)['members'][index]
