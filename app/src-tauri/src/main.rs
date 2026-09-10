@@ -8,6 +8,9 @@
 
 mod activation;
 mod events;
+// WHAT THE PERSON SEES WHEN THIS PROCESS DIES BEFORE THE WINDOW EXISTS. Declared next to
+// `activation` because it is armed by activation's own three-fact rule and by nothing else.
+mod startup_alert;
 mod update_startup;
 
 use richos_core::native::{resolve_claude_bin, NativeCognition};
@@ -890,6 +893,22 @@ fn main() {
     // Use the same merged build version for the probe, startup and final app.
     let context = tauri::generate_context!();
     let compiled_version = context.package_info().version.to_string();
+    // =====================================================================================
+    // THE FIRST LINE THAT CAN SPEAK — BECAUSE EVERYTHING BELOW IT COULD DIE IN SILENCE
+    // =====================================================================================
+    //
+    // Until this line existed, every failure between here and the window was an `eprintln!`
+    // and a `return`. Launched from Finder or the Dock there is no stderr anybody reads, so
+    // the whole of the user's experience was an icon that bounced once and stopped.
+    //
+    // `startup_alert` installs a panic hook and arms a native alert, and its header carries
+    // the enumeration of all twelve sites in the class, the five alternatives that were
+    // rejected, and the measurement behind the one that was chosen. It is FIRST because a
+    // hook installed after the thing it must catch catches nothing.
+    //
+    // `generate_context!()` on the line above is compile-generated construction with nothing
+    // to fail at run time, which is why one line of `main` is deliberately outside the net.
+    startup_alert::install(&context.config().identifier, &compiled_version);
     if update_startup::identity_probe(&compiled_version) {
         return;
     }
@@ -898,8 +917,32 @@ fn main() {
     let _update_session = match update_startup::prepare(&compiled_version) {
         Ok(session) => session,
         Err(error) => {
-            eprintln!("[richos] application startup: {error}");
-            return;
+            // SHAPE 1 of the class `startup_alert` enumerates, and the one `tom-opus-ui1`
+            // reported: nine real failure strings that no surface could render, because
+            // this runs before Tauri exists and a Finder launch has no stderr.
+            //
+            // The person's sentence is deliberately the SAME for all nine. Every one of them
+            // is this process deciding which copy of RichOS is the right one to run and being
+            // unable to finish that decision — so one honest sentence covers them, and the
+            // error itself, which is an engineer's sentence, goes to the log verbatim.
+            startup_alert::cannot_start(
+                &format!("application startup: {error}"),
+                "RichOS stopped before it could open a window. It was working out which copy \
+                 of itself to run, and that step did not finish — so it closed itself rather \
+                 than start in a state it could not vouch for.\n\nOpening RichOS again is \
+                 worth one try.",
+            );
+            // AND IT EXITS NON-ZERO, which the bare `return` here did not.
+            //
+            // The silence had a second half nobody had looked at: `return` from `main` is
+            // exit 0, so a script that ran this binary and checked `$?` was told the app
+            // started. MEASURED before the change — the same damaged bundle, run with a
+            // parent holding it: `exit=0 elapsed=0s`, one line on stderr, and a success code.
+            // Neither `make-release.sh` nor `rebuild-survival.sh` nor `gui-boot.test.sh` reads
+            // this code (checked 2026-09-10; gui-boot kills the process it boots and
+            // make-release greps the executable rather than running it), so 1 costs nothing
+            // and stops the next harness being lied to.
+            std::process::exit(1);
         }
     };
     let mut args = std::env::args_os().skip(1);
@@ -908,7 +951,19 @@ fn main() {
             .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))
                 .map_err(|e| e.to_string()));
         if let Err(error) = result {
-            eprintln!("[richos] onboarding tool server: {error}");
+            // The second SHAPE 1 site. This one is a stdio tool server the RUNNING app spawns
+            // as a child, so `activation`'s P condition (parent pid 1) is false by
+            // construction and the alert is never armed here — stderr, which its parent
+            // captures, stays the right audience and it goes on being the audience.
+            //
+            // It is routed through the same call anyway, and that is the point: the report
+            // now also reaches `~/Library/Logs/RichOS/startup.log`, where a failure of the
+            // onboarding helper can be read after the fact instead of dying inside a pipe.
+            // No site in this class gets to decide for itself whether it is worth recording.
+            startup_alert::cannot_start(
+                &format!("onboarding tool server: {error}"),
+                "RichOS could not start the helper it uses to set up a new company.",
+            );
             std::process::exit(1);
         }
         return;
@@ -951,6 +1006,14 @@ fn main() {
             // but the variable in use would be a second copy that can disagree.
             let activation = activation::decide(&activation::gather(&data_dir, &app.config().identifier));
             eprintln!("[richos] {}", activation.log_message());
+            // THE SAME DECISION, NOW AUTHORITATIVE, RE-ARMS THE FAILURE ALERT.
+            //
+            // `startup_alert::install` armed itself before Tauri existed and could only
+            // APPROXIMATE condition D — it computed the data directory `app_data_dir()` was
+            // going to return instead of reading it. This line is the first moment the real
+            // `data_dir` is known, so the approximation is replaced rather than left standing.
+            // One decision, two readings, and the later one wins.
+            startup_alert::rearm(activation.presentation);
             #[cfg(target_os = "macos")]
             {
                 // `Accessory` is `NSApplicationActivationPolicyAccessory`: no Dock icon and
@@ -1808,6 +1871,12 @@ fn main() {
             // above are all of it, so nothing further is coming and a missing line is
             // missing rather than late.
             eprintln!("[richos] boot complete — every line above is what this launch resolved");
+            // AND THE FAILURE ALERT STANDS DOWN ON THE SAME LINE, for the reason the marker
+            // above exists at all: this is the program stating where "starting up" ends.
+            // Past it there is a window, the app owns its own surfaces, and a modal system
+            // alert raised by a background thread that panicked would be an interruption
+            // rather than a rescue. The log keeps taking everything either way.
+            startup_alert::disarm();
             Ok(())
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
