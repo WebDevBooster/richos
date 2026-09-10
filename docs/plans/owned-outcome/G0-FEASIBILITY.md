@@ -18,6 +18,42 @@ before its hook runs, and one settings key or one command-line flag switches eve
 The blocker and the smallest viable alternative are in section 6. The other five capabilities
 are reported in full because G1 will need their limits, not because they change the verdict.
 
+### What this verdict does and does not stop — Rich, 2026-09-10
+
+The findings above are Sage's and stand unedited. This section is the orchestrator's reading of
+them, added after the CEO pressed on what the verdict actually means, and it is separated so a
+later reader can reject it without doubting the evidence.
+
+**The blocked capability is a backstop, not the job.** The job is that the CEO is not asked
+routine questions in the first place. Intercepting a question before it is displayed is the net
+that catches a misjudgment about what deserves his attention. Everything the job itself needs —
+intake, team handoff, continuation, cancellation, exit — is proven. So the consequence of this
+blocker is not that the work cannot proceed; it is that the judgment has to be right unaided,
+because nothing downstream will catch it. Rich reported this to the CEO as a decision that was
+due, and it was not.
+
+**The third state in section 5.3 has no recorded instance.** Continuation is unknown across an
+exit while work is live. Measured the same day, in answer to the CEO asking how often he has
+done that: `grep -oE 'session[_ ]gone' ~/.claude/state/worktree-reconciler.log` returns 0 across
+that log's whole history, and `grep -ciE 'dead pid|locked by dead'` returns 0, against 47
+femcboost session transcripts. **Stated caveat, because a clean zero reads stronger than it is:**
+those are the reconciler's own vocabulary and would miss an exit that left nothing registered.
+What would settle it exactly is a per-session join of the idle and task event logs against each
+transcript's final timestamp, which has not been run. The scenario was constructed by a probe in
+a disposable environment; nothing shows the CEO produces it.
+
+**The design constraint that follows costs nothing and is justified on its own merits, not by
+that risk:** durable state lives in a scheduled job, a commit or a file on disk, never in a
+running session's process tree. The evidence for it is positive rather than hypothetical — on
+2026-09-10 the two mechanisms that actually worked unattended, the nightly worktree reconciler
+and the CI watch, are scheduled jobs that ran with no session in existence, while every
+in-session agent died with its parent.
+
+**What still needs the CEO, and when.** Section 6's alternative — what to promise about the
+native terminal, given that RichOS controls its own screen and the terminal does not — is a real
+product decision. It is not due until G1 is actually in question. It was put to him prematurely
+on 2026-09-10 and withdrawn.
+
 ## 1. Pinned host
 
 | Item | Value | Established by |
