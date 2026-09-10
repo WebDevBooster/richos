@@ -96,9 +96,9 @@ export function parseWhisperJson(json, speaker) {
  * THIS IS THE GATE. `whisperArgs()` decides HOW the audio is decoded and the settings table
  * (`docs/measurements/whisper-settings-2026-09-10/`) justifies every value in it — but a decided
  * setting handed to an unknown binary is a decision about nothing. `-fa` is the worked example the
- * table gives: flash attention is whisper.cpp's DEFAULT, it is worth 1.57 WER points, and the
- * table pins it explicitly so a vendor formula bump cannot silently flip it. That defends one
- * flag. This defends the premise underneath all of them.
+ * table gives: flash attention is whisper.cpp's own DEFAULT, and the table pins it explicitly so a
+ * vendor formula bump cannot silently flip it. That defends one flag. This defends the premise
+ * underneath all of them.
  *
  * Refuse-versus-warn, and which is which, is `toolchain.js`'s `SEVERITY` table with its reasons.
  * The short version: a mismatch against a SOURCE pin (the model weights) refuses here; a mismatch

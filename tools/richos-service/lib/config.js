@@ -462,12 +462,24 @@ export const MAX_CONTEXT_TOKENS = 0;
  *   -oj     per-segment timestamps the merge needs; the plain text output has none.
  *   -np     progress prints would corrupt the log; the transcript is read from the JSON file.
  *   -fa     FLASH ATTENTION, and it is passed EXPLICITLY although whisper.cpp 1.9.1 already defaults
- *           it on. Measured: `-nfa` costs 1.57 WER points (4.46% against 2.89%, insertions 8 -> 29)
- *           and 18% wall clock, and drops proper-noun hits 46 -> 41 of 66. A setting worth 1.57
- *           points is too valuable to hold by inheritance from a default that a formula bump can
- *           flip; passing it is byte-identical today and cannot silently change. If a future
- *           whisper-cli drops the flag this fails LOUDLY at the exec, which is the failure mode to
- *           want — the alternative is a silent accuracy regression nobody would attribute.
+ *           it on.
+ *
+ *           THE PIN IS RIGHT; THE NUMBER THAT USED TO SIT HERE IS NOT, AND IT IS RETIRED RATHER
+ *           THAN QUIETLY DROPPED. This row said `-nfa` costs 1.57 WER points (4.46% against
+ *           2.89%). Re-run on 2026-09-10 against a fresh corpus render, on BOTH models in one
+ *           sitting: on q5_0 the effect nearly vanishes (2.89% with `-fa` against 2.99% without —
+ *           two errors in 1,905 tokens), and on full turbo it REVERSES SIGN, 3.20% without
+ *           against 4.09% with, i.e. `-nfa` better by 0.89. Both measurements are correct on
+ *           their own audio; what does not survive a corpus re-render is the DIFFERENCE between
+ *           two configurations when one arm is dominated by a single fabrication event. The CEO
+ *           decision page §10 rules that this number must not be quoted. Do not quote it.
+ *
+ *           WHAT DOES REPRODUCE, on both models and both repetitions: `-nfa` is SLOWER — 12.5% to
+ *           20.0% wall clock. And the reason the flag is passed at all was never the number: it is
+ *           whisper.cpp's own default, and a setting held by inheritance from a vendor default can
+ *           be flipped by a formula bump that nobody would attribute. Passing it is byte-identical
+ *           today and cannot silently change. If a future whisper-cli drops the flag this fails
+ *           LOUDLY at the exec, which is the failure mode to want.
  *
  * @param {{model?: string, language?: string, threads?: number, maxContext?: number,
  *          extraArgs?: string[]}} [opts]
@@ -487,7 +499,7 @@ export function whisperArgs(opts = {}) {
     '-mc', String(Number.isFinite(maxContext) ? maxContext : MAX_CONTEXT_TOKENS),
     '-oj',
     '-np', // no progress prints — keep stdout clean for logging
-    '-fa', // flash attention, pinned rather than inherited — worth 1.57 WER points, see above
+    '-fa', // flash attention, pinned rather than inherited so a formula bump cannot flip it silently
     ...(opts.extraArgs || []),
   ];
 }

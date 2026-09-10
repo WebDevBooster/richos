@@ -153,9 +153,12 @@ surface and belongs with the app; this is the integrity layer beneath it.
 
 Pinning the weights and not the thing that reads them left an exposure the whisper settings
 decision table named in its own §4 and did not fix. Every "vendor default" in that table is a
-property of **one build**: `-fa` alone is worth 1.57 WER points and is a *default*, so a formula
-bump that flipped it would cost more accuracy than any tuning decision there recovers, and nobody
-would attribute the regression. `whisperVersion()` returned the constant string
+property of **one build**: `-fa` is whisper.cpp's own *default*, so a formula bump that flipped it
+would change every transcript this product produces and nobody would attribute the change. (That
+sentence used to quote a 1.57-WER-point cost for losing it. The figure does not reproduce across a
+corpus re-render and reverses sign on full turbo — the model-choice measurement 2026-09-10 §2 — and
+the CEO decision page §10 rules it must not be quoted. The pin stands on the vendor-default
+argument, which was always the load-bearing one.) `whisperVersion()` returned the constant string
 `'whisper.cpp (whisper-cli)'` on every run ever made, so nothing in the record could notice.
 
 **Two tiers, deliberately unequal.** Model weights are pinned **in source** and a mismatch

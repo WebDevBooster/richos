@@ -1076,11 +1076,14 @@ test('MAX_CONTEXT_TOKENS is overridable per call and by env, so an operator is n
 });
 
 test('flash attention is PASSED, not inherited — the vendor default is not the guarantee', () => {
-  // Measured 2026-09-10 (docs/measurements/whisper-settings-2026-09-10): `-nfa` scores 4.46% against
-  // the shipping 2.89% on the 6-call reference corpus — 1.57 WER points and 18% wall clock — and
-  // drops proper-noun exact hits from 46 to 41 of 66. whisper.cpp 1.9.1 happens to default it ON,
-  // which is exactly why it must not be left to the default: the accuracy of every transcript this
-  // product produces would then depend on a Homebrew formula bump nobody would attribute it to.
+  // WHY, and deliberately NOT the accuracy number this comment used to carry. The settings table
+  // recorded `-nfa` costing 1.57 WER points; re-run on 2026-09-10 on a fresh corpus render it
+  // nearly vanishes on q5_0 and REVERSES SIGN on full turbo, so the CEO decision page §10 rules
+  // that figure unquotable. What reproduces on both models and both repetitions is that `-nfa` is
+  // 12.5-20.0% SLOWER. And the reason to pass the flag never depended on either number: whisper.cpp
+  // 1.9.1 happens to default it ON, which is exactly why it must not be LEFT to the default — every
+  // transcript this product produces would then depend on a Homebrew formula bump nobody would
+  // attribute it to.
   const args = whisperArgs();
   assert.ok(args.includes('-fa'), `-fa must be emitted, got ${args.join(' ')}`);
   // It sits BEFORE extraArgs like every other default, so a caller can still say -nfa and be obeyed.
