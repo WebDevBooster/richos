@@ -4106,6 +4106,39 @@ test('resolveToolchain: first run writes a lock; the second run serves the model
   assert.notEqual(third.toolchain.model.sha256, first.toolchain.model.sha256);
 });
 
+test('the per-process memo notices a binary swapped UNDER a long-running watcher', () => {
+  // `richos-service watch` is a daemon and can be up for days. A memo keyed on paths alone would
+  // check the toolchain at the first call of the week and never see a `brew upgrade` on the
+  // Tuesday — and every later transcript would carry a CONFIDENT provenance line naming a binary
+  // no longer on the machine, which is worse than the gap this module closes. The memo is keyed on
+  // the files' stat identity, so it hits only while the bytes are the ones it was built from.
+  const dir = tmp();
+  const bin = path.join(dir, 'whisper-cli');
+  fs.writeFileSync(bin, '#!/bin/sh\necho "whisper.cpp version: 1.9.1"\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  const modelPath = path.join(dir, 'ggml-x.bin');
+  fs.writeFileSync(modelPath, 'weights');
+  const lockFile = path.join(dir, 'lock.json');
+  const args = { binPath: bin, modelPath, modelId: 'unpinned-daemon-test', lockFile };
+
+  resetToolchainCache();
+  const first = resolveToolchain({ ...args }); // memo ON, as the decode path uses it
+  assert.equal(first.toolchain.bin.version, '1.9.1');
+  // A second call in the same process, nothing moved: the memo hits and the object is IDENTICAL.
+  assert.equal(resolveToolchain({ ...args }), first, 'both channels of one call must probe once');
+
+  // Now swap the binary underneath, exactly as a package manager would, WITHOUT clearing the memo.
+  fs.writeFileSync(bin, '#!/bin/sh\necho "whisper.cpp version: 2.0.0"\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  const after = resolveToolchain({ ...args });
+  assert.notEqual(after, first, 'a swapped binary must not be served from the memo');
+  assert.equal(after.toolchain.bin.version, '2.0.0');
+  assert.ok(
+    after.findings.some((f) => f.kind === TOOLCHAIN_FINDING.BIN_CHANGED),
+    'and the swap must be REPORTED, not merely re-probed',
+  );
+});
+
 test('a REFUSED run never updates the lock — a guard that caches what it rejected disarms itself', () => {
   const dir = tmp();
   const bin = fakeWhisper(dir, {});

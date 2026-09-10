@@ -583,7 +583,20 @@ export function buildLock({ observed, previous = null, at = new Date() }) {
 // The one call the decode path makes. Probe, compare, decide, record.
 // ---------------------------------------------------------------------------------------------
 
-/** Per-process memo, so transcribing both channels of one call probes the binary once. */
+/**
+ * Per-process memo, so transcribing both channels of one call probes the binary once.
+ *
+ * KEYED ON THE FILES' STAT IDENTITY, NOT JUST THEIR PATHS, and that is not an optimization — it is
+ * what keeps this correct in the mode the service actually runs in. `richos-service watch` is a
+ * DAEMON: it can be up for days, and a memo keyed on paths alone would check the toolchain once, at
+ * the first call of the week, and never notice a `brew upgrade whisper-cpp` on the Tuesday. Every
+ * later transcript would then be attributed to a binary that no longer exists on the machine,
+ * which is a worse failure than the one this module was written to fix, because it would carry a
+ * confident provenance line.
+ *
+ * A `stat` costs microseconds, so it is taken on every call and the memo hits only while both
+ * files are byte-for-byte the ones the memo was built from.
+ */
 const MEMO = new Map();
 
 /** Forget everything memoized. For tests, and for `--recheck`. */
@@ -612,7 +625,11 @@ export function resolveToolchain({
   memo = true,
   at = new Date(),
 }) {
-  const key = `${binPath}|${modelPath}|${modelId}|${lockFile}|${strict}|${force}`;
+  const stamp = (p) => {
+    const id = fileIdentity(p);
+    return id ? `${id.bytes}:${id.mtimeMs}:${id.ino}:${id.dev}` : 'absent';
+  };
+  const key = `${binPath}@${stamp(binPath)}|${modelPath}@${stamp(modelPath)}|${modelId}|${lockFile}|${strict}|${force}`;
   if (memo && MEMO.has(key)) return MEMO.get(key);
 
   const observed = probeWhisper(binPath);
