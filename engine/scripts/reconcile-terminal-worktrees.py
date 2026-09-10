@@ -1190,8 +1190,72 @@ def preview():
             counts[decision] = counts.get(decision, 0) + 1
             print("PREVIEW %s %s — %s/%s %s — %s" % (decision, m.get("path"), t["session_id"][:8], t["agent_id"],
                                                      t.get("teammate") or "(adopted)", reason[:240]))
-    print("=== preview: remove=%d branch-only=%d observe=%d hold=%d ===" % (
-        counts["remove"], counts["branch-only"], counts["observe"], counts["hold"]))
+    # ===================================================================
+    # WHAT THIS LANE DID NOT EXAMINE — ceo-decisions.md section 31, and R5
+    # ===================================================================
+    # Section 31: "an excluded workspace is REPORTED, never silently skipped:
+    # 'excluded by CEO ruling', never counted as clean and never absent from
+    # the report." Until 2026-09-10 this preview named six holds and NO Codex
+    # workspace while three stood on the machine (`grep -ci codex` over its own
+    # output: 0). The refusal half of section 31 was satisfied by construction;
+    # the reporting half was violated by construction, and the ruling is the
+    # thing the CEO reads.
+    #
+    # So every registered worktree in every repository this lane touches is
+    # listed when it is NOT a member of any transaction — a Codex tree as
+    # EXCLUDED BY CEO RULING, anything else as simply not examined, which is
+    # R5's requirement that a check reports what it did not look at. Nothing
+    # here decides anything: this function writes nothing and this block reads
+    # `git worktree list` and the transaction manifests, and prints.
+    excluded, unexamined = [], []
+    try:
+        members = set()
+        repos = set()
+        for t in list(tx.iter_transactions()):
+            for m in t.get("members") or []:
+                if m.get("path"):
+                    members.add(os.path.realpath(m["path"]))
+                if m.get("repo"):
+                    repos.add(os.path.realpath(m["repo"]))
+        codex_root = os.path.realpath(os.path.join(os.path.expanduser("~"), ".codex", "worktrees"))
+        proof = _load("completion_proof", os.path.join(HERE, "lib", "completion-proof.py"))
+        for repo in sorted(repos):
+            try:
+                registry = proof.registry(repo)
+            except Exception as e:
+                unexamined.append((repo, "its worktree registry could not be read: %s" % e))
+                continue
+            for path, row in sorted(registry.items()):
+                real = os.path.realpath(path)
+                if real in members or real == os.path.realpath(repo):
+                    continue
+                branch = (row.get("branch") or "")
+                branch = branch[len("refs/heads/"):] if branch.startswith("refs/heads/") else branch
+                if branch.startswith("codex/") or real == codex_root or real.startswith(codex_root + os.sep):
+                    excluded.append((path, branch or "(detached)"))
+                else:
+                    unexamined.append((path, "no transaction of this engine owns it (branch %s)"
+                                       % (branch or "(detached)")))
+    except Exception as e:
+        unexamined.append(("(enumeration)", "the not-examined pass itself failed: %s" % e))
+    print("")
+    print("EXCLUDED BY CEO RULING (ceo-decisions.md section 31) — never removed, "
+          "never counted as clean, and never the reason anything else is refused (%d):" % len(excluded))
+    for path, branch in excluded:
+        print("  EXCLUDED %s — %s" % (path, branch))
+    if not excluded:
+        print("  (none present)")
+    print("NOT EXAMINED — registered in a repository this lane touches, owned by "
+          "no transaction of this engine (%d):" % len(unexamined))
+    for path, why in unexamined:
+        print("  NOT-EXAMINED %s — %s" % (path, why))
+    if not unexamined:
+        print("  (none)")
+    print("=== preview: remove=%d branch-only=%d observe=%d hold=%d excluded=%d not-examined=%d ===" % (
+        counts["remove"], counts["branch-only"], counts["observe"], counts["hold"],
+        len(excluded), len(unexamined)))
+    counts["excluded"] = len(excluded)
+    counts["not_examined"] = len(unexamined)
     return counts
 
 

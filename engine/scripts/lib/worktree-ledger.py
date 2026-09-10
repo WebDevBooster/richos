@@ -182,6 +182,47 @@ AGENT_ID_IN_RESPONSE_RE = re.compile(r"agentId:\s*([A-Za-z0-9_-]+)")
 
 DEFAULT_PATH = os.path.join(os.path.expanduser("~"), ".claude", "state", "worktree-ledger.jsonl")
 
+# --------------------------------------------------------------------------
+# WHO MAY WRITE A ROW THAT BINDS A WORKSPACE TO AN AGENT BY NAME
+# --------------------------------------------------------------------------
+# The ledger is an append-only JSONL with no writer authentication, and it has
+# to be: it is the durable record precisely because anything can add to it and
+# nothing can rewrite it. That is fine for a row that RESERVES — a claim that
+# something is in use costs a workspace a night and never destroys one.
+#
+# It is not fine for a row that AUTHORIZES. On 2026-09-10 at 14:23:47 UTC a row
+# was appended by hand with source `rich-operator-amnesty`, carrying a session
+# id and a teammate name and NO agent id, to bring a workspace nothing had
+# registered into the reclamation lane. It worked: both the transaction store's
+# late binding and the cleanup's owner check accept an id-less row that names
+# this session and this teammate, and 45 minutes later that workspace was gone.
+# The identical row with a `codex/` path would have passed the same lane, and
+# ceo-decisions.md section 31 says a Codex workspace is never removed without
+# the CEO's express word. Section 31's protection rested on "we only ever
+# remove what we registered" — and this is the door through which a hand can
+# register anything.
+#
+# So a row binds by TEAMMATE NAME only when an engine writer wrote it. A row
+# carrying the platform's own agent id is unaffected and needs no allowlist:
+# that id is minted by the platform and cannot be typed into a name field.
+# Measured on this machine 2026-09-10: 617 of 621 prepared/registered rows come
+# from these two writers, and the 4 that do not are the hand-written ones —
+# `rich-land-binding` (2) and `rich-operator-amnesty` (2).
+#
+# An operator who genuinely needs to hand a workspace to the lane still can:
+# register it with create-teammate-worktree.sh, or let the CEO rule on it. What
+# they can no longer do is type a row that authorizes a deletion.
+BINDING_LEDGER_WRITERS = ("create-teammate-worktree.sh", "detect-nonnative-worktree.sh")
+
+
+def row_may_bind_by_name(row):
+    """A ledger row may be joined to a transaction BY TEAMMATE NAME only when
+    an engine writer wrote it. Any other row still RESERVES (fail-closed) and
+    is reported; it simply never authorizes."""
+    if not isinstance(row, dict):
+        return False
+    return (row.get("source") or "").strip() in BINDING_LEDGER_WRITERS
+
 
 # --------------------------------------------------------------------------
 # storage

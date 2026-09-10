@@ -150,16 +150,56 @@ def _adopted_owns_row(transaction, member, row):
     return os.path.realpath(row.get('worktree') or '') == os.path.realpath(member.get('path') or '')
 
 
+def ceo_owned_workspace(member):
+    """(is_ceo_owned, why) — ceo-decisions.md section 31, IN THE MECHANISM.
+
+    Section 31: "no sweep, reaper, reconciler or land sequence removes a
+    `codex/` workspace ... There is no blanket flag, no reason string that
+    unlocks the class", and "an excluded workspace is REPORTED, never silently
+    skipped: 'excluded by CEO ruling', never counted as clean and never absent
+    from the report."
+
+    Until 2026-09-10 no removal path in this engine tested for it. The argument
+    was that Codex folders are never registered by us, so they are never
+    members and never reached — and that argument is true, and section 31 says
+    in as many words that it must not be the defense: "The record hole WAS the
+    protection ... Closing it without this ruling in the mechanism would have
+    destroyed all eight on the first sweep." The same day, a hand-written
+    ledger row brought an unregistered workspace INTO the lane and it was
+    removed 45 minutes later, which is the record hole being closed by hand.
+    That door is shut separately (worktree-ledger.BINDING_LEDGER_WRITERS); this
+    is the ruling itself, in the code, so it holds even if the door opens
+    again.
+
+    It is a REFUSAL TO REMOVE and never a reason to act on anything: no path
+    removes, unlocks, refuses or reports anything ELSE because of it.
+    """
+    branch = (member.get('branch') or '')
+    branch = branch[len('refs/heads/'):] if branch.startswith('refs/heads/') else branch
+    if branch.startswith('codex/'):
+        return True, ('branch %s is the CEO\'s by ceo-decisions.md section 31 — excluded by CEO '
+                      'ruling, and there is no flag and no reason string that unlocks the class' % branch)
+    path = os.path.realpath(member.get('path') or '') if member.get('path') else ''
+    codex_root = os.path.realpath(os.path.join(os.path.expanduser('~'), '.codex', 'worktrees'))
+    if path and (path == codex_root or path.startswith(codex_root + os.sep)):
+        return True, ('%s is under %s and is the CEO\'s by ceo-decisions.md section 31 — excluded '
+                      'by CEO ruling' % (path, codex_root))
+    return False, ''
+
+
 def owner_check(tx, transaction, member):
     """Positive terminal fact plus fresh complete competing-reservation veto.
 
-    A workspace this engine never registered reaches none of this: it is not a
-    member of any transaction, so it is never a candidate. That is how the
-    CEO's codex ruling (ceo-decisions.md section 31) is satisfied here — by
-    construction rather than by a name check, because Codex's folders were
-    never registered by us. Measured 2026-09-10: 0 codex paths in any
-    transaction manifest, 0 codex rows in the ownership ledger.
+    A workspace this engine never registered is not a member of any
+    transaction, so it is never a candidate. That was offered as satisfying the
+    CEO's codex ruling by construction; section 31 says outright that the
+    record hole must not BE the protection, so ceo_owned_workspace is checked
+    FIRST, before any other gate, and is defense in depth rather than the
+    defense.
     """
+    ceo_owned, why = ceo_owned_workspace(member)
+    if ceo_owned:
+        raise RuntimeError('EXCLUDED BY CEO RULING (ceo-decisions.md section 31): ' + why)
     if not terminal_fact(transaction):
         raise RuntimeError('exact sealed native terminal ownership required')
     sid, aid = transaction['session_id'], transaction['agent_id']
@@ -210,7 +250,15 @@ def owner_check(tx, transaction, member):
                 own = key == (sid, aid) or _adopted_owns_row(transaction, member, row)
                 if (not own and not row.get('agent_id') and row.get('session_id') == sid
                         and row.get('teammate') == transaction.get('teammate')
-                        and bool(transaction.get('teammate'))):
+                        and bool(transaction.get('teammate'))
+                        # AN ENGINE WRITER, OR THE NAME JOIN DOES NOT HAPPEN.
+                        # See worktree-ledger.BINDING_LEDGER_WRITERS: a hand
+                        # -written row with a session, a teammate and no agent
+                        # id put an unregistered workspace into this lane on
+                        # 2026-09-10 and it was removed 45 minutes later. Such a
+                        # row still RESERVES below (fail-closed); it never
+                        # authorizes.
+                        and ledger.row_may_bind_by_name(row)):
                     # A name can be reused after an earlier terminal record.
                     # Only the preparation predating this exact seal belongs
                     # to it; absent/ambiguous timestamps retain the reservation.

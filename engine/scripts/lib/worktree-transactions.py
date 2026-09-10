@@ -1579,7 +1579,18 @@ def bind_late_members(session_id, agent_id):
             if row_aid:
                 if row_aid != agent_id:
                     continue
-            elif not (name_join_ok and row.get("teammate") == teammate):
+            elif not (name_join_ok and row.get("teammate") == teammate
+                      and _ledger().row_may_bind_by_name(row)):
+                # THE NAME JOIN NOW REQUIRES AN ENGINE WRITER. The ledger takes
+                # any append, which is right for a record and wrong for an
+                # authorization: on 2026-09-10 a hand-written row naming this
+                # session and a teammate, with no agent id and source
+                # `rich-operator-amnesty`, brought an unregistered workspace
+                # into this lane and it was removed 45 minutes later. The
+                # identical row with a `codex/` path would have passed the same
+                # way, which is the hole under ceo-decisions.md section 31.
+                # A row carrying the platform's own agent id is unaffected —
+                # that id cannot be typed into a teammate-name field.
                 continue
             path = norm_path(row.get("worktree") or "")
             if not path or path in mine or path in owned:

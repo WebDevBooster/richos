@@ -136,6 +136,16 @@ mutant journal-overwrites-again "test_the_immediate_reclaim_journal_APPENDS_inst
     "            tx.update_member(sid, aid, index, immediate_reclaim=entry,{NL}                             immediate_reclaim_history=history[-1:]," \
     "only the last outcome would survive, as before — the reason 'zero of five reclaims happened in their own event' had to be established from timestamps rather than from the journal built to answer it."
 
+mutant ceo-ruling-not-in-the-mechanism "test_a_codex_workspace_is_EXCLUDED_BY_CEO_RULING_at_every_door" "$D" \
+    "    ceo_owned, why = ceo_owned_workspace(member){NL}    if ceo_owned:" \
+    "    ceo_owned, why = ceo_owned_workspace(member){NL}    if False:" \
+    "ceo-decisions.md section 31 would be back to resting on the record hole it explicitly says must not BE the protection -- 'we only ever remove what we registered' -- which a hand-written ledger row walked through on 2026-09-10."
+
+mutant hand-written-ledger-row-binds-again "test_a_hand_written_ledger_row_RESERVES_but_never_BINDS" "$X" \
+    "            elif not (name_join_ok and row.get(\"teammate\") == teammate{NL}                      and _ledger().row_may_bind_by_name(row)):" \
+    "            elif not (name_join_ok and row.get(\"teammate\") == teammate):" \
+    "any hand that can append a line to the ownership ledger could again bind a workspace nobody registered into the reclamation lane and have it deleted -- which happened at 14:23:47Z on 2026-09-10, and would pass identically with a codex/ path."
+
 mutant late-binding-removed "test_a_workspace_created_after_the_seal_joins_the_transaction_and_is_reclaimed" "$X" \
     "    tx = bind_late_members(session_id, agent_id) or tx" \
     "    pass" \

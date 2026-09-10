@@ -66,8 +66,15 @@ class Cleanup(unittest.TestCase):
         return daily.assess(tx,tx.load_tx(SID,AID),0)
 
     def ledger_row(self, **fields):
+        # `source` defaults to a real engine writer because that is what
+        # production rows carry: measured 2026-09-10, 617 of 621
+        # prepared/registered rows name create-teammate-worktree.sh or
+        # detect-nonnative-worktree.sh. The four that do not were written by
+        # hand, and one of them removed a workspace nothing had registered —
+        # see test_a_hand_written_ledger_row_RESERVES_but_never_BINDS.
         row=dict(event='registered',session_id=SID,teammate='worker',repo=str(self.repo),worktree=str(self.work),
-                 branch='worker',agent_id=AID,ts='2026-01-01T00:00:00+00:00'); row.update(fields)
+                 branch='worker',agent_id=AID,ts='2026-01-01T00:00:00+00:00',
+                 source='create-teammate-worktree.sh'); row.update(fields)
         with open(self.root/'ledger.jsonl','a') as stream: stream.write(json.dumps(row)+'\n')
 
     def make_native(self, lock_pid=None):
@@ -371,6 +378,66 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(result['members'][1]['bound_late']['join'], 'teammate-name')
         self.assertFalse(later.exists())
         self.assertNotIn('refs/heads/later', self.git(self.repo, 'show-ref'))
+
+    def test_a_hand_written_ledger_row_RESERVES_but_never_BINDS(self):
+        # SAGE D2, 2026-09-10. The ownership ledger is an append-only JSONL
+        # with no writer authentication — which is right for a RECORD and wrong
+        # for an AUTHORIZATION. At 14:23:47 UTC that day a row was appended by
+        # hand with source `rich-operator-amnesty`, carrying a session id and a
+        # teammate name and NO agent id, to bring a workspace nothing had
+        # registered into this lane. It worked, and 45 minutes later that
+        # workspace was gone. The identical row with a `codex/` path would have
+        # passed the same lane, which is the hole under section 31's
+        # "we only remove what we registered".
+        later = self._second_workspace()
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later', source='rich-operator-amnesty',
+                        ts='2026-01-02T00:00:00+00:00')
+        result = tx.terminalize(SID, AID)
+        self.assertEqual(len(result['members']), 1, 'a hand-written row must not bind a member')
+        self.assertTrue(later.exists(), 'the workspace must survive')
+        self.assertIn('refs/heads/later', self.git(self.repo, 'show-ref'))
+        # and it still RESERVES: the asymmetry is the whole design. A row
+        # anybody can write may protect a workspace and may never destroy one.
+        self.assertFalse(load('worktree-ledger').row_may_bind_by_name(
+            {'source': 'rich-operator-amnesty'}))
+        self.assertTrue(load('worktree-ledger').row_may_bind_by_name(
+            {'source': 'create-teammate-worktree.sh'}))
+        # the same row from an engine writer DOES bind — the positive control,
+        # so the negative above cannot pass because binding is broken outright
+        self.ledger_row(event='prepared', agent_id=None, teammate='worker',
+                        worktree=str(later), branch='later',
+                        source='create-teammate-worktree.sh', ts='2026-01-03T00:00:00+00:00')
+        result = tx.bind_late_members(SID, AID)
+        self.assertEqual(len(result['members']), 2)
+        self.assertEqual(result['members'][1]['bound_late']['join'], 'teammate-name')
+
+    def test_a_codex_workspace_is_EXCLUDED_BY_CEO_RULING_at_every_door(self):
+        # D6 / ceo-decisions.md section 31. The ruling says an excluded
+        # workspace is never removed AND is reported in those words; the code
+        # tested for `codex/` nowhere, and rested on "we only remove what we
+        # registered" — which section 31 names as the record hole that must not
+        # BE the protection, and which was walked through by hand the same day.
+        # So it is refused here even when every other gate would pass.
+        self.assertEqual(self.assess()[0], 'remove')          # would be removed
+        self.git(self.repo, 'branch', '-m', 'worker', 'codex/owned-outcome')
+        self.record['members'][0]['branch'] = 'codex/owned-outcome'
+        tx.atomic_write_json(tx.tx_path(SID, AID), self.record)
+        decision, reason = self.assess()
+        self.assertEqual(decision, 'hold')
+        self.assertIn('EXCLUDED BY CEO RULING', reason)
+        self.assertIn('section 31', reason)
+        with self.assertRaisesRegex(Exception, 'EXCLUDED BY CEO RULING'):
+            self.run_cleanup()
+        self.assertTrue(self.work.is_dir())
+        self.assertIn('refs/heads/codex/owned-outcome', self.git(self.repo, 'show-ref'))
+        # `refs/heads/codex/x` is the same branch as `codex/x`, and a path under
+        # ~/.codex/worktrees is the same class: one thing, more than one spelling
+        self.assertTrue(daily.ceo_owned_workspace({'branch': 'refs/heads/codex/x'})[0])
+        self.assertTrue(daily.ceo_owned_workspace(
+            {'path': os.path.expanduser('~/.codex/worktrees/06e6/femcboost')})[0])
+        self.assertFalse(daily.ceo_owned_workspace({'branch': 'zach-opus-x1'})[0])
+        self.assertFalse(daily.ceo_owned_workspace({'branch': 'not-codex/thing'})[0])
 
     def test_a_late_row_naming_THIS_agent_id_joins_by_the_platform_identity(self):
         later = self._second_workspace()
