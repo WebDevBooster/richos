@@ -1200,7 +1200,18 @@ fn main() {
                 }
                 let window = builder.build()?;
                 // WHERE HE LEFT IT, FOR NEXT TIME — and only if it is still reachable then.
-                remember_window_geometry(&window, geometry_path.clone());
+                //
+                // ONLY AN INSTALLED LAUNCH RECORDS ANYTHING, and that is the same rule the
+                // activation block above argues, applied to the same question. An accessory
+                // launch is a harness: its window is built INVISIBLE and never ordered on
+                // screen, so its geometry is not a fact about where he put anything. A
+                // harness that recorded it would move the CEO's window on his next start
+                // from a boot he never saw — the 2026-09-06 complaint in a slower form. The
+                // saved record is still OFFERED to such a launch; only the writing back is
+                // withheld.
+                if activation.presentation == activation::Presentation::Regular {
+                    remember_window_geometry(&window, geometry_path.clone());
+                }
                 // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
                 // 2026-09-04: the window opened BEHIND other windows, twice, on a first
                 // launch from Finder — an app a stranger has just double-clicked and cannot
