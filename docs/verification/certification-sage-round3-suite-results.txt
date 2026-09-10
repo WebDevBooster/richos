@@ -1,0 +1,22 @@
+daily-workspace-cleanup	rc=0	wall=401s	scripts/daily-workspace-cleanup.test.sh	HEAD=6597f674
+worktree-transactions	rc=0	wall=120s	scripts/lib/worktree-transactions.test.sh	HEAD=6597f674
+terminalize-agent-worktrees	rc=0	wall=167s	scripts/hooks/terminalize-agent-worktrees.test.sh	HEAD=6597f674
+reconcile-terminal-worktrees.mutation	rc=0	wall=375s	scripts/reconcile-terminal-worktrees.mutation.sh	HEAD=6597f674
+reconcile-terminal-worktrees.test (cases only; scratch copy, mutation chain removed)	rc=0	wall=46s	scripts/reconcile-terminal-worktrees.test.sh	HEAD=2b8a235d
+worktree-adoption	rc=0	wall=63s	scripts/lib/worktree-adoption.test.sh	HEAD=10aa7847
+completion-proof	rc=0	wall=6s	scripts/lib/completion-proof.test.sh	HEAD=10aa7847
+session-start-reap-worktrees	rc=0	wall=22s	scripts/hooks/session-start-reap-worktrees.test.sh	HEAD=10aa7847
+restart-after-terminal-measure	rc=0	wall=0s	scripts/restart-after-terminal-measure.test.sh	HEAD=10aa7847
+record-subagent-start	rc=0	wall=7s	scripts/hooks/record-subagent-start.test.sh	HEAD=10aa7847
+discard-workspace-backlog	rc=0	wall=2s	scripts/discard-workspace-backlog.test.py	HEAD=10aa7847
+worktree-ledger	rc=0	wall=12s	scripts/lib/worktree-ledger.test.sh	HEAD=10aa7847
+guard-sealed-worktree	rc=0	wall=76s	scripts/hooks/guard-sealed-worktree.test.sh	HEAD=10aa7847
+workspace-retire	rc=0	wall=139s	scripts/lib/workspace-retire.test.sh	HEAD=10aa7847
+land-disposition	rc=0	wall=4s	scripts/hooks/land-disposition.test.sh	HEAD=10aa7847
+escalations	rc=0	wall=6s	scripts/hooks/escalations.test.sh	HEAD=10aa7847
+reap-stale-worktrees	rc=0	wall=333s	scripts/reap-stale-worktrees.test.sh	HEAD=10aa7847
+hook-staleness	rc=1	wall=4s	scripts/hooks/hook-staleness.test.sh	HEAD=10aa7847
+process-identity (this machine, claude process running)	rc=0	wall=3s	scripts/lib/process-identity.test.sh	HEAD=10aa7847
+process-identity (CI shape: RICHOS_SESSION_PROCESSES=none, empty RICHOS_SESSIONS_DIR)	rc=1	wall=3s	scripts/lib/process-identity.test.sh	HEAD=10aa7847	21 failures, all 'T4' is not None
+root-contract	rc=UNFINISHED	wall=>300s	scripts/hooks/root-contract.test.sh	HEAD=10aa7847	did not finish inside the call; backgrounded by the harness; unverified
+root-contract	rc=1	wall=713s	scripts/hooks/root-contract.test.sh	HEAD=4652d854
