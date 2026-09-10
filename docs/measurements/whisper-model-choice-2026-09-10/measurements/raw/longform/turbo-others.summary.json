@@ -1,0 +1,16 @@
+{
+ "config": "turbo",
+ "channel": "others",
+ "model": "large-v3-turbo",
+ "extra": [],
+ "wav": "/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/others.wav",
+ "wallSec": 244.576,
+ "segments": 566,
+ "words": 6133,
+ "audioSec": 5536.34,
+ "wordsPerMin": 66.46629361636026,
+ "mostRepeatedSegment": {
+  "text": "okay",
+  "count": 25
+ }
+}

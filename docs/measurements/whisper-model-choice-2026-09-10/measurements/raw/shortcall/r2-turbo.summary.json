@@ -1,0 +1,30 @@
+{
+ "config": "turbo",
+ "label": "full turbo, shipping settings",
+ "model": "large-v3-turbo",
+ "extra": [],
+ "refWords": 1905,
+ "hypWords": 1924,
+ "S": 41,
+ "D": 9,
+ "I": 28,
+ "wer": 0.04094488188976378,
+ "werCase": 0.048293963254593175,
+ "segments": 148,
+ "wordTimes": 1847,
+ "wallSec": 75.04,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np",
+  "-fa"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "turbo/argv.jsonl",
+ "whisperVersion": null
+}

@@ -1,0 +1,30 @@
+{
+ "config": "q5",
+ "label": "q5_0, shipping settings",
+ "model": "large-v3-turbo-q5_0",
+ "extra": [],
+ "refWords": 1905,
+ "hypWords": 1902,
+ "S": 40,
+ "D": 9,
+ "I": 6,
+ "wer": 0.028871391076115485,
+ "werCase": 0.03832020997375328,
+ "segments": 149,
+ "wordTimes": 1827,
+ "wallSec": 79.046,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np",
+  "-fa"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "q5/argv.jsonl",
+ "whisperVersion": null
+}

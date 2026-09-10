@@ -1,0 +1,4 @@
+{"ts":"2026-09-10T02:51:10Z","argv":["--version"]}
+{"ts":"2026-09-10T02:51:10Z","argv":["--version"]}
+{"ts":"2026-09-10T02:51:10Z","argv":["-m","/Users/alex/Models/Whisper/ggml-large-v3-turbo.bin","-f","/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/others.wav","-l","en","-t","4","-mc","0","-oj","-np","-fa","-ojf","-of","/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/wm1/longform/turbo__others/others"]}
+{"ts":"2026-09-10T02:51:10Z","argv":["-m","/Users/alex/Models/Whisper/ggml-large-v3-turbo.bin","-f","/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/realaudio/audio/others.wav","-l","en","-t","4","-mc","0","-oj","-np","-fa","-ojf","-of","/private/tmp/claude-501/-Users-alex-ab-femcboost/899d5bee-2ef7-4c2b-8478-3cde1a1aecdf/scratchpad/wm1/longform/turbo__others/others"]}

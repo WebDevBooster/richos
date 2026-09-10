@@ -1,0 +1,76 @@
+THE ONE FINDING THAT IS NOT A ROUNDING DIFFERENCE
+=================================================
+
+Corpus render A, call-03, channel `me`. 114.17 s of audio. SHIPPING settings on both models:
+`-l en -t 4 -mc 0 -oj -np -fa -ojf -of <base>` — identical argv but for `-m`, recorded by the shim
+in measurements/raw/shortcall/r1-turbo.argv.jsonl and r1-q5.argv.jsonl.
+
+This corpus is INVENTED — the script, the companies and the people in it do not exist, which is
+why it is quotable here at all. The 92-minute recording is not, and nothing from it is quoted
+anywhere in this directory.
+
+REFERENCE (the script, so this is not a judgment call):
+  ... Week one we connect your sources. Week two we rebuild the Monday report and run both side by
+  side. Then we keep the old spreadsheet until your board trusts the new one. That is normal. I
+  will address it to you and to Tobias Renner. ...
+
+large-v3-turbo, pre-guard (13 segments, 186 words):
+  ... Week 1 we connect your sources. Week 2 we rebuild the Monday report and run both side by
+  side. Then we keep the old spreadsheet until your board trusts the new one. That is normal.
+  Then we keep the old spreadsheet until your board trusts the new one. That is normal.
+  I will address it to you and to Tobias Renner. ... rather than the last. Thank you.
+                                                                          ^^^^^^^^^^
+
+large-v3-turbo-q5_0, pre-guard (14 segments, 168 words):
+  ... exactly the reference wording, the sentence ONCE, and no trailing "Thank you."
+
+WHAT THE SHIPPING GUARD DOES WITH IT
+------------------------------------
+repetition-guard.js, run with the physical speech-burst probe (guardTranscription, imported):
+
+  large-v3-turbo       13 segments -> 12, removed 1
+                       silenceFabrications: [ 114.00 s -> 143.98 s  "Thank you." ]
+                       "Then we keep the old spreadsheet" occurrences POST-guard: 2
+  large-v3-turbo-q5_0  14 segments -> 14, removed 0
+                       silenceFabrications: []
+                       "Then we keep the old spreadsheet" occurrences POST-guard: 1
+
+So the guard catches the "Thank you." — correctly: it is emitted from 114.00 s to 143.98 s on a
+file that is 114.17 s long, i.e. almost entirely past the end of the audio — and it does NOT catch
+the duplicated sentence. Seventeen words that were spoken once are delivered twice to the user.
+
+The class the whole `-mc 0` invariant exists to prevent is duplication of a span that was spoken
+once, and this is that class, at `-mc 0`, at CALL length, on the model that ships today.
+
+IT IS DETERMINISTIC, AND IT IS FLASH-ATTENTION-DEPENDENT
+---------------------------------------------------------
+Both repetitions of the sweep (r1, r2, run in opposite order) produce byte-identical hypothesis
+text per configuration, so this is not a sampling artifact:
+
+  turbo      r1/r2 concatenated hypothesis sha256  c92e3f36b603ca9dd0568212ae59a9ece8970ea732ebd3f2aaec66dd40177896
+  q5         r1/r2                                 8ccada4ce4453458e2e46db7427fb37b45f22eaf10f51247d5049de138633d0f
+  turboNfa   r1/r2                                 7339ff197587754ee88a4c523487bb6a41c403d6a62533e30f5f47b33ece113b
+  q5Nfa      r1/r2                                 805a0b0f72b14ef080977b8d74bfa70529822a99696d3e8fbebdceeb6e89ae9d
+
+Turbo with `-nfa` renders this call at 168 words and WER 0.60% — the duplication is absent. So on
+these weights, on this audio, flash attention is what produces it.
+
+WHAT THIS IS NOT
+----------------
+It is not a claim that turbo duplicates spans in general, and it is not a rate. It is ONE call out
+of six on ONE of two corpus renders.
+
+On render B — the second `say` render of the same script — turbo does NOT reproduce the full
+17-word duplication, and its total insertions fall from 28 to 13. What it emits at the same point
+instead is a three-word echo:
+
+  ... until your board trusts the new one. That is normal. It is normal. I will address it ...
+                                                           ^^^^^^^^^^^^^
+
+which the guard also does not remove. q5_0 on render B renders the passage once, with no echo, as
+it did on render A. So the artifact is not a one-off of a single render: it recurs at the same
+place, in a milder form, on independent audio, and only on the full-precision weights.
+
+What this establishes is narrower than "turbo fabricates" and still worth the CEO's attention: the
+duplication failure mode is available to full turbo under the SHIPPING configuration at CALL
+length, it survives the shipping guard, and q5_0 did not produce it on either render.
