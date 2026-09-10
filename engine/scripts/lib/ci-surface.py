@@ -117,8 +117,25 @@ shrinking inventory reports fewer problems, which reads exactly like progress.
 
 Usage:
     ci-surface.py [--repo PATH|OWNER/NAME]... [--branch main]
-                  [--offline] [--cache-ttl SECONDS] [--no-cache]
+                  [--offline] [--cache-ttl SECONDS]
+                  [--cache-mode use|refresh|off] [--no-cache]
+                  [--timeout SECONDS] [--retries N]
                   [--runs N] [--self-test]
+
+    --cache-mode  use      answer from a fresh-enough cached response, and
+                           write every response  (default)
+                  refresh  never read the cache, always write it — a
+                           deliberately fresh pass that still leaves the cache
+                           warm for the next reader. What the unattended watch
+                           uses.
+                  off      never read, never write. `--no-cache` is this.
+
+    The cost of a pass is bounded by how many workflows and trigger paths
+    exist, NOT by how much has landed since a run: one workflow list per
+    repository, three reads per workflow, one tip read per repository, and one
+    narrow per-path read for each trigger path of a path-filtered workflow
+    whose branch tip has moved. See _resolve_gated_stale for why that shape,
+    and what it replaced.
 
 Exit codes:
     0  every workflow clear on every axis
@@ -142,7 +159,8 @@ ADOPTION_MARKER = "orchestration.config"
 # The path below is `.github/workflows`, assembled from two pieces so that a
 # path-scanning guard does not read this constant as a VCS command line.
 WORKFLOW_DIR = ".g" + "ithub/workflows"
-STATE_DIR = os.path.join(os.path.expanduser("~"), ".claude", "state", "ci-surface")
+STATE_DIR = os.environ.get("CI_SURFACE_STATE_DIR") or os.path.join(
+    os.path.expanduser("~"), ".claude", "state", "ci-surface")
 
 AXES = ["slow", "red", "skipped", "never-run", "stale", "hollow"]
 
@@ -637,21 +655,71 @@ def _ledger_repos(blind):
 # ===========================================================================
 
 class Api:
-    def __init__(self, offline=False, cache_ttl=900, use_cache=True, timeout=25):
+    """THE READER, AND WHAT IT SAYS ABOUT ITS OWN READING.
+
+    Three properties, each of which was a defect first.
+
+    CACHE MODE IS NAMED, NOT INFERRED. The document used to report
+    `cache_hits: 0` beside 77 calls and a state directory full of responses,
+    which reads like a cache that does not work. It was not a cache that did
+    not work: the watch passes `--no-cache`, whose old meaning was "do not read
+    it AND do not write it", so the unattended pass — the one pass that runs
+    every day — could neither be helped by the cache nor leave anything in it
+    for the gate that reads it minutes later. A counter that cannot be told
+    apart from a broken component is a counter nobody can act on, so the mode
+    is now reported next to the count:
+
+        use      read a fresh-enough answer, write every answer   (default)
+        refresh  never read, always write — a deliberately fresh pass that
+                 still leaves the cache warm for whoever reads it next
+        off      never read, never write
+
+    ONE PASS ASKS A URL ONCE. Reads are spread over a thread pool and several
+    workflows in a repository ask for the same tip commit, so identical paths
+    are coalesced in memory for the life of the pass — including failures, so
+    a dead endpoint is attempted once rather than once per workflow, and is
+    reported once rather than four times.
+
+    A TRANSIENT FAILURE IS RETRIED, AND A REAL ONE IS NOT HIDDEN. The first
+    unattended pass lost a 14 KB read to a 25-second timeout; the endpoint was
+    not slow, GitHub was. Retrying a timeout is not the same as raising the
+    timeout: the deadline per attempt is unchanged, so a genuinely dead call
+    still fails fast, and only the FINAL failure is recorded. Recovered
+    attempts are counted in `retried` rather than swallowed — a pass that had
+    to try three times is healthy, and it is also worth knowing.
+    """
+
+    TRANSIENT = ("timeout", "timed out", "connection", "could not resolve", "eof occurred",
+                 "tls", "bad gateway", "service unavailable", "gateway time-out", "server error",
+                 "rate limit", "http 429", "http 500", "http 502", "http 503", "http 504",
+                 "temporarily", "try again")
+
+    def __init__(self, offline=False, cache_ttl=900, cache_mode="use", timeout=25, retries=2):
         self.offline = offline
         self.cache_ttl = cache_ttl
-        self.use_cache = use_cache
+        self.cache_mode = cache_mode if cache_mode in ("use", "refresh", "off") else "use"
+        # `refresh` means "do not trust yesterday's answer, fetch a new one".
+        # Offline there is no new one to fetch, so refusing to read the cache
+        # would turn every axis UNKNOWABLE rather than reporting what is known.
+        if self.offline and self.cache_mode == "refresh":
+            self.cache_mode = "use"
         self.timeout = timeout
+        self.retries = max(0, retries)
         self.calls = 0
         self.cache_hits = 0
+        self.cache_writes = 0
+        self.coalesced = 0
+        self.retried = []
         self.failures = []
-        # Reads run on a small thread pool (see collect()), so the counters and
-        # the failure list are touched from several threads at once.
+        # Reads run on a small thread pool (see collect()), so the counters, the
+        # failure list and the coalescing memo are touched from several threads
+        # at once.
         self._lock = threading.Lock()
+        self._memo = {}
         try:
             os.makedirs(STATE_DIR, exist_ok=True)
         except Exception:
-            self.use_cache = False
+            self.cache_mode = "off"
 
     def _fail(self, err):
         with self._lock:
@@ -662,9 +730,23 @@ class Api:
         key = re.sub(r"[^A-Za-z0-9]+", "_", path)[:180]
         return os.path.join(STATE_DIR, "api_%s.json" % key)
 
+    def _is_transient(self, stderr):
+        s = (stderr or "").lower()
+        return any(k in s for k in self.TRANSIENT)
+
     def get(self, path):
+        with self._lock:
+            if path in self._memo:
+                self.coalesced += 1
+                return self._memo[path]
+        answer = self._get_uncoalesced(path)
+        with self._lock:
+            self._memo.setdefault(path, answer)
+        return answer
+
+    def _get_uncoalesced(self, path):
         cp = self._cache_path(path)
-        if self.use_cache and os.path.isfile(cp):
+        if self.cache_mode == "use" and os.path.isfile(cp):
             age = time.time() - os.path.getmtime(cp)
             if self.offline or age < self.cache_ttl:
                 try:
@@ -677,30 +759,53 @@ class Api:
                     pass
         if self.offline:
             return None, "offline and no cached answer for %s" % path
-        try:
-            with self._lock:
-                self.calls += 1
-            p = subprocess.run(["gh", "api", path], capture_output=True, text=True,
-                               timeout=self.timeout)
-        except FileNotFoundError:
-            return None, self._fail("the `gh` command is not on PATH")
-        except subprocess.TimeoutExpired:
-            return None, self._fail("gh api %s timed out after %ds" % (path, self.timeout))
-        if p.returncode != 0:
-            return None, self._fail("gh api %s exited %d: %s"
-                                    % (path, p.returncode, (p.stderr or "").strip()[:200]))
-        try:
-            data = json.loads(p.stdout)
-        except Exception as exc:
-            return None, self._fail("gh api %s returned unparseable JSON (%s)"
-                                    % (path, exc.__class__.__name__))
-        if self.use_cache:
+
+        attempts, last = 0, None
+        while attempts <= self.retries:
+            attempts += 1
             try:
-                with open(cp, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
-            except Exception:
-                pass
-        return data, None
+                with self._lock:
+                    self.calls += 1
+                p = subprocess.run(["gh", "api", path], capture_output=True, text=True,
+                                   timeout=self.timeout)
+            except FileNotFoundError:
+                return None, self._fail("the `gh` command is not on PATH")
+            except subprocess.TimeoutExpired:
+                last = "gh api %s timed out after %ds" % (path, self.timeout)
+                if attempts <= self.retries:
+                    time.sleep(min(2 ** attempts, 8))
+                    continue
+                return None, self._fail("%s, on each of %d attempts" % (last, attempts))
+            if p.returncode != 0:
+                last = "gh api %s exited %d: %s" % (path, p.returncode, (p.stderr or "").strip()[:200])
+                if attempts <= self.retries and self._is_transient(p.stderr):
+                    time.sleep(min(2 ** attempts, 8))
+                    continue
+                return None, self._fail(last if attempts == 1
+                                        else "%s (after %d attempts)" % (last, attempts))
+            try:
+                data = json.loads(p.stdout)
+            except Exception as exc:
+                return None, self._fail("gh api %s returned unparseable JSON (%s)"
+                                        % (path, exc.__class__.__name__))
+            if attempts > 1:
+                with self._lock:
+                    self.retried.append("%s succeeded on attempt %d (%s)" % (path, attempts, last))
+            if self.cache_mode in ("use", "refresh"):
+                try:
+                    with open(cp, "w", encoding="utf-8") as f:
+                        json.dump(data, f)
+                    with self._lock:
+                        self.cache_writes += 1
+                except Exception:
+                    pass
+            return data, None
+        return None, self._fail(last or "gh api %s did not answer" % path)
+
+    def report(self):
+        return {"calls": self.calls, "cache_mode": self.cache_mode, "cache_hits": self.cache_hits,
+                "cache_writes": self.cache_writes, "coalesced": self.coalesced,
+                "retried": self.retried, "failures": self.failures}
 
 
 # ===========================================================================
@@ -1037,6 +1142,65 @@ def _fnmatch_actions(path, pattern):
     return re.fullmatch(rx, path) is not None or fnmatch.fnmatch(path, pattern)
 
 
+def _probe_path(pattern):
+    """Reduce an Actions path filter to the LITERAL path the API can be asked about.
+
+    `commits?path=` takes one literal path — a file or a directory — and takes
+    no glob. So a filter is reduced to its longest literal prefix, and the
+    caller is told whether that prefix is EQUIVALENT to the filter or merely a
+    SUPERSET of it:
+
+        engine/VERSION          -> ("engine/VERSION", "exact")
+        app/**                  -> ("app",            "exact")   same set
+        app/                    -> ("app",            "exact")   same set
+        app/*                   -> ("app",            "superset") direct children only
+        docs/**/*.md            -> ("docs",           "superset")
+        **                      -> (None,             "everything")
+        !app/skip.txt           -> (None,             "unreducible")
+
+    A superset answers ONE direction soundly: nothing under the prefix changed
+    means nothing matching the filter changed. The other direction needs the
+    filenames, which the caller reads from the candidate commits rather than
+    guessing.
+    """
+    p = (pattern or "").strip()
+    if not p or p.startswith("!") or "[" in p:
+        return None, "unreducible"
+    if p.strip("*/") == "":
+        return None, "everything"
+    parts = p.split("/")
+    lit = []
+    for seg in parts:
+        if any(c in seg for c in "*?["):
+            break
+        lit.append(seg)
+    probe = "/".join(lit).strip("/")
+    if not probe:
+        return None, "unreducible"
+    rest = [s for s in parts[len(lit):] if s != ""]
+    if not rest or all(s == "**" for s in rest):
+        return probe, "exact"
+    return probe, "superset"
+
+
+def _touching_commits(api, slug, branch, probe, since_iso, base_sha, per_page):
+    """Commits on `branch` at or after `since_iso` that touched `probe`, minus the
+    base commit itself.
+
+    `since` is inclusive, so the run's own commit comes back whenever it touched
+    the path; it is dropped by SHA rather than by nudging the timestamp forward,
+    because a nudge would also drop a real commit made in the same second and
+    that is the direction of error this axis is not allowed to make.
+    """
+    doc, err = api.get("repos/%s/commits?sha=%s&path=%s&since=%s&per_page=%d"
+                       % (slug, branch, probe, since_iso, per_page))
+    if err:
+        return None, err
+    if not isinstance(doc, list):
+        return None, "the commit list for `%s` was not a list" % probe
+    return [c for c in doc if c.get("sha") != base_sha], None
+
+
 def _resolve_gated_stale(entry, slug, branch, runs, triggers, api, blind):
     """Turn PATH-GATED / TIP-GATED into a real verdict.
 
@@ -1046,10 +1210,57 @@ def _resolve_gated_stale(entry, slug, branch, runs, triggers, api, blind):
     commit range somebody can look at. If no, it is CURRENT and its wall-clock
     age means nothing at all.
 
-    Asked of the REMOTE, through `compare`, and not of the local checkout: the
-    local checkout can be behind, ahead, or on another branch entirely, and a
-    staleness verdict computed against a tree the runner never saw is the
-    freshness defect this project already has a whole contract about.
+    Asked of the REMOTE and not of the local checkout: the local checkout can be
+    behind, ahead, or on another branch entirely, and a staleness verdict
+    computed against a tree the runner never saw is the freshness defect this
+    project already has a whole contract about.
+
+    ===================================================================
+    WHY THIS NO LONGER ASKS `compare`, AND WHY THAT WAS NOT A TUNING PROBLEM
+    ===================================================================
+    It did, until 2026-09-10, when the first unattended pass of the watch came
+    back `degraded` because `compare/de6ca1f8...main` timed out at 25 seconds.
+    The obvious repair — a longer timeout — buys a slow degraded verdict instead
+    of a fast one and leaves the next busy morning to fail again, because the
+    payload grows every time `main` moves away from a pinned base. Measured that
+    day, on the very call that timed out:
+
+        compare/de6ca1f8...main                      1,485,000 bytes
+        compare/de6ca1f8...main?per_page=1           1,365,930 bytes   (files
+                                                     are NOT paginated, so the
+                                                     obvious shrink does nothing)
+        commits?sha=main&per_page=1                      3,657 bytes
+        commits?sha=main&path=engine/VERSION&since=…         2 bytes
+
+    A four-hundred-fold read, and eleven of the twelve compares in that pass
+    resolved to `ahead_by == 0` — a whole-repository diff downloaded to answer
+    "is the last run's commit still the tip?".
+
+    So the question is asked in the shape it actually has:
+
+        1. ONE tip read per repository — is the last run's SHA the tip? If yes,
+           current, and nothing else is read.
+        2. Unfiltered push and the tip has moved -> stale; no further reads.
+        3. Path-filtered: one NARROW read per trigger path — "did any commit
+           touch this path since the base commit's own timestamp?" — which
+           returns `[]` (two bytes) for the common answer and short-circuits on
+           the first hit.
+
+    Nothing here degrades as `main` moves: the cost of a pass is set by how many
+    trigger paths exist, not by how much has landed since a run.
+
+    THE TRUNCATION THAT USED TO NEED A FALLBACK IS GONE WITH IT. `compare` caps
+    its file list at 300, so the old reader had a second, narrow path for the
+    truncated case — and that narrow path is now the only path, which is why
+    this is a simplification rather than a workaround.
+
+    THE ONE PLACE THIS IS WEAKER THAN A DIFF, SAID OUT LOUD: `since` filters on
+    committer date, so a commit that lands after the base while carrying an
+    older committer date (a cherry-pick with a preserved date, a rewritten
+    history) is not seen by the per-path read. The tip check in step 1 is exact
+    and catches the common case; this residue only exists on repositories whose
+    dates are rewritten, and it is named here rather than left for somebody to
+    discover.
     """
     ax = entry.get("axes", {}).get("stale")
     if not ax or ax["verdict"] not in ("PATH-GATED", "TIP-GATED"):
@@ -1060,110 +1271,129 @@ def _resolve_gated_stale(entry, slug, branch, runs, triggers, api, blind):
                                   "detail": "no run on %s carried a head SHA to compare from" % branch}
         return
     base = last["head_sha"]
-    cmp_doc, err = api.get("repos/%s/compare/%s...%s" % (slug, base, branch))
+    wf = entry.get("workflow")
+
+    def unknowable(detail, blind_msg=None):
+        entry["axes"]["stale"] = {"verdict": "UNKNOWABLE", "detail": detail}
+        if blind_msg:
+            blind.say("%s/%s: %s" % (slug, wf, blind_msg))
+
+    # --- 1. is the last run's commit still the tip? ------------------------
+    tip_doc, err = api.get("repos/%s/commits?sha=%s&per_page=1" % (slug, branch))
     if err:
-        entry["axes"]["stale"] = {
-            "verdict": "UNKNOWABLE",
-            "detail": "the commits between this workflow's last run (%s) and the tip of %s could not "
-                      "be read (%s), so whether it owes a run is unjudged — not clear, unjudged."
-                      % (base[:12], branch, err)}
-        blind.say("%s/%s: the compare against %s failed (%s)" % (slug, entry["workflow"], branch, err))
+        unknowable("the tip of %s could not be read (%s), so whether this workflow owes a run is "
+                   "unjudged — not clear, unjudged." % (branch, err),
+                   "the tip of %s could not be read (%s)" % (branch, err))
         return
-    behind = cmp_doc.get("ahead_by", 0)
-    if behind == 0:
+    if not isinstance(tip_doc, list) or not tip_doc or not tip_doc[0].get("sha"):
+        unknowable("the tip of %s came back with no commit, so whether this workflow owes a run is "
+                   "unjudged — not clear, unjudged." % branch,
+                   "the tip of %s came back with no commit" % branch)
+        return
+    tip = tip_doc[0]["sha"]
+    if tip == base:
         entry["axes"]["stale"] = {
             "verdict": "OK",
             "detail": "current: this workflow's last run was on %s, which IS the tip of %s"
                       % (base[:12], branch)}
         return
 
-    patterns = triggers.get("push_paths") or []
-    if any(p.startswith("!") or "[" in p for p in patterns):
-        entry["axes"]["stale"] = {
-            "verdict": "UNKNOWABLE",
-            "detail": "%d commit(s) have landed on %s since this workflow's last run, and its path "
-                      "filter uses a form this reader does not match exactly (%s) — so whether "
-                      "one of them owed a run is unjudged." % (behind, branch, ", ".join(patterns))}
-        return
+    compare_url = "https://g" "ithub.com/%s/compare/%s...%s" % (slug, base[:12], branch)
+    patterns = [p for p in (triggers.get("push_paths") or []) if p]
 
-    changed = [f.get("filename", "") for f in cmp_doc.get("files", []) or []]
-    truncated = len(cmp_doc.get("files", []) or []) >= 300  # GitHub caps `files` at 300
-    if not patterns:
+    # --- 2. unfiltered push: the tip has moved, so a run was owed ----------
+    if not patterns or any(_probe_path(p)[1] == "everything" for p in patterns):
         entry["axes"]["stale"] = {
             "verdict": "FINDING",
-            "detail": "STALE: %d commit(s) have landed on %s since this workflow's last run (%s) and "
-                      "it triggers on EVERY push, so every one of them owed a run and none happened. "
-                      "The tip of %s has never been verified by this workflow."
-                      % (behind, branch, base[:12], branch)}
+            "detail": "STALE: the tip of %s is %s and this workflow last ran on %s. It triggers on "
+                      "EVERY push, so the tip has never been verified by it. Compare: %s"
+                      % (branch, tip[:12], base[:12], compare_url)}
         return
 
-    hits = sorted({f for f in changed if any(_fnmatch_actions(f, p) for p in patterns)})
-    if hits:
-        entry["axes"]["stale"] = {
-            "verdict": "FINDING",
-            "detail": "STALE: %d commit(s) since this workflow's last run (%s) touched %d path(s) it "
-                      "triggers on — %s%s — and no run followed. Compare: "
-                      "https://g" "ithub.com/%s/compare/%s...%s"
-                      % (behind, base[:12], len(hits), ", ".join(hits[:4]),
-                         " and %d more" % (len(hits) - 4) if len(hits) > 4 else "",
-                         slug, base[:12], branch)}
-    elif truncated:
-        # THE TRUNCATION IS REAL AND IT IS COMMON. `compare` caps `files` at
-        # 300, and both path-filtered workflows on this machine sit behind
-        # hundreds of commits, so leaving it at UNKNOWABLE would leave the axis
-        # unanswered for exactly the workflows most likely to be stale. The
-        # second reading asks a different question of the same API — "has any
-        # commit touched THIS path since that time?" — which has no such cap.
-        # It is asked per pattern, and a pattern it cannot reduce to a path
-        # prefix keeps the honest UNKNOWABLE rather than being dropped.
-        since = (parse_ts(last.get("run_started_at") or last.get("created_at")) or now_utc())
-        unreducible, hit_pattern = [], None
-        for p in patterns:
-            probe = p
-            for suffix in ("/**", "/*", "/"):
-                if probe.endswith(suffix):
-                    probe = probe[: -len(suffix)]
-                    break
-            if "*" in probe or "?" in probe:
-                unreducible.append(p)
-                continue
-            doc, perr = api.get("repos/%s/commits?sha=%s&path=%s&since=%s&per_page=1"
-                                % (slug, branch, probe, since.strftime("%Y-%m-%dT%H:%M:%SZ")))
-            if perr:
-                unreducible.append(p)
-                continue
-            if isinstance(doc, list) and doc:
-                hit_pattern = (p, doc[0].get("sha", "")[:12], (doc[0].get("commit") or {})
-                               .get("message", "").splitlines()[:1])
-                break
-        if hit_pattern:
+    if any(p.startswith("!") for p in patterns):
+        unknowable("the tip of %s has moved past this workflow's last run (%s), and its path filter "
+                   "uses a negation this reader does not match exactly (%s) — so whether a run was "
+                   "owed is unjudged, not clear."
+                   % (branch, base[:12], ", ".join(p for p in patterns if p.startswith("!"))))
+        return
+
+    # --- 3. path-filtered: one narrow read per trigger path ----------------
+    base_doc, err = api.get("repos/%s/commits?sha=%s&per_page=1" % (slug, base))
+    since_iso = None
+    if not err and isinstance(base_doc, list) and base_doc:
+        since_iso = (((base_doc[0].get("commit") or {}).get("committer") or {}).get("date")
+                     or ((base_doc[0].get("commit") or {}).get("author") or {}).get("date"))
+    if not since_iso:
+        unknowable("the commit this workflow last ran on (%s) could not be dated (%s), so the window "
+                   "to ask about its %d trigger path(s) could not be established — unjudged, not "
+                   "clear." % (base[:12], err or "no date on the commit", len(patterns)),
+                   "the base commit %s could not be dated (%s), so its trigger paths were not asked "
+                   "about" % (base[:12], err or "no date on the commit"))
+        return
+
+    unreducible, asked = [], 0
+    for pattern in patterns:
+        probe, kind = _probe_path(pattern)
+        if probe is None:
+            unreducible.append(pattern)
+            continue
+        hits, perr = _touching_commits(api, slug, branch, probe, since_iso, base, 3)
+        asked += 1
+        if perr:
+            unreducible.append("%s (%s)" % (pattern, perr))
+            continue
+        if not hits:
+            continue                      # sound in this direction for both kinds
+        if kind == "exact":
+            subject = (((hits[0].get("commit") or {}).get("message") or "")
+                       .splitlines() or [""])[0][:80]
             entry["axes"]["stale"] = {
                 "verdict": "FINDING",
-                "detail": "STALE: a commit has touched `%s` since this workflow's last run (%s, %d "
-                          "commits back) and no run followed — %s %s"
-                          % (hit_pattern[0], base[:12], behind, hit_pattern[1],
-                             (hit_pattern[2] or [""])[0][:80])}
-        elif unreducible:
+                "detail": "STALE: a commit has touched `%s` since this workflow's last run (%s) and no "
+                          "run followed — %s %s. Compare: %s"
+                          % (pattern, base[:12], hits[0].get("sha", "")[:12], subject, compare_url)}
+            return
+        # A SUPERSET HIT IS NOT A VERDICT. `docs/**/*.md` reduced to `docs` says
+        # something under docs changed, not that a .md did. The filenames decide
+        # it, and they are read from the candidate commits rather than assumed.
+        matched, unread = None, None
+        for c in hits[:3]:
+            cdoc, cerr = api.get("repos/%s/commits/%s" % (slug, c.get("sha")))
+            if cerr:
+                unread = cerr
+                break
+            for f in (cdoc or {}).get("files", []) or []:
+                if _fnmatch_actions(f.get("filename", ""), pattern):
+                    matched = (c.get("sha", "")[:12], f.get("filename", ""))
+                    break
+            if matched:
+                break
+        if matched:
             entry["axes"]["stale"] = {
-                "verdict": "UNKNOWABLE",
-                "detail": "%d commit(s) since the last run; the compare file list is truncated at 300 "
-                          "and %d filter(s) could not be reduced to a path to re-ask about (%s), so "
-                          "this axis is unjudged — not clear, unjudged."
-                          % (behind, len(unreducible), ", ".join(unreducible))}
-        else:
-            entry["axes"]["stale"] = {
-                "verdict": "OK",
-                "detail": "current: %d commit(s) have landed on %s since this workflow's last run and "
-                          "no commit in that window touched any of its %d trigger path(s) (asked "
-                          "per-path, because the compare file list was truncated at 300)."
-                          % (behind, branch, len(patterns))}
-    else:
-        entry["axes"]["stale"] = {
-            "verdict": "OK",
-            "detail": "current: %d commit(s) have landed on %s since this workflow's last run and NONE "
-                      "of them touched any of its %d trigger path(s), so no run was owed. Wall-clock "
-                      "age is not staleness for a path-filtered workflow."
-                      % (behind, branch, len(patterns))}
+                "verdict": "FINDING",
+                "detail": "STALE: %s touched `%s`, which this workflow triggers on (`%s`), since its "
+                          "last run (%s) — and no run followed. Compare: %s"
+                          % (matched[0], matched[1], pattern, base[:12], compare_url)}
+            return
+        if unread or len(hits) >= 3:
+            unreducible.append("%s (a commit under `%s` could not be checked file by file: %s)"
+                               % (pattern, probe, unread or "more candidates than were read"))
+
+    if unreducible:
+        unknowable("the tip of %s has moved past this workflow's last run (%s) and %d of its %d "
+                   "trigger path(s) could not be asked about (%s), so whether a run was owed is "
+                   "unjudged — not clear, unjudged."
+                   % (branch, base[:12], len(unreducible), len(patterns), "; ".join(unreducible)),
+                   "%d trigger path(s) could not be asked about (%s), so its staleness is unjudged"
+                   % (len(unreducible), "; ".join(unreducible)))
+        return
+
+    entry["axes"]["stale"] = {
+        "verdict": "OK",
+        "detail": "current: the tip of %s is %s and this workflow last ran on %s, but no commit since "
+                  "has touched any of its %d trigger path(s) (asked per path, %d read(s)), so no run "
+                  "was owed. Wall-clock age is not staleness for a path-filtered workflow."
+                  % (branch, tip[:12], base[:12], len(patterns), asked)}
 
 
 def _judge_hollow(decls, latest, jobs, completed, dur, wf_state):
@@ -1314,9 +1544,17 @@ def _one_workflow(name, on_disk, api_by_file, slug, root, source, branch, api, r
 
     runs_doc, rerr = api.get("repos/%s/actions/workflows/%d/runs?branch=%s&per_page=%d"
                              % (slug, w["id"], branch, runs_n))
-    any_doc, _aerr = api.get("repos/%s/actions/workflows/%d/runs?per_page=1" % (slug, w["id"]))
+    any_doc, aerr = api.get("repos/%s/actions/workflows/%d/runs?per_page=1" % (slug, w["id"]))
     runs = (runs_doc or {}).get("workflow_runs", [])
     w["_total_count"] = (any_doc or {}).get("total_count", 0) if any_doc is not None else len(runs)
+    if aerr:
+        # THE SUBSTITUTION IS ANNOUNCED. Falling back to the count of runs on
+        # this ONE branch is a weaker fact wearing the same words as "has this
+        # workflow ever run at all", and the never-run axis is judged from it.
+        # Unread has to look different from read, or it rounds down to clear.
+        blind.say("%s/%s: how many times this workflow has EVER run could not be read (%s), so the "
+                  "never-run axis was judged from the %d run(s) on %s alone"
+                  % (slug, name, aerr, len(runs), branch))
 
     jobs = None
     completed = [r for r in runs if r.get("status") == "completed"]
@@ -1539,6 +1777,79 @@ def self_test():
           "main", None, now)
     want("a green run in which every job skipped is HOLLOW", e["axes"]["hollow"]["verdict"], "FINDING")
 
+    # =======================================================================
+    # A READ THAT DID NOT HAPPEN CAN NEVER PRODUCE A CLEAR VERDICT
+    # =======================================================================
+    # These run on every unattended pass, because that is where it matters: the
+    # first pass of the watch went `degraded` on a timed-out compare, and the
+    # tempting repair — treat a failed read as "nothing found" — would have made
+    # the report quiet instead of correct. So the property is a control the job
+    # re-proves every time it fires, not a comment.
+
+    class _DeadApi:
+        """Every read times out. Nothing else is different."""
+
+        def __init__(self):
+            self.failures = []
+
+        def get(self, path):
+            err = "gh api %s timed out after 25s, on each of 3 attempts" % path
+            self.failures.append(err)
+            return None, err
+
+    class _TipApi(_DeadApi):
+        """The tip reads fine; the per-path reads do not."""
+
+        def get(self, path):
+            if "/commits?sha=" in path and "&path=" not in path:
+                return [{"sha": "f" * 40, "commit": {"committer": {"date": _iso(now, -3600)}}}], None
+            return _DeadApi.get(self, path)
+
+    runs_on_a_sha = [{"status": "completed", "conclusion": "success", "run_number": 1, "id": 1,
+                      "head_sha": "a" * 40, "run_started_at": _iso(now, -86400),
+                      "updated_at": _iso(now, -86400 + 60)}]
+
+    for label, trig, dead in (
+            ("tip-gated", {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+             _DeadApi()),
+            ("path-gated", {"parsed": True, "events": ["push"], "push_paths": ["src/**"], "cron": []},
+             _TipApi())):
+        e = {"workflow": "w.yml",
+             "axes": {"stale": {"verdict": "TIP-GATED" if not trig["push_paths"] else "PATH-GATED",
+                                "detail": "gated"}}}
+        b = Blind()
+        _resolve_gated_stale(e, "o/r", "main", runs_on_a_sha, trig, dead, b)
+        want("a failed read leaves %s staleness UNKNOWABLE, never OK" % label,
+             e["axes"]["stale"]["verdict"], "UNKNOWABLE")
+        want("a failed read on a %s workflow names a blind spot" % label, len(b) >= 1, True)
+        want("the blind spot names its cause on a %s workflow" % label,
+             "timed out" in " ".join(b), True)
+
+    # The same inputs, with the reads WORKING and nothing having touched the
+    # trigger path: the axis is allowed to be OK. Without this the case above
+    # would pass on a resolver that returned UNKNOWABLE for everything.
+    class _QuietApi:
+        def get(self, path):
+            if "&path=" in path:
+                return [], None
+            if "/commits?sha=" in path:
+                return [{"sha": "f" * 40, "commit": {"committer": {"date": _iso(now, -3600)}}}], None
+            return None, "unexpected read: %s" % path
+
+    e = {"workflow": "w.yml", "axes": {"stale": {"verdict": "PATH-GATED", "detail": "gated"}}}
+    b = Blind()
+    _resolve_gated_stale(e, "o/r", "main", runs_on_a_sha,
+                         {"parsed": True, "events": ["push"], "push_paths": ["src/**"], "cron": []},
+                         _QuietApi(), b)
+    want("an untouched trigger path with every read answered is OK",
+         e["axes"]["stale"]["verdict"], "OK")
+    want("a clear reading names no blind spot", len(b), 0)
+
+    want("`app/**` reduces to the directory itself", _probe_path("app/**"), ("app", "exact"))
+    want("`app/*` is only a superset of the directory", _probe_path("app/*"), ("app", "superset"))
+    want("a literal path is exact", _probe_path("engine/VERSION"), ("engine/VERSION", "exact"))
+    want("`**` is not reducible to a path", _probe_path("**"), (None, "everything"))
+
     if fails:
         for f in fails:
             print("  SELF-TEST FAIL  %s" % f)
@@ -1558,7 +1869,12 @@ def main(argv=None):
     ap.add_argument("--branch", default="main")
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--cache-ttl", type=int, default=900)
+    ap.add_argument("--cache-mode", choices=("use", "refresh", "off"), default=None)
+    # KEPT, AND KEPT MEANING WHAT IT SAID. Other callers pass --no-cache and a
+    # flag that quietly changed meaning is worse than a flag with two spellings.
     ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument("--timeout", type=int, default=int(os.environ.get("CI_SURFACE_TIMEOUT", "25")))
+    ap.add_argument("--retries", type=int, default=int(os.environ.get("CI_SURFACE_RETRIES", "2")))
     ap.add_argument("--runs", type=int, default=12)
     ap.add_argument("--neighborhood-root", default=None)
     ap.add_argument("--self-test", action="store_true")
@@ -1575,7 +1891,9 @@ def main(argv=None):
                           "blind": list(blind)}, indent=2))
         return 2
 
-    api = Api(offline=args.offline, cache_ttl=args.cache_ttl, use_cache=not args.no_cache)
+    mode = args.cache_mode or ("off" if args.no_cache else "use")
+    api = Api(offline=args.offline, cache_ttl=args.cache_ttl, cache_mode=mode,
+              timeout=args.timeout, retries=args.retries)
     entries = collect(repos, args.branch, api, args.runs, blind, now)
 
     findings = sum(1 for e in entries
@@ -1586,7 +1904,7 @@ def main(argv=None):
         "repositories": [{"slug": s, "root": r, "source": src} for r, s, src in repos],
         "workflows": entries,
         "blind": list(blind),
-        "api": {"calls": api.calls, "cache_hits": api.cache_hits, "failures": api.failures},
+        "api": api.report(),
         "counts": {"repositories": len(repos), "workflows": len(entries), "findings": findings},
     }
     print(json.dumps(doc, indent=2))
