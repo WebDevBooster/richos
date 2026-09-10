@@ -1,0 +1,31 @@
+== IDENTITY ==
+  hw.memsize                       25769803776
+  hw.ncpu                          10
+  hw.perflevel0.logicalcpu         4
+  hw.perflevel1.logicalcpu         6
+  hw.pagesize                      16384
+  machdep.cpu.brand_string         Apple M4
+
+== CURRENT COMMITMENT, from vm_stat, in BYTES ==
+  free                      1,231,683,584
+  active                    4,585,144,320
+  inactive                  3,881,123,840
+  speculative                 695,156,736
+  wired down                3,339,993,088
+  purgeable                    65,552,384
+  occupied by compressor   11,463,786,496
+  ------------------------
+  non-reclaimable set      19,388,923,904   (wired + active + compressor)
+  available now             5,873,516,544   (free + inactive + speculative + purgeable)
+  total (hw.memsize)       25,769,803,776
+  non-reclaimable share of total: 75.2%
+  available share of total:       22.8%
+
+== IS PRESSURE A USABLE INPUT? 6 samples, ~1 s apart ==
+   1 = NORMAL, 2 = WARN, 4 = CRITICAL
+  sample 1  pressure=2  available= 5,881,397,248
+  sample 2  pressure=2  available= 5,566,021,632
+  sample 3  pressure=2  available= 5,803,556,864
+  sample 4  pressure=2  available= 5,733,023,744
+  sample 5  pressure=2  available= 5,763,481,600
+  sample 6  pressure=2  available= 5,758,533,632

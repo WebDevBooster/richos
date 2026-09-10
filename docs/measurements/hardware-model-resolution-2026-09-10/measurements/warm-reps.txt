@@ -1,0 +1,5 @@
+argv, identical on every row: /opt/homebrew/bin/whisper-cli -m <model> -f <wav> -l en -t 4 -fa -np -nt -mc 0
+8 warm reps, wall seconds
+
+small.en               0.882 0.760 0.796 0.846 0.804 0.812 0.758 0.792   median 0.800
+large-v3-turbo-q5_0    1.546 1.636 1.631 1.502 1.552 1.505 1.609 1.519   median 1.549
