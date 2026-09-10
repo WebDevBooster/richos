@@ -76,12 +76,44 @@
 # worktree-spawn-intent.mutation.sh mutates guard-worktree-isolation.sh in a
 # sandbox built by this file and runs that guard's whole suite against it,
 # green, on every CI run.
+#
+# ===========================================================================
+# THE MUTANTS RUN CONCURRENTLY — 2026-09-10
+# ===========================================================================
+# A mutation harness runs a guard's whole behavioral suite once per mutant, so
+# it costs N times that suite, and 19 such cases were measured at 70% of
+# contract-integrity.test.sh back when there were TWELVE harnesses. There are
+# now 40, declaring 526 mutants.
+#
+# THE SANDBOX SHAPE ABOVE IS WHAT MAKES THIS FREE. `mutant` already gave every
+# mutant its OWN directory under $MUT_SANDBOX, built from the shipped tree,
+# which is never opened for writing. Two mutants have therefore never shared a
+# path, never shared a file, and never had an order between them. The loop was
+# serial for one reason: a `for` loop is what a harness was first written as.
+# So the change here is a scheduler, not a redesign of the isolation — the
+# isolation was always the thing that made this correct, and it is untouched.
+#
+# WHAT DOES NOT CHANGE, because a harness's report is read by people and grepped
+# by contract-integrity.test.sh:
+#   - the ORDER of the output is declaration order, never completion order;
+#   - the PASS/FAIL strings are byte-identical, with the duration appended at
+#     end of line;
+#   - the exit code is 0 only when every property was proven, as before;
+#   - a mutant that is KILLED counts as a failure rather than vanishing from
+#     the tally.
+# The mechanism and the two defects found while building it: mutation-pool.sh.
+#
+# WHY THE BOUND IS NOT "ALL OF THEM AT ONCE": each mutant builds a sandbox and
+# then runs a whole suite of processes, so the ceiling is the machine, and an
+# unbounded fan-out of 37 mutants turns a ten-core laptop into a swap storm.
+# RICHOS_MUTANT_JOBS overrides the derived degree.
 
 MUT_PASS=0
 MUT_FAIL=0
 MUT_SANDBOX=""
 MUT_SUITE=""
 MUT_ENGINE_ROOT=""
+MUT_WALL_T0=0
 # Set by mutation_sandbox_engine, for harnesses that keep their own loop.
 MUT_SANDBOX_DIR=""
 MUT_SANDBOX_ENGINE=""
@@ -97,6 +129,12 @@ mutation_begin() { # <title> <suite-rel-path>
     MUT_SUITE="$2"
     MUT_SANDBOX="$(cd "$(mktemp -d -t mutation.XXXXXX)" && pwd -P)"
     command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
+    # shellcheck source=stopwatch.sh
+    . "$MUT_ENGINE_ROOT/scripts/lib/stopwatch.sh"
+    # shellcheck source=mutation-pool.sh
+    . "$MUT_ENGINE_ROOT/scripts/lib/mutation-pool.sh"
+    mut_pool_init
+    MUT_WALL_T0="$(sw_now_ms)"
     cat >"$MUT_SANDBOX/mutate.py" <<'PYEOF'
 import sys
 path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -172,37 +210,78 @@ mutation_sandbox_engine() { # <src-engine-root>
     return 0
 }
 
-# mutant <name> <expected-failing-case-prefix> <rel-file> <old> <new> <why>
-mutant() {
+# _mutant_body — everything a single mutant does, as a function that RETURNS its
+# verdict instead of incrementing a counter.
+#
+# The split from `mutant` is what makes concurrency possible and it is the only
+# reason it exists: this body runs inside a pool worker, which is a subshell, so
+# `MUT_PASS=$((MUT_PASS + 1))` in here would increment a copy and be discarded
+# at the closing paren. A tally that silently counts nothing is precisely the
+# green-over-nothing failure this engine was built to refuse, so the verdict
+# travels as an EXIT CODE, which a subshell cannot lose.
+#
+# The output strings are byte-identical to the serial version. Anything that
+# greps `^  PASS` or `^  FAIL  <name>` — contract-integrity.test.sh does — keeps
+# matching. The duration is appended at END OF LINE for the same reason.
+_mutant_body() { # <name> <want> <rel> <old> <new> <why>
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
     local dir="$MUT_SANDBOX/$name"
+    local t0 el
+    t0="$(sw_now_ms)"
     mkdir -p "$dir"
+    # EACH MUTANT ALREADY HAD ITS OWN DIRECTORY, and that is why this loop is
+    # safe to run concurrently at all: the sandbox is per-name, built from the
+    # read-only shipped tree, and no two workers share a path.
     _mut_copy_engine "$dir"
     if ! python3 "$MUT_SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
-        printf '  FAIL  %s — the mutation did not apply\n' "$name"
+        el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
+        printf '  FAIL  %s — the mutation did not apply  [%s]\n' "$name" "$el"
         sed 's/^/          /' "$dir/mutate.err"
-        MUT_FAIL=$((MUT_FAIL + 1)); return
+        return 1
     fi
     # The suite under test must not recurse into ITS mutation harness: one
     # level is the proof; a mutant running mutants is a fork bomb with a
-    # green tick at the bottom.
+    # green tick at the bottom. RICHOS_MUTATION_INNER also forces any pool in
+    # the inner suite to degree 1, so the process count stays bounded by JOBS
+    # rather than by JOBS squared.
     RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" >"$dir/out.txt" 2>&1
     local rc=$?
+    el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
     if [ "$rc" -eq 0 ]; then
-        printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
+        printf '  FAIL  %s — the suite still PASSED without this property.  [%s]\n' "$name" "$el"
         printf '          %s\n' "$why"
-        MUT_FAIL=$((MUT_FAIL + 1)); return
+        return 1
     fi
     if ! grep -q "FAIL  $want" "$dir/out.txt"; then
-        printf '  FAIL  %s — the suite went red, but NOT at "%s" (so the red is unrelated).\n' "$name" "$want"
+        printf '  FAIL  %s — the suite went red, but NOT at "%s" (so the red is unrelated).  [%s]\n' "$name" "$want" "$el"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
-        MUT_FAIL=$((MUT_FAIL + 1)); return
+        return 1
     fi
-    printf '  PASS  %s — removing it turns "%s" red\n' "$name" "$want"
-    MUT_PASS=$((MUT_PASS + 1))
+    printf '  PASS  %s — removing it turns "%s" red  [%s]\n' "$name" "$want" "$el"
+    return 0
+}
+
+# mutant <name> <expected-failing-case-prefix> <rel-file> <old> <new> <why>
+#
+# Now a SUBMISSION rather than an execution. Every harness that sources this
+# file becomes concurrent with no edit of its own, because a `mutant` line is a
+# declaration and never was anything else. The report is still printed in
+# declaration order — mut_pool_drain guarantees that — so a run of any harness
+# diffs against a run from before this change except for the durations.
+mutant() {
+    mut_pool_submit "$1" _mutant_body "$@"
 }
 
 mutation_end() {
+    # THE VERDICT IS DRAINED, NOT ACCUMULATED. Every mutant's exit code is
+    # collected here and a worker that left no exit code counts as a FAILURE —
+    # see mutation-pool.sh. So a killed mutant cannot quietly leave the tally.
+    mut_pool_drain
+    MUT_PASS="$MUT_POOL_PASS"
+    MUT_FAIL="$MUT_POOL_FAIL"
+    local wall=$(( $(sw_now_ms) - MUT_WALL_T0 ))
+    mut_pool_report_line "$wall"
+    mut_pool_cleanup
     rm -rf "$MUT_SANDBOX"
     echo ""
     if [ "$MUT_FAIL" -gt 0 ]; then
