@@ -103,6 +103,16 @@ mutant hermetic-rooting-removed "A40" "$F" \
     "a suite that overrode only the transaction store would read the OPERATOR'S REAL ownership ledger and rename a live engineer's worktree into a temporary directory."
 
 # --- the record is the enumeration, never a directory scan --------------------
+mutant t4-without-the-allow-list "A72" "$F" \
+    "    kind, shape_why = _owned_shape(path){NL}    if kind:" \
+    "    kind, shape_why = 'any', 'mutant: every shape is ours'{NL}    if kind:" \
+    "T4 would authorize ANY worktree with no owner on record once no session is alive -- a stranger's directory, a CI checkout, anything under a repository this engine merely knows about. The allow-list is what bounds the tier to workspaces somebody declared ours."
+
+mutant t4-ignores-a-live-session "A71" "$F" \
+    "        none_alive, why = _ledger_no_session_alive(){NL}        if none_alive:" \
+    "        none_alive, why = True, 'mutant: liveness ignored'{NL}        if none_alive:" \
+    "the tier's ONE safety property would be gone: an allow-listed workspace with no record would be adopted while its agent is still running, which is the 2026-08-24 incident."
+
 mutant candidates-from-disk "A60" "$F" \
     '    out = set(){NL}    for r in records:{NL}        p = r.get("worktree") or ""' \
     '    out = set(){NL}    scan = [{"worktree": os.path.join(d, n), "event": "registered"}{NL}            for d in {os.path.dirname(x.get("worktree") or "/") for x in records}{NL}            for n in (os.listdir(d) if os.path.isdir(d) else [])]{NL}    for r in list(records) + scan:{NL}        p = r.get("worktree") or ""' \

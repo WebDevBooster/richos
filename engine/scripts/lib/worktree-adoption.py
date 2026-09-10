@@ -74,7 +74,26 @@ rather than about a path being quiet.
   T3  witnessed lock release.  A persisted `terminated` witness for the exact
       path ("native isolation worktree registered and unlocked").
 
-**T1 or T2 authorizes. T3 NEVER authorizes.** T3 is recorded beside the
+  T4  no-session-alive.  The workspace is one of the DECLARED OWNED SHAPES
+      (scripts/lib/workspace-shapes.py, OWNED_WORKSPACE_SHAPES) and NO
+      orchestrator session is alive on this machine at all — every registered
+      session pid is gone and no `claude` process is in the table. T2 says
+      "this owner's process is gone" and needs a record naming the owner; T4
+      says "no owner of any kind exists", which needs no record. That is what
+      makes it the answer to a workspace whose record was never written: on
+      2026-09-10 `richos-hq-wt/zach-opus-red1` was merged, clean, unlocked,
+      landed, and named by NOTHING in the ledger or the transaction store, so
+      every sanctioned tool refused it forever.
+
+      IT CANNOT DESTROY A LIVE AGENT'S WORK BECAUSE THERE IS NO LIVE AGENT.
+      That is the whole safety argument, and it is a kernel fact of the same
+      KIND as T2 rather than an observation a sweep made. The allow-list is a
+      PRECONDITION and never the evidence: prefixed-and-merged-and-clean is
+      the ordinary state of a running worker (a hand-rolled worktree takes no
+      lock, a tree is clean between commits, and the orchestrator lands
+      branches mid-assignment), so the shape alone authorizes nothing.
+
+**T1, T2 or T4 authorizes. T3 NEVER authorizes.** T3 is recorded beside the
 claim as corroboration and nothing else. That is deliberate and it is the
 line between this design and the nine that failed: T3 is an observation a
 SWEEP made about a lock, and "the sweep decided the agent was gone" is the
@@ -415,12 +434,45 @@ def owner_evidence(records, path):
             corroboration.append("T3 witness (never authorizing): %s at %s for agent %s"
                                  % (t.get("reason") or t.get("witness") or "?", t.get("ts"), aid))
 
+    # T4 — no orchestrator session is alive AT ALL, and this is one of ours.
+    kind, shape_why = _owned_shape(path)
+    if kind:
+        none_alive, why = _ledger_no_session_alive()
+        if none_alive:
+            return "T4", ("no-session-alive: %s, and %s. Every agent of every session is a thread of "
+                          "a session process, so with no session process anywhere there is no owner "
+                          "that could return to this workspace. The shape is the PRECONDITION and "
+                          "never the evidence." % (shape_why, why))
+        corroboration.append("T4 precondition unmet: " + why)
+
     if not aids:
         return None, ("no ownership record: nothing in the ledger or the transaction store names %s, "
-                      "and absence of a record is never a claim" % path)
+                      "and absence of a record is never a claim%s"
+                      % (path, (" [" + "; ".join(corroboration) + "]") if corroboration else ""))
     return None, ("no authorizing evidence for %s (agents %s): T1 needs a terminal transaction, T2 "
                   "needs a host session whose pid is provably gone%s"
                   % (path, ",".join(aids), (" [" + "; ".join(corroboration) + "]") if corroboration else ""))
+
+
+def _ledger_no_session_alive():
+    """Indirection so a test can stand in for the machine's process table
+    without patching the ledger module every consumer shares."""
+    return wl.no_session_alive()
+
+
+def _owned_shape(path):
+    """(kind, reason) when this path is a DECLARED owned shape, else (None, why).
+    The branch and the repository are asked of git, never assembled from the
+    path."""
+    try:
+        shapes = _load("workspace_shapes", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                        "workspace-shapes.py"))
+        branch = tx.branch_of(path)
+        repo = tx.main_checkout_of(path)
+        kind, why = shapes.classify(path, branch, repo)
+        return (kind if kind in shapes.OWNED_KINDS else None), why
+    except Exception as error:
+        return None, "the declared shape could not be read (%s)" % error
 
 
 # --------------------------------------------------------------------------

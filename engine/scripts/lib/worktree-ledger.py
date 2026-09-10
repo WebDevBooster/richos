@@ -430,6 +430,55 @@ def session_registry():
     return out
 
 
+def no_session_alive():
+    """(none_alive, reason). Is there ANY orchestrator session running?
+
+    Two independent reads, and either one finding a session answers no:
+
+      * the harness's own live-session registry (~/.claude/sessions/<pid>.json)
+        with each pid probed;
+      * the process table, for a `claude` process of any kind.
+
+    Written for adoption tier T4. Its value is that it is universally
+    quantified: T2 says "this owner's process is gone", which needs a record
+    naming the owner, while this says "no owner of any kind exists", which
+    needs no record at all. The second read is deliberately over-inclusive —
+    anything that looks like a session REFUSES — because a false positive here
+    costs a night's delay and a false negative costs somebody's work.
+    """
+    registry = session_registry()
+    for pid, row in registry.items():
+        if _pid_running(pid):
+            return False, ("session %s is registered to running pid %s"
+                           % ((row.get("session_id") or "?")[:8], pid))
+    # RICHOS_SESSION_PROCESSES stands in for the table under test ("none" = an
+    # empty one), the same shape RICHOS_DAILY_PROCESSES uses for the reclaim
+    # lane. Without it this predicate would answer differently on a developer's
+    # machine (a session is running) and in CI (none is), which is a test that
+    # decides nothing.
+    override = os.environ.get("RICHOS_SESSION_PROCESSES")
+    if override is not None:
+        rows = [line.strip() for line in override.splitlines()
+                if line.strip() and line.strip() != "none"]
+    else:
+        try:
+            res = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=20)
+        except Exception as error:
+            return False, "the process table could not be read (%s); not provably session-free" % error
+        if res.returncode != 0:
+            return False, "the process table could not be read (ps exited %d); not provably session-free" % res.returncode
+        rows = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    for line in rows:
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        command = os.path.basename(parts[1].strip())
+        if command == "claude" or command.startswith("claude"):
+            return False, "a %s process is running as pid %s" % (command, parts[0])
+    return True, ("no session is registered to a running pid (%d registration(s) checked) and no "
+                  "claude process is in the table (%d rows scanned)" % (len(registry), len(rows)))
+
+
 def session_gone_by_exhaustion(session_id, last_write_epoch, tolerance=300.0):
     """("gone"|"alive"|"unknown", reason). See the module docstring."""
     if not session_id or not last_write_epoch:

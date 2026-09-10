@@ -484,10 +484,10 @@ OUT="$(python3 "$REC_PY" --quiet 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -e "$WT2/reclaim" ] && ! git -C "$REPO" rev-parse -q --verify refs/heads/reclaim >/dev/null \
    && grep -q '"phase": "complete"' "$TXF2" && grep -q '"state": "removed"' "$TXF2" \
    && grep -q '"ignored_disposable": 1' "$TXF2" \
-   && [ -d "$WT/good" ] && grep -q 'preparation reservation' "$TXF"; then
-    ok "A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) while a tree whose container a malformed record registered stays HELD with that reason"
+   && [ ! -e "$WT/good" ]; then
+    ok "A58  one reconciler run RECLAIMS the adopted tree through the daily lane (worktree removed, branch deleted, the disposable __pycache__ dropped, member removed with phase complete) -- and so is the tree whose CONTAINER a malformed record registered, because that record names no agent and its session is provably gone (INVERTED 2026-09-10: it used to be HELD by that row forever, and that is the reservation nothing could ever retire)"
 else
-    bad "A58  reclaim: rc=$RC exists=$([ -e "$WT2/reclaim" ] && echo yes || echo no) branch=$(git -C "$REPO" rev-parse -q --verify refs/heads/reclaim 2>/dev/null || echo gone) tx=$(grep -o '"phase": "[^"]*"\|"state": "[^"]*"\|"last_error": "[^"]*"\|"ignored_disposable": [0-9]*' "$TXF2" 2>/dev/null | tr '\n' ' ') good=$([ -d "$WT/good" ] && echo present || echo GONE) good-hold=$(grep -o '"last_error": "[^"]*"' "$TXF" | head -1) out=$(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+    bad "A58  reclaim: rc=$RC exists=$([ -e "$WT2/reclaim" ] && echo yes || echo no) branch=$(git -C "$REPO" rev-parse -q --verify refs/heads/reclaim 2>/dev/null || echo gone) tx=$(grep -o '"phase": "[^"]*"\|"state": "[^"]*"\|"last_error": "[^"]*"\|"ignored_disposable": [0-9]*' "$TXF2" 2>/dev/null | tr '\n' ' ') good=$([ -e "$WT/good" ] && echo STILL-PRESENT || echo reclaimed) good-hold=$(grep -o '"last_error": "[^"]*"' "$TXF" | head -1) out=$(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
 fi
 
 # A59. --all takes every adoptable candidate and REPORTS the refusals beside
@@ -509,6 +509,87 @@ if printf '%s' "$OUT" | grep -qx "$WT/dirty" && ! printf '%s' "$OUT" | grep -qx 
 else
     bad "A60  candidates: $(printf '%s' "$OUT" | tr '\n' ' ' | head -c 300)"
 fi
+
+# ===========================================================================
+# 9. T4 — no orchestrator session alive at all (2026-09-10)
+# ===========================================================================
+# The hole T4 answers, measured that day: richos-hq-wt/zach-opus-red1 was
+# merged, clean, unlocked and landed, and NOTHING in the ledger or the
+# transaction store named it, so every sanctioned tool refused it forever.
+# T2 needs a record naming the owner; T4 needs no record, because it is
+# universally quantified — no session process exists, so no owner exists.
+#
+# The allow-list is the PRECONDITION and never the evidence: A72 and A73 are
+# the two halves of that sentence.
+WT_OWNED="$SANDBOX/repo-wt"
+mkdir -p "$WT_OWNED"
+git -C "$REPO" worktree add -q -b "cc/zach-opus-t4" "$WT_OWNED/zach-opus-t4"
+export RICHOS_SESSIONS_DIR="$SANDBOX/no-sessions"
+mkdir -p "$RICHOS_SESSIONS_DIR"
+
+# A70. THE POSITIVE — allow-listed, no record at all, and no session anywhere.
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "ADOPTABLE T4" ] && printf '%s' "$R" | grep -q 'no-session-alive' \
+   && printf '%s' "$R" | grep -q "this engine's own prefix" \
+   && printf '%s' "$R" | grep -q 'no claude process is in the table'; then
+    ok "A70  an ALLOW-LISTED worktree no record names is adoptable on T4 when no orchestrator session is alive, and the reason states the precondition in its own words"
+else
+    bad "A70  expected 'ADOPTABLE T4', got '$V' — $R"
+fi
+
+# A71. THE NEGATIVE the whole tier rests on: one session alive REFUSES, and the
+# refusal names the precondition rather than going quiet.
+export RICHOS_SESSION_PROCESSES="4242 claude"
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'T4 precondition unmet' \
+   && printf '%s' "$R" | grep -q 'claude process is running as pid 4242'; then
+    ok "A71  ...and ONE claude process anywhere refuses it, naming the unmet precondition (the tier is a kernel fact, not a quiet directory)"
+else
+    bad "A71  expected a T4 refusal naming the live process, got '$V' — $R"
+fi
+
+# A71b. A REGISTERED session with a running pid refuses it too — the registry
+# and the process table are two independent reads and either one answers no.
+printf '{"pid": %s, "sessionId": "00000000-0000-4000-8000-0000000000t4"}\n' "$LIVE_PID" \
+    >"$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT_OWNED/zach-opus-t4")"
+R="$(reason "$WT_OWNED/zach-opus-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'registered to running pid'; then
+    ok "A71b a live entry in the harness's own session registry refuses it even with an empty process table"
+else
+    bad "A71b expected a registry refusal, got '$V' — $R"
+fi
+rm -f "$RICHOS_SESSIONS_DIR/$LIVE_PID.json"
+
+# A72. THE SHAPE IS A PRECONDITION, NOT EVIDENCE: a worktree that is NOT a
+# declared owned shape is still refused with no session alive anywhere.
+export RICHOS_SESSION_PROCESSES=none
+V="$(verdict "$WT/unlisted")"
+R="$(reason "$WT/unlisted")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim'; then
+    ok "A72  a worktree OFF the allow-list is refused even with no session alive: T4 adds a precondition, it does not remove the record"
+else
+    bad "A72  expected the no-record refusal for an unlisted shape, got '$V' — $R"
+fi
+
+# A73. And a codex workspace is refused BY NAME, with no session alive and a
+# perfect tree — the CEO ruling of 2026-09-10, which an allow-list would
+# otherwise satisfy silently (ceo-decisions.md section 31 asks for the words).
+git -C "$REPO" worktree add -q -b "codex/t4" "$WT_OWNED/codex-t4"
+export RICHOS_SESSION_PROCESSES=none
+R="$(reason "$WT_OWNED/codex-t4")"
+V="$(verdict "$WT_OWNED/codex-t4")"
+if [ "$V" = "REFUSED owner-terminated" ] && printf '%s' "$R" | grep -q 'absence of a record is never a claim' \
+   && ! printf '%s' "$R" | grep -q 'ADOPTABLE'; then
+    ok "A73  a codex workspace is never adopted, with no session alive and a perfect tree (it is off the allow-list, and the reclaim lane refuses it by name)"
+else
+    bad "A73  expected a codex refusal, got '$V' — $R"
+fi
+unset RICHOS_SESSIONS_DIR RICHOS_SESSION_PROCESSES
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

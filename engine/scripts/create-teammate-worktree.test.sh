@@ -49,14 +49,14 @@ printf 'not-seeded\n' >"$REPO/app/other.local"
 
 echo "=== create-teammate-worktree tests ==="
 
-# 1. THE HAPPY PATH: created at <repo>-wt/<name>, on branch <name> from HEAD,
+# 1. THE HAPPY PATH: created at <repo>-wt/<name>, on branch cc/<name> from HEAD,
 #    seeded, and registered with path/repo/branch/session/pid.
 OUT="$("$HELPER" "$REPO/app" echo-opus-ct1 2>&1)"; rc=$?
 WT="$SANDBOX/repo-wt/echo-opus-ct1"
 if [ "$rc" -eq 0 ] && [ -d "$WT" ] \
-   && [ "$(git -C "$WT" symbolic-ref -q --short HEAD)" = "echo-opus-ct1" ] \
+   && [ "$(git -C "$WT" symbolic-ref -q --short HEAD)" = "cc/echo-opus-ct1" ] \
    && [ "$(git -C "$WT" rev-parse HEAD)" = "$(git -C "$REPO" rev-parse HEAD)" ]; then
-    ok "C01  creates <repo>-wt/<name> on branch <name> at the main checkout's HEAD (from a subdirectory argument)"
+    ok "C01  creates <repo>-wt/<name> on branch cc/<name> at the main checkout's HEAD -- the DIRECTORY keeps the bare teammate name (eight identity joins read the basename), the BRANCH carries this engine's own prefix"
 else
     bad "C01  create (rc=$rc): $OUT"
 fi
@@ -71,7 +71,7 @@ import json, os, sys
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 r = rows[-1]
 assert r["event"] == "prepared" and r["class"] == "hand-rolled", r
-assert r["teammate"] == "echo-opus-ct1" and r["branch"] == "echo-opus-ct1", r
+assert r["teammate"] == "echo-opus-ct1" and r["branch"] == "cc/echo-opus-ct1", r
 assert os.path.realpath(r["worktree"]) == os.path.realpath(sys.argv[2]), r
 assert os.path.realpath(r["repo"]) == os.path.realpath(sys.argv[3]), r
 assert r["session_pid"] == int(sys.argv[4]) and r.get("pid_start"), r
@@ -247,13 +247,13 @@ fi
 OUT="$(PATH="$SHIM:$PATH" SHIM_FAIL="worktree-remove branch-delete" \
        RICHOS_WORKTREE_LEDGER=/nonexistent-dir/ledger.jsonl "$HELPER" "$REPO" norm-opus-ct23 2>&1)"; rc=$?
 if [ "$rc" -eq 6 ] && printf '%s' "$OUT" | grep -q 'ROLLBACK INCOMPLETE' \
-   && printf '%s' "$OUT" | grep -q 'branch: *norm-opus-ct23' \
+   && printf '%s' "$OUT" | grep -q 'branch: *cc/norm-opus-ct23' \
    && ! printf '%s' "$OUT" | grep -q 'ROLLED BACK'; then
     ok "C25  a rollback that could NOT finish exits 6 and names what survived — it never claims a cleanup it did not achieve"
 else
     bad "C25  incomplete rollback (rc=$rc): $OUT"
 fi
-git -C "$REPO" branch -D norm-opus-ct23 >/dev/null 2>&1 || true
+git -C "$REPO" branch -D cc/norm-opus-ct23 >/dev/null 2>&1 || true
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

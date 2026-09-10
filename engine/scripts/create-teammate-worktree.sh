@@ -134,8 +134,24 @@ if [ "$MANAGED" -eq 0 ]; then
 else
     [ -z "$DIR" ] || refuse "managed workspaces use the manager's assigned path; omit --dir"
 fi
-if [ "$MANAGED" -eq 0 ] && git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$NAME" >/dev/null; then
-    refuse "branch '$NAME' already exists in $MAIN — a teammate name is used once; pick a fresh identifier"
+# THE BRANCH CARRIES OUR OWN PREFIX (CEO, 2026-09-10: "if the cc/ prefix helps
+# fix this shitshow once and for all, add it now and be done with it").
+#
+# The DIRECTORY keeps the bare teammate name and always will: eight places in
+# scripts/lib/inflight.py name "worktree basename" as an identity source, and
+# the `-wt/` location already marks these unambiguously. The BRANCH is what
+# had no mark, and a branch is the durable half — it outlives the directory,
+# it is what a merge sees, and it is what a sweep of a repository's refs has
+# to decide about. `cc/` is this engine's own signature on a ref it created,
+# which is a fact rather than a guess about a name.
+#
+# The namespace was verified empty across all five repositories before this
+# landed. Note git cannot hold a bare `cc` ref beside `cc/<name>`, so nothing
+# may ever create one.
+BRANCH="$NAME"
+[ "$MANAGED" -eq 0 ] && BRANCH="cc/$NAME"
+if [ "$MANAGED" -eq 0 ] && git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
+    refuse "branch '$BRANCH' already exists in $MAIN — a teammate name is used once; pick a fresh identifier"
 fi
 [ -n "$BASE" ] || BASE="HEAD"
 git -C "$MAIN" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null \
@@ -160,7 +176,7 @@ if [ "$MANAGED" -eq 1 ]; then
     MANAGED_ID="$(printf '%s' "$_managed_record" | python3 -c 'import json,sys; print(json.load(sys.stdin)["manager_id"])')" || exit 4
 else
 mkdir -p "$(dirname "$DIR")" || { echo "create-teammate-worktree.sh: cannot create $(dirname "$DIR")" >&2; exit 4; }
-if ! git -C "$MAIN" worktree add -q "$DIR" -b "$NAME" "$BASE"; then
+if ! git -C "$MAIN" worktree add -q "$DIR" -b "$BRANCH" "$BASE"; then
     echo "create-teammate-worktree.sh: git worktree add failed for $DIR" >&2
     exit 4
 fi
@@ -271,7 +287,7 @@ rollback() { # <why>
        && [ "$_admin" != "${_admin#"$_common"/worktrees/}" ]; then
         rm -rf "$_admin"
     fi
-    git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true
+    git -C "$MAIN" branch -D "$BRANCH" >/dev/null 2>&1 || true
 
     # REPORT THE ARTIFACT, NEVER THE COMMAND. Every removal above is
     # best-effort and each one swallows its own exit status, so "rolled back"
@@ -283,9 +299,9 @@ rollback() { # <why>
     _left=""
     [ -e "$DIR" ] && _left="$_left
     directory:    $DIR"
-    if git -C "$MAIN" rev-parse --verify -q "refs/heads/$NAME" >/dev/null 2>&1; then
+    if git -C "$MAIN" rev-parse --verify -q "refs/heads/$BRANCH" >/dev/null 2>&1; then
         _left="$_left
-    branch:       $NAME"
+    branch:       $BRANCH"
     fi
     if git -C "$MAIN" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $DIR"; then
         _left="$_left
@@ -293,7 +309,7 @@ rollback() { # <why>
     fi
     if [ -n "$_left" ]; then
         {
-            echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"
+            echo "create-teammate-worktree.sh: created $DIR on branch $BRANCH but $1"
             echo "  ROLLBACK INCOMPLETE — the cleanup was attempted and these SURVIVE:$_left"
             echo "  They must be removed by hand before this name or path is reused. This is"
             echo "  reported rather than swallowed: a rollback that claims a success it did not"
@@ -302,7 +318,7 @@ rollback() { # <why>
         exit 6
     fi
     {
-        echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"
+        echo "create-teammate-worktree.sh: created $DIR on branch $BRANCH but $1"
         echo "  ROLLED BACK: the worktree and the branch were removed again. A cross-repository"
         echo "  worktree without its prepared record can never be bound to the teammate that"
         echo "  works in it, never sealed, and never cleaned up — so it is not left behind."
@@ -329,7 +345,7 @@ fi
 [ -n "$SESSION" ] || rollback "no session id could be resolved (pass --session <id>, or run this from inside the session whose ~/.claude/sessions/<pid>.json names it)"
 
 REG_ARGS=(record prepared --teammate "$NAME" --session-id "$SESSION" --repo "$MAIN" --worktree "$DIR" \
-          --branch "$NAME" --source create-teammate-worktree.sh)
+          --branch "$BRANCH" --source create-teammate-worktree.sh)
 if [ "$MANAGED" -eq 1 ]; then
     REG_ARGS+=(--class managed-image --extra "manager_id=$MANAGED_ID")
 else
@@ -347,7 +363,7 @@ fi
 
 # --- 5. report --------------------------------------------------------------
 echo "created:    $DIR"
-echo "branch:     $NAME  (from $BASE in $MAIN)"
+echo "branch:     $BRANCH  (from $BASE in $MAIN)"
 if [ "$MANAGED" -eq 1 ]; then
     echo "delivery:   worker branch is image-local; after terminal capture query:"
     printf '  python3 %q delivery --id %q --repo %q\n' "$MANAGED_PY" "$MANAGED_ID" "$MAIN"
