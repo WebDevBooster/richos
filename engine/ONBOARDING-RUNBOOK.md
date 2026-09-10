@@ -118,7 +118,7 @@ richos-engine v1.0.0 — contract integrity probe
   ✓ N. .claude/settings.local.json is git-tracked (will reach the next clone)
   ✓ O. Bash-write guard wired + denies a main-checkout source write (path-confined, manifest-matched, exit=2 canary)
   ✓ P. definition-drift pair wired exactly once (SessionStart snapshotter + PreToolUse[Agent] guard) + blocks drift (exit=2) + allows unchanged (exit=0) — path-confined, manifest-matched
-  ✓ Q. worktree-reaper chain wired exactly once (SessionStart wrapper + reap-stale-worktrees.sh) + reaps a merged/clean tree (reaped=1) + REFUSES a dirty one (skipped=1) — path-confined, manifest-matched
+  ✓ Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) and REPORTS the terminal member it no longer recovers (status-only since 28f07ab5) + the reconciler, recovery's current owner, carries a quarantined terminal transaction forward quarantined->verified — path-confined, manifest-matched
 ```
 
 (Layer N is the git-tracked check. If the CEO copied the engine in but hasn't
