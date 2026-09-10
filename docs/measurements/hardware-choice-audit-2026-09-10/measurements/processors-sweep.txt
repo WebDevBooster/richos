@@ -1,0 +1,12 @@
+bin       /opt/homebrew/bin/whisper-cli
+bin sha   7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8
+model     /Users/alex/Models/Whisper/ggml-large-v3-turbo-q5_0.bin  (DEFAULT_TIER `quantized`, config.js:311)
+wav       long.wav (sha256 ff957e99c4b573eec790bae4f684129163d9eea2cd19d62d7c9483e69c5ee3c8)
+host      Mac16,10, 10 cores (4P + 6E), 25769803776 B
+reps      3 per cell, MINIMUM reported
+whisper-cli own default for -p is 1 (from --help); nothing in this repo ever sets it
+
+-p     min_secs   peak_rss_B     samples
+1      3.488      872873984      3.703 3.488 3.501
+2      4.372      1029455872     4.372 4.409 4.414
+4      4.726      1334525952     4.726 4.758 4.753
