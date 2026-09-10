@@ -350,6 +350,8 @@ Every file-writing teammate spawn requires an isolated worktree — enforced str
 
 **Atomic commits are mandatory.** Every meaningful change = its own commit, immediately. Rich verifies commit count matches distinct changes before landing.
 
+**A SUBAGENT CANNOT BE PAUSED — ONLY DESTROYED, and that is why the rule above is not bookkeeping.** `TaskStop` is the only lever the platform has, and it is a destructor: everything the agent has not committed is gone, unrecoverably. On 2026-09-10 two mid-flight teammates were stopped inside a minute; `zach-opus-dor1` lost almost nothing because it had committed as it went, and `echo-opus-hw2` lost its entire session because it had not. **So the corollary for whoever is conserving budget: work already in flight is already PAID FOR.** Killing it refunds nothing and forfeits the result — the lever that actually costs nothing is to **stop DISPATCHING**. Enforced at the destructive end by `scripts/hooks/guard-stop-live-work.sh`, which refuses a `TaskStop` against a provably live teammate without the CEO's own unconditional words or a reason written first via `scripts/stop-work-ack.sh`. **A conditional is not an instruction** — "might", "if", "may need to" are hypotheses about a future, and reading one as an order is the whole of that failure.
+
 ### Handoff = the commit, not a message
 
 The agent↔lead mailbox is ~50% lossy — **no load-bearing signal ever depends on it.** Durable substrates only: the git commit, the task store, hook-written event logs, the spawn prompt.
