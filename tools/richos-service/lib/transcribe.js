@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { whisperBin, resolveModel, whisperArgs, DEFAULT_MODEL } from './config.js';
+import { assertToolchain, resolveToolchain, probeWhisper, provenanceString } from './toolchain.js';
 
 /**
  * Per-token start offsets of one whisper.cpp segment, in ms — the model's OWN claim about where
@@ -86,15 +87,68 @@ export function parseWhisperJson(json, speaker) {
     .filter((s) => s.text.length > 0);
 }
 
-/** whisper-cli's version banner line, for provenance. */
-export function whisperVersion() {
+/**
+ * The identity of the binary, the backends and the weights that are about to decode this audio —
+ * checked before a byte is read, and returned so the caller can record it.
+ *
+ * THIS IS THE GATE. `whisperArgs()` decides HOW the audio is decoded and the settings table
+ * (`docs/measurements/whisper-settings-2026-09-10/`) justifies every value in it — but a decided
+ * setting handed to an unknown binary is a decision about nothing. `-fa` is the worked example the
+ * table gives: flash attention is whisper.cpp's DEFAULT, it is worth 1.57 WER points, and the
+ * table pins it explicitly so a vendor formula bump cannot silently flip it. That defends one
+ * flag. This defends the premise underneath all of them.
+ *
+ * Refuse-versus-warn, and which is which, is `toolchain.js`'s `SEVERITY` table with its reasons.
+ * The short version: a mismatch against a SOURCE pin (the model weights) refuses here; a mismatch
+ * against the machine's own trust-on-first-use lock (the binary, its backends) warns loudly and
+ * the transcript is attributed to the new identity rather than thrown away.
+ *
+ * @param {string} modelPath resolved .bin
+ * @param {string} modelId portable model id
+ * @returns {object} the `resolveToolchain` result
+ * @throws {Error} code `TOOLCHAIN_REFUSED` when the weights are not the pinned weights
+ */
+export function checkToolchain(modelPath, modelId) {
+  return assertToolchain({ binPath: whisperBin(), modelPath, modelId });
+}
+
+/**
+ * A provenance line naming the binary AND the weights that produced a transcript.
+ *
+ * WHAT THIS USED TO BE, and why that was the exposure rather than a cosmetic gap: it ran
+ * `whisper-cli --help`, matched `/whisper\.cpp|usage/`, and returned the CONSTANT STRING
+ * `'whisper.cpp (whisper-cli)'` — the same 24 characters for 1.9.1, for 1.8.3, for a build with
+ * flash attention removed, and for anything else that prints the word "usage". Recorded against
+ * every transcript, it could never disagree with itself, so no later reader could notice a change.
+ * The settings decision table §4 named exactly that: "it records nothing that would let anyone
+ * notice the change."
+ *
+ * It now returns what actually ran, e.g.
+ *
+ *   whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38
+ *
+ * so "which binary and which weights produced this transcript" is answerable from the string
+ * alone, and the structured form (`record.pipeline.toolchain`) carries the full hashes.
+ *
+ * Kept returning a STRING at this name because `contract.js` and `pipeline.js` store it as one.
+ * Called with no model it still answers about the binary — the honest partial answer, not a lie.
+ *
+ * @param {{modelPath?: string, modelId?: string}} [opts]
+ * @returns {string}
+ */
+export function whisperVersion(opts = {}) {
   try {
-    // whisper-cli has no --version; the model-load banner carries the build. Probe cheaply.
-    const out = execFileSync(whisperBin(), ['--help'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    const m = out.match(/whisper\.cpp|usage/i);
-    return m ? 'whisper.cpp (whisper-cli)' : 'whisper-cli';
-  } catch {
-    return 'whisper-cli';
+    const bin = whisperBin();
+    if (opts.modelPath) {
+      return resolveToolchain({ binPath: bin, modelPath: opts.modelPath, modelId: opts.modelId || DEFAULT_MODEL })
+        .provenance;
+    }
+    const probed = probeWhisper(bin);
+    return provenanceString({ bin: probed.bin, backends: probed.backends });
+  } catch (err) {
+    // NAMES THE FAILURE. "whisper-cli" as a provenance value is indistinguishable from a
+    // successful probe of a binary called whisper-cli, which is the defect this function had.
+    return `whisper-cli (identity not recorded: ${String(err.message || err).split('\n')[0]})`;
   }
 }
 
@@ -108,6 +162,10 @@ export function whisperVersion() {
 export function transcribeChannel(wavPath, speaker, opts = {}) {
   const modelId = opts.model || DEFAULT_MODEL;
   const modelPath = resolveModel(modelId);
+  // BEFORE the decode, never after. A refusal here has cost nothing and destroyed nothing: the
+  // audio is untouched on disk and the caller can re-run once the model is re-fetched. The result
+  // is memoized per process, so transcribing both channels of one call probes the binary once.
+  const toolchain = checkToolchain(modelPath, modelId);
   const outDir = opts.outDir || path.dirname(wavPath);
   const outBase = path.join(outDir, `${speaker}`);
   const args = [
@@ -126,19 +184,31 @@ export function transcribeChannel(wavPath, speaker, opts = {}) {
   execFileSync(whisperBin(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
   const jsonPath = `${outBase}.json`;
   const json = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-  return { segments: parseWhisperJson(json, speaker), jsonPath, model: modelId };
+  return { segments: parseWhisperJson(json, speaker), jsonPath, model: modelId, toolchain };
 }
 
 /**
  * Transcribe both channels of a normalized session.
+ *
+ * `toolchain` comes back from the channel that actually ran rather than from a fresh probe, so the
+ * provenance recorded against the transcript is the identity that DECODED it, not the identity of
+ * whatever is installed by the time the record gets written. On a long call those are minutes
+ * apart and a `brew upgrade` fits comfortably in between.
+ *
  * @param {{me: string, others: string}} channels
  * @param {{model?: string, outDir?: string, extraArgs?: string[], language?: string}} [opts]
- * @returns {{me: object[], others: object[], model: string, whisper: string}}
+ * @returns {{me: object[], others: object[], model: string, whisper: string, toolchain: object}}
  */
 export function transcribeSession(channels, opts = {}) {
   const me = transcribeChannel(channels.me, 'me', opts);
   const others = transcribeChannel(channels.others, 'others', opts);
-  return { me: me.segments, others: others.segments, model: me.model, whisper: whisperVersion() };
+  return {
+    me: me.segments,
+    others: others.segments,
+    model: me.model,
+    whisper: me.toolchain ? me.toolchain.provenance : whisperVersion(),
+    toolchain: me.toolchain || null,
+  };
 }
 
 /**
@@ -164,7 +234,13 @@ export function transcribeSession(channels, opts = {}) {
 export function transcribeClips(clipPaths, opts = {}) {
   const paths = (clipPaths || []).filter(Boolean);
   if (!paths.length) return [];
-  const modelPath = resolveModel(opts.model || DEFAULT_MODEL);
+  const modelId = opts.model || DEFAULT_MODEL;
+  const modelPath = resolveModel(modelId);
+  // The clip probe is a CONTROL: the deletion detector believes a span was deleted because this
+  // re-decode disagreed with the main pass. A control decoded by a different binary or different
+  // weights than the run it is judging is not a control, so it is gated identically — and by then
+  // the memo means it costs nothing.
+  checkToolchain(modelPath, modelId);
   execFileSync(
     whisperBin(),
     ['-m', modelPath, ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }), ...paths],
