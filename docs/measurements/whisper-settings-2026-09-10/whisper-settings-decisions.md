@@ -52,7 +52,7 @@ and the deletion detector's clip probe, same decode flags, no `-ojf`/`-of`, seve
 -m <model> -l en -t 4 -mc 0 -oj -np <clip0> <clip1>
 ```
 
-plus one bare `--help` per session from `whisperVersion()`.
+plus one `--version` per session from `whisperVersion()` — the identity probe, §4.1.
 
 | Flag | Vendor default | We ship | Why ours, with evidence |
 |---|---|---|---|
@@ -94,7 +94,7 @@ plus one bare `--help` per session from `whisperVersion()`.
 | `-debug` / `-ls` | off / off | off | **ARGUED.** Diagnostics that put non-transcript material on the output paths. |
 | `-ps` / `-pc` / `-pp` / `--print-confidence` / `-nt` | all off | all off | **ARGUED.** Console presentation. We read the JSON file. (`-nt` IS used by the dictation path, §7, which reads stdout on purpose.) |
 | `-otxt` / `-ovtt` / `-osrt` / `-olrc` / `-ocsv` / `-owts` / `-fp` | all off | all off | **ARGUED.** Alternative output formats and the karaoke font. `-oj`/`-ojf` is the one the merge parses; the others would be unread files in the session directory. |
-| `-h` / `--version` | — | `--help` once per session | **ARGUED.** `whisperVersion()` probes `--help` because `whisper-cli` has no version string on the path it uses. Cheap, once, out of the decode path. **Worth revisiting:** 1.9.1 *does* answer `--version` (`whisper.cpp version: 1.9.1`), which is a better provenance string than the constant we return today. Recorded, not changed, because it is a provenance improvement and not a settings decision. |
+| `-h` / `--version` | — | **`--version` once per session — CHANGED 2026-09-10** | **MEASURED.** It probed `--help` and returned a constant. It now probes `--version`, whose stdout carries the build (`whisper.cpp version: 1.9.1`) and whose stderr carries the `load_backend:` lines naming every ggml backend loaded — one 0.04 s invocation for both, out of the decode path. The "worth revisiting" note this row used to carry is now done; §4.1 holds the measurement that made it harder than it looked, because **1.8.3 rejects `--version` and exits 0 with empty stdout.** |
 
 ## 3. Voice Activity Detection — the default nobody had justified, now justified
 
@@ -140,10 +140,68 @@ per-channel silence-share switch would be tuning on material we do not have.
 
 | Setting | Today | Assessment |
 |---|---|---|
-| `whisper-cli` build | **unpinned.** Homebrew's linked `whisper-cpp`, 1.9.1 today, 1.8.3 also on disk | **This is the largest remaining exposure in the table.** Every default in the "vendor default" column is a property of 1.9.1. `-fa` alone is worth 1.57 WER points and is a *default*: a formula bump that flips it costs more accuracy than any tuning decision here recovers. `whisperVersion()` returns the constant string `'whisper.cpp (whisper-cli)'` — it records nothing that would let anyone notice the change. §1 pins `-fa` explicitly, which removes that one exposure; the general one remains open. |
-| ggml backend | **unpinned.** 0.17.0, separate formula | Same class. The BLAS/Metal/CPU backends are loaded at runtime from the `ggml` formula, independently of whisper-cpp's version. |
-| model files | pinned by size + sha256 in `model-catalog.js`, verified on fetch, cheap-checked on resolve | Correct as it stands, and the pattern the two rows above lack. |
-| `RICHOS_WHISPER_*` env overrides | `RICHOS_WHISPER_MAX_CONTEXT`, `_LANG`, `_THREADS`, `_MODEL`, `_BIN` | Deliberate escape hatches. Each one can silently restore a vendor default — `RICHOS_WHISPER_MAX_CONTEXT=-1` is `-mc -1` again — which is why `verification.json` records the EFFECTIVE `whisperArgs`, not the intended one. |
+| `whisper-cli` build | **PINNED per machine, 2026-09-10.** Homebrew's linked `whisper-cpp`, 1.9.1 today, 1.8.3 also on disk | **Was the largest remaining exposure in the table; now closed.** Every default in the "vendor default" column is a property of 1.9.1, and `-fa` alone is worth 1.57 WER points while being a *default*. The binary's sha256 is recorded on first use in a machine lock and re-hashed on **every** run (654,720 B, 0.01 s — free), so a changed build produces a loud warning naming both identities rather than a silent accuracy change. Not a source pin, and §4.1 is why. |
+| ggml backend | **PINNED per machine, 2026-09-10.** 0.17.0, separate formula | Same mechanism. The backends are read off the binary's own `load_backend:` startup lines — measured, not guessed from a Cellar path — and hashed with it, so a ggml formula bump is caught with `whisper-cpp` untouched. |
+| `whisperVersion()` | **records the run, 2026-09-10.** | It returned the constant string `'whisper.cpp (whisper-cli)'` on every run ever made, so it could never disagree with itself. It now returns e.g. `whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38`, and `session.json` carries the full hashes **per run**, so a re-transcription cannot re-attribute an earlier one. |
+| model files | pinned by size + sha256 in `model-pins.json`, verified on fetch, **and now hashed before every decode** (cached on identity) | The pattern the rows above were missing, and it is now enforced at the decode too: `resolveModel` on the hot path never looked at the hash at all. |
+| `RICHOS_WHISPER_*` env overrides | `RICHOS_WHISPER_MAX_CONTEXT`, `_LANG`, `_THREADS`, `_MODEL`, `_BIN` | Deliberate escape hatches. Each one can silently restore a vendor default — `RICHOS_WHISPER_MAX_CONTEXT=-1` is `-mc -1` again — which is why `verification.json` records the EFFECTIVE `whisperArgs`, not the intended one. `_MODEL` and `_BIN` are now recorded by IDENTITY as well as by path. |
+
+### 4.1 Why the binary is locked per machine and the weights are pinned in source
+
+**Two tiers, deliberately unequal, and the asymmetry is the whole design.**
+
+| | Where the expectation lives | On a mismatch | Why that one |
+|---|---|---|---|
+| **model weights** | `model-pins.json`, in source, six models | **REFUSE** | The table has authority: HuggingFace's `x-linked-etag` plus a shasum of the CEO's own copy say what the bytes are supposed to be. The fetch path already refuses on this exact hash, so a decode path that shrugged would be overruling it. |
+| **`whisper-cli` + ggml backends** | `~/.config/richos/whisper-toolchain.lock.json`, written on first use | **WARN, naming both identities** | `whisper-cli` comes from Homebrew. No source sha256 could hold across arch, OS version and bottle revision, and a pin every other machine fails is a pin nobody keeps. The lock records what WAS there, not what is right — so a routine `brew upgrade` must not leave an already-captured call untranscribable. The CEO cannot re-record a meeting. |
+
+`RICHOS_WHISPER_STRICT_TOOLCHAIN=1` escalates every warning to a refusal — for reproducing the
+measurements in this table, where "the binary changed" invalidates the run. **Off by default, and
+the default is a decision:** on by default would mean a Homebrew upgrade silently stops
+transcription for someone who has no idea what a bottle is.
+
+**The reference build lives in `model-pins.json` too**, in a `toolchain` block beside the six model
+pins, because two registries of truth is how the second unpinned consumer came to exist. It is what
+a run is compared and attributed to, never a requirement a second machine would fail.
+
+**And the version string is a LABEL, not the identity — measured, not assumed:**
+
+```
+/opt/homebrew/Cellar/whisper-cpp/1.9.1/bin/whisper-cli --version
+  exit 0, stdout: whisper.cpp version: 1.9.1
+/opt/homebrew/Cellar/whisper-cpp/1.8.3/bin/whisper-cli --version
+  exit 0, stdout: EMPTY (0 bytes), stderr: error: unknown argument: --version
+```
+
+**1.8.3 rejects the flag and still exits ZERO.** A probe that trusted the exit code would see
+success and an empty version — indistinguishable from a build that simply has none. So the sha256
+is the identity, the exit status is recorded and never consulted, and a build that will not
+identify itself gets a finding of its own rather than an empty field nobody reads. That also
+supersedes the "worth revisiting" note in §2's `-h` / `--version` row: `--version` IS now the probe,
+and this is the trap it had to be written around.
+
+**What is hashed when**, measured on this M4 with `shasum -a 256`, three runs each:
+
+| | Size | Time | When |
+|---|---|---|---|
+| `whisper-cli` | 654,720 B | 0.01 / 0.01 / 0.01 s | **every run** |
+| ggml backends (×3) | ~1.5 MB | under 0.05 s | **every run** |
+| `ggml-small.en.bin` | 487,614,201 B | 0.95 / 0.93 / 0.93 s | cache miss only |
+| `ggml-large-v3-turbo.bin` | 1,624,555,275 B | 3.13 / 3.11 s | cache miss only |
+
+The binary is free to hash and is precisely the thing a package manager swaps under you, so it is
+hashed every time. A dictation utterance decodes in 0.47–0.74 s (§7), so a 0.93 s hash on each one
+would nearly triple that path's latency; models are cached on (path, size, mtime, inode, device).
+**The limit of that cache, stated rather than buried:** a rewrite in place restoring all five fields
+would be believed until something re-hashes. `richos-service toolchain --recheck` and
+`verify-model` are that something, and a refused run never writes the cache.
+
+**Both consumers, one lock.** `tools/richos-service` and `app/crates/richos-voice` share the same
+lock file and the same pin table (compiled in with `include_str!`), so a changed binary is caught by
+whichever surface meets it first and a model hashed by one is verified for the other.
+
+**Inspect it:** `richos-service toolchain` (`--recheck` re-hashes, `--relock` accepts a change on
+purpose), or `cargo run -p richos-voice --example toolchain_probe`.
 
 ## 5. What `-mc 0` costs, priced rather than asserted
 

@@ -83,6 +83,8 @@ import {
 } from '../lib/config.js';
 import {
   MODEL_PINS,
+  PIN_FILE,
+  TOOLCHAIN_REFERENCE,
   GGML_MAGIC_HEX,
   pinFor,
   requirePin,
@@ -104,6 +106,26 @@ import {
   inspectFile,
 } from '../lib/model-integrity.js';
 import { fetchVerified, downloadModel, modelStatus } from '../lib/model-fetch.js';
+import {
+  TOOLCHAIN_FINDING,
+  SEVERITY,
+  strictMode,
+  severityOf,
+  parseVersion,
+  parseBackends,
+  compareToolchain,
+  compareModel,
+  verdictOf,
+  describeFinding,
+  sameIdentity,
+  provenanceString,
+  probeWhisper,
+  fileIdentity,
+  buildLock,
+  resolveToolchain,
+  assertToolchain,
+  resetToolchainCache,
+} from '../lib/toolchain.js';
 import {
   guardChannel,
   guardChannelAll,
@@ -3823,6 +3845,381 @@ test('`richos-service verify-model` exits non-zero on a file that does not match
     assert.match(out, /FAIL/);
     assert.match(out, /not the bytes RichOS pinned/);
   });
+});
+
+
+// ---------------------------------------------------------------------------------------
+group('whisper toolchain — which binary, which backends, which weights (2026-09-10)');
+
+// A fake `whisper-cli`: a shell script that prints exactly what a real one prints. Real enough,
+// because everything under test consumes the two OUTPUT STREAMS and the file's bytes, and a
+// script gives both plus a hash that changes when we want it to. The real binaries are exercised
+// by the demonstration in the commit record; these are the cases a suite must be able to run on
+// any machine, including one with no whisper installed at all.
+function fakeWhisper(dir, { version = '1.9.1', backends = ['BLAS', 'MTL', 'CPU'], reject = false, salt = '' }) {
+  const p = path.join(dir, 'whisper-cli');
+  // A rejecting build emits NO backend lines, because it dies in argument parsing before it ever
+  // loads one. Measured on the real thing, 2026-09-10: `whisper-cpp 1.8.3 --version` produced
+  // zero `load_backend:` lines and exited 0. A fake that printed them anyway would be a fake of a
+  // binary that does not exist, and the test built on it would prove nothing.
+  const emitted = reject ? [] : backends;
+  const backendLines = emitted
+    .map((b) => `echo "load_backend: loaded ${b} backend from ${dir}/libggml-${b.toLowerCase()}.so" >&2`)
+    .join('\n');
+  const versionLine = reject
+    ? 'echo "error: unknown argument: --version" >&2'
+    : `echo "whisper.cpp version: ${version}"`;
+  fs.writeFileSync(p, `#!/bin/sh\n# ${salt}\n${backendLines}\n${versionLine}\nexit 0\n`);
+  fs.chmodSync(p, 0o755);
+  for (const b of backends) fs.writeFileSync(path.join(dir, `libggml-${b.toLowerCase()}.so`), `${b}-backend-${salt}`);
+  return p;
+}
+
+test('parseVersion reads the version off STDOUT and refuses to invent one from anything else', () => {
+  assert.equal(parseVersion('whisper.cpp version: 1.9.1\n'), '1.9.1');
+  assert.equal(parseVersion('whisper.cpp version:1.8.3'), '1.8.3');
+  assert.equal(parseVersion(''), null);
+  // The measured trap: whisper-cpp 1.8.3 exits 0, prints its usage banner to STDERR, and leaves
+  // stdout empty. Anything that fell back to stderr would read a version out of the banner.
+  assert.equal(parseVersion('error: unknown argument: --version\nusage: whisper-cli ...'), null);
+});
+
+test('a build that exits 0 while refusing --version is VERSION_UNKNOWN, never a silent empty string', () => {
+  const dir = tmp();
+  const bin = fakeWhisper(dir, { reject: true });
+  const observed = probeWhisper(bin);
+  assert.equal(observed.bin.version, null);
+  assert.equal(observed.bin.probeExitStatus, 0, 'the trap is precisely that it exits ZERO');
+  assert.equal(observed.bin.probeStderrFirstLine, 'error: unknown argument: --version');
+  const r = compareToolchain({ observed, locked: null, reference: null });
+  const kinds = r.findings.map((f) => f.kind);
+  assert.ok(kinds.includes(TOOLCHAIN_FINDING.VERSION_UNKNOWN));
+  // ...and the sha256 is what the run is attributed to instead.
+  assert.match(String(observed.bin.sha256), /^[0-9a-f]{64}$/);
+});
+
+test('parseBackends reads the backends the binary itself says it loaded, in order', () => {
+  const out = parseBackends(
+    [
+      'ggml_metal_device_init: has tensor            = false',
+      'load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so',
+      'load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so',
+      'load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so',
+    ].join('\n'),
+  );
+  assert.deepEqual(out.map((b) => b.name), ['BLAS', 'MTL', 'CPU']);
+  assert.equal(out[2].path, '/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so');
+  assert.deepEqual(parseBackends(''), []);
+});
+
+test('a FIRST install has nothing to compare against, so it records and proceeds — never refuses', () => {
+  const dir = tmp();
+  const observed = probeWhisper(fakeWhisper(dir, {}));
+  const r = compareToolchain({ observed, locked: null, reference: null });
+  assert.equal(r.verdict, 'ok', 'a fresh machine must not be refused for having no history');
+  assert.deepEqual(r.findings.map((f) => f.kind), [TOOLCHAIN_FINDING.FIRST_LOCK]);
+  assert.equal(severityOf(TOOLCHAIN_FINDING.FIRST_LOCK), 'note');
+  assert.match(describeFinding(r.findings[0]), /first install has no earlier identity to be wrong about/);
+});
+
+test('a CHANGED BINARY warns, and the message names BOTH identities — old and new', () => {
+  const a = tmp();
+  const b = tmp();
+  const before = probeWhisper(fakeWhisper(a, { version: '1.9.1', salt: 'a' }));
+  const after = probeWhisper(fakeWhisper(b, { version: '1.8.3', salt: 'b' }));
+  assert.notEqual(before.bin.sha256, after.bin.sha256);
+  const locked = buildLock({ observed: before });
+  const r = compareToolchain({ observed: after, locked, reference: null });
+  assert.equal(r.verdict, 'warn', 'a Homebrew upgrade must not make an already-captured call untranscribable');
+  const changed = r.findings.find((f) => f.kind === TOOLCHAIN_FINDING.BIN_CHANGED);
+  assert.ok(changed, 'the binary change must be its own finding');
+  const msg = describeFinding(changed);
+  assert.match(msg, /1\.9\.1/, 'names the version it WAS');
+  assert.match(msg, /1\.8\.3/, 'names the version it IS');
+  assert.match(msg, new RegExp(before.bin.sha256.slice(0, 12)), 'names the hash it WAS');
+  assert.match(msg, new RegExp(after.bin.sha256.slice(0, 12)), 'names the hash it IS');
+});
+
+test('a changed ggml BACKEND is caught even when the binary itself is byte-identical', () => {
+  // The exposure §4 names separately: the compute backends load at run time from their own
+  // formula, so ggml can move with whisper-cpp untouched.
+  const dir = tmp();
+  const bin = fakeWhisper(dir, { salt: 'same' });
+  const before = probeWhisper(bin);
+  fs.writeFileSync(path.join(dir, 'libggml-mtl.so'), 'MTL-backend-REBUILT');
+  const after = probeWhisper(bin);
+  assert.equal(before.bin.sha256, after.bin.sha256, 'the binary must be unchanged for this test to mean anything');
+  const r = compareToolchain({ observed: after, locked: buildLock({ observed: before }), reference: null });
+  const f = r.findings.find((x) => x.kind === TOOLCHAIN_FINDING.BACKEND_CHANGED);
+  assert.ok(f, 'a backend swap under an unchanged binary must still be caught');
+  assert.equal(f.backend, 'MTL');
+  assert.equal(r.verdict, 'warn');
+});
+
+test('a build that reports NO backends is not reported as having lost them', () => {
+  // "Nothing observed" is not "changed". The binary hash already carries that case, and a second
+  // finding built on an absence would be noise on exactly the run that needs to be read.
+  const a = tmp();
+  const b = tmp();
+  const withBackends = probeWhisper(fakeWhisper(a, { salt: 'a' }));
+  const without = probeWhisper(fakeWhisper(b, { backends: [], reject: true, salt: 'b' }));
+  const r = compareToolchain({ observed: without, locked: buildLock({ observed: withBackends }), reference: null });
+  assert.equal(r.findings.filter((f) => f.kind === TOOLCHAIN_FINDING.BACKEND_CHANGED).length, 0);
+});
+
+test('a version off the REFERENCE build warns and names the build the settings were measured on', () => {
+  const dir = tmp();
+  const observed = probeWhisper(fakeWhisper(dir, { version: '2.0.0' }));
+  const r = compareToolchain({
+    observed,
+    locked: buildLock({ observed }),
+    reference: { whisperCppVersion: '1.9.1', measuredOn: '2026-09-10' },
+  });
+  const f = r.findings.find((x) => x.kind === TOOLCHAIN_FINDING.VERSION_OFF_REFERENCE);
+  assert.ok(f);
+  assert.match(describeFinding(f), /measured against 1\.9\.1/);
+  assert.match(describeFinding(f), /2\.0\.0/);
+});
+
+test('the reference block lives in model-pins.json — ONE registry, not a second one', () => {
+  // The constraint the brief set: extend the existing pin file rather than invent a parallel
+  // mechanism. This asserts the reference is read from the same source the six model pins are.
+  assert.ok(TOOLCHAIN_REFERENCE, 'model-pins.json must carry a toolchain block');
+  assert.equal(TOOLCHAIN_REFERENCE.whisperCppVersion, '1.9.1');
+  assert.match(TOOLCHAIN_REFERENCE.referenceBinary.sha256, /^[0-9a-f]{64}$/);
+  assert.ok(TOOLCHAIN_REFERENCE.referenceBackends.length >= 1);
+  const raw = JSON.parse(fs.readFileSync(PIN_FILE, 'utf8'));
+  assert.equal(raw.toolchain.whisperCppVersion, TOOLCHAIN_REFERENCE.whisperCppVersion);
+  assert.equal(raw.models.length, 6, 'the six model pins are still in the same file');
+});
+
+test('WRONG WEIGHTS of the RIGHT SIZE and the right magic are REFUSED — the case size+magic passes', () => {
+  const pin = pinFor('small.en');
+  const f = compareModel({
+    modelId: 'small.en',
+    filePath: '/tmp/ggml-small.en.bin',
+    sha256: '46f780af19a3e6d84eaa5ab4798e42e99c712a47d9625b9db64348f76ff4fbbf',
+    pin,
+  });
+  assert.ok(f);
+  assert.equal(f.kind, TOOLCHAIN_FINDING.MODEL_HASH_MISMATCH);
+  assert.equal(f.severity, 'refuse', 'a source pin has authority over what the bytes should be');
+  const msg = describeFinding(f);
+  assert.match(msg, /REFUSING TO TRANSCRIBE/);
+  assert.match(msg, /c6138d6d58ec/, 'names the hash it expected');
+  assert.match(msg, /46f780af19a3/, 'names the hash it found');
+  assert.match(msg, /audio is untouched and retained/);
+});
+
+test('the RIGHT weights produce no finding at all', () => {
+  const pin = pinFor('small.en');
+  assert.equal(compareModel({ modelId: 'small.en', filePath: '/x', sha256: pin.sha256, pin }), null);
+  assert.equal(compareModel({ modelId: 'small.en', filePath: '/x', sha256: pin.sha256.toUpperCase(), pin }), null);
+});
+
+test('an UNPINNED model is recorded and warned about, not refused — an override is meant to override', () => {
+  const f = compareModel({ modelId: 'my-own-model', filePath: '/x/ggml-my-own-model.bin', sha256: 'ab'.repeat(32), pin: null });
+  assert.equal(f.kind, TOOLCHAIN_FINDING.MODEL_UNPINNED);
+  assert.equal(f.severity, 'warn');
+  assert.match(describeFinding(f), /recorded rather than refused/);
+});
+
+test('strict mode escalates every warning to a refusal, and leaves refusals refusals', () => {
+  assert.equal(severityOf(TOOLCHAIN_FINDING.BIN_CHANGED, false), 'warn');
+  assert.equal(severityOf(TOOLCHAIN_FINDING.BIN_CHANGED, true), 'refuse');
+  assert.equal(severityOf(TOOLCHAIN_FINDING.MODEL_HASH_MISMATCH, true), 'refuse');
+  // ...and a note stays a note: a first install is not a failure in any mode.
+  assert.equal(severityOf(TOOLCHAIN_FINDING.FIRST_LOCK, true), 'note');
+  assert.equal(strictMode({}), false, 'OFF by default, and the default is a decision');
+  assert.equal(strictMode({ RICHOS_WHISPER_STRICT_TOOLCHAIN: '1' }), true);
+});
+
+test('the strict refusal does not tell the reader their transcript was produced — there is none', () => {
+  const f = { kind: TOOLCHAIN_FINDING.BIN_CHANGED, severity: 'refuse', was: 'a'.repeat(64), now: 'b'.repeat(64) };
+  const msg = describeFinding(f);
+  assert.match(msg, /nothing was transcribed/);
+  assert.ok(!/This transcript was produced/.test(msg));
+});
+
+test('every finding kind has a severity AND a sentence — a kind nobody described is a silent kind', () => {
+  for (const kind of Object.values(TOOLCHAIN_FINDING)) {
+    assert.ok(SEVERITY[kind], `${kind} has no severity`);
+    const msg = describeFinding({ kind, severity: SEVERITY[kind] });
+    assert.ok(msg && msg.length > 20 && !msg.startsWith('toolchain: '), `${kind} has no sentence`);
+  }
+});
+
+test('the model-hash cache key is WHOLE milliseconds — the Rust consumer cannot express more', () => {
+  // A CROSS-CONSUMER CONTRACT, and it was a real defect before it was a test. `statSync` reports
+  // sub-millisecond mtime here (1787746219119.914 on the CEO's own ggml-small.en.bin); Rust's
+  // `as_millis()` reports 1787746219119. Both correct, never equal — so a lock written by the
+  // voice path silently missed on the call path and vice versa, costing a 3.1 s re-hash of a
+  // 1.6 GB model on every run with nothing anywhere saying why. Whole ms is the coarsest unit
+  // both produce exactly. `app/crates/richos-voice/src/toolchain.rs#file_identity` truncates to
+  // the same one.
+  const dir = tmp();
+  const f = path.join(dir, 'x.bin');
+  fs.writeFileSync(f, 'bytes');
+  const id = fileIdentity(f);
+  assert.equal(Number.isInteger(id.mtimeMs), true, 'a fractional mtime cannot survive the round trip to Rust');
+  assert.equal(id.mtimeMs, Math.trunc(fs.statSync(f).mtimeMs));
+  // dev is carried, not zeroed: the other side compares it, so a zero here would be a permanent miss.
+  assert.equal(Number.isInteger(id.dev), true);
+  assert.ok(id.dev !== 0 || process.platform === 'win32');
+});
+
+test('sameIdentity is the model-hash cache key, and every field of it is load-bearing', () => {
+  const base = { bytes: 100, mtimeMs: 5, ino: 7, dev: 9 };
+  assert.equal(sameIdentity(base, { ...base }), true);
+  for (const k of ['bytes', 'mtimeMs', 'ino', 'dev']) {
+    assert.equal(sameIdentity(base, { ...base, [k]: 999 }), false, `${k} must invalidate the cache`);
+  }
+  assert.equal(sameIdentity(base, null), false);
+  assert.equal(sameIdentity(null, base), false);
+});
+
+test('resolveToolchain: first run writes a lock; the second run serves the model hash from it', () => {
+  const dir = tmp();
+  const bin = fakeWhisper(dir, {});
+  const modelPath = path.join(dir, 'ggml-small.en.bin');
+  fs.writeFileSync(modelPath, 'not really a model');
+  const lockFile = path.join(dir, 'lock.json');
+
+  resetToolchainCache();
+  const first = resolveToolchain({ binPath: bin, modelPath, modelId: 'unpinned-test-model', lockFile, memo: false });
+  assert.equal(first.firstRun, true);
+  assert.equal(first.toolchain.model.hashed, 'fresh');
+  assert.ok(fs.existsSync(lockFile));
+
+  resetToolchainCache();
+  const second = resolveToolchain({ binPath: bin, modelPath, modelId: 'unpinned-test-model', lockFile, memo: false });
+  assert.equal(second.firstRun, false);
+  assert.equal(second.toolchain.model.hashed, 'cached', 'an unchanged model must not be re-hashed');
+  assert.equal(second.toolchain.model.sha256, first.toolchain.model.sha256);
+
+  // ...and touching the file invalidates it. This is what makes the cache an optimization over a
+  // check that happened rather than a substitute for one that did not.
+  fs.writeFileSync(modelPath, 'different bytes entirely');
+  resetToolchainCache();
+  const third = resolveToolchain({ binPath: bin, modelPath, modelId: 'unpinned-test-model', lockFile, memo: false });
+  assert.equal(third.toolchain.model.hashed, 'fresh');
+  assert.notEqual(third.toolchain.model.sha256, first.toolchain.model.sha256);
+});
+
+test('the per-process memo notices a binary swapped UNDER a long-running watcher', () => {
+  // `richos-service watch` is a daemon and can be up for days. A memo keyed on paths alone would
+  // check the toolchain at the first call of the week and never see a `brew upgrade` on the
+  // Tuesday — and every later transcript would carry a CONFIDENT provenance line naming a binary
+  // no longer on the machine, which is worse than the gap this module closes. The memo is keyed on
+  // the files' stat identity, so it hits only while the bytes are the ones it was built from.
+  const dir = tmp();
+  const bin = path.join(dir, 'whisper-cli');
+  fs.writeFileSync(bin, '#!/bin/sh\necho "whisper.cpp version: 1.9.1"\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  const modelPath = path.join(dir, 'ggml-x.bin');
+  fs.writeFileSync(modelPath, 'weights');
+  const lockFile = path.join(dir, 'lock.json');
+  const args = { binPath: bin, modelPath, modelId: 'unpinned-daemon-test', lockFile };
+
+  resetToolchainCache();
+  const first = resolveToolchain({ ...args }); // memo ON, as the decode path uses it
+  assert.equal(first.toolchain.bin.version, '1.9.1');
+  // A second call in the same process, nothing moved: the memo hits and the object is IDENTICAL.
+  assert.equal(resolveToolchain({ ...args }), first, 'both channels of one call must probe once');
+
+  // Now swap the binary underneath, exactly as a package manager would, WITHOUT clearing the memo.
+  fs.writeFileSync(bin, '#!/bin/sh\necho "whisper.cpp version: 2.0.0"\nexit 0\n');
+  fs.chmodSync(bin, 0o755);
+  const after = resolveToolchain({ ...args });
+  assert.notEqual(after, first, 'a swapped binary must not be served from the memo');
+  assert.equal(after.toolchain.bin.version, '2.0.0');
+  assert.ok(
+    after.findings.some((f) => f.kind === TOOLCHAIN_FINDING.BIN_CHANGED),
+    'and the swap must be REPORTED, not merely re-probed',
+  );
+});
+
+test('a REFUSED run never updates the lock — a guard that caches what it rejected disarms itself', () => {
+  const dir = tmp();
+  const bin = fakeWhisper(dir, {});
+  const pin = pinFor('small.en');
+  const modelPath = path.join(dir, 'ggml-small.en.bin');
+  fs.writeFileSync(modelPath, 'these are not the pinned weights');
+  const lockFile = path.join(dir, 'lock.json');
+
+  resetToolchainCache();
+  const r = resolveToolchain({ binPath: bin, modelPath, modelId: 'small.en', lockFile, memo: false });
+  assert.equal(r.verdict, 'refuse');
+  assert.equal(fs.existsSync(lockFile), false, 'nothing may be written on a refusal');
+
+  // And a SECOND attempt refuses identically rather than sailing past on a cache hit.
+  resetToolchainCache();
+  const again = resolveToolchain({ binPath: bin, modelPath, modelId: 'small.en', lockFile, memo: false });
+  assert.equal(again.verdict, 'refuse');
+  assert.equal(again.toolchain.model.hashed, 'fresh');
+  assert.notEqual(again.toolchain.model.sha256, pin.sha256);
+});
+
+test('assertToolchain THROWS on a refusal, with a code and every finding in the message', () => {
+  const dir = tmp();
+  const bin = fakeWhisper(dir, {});
+  const modelPath = path.join(dir, 'ggml-small.en.bin');
+  fs.writeFileSync(modelPath, 'wrong');
+  resetToolchainCache();
+  assert.throws(
+    () => assertToolchain({ binPath: bin, modelPath, modelId: 'small.en', lockFile: path.join(dir, 'l.json'), memo: false }),
+    (err) => {
+      assert.equal(err.code, 'TOOLCHAIN_REFUSED');
+      assert.match(err.message, /not the model RichOS pinned/);
+      assert.ok(err.toolchain, 'the thrown error carries the full result for a caller that wants to record it');
+      return true;
+    },
+  );
+});
+
+test('the provenance string answers "which binary and which weights" from the string alone', () => {
+  const s = provenanceString({
+    bin: { version: '1.9.1', sha256: '7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8' },
+    backends: [{ name: 'BLAS' }, { name: 'MTL' }, { name: 'CPU' }],
+    model: { id: 'large-v3-turbo', sha256: '1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69' },
+  });
+  assert.equal(s, 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38');
+  // The regression this replaced: a CONSTANT that could never disagree with itself.
+  assert.notEqual(s, 'whisper.cpp (whisper-cli)');
+  const unversioned = provenanceString({ bin: { version: null, sha256: 'ab'.repeat(32) }, backends: [] });
+  assert.match(unversioned, /version not reported/, 'an unversioned build says so rather than looking normal');
+});
+
+test('the lock preserves the model cache across a re-lock of the BINARY', () => {
+  const observedA = { bin: { sha256: 'a'.repeat(64), version: '1.9.1' }, backends: [] };
+  const observedB = { bin: { sha256: 'b'.repeat(64), version: '2.0.0' }, backends: [] };
+  const first = buildLock({ observed: observedA, at: new Date(T0) });
+  first.models['/m/ggml-x.bin'] = { id: 'x', bytes: 1, mtimeMs: 2, ino: 3, dev: 4, sha256: 'c'.repeat(64) };
+  const second = buildLock({ observed: observedB, previous: first, at: new Date(T0 + 1000) });
+  assert.equal(second.bin.sha256, 'b'.repeat(64));
+  assert.deepEqual(second.models['/m/ggml-x.bin'].sha256, 'c'.repeat(64), 'a binary upgrade must not force a 1.6 GB re-hash');
+  assert.equal(second.lockedOn, first.lockedOn, 'lockedOn is when this machine FIRST locked');
+  assert.notEqual(second.updatedOn, first.updatedOn);
+});
+
+test('the record contract is born with a null toolchain, so a never-run pipeline is visibly missing it', () => {
+  const r = upgradeRecord({ sessionId: 's', startedAt: T0 });
+  assert.equal(r.pipeline.toolchain, null);
+  assert.ok('toolchain' in r.pipeline, 'absent and null are different answers');
+});
+
+test('the transcript header carries the provenance, so the artifact a person opens names its origin', () => {
+  const md = renderMarkdown(
+    { segments: [{ startMs: 0, label: 'Me', text: 'hello' }], speakers: ['Me'] },
+    {
+      sessionId: 's',
+      startedAt: T0,
+      pipeline: { model: 'large-v3-turbo', toolchain: { provenance: 'whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo@1fc70f774d38' } },
+    },
+  );
+  assert.match(md, /- \*\*Transcribed by:\*\* whisper\.cpp 1\.9\.1 bin:7dc20e3106d7/);
+  // `- **Model:** turbo` names a FAMILY; two different sets of weights ship under that id.
+  assert.match(md, /- \*\*Model:\*\* large-v3-turbo/);
 });
 
 // ---------------------------------------------------------------------------------------
