@@ -193,6 +193,33 @@ GI_EOF
     fi
 fi
 
+# ===========================================================================
+# WHICH ENGINE IS ACTUALLY RUNNING — ITS PATH AND ITS HEAD
+# ===========================================================================
+# 2026-09-10. `installed_plugins.json` named a plugin cache directory as this
+# engine's installPath; that directory was REAL, two days stale, and missing
+# four scripts. The hooks demonstrably executed the LIVE checkout instead —
+# provable because finish rows carried a field only the live ledger writer can
+# produce — but the operator joined "stale directory" to "a fix producing no
+# output" into a story he told the CEO before verifying it. His own words:
+# "I inferred causation from a stale directory without establishing that
+# anything reads it."
+#
+# The banner already named the resolved ENGINE_ROOT, which is the fact that
+# settled it. It did not name that engine's HEAD, so "which engine, exactly"
+# needed a second command. It does now, and that is the whole change.
+#
+# WHAT IS DELIBERATELY NOT HERE: a comparison against installed_plugins.json.
+# It was written and removed. It needs a JSON parser inside a SessionStart
+# hook, and it differs LEGITIMATELY in every engine-development session — a
+# worktree of the engine is not the installed copy — which is the population
+# that reads this banner most, so it would be wallpaper within a day. The
+# failure it would guard against was not a missing warning; it was reasoning
+# from a record without establishing that anything reads it. The running path
+# and its HEAD, stated plainly, is the answer to that.
+ENGINE_HEAD="$(git -C "$ENGINE_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo 'not-a-git-checkout')"
+GUARD_NOTE="${GUARD_NOTE} Engine HEAD ${ENGINE_HEAD} (this is the path that RUNS; an installation record naming another path is not evidence until something is shown to read it)."
+
 resolve_entity_root ""
 RC=$?
 
