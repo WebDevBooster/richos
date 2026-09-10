@@ -235,9 +235,34 @@ SETTINGS_LOCAL="$REPO_ROOT/.claude/settings.local.json"
 # the clean single-source state.
 SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
 
-emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; }
+GREEN_N=0
+WARN_N=0
+emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; GREEN_N=$((GREEN_N+1)); }
 emit_fail() { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; FAIL=$((FAIL+1)); }
-emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
+emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; WARN_N=$((WARN_N+1)); }
+
+# A PASSING RUN USED TO SAY NOTHING AT ALL: it printed its last green line and
+# exited 0. A FAILING run gets a loud block naming what broke, so the two
+# outcomes were asymmetric in the wrong direction — exit 0 is the one people
+# quote at each other, and it arrived with no statement of WHAT was verified.
+#
+# That is not hypothetical. On 2026-09-10 the same script, run from a femcboost
+# working directory, exited 0 after fifteen checks of the PLUGIN route, while
+# from the engine's own checkout it runs twenty-seven and audits this
+# repository's wiring — and the two runs were compared to each other as though
+# they were the same measurement. The by-reference banner at the TOP does say
+# which mode is in force and that layers A-Q do not apply; a reader who scrolls
+# to the END for the verdict found the verdict was an exit code.
+#
+# So a passing run now closes by naming its own subject and its own count, and
+# the by-reference form says out loud which layers it did NOT run. An artifact
+# that does not identify what it attests to gets read as attesting to
+# everything.
+emit_verdict() { # <what was audited> <what that does and does not cover>
+    printf '\n  %s✓%s contract integrity: PASS — %s\n' "$C_GREEN" "$C_RESET" "$1" >&2
+    printf '    %s\n' "$2" >&2
+    printf '    %s green, 0 broken, %s could not run.\n' "$GREEN_N" "$WARN_N" >&2
+}
 
 # --- Engine version banner (informational — NEVER gates) ---
 #
@@ -1774,6 +1799,8 @@ By-reference integrity probe FAILED. Most fixes:
 BREOF
         exit 2
     fi
+    emit_verdict "the PLUGIN route into $REPO_ROOT (engine loaded BY REFERENCE from $ENGINE_ROOT)" \
+        "Layers A-Q were NOT run: they audit the entity's own .claude/settings.local.json wiring, which the plugin route does not use. This exit 0 attests to the by-reference route and to nothing about that wiring — for that, run this probe from the engine's own checkout."
     exit 0
 fi
 
@@ -4031,4 +4058,6 @@ EOF
     exit 2
 fi
 
+emit_verdict "the engine SEATED in $REPO_ROOT" \
+    "Every layer above was RUN against this repository's own .claude/settings.local.json wiring, functional canaries included."
 exit 0
