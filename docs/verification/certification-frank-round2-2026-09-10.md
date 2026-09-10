@@ -123,12 +123,47 @@ So the record did not "improve only from the session after the merge." It improv
 
 Run from `/Users/alex/ab/richos-wt/frank-fable-cert2` at `891f8d96`, each suite by `bash <suite>` with its stdout+stderr captured (`scratchpad/suites/`). The list is the 47 suites I judged to be this area (34 `*.test.sh`, 13 `*.mutation.sh`); the engine holds 233 suite files in all, and I did not run the rest. Results at the time of this commit:
 
-| Suite | Result |
-|---|---|
-| `scripts/daily-workspace-cleanup.test.sh` (wraps the `.py`, chains its mutation harness) | **exit 0, 280 s** — every unit case passed; *"mutation: all 23 properties proven load-bearing"*, including `restart-after-terminal-ignored`, `process-probe-fails-open-again`, `ceo-ruling-not-in-the-mechanism`, `hand-written-ledger-row-binds-again`, `journal-overwrites-again`, `last-look-skipped` |
-| the remaining 46 | running sequentially at the time of this commit; results are appended in the follow-up commit on this branch |
+All 34 `*.test.sh` suites exited 0. Twelve of the thirteen mutation harnesses are chained by a suite in this list and ran inside it; the thirteenth, `guard-resume-isolation.mutation.sh`, is chained only by the 50-minute `contract-integrity.test.sh`, so I ran it alone (last row). I stopped my runner before it re-ran the chained harnesses a second time.
 
-What a green run here does and does not say: the mutants above prove that the table's rows are load-bearing in the unit lane; they do not cover the hook-level stop note (R2) or the nested-repository case (R1), because no case exists for either.
+| Suite | Cases | Mutants killed | Wall |
+|---|---|---|---|
+| `daily-workspace-cleanup.test.sh` | 54 | 23 of 23 — incl. `restart-after-terminal-ignored`, `process-probe-fails-open-again`, `ceo-ruling-not-in-the-mechanism`, `hand-written-ledger-row-binds-again`, `journal-overwrites-again`, `last-look-skipped` | 280 s |
+| `lib/worktree-transactions.test.sh` | 70 | 25 of 25 | 413 s |
+| `hooks/terminalize-agent-worktrees.test.sh` | 52 | 14 of 14 — none on the post-terminal stop note (R2) | 197 s |
+| `hooks/record-subagent-start.test.sh` | 14 (S13/S14 are the restart cases) | 6 of 6 — incl. `restart-after-terminal-unnoticed` | 33 s |
+| `reconcile-terminal-worktrees.test.sh` | 59 | 30 of 30 | 554 s |
+| `lib/completion-proof.test.sh` | 25 (incl. squash / unlanded / trunk-not-main) | — | 15 s |
+| `lib/worktree-ledger.test.sh` | 37 | 8 of 8 | 33 s |
+| `hooks/land-disposition.test.sh` | 33 (incl. D10a codex named) | — | 10 s |
+| `hooks/land-disposition-incident.test.sh` | 14 | — | 3 s |
+| `hooks/escalations.test.sh` | every case passed (79 PASS lines; incl. `--until` reopen) | — | 11 s |
+| `hooks/stop-hook-visibility.test.sh` | 40 (incl. 4l, the recurring rung) | — | 5 s |
+| `hooks/guard-sealed-worktree.test.sh` | 53 | 18 of 18 | 100 s |
+| `hooks/guard-resume-isolation.test.sh` | 58 | 4 of 4 (`worktree-terminal-refusal`) | 51 s |
+| `lib/worktree-adoption.test.sh` | 43 | 15 of 15 | 111 s |
+| `cleanup-routing-contract.test.sh` | 14 | 9 of 9 | 84 s |
+| `reap-stale-worktrees.test.sh` | 53 | 6 of 6 | 418 s |
+| `hooks/engine-status.test.sh` | 16 | — | 3 s |
+| `hooks/worker-lifecycle.test.sh` | 36 | — | 3 s |
+| `lib/branch-retirement-safety.test.sh` | 16 | — | 2 s |
+| `lib/native-platform-cleanup.test.sh` | 19 | — | 3 s |
+| `lib/terminal-branch-cleanup.test.sh` | 24 | — | 4 s |
+| `lib/workspace-retire.test.sh` | 52 (+2 stated not covered) | — | 88 s |
+| `hooks/session-start-reap-worktrees.test.sh` | 16 | 5 of 5 | 21 s |
+| `land-completeness.test.sh` | 18 | — | 3 s |
+| `hooks/unlanded-branches.test.sh` | 31 | 9 of 9 | 20 s |
+| `create-teammate-worktree.test.sh` | 25 | 6 of 6 | 19 s |
+| `hooks/detect-nonnative-worktree.test.sh` | 76 | 7 of 7 | 93 s |
+| `hooks/inflight-ack-durability.test.sh` | 40 | — | 11 s |
+| `hooks/task-completed-handoff.test.sh` | 25 | — | 10 s |
+| `hooks/teammate-idle-handoff.test.sh` | 9 | — | 1 s |
+| `lib/process-identity.test.sh` | 12 | — | 2 s |
+| `lib/terminal-branch-shadow.test.sh` | 21 | — | 5 s |
+| `lib/terminal-recovery-shadow.test.sh` | 11 | — | 15 s |
+| `lib/workspace-recovery-metadata.test.sh` | 8 | — | 0 s |
+| `hooks/guard-resume-isolation.mutation.sh` (standalone) | — | 9 of 9 | 52 s |
+
+Totals: 1,000-odd cases, 0 failures; 194 mutants proven load-bearing across the thirteen harnesses. The 0–3 s suites are real (their logs carry `Ran N tests … OK` or a per-case PASS list); none is a green-while-covering-nothing suite. What a green run does and does not say: the mutants prove the table's rows are load-bearing in the unit lane; they do not cover the hook-level stop note (R2) or the nested-repository case (R1), because no case exists for either — a suite cannot be red on a case nobody wrote.
 
 ## 6. What would have to be true for me to certify
 
