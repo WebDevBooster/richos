@@ -1,0 +1,26 @@
+bin       /opt/homebrew/bin/whisper-cli
+bin sha   7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8
+model     /Users/alex/Models/Whisper/ggml-small.en.bin
+wav       utt.wav (sha256 547d525a0125cc679c47c44b1a467dbd0bb7445409e5e047c725192723510622)
+host      Mac16,10, 10 cores (4P + 6E), 25769803776 B
+reps      5 per cell, MINIMUM reported (a busy machine can only make a sample slower)
+whisper-cli own default for -t is 4 (from --help)
+
+== gpu ==
+threads  min_secs   samples
+1        0.538      0.922 0.573 0.538 0.565 0.562
+2        0.513      0.515 0.541 0.587 0.513 0.574
+4        0.503      0.513 0.514 0.606 0.503 0.505
+6        0.503      0.519 0.503 0.506 0.520 0.600
+8        0.510      0.529 0.527 0.521 0.510 0.518
+10       0.508      0.522 0.508 0.508 0.514 0.573
+
+== nogpu ==
+threads  min_secs   samples
+1        7.586      7.716 7.763 7.809 7.586 7.730
+2        4.178      4.199 4.573 4.220 4.178 4.224
+4        2.842      3.407 3.401 2.994 2.842 3.047
+6        2.689      2.753 2.709 2.797 2.698 2.689
+8        2.295      2.295 2.297 2.325 2.428 2.850
+10       4.762      6.990 4.762 47.065 16.571 6.573
+
