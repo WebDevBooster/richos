@@ -218,7 +218,7 @@ w = sys.stderr.write
 incomplete = []
 unknown = []
 notex = []
-tot = {"worktrees": 0, "branches": 0, "live": 0, "retained_unmerged": 0,
+tot = {"worktrees": 0, "branches": 0, "live": 0, "retained_unmerged": 0, "quarantined": 0,
        "unreclaimed_branches": 0, "retained_unmerged_branches": 0}
 
 for rep in doc["repos"]:
@@ -260,6 +260,7 @@ if not quiet and not as_json:
     w("    unmerged worktrees (R3: never swept) ........... %d\n" % tot["retained_unmerged"])
     w("    unmerged branches without a worktree ........... %d\n"
       % tot["retained_unmerged_branches"])
+    w("    quarantined (retired, registered by design) .... %d\n" % tot["quarantined"])
     w("\n")
 
     # R4: a branch and a worktree are different objects and the counts are separate.
@@ -290,7 +291,8 @@ if not quiet and not as_json:
         w("  WHAT TO DO. Each line above is one land that pushed and stopped. The terminal steps\n")
         w("  of the land sequence are collect, remove, resolve:\n\n")
         w("      engine/scripts/collect-worktree-artifacts.sh <worktree>\n")
-        w("      engine/scripts/remove-agent-worktree.sh <worktree>\n\n")
+        w("      engine/scripts/remove-agent-worktree.sh --owner <agent-id> <worktree>\n")
+        w("      (the agent id is on the row above; a bare path exits 2 with usage)\n\n")
         w("  If one of them is retained ON PURPOSE, that is a first-class answer and the only\n")
         w("  thing wrong with it is leaving it unsaid — retained silently is the defect this\n")
         w("  report exists to remove.\n")
