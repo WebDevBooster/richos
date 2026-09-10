@@ -2,9 +2,10 @@
 
 Written 2026-09-10, during the round rather than before it, and that is stated
 first because round 10's own document opens by saying it was written before any
-code changed. This one was not: three of its five parts came from corrections
-that arrived while it was being built. Every number below carries the command
-that produced it, and the two numbers I got wrong are named as mine.
+code changed. This one was not. Half of it came from corrections that arrived
+while it was being built, and one part of it describes machinery that was built
+and then removed the same day. Every number below carries the command that
+produced it, and the one number I got wrong is named as mine, in section 1(b).
 
 The CEO's question, verbatim: *"WHEN THE FUCK WILL ALL THE **FINISHED** GARBAGE
 START GETTING CLEANED UP AUTOMATICALLY AND STOP WASTING MY FUCKING TIME?"* —
@@ -215,7 +216,17 @@ refusal, not a sweep — an agent whose terminal event finds uncommitted bytes
 has failed its own handoff contract, and the place to say so is the event, to
 the orchestrator, while the agent's transcript still exists.
 
-## 6. The fact that would prove this round wrong
+## 6. The title of this document, checked against what it delivers
+
+"Nothing left undecided" is what the closed-world report was for, and that
+report was cut. What is left is narrower and true: every workspace THIS ENGINE
+REGISTERED is decided, with the cause on the member -- reclaimed, retryable
+(a process is standing in it), or held for a stated refusal. A folder nobody
+registered is not decided by anything here and is not looked at, which is the
+guarantee that replaced the report. `richos-hq-wt/zach-opus-red1` is the one
+row on his screen that this leaves standing, and section 3 says so.
+
+## 7. The fact that would prove this round wrong
 
 **If a terminal record is ever written for an agent that then runs again**, the
 agent-sized ground is unsound and this round has to be undone. It rests on
