@@ -256,7 +256,7 @@ a write a terminal agent can make after its restart.**
 | A locked worktree can be removed non-force | `git worktree remove` on a locked tree, under `completion-proof.GIT` (Apple Git 2.50.1) | **FALSE** — exit 128 |
 | The lock is taken before an **initial** run | `restart-after-terminal-measure.py --locks`, line (a) | **TRUE** — 4 of 4, −42.9 to −101.6 ms |
 | The platform **re-locks** for a **restarted** run | `restart-after-terminal-measure.py --locks`, lines (b) and (c) | **UNMEASURED** — (b) 0 of 3 restarts with a lock on disk re-took it (all held throughout); (c) 4 restarts into witnessed-unlocked trees left no admin directory |
-| A restarted terminal agent can use a tool | `hooks/guard-sealed-worktree.test.sh` G15 + mutant `terminal-not-refused`; live: fix1 19:57Z / 20:27Z, sage-fable-cert2 21:01Z | **FALSE** — every tool refused, `Read` included |
+| A restarted terminal agent can use a tool | `scripts/hooks/guard-sealed-worktree.test.sh` G15 + mutant `terminal-not-refused`; live: fix1 19:57Z / 20:27Z, sage-fable-cert2 21:01Z | **FALSE** — every tool refused, `Read` included |
 | An ignored nested repository is dropped as disposable | `daily-workspace-cleanup.test.py …nested_repository…` + mutant `nested-repository-dropped-as-disposable` | **FALSE** since round 13 (was TRUE: reproduced, `exists after: False`) |
 | A lost post-terminal stop note holds a workspace forever | `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`, `…cannot_outlive_its_session`, `…stale_open_run_names_the_operator_remedy…` | **FALSE** since round 13 (was TRUE: one source, no expiry) |
 | Codex workspaces are reported | `reconcile-terminal-worktrees.py --preview \| grep -c EXCLUDED` | **9** (was 0) |
