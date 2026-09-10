@@ -45,9 +45,15 @@
 #    an inventory that never ran.
 #
 # 3. NO NESTED EXPLOSION. Each mutant runs a whole suite; if that suite also
-#    used a pool, the process count would be JOBS squared. `RICHOS_MUTATION_INNER`
-#    is already set for the inner run, and this file treats it as a hard
-#    serializer: inside a mutant, the pool degree is 1. The bound is JOBS, always.
+#    used a pool, the process count would be JOBS squared. Every worker carries
+#    `RICHOS_MUTANT_POOL_DEPTH`, incremented by this file, and a pool that starts
+#    at a non-zero depth runs at degree 1. The bound is JOBS, always.
+#
+#    IT IS NOT KEYED ON `RICHOS_MUTATION_INNER`, and that is a correction worth
+#    the space: eight harnesses `export RICHOS_MUTATION_INNER=1` at the top of
+#    the file for their own recursion guard, so keying on it pinned those eight
+#    to degree 1 — 110 mutants — while the rest went wide. A nesting bound must
+#    be counted by the thing that nests, not inferred from somebody else's flag.
 #
 # ===========================================================================
 # WHY IT POLLS A MARKER FILE INSTEAD OF USING `wait -n`
@@ -148,12 +154,25 @@ mut_pool_init() {
     else
         MUT_POOL_JOBS="$(mut_pool_jobs_default)"
     fi
-    # THE HARD SERIALIZER. Inside a mutant, the degree is 1 — see property 3 in
-    # the header. Without this the process count is the product of the nesting
+    # THE HARD SERIALIZER. Inside a pool worker, the degree is 1 — see property 3
+    # in the header. Without this the process count is the product of the nesting
     # levels rather than the pool's bound.
-    if [ "${RICHOS_MUTATION_INNER:-0}" = "1" ]; then
-        MUT_POOL_JOBS=1
-    fi
+    #
+    # IT KEYS ON A VARIABLE THIS FILE OWNS, AND THAT IS A CORRECTION. The first
+    # version tested `RICHOS_MUTATION_INNER`, which looked like exactly the right
+    # signal and is not: EIGHT harnesses set `export RICHOS_MUTATION_INNER=1` at
+    # the TOP OF THE FILE, for their own unrelated purpose of stopping the suite
+    # they invoke from recursing. Keying on it silently pinned those eight to
+    # degree 1 — 110 mutants, including unstarted-rows' 37 — while every other
+    # harness went concurrent. The A/B run reported `1 at a time` for a harness
+    # asked for 8, which is the ONLY reason it was noticed; the change would
+    # otherwise have shipped as a speedup that skipped a fifth of the corpus.
+    #
+    # A nesting bound must be counted by the thing that does the nesting.
+    case "${RICHOS_MUTANT_POOL_DEPTH:-0}" in
+        ''|0) : ;;
+        *) MUT_POOL_JOBS=1 ;;
+    esac
     # The clock. sw_init is idempotent, so sourcing order between this file and
     # stopwatch.sh does not matter, but the library must BE there: a pool that
     # silently reported every mutant as taking `?` would remove the only number
@@ -223,6 +242,10 @@ mut_pool_submit() {
     seq="$(printf '%04d' "$MUT_POOL_N")"
     printf '%s' "$label" >"$MUT_POOL_DIR/$seq.label"
     (
+        # The depth this pool's workers run at. Read by mut_pool_init in any
+        # nested pool, so the process bound stays JOBS rather than JOBS squared.
+        RICHOS_MUTANT_POOL_DEPTH=$(( ${RICHOS_MUTANT_POOL_DEPTH:-0} + 1 ))
+        export RICHOS_MUTANT_POOL_DEPTH
         _t0="$(sw_now_ms)"
         "$@" >"$MUT_POOL_DIR/$seq.out" 2>&1
         _rc=$?

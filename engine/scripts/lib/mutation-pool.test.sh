@@ -21,9 +21,11 @@
 #   P5   The degree is RESPECTED as an upper bound. Proven by having the workers
 #        themselves record concurrent occupancy, so the assertion is on observed
 #        overlap and not on the variable the pool set.
-#   P6   RICHOS_MUTATION_INNER=1 forces degree 1. Each mutant runs a whole
-#        suite; if that suite pooled too, the process count would be the product
-#        of the levels. The bound must be JOBS, never JOBS squared.
+#   P6   A worker's pool DEPTH forces degree 1, the depth propagates into the
+#        worker, and `RICHOS_MUTATION_INNER` — which eight harnesses export for
+#        an unrelated reason — does NOT serialize. That last one (P6b) is a
+#        regression case: keying the bound on that flag silently left 110 mutants
+#        serial while claiming to have parallelized them.
 #   P7   RICHOS_MUTANT_JOBS is honored, and junk in it is refused loudly rather
 #        than silently becoming 0 (a degree of 0 would hang the throttle for
 #        ever).
@@ -239,19 +241,54 @@ fi
 mut_pool_cleanup
 
 # ---------------------------------------------------------------------------
-# P6: inside a mutant, the degree is forced to 1
+# P6: inside a pool worker, the degree is forced to 1
 # ---------------------------------------------------------------------------
-RICHOS_MUTATION_INNER=1
-export RICHOS_MUTATION_INNER
+RICHOS_MUTANT_POOL_DEPTH=1
+export RICHOS_MUTANT_POOL_DEPTH
 mut_pool_init 8
 if [ "$MUT_POOL_JOBS" -eq 1 ]; then
-    ok "P6. RICHOS_MUTATION_INNER-forces-degree-1 (no JOBS-squared explosion)"
+    ok "P6. pool-depth-forces-degree-1 (no JOBS-squared explosion)"
 else
-    bad "P6. RICHOS_MUTATION_INNER-forces-degree-1" \
-        "asked for 8 inside a mutant and got $MUT_POOL_JOBS: nested pools would multiply"
+    bad "P6. pool-depth-forces-degree-1" \
+        "asked for 8 at depth 1 and got $MUT_POOL_JOBS: nested pools would multiply"
+fi
+mut_pool_cleanup
+unset RICHOS_MUTANT_POOL_DEPTH
+
+# P6b: THE SERIALIZER MUST NOT KEY ON SOMEBODY ELSE'S FLAG.
+#
+# This case exists because the first version tested `RICHOS_MUTATION_INNER`,
+# which is set — with `export`, at the top of the file — by EIGHT harnesses for
+# their own unrelated recursion guard. Keying on it pinned those eight to degree
+# 1 while every other harness went wide: 110 mutants, including unstarted-rows'
+# 37, silently left serial by the very change that was supposed to speed them up.
+# It was caught by an A/B run printing `1 at a time` for a harness asked for 8.
+# The bound must be counted by the thing that nests.
+RICHOS_MUTATION_INNER=1
+export RICHOS_MUTATION_INNER
+mut_pool_init 6
+if [ "$MUT_POOL_JOBS" -eq 6 ]; then
+    ok "P6b. RICHOS_MUTATION_INNER-alone-does-NOT-serialize"
+else
+    bad "P6b. RICHOS_MUTATION_INNER-alone-does-NOT-serialize" \
+        "asked for 6 with only RICHOS_MUTATION_INNER set and got $MUT_POOL_JOBS — the 8 harnesses that export it would stay serial"
 fi
 mut_pool_cleanup
 unset RICHOS_MUTATION_INNER
+
+# P6c: the depth actually propagates INTO a worker, so a nested pool sees it.
+# Without this, P6 is a test of a variable nobody sets.
+body_depth() { printf '  PASS  depth=%s\n' "${RICHOS_MUTANT_POOL_DEPTH:-unset}"; return 0; }
+mut_pool_init 2
+mut_pool_submit depth body_depth
+mut_pool_drain >"$SANDBOX/p6c.out" 2>&1
+if grep -q 'depth=1' "$SANDBOX/p6c.out"; then
+    ok "P6c. the-worker-carries-depth-1 (so a nested pool serializes)"
+else
+    bad "P6c. the-worker-carries-depth-1" \
+        "worker saw: $(cat "$SANDBOX/p6c.out")"
+fi
+mut_pool_cleanup
 
 # ---------------------------------------------------------------------------
 # P7: the environment override, and junk in it
