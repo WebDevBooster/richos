@@ -6,7 +6,7 @@
  *
  * Produces a real 2-channel call sample (macOS `say`, two voices, L=me R=others — the contract's
  * mic-vs-tab layout), assembles the session directory contract, and runs the actual pipeline:
- * ffmpeg normalize -> whisper.cpp large-v3-turbo per channel -> merge + caption fold-in -> verify ->
+ * ffmpeg normalize -> whisper.cpp (config.js DEFAULT_TIER) per channel -> merge + caption fold-in -> verify ->
  * transcript.md + ledger. Then it proves (a) re-transcription on retained audio, (b) a
  * captured-but-no-audio session is a LOUD anomaly, and (c) a captured-but-silent session yields a
  * trivial-transcript anomaly rather than a silent empty file.
