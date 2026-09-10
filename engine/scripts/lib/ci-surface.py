@@ -210,6 +210,45 @@ def parse_duration(text):
 
 DECL_RE = re.compile(r"^[ \t]*#[ \t]*ci-(budget|skip|evidence|cadence)[ \t]*:[ \t]*(.*?)[ \t]*$", re.M)
 
+# A YAML block scalar opener: `run: |`, `script: >-`, `run: |2+` and so on.
+BLOCK_OPEN_RE = re.compile(r"^(\s*)(?:-\s+)?[\w.\-]+\s*:\s*[|>][+-]?\d*\s*(?:#.*)?$")
+
+
+def strip_block_scalars(source):
+    """Blank out the BODY of every YAML block scalar, keeping line numbering.
+
+    A `run: |` step body is shell, and shell has comments. Without this, a
+    perfectly ordinary `# ci-budget: 99h` inside a step would be read as the
+    WORKFLOW's ceiling — and since the last match wins, one line in one step
+    could silently override the real declaration at the top of the file.
+
+    That is not hypothetical: this function exists because the header above
+    CLAIMED the distinction was made structurally, the regex alone did not make
+    it, and case S6 of ci-surface.test.sh caught the claim being false. A
+    comment asserting a property the code does not have is the exact defect
+    this whole tool was built to find, one level in.
+
+    Numbering is preserved (bodies become empty lines, not nothing) so that any
+    future message quoting a line number still points at the right line.
+    """
+    out, lines = [], (source or "").splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        m = BLOCK_OPEN_RE.match(line)
+        i += 1
+        if not m:
+            continue
+        indent = len(m.group(1))
+        while i < len(lines):
+            nxt = lines[i]
+            if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= indent:
+                break
+            out.append("")
+            i += 1
+    return "\n".join(out)
+
 # `<job> — <reason>` / `<job> -- <reason>` / `<job>: <reason>`.
 SKIP_SPLIT_RE = re.compile(r"^(?P<job>[^\u2014:]+?)\s*(?:\u2014|--|:)\s*(?P<reason>.+)$")
 
@@ -218,7 +257,7 @@ def parse_declarations(source):
     """Return {'budget': str|None, 'skips': {job: reason}, 'evidence': str|None,
     'cadence': str|None, 'malformed': [str]}."""
     out = {"budget": None, "skips": {}, "evidence": None, "cadence": None, "malformed": []}
-    for kw, rest in DECL_RE.findall(source or ""):
+    for kw, rest in DECL_RE.findall(strip_block_scalars(source)):
         rest = rest.strip()
         if kw == "budget":
             if parse_duration(rest) is None:
@@ -1288,6 +1327,20 @@ def self_test():
     want("budget parsed", d["budget"], "45m")
     want("skip parsed", d["skips"].get("affected"), "subsumed by the full pass")
     want("evidence parsed", bool(d["evidence"]), True)
+
+    # A declaration inside a `run:` block is a SHELL comment in a step, not a
+    # statement about the workflow. Without this the last match wins and one
+    # line in one step silently overrides the file's real ceiling.
+    d = parse_declarations(
+        "# ci-budget: 12m\n"
+        "jobs:\n  a:\n    steps:\n      - run: |\n"
+        "          # ci-budget: 99h\n"
+        "          echo hi\n"
+        "      - run: >-\n"
+        "          # ci-skip: ghost — a skip declared from inside a step body\n"
+        "  b:\n    steps: []\n")
+    want("a budget inside a run: block does not become the workflow's ceiling", d["budget"], "12m")
+    want("a skip inside a run: block declares nothing", d["skips"], {})
 
     d = parse_declarations("# ci-budget: soon\n# ci-skip: affected\n# ci-evidence: eh\n")
     want("a budget that is not a duration is rejected", d["budget"], None)
