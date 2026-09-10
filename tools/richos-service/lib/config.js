@@ -207,6 +207,25 @@ export function whisperBin() {
  * filled with "Thank you." does not spend a day on a decode flag that cannot help.
  */
 export const MODEL_TIERS = {
+  quantized: {
+    model: 'large-v3-turbo-q5_0',
+    decodeArgs: [],
+    repetitionGuard: true,
+    description:
+      'DEFAULT since 2026-09-10 (CEO decision page §10). Quantized turbo. 574,041,195 B on disk vs ' +
+      'full turbo 1,624,555,275 B (-1,050,514,080 B); 884,981,760 B peak RSS at call length vs ' +
+      '2,014,101,504 B (-56.1%) and 1,859,256,320 B vs 2,817,949,696 B (-34.0%) on 92 minutes. ' +
+      'Post-guard WER on two independent renders of the invented 6-call corpus: 2.78% and 2.94%, ' +
+      'against full turbo\'s 3.78% and 2.99% — ahead on both, but by 1.00 point on one render and ' +
+      '0.05 on the other, so NOTHING here is decided on that column. Zero loop findings and zero ' +
+      'fabricated timeline on 184.6 minutes of real audio, same as full turbo, at ' +
+      'MAX_CONTEXT_TOKENS=0. It costs 7.0% wall clock on long form (498.7 s vs 466.1 s for both ' +
+      '92-minute channels) and 3 to 6 proper nouns of 66. Measured 2026-09-10, ' +
+      'docs/measurements/whisper-model-choice-2026-09-10/. The earlier 2026-08-29 result that put ' +
+      'this model far WORSE than full turbo (44.1% of a channel destroyed against 8.6%) was ' +
+      'measured at the old -mc -1 and is superseded: at MAX_CONTEXT_TOKENS=0 those same two ' +
+      'numbers are 0.0% and 0.0%.',
+  },
   turbo: {
     model: 'large-v3-turbo',
     decodeArgs: [],
@@ -248,25 +267,6 @@ export const MODEL_TIERS = {
     description:
       'FALLBACK for weak / non-Apple-Silicon / low-RAM hosts. small.en (clean + fast, no hallucination ' +
       'in the benchmark). Point RICHOS_WHISPER_MODEL at a quantized .bin to run the quantized variant.',
-  },
-  quantized: {
-    model: 'large-v3-turbo-q5_0',
-    decodeArgs: [],
-    repetitionGuard: true,
-    description:
-      'DEFAULT since 2026-09-10 (CEO decision page §10). Quantized turbo. 574,041,195 B on disk vs ' +
-      'full turbo 1,624,555,275 B (-1,050,514,080 B); 884,981,760 B peak RSS at call length vs ' +
-      '2,014,101,504 B (-56.1%) and 1,859,256,320 B vs 2,817,949,696 B (-34.0%) on 92 minutes. ' +
-      'Post-guard WER on two independent renders of the invented 6-call corpus: 2.78% and 2.94%, ' +
-      'against full turbo\'s 3.78% and 2.99% — ahead on both, but by 1.00 point on one render and ' +
-      '0.05 on the other, so NOTHING here is decided on that column. Zero loop findings and zero ' +
-      'fabricated timeline on 184.6 minutes of real audio, same as full turbo, at ' +
-      'MAX_CONTEXT_TOKENS=0. It costs 7.0% wall clock on long form (498.7 s vs 466.1 s for both ' +
-      '92-minute channels) and 3 to 6 proper nouns of 66. Measured 2026-09-10, ' +
-      'docs/measurements/whisper-model-choice-2026-09-10/. The earlier 2026-08-29 result that put ' +
-      'this model far WORSE than full turbo (44.1% of a channel destroyed against 8.6%) was ' +
-      'measured at the old -mc -1 and is superseded: at MAX_CONTEXT_TOKENS=0 those same two ' +
-      'numbers are 0.0% and 0.0%.',
   },
 };
 
