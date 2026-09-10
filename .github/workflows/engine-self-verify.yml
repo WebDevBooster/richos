@@ -11,10 +11,10 @@ name: engine-self-verify
 # exists to end, one level out: a correct rule with nothing enforcing it.
 #
 # WHAT IT VERIFIES is deliberately NOT written down here. Both this file and the
-# adopter template call `engine/scripts/ci-verify.sh`, which is the single place
-# the steps are listed — because two YAML files each spelling out the same six
-# steps is a typed inventory in a different costume, and this engine does not
-# keep those. Read that script's header for the full argument and the step list.
+# adopter template call `engine/scripts/ci-verify.sh` and `ci-shard.sh`, which
+# are the only places the steps and the unit inventory are written — because two
+# YAML files each spelling out the same seven steps is a typed inventory in a
+# different costume, and this engine does not keep those.
 #
 # THE ENGINE LIVES IN A SUBDIRECTORY HERE (`engine/`), because this repository
 # also carries the product that loads it by reference. Hence
@@ -27,314 +27,218 @@ name: engine-self-verify
 # property of a workstation, not of a repository, and there is no honest way to
 # synthesize it on a runner. They are exercised instead by
 # `scripts/hooks/by-reference.test.sh`, which builds that two-root topology from
-# scratch and which the suite runner discovers automatically. See
+# scratch and which the unit inventory discovers automatically. See
 # `engine/docs/ci-portability-notes.md`.
-
-# =========================================================================================
-# RUN ON LINUX ON 2026-09-04, AND IT IS NOT READY TO BE ENABLED
-# =========================================================================================
-#
-# `README.md` beside this file has said since 2026-09-01 that these workflows were "never
-# broken" and that going public re-enables them unchanged. That was an inference from a
-# billing block, which produces no log to test it against, and for this file it is wrong in
-# two separate ways.
-#
-# So it was run. `ubuntu:24.04` in a container — bash 5.2.21, git 2.43.0, python3 3.12.3 —
-# from a real clone of `fc56c20` in a directory with no private `richos-hq` sibling, as an
-# UNPRIVILEGED user, because a GitHub job is not root and the difference is not cosmetic
-# (the first attempt ran as root, and `create-teammate-worktree.test.sh` case C17 failed in
-# it because `mkdir -p /nonexistent-dir` succeeds for root, so the refusal C17 asserts never
-# came — a verdict about the container, not about the tree). Transcript:
-# `docs/verification/workflows-on-a-clone-2026-09-04/raw/linux-engine.txt`.
-#
-# ONE PORTABILITY DEFECT, FIXED HERE. `contract-integrity.test.sh` used `sed -i ''` at four
-# sites. That is the BSD in-place idiom; GNU sed reads the empty string as the SCRIPT and
-# the real script as a FILENAME, so under `set -e` the suite ran 139 cases and ABORTED, exit
-# 2, with the MT and MC sections never reached. It is the third instance of this class after
-# `mktemp -t` and `BASH_CMDS` (`engine/docs/ci-portability-notes.md`), and it arrived after
-# the engine's only previous Linux execution on 2026-08-29 — 24 suites then, 60 now.
-# Replaced with a `_sed_inplace` helper; MT and MC now run and pass, on both hosts.
-#
-# FIVE SUITES WERE RED AT `fc56c20`. `ci-verify.sh`, run whole and unmodified on Linux from
-# that clone: **exit 1, 55 of 60 suites, 65m40s.** The list was the runner's own:
-#
-#   contract-integrity.test.sh              its cases 54 and IN2.
-#   guard-worktree-isolation.test.sh        RED ON macOS TOO. Base cases pass; its clause-7
-#                                           mutation harness reports 3 of 7 properties not
-#                                           proven load-bearing, identically on each host.
-#   provision-claude-md.test.sh             RED ON macOS TOO. 18 cases on Linux, and every
-#                                           case in the suite's provisioning block.
-#   reconcile-terminal-worktrees.test.sh    RED ON LINUX, GREEN ON A QUIET macOS. And not
-#                                           stable even in its redness: C16 under load, C14
-#                                           on the quiet Linux pass.
-#   install-reconciler-schedule.test.sh     RED ON LINUX ONLY, and honest redness: cases
-#                                           S17-S20 shim `launchctl` and assert launchd
-#                                           behavior on a host that has no launchd.
-#
-# THE RED LIST WAS MEASURED TWICE, ON PURPOSE. The first Linux pass ran while the machine
-# carried eleven other agents at a load average up to 58, and a red list taken under those
-# conditions cannot tell a defect from a flake. So the whole thing was re-run on a quiet host
-# before any of it was written down. Two suites changed classification between the passes;
-# the five above are what survived both.
 #
 # =========================================================================================
-# RE-MEASURED AT `934f127` ON 2026-09-06 — 429 COMMITS LATER, AND THE LIST ABOVE WAS STALE
+# 2026-09-10 — THE TRIGGERS ARE BACK, AND WHAT HAD TO EXIST FIRST
 # =========================================================================================
 #
-# THE LIST ABOVE IS KEPT VERBATIM BECAUSE IT WAS TRUE WHEN IT WAS TAKEN. It is not a defect
-# list any more; it is a dated measurement, and the dating is the point. Four hundred and
-# twenty-nine commits landed between the two, three of them changing the very contracts these
-# suites assert. A red list is perishable, and this one perished in two days.
+# `push:` and `pull_request:` were deleted from this file on 2026-09-01 and the workflow was
+# disabled at GitHub the same morning. The workflow object itself has been `active` since
+# 2026-09-06T19:36:26+01:00 (verified with `gh workflow list --all`, id 345224407); only the
+# triggers were still missing, so the gate could be demanded by hand and could not fire on
+# its own. The full history of how that happened, who switched what off and what was measured
+# at each step, is kept in `engine/docs/ci-sharding.md` rather than here, because this file
+# had grown to 200 lines of history above 30 lines of workflow.
 #
-# Every line below is a command that was run on macOS at `934f127` and its output. Nothing
-# here is inferred from the list above.
+# THE REASON THE TRIGGERS COULD NOT SIMPLY GO BACK was never that they would not work. It was
+# that this job was a SINGLE 123-MINUTE JOB with four red suites in it, so turning it on would
+# have put a cross on every commit, from day one, over defects that predate the flip — and a
+# cross that always means nothing teaches everyone to ignore the one that will someday matter.
 #
-#   contract-integrity.test.sh            CASES 54 AND IN2 BOTH PASS. IN2 was closed by
-#                                         `a7f22e4` ("IN2 passed on this Mac by accident of
-#                                         the host, not by property of the test") — the
-#                                         symlinked-tmpdir fixture the note below asked for
-#                                         was built, so the Linux divergence is gone. The
-#                                         suite was nonetheless red, 142 passed / 24 failed,
-#                                         for a reason nobody had written down: TWENTY-ONE of
-#                                         the twenty-four were the probe's Layer Q, which
-#                                         asserted a terminal member reaches `removed` with
-#                                         the quarantine GONE. `a6c076c` (2026-09-06 04:35)
-#                                         disabled automatic erasure, making `verified`-plus-
-#                                         retained the contract, and did not touch the probe.
-#                                         Every `<name>-probe-passes` case runs the whole
-#                                         probe and wants exit 0, so one stale layer failed
-#                                         twenty-one of them. FIXED, with two negative
-#                                         controls (recovery gutted; erasure restored).
-#   guard-worktree-isolation.test.sh      REPRODUCED EXACTLY as recorded. The 2026-09-03
-#                                         cwd-spawn inversion had moved the suite out from
-#                                         under its harness: Q02 stopped carrying the
-#                                         externals property, and Q04/Q08 stopped
-#                                         discriminating because clause 7f now refuses every
-#                                         cwd-only spawn with exit 2 regardless. FIXED —
-#                                         all 174 pass, all 7 properties proven.
-#   provision-claude-md.test.sh           ALREADY GREEN, 37/37 in 0.7s. Fixed by `0b6842a`
-#                                         and `eb70a5a` after this file was written. Nothing
-#                                         was owed here.
-#   reconcile-terminal-worktrees.test.sh  GREEN ON A LOADED macOS — 59/59 plus all 30
-#                                         mutation properties, in 30m40s at load average
-#                                         7.5-10.9 with another suite running beside it. C14
-#                                         and C16, the two cases named above as the unstable
-#                                         ones, both pass. That is a stronger result than
-#                                         "green on a quiet Mac", and it is still not a
-#                                         Linux result.
-#   install-reconciler-schedule.test.sh   GREEN ON macOS both before and after, as expected
-#                                         for Linux-only redness. The real question this file
-#                                         asked — what install.sh ought to DO off Darwin —
-#                                         turned out to be already answered by install.sh, in
-#                                         two places, neither of which was under test. S16b,
-#                                         S16c and S16d now assert the off-Darwin contract ON
-#                                         EVERY HOST by shimming `uname`, and S17-S20 are
-#                                         gated on Darwin with a SKIP line naming what goes
-#                                         unproven. 30 pass.
+# So three things exist now that did not before, and the triggers come back on top of them:
 #
-# TWO THINGS THIS PASS DID NOT DO, said plainly rather than left to be discovered:
+#   1. A FAST REQUIRED GATE THAT MATCHES THE ACTUAL PROBLEM. 101 of the 120 suites were
+#      created in the twelve days to 2026-09-09, about eight a day, none of them ever run on
+#      Linux before landing. Fixing a red list buys one green run; the inflow breaks it again
+#      the same week. The `affected` job below runs the suites THIS DIFF can affect, in
+#      minutes, on every push — so a suite gets its first Linux execution on the day it lands,
+#      by the person who wrote it. That is the job to mark required.
 #
-#   1. NOTHING HERE WAS VERIFIED ON LINUX. There is no Linux host on this machine. The
-#      install-reconciler-schedule fix is correct BY CONSTRUCTION — the four launchd cases
-#      cannot run where there is no launchd, and what replaces them runs on both hosts — but
-#      "by construction" is an argument, not a measurement. `workflow_dispatch` exists for
-#      exactly this: dispatch this workflow on a named SHA and the Linux answer is a fact
-#      instead of an argument.
-#   2. THE TRIGGERS ARE STILL OFF, deliberately. Restoring `push:` on a public repository is
-#      a promise that the gate is green on the platform it runs on, and that promise cannot
-#      be made from a Mac. Dispatch first; restore the triggers against THAT run.
+#   2. THE FULL PASS, SHARDED, WITH ITS COVERAGE PROVEN. 123 minutes serial becomes ~16
+#      across twelve shards, and the arithmetic is in `engine/scripts/ci-units.sh`. Splitting
+#      a pass introduces a failure the serial runner never had — a shard that runs FEWER units
+#      than it was given still exits 0 — so every unit writes a receipt and the `coverage` job
+#      refuses unless the receipts union to the whole inventory, at ONE commit, with no unit
+#      unaccounted for.
 #
-# NONE OF THIS WAS CAUSED BY GOING PUBLIC, and that has not changed. What has changed is the
-# lesson: the redness that cost the most here was not on the list at all. It was a contract
-# that moved under a probe eighty minutes before the pass began, and the only thing that
-# found it was running the suite instead of reading about it.
+#   3. A CHECK FOR RUNS THAT NEVER HAPPENED. GitHub Free allows 20 concurrent jobs
+#      ACCOUNT-WIDE, shared here with six other active workflows, and an exceeded limit DROPS
+#      runs rather than queueing them. A dropped run leaves no record at all, so every tool
+#      that reads "the latest run" reports the previous commit's verdict instead. That is
+#      `engine-run-record.yml`, on a schedule, and it is the reason the matrix below declares
+#      `max-parallel` rather than asking for all twelve at once.
 #
-# =========================================================================================
-# WHY THE TRIGGERS ARE GONE, AND EXACTLY WHAT PUTS THEM BACK
-# =========================================================================================
-#
-# This job had `on: push` with NO path filter, so the moment Actions is enabled on a public
-# repository it fires on every commit — and with five suites red it would put a cross on
-# every one of them, from day one, over defects that predate the flip. A cross that always
-# means nothing teaches everyone to ignore the one that will someday mean something; that is
-# this directory's own argument, in `README.md`, and it applies here.
-#
-# `workflow_dispatch` stays, so the gate can be demanded on a named SHA. It did not exist
-# before, which is worth saying plainly: the post-flip checklist says to DISPATCH all five,
-# and this one could not be dispatched at all.
-#
-# TO RE-ENABLE: the five suites are green on macOS at `934f127` (see the re-measurement
-# above). What is left is one dispatch on Linux. Run this workflow with `workflow_dispatch`
-# on a named SHA, read the result, and if it is green restore
-#
-#     push:
-#     pull_request:
-#
-# beneath `on:`. That is the whole change. Restoring them BEFORE that dispatch would be
-# promising a platform result nobody has measured, which is the same mistake in the other
-# direction.
-#
-# =========================================================================================
-# "THAT IS THE WHOLE CHANGE" IS WRONG, AND IT IS WRONG IN THE WAY THAT WASTES A DAY
-# =========================================================================================
-#
-# THIS WORKFLOW IS DISABLED AT GITHUB, and has been since 2026-09-01. Not trigger-less —
-# DISABLED. Measured 2026-09-06 rather than inferred:
-#
-#     $ gh workflow list --all
-#       engine-self-verify   disabled   345224407
-#     $ gh api repos/<owner>/richos/actions/workflows/345224407 --jq '{state,updated_at}'
-#       {"state":"disabled_manually","updated_at":"2026-09-01T10:49:51.000+01:00"}
-#     $ gh workflow run engine-self-verify.yml --ref main
-#       HTTP 422: Cannot trigger a 'workflow_dispatch' on a disabled workflow
-#
-# So the instruction above could not have been carried out by anybody, and the fallback it
-# offers is no better: A MANUALLY DISABLED WORKFLOW DOES NOT RUN ON `push` EITHER. Adding
-# the two triggers back would have produced a file that reads as re-enabled, a green
-# checklist item, and not one execution. That is this repository's signature defect — a plan
-# recorded as ready that cannot execute — sitting inside the file whose job is to catch it.
-#
-# `packaging-ci` is in the same state (`disabled_manually`) and is not this file's business,
-# but a reader here should know the switch is not unique to this workflow.
-#
-# SO THE RE-ENABLE IS TWO STEPS, IN THIS ORDER:
-#
-#     gh workflow enable engine-self-verify.yml       # or the REST /enable endpoint
-#     gh workflow run    engine-self-verify.yml --ref main
-#
-# and only then, against a green run, restore `push:` and `pull_request:`.
-#
-# IT WAS DELIBERATELY NOT ENABLED BY THE COMMIT THAT WROTE THE PARAGRAPH ABOVE, because the
-# repository is public and enabling a workflow whose last five runs are all failures puts a
-# visible cross on the front page over defects that predate the flip. THE LEAD THEN ENABLED
-# IT, 2026-09-06T19:36:26+01:00, having verified the state independently first:
-#
-#     $ gh workflow list --all --repo <owner>/richos     # before
-#       engine-self-verify   disabled_manually   345224407
-#     $ gh workflow enable engine-self-verify --repo <owner>/richos
-#     $ gh workflow list --all --repo <owner>/richos     # after
-#       engine-self-verify   active              345224407
-#
-# `push:` and `pull_request:` are still deliberately absent and the lead declined to restore
-# them: the answer this file argues for is ONE DISPATCH on Linux, not a trigger on every
-# commit. That has not changed.
-#
-# =========================================================================================
-# WHO SWITCHED IT OFF — the pattern is unambiguous; the NAME is not obtainable
-# =========================================================================================
-#
-# A verification gate that somebody switched off without a record is the failure class this
-# engine exists to prevent, so this was chased rather than shrugged at.
-#
-# THE ACTOR'S NAME IS `unverified:` AND CANNOT BE OBTAINED FROM HERE. The workflow object
-# carries no actor field at all — its keys are badge_url, created_at, html_url, id, name,
-# node_id, path, state, updated_at, url — and `gh api /orgs/<owner>/audit-log` returns
-# `404 Not Found` because the account is a USER, not an organization, and the audit log is
-# an organization/enterprise feature. What would settle it: an org or enterprise audit log,
-# or the account owner's own record of 2026-09-01.
-#
-# THE PATTERN, HOWEVER, IS PLAIN, and it is read off timestamps rather than inferred:
-#
-#     2026-09-01T10:49:51+01:00   engine-self-verify   disabled_manually
-#     2026-09-01T10:49:52+01:00   packaging-ci         disabled_manually
-#     2026-09-04T13:28:31+01:00   app-spine-ci         active
-#     2026-09-04T13:28:32+01:00   ui-suite-ci          active
-#     2026-09-04T13:28:33+01:00   windows-companion-ci active
-#
-# One second apart in each group: two sittings, not five decisions. The 2026-09-01 group is
-# the billing block `docs/verification/workflows-on-a-clone-2026-09-04/README.md` records.
-# The 2026-09-04 group is the re-enable after that record measured all five — AND THE TWO
-# LEFT OFF ARE EXACTLY THE TWO THAT RECORD FOUND RED: this workflow (55 of 60 suites) and
-# packaging-ci (3 of 7 suites red). So they were not forgotten; they were held back because
-# they were failing, and the holding-back is what nothing wrote down.
-#
-# `packaging-ci` REMAINS `disabled_manually` ON PURPOSE. It is outside this file's subject,
-# nobody here knows why it is off, and it is being raised separately. Do not enable it as a
-# tidy-up.
-#
-# =========================================================================================
-# THE LINUX MEASUREMENT, 2026-09-06 — the row's five was six, and stale in both directions
-# =========================================================================================
-#
-# `scripts/ci-verify.sh` run WHOLE and unmodified from a clean `git clone` at
-# `381907f4f07a`, in an `ubuntu:24.04` container built the way the 2026-09-04 record
-# specifies — bash 5.2.21, git 2.43.0, python3 3.12.3, unprivileged uid 1001, and the clone
-# as the only entry in its directory so `../richos-hq` does not resolve:
-#
-#     exit 1,  71 of 77 suites,  5645 s (94 m)
-#
-#     scripts/hooks/ceo-ruled.test.sh                37 passed / 1 FAILED, and its harness
-#                                                    `0 proven, 6 SURVIVED`
-#     scripts/hooks/contract-integrity.test.sh       164 passed / 1 FAILED (case 54, which
-#                                                    runs the reconciler suite)
-#     scripts/hooks/engine-status.test.sh            15 passed / 1 FAILED — RED ON macOS TOO
-#     scripts/hooks/session-evidence.test.sh         FAILED (errors=4)
-#     scripts/lib/workspace-retire.test.sh           51 passed / 1 failed of 400 assertions
-#     scripts/reconcile-terminal-worktrees.test.sh   1 FAILED / 58 passed
-#
-# TWO NOTES ON THE CONTAINER, because a wrong container produces a verdict about itself. The
-# first pass here lacked `rsync` and died at suite 2 with `FATAL: rsync is required by the
-# collector` — a false red, and also a real gap: `ci-verify.sh` step 1 calls itself
-# "preconditions (tool versions)" and checks only bash, git and python3. The image now
-# carries the runner's toolset (rsync, procps, lsof). Separately, this container's git is
-# 2.43.0 against 2.52.0 on the dev Mac, so that was eliminated as a variable wherever it
-# could matter rather than assumed away.
-#
-# WHAT ONLY A RUNNER CAN ANSWER IS NOW DISPATCHED. Run 34052820610, `workflow_dispatch` on
-# `main` at `82c90f0c9bcf`, is the first execution of this workflow on GitHub's own hardware
-# — a 4-vCPU x86 VM against this 10-CPU arm64 container. It measures the platform, and its
-# suite list should match the six above; where it does not, the runner is right.
+# TWO SUITES ARE STILL RED ON MAIN AND ARE DECLARED, NOT SKIPPED. They are red identically on
+# macOS and on Linux, so neither is a portability finding, and both were proven by execution
+# to be contract regressions: `shell-worktree-sparse.test.sh` passes 21/21 at `6472bb60^` and
+# fails 6 at HEAD; `terminalize-agent-worktrees.test.sh` passes 42/42 at `2afb9703^` and fails
+# 11 at HEAD. Neither commit updated the suite it invalidated. They are listed in
+# `engine/scripts/lib/ci-known-red.tsv` with the commit, the failing cases and an EXPIRY —
+# and that table is its own negative control: a declared unit that PASSES fails the job, and
+# an entry past its expiry fails the job. See `engine/docs/ci-sharding.md`.
 
 on:
-  # Deliberately no `push` and no `pull_request` — see the section above. They come back
-  # unchanged after one green `workflow_dispatch` run on Linux.
+  # Back on 2026-09-10. Every push and every pull request gets the fast
+  # `affected` gate; only main, a dispatch or the schedule pays for the full
+  # sharded pass, because twelve shards on every branch push would be this
+  # workflow starving the other six of the account's 20 concurrent jobs.
+  push:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "full (every unit, sharded) or affected (only what the diff touches)"
+        required: false
+        default: full
+        type: choice
+        options: [full, affected]
+  schedule:
+    # 04:17 UTC daily. The full pass on main, on a day nobody pushed, is the
+    # only thing that catches a suite broken by the passage of time — an
+    # expiring known-red entry, a dated fixture, a certificate.
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  # One run per ref. A superseded push's run is stopped rather than left to
+  # compete for the account's concurrency with the run that replaced it —
+  # which matters here because losing that competition means being DROPPED,
+  # not queued. main is never auto-stopped: its record is what
+  # engine-run-record.yml checks.
+  group: engine-self-verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  verify:
-    # MEASURED, not guessed, and the old value could never have been met.
-    #
-    # `timeout-minutes: 45` was set when `run-all-tests.sh` was 24 suites taking about seven
-    # minutes on the dev Mac. It is 60 suites now, and one of them —
-    # `contract-integrity.test.sh` — was measured at 2977.9 s, 49.6 minutes, ON ITS OWN
-    # (`docs/measurements/integrity-suite-cost-2026-09-04/`). The `--only` scoping that
-    # landed the same day made a DEVELOPER's run fast; `run-all-tests.sh` invokes every suite
-    # with no arguments, so CI has always paid and still pays the full pass. The job could
-    # not have finished inside 45 minutes on any host.
-    #
-    # The number below comes from running `scripts/ci-verify.sh` WHOLE on Linux, twice, from
-    # a fresh clone — the same command this job's last step runs, with no arguments:
-    #
-    #     loaded host (load average 9-58 on ten cores)    4149 s   (69.2 min)
-    #     quiet host  (load average ~3)                   3940 s   (65.7 min)
-    #
-    # THE TWO NUMBERS AGREE TO 5%, AND THAT IS THE USEFUL PART. A suite whose cost is
-    # mutation harnesses running one after another barely notices a busy machine, because it
-    # is not competing for cores — it is spending its time in a single serial chain of
-    # process spawns. So 65.7 minutes is not a lucky reading; it is what this job costs.
-    #
-    # Where it goes: `guard-sealed-worktree.test.sh` is the largest single suite at roughly
-    # half an hour, and `contract-integrity.test.sh` is 18 minutes. Between them, most of the
-    # run. Both are harnesses that execute another entire suite once per mutant, which is
-    # precisely the work that makes a green tick load-bearing here.
-    #
-    # Also measured, and it changes where optimization effort belongs: contract-integrity is
-    # 18.2 min on Linux against 49.6 min on macOS. The suite is spawn-bound and Linux spawns
-    # faster. A cost measured on the dev Mac is not the cost CI pays.
-    #
-    # 150 is 2.3x the measured pass. The headroom is for the one thing nobody here can
-    # measure: this ran on a 10-CPU arm64 container and `ubuntu-latest` is a 4-vCPU x86 VM,
-    # and a serial spawn-bound suite is bound by single-core speed rather than by cores.
-    # GitHub's own job ceiling is 6 hours and Actions is free on a public repository, so the
-    # cost of being generous here is zero and the cost of being tight is a green run killed
-    # at 95%. If the first real run comes in near 66 minutes, tighten it against THAT number
-    # — a timeout is a promise about the slowest acceptable run, and it should be re-promised
-    # against evidence rather than left at whatever survived.
+  # ---------------------------------------------------------------------------
+  # plan — the shard matrix and the affected unit list, both DERIVED
+  # ---------------------------------------------------------------------------
+  # The shard count is declared once, in engine/scripts/ci-units.sh, and read
+  # here. It is deliberately not a number typed into this YAML: a matrix length
+  # that disagrees with the planner is a set of units nothing runs.
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.derive.outputs.matrix }}
+      shards: ${{ steps.derive.outputs.shards }}
+      affected: ${{ steps.affected.outputs.units }}
+      affected_count: ${{ steps.affected.outputs.count }}
+      run_full: ${{ steps.derive.outputs.run_full }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Derive the shard plan from the engine, never from this file
+        id: derive
+        working-directory: engine
+        run: |
+          SHARDS="$(scripts/ci-units.sh shard-count)"
+          MATRIX="$(scripts/ci-units.sh matrix "$SHARDS")"
+          echo "shards=$SHARDS" >> "$GITHUB_OUTPUT"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "schedule" ] \
+             || [ "${{ github.ref }}" = "refs/heads/main" ] \
+             || [ "${{ github.event.inputs.scope }}" = "full" ]; then
+            echo "run_full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_full=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "--- the plan this run will execute ---"
+          scripts/ci-units.sh plan "$SHARDS" | tail -20
+
+      - name: Which units can this diff affect
+        id: affected
+        working-directory: engine
+        run: |
+          # The base to diff against, by event. A first push to a new branch
+          # reports an all-zero `before`, and a pull request's base is its own
+          # field; neither is guessed, and if none resolves the fallback is the
+          # merge-base with main rather than an empty diff — an empty diff would
+          # select nothing and the gate would certify the push against nothing.
+          BASE=""
+          case "${{ github.event_name }}" in
+            pull_request) BASE="${{ github.event.pull_request.base.sha }}" ;;
+            push)         BASE="${{ github.event.before }}" ;;
+          esac
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000)
+              BASE="$(git merge-base origin/main HEAD 2>/dev/null || true)" ;;
+          esac
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice::no usable diff base resolved; the affected gate will run the WHOLE inventory"
+            scripts/ci-units.sh units | cut -f1 > /tmp/affected.txt
+          else
+            echo "diff base: $BASE"
+            scripts/ci-affected-units.sh --range "$BASE..HEAD" --explain > /tmp/affected.txt
+          fi
+          COUNT="$(grep -c . /tmp/affected.txt || true)"
+          echo "count=${COUNT:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo "units<<AFFECTED_EOF"
+            cat /tmp/affected.txt
+            echo "AFFECTED_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # affected — THE REQUIRED CHECK. Fast, on every push and every pull request.
+  # ---------------------------------------------------------------------------
+  # WHAT IT COSTS IN THE WORST CASE, said rather than discovered: a change to
+  # the shared fixture at the top of contract-integrity.test.sh maps to all 24
+  # of its sections, about 40 minutes. That is correct — such a change really
+  # does affect every section — and it is rare. A typical guard-plus-suite diff
+  # is two to five minutes.
+  affected:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Declare a git identity for the throwaway test fixtures
+        run: |
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Run the units this diff can affect
+        run: |
+          printf '%s\n' '${{ needs.plan.outputs.affected }}' | grep -v '^$' > /tmp/units.txt || true
+          echo "$(grep -c . /tmp/units.txt || echo 0) unit(s) selected by the diff:"
+          cat /tmp/units.txt
+          # --allow-empty because a docs-only diff legitimately selects nothing,
+          # and ci-affected-units.sh has already refused any changed EXECUTABLE
+          # that maps to no suite. Emptiness here is an answer, not a silence.
+          scripts/ci-shard.sh --units-file /tmp/units.txt --allow-empty \
+                              --receipt "/tmp/receipts/affected.jsonl"
+      - name: Upload the receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: receipt-affected
+          path: /tmp/receipts/affected.jsonl
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # non-suite-steps — everything in ci-verify.sh EXCEPT the suites
+  # ---------------------------------------------------------------------------
+  non-suite-steps:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: engine
@@ -345,12 +249,9 @@ jobs:
           # Historical negative controls in workspace-retire.test.sh exercise
           # the actual defective revisions. The default depth of 1 omits them.
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
-
       # Several suites build throwaway git repositories in $TMPDIR and commit
       # into them, inheriting the machine's ambient identity by design (see the
       # comment in scripts/lib/resolve-roots.test.sh). Every workstation has
@@ -363,6 +264,94 @@ jobs:
         run: |
           git config --global user.name  "engine-self-verify"
           git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Verify the engine, minus the suites (scripts/ci-verify.sh --no-suites)
+        run: scripts/ci-verify.sh --no-suites
 
-      - name: Verify the engine (scripts/ci-verify.sh)
-        run: scripts/ci-verify.sh
+  # ---------------------------------------------------------------------------
+  # shards — step 3, in parallel. Only where the full pass is wanted.
+  # ---------------------------------------------------------------------------
+  shards:
+    needs: plan
+    if: needs.plan.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    # 60 rather than the old 150: the longest shard is bounded by the largest
+    # indivisible unit, reconcile-terminal-worktrees.test.sh at 940 s on this
+    # hardware, so ~16 minutes is the expected wall clock and 60 is 3.7x it.
+    # Re-promise this against the measured longest shard, not against a guess.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # Never all twelve at once. GitHub Free allows 20 concurrent jobs
+      # ACCOUNT-WIDE across every workflow in the account, and an exceeded
+      # limit DROPS runs rather than queueing them. Six leaves room for the
+      # other workflows and costs one extra wave.
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Declare a git identity for the throwaway test fixtures
+        run: |
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Run shard ${{ matrix.shard }} of ${{ matrix.shards }}
+        run: |
+          scripts/ci-shard.sh --shard "${{ matrix.shard }}/${{ matrix.shards }}" \
+                              --receipt "/tmp/receipts/shard-${{ matrix.shard }}.jsonl"
+      - name: Upload the receipt
+        # ALWAYS, including on failure: the coverage job's whole job is to see
+        # what ran, and a shard that failed still ran units. A receipt uploaded
+        # only on success would make a red shard indistinguishable from a
+        # missing one.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: receipt-shard-${{ matrix.shard }}
+          path: /tmp/receipts/shard-${{ matrix.shard }}.jsonl
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # coverage — the proof that the shards covered the whole inventory
+  # ---------------------------------------------------------------------------
+  # `if: always()` and an explicit check of the shard results, because the
+  # failure this job exists for is a shard that never reported. A coverage job
+  # that only runs when every shard succeeded can never catch the case it is
+  # for.
+  coverage:
+    needs: [plan, shards]
+    if: always() && needs.plan.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Collect every shard receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: receipt-shard-*
+          path: /tmp/receipts
+          merge-multiple: true
+      - name: The shards' union must equal the planned inventory
+        working-directory: engine
+        run: |
+          echo "shards job result: ${{ needs.shards.result }}"
+          scripts/ci-shard.sh --verify-receipts /tmp/receipts
+          # The receipts can only certify what they contain. A shards job that
+          # did not itself succeed is reported separately, so a green coverage
+          # line can never stand in for a red suite.
+          if [ "${{ needs.shards.result }}" != "success" ]; then
+            echo "::error::the shard jobs did not all succeed (${{ needs.shards.result }}) — the union above is complete, but at least one unit inside it is red"
+            exit 1
+          fi

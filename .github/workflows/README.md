@@ -1,13 +1,18 @@
 # What runs in this directory, what does not, and why
 
-**State on 2026-09-05.** Seven workflows, five of them enabled.
+**State on 2026-09-10.** Eight workflows, seven of them firing on their own.
 
 - **Enabled:** `app-spine-ci`, `app-voice-ci`, `ui-suite-ci` and `windows-companion-ci`, on
   pushes and pull requests, each behind its own path filter.
 - **Enabled:** `vouch-pr`, on every pull request opened or reopened. It is the only file here that
   acts on a person rather than on a diff, and it can close somebody's work.
-- **Disabled in the file:** `engine-self-verify` and `packaging-ci`, each for a measured reason
-  given in the table further down.
+- **Enabled 2026-09-10:** `engine-self-verify`, on every push and pull request. Its triggers had
+  been absent since 2026-09-01. What had to exist before they could go back — a fast diff-scoped
+  required gate, the full pass sharded with its coverage proven, and a check for runs that were
+  DROPPED rather than failed — is in `engine/docs/ci-sharding.md`.
+- **Added 2026-09-10:** `engine-run-record`, every six hours. It is the only file here that asks
+  whether a verification HAPPENED rather than whether it passed.
+- **Disabled in the file:** `packaging-ci` alone, for the measured reason in the table below.
 
 The title of this document read "Why every workflow here is disabled" until 2026-09-05, which was
 true when it was written and had stopped being true on 2026-09-04. The rest of it is the history
@@ -82,13 +87,21 @@ is. Two of them were not fine.** The clone, the commands and the transcripts are
 | `app-voice-ci` | **enabled** | added 2026-09-05, after the flip, so no part of the billing story above applies to it either. It was not in the clone exercise because it did not exist; what was measured instead is the crate, and it retired three of the four clauses `app-spine-ci` had excluded it for — whisper is not a build dependency, no test opens an audio endpoint without `RICHOS_VOICE_LIVE_AUDIO`, and the cold build is 12.6 s. Never yet executed, and it carries one premise no Mac can settle: how many of the suite's seven candidate voices a runner has. See its header, and `docs/verification/voice-ci-2026-09-05/` |
 | `ui-suite-ci` | **enabled** | green in the clone under WebKit from its own `node_modules`, after one load-sensitive check in `splash.js` was found flaking and fixed |
 | `windows-companion-ci` | **enabled** | restore, the `net8.0-windows` build and all 26 core tests pass off Windows; only the `doctor` smoke step needs the runner |
-| `engine-self-verify` | **DISABLED IN THE FILE** | `ci-verify.sh` exits 1 on Linux: 55 of 60 suites, five red, two of them red on macOS too. One Linux-only defect was found and fixed (`sed -i ''` aborted the largest suite outright, exit 2, with two whole layers never reached). Its 45-minute timeout could not have been met on any host and is now 150, from a measured 65m40s full pass |
+| `engine-self-verify` | **ENABLED 2026-09-10** | was disabled in the file when this table was written, for the reason kept in the next row's shape: `ci-verify.sh` exited 1 on Linux, 55 of 60 suites. That was true and is superseded. At `4f01e5c7` the pass was 117/121 in 123 minutes (run `34396549904`); it is now twelve parallel shards at ~16 minutes with a coverage job that refuses unless the shards' receipts union to the whole inventory at one commit, plus a diff-scoped `affected` job that is the one to mark required. Of the four reds, two were Linux portability defects and were FIXED; two are contract regressions red identically on macOS, proven by execution to be `6472bb60` and `2afb9703`, and are DECLARED with an expiry in `engine/scripts/lib/ci-known-red.tsv` rather than skipped. Full account: `engine/docs/ci-sharding.md` |
+| `engine-run-record` | **ADDED 2026-09-10** | on a schedule, every six hours, and it is deliberately NOT a job inside `engine-self-verify`: if that workflow's run was the one dropped, a job inside it did not run either, so a check for absence cannot be hosted by the thing that might be absent. GitHub Free allows 20 concurrent jobs ACCOUNT-WIDE and an exceeded limit DROPS runs rather than queueing them, leaving no record at all — so every tool reading "the latest run" reports an earlier commit's verdict. Measured on 2026-09-10 before the trigger went back: 95 of 98 pushes to main had no run |
 | `packaging-ci` | **DISABLED IN THE FILE** | 3 of its 7 suites cannot pass on a public runner. One of them needs a compiler that lives in the private repository. Its own header carries the measurement and what would re-enable it |
 | `vouch-pr` | **enabled** | added 2026-09-05, after the flip, so no part of the billing story above applies to it. It runs no suite: it reads `.github/VOUCHED.td` and closes a pull request from an author who is not on it. Never yet executed — see its header, and `docs/verification/pr-trust-gate-2026-09-05/README.md` |
 
 **So the post-flip step is "dispatch three", not "dispatch five".** The two disabled files have had
 their `push` and `pull_request` triggers removed for exactly this reason; dispatching either anyway
 produces a red run that says nothing about going public.
+
+> **Superseded for `engine-self-verify` on 2026-09-10.** Its triggers are back, so it is no longer
+> something to dispatch — it fires on every push, and `engine-run-record` reports any push that got
+> no run at all. `packaging-ci` is the only file this paragraph still describes. Nothing else in
+> this section is corrected: it was right about the set it was written over, and the reasoning is
+> why the trigger restoration was sequenced behind three pieces of machinery rather than done as a
+> two-line YAML edit.
 
 **That count was about the five files the flip found here, and `app-voice-ci` makes it four to
 dispatch rather than three.** It is not a correction to the sentence above — it was right about the
@@ -99,6 +112,14 @@ set it was written over — but whoever runs the dispatch should run four, and s
 the machine the engine is developed on, today, and a third is red on the platform CI uses. **The
 flip does not cause them; it publishes them.** Each disabled file names its own list and states,
 in one line, what puts its triggers back.
+
+> **That half was right, and 2026-09-10 measured how right.** Of the four reds at `4f01e5c7`, TWO
+> are red on macOS and Linux identically — `shell-worktree-sparse.test.sh` and
+> `terminalize-agent-worktrees.test.sh` — and both were proven by execution to be contract
+> regressions rather than platform findings: 21/21 and 42/42 respectively at the parent of the
+> commit that broke each, and neither commit updated the suite it invalidated. A red list is not
+> a portability list, and the only thing that told them apart was running each suite on both
+> hosts.
 
 **The red lists were measured twice, on purpose.** The first Linux pass ran on a machine carrying
 eleven agents at a load average up to 58, and a red list taken under those conditions cannot tell

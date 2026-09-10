@@ -1,86 +1,195 @@
 name: engine-self-verify
 
-# THE ADOPTER'S TEMPLATE. THIS COPY DOES NOT RUN, AND CANNOT.
+# THE ADOPTER'S TEMPLATE. THIS COPY DOES NOT RUN HERE — AND THAT IS CORRECT.
 #
-# GitHub Actions discovers workflows ONLY in a `.github/workflows/` directory at
-# the REPOSITORY ROOT. This copy sits under `engine/` because the engine SHIPS
-# it: an adopter copies the engine's contents to their repository root (see
-# README, "Adopter flow"), at which point this file lands at THEIR root and
-# fires on their very next push.
+# GitHub Actions discovers workflows ONLY in `.github/workflows/` at the
+# REPOSITORY ROOT. In THIS repository the engine lives in a subdirectory, so
+# the copy that fires is `.github/workflows/engine-self-verify.yml` at the root,
+# and it carries `working-directory: engine`. This file is what an adopter gets
+# when they copy the engine's contents to THEIR root: same jobs, same scripts,
+# no working-directory line, root-relative paths.
 #
-# If you have vendored `engine/` as a SUBDIRECTORY instead of copying its
-# contents to your root, copy this file to `<your repo>/.github/workflows/` and
-# add:
+# GENERATED, NOT HAND-MAINTAINED. Two YAML files that must agree about what they
+# invoke are a typed inventory in a different costume — the exact object this
+# engine refuses to keep. So this file is produced from the root copy by one
+# mechanical transform (drop `working-directory: engine`, drop the `engine/`
+# path prefix), and `publication-completeness.py` independently checks that
+# every entry point named in a subdirectory workflow's `run:` lines is also
+# named by a root workflow's. If you change one, regenerate the other.
 #
-#     defaults:
-#       run:
-#         working-directory: engine
+# WHAT IT RUNS is not written down here either. `scripts/ci-verify.sh` is the
+# single place the verification steps are listed and `scripts/ci-units.sh` is
+# the single place the unit inventory is derived. Read those.
 #
-# That is exactly what this engine's own repository does — see the root-level
-# `.github/workflows/engine-self-verify.yml` there, which is the copy that
-# actually executes. It had to be created on 2026-08-29, because for as long as
-# this file was the only copy, the engine's self-verification had never run once:
-# `gh run list` returned nothing at all. Not broken — unreachable. A correct rule
-# with nothing enforcing it is the exact defect this engine exists to end, so it
-# is worth saying plainly: A WORKFLOW THAT HAS NOT EXECUTED VERIFIES NOTHING.
-#
-# WHAT IT VERIFIES is deliberately NOT written down here. Both copies call
-# `scripts/ci-verify.sh`, which is the single place the steps are listed —
-# because two YAML files each spelling out the same seven steps is a typed
-# inventory in a different costume, and this engine does not keep those. Read
-# that script's header for the step list, the reasoning, and what CI can and
-# cannot cover.
-#
-# Prerequisites: bash, git, python3 (pinned below), and standard GNU coreutils —
-# the same set documented in README's "Prerequisites". No Claude API key, no
-# live agents, no network beyond checkout/setup. Portability: the engine is
-# developed on macOS and this runs on Linux; `docs/ci-portability-notes.md`
-# records what that first Linux run actually broke, and what was fixed.
+# WHY IT IS SHARDED: the serial pass is 123 minutes on a GitHub runner, and a
+# gate nobody will wait for is a gate that gets switched off. The full argument,
+# with the measurements, is in `docs/ci-sharding.md`.
 
 on:
+  # Back on 2026-09-10. Every push and every pull request gets the fast
+  # `affected` gate; only main, a dispatch or the schedule pays for the full
+  # sharded pass, because twelve shards on every branch push would be this
+  # workflow starving the other six of the account's 20 concurrent jobs.
   push:
   pull_request:
-  # So an adopter can demand the gate on a named SHA without touching their tree. The copy
-  # this engine runs for ITSELF carries this trigger and nothing else at the moment, for
-  # reasons that are about this repository's own red suites rather than about the engine —
-  # its header says which, and an adopter's tree is not held to them.
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "full (every unit, sharded) or affected (only what the diff touches)"
+        required: false
+        default: full
+        type: choice
+        options: [full, affected]
+  schedule:
+    # 04:17 UTC daily. The full pass on main, on a day nobody pushed, is the
+    # only thing that catches a suite broken by the passage of time — an
+    # expiring known-red entry, a dated fixture, a certificate.
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  # One run per ref. A superseded push's run is stopped rather than left to
+  # compete for the account's concurrency with the run that replaced it —
+  # which matters here because losing that competition means being DROPPED,
+  # not queued. main is never auto-stopped: its record is what
+  # engine-run-record.yml checks.
+  group: engine-self-verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  verify:
-    # 45 MINUTES WAS NOT ENOUGH AND HAD NOT BEEN MEASURED. It was set when
-    # `run-all-tests.sh` was 24 suites taking about seven minutes. The suite is 60 now, and
-    # `contract-integrity.test.sh` alone was measured at 49.6 minutes on macOS and 18.2 on
-    # Linux. A full `ci-verify.sh` on Linux, from a fresh clone, came in at 69 minutes on a
-    # heavily loaded 10-CPU host on 2026-09-04.
-    #
-    # 150 is a little over twice that, because the measurement was taken on a contended
-    # arm64 container and `ubuntu-latest` is a 4-vCPU x86 VM, and this suite's cost is
-    # mostly serial mutation harnesses — bound by single-core speed, not by core count.
-    # Actions is free on a public repository, so a generous ceiling costs nothing and a
-    # tight one kills a green run at 95%. Tighten it against your own first green run.
-    #
-    # THE ENGINE'S SUITE IS SLOW BY DESIGN and this is the number that says so out loud. If
-    # it is too slow for your pipeline, the lever is `--only <section>` on
-    # `contract-integrity.test.sh` for local work — never a shorter timeout, and never
-    # dropping the suite from CI, which is where the full pass has to happen.
+  # ---------------------------------------------------------------------------
+  # plan — the shard matrix and the affected unit list, both DERIVED
+  # ---------------------------------------------------------------------------
+  # The shard count is declared once, in scripts/ci-units.sh, and read
+  # here. It is deliberately not a number typed into this YAML: a matrix length
+  # that disagrees with the planner is a set of units nothing runs.
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.derive.outputs.matrix }}
+      shards: ${{ steps.derive.outputs.shards }}
+      affected: ${{ steps.affected.outputs.units }}
+      affected_count: ${{ steps.affected.outputs.count }}
+      run_full: ${{ steps.derive.outputs.run_full }}
     steps:
       - name: Checkout
-        # Portable regression fixtures ship with the engine. An adopter's
-        # history cannot supply RichOS-specific commits, so this template does
-        # not pretend that fetching more adopter history supplies those bytes.
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - name: Derive the shard plan from the engine, never from this file
+        id: derive
+        run: |
+          SHARDS="$(scripts/ci-units.sh shard-count)"
+          MATRIX="$(scripts/ci-units.sh matrix "$SHARDS")"
+          echo "shards=$SHARDS" >> "$GITHUB_OUTPUT"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "schedule" ] \
+             || [ "${{ github.ref }}" = "refs/heads/main" ] \
+             || [ "${{ github.event.inputs.scope }}" = "full" ]; then
+            echo "run_full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_full=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "--- the plan this run will execute ---"
+          scripts/ci-units.sh plan "$SHARDS" | tail -20
+
+      - name: Which units can this diff affect
+        id: affected
+        run: |
+          # The base to diff against, by event. A first push to a new branch
+          # reports an all-zero `before`, and a pull request's base is its own
+          # field; neither is guessed, and if none resolves the fallback is the
+          # merge-base with main rather than an empty diff — an empty diff would
+          # select nothing and the gate would certify the push against nothing.
+          BASE=""
+          case "${{ github.event_name }}" in
+            pull_request) BASE="${{ github.event.pull_request.base.sha }}" ;;
+            push)         BASE="${{ github.event.before }}" ;;
+          esac
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000)
+              BASE="$(git merge-base origin/main HEAD 2>/dev/null || true)" ;;
+          esac
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice::no usable diff base resolved; the affected gate will run the WHOLE inventory"
+            scripts/ci-units.sh units | cut -f1 > /tmp/affected.txt
+          else
+            echo "diff base: $BASE"
+            scripts/ci-affected-units.sh --range "$BASE..HEAD" --explain > /tmp/affected.txt
+          fi
+          COUNT="$(grep -c . /tmp/affected.txt || true)"
+          echo "count=${COUNT:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo "units<<AFFECTED_EOF"
+            cat /tmp/affected.txt
+            echo "AFFECTED_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # affected — THE REQUIRED CHECK. Fast, on every push and every pull request.
+  # ---------------------------------------------------------------------------
+  # WHAT IT COSTS IN THE WORST CASE, said rather than discovered: a change to
+  # the shared fixture at the top of contract-integrity.test.sh maps to all 24
+  # of its sections, about 40 minutes. That is correct — such a change really
+  # does affect every section — and it is rare. A typical guard-plus-suite diff
+  # is two to five minutes.
+  affected:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
+      - name: Declare a git identity for the throwaway test fixtures
+        run: |
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Run the units this diff can affect
+        run: |
+          printf '%s\n' '${{ needs.plan.outputs.affected }}' | grep -v '^$' > /tmp/units.txt || true
+          echo "$(grep -c . /tmp/units.txt || echo 0) unit(s) selected by the diff:"
+          cat /tmp/units.txt
+          # --allow-empty because a docs-only diff legitimately selects nothing,
+          # and ci-affected-units.sh has already refused any changed EXECUTABLE
+          # that maps to no suite. Emptiness here is an answer, not a silence.
+          scripts/ci-shard.sh --units-file /tmp/units.txt --allow-empty \
+                              --receipt "/tmp/receipts/affected.jsonl"
+      - name: Upload the receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: receipt-affected
+          path: /tmp/receipts/affected.jsonl
+          if-no-files-found: ignore
 
+  # ---------------------------------------------------------------------------
+  # non-suite-steps — everything in ci-verify.sh EXCEPT the suites
+  # ---------------------------------------------------------------------------
+  non-suite-steps:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Historical negative controls in workspace-retire.test.sh exercise
+          # the actual defective revisions. The default depth of 1 omits them.
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
       # Several suites build throwaway git repositories in $TMPDIR and commit
       # into them, inheriting the machine's ambient identity by design (see the
       # comment in scripts/lib/resolve-roots.test.sh). Every workstation has
@@ -93,6 +202,90 @@ jobs:
         run: |
           git config --global user.name  "engine-self-verify"
           git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Verify the engine, minus the suites (scripts/ci-verify.sh --no-suites)
+        run: scripts/ci-verify.sh --no-suites
 
-      - name: Verify the engine (scripts/ci-verify.sh)
-        run: scripts/ci-verify.sh
+  # ---------------------------------------------------------------------------
+  # shards — step 3, in parallel. Only where the full pass is wanted.
+  # ---------------------------------------------------------------------------
+  shards:
+    needs: plan
+    if: needs.plan.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    # 60 rather than the old 150: the longest shard is bounded by the largest
+    # indivisible unit, reconcile-terminal-worktrees.test.sh at 940 s on this
+    # hardware, so ~16 minutes is the expected wall clock and 60 is 3.7x it.
+    # Re-promise this against the measured longest shard, not against a guess.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # Never all twelve at once. GitHub Free allows 20 concurrent jobs
+      # ACCOUNT-WIDE across every workflow in the account, and an exceeded
+      # limit DROPS runs rather than queueing them. Six leaves room for the
+      # other workflows and costs one extra wave.
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Declare a git identity for the throwaway test fixtures
+        run: |
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
+      - name: Run shard ${{ matrix.shard }} of ${{ matrix.shards }}
+        run: |
+          scripts/ci-shard.sh --shard "${{ matrix.shard }}/${{ matrix.shards }}" \
+                              --receipt "/tmp/receipts/shard-${{ matrix.shard }}.jsonl"
+      - name: Upload the receipt
+        # ALWAYS, including on failure: the coverage job's whole job is to see
+        # what ran, and a shard that failed still ran units. A receipt uploaded
+        # only on success would make a red shard indistinguishable from a
+        # missing one.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: receipt-shard-${{ matrix.shard }}
+          path: /tmp/receipts/shard-${{ matrix.shard }}.jsonl
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # coverage — the proof that the shards covered the whole inventory
+  # ---------------------------------------------------------------------------
+  # `if: always()` and an explicit check of the shard results, because the
+  # failure this job exists for is a shard that never reported. A coverage job
+  # that only runs when every shard succeeded can never catch the case it is
+  # for.
+  coverage:
+    needs: [plan, shards]
+    if: always() && needs.plan.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Collect every shard receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: receipt-shard-*
+          path: /tmp/receipts
+          merge-multiple: true
+      - name: The shards' union must equal the planned inventory
+        run: |
+          echo "shards job result: ${{ needs.shards.result }}"
+          scripts/ci-shard.sh --verify-receipts /tmp/receipts
+          # The receipts can only certify what they contain. A shards job that
+          # did not itself succeed is reported separately, so a green coverage
+          # line can never stand in for a red suite.
+          if [ "${{ needs.shards.result }}" != "success" ]; then
+            echo "::error::the shard jobs did not all succeed (${{ needs.shards.result }}) — the union above is complete, but at least one unit inside it is red"
+            exit 1
+          fi
