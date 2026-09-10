@@ -273,6 +273,106 @@ def _release_dead_lock(repo, path, lock_line):
 
 
 # ---------------------------------------------------------------------------
+# the agent is over, although its session is not — WHO SAID SO
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS (round 11, 2026-09-10). Round 10 gave a platform-native
+# checkout exactly one route out from under the platform: the OWNING SESSION
+# provably gone. Measured on the operator's machine at 10:53 that day, with
+# the orchestrator still running, six finished teammates' workspaces read
+#
+#     observe  .../worktrees/agent-a0af7565af1a7ae92 — d0eef867/a0af7565af1a7ae92
+#              zach-fable-lc1 — platform-owned; session d0eef867 pid 8799 is alive
+#
+# — held not because their agent was running but because the ORCHESTRATOR was.
+# A session lasts a working day; an agent lasts minutes. So the session is the
+# wrong unit, and this is the agent-sized evidence beside it. It ADDS a ground;
+# it removes none. Every other refusal — dirty, untracked, unintegrated,
+# unverifiable residue, a process in the tree, a competing reservation, an
+# inexact or locked registration, a live native lock — is untouched and is
+# still evaluated after this one passes.
+
+# The ingresses that are the PLATFORM'S OWN STATEMENT about one exact agent id:
+# SubagentStop carries the id, WorktreeRemove the exact native path, a
+# successful TaskStop the task id its result returned. `NativeMemberGone` and
+# `Adoption` are this engine's own derivations — real terminal facts for the
+# daily lane, but not the platform saying "this worker stopped", so they do not
+# license taking a workspace out of the platform's hands while it still runs.
+PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop')
+
+
+def platform_said_the_agent_stopped(tx, transaction):
+    """(stopped, reason). POSITIVE evidence that this exact agent is over:
+
+      1. the transaction is sealed and its terminal record names an ingress
+         the PLATFORM fired about this exact agent id — never a name, a cwd or
+         a sentence, and never this engine's own derivation;
+      2. the terminal index for that agent id is written, which is the index
+         guard-resume-isolation.sh reads to refuse every future SendMessage to
+         it WITH NO ESCAPE HATCH — not resume-ack:, not a protocol message.
+
+    (2) is the whole safety argument and it is structural rather than
+    temporal. It does not say the agent has been quiet for a while; it says
+    the agent cannot be given another turn. Nine rounds died inferring death
+    from quiet, so nothing here is inferred from quiet: absence of a record is
+    never evidence, and a transaction with no platform terminal record gets
+    the same answer it always got.
+    """
+    if not terminal_fact(transaction):
+        return False, 'no sealed platform terminal record for this agent'
+    ingress = (transaction.get('terminal') or {}).get('ingress')
+    if ingress not in PLATFORM_TERMINAL_INGRESSES:
+        return False, ('terminal ingress %s is this engine\'s own derivation, not the platform\'s '
+                       'statement about the worker' % ingress)
+    aid, sid = transaction.get('agent_id') or '', transaction.get('session_id') or ''
+    if not tx.is_terminal_agent(aid, sid or None):
+        return False, ('agent %s has no terminal index, so nothing refuses its resume; not provably over'
+                       % (aid[:8] or '?'))
+    return True, ('agent %s stopped at the platform\'s %s ingress and is indexed terminal, so it is '
+                  'refused every resume and cannot return' % (aid[:8], ingress))
+
+
+def platform_released_its_lock(member, row):
+    """(released, reason). Claude Code writes the lock on its native worktree
+    and Claude Code takes it off; this engine reads it and NEVER removes it.
+
+    MEASURED on this machine, 2026-09-10, from the live admin directories:
+
+        claude agent agent-a42c90096292136f0 (pid 8799 start Thu Sep 10 05:39:28 2026)
+
+    The pid is the HOST SESSION'S, identical for every agent of that session,
+    so it can never distinguish a finished agent from a running one — and the
+    lock is the host's artifact, taken under the host's own rules. It is not
+    ours to release. It does not need to be: the host takes it off within
+    about a second of the stop (dir mtimes 0.37s and 1.06s after the two
+    SubagentStop events measured that day), and THAT REMOVAL IS THE HOST
+    SAYING IT IS FINISHED WITH THE WORKSPACE. So this waits for the host's own
+    signal instead of overriding it. A lock still held is a hold, with the
+    holder named — never a lock this engine takes off a live session's tree.
+    """
+    if row is None:
+        return False, 'exact registration required'
+    if 'prunable' in row:
+        return False, 'exact registration required'
+    if 'locked' in row:
+        holder = (row.get('locked') or '').strip()
+        return False, ('Claude Code still holds its own lock on %s%s — this engine never removes a lock '
+                       'a live session holds; the reclaim waits for the platform to release it'
+                       % (member.get('path'), (' (' + holder[:120] + ')') if holder else ''))
+    return True, 'Claude Code has released its own lock on this exact registration'
+
+
+def agent_workspace_is_reclaimable(tx, transaction, member, row):
+    """(reclaimable, reason) — the agent-sized ground, both halves required."""
+    stopped, why = platform_said_the_agent_stopped(tx, transaction)
+    if not stopped:
+        return False, why
+    released, lock_why = platform_released_its_lock(member, row)
+    if not released:
+        return False, lock_why
+    return True, why + '; ' + lock_why
+
+
+# ---------------------------------------------------------------------------
 # ignored bytes — disposable by policy, or archived and verified
 # ---------------------------------------------------------------------------
 
@@ -617,7 +717,12 @@ def assess(tx, transaction, index):
         if tx.platform_native(member):
             gone, why = session_gone(transaction, tx)
             if not gone:
-                return 'observe', 'platform-owned; ' + why
+                # The session still runs. The AGENT may still be over, and
+                # that is a smaller, exact and positive fact (round 11).
+                reclaimable, agent_why = agent_workspace_is_reclaimable(tx, transaction, member, row)
+                if not reclaimable:
+                    return 'observe', 'platform-owned; ' + why + '; ' + agent_why
+                why = agent_why
             if not row or 'prunable' in row:
                 return 'hold', 'exact registration required'
             if 'locked' in row:
@@ -655,20 +760,28 @@ def reconcile(tx, transaction, index):
         repo = member['repo']
         registry = proof_api.registry(repo)
         row = registry.get(member['path'])
+        ground = 'session_gone'
         if tx.platform_native(member):
             gone, why = session_gone(transaction, tx)
             if not gone:
                 # Claude remains the owner of its native checkout while the
-                # session that created it may still act on it.
-                return tx.observe_platform_native(sid, aid, index)
+                # session that created it may still act on it AND the agent
+                # itself is not provably over. Either fact alone is enough,
+                # and neither is inferred from quiet.
+                reclaimable, agent_why = agent_workspace_is_reclaimable(tx, transaction, member, row)
+                if not reclaimable:
+                    return tx.observe_platform_native(sid, aid, index)
+                ground, why = 'agent_over', agent_why
             if not row or 'prunable' in row:
                 raise RuntimeError('exact registration required')
             if 'locked' in row:
+                # Reached only on the session-gone ground: the agent ground
+                # requires the platform to have released its own lock first.
                 _release_dead_lock(repo, member['path'], row['locked'])
                 row = proof_api.registry(repo).get(member['path'])
                 if not row or 'locked' in row:
                     raise RuntimeError('lock still present after release; retained')
-            saved = dict(saved, session_gone=why)
+            saved = dict(saved, **{ground: why})
         elif not row or 'locked' in row or 'prunable' in row:
             raise RuntimeError('exact unlocked registration required')
         pids = processes_using(member['path'])

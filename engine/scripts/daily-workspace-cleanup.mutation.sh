@@ -22,6 +22,17 @@
 #     by reading, and its positive case
 #     (test_residue_refuses_when_capture_store_is_at_default_...) is in the
 #     suite.
+#   * platform_released_its_lock (round 11). It reads the SAME artifact
+#     owner_check's liveness veto reads — Claude Code's lock on the native
+#     registration — so a mutant that made it lie is caught by the veto, by
+#     _release_dead_lock's no-pid refusal, or by assess's lock-pid branch, and
+#     would prove nothing about the predicate itself. It is kept as a second,
+#     cheaper reading because the immediate lane needs to say WHO is holding
+#     the workspace without running the whole lane, and because a defense in
+#     depth over the one artifact that decides is worth its two lines. Its
+#     positive case (the live lock refuses, the platform's own release lets
+#     the reclaim through) is
+#     test_native_of_a_running_session_is_reclaimed_when_the_platform_releases_its_lock.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
@@ -43,10 +54,10 @@ mutant residue-verification-skipped "test_unverifiable_residue_archive_holds_the
     "    pass" \
     "a residue archive that did not verify would still authorize the removal it exists to precede."
 
-mutant session-gone-on-any-status "test_native_of_a_running_session_defers_to_the_platform_even_when_unlocked" "$D" \
+mutant session-gone-on-any-status "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" "$D" \
     "        if status not in ('gone', 'reused'):{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
     "        if False:{NL}            return False, 'session %s pid %s is %s' % (sid[:8], pid, status)" \
-    "a native checkout of a RUNNING session would be removed on the strength of a recorded identity alone — a live agent's workspace, which is the failure that ended round 5."
+    "a native checkout of a RUNNING session would be removed on the strength of a recorded identity alone — a live agent's workspace, which is the failure that ended round 5. Round 11 added an agent-sized ground beside this one, so the case pinned here is the one where the agent ground does NOT apply and only the session ground can refuse."
 
 mutant no-identity-means-gone "test_native_with_no_recorded_session_identity_is_not_provably_gone" "$D" \
     "    if not identities:{NL}        return False, 'no process identity recorded for session %s; not provably gone' % sid[:8]" \
@@ -75,6 +86,11 @@ mutant ingress-set-widened "test_unsupported_competing_terminal_ingress_remains_
     "ACCEPTED_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'NativeMemberGone', 'TaskStop', 'Adoption')" \
     "ACCEPTED_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'NativeMemberGone', 'TaskStop', 'Adoption', 'TaskCompleted')" \
     "an event nobody measured (TaskCompleted, diagnostic only by ruling) would count as a terminal fact and release a competing reservation."
+
+mutant platform-ground-widened "test_native_of_an_engine_derived_terminal_fact_stays_platform_owned" "$D" \
+    "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop')" \
+    "PLATFORM_TERMINAL_INGRESSES = ('SubagentStop', 'WorktreeRemove', 'TaskStop', 'Adoption', 'NativeMemberGone')" \
+    "this engine's OWN derivation of terminality would be read as the platform saying the worker stopped, and a running session's checkout would be taken out of its hands on evidence the platform never gave."
 
 mutant untracked-refusal-removed "test_dirty_staged_and_untracked_refuse" "$P" \
     "    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:{NL}        raise CompletionError" \
