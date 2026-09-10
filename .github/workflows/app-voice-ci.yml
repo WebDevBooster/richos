@@ -157,6 +157,21 @@ name: app-voice-ci
 # so the log will carry the runner's figure. Transcript of the local margin:
 # `docs/verification/voice-ci-2026-09-05/raw/debug-perf-margin.txt`.
 #
+# IT HAPPENED, EXACTLY AS NAMED. Run 34499150632 (head 013cbff8, 2026-09-10) read 3453.3 ms
+# for the 30 s buffer and went red, on a `richos-voice` tree byte-identical to the green run
+# six hours earlier on the same image and the same rustc. The wall clock had measured the
+# runner's queue, not the gate. The test now times the recognizer thread's own CPU
+# (`CLOCK_THREAD_CPUTIME_ID`) against the SAME ceilings, prints the wall clock beside it, and
+# carries three controls proving the clock is real, per-thread, and blind to sleeping. A
+# thread-CPU reading does not charge waiting for a core; it still refuses a genuinely slow
+# core (measured: 4840.0 ms on efficiency cores, red). Record:
+# `docs/verification/app-ci-red-2026-09-10-echo-opus-ci1.md`.
+#
+# "THE LOG WILL CARRY THE RUNNER'S FIGURE" WAS ONLY TRUE ON A RED RUN. libtest captures a
+# passing test's stdout, so no green run of this workflow ever recorded the margin, and the
+# first runner figure anyone saw was the one that failed. The step after the gate
+# below re-runs that single test with `--nocapture` so every green run leaves the figure too.
+#
 # The parallelism is deliberately NOT reduced with `--test-threads=1`. The race in
 # `voiced_acceptance.rs` was fixed yesterday by giving every `say` output path a unique name;
 # serializing the suite here would retire the only check that the fix still holds, and would
@@ -316,6 +331,15 @@ jobs:
       # three times in a week.
       - name: cargo test --locked -p richos-voice
         run: cargo test --locked -p richos-voice
+
+      # THE MARGIN, ON EVERY RUN. The gate above already asserted the ceiling; this prints the
+      # runner's own CPU and wall figures for the voiced gate, which a passing test never shows
+      # (libtest captures its stdout). It re-uses the binary the step above built, so it costs
+      # the test's runtime and no compile. It runs alone here rather than beside its three
+      # siblings, which is why the CPU figure is the one to compare across runs: the wall
+      # figure in this step is an uncontended one and is not what the gate above saw.
+      - name: What the voiced gate costs on this runner (printed, because a green gate hides it)
+        run: cargo test --locked -p richos-voice --test voiced_acceptance -- --exact --nocapture the_gate_costs_a_small_fraction_of_the_recognition_it_guards
 
       # Cheap, and it catches the class of change that compiles under the test profile but
       # breaks a consumer's release build. Measured at 10.3 s cold on an M4. It also compiles
