@@ -48,3 +48,10 @@ __pycache__/
 # launch target, so they do not belong in version control. femcboost has
 # carried the same allowlist shape since it adopted the engine.
 /.claude/*
+
+# Shard receipts. `run.js --shard=i/N --receipts=<dir>` writes one JSON per suite
+# for the coverage job to reconcile; on a runner they are an uploaded artifact and
+# on a developer's machine they are the output of the command the README documents.
+# Evidence OF a run, never an input to one — the same footing as the evidence ledger
+# this directory already keeps in a temp dir.
+app/ui/tests/receipts/
