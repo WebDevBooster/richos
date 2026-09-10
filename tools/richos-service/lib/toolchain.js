@@ -52,6 +52,7 @@
  *   whisper-cli            654,720 B        0.01 s / 0.01 s / 0.01 s
  *   ggml backends (x3)     ~2.6 MB total    under 0.05 s
  *   ggml-small.en.bin      487,614,201 B    0.95 s / 0.93 s / 0.93 s
+ *   ggml-large-v3-turbo-q5_0  574,041,195 B  1.05 s / 1.06 s / 1.04 s   <- the call-path default
  *   ggml-large-v3-turbo    1,624,555,275 B  3.13 s / 3.11 s
  *
  * So the **binary and its backends are hashed on EVERY run** — 0.01 s is free, and the binary is
@@ -59,8 +60,11 @@
  * **models are hashed on a cache miss only**, keyed on (path, bytes, mtime, inode, device), because
  * a conversational dictation utterance decodes in 0.47-0.74 s (`stt.rs`) and a 0.93 s hash on every
  * one of them would nearly triple the latency the voice path was tuned for. On the call path the
- * 3.1 s hash is 1.4% of a 226 s decode of 92 minutes, and it is still cached — there is no reason
- * to pay it twice.
+ * hash is a rounding error against the decode — 1.05 s against a 249 s decode of 92 minutes on the
+ * default weights, 0.4% — and it is still cached, because there is no reason to pay it twice.
+ * (The q5_0 row was re-measured on 2026-09-10 rather than inherited when the default moved there:
+ * three `shasum -a 256` runs, 1.05 / 1.06 / 1.04 s, agreeing with the model-choice rig's
+ * 1.05 / 1.06 / 1.06 s. The 3.1 s row is now the OPT-IN tier's cost, not the default's.)
  *
  * **The limit of that cache, stated rather than buried:** a substitution that rewrites a model file
  * in place while restoring its size, mtime, inode AND device would be believed until something

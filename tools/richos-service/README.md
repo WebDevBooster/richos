@@ -15,7 +15,7 @@ outside Downloads, and watch the browser from outside it:
 2. **Drop-zone watcher + reconcile guard** — detects finished sessions and runs the pipeline; a
    captured session that yields no transcript is a **loud anomaly, never silent** (reuses the
    extension's `sync/reconcile.js` verbatim, plus a transcript-SLA and silent-capture guard).
-3. **The transcription pipeline** — ffmpeg normalize → `whisper.cpp large-v3-turbo` per channel →
+3. **The transcription pipeline** — ffmpeg normalize → `whisper.cpp large-v3-turbo-q5_0` per channel →
    merge + caption fold-in → loro-correction **seam** (identity pass in P1) → `transcript.md` +
    `verification.json` + idempotent ingest ledger; re-transcription on retained audio.
 
@@ -69,7 +69,7 @@ session dir (closed)
  1. RECONCILE GUARD   anomaly? → LOUD alarm, pipeline.status="anomaly", STOP.  (never silent)
  2. NORMALIZE         concat parts → channelsplit → me.wav / others.wav @ 16 kHz mono
       · silent-capture guard: both channels below −60 dBFS → anomaly (ASR-independent)
- 3. TRANSCRIBE        whisper.cpp large-v3-turbo per channel, -oj -ojf timestamps (Metal)
+ 3. TRANSCRIBE        whisper.cpp large-v3-turbo-q5_0 per channel, -oj -ojf timestamps (Metal)
       · -ojf adds per-TOKEN offsets. It is output verbosity, not a decode parameter (it sits
         outside whisperArgs() with -of), and it is required: without per-word times the deletion
         detector at 3.7 has to score coverage on segment extents, which is measurably wrong.
@@ -95,8 +95,22 @@ session dir (closed)
                       append _ingest.jsonl (idempotent); RETAIN audio for re-transcription
 ```
 
-Default model **`large-v3-turbo`** per the model benchmark (2026-08-24):
-~3.9 min per call-hour on the M4, ~2 GB RAM, zero hallucination at defaults.
+Default model **`large-v3-turbo-q5_0`** since 2026-09-10 — the CEO decision page §10, decided by
+Rich from [`docs/measurements/whisper-model-choice-2026-09-10/`](../../docs/measurements/whisper-model-choice-2026-09-10/whisper-model-choice.md).
+It is 574,041,195 B on disk and **884,981,760 B peak RSS at call length**, against full turbo's
+1,624,555,275 B and 2,014,101,504 B — a factor of 2.28 on memory, which is what decided it. It
+costs 7.0% wall clock on long-form decoding and 3–6 proper nouns of 66.
+
+**Full `large-v3-turbo` is not deleted — it stops being what you get by default.** To use it:
+
+```bash
+richos-service fetch-model large-v3-turbo     # pinned, hash-verified, resumable
+richos-service run <session> --tier turbo     # or --model large-v3-turbo
+```
+
+Executed 2026-09-10 against the live host, so this is not a path that only exists on paper:
+1,624,555,275 bytes downloaded in 91.4 s and verified against pinned sha256
+`1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69`.
 
 ## Model integrity — a pinned sha256, not a byte count
 
@@ -161,8 +175,10 @@ success and no version. The exit status is recorded and never consulted. Backend
 binary's own `load_backend:` lines rather than guessed from a Cellar path.
 
 **Cost.** The binary (654,720 B, 0.01 s) and its backends are hashed every run; models are hashed
-on a cache miss only, keyed on (path, size, mtime, inode, device) — `ggml-large-v3-turbo.bin` takes
-3.1 s, which is 1.4% of a 226 s decode but no reason to pay twice. A refused run never writes the
+on a cache miss only, keyed on (path, size, mtime, inode, device) — the default
+`ggml-large-v3-turbo-q5_0.bin` takes **1.05 / 1.06 / 1.04 s** (three runs, re-measured 2026-09-10
+when the default moved to it, not inherited), which is 0.4% of a 249 s decode of 92 minutes but no
+reason to pay twice. The opt-in `ggml-large-v3-turbo.bin` takes 3.1 s. A refused run never writes the
 cache. `app/crates/richos-voice` shares this lock and this pin table.
 
 ```
@@ -304,7 +320,11 @@ node test/cross-surface-e2e.mjs # REAL: BOTH surfaces (extension + macOS compani
 Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
 
 - **Model tiering (`lib/config.js#MODEL_TIERS` + `resolveTier`), config-driven, select with `--tier`:**
-  - `turbo` (**default**) — `large-v3-turbo`; reliable + fast everywhere on Apple Silicon.
+  - `quantized` (**default since 2026-09-10**) — `large-v3-turbo-q5_0`; half the resident memory of
+    full turbo at call length, same zero loop findings on 184.6 minutes of real audio at `-mc 0`.
+  - `turbo` (**opt-in, for proper-noun fidelity**) — full `large-v3-turbo`; the default until
+    2026-09-10. It renders 47 and 48 of 66 proper nouns across two corpus renders against the
+    default's 44 and 42.
   - `max` (**opt-in maximum accuracy**) — full `large-v3` **with the repetition-guard decode params**
     (`-mc 0` no-previous-text-conditioning + temperature fallback + entropy/logprob/no-speech
     thresholds). **Gated:** bare-default `large-v3` reproducibly looped in the benchmark — `resolveTier`
@@ -312,8 +332,8 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
     unguarded.
   - `low-resource` — `small.en` for weak / non-Apple-Silicon / low-RAM hosts (clean + fast, no
     hallucination in the benchmark).
-  - `quantized` — quantized turbo (`large-v3-turbo-q5_0`, ~574 MB vs 1.6 GB; build once with
-    `whisper-quantize`) for low-resource Apple Silicon.
+  (`--tier` accepts any of these; `richos-service tiers` prints the list with the default marked,
+  read from `DEFAULT_TIER` rather than written into the listing.)
 - **Hallucination guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the
   post-decode half of the hallucination defense, over **four measured decode-failure classes**, each
   with a fixture built from the real captured artifact (`test/fixtures/captured-hallucinations.js`,
