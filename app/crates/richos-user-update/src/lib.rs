@@ -22,6 +22,13 @@ use std::{
 
 const APP: &str = "RichOS.app";
 const ID: &str = "com.richos.app";
+/// Cumulative expanded size a downloaded update archive may reach before extraction refuses.
+///
+/// hardware-fixed: a decompression-bomb ceiling, not a share of anybody's disk. It is a bound on
+/// how large a LEGITIMATE `RichOS.app` can be, so it is a property of what we ship and must be
+/// identical on a 256 GB laptop and a 4 TB desktop -- deriving it from free space would let a
+/// hostile archive expand further on the machine that has more room, which is exactly backwards.
+/// The disk that DOES get asked is the download's, in `model-fetch.js::freeBytesFor`.
 const MAX_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 200_000;
 fn refuse(message: impl Into<String>) -> io::Error {
