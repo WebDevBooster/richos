@@ -133,6 +133,64 @@ else
     bad "L06  live session pid: $V"
 fi
 
+# 4b. THE PLATFORM'S TERMINAL RECORD DECIDES WHAT ABSENCE COULD NOT (round 14,
+#     2026-09-11, O2). Same registration as L06 -- session running, native
+#     shell absent -- plus a SEALED TERMINAL TRANSACTION in the store naming
+#     this exact path as a member: the platform's own SubagentStop claimed the
+#     agent. That is positive evidence, the same fact the reclaim lane removes
+#     on, and it turns L06's INDETERMINATE into NOT-ALIVE. A transaction that
+#     names a DIFFERENT path, or an adopted one, decides nothing (controls).
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+tx_terminal() { # <session-id> <agent-id> <member-path> [kind]
+    mkdir -p "$RICHOS_WORKTREE_TX_DIR/$1"
+    python3 - "$RICHOS_WORKTREE_TX_DIR/$1/$2.json" "$1" "$2" "$3" "${4:-}" <<'PY'
+import datetime, json, sys
+path, sid, aid, member, kind = sys.argv[1:6]
+rec = {"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": "zach-opus-live",
+       "sealed": True, "state": "terminal",
+       "terminal": {"ingress": "SubagentStop", "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(), "detail": ""},
+       "members": [{"class": "hand-rolled", "path": member, "branch": "zach-opus-live",
+                    "state": "bound", "cleanup_policy": "integrated-daily"}]}
+if kind:
+    rec["kind"] = kind
+json.dump(rec, open(path, "w"))
+PY
+}
+tx_terminal sess-now live001 "$SANDBOX/wt/somewhere-else"
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06a  a terminal transaction naming ANOTHER path decides nothing about this one (control)" \
+    || bad "L06a  other-path transaction: $V"
+tx_terminal sess-now live001 "$SANDBOX/wt/zach-opus-live" adopted
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06a' an ADOPTED terminal transaction (the engine's own derivation, not the platform's word) decides nothing (control)" \
+    || bad "L06a' adopted transaction: $V"
+tx_terminal sess-now live001 "$SANDBOX/wt/zach-opus-live"
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record: the platform.s own terminal record for agent live001: SubagentStop at .* is member 1 of 1'; then
+    ok "L06b  the platform's SEALED TERMINAL RECORD naming this exact path turns the same registration NOT-ALIVE while the session still runs -- positive evidence, the fact the reclaim lane removes on"
+else
+    bad "L06b  terminal record: $V"
+fi
+# 4c. ...and ROW 5 STILL APPLIES: a post-terminal start note with no stop
+#     after it means the platform ran the agent AGAIN, and the verdict is
+#     INDETERMINATE with row 5's own reason, never NOT-ALIVE.
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind start --detail /cwd >/dev/null
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+if printf '%s' "$V" | grep -q '^INDETERMINATE.*RETRY, not a verdict: the platform started agent live001 again after its terminal record'; then
+    ok "L06c  a post-terminal run OPEN in the transaction's notes holds the verdict at INDETERMINATE with row 5's reason (the agent is running again; the record is not death)"
+else
+    bad "L06c  open run: $V"
+fi
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind stop --detail SubagentStop >/dev/null
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' \
+    && ok "L06d  and once that run's stop is recorded the verdict is NOT-ALIVE again" \
+    || bad "L06d  after the stop: $V"
+# the fixture's transaction must not leak into the cases below, which assert L06's shape elsewhere
+rm -rf "$RICHOS_WORKTREE_TX_DIR/sess-now"
+
 # 5. PID REUSED -> NOT-ALIVE. Same pid as case 4, but the recorded start time is
 #    not this process's start time: that process is gone and its number was
 #    handed to someone else. A bare kill -0 would call this ALIVE.
