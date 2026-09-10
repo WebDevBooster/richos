@@ -43,12 +43,24 @@ entry point happened to run.
   returns `refused`, reason `automatic-erasure-disabled` and exit 3. Inspection
   still reports missing archives, altered identities and content divergence.
 - The detector reports unknown directories and leaves their contents intact.
-- The terminal reconciler captures and verifies, then retains both the quarantine
-  and its Git registration. It records `exclusive-access-unavailable` as a
-  blocked condition. Older unregistered quarantines also remain. Recreated
-  original paths with unknown ownership remain untouched. Captures, backup refs
-  and transaction records do not expire automatically, including those belonging
-  to transactions already marked removed by an older version.
+- The terminal reconciler captures and verifies HISTORICAL quarantines, then
+  retains both the quarantine and its Git registration. It records
+  `exclusive-access-unavailable` as a blocked condition. Older unregistered
+  quarantines also remain. Recreated original paths with unknown ownership
+  remain untouched. Captures, backup refs and transaction records do not expire
+  automatically, including those belonging to transactions already marked
+  removed by an older version.
+- Members on the `integrated-daily` lane (every worker spawned since 2026-09-08,
+  and adopted trees since 2026-09-10) are a different case and are removed:
+  a tree whose tracked bytes are byte-identical to a commit `main` contains,
+  with an exact unlocked registration, no untracked file, no process standing
+  in it and no competing reservation, goes through non-force
+  `git worktree remove`; ignored files disposable by the committed policy go
+  with it and every other ignored file is archived and verified first
+  (`terminal-daily-cleanup.md`). That is not the container deletion this page
+  was written about: the target is one exact registered worktree, proven
+  clean and integrated at the moment of the act, and the only bytes that leave
+  the machine without a copy are the ones a committed policy names disposable.
 
 Terminal reconciler `--status` continues to report retained directories as pending
 and exits nonzero. It does not pretend that physical cleanup completed. Its

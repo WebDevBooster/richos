@@ -208,7 +208,7 @@ left out. What ships here is only what transfers to any project:
 
 | Piece | Path | What it is |
 |---|---|---|
-| Mechanical hooks | `scripts/hooks/` | Worktree-isolation guard (incl. structural no-name-reuse), resume-isolation guard, definition-drift guard pair, worktree reaper on SessionStart and on agent-finish, spawn-content verifier, reader/creator hints, secrets scanner, durable idle/task handoff loggers, contract-integrity probe + self-test suites, `install.sh` generator |
+| Mechanical hooks | `scripts/hooks/` | Worktree-isolation guard (incl. structural no-name-reuse), resume-isolation guard, definition-drift guard pair, worktree lifecycle (a status-only, dry-run inventory on SessionStart that removes nothing; the remover is `scripts/reconcile-terminal-worktrees.py` under a nightly launchd job), spawn-content verifier, reader/creator hints, secrets scanner, durable idle/task handoff loggers, contract-integrity probe + self-test suites, `install.sh` generator |
 | Resume-isolation guard | `scripts/hooks/guard-resume-isolation.sh` | Blocks a `SendMessage` that would RESUME a completed/removed teammate (the spawn-side guard never fires on a resume) — a file-bearing follow-up must spawn fresh in a new isolated worktree; a `resume-ack:` line is the audited escape hatch for a safe pure-question resume. Pairs with the spawn guard's structural no-name-reuse to kill live-vs-ghost ambiguity |
 | Named-person deny-list | `scripts/hooks/guard-named-persons-writes.sh`, `scripts/hooks/guard-named-persons-commands.sh`, `scripts/named-persons.sh` | Refuses a private individual's NAME entering a repository that publishes — in file content, in a destination path, in a commit message, in a branch name, in a PR/issue/release title, and at release. A name is not a secret and never trips the scanner above. The list lives OUTSIDE every repository (`~/.richos-privacy/named-persons`) and a missing list is announced loudly rather than read as "nothing to check" |
 | Secrets scanner | `scripts/hooks/scan-secrets.sh` | Blocks a Write/Edit/MultiEdit/NotebookEdit whose content looks like a live secret (AWS/GitHub/Anthropic/OpenAI/Stripe key patterns, PEM private keys, high-entropy assignment literals for `password`, `api_key`, `secret` and `token`) — closes the "will these AI workers leak my keys" objection structurally, not by promise. Config-driven allowlist so placeholders (e.g. `re_xxxxxxxxx`) never false-positive |
@@ -399,8 +399,10 @@ scaffold.
    integrity sidecars from the current hook bytes (and to migrate away any stale
    hook-duplicating `.claude/settings.json` left by an older install). One
    sidecar lands outside `scripts/hooks/` — `scripts/reap-stale-worktrees.sh.sha256`,
-   for the half of the worktree-reaper chain that actually removes worktrees;
-   both are gitignored and both are hashed by the probe's Layer Q.
+   for the DRY-RUN inventory the SessionStart wrapper runs (it removes nothing;
+   the remover is `scripts/reconcile-terminal-worktrees.py` under launchd, which
+   carries its own sidecar); all are gitignored and all are hashed by the
+   probe's Layer Q.
 3. **Provision `CLAUDE.md` so a bare boot IS Rich:** copy
    `identity.config.example` to `identity.config`, fill in at least
    `COMPANY_NAME` and `CEO_NAME`, then run

@@ -45,6 +45,17 @@
 #      owns. That count is the "unbound RichOS-created worktrees" figure of
 #      the definition of done, and it is reported, never acted on.
 #
+# SAID PLAINLY, BECAUSE THE RECORD ONCE SAID OTHERWISE (2026-09-10): NOTHING
+# IS CLEANED UP WHEN A SESSION ENDS, AND NOTHING IS CLEANED UP WHEN THE NEXT
+# ONE STARTS. This hook removes nothing and recovers nothing. The remover is
+# the launchd job com.richos.worktree-reconciler, which runs nightly at
+# RECONCILE_HOUR whether or not any session ever starts again, and the only
+# thing a session start contributes is to READ its state and say so — which
+# includes saying RECONCILER OVERDUE when no pass has completed within
+# RECONCILE_OVERDUE_DAYS, because a job that has quietly stopped is the one
+# failure a nightly job can have that nobody would otherwise notice
+# (docs/worktree-reclaim-round-10-2026-09-10.md §3).
+#
 # LOG-ONLY / NEVER BLOCKS: this hook ALWAYS exits 0 and NEVER holds up a
 # session start. Every failure is announced into the orchestrator's context
 # rather than swallowed.
@@ -134,8 +145,22 @@ else:
     # (worktree-lifecycle.md §5, and the 2026-09-04 harness-lock deadlock).
     blocked = dd.get("members_blocked_on_a_condition_waiting_cannot_clear") or 0
     verdict = "DONE (zero dead worktrees)" if done else ("BLOCKED (%s member(s) cannot proceed by waiting)" % blocked if blocked else "PENDING")
-    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, BLOCKED=%s, hard failures (dead-present)=%s, sealed transactions whose native member is gone=%s, overdue pending terminal events=%s, live workers positively present=%s, transactions touched=%s%s"
-          % (verdict,
+    # THE SCHEDULE IS PART OF THE VERDICT. A nightly job that has stopped is
+    # the one failure of the automatic path nobody would otherwise see; when
+    # it is overdue that fact goes right after the verdict word, where it
+    # cannot be read past.
+    sch = s.get("schedule") or {}
+    if sch.get("overdue"):
+        sched = (" — RECONCILER OVERDUE: no completed pass for %s day(s) (last daily slot %s, last run %s, threshold %s days); launchd job %s. "
+                 "The automatic path is NOT running: nothing reclaims a worktree until it does. Fix: run scripts/hooks/install.sh from the engine MAIN checkout"
+                 % (sch.get("last_activity_age_days") if sch.get("last_activity_age_days") is not None else "ever",
+                    sch.get("last_completed_slot") or "none on record", sch.get("last_run_ts") or "none on record",
+                    sch.get("overdue_after_days"), sch.get("launchd_job")))
+    else:
+        sched = "; last daily pass %s, last run %s, launchd job %s" % (
+            sch.get("last_completed_slot") or "none on record", sch.get("last_run_ts") or "none on record", sch.get("launchd_job"))
+    print("worktree reconciler: %s%s — terminal members with a directory present=%s, pending retry=%s, BLOCKED=%s, hard failures (dead-present)=%s, sealed transactions whose native member is gone=%s, overdue pending terminal events=%s, live workers positively present=%s, transactions touched=%s%s"
+          % (verdict, sched,
              dd.get("terminal_members_with_a_directory_present"), dd.get("terminal_transactions_pending_normal_retry"),
              blocked,
              dd.get("hard_failures_counted_as_dead_present"), dd.get("sealed_transactions_whose_native_member_is_gone"),

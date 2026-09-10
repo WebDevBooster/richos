@@ -1115,6 +1115,7 @@ N_UNOBSERVED_NATIVE=0
 ADOPTABLE_COUNT=0
 NOT_ADOPTABLE_COUNT=0
 NOT_ADOPTABLE_GATES=""
+OWNED_COUNT=0
 CLAIMED_PATHS=""
 
 BR_SWEPT=0
@@ -1458,9 +1459,29 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                 ;;
             REFUSED*)
                 _ad_gate="$(printf '%s' "$_ad_line" | cut -f2)"
-                echo "DRY-RUN REAP $id not-adoptable($_ad_gate) — this inventory's gates selected it and the adoption gate refuses it, so nothing automatic will take it: $(printf '%s' "$_ad_line" | cut -f3- | cut -c1-200)"
-                NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1))
-                case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac
+                # THE `unclaimed` GATE IS NOT "NOBODY TAKES THIS". It means a
+                # terminal transaction already owns the tree, and the owner
+                # is reconcile-terminal-worktrees.py's daily lane. Until
+                # 2026-09-10 this line said "nothing automatic will take it"
+                # for 21 trees the reconciler owned and was holding on a
+                # __pycache__ — each side accurate, neither saying what the
+                # other needed (docs/worktree-reclaim-round-10-2026-09-10.md
+                # §1.3). So the owner and its CURRENT hold are printed here,
+                # read from the transaction itself.
+                _owner_line=""
+                if [ "$_ad_gate" = "unclaimed" ] && [ -f "$LIB_DIR/worktree-transactions.py" ]; then
+                    _owner_line="$(python3 "$LIB_DIR/worktree-transactions.py" owner-of --path "$path" 2>/dev/null || true)"
+                fi
+                if [ -n "$_owner_line" ]; then
+                    _own_id="$(printf '%s' "$_owner_line" | cut -f1)"; _own_state="$(printf '%s' "$_owner_line" | cut -f3)"
+                    _own_phase="$(printf '%s' "$_owner_line" | cut -f5)"; _own_hold="$(printf '%s' "$_owner_line" | cut -f6 | cut -c1-160)"
+                    echo "DRY-RUN REAP $id owned-by-transaction($_own_id $_own_state${_own_phase:+/$_own_phase}) — reconcile-terminal-worktrees.py's daily lane reclaims it on its next scheduled run (--preview shows the decision); current hold: ${_own_hold:-none recorded yet}"
+                    OWNED_COUNT=$((OWNED_COUNT + 1))
+                else
+                    echo "DRY-RUN REAP $id not-adoptable($_ad_gate) — this inventory's gates selected it and the adoption gate refuses it, so nothing automatic will take it: $(printf '%s' "$_ad_line" | cut -f3- | cut -c1-200)"
+                    NOT_ADOPTABLE_COUNT=$((NOT_ADOPTABLE_COUNT + 1))
+                    case " $NOT_ADOPTABLE_GATES " in *" $_ad_gate "*) : ;; *) NOT_ADOPTABLE_GATES="$NOT_ADOPTABLE_GATES $_ad_gate" ;; esac
+                fi
                 ;;
             *)
                 echo "DRY-RUN REAP $id adoptability-unknown — scripts/lib/worktree-adoption.py could not be consulted, so who takes this one is UNANSWERED rather than answered 'nobody'"
@@ -1839,10 +1860,12 @@ fi
 # IDE and found on 2026-09-04. The clause names the one command that removes
 # them, because "why is it dry-run" deserves an answer at the point of use.
 if [ "$EXECUTE" -eq 0 ] && [ "$WOULD_COUNT" -gt 0 ]; then
+    _owned_clause=""
+    [ "$OWNED_COUNT" -gt 0 ] && _owned_clause=" $OWNED_COUNT are OWNED BY A TERMINAL TRANSACTION and reconcile-terminal-worktrees.py's daily lane reclaims each on its next scheduled run when it is clean, integrated and unlocked (its current hold is printed beside each above; 'reconcile-terminal-worktrees.py --preview' shows the decision)."
     if [ "$NOT_ADOPTABLE_COUNT" -eq 0 ]; then
-        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction. ALL $ADOPTABLE_COUNT ARE ADOPTABLE: reconcile-terminal-worktrees.py's adoption pass claims them on its next scheduled run and takes each through backup ref, quarantine, capture and verification, so NO OPERATOR ACTION is needed to move them out of this line. What that pass deliberately does NOT do is erase (docs/workspace-retirement-safety.md), so they will reappear as quarantined= above and stay there until an enforced access boundary exists — retention by ruling, not a coverage hole")
+        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction.${_owned_clause} ALL $ADOPTABLE_COUNT ARE ADOPTABLE: reconcile-terminal-worktrees.py's adoption pass claims them on its next scheduled run and hands each to the same daily lane, so NO OPERATOR ACTION is needed to move them out of this line")
     else
-        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction. $ADOPTABLE_COUNT are ADOPTABLE and reconcile-terminal-worktrees.py's adoption pass claims those; $NOT_ADOPTABLE_COUNT are NOT (adoption gate:${NOT_ADOPTABLE_GATES:- unknown}) and nothing automatic will ever take THOSE — each is named above with its gate. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
+        PENDING_CLAUSES+=("would-remove=$WOULD_COUNT worktree(s) passed every gate and this inventory removed none — it is DRY-RUN by construction.${_owned_clause} $ADOPTABLE_COUNT are ADOPTABLE and reconcile-terminal-worktrees.py's adoption pass claims those; $NOT_ADOPTABLE_COUNT are NOT (adoption gate:${NOT_ADOPTABLE_GATES:- unknown}) and nothing automatic will ever take THOSE — each is named above with its gate. An operator removes them by hand with: $0 ${REPO_ROOT} --discover --execute")
     fi
 fi
 if [ "$BR_PENDING" -gt 0 ]; then

@@ -81,7 +81,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "NOTICE: terminalize-agent-worktrees.sh: python3 is unavailable — this terminal event was NOT recorded; the reconciler will not know this agent is over until a later ingress or a session-start reconcile." >&2
+    echo "NOTICE: terminalize-agent-worktrees.sh: python3 is unavailable — this terminal event was NOT recorded; the reconciler will not know this agent is over until a later ingress (a session start recovers nothing; it only reports)." >&2
     exit 0
 fi
 if [ ! -f "$TX_PY" ]; then

@@ -58,8 +58,8 @@ class Completion(unittest.TestCase):
         receipt=proof.complete(self.payload)
         self.assertEqual(proof.verify_receipt(receipt,self.worker)['head'],result['head'])
         self.assertEqual(len(proof.receipts_for_member(self.sid,self.aid,self.worker)),1)
-    def test_dirty_staged_untracked_ignored_and_assume_flags_refuse(self):
-        for kind in ('dirty','staged','untracked','ignored','assume'):
+    def test_dirty_staged_untracked_and_assume_flags_refuse(self):
+        for kind in ('dirty','staged','untracked','assume'):
             with self.subTest(kind=kind):
                 target=self.worker/('tracked' if kind in ('dirty','staged','assume') else kind)
                 target.write_text('unique data')
@@ -69,6 +69,22 @@ class Completion(unittest.TestCase):
                 if kind=='assume':self.git(self.worker,'update-index','--no-assume-unchanged','tracked')
                 if target.name=='tracked':self.git(self.worker,'reset','--hard','HEAD')
                 else:target.unlink()
+    def test_ignored_files_do_not_change_or_refuse_a_linked_worktree_proof(self):
+        # Round 10 (2026-09-10): an ignored file is not undelivered work. Before
+        # this a linked worktree with one __pycache__ could neither complete its
+        # task nor ever be reclaimed. The proof's digest covers tracked entries
+        # only, so the ignored file leaves it byte-identical; what becomes of the
+        # ignored bytes is the reclaim lane's decision, pinned in
+        # daily-workspace-cleanup.test.py.
+        clean=proof.prove_member(self.member)
+        (self.worker/'ignored').write_text('local build output')
+        cache=self.worker/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00')
+        (self.repo/'.git/info/exclude').write_text('__pycache__/\n')  # ignored, with the tracked .gitignore byte-identical
+        with_ignored=proof.prove_member(self.member)
+        self.assertEqual(with_ignored['working_tree_sha256'],clean['working_tree_sha256'])
+        self.assertTrue((self.worker/'ignored').exists())
+        (self.worker/'really-untracked').write_text('not ignored')
+        with self.assertRaisesRegex(proof.CompletionError,'intended deliverables'):proof.prove_member(self.member)
     def test_unmerged_commit_completes_and_is_reclaimable_only_after_merge(self):
         # This case used to be test_unmerged_commit_refuses_then_actual_merge_
         # accepts, and it pinned the wrong contract: it required the lead's

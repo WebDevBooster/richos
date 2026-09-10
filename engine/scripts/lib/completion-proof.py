@@ -101,9 +101,19 @@ def registry(repo):
     return rows
 
 def clean_tree(path,head,reclaimable=True):
-    others=['ls-files','--others','-z']
-    if not reclaimable:others.append('--exclude-standard')
-    if git(path,*others).stdout:
+    # UNTRACKED, NON-IGNORED files refuse: they are work nobody committed. IGNORED
+    # files do not — for a linked worktree or the canonical checkout alike.
+    # Until 2026-09-10 a reclaimable (linked) worktree was listed WITHOUT
+    # --exclude-standard, so one __pycache__/x.pyc — a path the engine's own
+    # committed disposable policy already calls disposable — held a workspace
+    # forever and stopped its worker marking a task complete: 20 of the 29
+    # terminal members present on the operator's machine that day were held by
+    # exactly this line (docs/worktree-reclaim-round-10-2026-09-10.md, P1).
+    # What happens to ignored bytes is decided at RECLAIM time, by
+    # daily-workspace-cleanup.py: disposable by policy is dropped, anything
+    # else is archived and verified before the tree goes. The digest below is
+    # over TRACKED entries only, so an ignored file never changes a proof.
+    if git(path,'ls-files','--others','--exclude-standard','-z').stdout:
         raise CompletionError('Commit intended deliverables, remove disposable local copies/build output or preserve needed non-Git data before completing; do not add secrets to Git')
     flags=git(path,'ls-files','-v','-z').stdout
     if any(row and (row[:1].islower() or row.startswith(b'S ')) for row in flags.split(b'\0')):
