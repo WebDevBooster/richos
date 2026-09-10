@@ -73,14 +73,17 @@ name: engine-self-verify
 #      `engine-run-record.yml`, on a schedule, and it is the reason the matrix below declares
 #      `max-parallel` rather than asking for all twelve at once.
 #
-# TWO SUITES ARE STILL RED ON MAIN AND ARE DECLARED, NOT SKIPPED. They are red identically on
-# macOS and on Linux, so neither is a portability finding, and both were proven by execution
-# to be contract regressions: `shell-worktree-sparse.test.sh` passes 21/21 at `6472bb60^` and
-# fails 6 at HEAD; `terminalize-agent-worktrees.test.sh` passes 42/42 at `2afb9703^` and fails
-# 11 at HEAD. Neither commit updated the suite it invalidated. They are listed in
-# `engine/scripts/lib/ci-known-red.tsv` with the commit, the failing cases and an EXPIRY —
-# and that table is its own negative control: a declared unit that PASSES fails the job, and
-# an entry past its expiry fails the job. See `engine/docs/ci-sharding.md`.
+# TWO SUITES WERE RED ON MAIN, WERE DECLARED RATHER THAN SKIPPED, AND WERE FIXED BY THEIR OWNER
+# THE SAME DAY. They were red identically on macOS and on Linux, so neither was a portability
+# finding, and both were proven by execution to be contract regressions:
+# `shell-worktree-sparse.test.sh` passed 21/21 at `6472bb60^` and failed 6 at `4f01e5c7`;
+# `terminalize-agent-worktrees.test.sh` passed 42/42 at `2afb9703^` and failed 11. Neither commit
+# updated the suite it invalidated. They went into `engine/scripts/lib/ci-known-red.tsv` with the
+# commit, the failing cases and a 14-day expiry; `zach-opus-cr2` re-specified both and landed at
+# `b4945c11`; and the rows were then deleted NOT because anybody remembered them but because that
+# table's own negative control failed the run over them — a declared unit that PASSES is a row
+# that is now a lie. Twelve days of tolerance granted, fourteen hours used. The table is empty
+# and its rules are kept. See `engine/docs/ci-sharding.md`.
 
 on:
   # Back on 2026-09-10. Every push and every pull request gets the fast

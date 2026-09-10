@@ -369,7 +369,7 @@ traceback pointing at `posixpath`.
 
 Verified: 7/7 on Linux, 7/7 on macOS.
 
-### DECLARED, not skipped — `shell-worktree-sparse.test.sh` and `terminalize-agent-worktrees.test.sh`
+### DECLARED, then FIXED BY THEIR OWNER the same day — `shell-worktree-sparse.test.sh` and `terminalize-agent-worktrees.test.sh`
 
 **Both are red identically on macOS and on Linux, so neither is a portability finding, and
 neither was ever a CI problem.** Both are contract regressions, and the attribution was proven
@@ -396,6 +396,29 @@ unambiguous. Leaving them red would put a cross on every
 commit for a reason unrelated to that commit; deleting their assertions would hide two real
 defects. So they are declared in `scripts/lib/ci-known-red.tsv` with the commit, the failing
 cases, a sentence saying what would un-skip them, and an **expiry**.
+
+### Both rows were deleted the same day, by the rule that exists to delete them
+
+**2026-09-10, about two hours after the table was written.** The lead dispatched the dedicated
+engineer its ruling promised; branch `zach-opus-cr2` re-specified both suites against the
+contracts those two commits introduced and landed at `b4945c11`. Verified by execution rather
+than taken on trust: **21/21** and **42/42** at that tip, against 6 and 11 failures at
+`4f01e5c7`.
+
+**Nobody remembered the rows.** `ci-shard.sh` ran the two units after the merge, found them
+green, and failed the run:
+
+```
+FAIL — declared red, but it PASSED
+lib/ci-known-red.tsv declares this unit red and it PASSED. The defect is fixed;
+DELETE the entry. A known-red table that outlives its defects is how a skip
+becomes permanent.
+```
+
+**Twelve days of tolerance were granted and fourteen hours were used.** The rows are gone and
+the table is empty. That is the only evidence that will ever exist for whether this file is a
+skip list or not, and the rule which produced it — a declared unit that PASSES fails the build —
+is the one that would have been easiest to leave out.
 
 **This is not a skip list, and the difference is enforced rather than asserted:**
 

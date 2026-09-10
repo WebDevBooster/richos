@@ -39,5 +39,37 @@
 #   5  failing            the case names, so a NEW failure in the same unit is visible as new
 #   6  why                what would un-skip it, in one sentence, for whoever picks it up
 #
-scripts/lib/shell-worktree-sparse.test.sh	2026-09-10	2026-09-24	6472bb60	S01 S01c S04 S05 S17 S18	6472bb60 (2026-09-07) made every native member carry cleanup_owner=claude-code and taught shell-worktree-sparse.eligible() to refuse such a member, so no shell is ever sparsified any more; it did not update this suite. Proven by execution: 21/21 pass at 6472bb60^, 6 fail at HEAD, identically on macOS and Linux. A DEDICATED ENGINEER OWNS THIS FIX (lead ruling 2026-09-10); do not edit this suite or shell-worktree-sparse.py from the CI side. UN-SKIP by deciding what the sparsifier should now do with a Claude-owned native shell and re-specifying S01/S04 to match, or by reverting the eligibility clause.
-scripts/hooks/terminalize-agent-worktrees.test.sh	2026-09-10	2026-09-24	2afb9703	R03 R04 R05 R06 R09 R13 R15 R29 R30 R33 R34	2afb9703 (2026-09-08) introduced cleanup_policy=integrated-daily, and terminalize() now takes the save_ref+quarantine route only for a member carrying NEITHER that policy NOR the cleanup_owner marker; this suite still asserts a backup ref and a quarantine for members that now have one. It did not update this suite. Proven by execution: 42/42 pass at 2afb9703^, 11 fail at HEAD, identically on macOS and Linux. A DEDICATED ENGINEER OWNS THIS FIX (lead ruling 2026-09-10); do not edit this suite, terminalize-agent-worktrees.sh or worktree-transactions.py from the CI side. UN-SKIP by re-specifying R03-R34 against the integrated-daily route, or by giving the fixture members that still take the quarantine route.
+#
+# ===========================================================================
+# THE TABLE IS EMPTY, AND IT WAS EMPTIED BY ITS OWN NEGATIVE CONTROL
+# ===========================================================================
+# Both rows were written on 2026-09-10 and both were DELETED the same day,
+# because rule 2 caught them. That is worth recording in full, because it is
+# the only evidence that will ever exist for whether this file is a skip list
+# or not, and it arrived about two hours after the rules were written.
+#
+#   the rows      scripts/lib/shell-worktree-sparse.test.sh        (6 cases)
+#                 scripts/hooks/terminalize-agent-worktrees.test.sh (11 cases)
+#                 declared 2026-09-10, expiring 2026-09-24, each naming the
+#                 commit proven by bisect to have invalidated it (6472bb60 and
+#                 2afb9703) and one sentence on what would un-skip it.
+#
+#   what happened The lead dispatched a dedicated engineer, as its ruling said
+#                 it would. Branch zach-opus-cr2 re-specified both suites
+#                 against the contracts those two commits introduced, and
+#                 landed on main at b4945c11.
+#
+#   the catch     Nobody remembered these rows. `ci-shard.sh` ran the two units
+#                 after the merge, found them GREEN, and FAILED the run:
+#
+#                   FAIL — declared red, but it PASSED
+#                   lib/ci-known-red.tsv declares this unit red and it PASSED.
+#                   The defect is fixed; DELETE the entry.
+#
+# TWELVE DAYS OF TOLERANCE WERE GRANTED AND FOURTEEN HOURS WERE USED. The rows
+# are gone. What is kept is the rules above them, and the fact that the rule
+# which removed them is the one that would have been easiest to leave out.
+#
+# The next entry starts the same way: a bisect, a date, an expiry, and a
+# sentence somebody else can act on.
+# ===========================================================================
