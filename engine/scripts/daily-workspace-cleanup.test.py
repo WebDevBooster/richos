@@ -222,6 +222,20 @@ class Cleanup(unittest.TestCase):
         result=self.run_cleanup();self.assertTrue(self.work.is_dir())
         self.assertEqual(result['members'][0]['state'],'platform-pending')
 
+    def test_session_gone_refuses_to_read_the_real_ledger_from_a_sandboxed_store(self):
+        # A redirected transaction store with the ownership ledger at its
+        # default is a sandbox reading the operator's real record: a fixture
+        # session id leaked there by an earlier suite, with a dead pid, would
+        # read as a gone session. The verdict is NOT gone, whatever is on disk.
+        self.make_native(lock_pid=DEAD_PID)
+        self.ledger_row(session_pid=DEAD_PID,pid_start='')
+        with patch.dict(os.environ,{'RICHOS_WORKTREE_LEDGER':''}):
+            gone,reason=daily.session_gone(tx.load_tx(SID,AID),tx)
+            self.assertFalse(gone);self.assertIn('inconsistently rooted',reason)
+            # not provably gone -> the platform keeps the checkout; nothing removed
+            decision,why=self.assess();self.assertEqual(decision,'observe');self.assertIn('inconsistently rooted',why)
+        self.assert_kept()
+
     def test_native_with_no_recorded_session_identity_is_not_provably_gone(self):
         self.make_native()
         self.assertEqual(self.assess()[0],'observe')
@@ -258,21 +272,35 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(result['members'][0]['daily_cleanup']['proof_source'],'recorded-head')
         self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'),'refs/heads/main\n')
 
-    def test_absent_native_without_receipt_keeps_an_unintegrated_or_moved_branch(self):
+    def test_absent_native_without_receipt_keeps_an_unintegrated_branch(self):
+        # The branch's CURRENT tip is what is judged, so a recorded head that
+        # main contains does not license deleting a tip that moved past it.
         head=self.git(self.work,'rev-parse','HEAD').strip()
         (self.work/'file').write_text('later\n');self.git(self.work,'commit','-am','later')
         later=self.git(self.work,'rev-parse','HEAD').strip()
         self.git(self.repo,'worktree','remove',str(self.work))
-        self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'removed',
-                                          'closed':'platform-removed','head':later})
+        for recorded in (later,head):
+            with self.subTest(recorded_head=recorded[:8]):
+                self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'removed',
+                                                  'closed':'platform-removed','head':recorded})
+                tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+                self.assertEqual(self.assess()[0],'hold')
+                with self.assertRaisesRegex(Exception,'no longer contains'):self.run_cleanup()
+                self.assertEqual(self.git(self.repo,'rev-parse','worker').strip(),later)
+
+    def test_absent_native_still_platform_pending_is_observed_then_branch_deleted_in_one_pass(self):
+        # On the operator's machine every absent native sat at platform-pending
+        # with its path gone: the observation that records `removed` had not run
+        # since the platform tore the checkout down. One pass must do both.
+        head=self.git(self.work,'rev-parse','HEAD').strip()
+        self.git(self.repo,'worktree','remove',str(self.work))
+        self.record['members'][0].update({'class':'native','cleanup_owner':'claude-code','state':'platform-pending','head_at_seal':head})
         tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
-        self.assertEqual(self.assess()[0],'hold')
-        with self.assertRaisesRegex(Exception,'no longer contains'):self.run_cleanup()
-        self.assertIn('refs/heads/worker',self.git(self.repo,'show-ref'))
-        # integrated head, but the tip moved on: retained
-        self.record['members'][0]['head']=head;tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
-        with self.assertRaisesRegex(Exception,'identity changed'):self.run_cleanup()
-        self.assertEqual(self.git(self.repo,'rev-parse','worker').strip(),later)
+        self.assertEqual(self.assess()[0],'branch-only')
+        result=self.run_cleanup()
+        self.assertEqual(result['members'][0]['state'],'removed')
+        self.assertEqual(result['members'][0]['daily_cleanup']['phase'],'complete')
+        self.assertEqual(self.git(self.repo,'for-each-ref','--format=%(refname)'),'refs/heads/main\n')
 
     def test_interruption_after_worktree_removal_replays(self):
         def crash(point):

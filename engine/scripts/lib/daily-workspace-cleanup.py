@@ -26,9 +26,9 @@ that were never about ownership or terminal state:
     proof, integration check and non-force removal apply. A running or
     unknown session keeps deferring to the platform exactly as before;
   * an absent, platform-removed native member with no completion receipt has
-    its branch deleted only when the tip equals the head the record saved at
-    terminal time, that head is an ancestor of `main`, and no checkout holds
-    the branch.
+    its branch deleted only when the branch's CURRENT tip is an ancestor of
+    `main` and no checkout holds it — a fully merged branch with no working
+    tree loses nothing — by compare-and-set on the tip that was checked.
 
 A process standing in the tree holds it (nothing is killed). An untracked
 file, an unmerged commit, a live lock, a running owner, a changed tip or an
@@ -211,7 +211,7 @@ def owner_check(tx, transaction, member):
 # the owning session — gone, or not provably gone
 # ---------------------------------------------------------------------------
 
-def session_gone(transaction):
+def session_gone(transaction, tx=None):
     """(gone, reason). GONE requires positive evidence on every recorded
     identity: the ownership ledger recorded at least one (pid, start) for this
     session id, `process_status()` answers gone or reused for each, and the
@@ -223,6 +223,17 @@ def session_gone(transaction):
     if transaction.get('kind') == 'adopted' or not sid:
         return False, 'no owning session (adopted transaction)'
     ledger = _load('worktree-ledger')
+    # HERMETIC ROOTING, FAIL-CLOSED. A transaction store away from its default
+    # with the ledger AT its default is a sandbox reading the OPERATOR'S REAL
+    # record — and a fixture session id that some earlier suite leaked into
+    # that record, with a pid that is long dead, would read as a gone session
+    # and remove the sandbox's native tree (reconcile-terminal-worktrees
+    # C28c, 2026-09-10). Both stores redirected, or neither; otherwise NOT gone.
+    default_tx = os.path.join(os.path.expanduser('~'), '.claude', 'state', 'worktree-transactions')
+    tx_default = os.path.abspath(tx.tx_root()) == os.path.abspath(default_tx)
+    ledger_default = os.path.abspath(ledger.ledger_path()) == os.path.abspath(ledger.DEFAULT_PATH)
+    if tx_default != ledger_default:
+        return False, 'transaction store and ownership ledger are inconsistently rooted; not provably gone'
     identities = []
     for row in ledger.read_all():
         if row.get('session_id') != sid or not row.get('session_pid'):
@@ -462,49 +473,67 @@ def _checkpoint(name):
 # the absent native member with no receipt (P5)
 # ---------------------------------------------------------------------------
 
-def _absent_native_without_receipt(tx, transaction, index):
-    """The platform removed the checkout and no TaskCompleted receipt was ever
-    written, so no proof can be replayed. What the record DOES hold is the
-    head observe_platform_native read from the registry at terminal time and
-    the backup ref it saved. The branch goes only when: the tip is exactly
-    that head, that head is an ancestor of main, no registered checkout holds
-    the branch, and the recorded head is real. Same compare-and-set as the
-    receipt path; a moved tip or an unintegrated head is retained."""
+def _absent_native_branch_tip(tx, transaction, index, proof_api):
+    """(member, ref, tip, main) for an absent platform-native member, or a
+    RuntimeError naming why it is not one. A member still at
+    `platform-pending` is put to observe_platform_native first, which records
+    `removed` only when the registry and the filesystem both prove absence."""
     member = transaction['members'][index]
     sid, aid = transaction['session_id'], transaction['agent_id']
-    proof_api = _load('completion-proof')
-    repo, path, head = member.get('repo') or '', member.get('path') or '', member.get('head') or ''
+    if tx.platform_native(member) and member.get('state') != 'removed':
+        member = tx.observe_platform_native(sid, aid, index)['members'][index]
+    repo, path = member.get('repo') or '', member.get('path') or ''
     if not (tx.platform_native(member) and member.get('state') == 'removed'
-            and member.get('closed') == 'platform-removed' and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', head)):
+            and member.get('closed') in ('platform-removed', 'absent')):
         raise RuntimeError('removed workspace has no retained completion proof')
     if os.path.lexists(path) or path in proof_api.registry(repo):
         raise RuntimeError('removed native member has a path or registration again; retained')
     branch = member.get('branch') or ''
-    if not branch:
-        return tx.update_member(sid, aid, index, daily_cleanup={'version': 1, 'phase': 'complete', 'proof_source': 'recorded-head', 'branch': ''},
-                                cleanup_policy='integrated-daily', closed='integrated-daily-cleanup', blocked=False, retry_after_epoch=0, last_error=None)
-    ref = branch if branch.startswith('refs/') else 'refs/heads/' + branch
+    ref = (branch if branch.startswith('refs/') else 'refs/heads/' + branch) if branch else ''
     if ref in ('refs/heads/main', 'refs/heads/master'):
         raise RuntimeError('canonical worktree or protected branch retained')
     main = proof_api.direct(Path(repo), 'refs/heads/main')
-    if proof_api.git(repo, 'merge-base', '--is-ancestor', head, main, allowed=(0, 1)).returncode:
+    tip = ''
+    if ref:
+        raw = _git(repo, 'for-each-ref', '--format=%(refname) %(objectname) %(symref)', ref)
+        matches = [line.split(' ') for line in raw.splitlines() if line.split(' ')[0] == ref]
+        if matches:
+            if len(matches) != 1 or any(matches[0][2:]):
+                raise RuntimeError('branch tip or direct-reference identity changed')
+            tip = matches[0][1]
+    if tip and proof_api.git(repo, 'merge-base', '--is-ancestor', tip, main, allowed=(0, 1)).returncode:
         raise RuntimeError('Current canonical main no longer contains the delivery')
-    if any(row.get('branch') == ref for row in proof_api.registry(repo).values()):
-        raise RuntimeError('branch is still reserved by a registered worktree')
-    raw = _git(repo, 'for-each-ref', '--format=%(refname) %(objectname) %(symref)', ref)
-    matches = [line.split(' ') for line in raw.splitlines() if line.split(' ')[0] == ref]
-    if matches:
-        if len(matches) != 1 or matches[0][1] != head or any(matches[0][2:]):
-            raise RuntimeError('branch tip or direct-reference identity changed')
-        _git(repo, 'update-ref', '--no-deref', '-d', ref, head)
+    return member, ref, tip, main
+
+
+def _absent_native_without_receipt(tx, transaction, index):
+    """The platform removed the checkout and no TaskCompleted receipt was ever
+    written, so no proof can be replayed — but a branch with no working tree
+    loses nothing when it is fully merged. The branch goes only when: the
+    member is platform-removed (registry AND filesystem prove absence), the
+    branch's CURRENT tip is an ancestor of main, and no registered checkout
+    holds the branch. Deleted by compare-and-set on the tip that was checked;
+    an unintegrated tip is retained with the reason. The backup ref goes with
+    it when what it pins is integrated too."""
+    proof_api = _load('completion-proof')
+    member, ref, tip, main = _absent_native_branch_tip(tx, transaction, index, proof_api)
+    sid, aid = transaction['session_id'], transaction['agent_id']
+    repo = member['repo']
+    if ref and tip:
+        if any(row.get('branch') == ref for row in proof_api.registry(repo).values()):
+            raise RuntimeError('branch is still reserved by a registered worktree')
+        _git(repo, 'update-ref', '--no-deref', '-d', ref, tip)
         _checkpoint('after-branch-delete')
     backup = member.get('backup_ref')
     if backup and backup == tx.backup_ref(sid, aid, member.get('branch')):
         raw = _git(repo, 'for-each-ref', '--format=%(refname) %(objectname) %(symref)', backup)
         matches = [line.split(' ') for line in raw.splitlines() if line.split(' ')[0] == backup]
-        if matches and len(matches) == 1 and matches[0][1] == head and not any(matches[0][2:]):
-            _git(repo, 'update-ref', '--no-deref', '-d', backup, head)
-    journal = {'version': 1, 'phase': 'complete', 'proof_source': 'recorded-head', 'head': head, 'branch': ref, 'integration_tip': main}
+        if matches and len(matches) == 1 and not any(matches[0][2:]):
+            pinned = matches[0][1]
+            if proof_api.git(repo, 'merge-base', '--is-ancestor', pinned, main, allowed=(0, 1)).returncode == 0:
+                _git(repo, 'update-ref', '--no-deref', '-d', backup, pinned)
+    journal = {'version': 1, 'phase': 'complete', 'proof_source': 'recorded-head', 'head': member.get('head') or '',
+               'branch': ref, 'tip': tip, 'integration_tip': main}
     return tx.update_member(sid, aid, index, daily_cleanup=journal, cleanup_policy='integrated-daily',
                             closed='integrated-daily-cleanup', blocked=False, retry_after_epoch=0, last_error=None)
 
@@ -567,12 +596,17 @@ def assess(tx, transaction, index):
         present = os.path.lexists(member['path'])
         saved, proof = _load_proof(tx, transaction, index, member, proof_api, persist=False)
         if proof is None:
-            if tx.platform_native(member) and member.get('state') == 'removed' and member.get('closed') == 'platform-removed':
-                head = member.get('head') or ''
+            if tx.platform_native(member) and not os.path.lexists(member['path']) \
+                    and member['path'] not in proof_api.registry(member['repo']):
+                # read-only twin of _absent_native_branch_tip: no observe write
+                branch = member.get('branch') or ''
+                ref = (branch if branch.startswith('refs/') else 'refs/heads/' + branch) if branch else ''
                 main = proof_api.direct(Path(member['repo']), 'refs/heads/main')
-                if proof_api.git(member['repo'], 'merge-base', '--is-ancestor', head, main, allowed=(0, 1)).returncode:
-                    return 'hold', 'recorded head %s is not an ancestor of main' % head[:12]
-                return 'branch-only', 'platform-removed native member; branch deleted by recorded head'
+                raw = _git(member['repo'], 'for-each-ref', '--format=%(refname) %(objectname)', ref) if ref else ''
+                tip = next((line.split(' ')[1] for line in raw.splitlines() if line.split(' ')[0] == ref), '')
+                if tip and proof_api.git(member['repo'], 'merge-base', '--is-ancestor', tip, main, allowed=(0, 1)).returncode:
+                    return 'hold', 'Current canonical main no longer contains the delivery (branch tip %s)' % tip[:12]
+                return 'branch-only', 'platform-removed native member; branch %s deleted by compare-and-set on its integrated tip' % (ref or '(none)')
             return 'hold', 'removed workspace has no retained completion proof'
         _check_proof_scope(member, proof)
         proof_api.verify_member_proof(proof, path_present=present)
@@ -581,7 +615,7 @@ def assess(tx, transaction, index):
         repo = member['repo']
         row = proof_api.registry(repo).get(member['path'])
         if tx.platform_native(member):
-            gone, why = session_gone(transaction)
+            gone, why = session_gone(transaction, tx)
             if not gone:
                 return 'observe', 'platform-owned; ' + why
             if not row or 'prunable' in row:
@@ -622,7 +656,7 @@ def reconcile(tx, transaction, index):
         registry = proof_api.registry(repo)
         row = registry.get(member['path'])
         if tx.platform_native(member):
-            gone, why = session_gone(transaction)
+            gone, why = session_gone(transaction, tx)
             if not gone:
                 # Claude remains the owner of its native checkout while the
                 # session that created it may still act on it.
