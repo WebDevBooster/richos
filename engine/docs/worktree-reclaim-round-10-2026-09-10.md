@@ -290,4 +290,67 @@ that stays at the number of live workers.
 
 ## 5. Before / after on real state
 
-Filled in after the automatic path ran. See the bottom of this file.
+**Filled in 2026-09-10 from the run's own output, by a later hand than this
+document's author** — `zach-fable-lc1` lost its tools before it could write this
+section, and a promise of evidence with no evidence under it is the defect this
+page exists to argue against. Every figure below is quoted from
+`before.txt` / `run1.txt` / `after1.txt` / `survivors-*.txt` in session
+`d0eef867`'s scratchpad, not re-measured later and not rounded.
+
+The automatic path — the daily lane, not a hand-driven removal — ran once at
+07:08:13Z. Its own footer
+(`reconcile-terminal-worktrees.py:1255-1257`):
+
+```
+reconcile: === run end 2026-09-10T07:08:13.594464+00:00 worktrees_removed=34 branches_deleted=34 members_completed=66 holds=7 reconciled=48 ===
+```
+
+The same four counters are re-readable afterwards as `schedule.reclaimed_last_run`
+in `--status`, which is where a later reader should get them rather than from
+this page.
+
+| | before (07:04) | after (07:08) |
+|---|---|---|
+| `du -sh /Users/alex/ab/richos-wt` | 32G | 18G |
+| `ls -1 /Users/alex/ab/richos-wt \| wc -l` | 42 | 13 |
+| `du -sh femcboost/.claude/worktrees` | 3.7G | 2.1G |
+| `ls -1 femcboost/.claude/worktrees \| wc -l` | 14 | 8 |
+| `df -h /System/Volumes/Data` (Avail) | 109Gi | 121Gi |
+| `terminal_members_with_a_directory_present` | 36 | 8 |
+| `members_blocked_on_a_condition_waiting_cannot_clear` | 46 | 6 |
+| `terminal_transactions_pending_normal_retry` | 20 | 2 |
+| `sealed_transactions_whose_native_member_is_gone` | 1 | 0 |
+| `du -sh ~/.claude/state/worktree-captures` | 0B | 108M |
+
+**The last row is not incidental and is not a cost hidden in a success.** It is
+P1's archive-before-drop: every ignored file that the committed disposable
+policy does NOT cover was tarred, re-read and verified digest by digest before
+git removed the tree. 108 MB kept in place of roughly 14 GB of build output
+released is the trade this round was built to make, and if that number were ever
+0 while trees were still being removed, the verification would be the thing to
+suspect first.
+
+**The survivor check is the half that decides whether §4 was falsified.** Eight
+trees were named IN ADVANCE, in §4, as the ones a correct run must not touch —
+two locked by the running session's pid, one unmerged, one with six dirty paths,
+and the rest live. The same eight are `PRESENT` before and after:
+
+```
+$ grep -c GONE survivors-after1.txt
+0
+```
+
+`echo-opus-dr1` (2 unmerged commits the CEO parked work in), `sage-fable-r7`
+(6 dirty paths), `femcboost/.claude/worktrees/agent-a69a6328ea2c81817` (1
+unmerged) and every tree locked by pid 8799 survived. **No tree that was
+unmerged, untracked, live-locked, owned by a running session, or holding an
+ignored non-disposable file without a verified archive was removed.** On this
+run, on this machine, §4 is not falsified. That is one night's evidence and not
+closure: closure is 30 days of the nightly job's slot receipts (§4).
+
+**One thing this run does NOT show.** It was invoked directly rather than by
+`launchd` at `RECONCILE_HOUR`, so it exercises the daily lane and not the
+schedule. The schedule is evidenced separately by
+`~/.claude/state/worktree-cleanup-schedule.json` and by `--status`'s
+`launchd_job: loaded`, and the month question in §3 rests on that, not on this
+table.
