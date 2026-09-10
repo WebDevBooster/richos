@@ -155,6 +155,54 @@ and a check that is red on arrival is a check nobody reads. Deriving the date fr
 history would be circular — if every run had been dropped there would be no history to derive
 it from.
 
+## "Required" is a repository setting, and it is NOT set — deliberately left for a decision
+
+The `affected-coverage` job is **the one to mark required**, and nothing here has marked it,
+because doing so changes how this repository accepts work and that is not an engineer's call to
+make on the way past.
+
+**Measured 2026-09-10, not assumed:**
+
+```
+$ gh api repos/WebDevBooster/richos/branches/main/protection
+{"required_signatures":{"enabled":false},"enforce_admins":{"enabled":false},
+ "required_linear_history":{"enabled":false},"allow_force_pushes":{"enabled":false},
+ "allow_deletions":{"enabled":false},"block_creations":{"enabled":false},
+ "required_conversation_resolution":{"enabled":false},"lock_branch":{"enabled":false},
+ "allow_fork_syncing":{"enabled":false}}
+```
+
+Branch protection exists on `main` and carries **no `required_status_checks` key at all**. So
+today every check in this directory is advisory: it runs, it reports, and nothing consults it
+before a commit lands.
+
+**What turning it on would actually do, stated rather than glossed**, because the consequence is
+not "CI matters more":
+
+- **It blocks the lander.** The lander pushes directly to `main`. A required status check applies
+  to direct pushes as well as pull requests, so a red or missing check stops a land until it is
+  green or the protection is bypassed. That is the point of it, and it is also a real change to
+  how this team works on a bad day.
+- **A DROPPED run leaves the check permanently pending, not green.** That is strictly better than
+  today's behavior, where absence reads as the previous commit's success — but "pending forever"
+  and "blocked forever" are the same thing to somebody trying to land, and the remedy is a manual
+  re-dispatch. `engine-run-record.yml` is what turns that from a mystery into a named finding.
+- **The check name must be the JOB name, and matrix jobs do not have stable names.**
+  `affected-coverage` and `coverage` are the two jobs whose names are fixed; the shards are
+  `shards (1, 12)` and so on, and requiring those individually would break the moment the shard
+  count changes. This is the second reason the coverage jobs, and not the shard jobs, are the
+  ones to require.
+
+**The one command, for whoever decides:**
+
+```
+gh api -X PUT repos/WebDevBooster/richos/branches/main/protection/required_status_checks \
+  -f strict=false -f 'contexts[]=affected-coverage'
+```
+
+Add `-f 'contexts[]=coverage'` as well to require the full pass on `main` — which is the
+stronger and slower promise, and a separate decision from the fast one.
+
 ## The executions, because a YAML that looks right is not a gate that works
 
 Every claim above is from a run somebody can open.
@@ -162,7 +210,9 @@ Every claim above is from a run somebody can open.
 | run | event | SHA | outcome |
 |---|---|---|---|
 | `34422722682` | push | `328ff8c9` | **the affected gate as ONE job, and it was wrong.** 54 units, ~100 min serial, 60-minute timeout. Stopped by hand once the arithmetic was read off the plan rather than waited for. This is the run that produced the sharded affected gate. |
-| `34423889101` | push | `e62ab1ae` | **green.** 21 minutes wall clock. |
+| `34423889101` | push | `e62ab1ae` | **green.** 21 minutes wall clock, 12 affected shards, coverage 32/32. |
+| `34425552226` | push | `a84784d3` | **green in 1 m 11 s.** A three-unit diff produced a THREE-shard matrix, not twelve — the matrix carries only shards that have work. This is the required check at the speed it promises. |
+| `34425677957` | dispatch | `a84784d3` | **the FULL pass, and it is the most useful run of the four.** See below. |
 
 Run `34423889101`, job by job:
 
@@ -187,6 +237,53 @@ Run `34423889101`, job by job:
 - shards                        skipped: a branch push does not pay for the full pass
 - coverage                      skipped with it
 ```
+
+### The full sharded pass, `34425677957` — red, and red in exactly the right way
+
+**148 units, all 148 accounted for, one of them red.** The coverage job's verdict:
+
+```
+✗ ci-receipts: this run does NOT certify a84784d31d59553eb47c90272406de4e016f3829.
+
+  - 1 unit(s) did not reach a green verdict:
+    scripts/lib/worktree-ledger.test.sh                                      FAIL (rc=1)
+```
+
+**No missing units. No unplanned units. No duplicates. No mixed commits.** The union proof
+passed and the run was refused for the only reason left — which is the whole design working:
+twelve shards' exit codes became one claim about a named set, and the one thing wrong with that
+set was named.
+
+Shard wall clocks ran 5 m 26 s to 17 m 28 s against 140 minutes serial.
+
+**Two findings came out of that run, and neither is the suite that went red.**
+
+**1. It asked for 26 jobs at once and GitHub put it in `queued`.** Twelve affected shards, twelve
+full shards, plan and non-suite-steps. The account-wide ceiling is 20 across every workflow, and
+an exceeded limit DROPS runs. Declaring `max-parallel: 6` and then asking for two matrices at
+once was arguing with myself. The affected set is a SUBSET of the full inventory by
+construction, so `affected` is now skipped whenever `shards` runs, and `affected-coverage` says
+so out loud rather than going quiet. 26 jobs becomes 14.
+
+**2. `scripts/lib/worktree-ledger.test.sh` case L29 failed once, and could not be reproduced.**
+Stated at the precision the evidence supports, because "flake" is a conclusion and not an
+observation:
+
+- it FAILED on the runner, in shard 11, while 24 matrix jobs contended — `L29 bound-members
+  sealed: []`, with its mutation harness reporting "the suite went red, but NOT at L28 (so the
+  red is unrelated)";
+- it PASSES standalone on Linux, 37/37, in the `ubuntu:24.04` container;
+- it PASSES on Linux in **the whole of shard 11, in the same order** — 15/16 plus the one
+  declared KNOWN-RED — which rules out the interaction a sharded runner could plausibly have
+  introduced, and that was the hypothesis worth eliminating first;
+- it was **not** among the four reds of run `34396549904` on 2026-09-09, so if it is a real
+  defect it is new, which is precisely the inflow this whole design is for.
+
+**`unverified:` whether it is a contended-runner flake or a runner-specific defect. What would
+settle it is a re-run of that shard on a quieter runner** — which the 26-to-14 job reduction
+above makes materially more likely — and it is deliberately NOT put in `ci-known-red.tsv`: that
+table is for defects somebody has diagnosed, and putting an undiagnosed intermittent in it would
+turn a table with a negative control into a place to file things nobody understands.
 
 And the line that is the point of the whole design, from `affected-coverage`:
 

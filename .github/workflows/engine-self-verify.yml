@@ -162,6 +162,21 @@ jobs:
         id: affected
         working-directory: engine
         run: |
+          # Skipped when the full pass is running: the mapping walks every suite
+          # for every changed path, which is not free, and nothing consumes the
+          # answer. The output is still SET (to zero) rather than left undefined,
+          # because a job condition reading an undefined output is a job that
+          # silently does not run.
+          if [ "${{ steps.derive.outputs.run_full }}" = "true" ]; then
+            echo "full pass on this ref — the diff-scoped mapping is not computed"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "affected_matrix=[]" >> "$GITHUB_OUTPUT"
+            {
+              echo "units<<AFFECTED_EOF"
+              echo "AFFECTED_EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The base to diff against, by event. A first push to a new branch
           # reports an all-zero `before`, and a pull request's base is its own
           # field; neither is guessed, and if none resolves the fallback is the
@@ -220,7 +235,20 @@ jobs:
   # is two to five minutes.
   affected:
     needs: plan
-    if: needs.plan.outputs.affected_count != '0'
+    # NOT WHEN THE FULL PASS IS RUNNING, and this is a concurrency decision with
+    # a measurement behind it. On a dispatch on 2026-09-10 (run 34425677957)
+    # this workflow asked for 26 jobs at once — twelve affected shards, twelve
+    # full shards, and two more — and GitHub put the run into `queued` waiting
+    # for slots. The account-wide ceiling is 20 across every workflow, and an
+    # exceeded limit DROPS runs rather than queueing them, which is the very
+    # failure engine-run-record.yml exists to catch. Declaring `max-parallel: 6`
+    # and then asking for two matrices at once was arguing with myself.
+    #
+    # The affected set is a SUBSET of the full inventory by construction, so
+    # when `shards` is running there is nothing the affected jobs could prove
+    # that `coverage` does not prove better. `affected-coverage` says so rather
+    # than going quiet.
+    if: needs.plan.outputs.run_full != 'true' && needs.plan.outputs.affected_count != '0'
     runs-on: ubuntu-latest
     # 60 rather than 150: the longest shard of ANY set is bounded by the largest
     # indivisible unit, reconcile-terminal-worktrees.test.sh at 940 s on this
@@ -294,6 +322,13 @@ jobs:
       - name: The affected shards must cover exactly what the diff selected
         working-directory: engine
         run: |
+          if [ "${{ needs.plan.outputs.run_full }}" = "true" ]; then
+            echo "The FULL pass is running on this ref, so the diff-scoped gate was skipped."
+            echo "The affected set is a subset of the whole inventory by construction, so the"
+            echo "coverage job proves everything this one could have. This job is NOT the proof"
+            echo "on this ref, and says so rather than reporting a green it did not earn."
+            exit 0
+          fi
           if [ "${{ needs.plan.outputs.affected_count }}" = "0" ]; then
             echo "This diff selects no unit — a docs-only change, and the correct answer."
             echo "ci-affected-units.sh has already refused any changed EXECUTABLE that no suite names,"
