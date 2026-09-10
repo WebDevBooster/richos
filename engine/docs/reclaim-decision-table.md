@@ -208,3 +208,24 @@ its own, and it is measurable rather than rhetorical.
 
 Every number here carries the command that produced it. A number that cannot be
 re-derived from its own command does not ship.
+
+---
+
+## 5. Two rules this document is written under
+
+**A LINE NUMBER IS A CLAIM WITH A DATE ON IT. Cite the symbol.** The brief that
+commissioned this work said deletion happens only on a proven ancestor
+"(`daily-workspace-cleanup.py:853`)"; line 853 was inside `assess()`, the
+read-only twin that removes nothing. Round 10's `daily-workspace-cleanup.py:57-60`
+had drifted to a different construct within a day. The claims were true and the
+citations were not, which is worse than no citation, because a reader who checks
+one and finds the wrong thing stops checking. Every reference in the table above
+names a FUNCTION. Functions get renamed too — but a rename is greppable and a
+line shift is silent.
+
+**A CONTROL THAT REPORTS IS A PASSING OUTCOME; A CONTROL THAT BLOCKS MUST BE
+MEASURED FIRST.** Three guards died in one day (`g11`, `g12`, `g13`) by being
+broad enough that waiving became habitual, one reaching 251 waivers. Nothing in
+this table blocks a turn. The refusals here refuse a DELETION, which is the safe
+direction by construction: the cost of a wrong refusal is a directory that
+survives a night.

@@ -1,5 +1,30 @@
 # Worktree reclaim, round 11 — the event does the work, and nothing is left undecided
 
+> ## THIS ROUND WAS NOT CERTIFIED. Its central premise is FALSE and has been withdrawn.
+>
+> **Both reviewers refused it on 2026-09-10** (`docs/verification/certification-sage-2026-09-10.md`,
+> `…-frank-2026-09-10.md`), converging on the same defect from different evidence.
+> Round 12 withdrew the agent-sized ground rather than re-founding it. The
+> current design is `docs/reclaim-decision-table.md`; read that first.
+>
+> **What was false, in this document's own words, with the command that
+> disproves each.** These are not softened below — each sentence is corrected in
+> place where it appears, so this document cannot be quoted from without meeting
+> the correction.
+>
+> | § | The claim | The command | The answer |
+> |---|---|---|---|
+> | 7 | a terminal agent cannot run again | `restart-after-terminal-measure.py` | **10 of 66** did, earliest 2026-09-08 |
+> | 7 | "SubagentStop fires once per run: 1,147 of 1,149 ids with exactly one" | `…--census` | counts PER-RUN ids; one row per id **by construction** |
+> | 0, 2 | the platform releases its lock ~1s after the stop | the `immediate_reclaim` journal | **3 of 3** own-event attempts deferred; one lock held **77 min** |
+> | title, 2 | "the event does the work" | the transaction store | **0 of 5** production reclaims happened in their own event |
+> | 3 | `zach-opus-red1` "stays forever because of the cut" | `git -C richos-hq worktree list` | gone by 15:23 the same day, through the hole in that very cut |
+>
+> **What HELD UP and was not touched by round 12:** deletion only on a tip
+> proven an ancestor of `main`, re-checked before both the removal and the
+> branch delete; `land-disposition.py` never mutating; the identity repair; the
+> `cc/` prefix; late binding.
+
 Written 2026-09-10, during the round rather than before it, and that is stated
 first because round 10's own document opens by saying it was written before any
 code changed. This one was not. Half of it came from corrections that arrived
@@ -44,6 +69,27 @@ against the two SubagentStop events on record that day:
 ae66ffef818a38354  stop 06:22:52.653   lock removed 06:22:53.026   (+0.37s)
 aea7c66005dd2aa6f  stop 07:24:18.278   lock removed 07:24:19.334   (+1.06s)
 ```
+
+> **TWO SAMPLES, GENERALIZED INTO THE SAFETY TIMING OF A DELETION.** Both rows
+> are real; the sentence around them is not. Against them, from the same day:
+>
+> ```
+> zach-opus-key1     own-event reclaim deferred, lock still held   +6.0 s
+> sage-fable-cert1   own-event reclaim deferred, lock still held   +6.2 s
+> zach-opus-unl1     lock still held, no run in progress          +77 min
+> production reclaims that happened IN their own terminal event    0 of 5
+> ```
+>
+> Three of three own-event native attempts expired the 5-second wait; all five
+> real reclaims came from a later sweep. The consistent reading is that the
+> platform tears down only AFTER the stop hook returns, so a wait INSIDE that
+> hook can never observe the release — it is pure latency on every stop of
+> every workspace-owning agent. The default is now 0.
+>
+> The measurement worth having is the other direction, and round 12 rests on
+> it: the platform takes the lock **before** a run begins (49 ms and 43 ms
+> ahead of the `SubagentStart` hook, two live agents), so an ABSENT lock is a
+> fact about the present rather than a prediction about the future.
 
 ## 1. Two defects, and what each one actually was
 
@@ -165,6 +211,27 @@ either store. The allow-list would have decided it; registration-only will not.
 It is one row on his screen, and it is the honest price of "we only remove what
 we wrote down".
 
+> **FALSE BY 15:23 THE SAME DAY, AND THE WAY IT BECAME FALSE IS THE DEFECT.**
+> `git -C richos-hq worktree list` shows it gone. It did not stay forever
+> because, 45 minutes after this sentence was written, a row was appended to
+> the ownership ledger BY HAND — `source: rich-operator-amnesty`, a session id,
+> a teammate name, no agent id — and both the transaction store's late binding
+> and the cleanup's owner check accept that as ownership. The workspace was
+> reclaimed.
+>
+> So "we only remove what we wrote down" is not a guarantee while anything can
+> write a line saying we wrote it down. **The identical row with a `codex/`
+> path would have passed the same lane**, and `ceo-decisions.md` §31 says a
+> Codex workspace is never removed without the CEO's express word — resting, in
+> that section's own words, on this very argument.
+>
+> Round 12 closes both halves: the name join now requires a row written by an
+> engine writer (`worktree-ledger.BINDING_LEDGER_WRITERS`; a foreign row still
+> RESERVES and never binds — it may protect a workspace and may never destroy
+> one), and §31 is in the mechanism as a refusal at the first gate plus a
+> by-name report, rather than resting on the record hole §31 explicitly says
+> must not be the protection.
+
 ## 3b. The one fallback, and it is narrow on purpose
 
 Adoption gains **T4 — crash recovery**, for the single failure the two-event
@@ -226,19 +293,92 @@ registered is not decided by anything here and is not looked at, which is the
 guarantee that replaced the report. `richos-hq-wt/zach-opus-red1` is the one
 row on his screen that this leaves standing, and section 3 says so.
 
-## 7. The fact that would prove this round wrong
+## 7. The fact that would prove this round wrong — AND IT HAD ALREADY HAPPENED
+
+> **THIS SECTION WAS RIGHT ABOUT THE TEST AND WRONG ABOUT THE ANSWER.** The
+> falsifier below was correctly identified and correctly written down. It had
+> occurred SEVEN TIMES before this document was written and three times in the
+> two days before it, and the measurement offered as proof could not see any of
+> them. The round was undone on the day it shipped, exactly as this section
+> required.
 
 **If a terminal record is ever written for an agent that then runs again**, the
-agent-sized ground is unsound and this round has to be undone. It rests on
+agent-sized ground is unsound and this round has to be undone.
+
+> **It is. Run the falsifier:**
+>
+> ```
+> $ python3 engine/scripts/restart-after-terminal-measure.py
+>   DENOMINATOR: those that own at least one workspace : 66
+>   NUMERATOR  : those with a start strictly after their terminal record : 10
+>   rate       : 15.152%
+> ```
+>
+> The earliest is `sage-fable-r2`, restarted 8.8 minutes after its terminal
+> record on **2026-09-08 — two days before this document was written**. Four
+> more restarted inside a nine-millisecond span at 14:34:37Z on 2026-09-10, six
+> to eight hours after their terminal records. `zach-opus-auto1` restarted 1.3 s
+> after its terminal record and had its workspace reclaimed 79 minutes LATER.
+
+It rests on
 `guard-resume-isolation.sh` refusing every resume of a terminal agent with no
-escape hatch, and on the measurement that SubagentStop fires once per run:
+escape hatch,
+
+> **and that guard covers `SendMessage` and nothing else.** Neither path that
+> actually fired goes through it: a message the platform had QUEUED before the
+> stop and delivered after it, and a background task belonging to the agent
+> exiting, whose notification resumes the agent. No hook this platform offers
+> can refuse either. A policy that an agent is FORBIDDEN to return was read as a
+> description of what the platform DOES.
+
+and on the measurement that SubagentStop fires once per run:
 1,153 `WorkerRunEnded` rows across 1,149 distinct agent ids in this session,
 1,147 of them with exactly one, and zero for either agent that was running when
-I looked. If a future harness revision resumes a stopped agent, that measurement
+I looked.
+
+> **THAT MEASUREMENT IS A TAUTOLOGY AND COULD NEVER HAVE SEEN A RESTART.** The
+> `agent_id` in the SubagentStop payload is a PER-RUN identifier — the ledger's
+> own `resolve_assignment` docstring says so, in the same landing. "Almost every
+> id has exactly one row" is the signature of per-run ids, not of one stop per
+> agent. Measured today: 1,765 run-end rows carry 1,756 distinct payload ids, of
+> which only **27** are ids this engine ever registered a workspace to.
+>
+> The right key is the REGISTRATION id, and the corpus is workspace-owning
+> agents, because a helper subagent with no workspace cannot have one deleted
+> under it. That join is `restart-after-terminal-measure.py`, committed beside
+> the tests so the next reader re-runs it instead of quoting this.
+
+If a future harness revision resumes a stopped agent, that measurement
 changes and this design must change with it.
+
+> No future revision was needed. It was already true.
 
 **The narrower version of the same fact:** if the platform ever stops releasing
 its own lock at the end of a run, the immediate path degrades to the catch-up
 sweep, and if the platform stops releasing it at all, to the nightly pass. Both
 degradations are visible in the `immediate_reclaim` journal on the member, which
 is why the journal records deferrals and not only successes.
+
+> **THIS WAS BACKWARDS, AND IT IS THE MOST USEFUL CORRECTION IN THE ROUND.** A
+> held lock was called a DEGRADATION to be retried. It is the platform holding
+> the workspace, and it was the only thing standing between this lane and the
+> workspace of an agent the platform was about to restart. **The safety came
+> from the lock, not from the premise.**
+>
+> Measured, against the two samples this document generalized from: three of
+> three own-event native attempts found the lock still held (+6.0 s, +6.2 s),
+> `zach-opus-unl1`'s lock was still held 77 minutes after its stop with no run
+> in progress, and ZERO of five production reclaims happened in their own event
+> — all five came from a later sweep. `IMMEDIATE_RECLAIM_WAIT_SECONDS` is now 0.
+>
+> Round 12 reads the lock the other way round, and this is the fact the whole
+> replacement rests on: **the platform takes the lock BEFORE a run begins** —
+> lock mtime 49 ms and 43 ms ahead of the `SubagentStart` hook on two live
+> agents — so an absent lock is a statement about the present, and non-force
+> `git worktree remove` refuses a locked worktree (exit 128, git 2.52.0). A
+> restart mid-reclaim makes the removal FAIL rather than race.
+>
+> **And the journal could not have shown any of this**, which is why the
+> finding had to be established from timestamps: it wrote ONE
+> `immediate_reclaim` object per member and the last writer erased every
+> earlier outcome. It appends now.

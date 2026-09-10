@@ -123,7 +123,10 @@ teammate with a `__pycache__` in its tree cannot mark its task complete at all
 line.
 
 **P2 — the ingress set omits two real ingresses.**
-`daily-workspace-cleanup.py:57-60`:
+`daily-workspace-cleanup.py`, `terminal_fact()` / `ACCEPTED_INGRESSES`
+*(cited as `:57-60` when written; those lines are now the constant itself —
+a line number is a claim with a date on it, which is why this document's
+citations were converted to symbol names on 2026-09-10)*: 
 
 ```python
 def terminal_fact(transaction):
