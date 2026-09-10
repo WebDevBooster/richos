@@ -113,9 +113,28 @@ git -C "$NO_ORIGIN" init -q -b main
 FAKE_ENGINE="$SANDBOX/engine"
 mkdir -p "$FAKE_ENGINE/scripts/hooks" "$FAKE_ENGINE/scripts/lib"
 cp "$GUARD" "$FAKE_ENGINE/scripts/hooks/"
-for f in resolve-roots.sh git-jurisdiction.sh unevaluated-notice.sh; do
+# THE WHOLE CHAIN, NOT JUST THE FILES THIS SUITE NAMES IN ITS ASSERTIONS. The
+# note at the top of this file about the notice library applies again, and this
+# time it caught the omission at the first run: section 2b of the guard (the
+# land-completeness check) calls scripts/lib/land-residue-gate.py, and with that
+# file missing the guard correctly announces NOT RUNNING on every call — which
+# broke R12's and R16's silence assertions. Copying the whole dependency chain
+# means these cases run against the configuration that actually ships rather
+# than against a copy with a section quietly disabled. land-residue-gate.py
+# loads land-completeness.py, which loads worktree-ledger.py, which loads
+# agent-liveness.py and worktree-transactions.py.
+for f in resolve-roots.sh git-jurisdiction.sh unevaluated-notice.sh \
+         land-residue-gate.py land-completeness.py worktree-ledger.py \
+         agent-liveness.py worktree-transactions.py; do
     cp "$SCRIPT_DIR/../lib/$f" "$FAKE_ENGINE/scripts/lib/"
 done
+# AND ITS LEDGER IS A SANDBOX ONE. Without this the suite would judge ownership
+# against the operator's real ~/.claude/state ledger, so its verdict would
+# depend on which agents happened to be running while it ran — the same defect
+# the CI stub above exists to remove.
+export RICHOS_WORKTREE_LEDGER="$SANDBOX/worktree-ledger.jsonl"
+: > "$RICHOS_WORKTREE_LEDGER"
+export LAND_RESIDUE_ACK_LOG="$SANDBOX/land-residue-acks.log"
 STUB_GUARD="$FAKE_ENGINE/scripts/hooks/guard-ci-red-lands.sh"
 
 cat > "$FAKE_ENGINE/scripts/lib/ci-red.py" <<'STUB'

@@ -387,6 +387,127 @@ if [ "$NAMED_BRANCH" != "$WATCHED_BRANCH" ] && [ "$CURRENT_BRANCH" != "$WATCHED_
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. IS THE PREVIOUS LAND FINISHED?
+# ---------------------------------------------------------------------------
+# A SECOND CHECK IN THIS FILE, AND THE REASON IT IS HERE RATHER THAN IN A HOOK
+# OF ITS OWN.
+#
+# HOOKS SNAPSHOT AT SESSION START. A newly REGISTERED hook is inert until the
+# next session, so shipping this as its own registration would have cost the
+# founder a restart to get a check whose entire purpose is to save him from
+# watching stale rows. An ALREADY-REGISTERED hook's BODY is re-read at every
+# invocation, so a change here is live the moment the branch reaches the
+# engine. The same route was taken on 2026-09-10 by guard-ceo-ruled-ask.sh and
+# by verify-agent-prompt.sh's concealment clause.
+#
+# AND THIS IS THE RIGHT HOST ON THE MERITS, not merely the available one. The
+# requirement (docs/plans/land-completeness-2026-09-10.md R2) is that an
+# INCOMPLETE LAND BLOCKS THE NEXT ONE — so the trigger is a land, which is
+# precisely the act sections 1 and 2 above have already classified: the verb,
+# the repository, the branch, dry runs excluded, `git commit` deliberately not
+# matched. The alternatives were considered and are worse:
+#   guard-row-currency-commits.sh also fires on `git commit`, which engineers
+#     do dozens of times a day and which R2 must never gate; and its header
+#     declares NO LIVE OVERRIDE, which a check needing an acknowledgement would
+#     contradict.
+#   guard-worktree-removal.sh fires on the REMOVAL — the opposite end of the
+#     sequence from the one being enforced.
+#   guard-owned-state.sh is the shape R2 cites, but its trigger is a spawn.
+# The analysis, the refusal text and the acknowledgement all live in
+# scripts/lib/land-residue-gate.py so that responsibility stays separated and
+# this file gains a dispatch rather than a second personality.
+#
+# ORDER: BEFORE THE CI PROBE, DELIBERATELY. This check reads git and a local
+# ledger and is bounded; the CI probe makes a network call worth up to twelve
+# seconds. Running the cheap deterministic one first also means a session with
+# no network still gets it. The consequence is stated rather than hidden: when
+# a land is refused HERE, the CI axis has not been reported for that command —
+# the refusal says so and names `ci-status.sh`.
+#
+# IT SHIPS REPORTING-ONLY. G4 keeps installation approval with the founder, and
+# there is no implicit approval from a merge or from silence.
+#
+# THE SWITCH IS READ FROM A COMMITTED FILE, NOT FROM THE ENVIRONMENT ALONE.
+# This guard deliberately resolves no entity root — its header explains that
+# doing so would put git calls in front of every shell command in the session.
+# But by this line the repository is already resolved and the command is
+# already known to be a land, so sourcing one config file costs nothing that
+# was not already spent, and it is what makes the arming decision a diffable
+# line rather than an invisible export. The governed repository's config wins;
+# the engine's is the fallback, so an adopter can arm or stand this down
+# without editing the engine.
+#
+# PRECEDENCE, AND THE BUG THAT MADE IT EXPLICIT: an explicit setting at the call
+# site WINS over the file. Sourcing a config is an assignment, so a naive
+# `. config` silently overwrites a variable the caller deliberately exported —
+# which on 2026-09-10 made this section run while `CHECK_LAND_COMPLETENESS=0`
+# was set in the environment, and report-only while `LAND_COMPLETENESS_ENFORCE=1`
+# was. A stand-down that does not stand down is worse than no switch at all. So
+# the two keys are snapshotted before the source and restored after it if they
+# were set. Order: environment, then the governed repository, then the engine.
+_LC_ENV_CHECK="${CHECK_LAND_COMPLETENESS+set:$CHECK_LAND_COMPLETENESS}"
+_LC_ENV_ENFORCE="${LAND_COMPLETENESS_ENFORCE+set:$LAND_COMPLETENESS_ENFORCE}"
+for _LC_CFG in "$REPO_ROOT/orchestration.config" "$SCRIPT_DIR/../../orchestration.config"; do
+    if [ -f "$_LC_CFG" ]; then
+        # shellcheck disable=SC1090
+        . "$_LC_CFG" 2>/dev/null || true
+        break
+    fi
+done
+case "$_LC_ENV_CHECK" in   set:*) CHECK_LAND_COMPLETENESS="${_LC_ENV_CHECK#set:}" ;; esac
+case "$_LC_ENV_ENFORCE" in set:*) LAND_COMPLETENESS_ENFORCE="${_LC_ENV_ENFORCE#set:}" ;; esac
+
+if [ "${CHECK_LAND_COMPLETENESS:-1}" != "0" ]; then
+    _LRG="$SCRIPT_DIR/../lib/land-residue-gate.py"
+    if [ -f "$_LRG" ]; then
+        _LC_CMD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
+try:
+    print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")
+except Exception:
+    print("")' 2>/dev/null || true)"
+        # A HARD TIMEOUT, because this runs inside the host hook's budget. The
+        # analysis measured 2.6s against 14 worktrees on 2026-09-10; the CI
+        # probe below may take 12 more, and the registration allows 25. If it
+        # ever runs long, the land proceeds unchecked and SAYS SO — a land
+        # delayed by a slow checker is the failure mode that gets a guard
+        # switched off.
+        set +e
+        python3 "$_LRG" --repo "$REPO_ROOT" --branch "$WATCHED_BRANCH" \
+            --command "$_LC_CMD" \
+            --ack-log "${LAND_RESIDUE_ACK_LOG:-$HOME/.claude/state/land-residue-acks.log}" \
+            --enforce "${LAND_COMPLETENESS_ENFORCE:-0}" &
+        _LRG_PID=$!
+        _LRG_WAITED=0
+        while kill -0 "$_LRG_PID" 2>/dev/null; do
+            [ "$_LRG_WAITED" -ge "${LAND_COMPLETENESS_TIMEOUT:-10}" ] && break
+            sleep 1
+            _LRG_WAITED=$((_LRG_WAITED + 1))
+        done
+        if kill -0 "$_LRG_PID" 2>/dev/null; then
+            kill "$_LRG_PID" 2>/dev/null
+            _LRG_RC=0
+            {
+                echo "=== LAND-COMPLETENESS CHECK: TIMED OUT — THE LAND IS ALLOWED ==="
+                echo "  It did not answer within ${LAND_COMPLETENESS_TIMEOUT:-10}s, so nothing was"
+                echo "  checked. That is NOT 'the last land was clean'."
+                echo "  Answer it yourself:  engine/scripts/land-completeness.sh --repo $REPO_ROOT"
+            } >&2
+        else
+            wait "$_LRG_PID"
+            _LRG_RC=$?
+        fi
+        set -e
+        [ "$_LRG_RC" = "2" ] && exit 2
+    else
+        {
+            echo "=== LAND-COMPLETENESS CHECK: NOT RUNNING — THE LAND IS ALLOWED ==="
+            echo "  The gate is missing at $_LRG. Whether the previous land finished was"
+            echo "  NOT checked, and an unchecked land is not a clean one."
+        } >&2
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 3. THE SLUG — read off the config file, never guessed
 # ---------------------------------------------------------------------------
 ORIGIN="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
