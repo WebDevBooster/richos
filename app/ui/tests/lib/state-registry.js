@@ -410,6 +410,19 @@ module.exports = [
       "reach richos-voice. The fallback it names (typing) is the composer, always present.",
   },
   {
+    s: "Something about my hearing changed on this machine and I'd rather not guess at what you said than get it wrong. Whoever set RichOS up can put it right. I can still read what you type.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: null,
+    why:
+      "`SttError::ToolchainRefused` at stt.rs:74, and DIFFERENT WORDS from the row above on " +
+      "purpose — its own comment says why: the transcriber is installed and refused, so " +
+      "'not installed yet' would be false and would send whoever helps him to install " +
+      "something already there. Same class, same named party, same always-present fallback. " +
+      "No fixture for the same reason as its neighbour: the mock bridge does not reach " +
+      "richos-voice, so only a live pipeline produces this variant.",
+  },
+  {
     s: "My voice isn't working on this machine — whoever set RichOS up would need to look at that. I'll keep answering in text.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
@@ -2006,29 +2019,31 @@ module.exports = [
       "identically — and it still has a control, so the row holds in both.",
   },
   {
-    s: "Restart when you are ready — nothing is lost.",
-    c: "ACTIONABLE",
-    control: "#update-relaunch",
+    s: "It will activate automatically next time RichOS opens. Your work will continue uninterrupted.",
+    c: "INFORMATIONAL",
     fixture: "updates-ready",
     why:
-      "The `ready` sub-line. 'Restart when you are ready' is an offer and `#update-relaunch` " +
-      "is directly under it. WHILE RICHOS IS BUSY the control is absent by ruling, and the " +
-      "sentence is not alone then either: `join(gateClauses(v), …)` puts 'I'll wait to " +
-      "restart until everything has finished' IN FRONT of it, so the state that has no button " +
-      "carries its own account of why. The fixture drives the idle case, which is the case " +
-      "the control claim is about.",
+      "The `ready` sub-line, and it CHANGED CLASS on 2026-09-10 rather than merely changing " +
+      "words. It read 'Restart when you are ready — nothing is lost.', which was an offer, " +
+      "and it was ACTIONABLE because `#update-relaunch` stood directly under it. Commit " +
+      "01e9b8d8 removed that button from `paint()` — an update now activates at the next " +
+      "launch instead of asking him to restart — so the state stopped being one he acts on " +
+      "and became one RichOS reports. INFORMATIONAL for the same reason the §26 waiting " +
+      "sentence is: the control is REMOVED by design rather than missing, and nothing is " +
+      "asked of anyone. Not NEEDS-SOMEONE-ELSE either — the party that will act is RichOS.",
   },
   {
-    s: "I'll wait to restart until everything has finished — nothing will be interrupted.",
+    s: "This update will activate next time RichOS opens. Your work will continue uninterrupted.",
     c: "INFORMATIONAL",
     fixture: "updates-waiting-ready",
     why:
       "CEO ruling §26, and the reason this file had to become visible to this rule. RichOS " +
-      "is working, an update is installed, and the restart control is REMOVED rather than " +
+      "is working, an update is staged, and the restart control is REMOVED rather than " +
       "disabled — 'instead of a regular update button, they'd get some other visual cue but " +
       "not an actionable thing'. So there is deliberately nothing to press, and the sentence " +
       "is INFORMATIONAL rather than ACTIONABLE: it is RichOS saying it will act by itself. " +
-      "Not NEEDS-SOMEONE-ELSE either — nobody is being waited on but RichOS.",
+      "Not NEEDS-SOMEONE-ELSE either — nobody is being waited on but RichOS. It said 'I'll " +
+      "wait to restart until everything has finished' until 01e9b8d8 ended the restart.",
   },
   {
     s: "I'll wait until everything has finished — nothing will be interrupted.",
@@ -2069,12 +2084,15 @@ module.exports = [
     why: "The `checking` state. Transient, self-resolving, and nothing is asked of anyone.",
   },
   {
-    s: "Checking the download and installing…",
+    s: "Checking and preparing the update…",
     c: "INFORMATIONAL",
-    why: "The `installing` headline. Bytes are already moving; nothing is waiting on him.",
+    why:
+      "The `installing` headline. Bytes are already moving; nothing is waiting on him. It " +
+      "says PREPARING rather than installing since 01e9b8d8, because the bundle is staged " +
+      "for the next launch rather than swapped underneath a running app.",
   },
   {
-    s: "RichOS is confirming this update was signed by us before it puts it in place.",
+    s: "RichOS is confirming this update was signed by us before preparing it for the next launch.",
     c: "INFORMATIONAL",
     why:
       "The `installing` sub-line, and it is on screen for a reason: the signature check is " +
@@ -2103,16 +2121,6 @@ module.exports = [
     s: "Check for updates",
     c: "CONTROL",
     why: "`#update-check`'s label in every state but a non-signature failure, where it reads 'Try again'.",
-  },
-  {
-    s: "Download and install",
-    c: "CONTROL",
-    why: "`#update-install`'s label. Hidden, not disabled, while RichOS is working (§26).",
-  },
-  {
-    s: "Restart to finish",
-    c: "CONTROL",
-    why: "`#update-relaunch`'s label. Hidden, not disabled, while RichOS is working (§26).",
   },
   {
     s: "Show the technical reason",
@@ -2172,9 +2180,104 @@ module.exports = [
     why: "`waitingSaid()`'s `available` head: `version + ' is ready to install.'`.",
   },
   {
-    s: "is installed and needs a restart.",
+    s: "is ready for the next launch.",
     c: "FRAGMENT",
-    why: "`waitingSaid()`'s `ready` head: `version + ' is installed and needs a restart.'`.",
+    why:
+      "One literal, used by both `waitingSaid()`'s `ready` head and `sub()`'s `ready` " +
+      "headline: `version + ' is ready for the next launch.'`. It read 'is installed and " +
+      "needs a restart.' until 01e9b8d8 — the same sentence making a promise the product " +
+      "stopped keeping, because there is no restart to need.",
+  },
+
+  // ---- update_startup.rs — the activation that runs BEFORE there is a webview -----------
+  //
+  // NINE STRINGS, ONE CLASSIFICATION, AND THE REASON IS ONE CALL SITE. `update_startup::
+  // prepare()` runs at main.rs:898, ahead of home resolution, leases, Tauri and every native
+  // worker — its own header says so. Its whole error type is `Result<_, String>`, and
+  // main.rs:900-903 is the only thing that ever reads one:
+  //
+  //     Err(error) => { eprintln!("[richos] application startup: {error}"); return; }
+  //
+  // `eprintln!` then `return`, before a window exists. So not one of these sentences can
+  // reach the DOM, and NOT-RENDERED is the honest class rather than a convenient one — the
+  // claim is checkable at that line and fails the moment somebody routes one to the webview.
+  //
+  // WHAT THAT MEANS FOR THE PERSON, said here rather than filed as covered: an activation
+  // that fails this way is an app that does not open, with the reason on a stderr stream
+  // nobody is reading. That is a product question about a startup path, not a gap in this
+  // rule, and this rule is the wrong place to fix it. It is named in the QA report that
+  // added these rows so it is somebody's rather than nobody's.
+  {
+    s: "Update redirect did not enter an application bundle.",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:52, when the redirected executable is not inside a bundle. Read only by main.rs:900-903 — `eprintln!` and return, before Tauri starts.",
+  },
+  {
+    s: "Application home is unavailable.",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:55, when `HOME` is unset. Same single call site, same `eprintln!` and return, no webview yet.",
+  },
+  {
+    s: "Redirected update changed application data scope.",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:62 — a redirect that would move the user's data. Refused before anything opens; main.rs:900-903 prints it and returns.",
+  },
+  {
+    s: "Invalid update session descriptor.",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:69, on an unparseable inherited `RICHOS_UPDATE_SESSION_FD`. Never leaves stderr.",
+  },
+  {
+    s: "Update activation needs recovery before the app can start: {error}",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:92. A `{error}` Debug hole for an engineer, and unreachable by the webview besides — main.rs returns rather than opening a window.",
+  },
+  {
+    s: "redirected executable disagrees with its verified release",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:105 — the identity check that stops a swapped binary. Fails the launch on stderr; nothing renders it.",
+  },
+  {
+    s: "Changed application cannot redirect to an older release",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:111, refusing a downgrade. Same call site, same stderr-and-return.",
+  },
+  {
+    s: "Changed application has no publication receipt.",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:125 — an activated bundle with no receipt to check. Refused before the window opens.",
+  },
+  {
+    s: "The activated application could not start: {error}",
+    c: "NOT-RENDERED",
+    why: "`prepare()` at update_startup.rs:132, when the re-executed bundle will not run. The last thing this process does is print it.",
+  },
+
+  // ---- the two remaining update strings, and they are NOT alike -------------------------
+  {
+    s: "RichOS could not prepare this update.",
+    c: "ACTIONABLE",
+    control: "#update-check",
+    fixture: "updates-install-failed",
+    why:
+      "`install_failure()`'s headline at updates.rs:271 — the `failed` state with kind " +
+      "`install`, which is every staging failure that is not a refused signature. He can " +
+      "act, and the control is the same one the network failure names: `isSignature(v)` is " +
+      "false here, so `paint()` keeps `#update-check` visible and relabels it 'Try again'. " +
+      "It gets its OWN fixture rather than borrowing `updates-failed`, because the row " +
+      "claims this headline renders with that control and the network fixture renders a " +
+      "different headline.",
+  },
+  {
+    s: "Password-free application updates are not implemented on this platform.",
+    c: "UNREACHABLE",
+    why:
+      "updates.rs:593, and the guard above it is the whole reason: the literal is inside " +
+      "`#[cfg(not(target_os = \"macos\"))]`, so it is not compiled into the build this app " +
+      "ships. RichOS is macOS-only at v1 — `app/README.md` and `windows-companion-ci.yml` " +
+      "both say so — which makes this a sentence that exists for a port that does not exist " +
+      "yet. UNREACHABLE rather than NOT-RENDERED: it WOULD render on the update row if such " +
+      "a build were ever made, and on that day it needs a class of its own and a party.",
   },
 
   // ---- home.js — the home screen the CEO lands on ---------------------------------------
@@ -2660,6 +2763,21 @@ module.exports = [
   { s: "Missing onboarding scope", c: "NOT-RENDERED", why: "The standalone onboarding MCP process reports this on stderr when launched without its required scope argument. It is not displayed in the app." },
   { s: "The company changed. Please use the offer for the company now open.", c: "INFORMATIONAL", why: "An obsolete company-specific action was refused. The onboarding context guard refreshes the current offer and retains its controls." },
   { s: "The conversation changed before your message was sent. Open the original conversation to try again.", c: "ACTIONABLE", control: ".nav-thread", fixture: "rail-mark", why: "The rejected message stays with its original conversation. Its navigation row lets the CEO reopen that conversation and retry." },
+  {
+    s: "Open a conversation first.",
+    c: "ACTIONABLE",
+    control: "#rail-new-thread",
+    fixture: null,
+    why:
+      "`send_prompt`'s refusal at main.rs:518, three lines above its neighbour and reached " +
+      "the other way: `spine.active_thread()` is None, so there is no conversation to file " +
+      "the message under. ACTIONABLE and the control is `#rail-new-thread`, the rail's own " +
+      "new-conversation button — one press makes the thread the message needed. NO FIXTURE, " +
+      "and the reason is a real one rather than an omission: every path a browser can drive " +
+      "reaches the composer through a thread that already exists, so the mock bridge has no " +
+      "way to present a live composer with no active thread. The control claim is held " +
+      "statically here and `#rail-new-thread` is asserted present on every shell walk.",
+  },
   { s: "Waiting for its saved messages", c: "INFORMATIONAL", why: "The selected conversation has not finished loading." },
   { s: "The previous conversation is still working. Press Stop to stop that work.", c: "ACTIONABLE", control: "#stop", fixture: "opening-conversation", why: "The previous live model keeps its actual Stop control while navigation waits for its lock." },
   { s: "I couldn't stop the previous conversation. Press Stop again.", c: "ACTIONABLE", control: "#stop", fixture: "opening-stop-failed", why: "A failed stop remains visible in the opening band beside the retryable Stop control." },

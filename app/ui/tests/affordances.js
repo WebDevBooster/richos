@@ -30,7 +30,7 @@
 // whole tree and can refuse, and the widening brought 55 states under the rule — 25 of them
 // in `updates.js` alone. What it found is in the commit that widened it; what it PROVES it
 // can now catch is the positive control near the bottom of this file, which deletes
-// `#update-relaunch` from the shipped update row and watches the rule go red.
+// the control the registry names on the shipped update row and watches the rule go red.
 //
 // WHY PART 5 DOES NOT BLOCK, WITH THE MEASUREMENT RATHER THAN A FEELING. Part 5 asks a
 // different question from parts 1-3: not "does this classified state have its control?" but
@@ -1064,6 +1064,22 @@ const FIXTURES = {
     });
   },
 
+  /// THE OTHER FAILURE HEADLINE, and a separate fixture rather than a second `over` on the
+  /// one above. `install_failure()` (updates.rs:271) writes a different sentence for a
+  /// different cause — the download arrived and staging it failed — and the registry row
+  /// claims THAT sentence renders with `#update-check`. A fixture that painted the network
+  /// headline would have proved a claim nobody made.
+  async "updates-install-failed"(browser) {
+    return openUpdates(browser, {
+      state: "failed",
+      failure: {
+        kind: "install",
+        headline: "RichOS could not prepare this update.",
+        detail: "staging directory is not writable",
+      },
+    });
+  },
+
   /// THE §26 STATE ITSELF: an update is waiting and RichOS is working, so the control is
   /// REMOVED rather than dimmed and the sentence has to carry the whole answer on its own.
   async "updates-waiting-available"(browser) {
@@ -1186,6 +1202,7 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "updates-unconfigured",
   "updates-ready",
   "updates-failed",
+  "updates-install-failed",
   "updates-waiting-available",
   "updates-waiting-ready",
   "home-prefs",
@@ -1314,9 +1331,31 @@ async function main() {
     );
 
     // AND THE ONE THAT MATTERS, BY NAME. CEO ruling §26 governs `updates.js`, its clause is
-    // that a waiting update must not be actionable, and this sentence is the state that
+    // that a waiting update must not be actionable, and its sentence is the state that
     // stands where the control is not. It was invisible; it is classified now.
-    const SENTINEL = "I'll wait to restart until everything has finished — nothing will be interrupted.";
+    //
+    // THE SENTINEL IS DERIVED, AND IT USED TO BE TYPED — 2026-09-10. It was the literal
+    // "I'll wait to restart until everything has finished — nothing will be interrupted.",
+    // which was the §26 sentence on the day this was written and stopped being it at commit
+    // 01e9b8d8, when updates stopped asking for a restart at all. The product change was
+    // correct and this check went red for it: a self-test pinned to one spelling of a
+    // sentence tests the spelling. So the sentinel is now the string of whatever row the
+    // registry files under the `updates-waiting-ready` fixture, which is the §26 state BY
+    // ROLE rather than by wording. Nothing is weakened by that and one thing is added: the
+    // row is itself driven against the real DOM by the fixture walk below, so if the copy
+    // moves again and nobody updates the registry, THAT check fails on the missing sentence
+    // and this one follows it — instead of this one failing alone and saying the derivation
+    // is broken when it is not.
+    const waitingRow = REGISTRY.find(
+      (r) => r.fixture === "updates-waiting-ready" && r.c === "INFORMATIONAL"
+    );
+    assert(
+      waitingRow,
+      "no INFORMATIONAL row is filed under the `updates-waiting-ready` fixture. §26's state " +
+        "is the one that stands where a control is not; if it has no row, either the ruling " +
+        "stopped being implemented or the registry stopped describing it."
+    );
+    const SENTINEL = waitingRow.s;
     assert(!before.has(SENTINEL), "the sentinel was ALREADY visible to the old list — it proves nothing");
     assert(
       inv.some((r) => r.normal === SENTINEL),
@@ -1332,8 +1371,9 @@ async function main() {
     return (
       gained.length + " state(s) are visible to this rule that were not: " +
       Object.keys(byFile).sort().map((f) => f + " " + byFile[f]).join(", ") +
-      ". The §26 waiting sentence is one of them, and it is classified INFORMATIONAL " +
-      "because the control is REMOVED by ruling rather than merely missing."
+      ". The §26 waiting sentence — " + JSON.stringify(SENTINEL.slice(0, 48)) + "… — is one " +
+      "of them, and it is classified INFORMATIONAL because the control is REMOVED by ruling " +
+      "rather than merely missing."
     );
   });
 
@@ -1794,23 +1834,43 @@ async function main() {
   );
 
   await run.check(
-    "POSITIVE CONTROL ON THE REAL UPDATE SURFACE: delete the restart control and the rule fails",
+    "POSITIVE CONTROL ON THE REAL UPDATE SURFACE: delete the control it names and the rule fails",
     async () => {
       // THE PROOF THAT THE WIDENING IS WORTH ANYTHING. The three positive controls above run
       // against `page.setContent` markup written for them — they prove the CHECKER can fail.
       // This one runs against the shipped `updates.js` in the shipped shell, on a surface that
-      // was outside this rule until today, and proves the RULE can fail there.
-      const page = await FIXTURES["updates-ready"](browser);
-      const entry = byString.get("Restart when you are ready — nothing is lost.");
-      assert(entry && entry.control, "the ready sub-line lost its registry row");
+      // was outside this rule until 2026-09-05, and proves the RULE can fail there.
+      //
+      // THE VICTIM IS CHOSEN, NOT NAMED — 2026-09-10. This check used to open the
+      // `updates-ready` fixture, look up the row for "Restart when you are ready — nothing is
+      // lost." and delete `#update-relaunch`. Commit 01e9b8d8 removed that button from the
+      // product on purpose: an update activates at the next launch and there is no restart to
+      // offer. The rule was fine, the product was fine, and this check failed — because it
+      // had a specific id and a specific sentence written into it, so it was testing that
+      // ONE control still existed rather than that the RULE still bites. It now takes the
+      // first ACTIONABLE row the registry files under any `updates-*` fixture and deletes
+      // whatever control THAT row names, so it survives the update surface being redesigned
+      // and still fails if the rule stops working.
+      const target = REGISTRY.find(
+        (r) => r.c === "ACTIONABLE" && r.control && /^updates-/.test(String(r.fixture))
+      );
+      assert(
+        target,
+        "no ACTIONABLE row on any update fixture names a control. Either §26 now removes " +
+          "every affordance on this surface — in which case this positive control has no " +
+          "victim and needs rewriting rather than deleting — or the rows lost their controls."
+      );
+      const page = await FIXTURES[target.fixture](browser);
+      const entry = byString.get(target.s);
+      assert(entry && entry.control, "the update surface's ACTIONABLE row lost its control");
 
       // It passes as shipped...
       const sample = await assertAffordance(page, entry, { requireText: true });
 
-      // ...and fails the moment the control it names is not there. `paint()` deciding
-      // `nodes.relaunch.hidden = true` in the idle case, a renamed id, a row that stopped
+      // ...and fails the moment the control it names is not there. `paint()` hiding the
+      // control in a state that still shows the sentence, a renamed id, a row that stopped
       // being built: all of them arrive at the DOM as this.
-      await page.evaluate(() => document.getElementById("update-relaunch").remove());
+      await page.evaluate((sel) => document.querySelector(sel).remove(), entry.control);
       let threw = null;
       try {
         await assertAffordance(page, entry, { requireText: true });
@@ -1820,12 +1880,15 @@ async function main() {
       await page.close();
       assert(
         threw,
-        "the restart offer passed with NO restart button on screen. Before today this rule " +
-          "could not open updates.js at all; if it still cannot fail here, widening it bought " +
-          "nothing."
+        "an ACTIONABLE update state passed with NO control on screen. Before 2026-09-05 this " +
+          "rule could not open updates.js at all; if it still cannot fail here, widening it " +
+          "bought nothing."
       );
       assert(threw.indexOf("NO control") >= 0, "flagged, but for the wrong reason: " + threw.split("\n")[0]);
-      return "as shipped: " + sample + "; with #update-relaunch removed: " + threw.split("\n")[0];
+      return (
+        "on " + target.fixture + ", as shipped: " + sample + "; with " + entry.control +
+        " removed: " + threw.split("\n")[0]
+      );
     }
   );
 
@@ -1848,6 +1911,7 @@ async function main() {
           return n.disabled ? "DISABLED-BUT-PRESENT" : "PRESSABLE";
         };
         const note = document.getElementById("update-waiting");
+        const painted = document.getElementById("update-waiting-note");
         return {
           install: look("update-install"),
           relaunch: look("update-relaunch"),
@@ -1855,6 +1919,7 @@ async function main() {
           note: !!note,
           noteRole: note ? note.getAttribute("role") : null,
           noteName: note ? note.getAttribute("aria-label") || "" : "",
+          notePainted: painted ? painted.textContent : null,
         };
       });
       for (const which of ["install", "relaunch", "cue"]) {
@@ -1866,9 +1931,54 @@ async function main() {
       }
       assert(seen.note, "[" + name + "] nothing stands where the control is not — the state is silent");
       assertEqual(seen.noteRole, "note", "[" + name + "] the waiting cue is not a `role=note`");
+      // THE ACCESSIBLE NAME CARRIES THE WHOLE SENTENCE, DERIVED — 2026-09-10.
+      //
+      // This used to be `/nothing will be interrupted/.test(seen.noteName)`, a phrase typed
+      // out of `waitingSaid()` on the day it was written. Commit 01e9b8d8 rewrote the `ready`
+      // tail to "…Your work will continue uninterrupted." — same promise, same state, still
+      // no control — and this check went red at a product that had not broken. A regex over
+      // product copy is a check that fails every time a writer improves a sentence, which
+      // trains people to edit the check without reading it.
+      //
+      // What §26 actually requires of this element is that the sentence standing where the
+      // control is not is REALLY THERE and reaches everyone. So that is what is asserted, and
+      // all of it comes off the DOM rather than out of this file:
+      //
+      //   - the painted note and the accessible name are the SAME string. `waitingCue()`
+      //     claims this in as many words — "one value, generated once … they cannot disagree
+      //     because there is only one of them" — and until now nothing checked it. The note
+      //     is `aria-hidden`, so if the two ever diverged a screen-reader user would get the
+      //     wrong sentence and no walk of the painted text would notice.
+      //   - it is a real sentence, not a label: `waitingSaid()` composes a head, the reason
+      //     and a tail, and the shortest it can be is far above this floor.
+      //   - it carries the BUSY REASON the fixture supplied, which is the clause that says
+      //     why nothing is being asked of him. A cue that dropped it would still read fine
+      //     and would have stopped answering the question §26 is about.
+      //   - it names the version, so the cue cannot degrade into a generic "an update".
       assert(
-        /nothing will be interrupted/.test(seen.noteName),
-        "[" + name + "] the waiting cue's accessible name does not carry the sentence: " +
+        seen.notePainted !== null,
+        "[" + name + "] the waiting cue has no painted note — #update-waiting-note is absent"
+      );
+      assertEqual(
+        seen.noteName,
+        seen.notePainted,
+        "[" + name + "] the accessible name and the painted note are different strings. " +
+          "`waitingCue()` generates one value for both; a screen reader and an eye must not " +
+          "be told different things about a state that offers nothing to press."
+      );
+      assert(
+        seen.noteName.length > 60,
+        "[" + name + "] the waiting cue's accessible name is too short to be the explanation " +
+          "that stands in place of a control: " + JSON.stringify(seen.noteName)
+      );
+      assert(
+        seen.noteName.indexOf("Two specialists are running.") >= 0,
+        "[" + name + "] the waiting cue dropped the reason RichOS is busy, which is the " +
+          "clause that explains why nothing is offered: " + JSON.stringify(seen.noteName)
+      );
+      assert(
+        seen.noteName.indexOf("0.1.2") >= 0,
+        "[" + name + "] the waiting cue does not name the version that is waiting: " +
           JSON.stringify(seen.noteName)
       );
       out.push(name + ": install " + seen.install + ", relaunch " + seen.relaunch + ", a role=note in their place");
