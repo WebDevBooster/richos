@@ -1,5 +1,31 @@
 name: ui-suite-ci
 
+# --- CI-SURFACE DECLARATIONS -----------------------------------------------
+# Read by engine/scripts/lib/ci-surface.py, which judges every workflow on six
+# axes and treats a MISSING declaration as a finding rather than a pass.
+#
+# THE BUDGET IS ARGUED FROM THIS WORKFLOW'S OWN SHARDED RUNS, not from its
+# history, and the distinction matters here more than anywhere else in this
+# directory: the surface standard measured ui-suite-ci at p90 2182s, and that
+# number is the SERIAL job this change replaces. Quoting it as the budget would
+# pin a ceiling to behavior that no longer exists.
+#
+# Measured on the two green sharded runs, both on this branch:
+#   34448209503  7 shards  902s   4 of 7 started at once, 3 queued
+#   34449768368  5 shards  815s   3 of 5 started at once, 2 queued
+#
+# 25m is roughly 1.8x the slower of those. It is deliberately looser than twice
+# the p90 of a settled workflow would be, and the reason is measured rather than
+# cautious: the wall clock here is dominated by how many macOS runners the pool
+# will start at once, which was 3 in one run and 4 in the other, and which this
+# workflow does not control. A tighter ceiling would fire on the pool being busy,
+# which is the fastest way to teach everyone to ignore it. It still catches the
+# thing worth catching — a regression to the ~30m serial behavior trips it.
+# The job's own timeout-minutes is 45.
+# ci-budget: 25m
+# ci-evidence: the `coverage` job refuses unless the union of every shard's receipts EQUALS the suite inventory discovered from disk, all at ONE commit, none duplicated, each having run at least the checks its own source declares — so a green here names all 31 suites rather than counting green ticks
+# ---------------------------------------------------------------------------
+
 # THE BROWSER SUITES, AND NOTHING HAS EVER RUN THEM BUT A PERSON TYPING THE COMMAND.
 #
 # There were twelve when this file was written and twenty-one on 2026-09-04, which is why
