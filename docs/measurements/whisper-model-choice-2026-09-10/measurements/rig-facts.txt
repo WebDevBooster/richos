@@ -1,0 +1,45 @@
+RIG FACTS — the identities and costs every number in this directory is relative to.
+
+== STACK ==
+whisper-cli path      : /opt/homebrew/bin/whisper-cli
+whisper-cli realpath  : /opt/homebrew/Cellar/whisper-cpp/1.9.1/bin/whisper-cli
+whisper-cli sha256    : 7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8
+whisper-cli --version : whisper.cpp version: 1.9.1
+brew whisper-cpp      : whisper-cpp 1.9.1 1.8.3
+brew ggml             : ggml 0.17.0
+host                  : Darwin 24.6.0
+
+== MODEL FILES, and both agree with the pin table in lib/model-pins.json ==
+large-v3-turbo       1624555275 B  sha256 1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69
+large-v3-turbo-q5_0  574041195 B  sha256 394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2
+disk delta           1050514080 B = 1.05 GB = 0.98 GiB
+
+== INTEGRITY-HASH COST, the per-cold-start price of the pin check (3 runs each) ==
+   config.js resolveModel -> checkToolchain hashes the weights on a cache MISS.
+   ggml-large-v3-turbo.bin          run1  2.94 s
+   ggml-large-v3-turbo-q5_0.bin     run1  1.05 s
+   ggml-large-v3-turbo.bin          run2  2.95 s
+   ggml-large-v3-turbo-q5_0.bin     run2  1.06 s
+   ggml-large-v3-turbo.bin          run3  2.95 s
+   ggml-large-v3-turbo-q5_0.bin     run3  1.06 s
+
+== SHORT-CALL CORPORA — two independent renders of ONE script ==
+   render A: 12 wav files, 45259468 bytes, concatenated sha256 8b7820f83784111389e0b0189c0ac75381dfe4021fea908382f6da2cf38d1f9d
+   render B: 12 wav files, 45259400 bytes, concatenated sha256 c5835b78b4c1709f9600b130c848b3fc44f108bf7c7312d851ce01ab5a8a7ae4
+   (a check that returns e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    is hashing NOTHING — that is the sha256 of empty input, and the first version of this
+    check produced exactly it by hashing corpus B before normalizeSession() had run.)
+
+== LONG-FORM CHANNELS — the exact bytes decoded, and what they physically are ==
+   me      177178094 B  sha256 ce12551aed22850a0dc314059834646f47d5aaf082c40dc3df724d374c41a070
+   others  177162638 B  sha256 ff0c70cf42f8dbdfa06fb709173b8dccbbbd8d60032be0e34acaa83349a1d9c0
+   These are the same normalized WAVs the settings rig decoded on 2026-09-10, reused rather
+   than re-normalized, so the turbo rows here are comparable to that record as well.
+
+== LONG-FORM CHANNELS — speech share, measured with the pipeline's own burst probe ==
+   Model-free and decoder-free: this is a property of the AUDIO, so it is the same
+   evidence handed to the guard for both models and it cannot favor either one.
+
+   ch      duration s   bursts   speech s   speech share   peak dB
+   me          5536.8      681     1259.3         22.7%      -0.9
+   others      5536.3      861     2286.5         41.3%      -1.2

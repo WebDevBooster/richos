@@ -1,0 +1,32 @@
+{
+ "config": "q5Nfa",
+ "label": "q5_0, flash attention OFF",
+ "model": "large-v3-turbo-q5_0",
+ "extra": [
+  "-nfa"
+ ],
+ "refWords": 1905,
+ "hypWords": 1903,
+ "S": 39,
+ "D": 10,
+ "I": 8,
+ "wer": 0.029921259842519685,
+ "werCase": 0.04146981627296588,
+ "segments": 143,
+ "wordTimes": 1827,
+ "wallSec": 89.852,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np",
+  "-fa"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "q5Nfa/argv.jsonl",
+ "whisperVersion": null
+}

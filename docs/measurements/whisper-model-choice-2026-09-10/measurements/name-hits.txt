@@ -1,0 +1,56 @@
+PROPER NOUNS — case-sensitive exact hits, the accuracy axis WER cannot see.
+Same counting rule as the settings rig's name-hits.mjs (imported, not reimplemented).
+
+=========== CORPUS RENDER A (4 configurations) ===========
+proper nouns expected in the reference: 66
+
+config                  exact   missed   hit rate   WER      cased WER
+turbo                     47       19     71.21%     4.09%     4.83%
+q5                        44       22     66.67%     2.89%     3.83%
+turboNfa                  44       22     66.67%     3.20%     4.67%
+q5Nfa                     45       21     68.18%     2.99%     4.15%
+
+per term (expected, then exact per config)
+term                    exp        turbo          q5    turboNfa       q5Nfa
+Priya Sandoval            2            2           2           2           2
+Halden Freight            3            3           3           2           2
+Marla Kestrel             2            2           2           2           2
+Corvane Systems           4            1           0           1           0
+Everlock                  4            4           3           4           3
+Ridgeline Analytics       2            2           2           1           2
+Quilvern Media            3            2           2           2           2
+Tobias Renner             6            6           6           6           6
+Nadia Kwok                4            4           3           4           4
+Brightmoor Dental         4            1           3           2           3
+Wexford Road              4            4           4           3           3
+Cannery Street            5            2           1           2           2
+Tidemark                  6            6           6           6           6
+Northgate                 8            8           7           7           8
+Pallas                    7            0           0           0           0
+Devan                     2            0           0           0           0
+
+=========== CORPUS RENDER B (turbo vs q5_0 only) ===========
+proper nouns expected in the reference: 66
+
+config                  exact   missed   hit rate   WER      cased WER
+turbo                     48       18     72.73%     3.20%     4.20%
+q5                        42       24     63.64%     3.04%     3.99%
+
+per term (expected, then exact per config)
+term                    exp        turbo          q5
+Priya Sandoval            2            2           2
+Halden Freight            3            2           2
+Marla Kestrel             2            2           2
+Corvane Systems           4            1           0
+Everlock                  4            4           3
+Ridgeline Analytics       2            2           2
+Quilvern Media            3            2           2
+Tobias Renner             6            6           6
+Nadia Kwok                4            4           3
+Brightmoor Dental         4            3           2
+Wexford Road              4            4           3
+Cannery Street            5            2           2
+Tidemark                  6            6           6
+Northgate                 8            8           7
+Pallas                    7            0           0
+Devan                     2            0           0

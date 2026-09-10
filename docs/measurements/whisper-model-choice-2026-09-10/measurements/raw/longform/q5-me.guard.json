@@ -1,0 +1,18 @@
+{
+ "segmentsIn": 439,
+ "segmentsOut": 436,
+ "wordsIn": 3706,
+ "wordsOut": 3700,
+ "removed": 3,
+ "speechBursts": 681,
+ "peakDb": -0.9,
+ "loopFindings": 0,
+ "loopSpanSec": 0,
+ "loopSharePct": 0,
+ "preserved": 0,
+ "stutters": 0,
+ "insertions": 0,
+ "silenceFabrications": 4,
+ "loops": [],
+ "textRedacted": true
+}

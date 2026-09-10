@@ -1,0 +1,30 @@
+{
+ "config": "turbo",
+ "label": "second corpus render",
+ "model": "large-v3-turbo",
+ "extra": [],
+ "refWords": 1905,
+ "hypWords": 1910,
+ "S": 40,
+ "D": 8,
+ "I": 13,
+ "wer": 0.032020997375328084,
+ "werCase": 0.04199475065616798,
+ "segments": 152,
+ "wordTimes": 1833,
+ "wallSec": 73.068,
+ "whisperArgsBase": [
+  "-l",
+  "en",
+  "-t",
+  "4",
+  "-mc",
+  "0",
+  "-oj",
+  "-np",
+  "-fa"
+ ],
+ "werScorerSha256": "c3362dcf8c79d1e797d7411ff95839e5c06fcad1660d3b5f4c8e9218f4806ec5",
+ "argvLog": "turbo/argv.jsonl",
+ "whisperVersion": null
+}
