@@ -464,6 +464,12 @@ def scan_converters(engine_root, route_keys):
 
     Textual on purpose: five of the eight live converters are Python written
     inside a bash heredoc, which no Python parser will accept."""
+    # This checker's own suite and harness WRITE example converters — some of
+    # them deliberately incomplete — as fixtures. Reading those as live
+    # converters is not a hypothetical false positive: it happened on the first
+    # run of the suite, and a check that reports its own test data as a defect
+    # is a check that gets switched off.
+    self_stem = pathlib.Path(__file__).stem
     converters = []
     for path in sorted(engine_root.rglob("*")):
         if not path.is_file() or path.is_symlink():
@@ -471,6 +477,8 @@ def scan_converters(engine_root, route_keys):
         if path.suffix not in (".sh", ".py", ".bash", ""):
             continue
         if ".git/" in str(path):
+            continue
+        if path.name.startswith(self_stem + "."):
             continue
         try:
             lines = path.read_text(errors="replace").splitlines()
@@ -626,10 +634,15 @@ def main(argv=None):
     unclassified = sorted({k for _m, _f, k, _s in derived
                            if classify(k, classes) not in ("route", "structural", CANARY_CLASS)})
 
+    # R2 evaluates only keys a human has CLASSIFIED. Treating an unclassified
+    # key as routing was the first shape of this and it was wrong on its first
+    # real reproduction: replaying 2afb9703 introduced `daily_cleanup` at the
+    # same time as `cleanup_policy`, both unclassified, and R2 then reported
+    # "MISSING: cleanup_policy, daily_cleanup" against all eight converters —
+    # burying the one real gap under seven inventions. So classification comes
+    # first and R2 speaks second, and the run that classifies is the run that
+    # gets a converter list it can act on.
     route_keys = {k for k, c in classes.items() if c == "route"}
-    # A key the lock has never classified is treated as routing for R2's
-    # purposes, so a converter gap is reported on the same run as the key.
-    route_keys |= set(unclassified)
 
     canary_moved = [r for r in added + removed if r[2] in (BLIND_KEY, INDIRECT_KEY)]
     real_moved = [r for r in added + removed if r[2] not in (BLIND_KEY, INDIRECT_KEY)]
@@ -690,7 +703,11 @@ def main(argv=None):
             "    The signature records the key and not what it means. Set the class column in\n"
             "    %s to `route` (a historical fixture must not carry it, and every converter must\n"
             "    strip it) or `structural` (a historical member carries it like any other).\n"
-            "    This is the decision 2afb9703 and 6472bb60 both skipped."
+            "    This is the decision 2afb9703 and 6472bb60 both skipped.\n"
+            "\n"
+            "    R2 IS DEFERRED FOR THESE KEYS until they are classified, so that the next run\n"
+            "    names the converters that are actually incomplete rather than every converter\n"
+            "    in the tree. Classify, then run again."
             % (", ".join(unclassified), sig_path))
 
     # ---- R2 -------------------------------------------------------------
