@@ -183,18 +183,22 @@ class Cleanup(unittest.TestCase):
         # parent's name, archived by nobody, and deleted by the non-force
         # removal -- commits nowhere else, gone. Reproduced under the lane's
         # binary: `nested: (0, '') | exists after: False`.
-        (self.repo/'.git/info/exclude').write_text('vendor/\n')
-        nested=self.work/'vendor'/'lib';nested.mkdir(parents=True)
+        # (`vendor` left the disposable list in round 13, Sage D5; the same
+        # hole under `node_modules/` — a git dependency npm left its .git in,
+        # or a clone somebody made there — is the case pinned here.)
+        (self.repo/'.git/info/exclude').write_text('node_modules/\n')
+        nested=self.work/'node_modules'/'lib';nested.mkdir(parents=True)
         self.git(nested,'init','-q','-b','main');self.git(nested,'config','user.name','Fixture');self.git(nested,'config','user.email','fixture@example.invalid')
         (nested/'only-here').write_text('commits nobody else holds\n');self.git(nested,'add','only-here');self.git(nested,'commit','-q','-m','only here')
         nested_head=self.git(nested,'rev-parse','HEAD').strip()
-        (self.work/'vendor'/'plain-ignored').write_text('a disposable file beside it\n')
+        (self.work/'node_modules'/'plain-ignored').write_text('a disposable file beside it\n')
         # the premise, asserted rather than assumed: git lists the nested
         # repository as a trailing-slash entry and the plain file as itself
         listed=daily.ignored_files(str(self.work))
-        self.assertIn('vendor/lib/',listed);self.assertIn('vendor/plain-ignored',listed)
+        self.assertIn('node_modules/lib/',listed);self.assertIn('node_modules/plain-ignored',listed)
         keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
-        self.assertEqual((keep,residue),(['vendor/plain-ignored'],['vendor/lib/']))
+        self.assertEqual((keep,residue),(['node_modules/plain-ignored'],['node_modules/lib/']))
+        self.assertNotIn('vendor',daily.disposable_paths(str(self.repo)))     # Sage D5: not regenerable by the list's own bar
         # and a `.git` component is never disposable whatever it sits under
         self.assertEqual(daily.partition_ignored(['node_modules/x/.git/HEAD'],{'node_modules'}),([],['node_modules/x/.git/HEAD']))
         decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('1 archived first',reason)
@@ -202,24 +206,24 @@ class Cleanup(unittest.TestCase):
         journal=result['members'][0]['daily_cleanup']
         self.assertEqual(journal['ignored_disposable'],1)
         residue=journal['ignored_residue']
-        self.assertEqual(residue['nested_repositories'],['vendor/lib'])
+        self.assertEqual(residue['nested_repositories'],['node_modules/lib'])
         self.assertEqual(residue['nested_repository_count'],1)
         with tarfile.open(residue['archive']) as tar:
             names=tar.getnames()
-            self.assertIn('vendor/lib/only-here',names)
+            self.assertIn('node_modules/lib/only-here',names)
             # THE COMMIT ITSELF is in the archive: the loose object of the
             # nested HEAD, under its own .git, byte-identical and verified.
-            self.assertIn('vendor/lib/.git/objects/%s/%s'%(nested_head[:2],nested_head[2:]),names)
-            self.assertIn('vendor/lib/.git',names)                      # a directory entry
-            self.assertTrue(tar.getmember('vendor/lib/.git').isdir())
-            self.assertNotIn('vendor/plain-ignored',names)              # the disposable file was dropped
+            self.assertIn('node_modules/lib/.git/objects/%s/%s'%(nested_head[:2],nested_head[2:]),names)
+            self.assertIn('node_modules/lib/.git',names)                # a directory entry
+            self.assertTrue(tar.getmember('node_modules/lib/.git').isdir())
+            self.assertNotIn('node_modules/plain-ignored',names)        # the disposable file was dropped
         self.assertGreater(residue['directories'],0)
         # restore it and prove the commit is reachable again
         dest=self.root/'restore';dest.mkdir()
         with tarfile.open(residue['archive']) as tar:
             tar.extractall(dest)
-        self.assertEqual(self.git(dest/'vendor'/'lib','rev-parse','HEAD').strip(),nested_head)
-        self.assertEqual(self.git(dest/'vendor'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
+        self.assertEqual(self.git(dest/'node_modules'/'lib','rev-parse','HEAD').strip(),nested_head)
+        self.assertEqual(self.git(dest/'node_modules'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
 
     def test_an_ignored_file_written_after_the_archive_HOLDS_the_removal(self):
         # SAGE D3, ROUND TWO. reconcile() archived and verified the residue,
