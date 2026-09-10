@@ -48,7 +48,14 @@ build_engine() {
     local d="$1"
     mkdir -p "$d/engine/scripts/lib" "$d/engine/scripts/hooks" "$d/engine/hooks"
     cp "$ENGINE_ROOT/scripts/run-all-tests.sh" "$d/engine/scripts/"
-    cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" "$ENGINE_ROOT/scripts/lib/leak-canary.sh" "$d/engine/scripts/lib/"
+    # stopwatch.sh joined the runner's required libraries when per-suite timing
+    # landed: the runner refuses to report a fraction with a missing library, so
+    # a fixture that omits one gets rc=2 and every case below fails for that
+    # reason instead of the one it is about. Nine cases went red exactly that
+    # way. The list here must track the runner's own `for lib in ...` loop.
+    cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" \
+       "$ENGINE_ROOT/scripts/lib/leak-canary.sh" \
+       "$ENGINE_ROOT/scripts/lib/stopwatch.sh" "$d/engine/scripts/lib/"
     chmod +x "$d/engine/scripts/run-all-tests.sh"
     printf 'PROTECTED_PATHS="app"\n' > "$d/engine/orchestration.config"
     git init -q -b main "$d"
