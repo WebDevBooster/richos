@@ -1,5 +1,8 @@
 LONG FORM — 92-minute real recording, channel `me`, large-v3-turbo, whisper.cpp 1.9.1 / ggml 0.17.0
-source: richos-hq/docs/reference/local/01_alex-audio_webinar-recording.mp3 (gitignored, never committed)
+source: the host channel of the 92-minute webinar, in the private record's gitignored reference tree
+        (richos-hq/docs/reference/local/, .gitignore:19). The file is not named here for the same
+        reason the 2026-09-04 publication sweep stopped this service naming whose recordings it was
+        measured on: the names are people's names. See README.md for the full corpus inventory.
 normalize: ffmpeg -ac 1 -ar 16000, the step lib/normalize.js performs
 adjudication: the SHIPPING repetition guard (lib/repetition-guard.js) with the physical speech-burst
               probe (681 bursts, channel peak -0.9 dB), imported not reimplemented
