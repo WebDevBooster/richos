@@ -384,7 +384,7 @@ class Point07_LandedOrDiscarded(Base):
         self.commit(npath)
         self.finish(aid)
         with self.assertRaises(ws.SpecError):
-            ws.discard("zach-opus-o", "half done", not_ceo_ordered="it was not", me=self.sid)
+            ws.discard("zach-opus-o", "half done and superseded", not_ceo_ordered="it was not his order at all", me=self.sid)
         ws.discard("zach-opus-o", "half done and superseded", ceo_word="yes, drop it", me=self.sid)
         self.assertFalse(os.path.exists(npath))
 
@@ -630,5 +630,26 @@ class Point13_Retry(Base):
         self.assertIsNone(ws.load_agent(ws.named_key(self.sid, "zach-opus-rt"))["deletion"])
 
 
+class _Result(unittest.TextTestResult):
+    """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
+    (workspaces.mutation.sh) can tell which point went red."""
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self.stream.write("  PASS  %s\n" % test._testMethodName)
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        self.stream.write("  FAIL  %s\n" % test._testMethodName)
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        self.stream.write("  FAIL  %s (error)\n" % test._testMethodName)
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=0, resultclass=_Result)
+    result = runner.run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))
+    print("=== workspaces spec tests: %d run, %d failed ===" % (
+        result.testsRun, len(result.failures) + len(result.errors)))
+    sys.exit(0 if result.wasSuccessful() else 1)
