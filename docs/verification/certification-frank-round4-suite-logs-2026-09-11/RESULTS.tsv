@@ -25,3 +25,4 @@ scripts/hooks/terminalize-agent-worktrees.test.sh	rc=0	wall=87s	2026-09-11T01:14
 scripts/hooks/detect-nonnative-worktree.test.sh	rc=0	wall=68s	2026-09-11T01:15:21Z
 scripts/hooks/guard-sealed-worktree.test.sh	rc=0	wall=64s	2026-09-11T01:16:25Z
 scripts/reconcile-terminal-worktrees.test.sh	rc=0	wall=71s	2026-09-11T01:17:36Z
+scripts/reconcile-terminal-worktrees.mutation.sh	rc=0	wall=340s	2026-09-11T01:24:15Z
