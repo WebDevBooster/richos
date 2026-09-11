@@ -8,11 +8,21 @@ One JSON object per line, appended, never rewritten. It lives outside every
 repository and outside every session team directory, because it has to outlive
 both — that is its entire job.
 
+## 2026-09-11: this ledger decides nothing about a workspace
+
+The CEO's workspace spec (`docs/plans/worktree-spec-2026-09-11.md`) replaced the
+machinery this page describes. Registration is the workspace registry's
+(`scripts/lib/workspaces.py`), deletion is its land and discard, and nothing
+reads this ledger to create, keep or delete a workspace. The reaper, the
+transaction store and the reconciler named below were removed on 2026-09-11;
+what follows is kept as the contract of the rows the remaining reporters read,
+and as the history of how they came to be written.
+
 ## 2026-09-03: ownership is exact path only, and removal is a transaction
 
 Everything below about judging an owner's liveness is now REPORTING. No sweep
 removes a worktree on a liveness verdict any more; removal belongs to the
-transaction lifecycle in `docs/worktree-lifecycle-transactions.md`:
+transaction lifecycle (removed 2026-09-11):
 a `prepared` record at creation, a spawn-intent bound to the platform's agent
 id, a sealed manifest, a compare-and-set terminal claim at the first
 SubagentStop or WorktreeRemove, and a persistent reconciler. In this ledger:
@@ -54,7 +64,7 @@ The full account, with the command or `file:line` behind every claim, is
 |---|---|---|
 | `registered` | `scripts/hooks/detect-nonnative-worktree.sh` (PostToolUse[Agent], beside the `spawned-names.log` append) | teammate, agent id (from the async-launch acknowledgement), session id, **session pid + `ps` start time** (from the native lock line, else `CLAUDE_PID`), the native worktree path and branch; a `cwd` spawn's hand-rolled path with its repository and branch; every `cross-repo-worktree: <path>` prompt line |
 | `registered` | `scripts/create-teammate-worktree.sh` | the same, for a cross-repository worktree it created and seeded, keyed by exact path |
-| `terminated` | `scripts/reap-stale-worktrees.sh` (gate 1 and on removal), `scripts/remove-agent-worktree.sh`, `worktree-ledger.py judge-batch` | a POSITIVE, WITNESSED termination: the native worktree observed registered-and-unlocked or stale-locked by a dead pid, or removed after that verdict. Once per agent id. **Never** a verdict that rested on absence. |
+| `terminated` | the reaper (gate 1 and on removal) and the removal helper — both removed 2026-09-11 — and `worktree-ledger.py judge-batch` | a POSITIVE, WITNESSED termination: the native worktree observed registered-and-unlocked or stale-locked by a dead pid, or removed after that verdict. Once per agent id. **Never** a verdict that rested on absence. |
 | `finished` | `teammate-idle-handoff.sh`, `task-completed-handoff.sh`, `worker-ended-handoff.sh` | an ADVISORY per-agent signal (TeammateIdle / TaskCompleted / SubagentStop) keyed to agent id and worktree path |
 
 `finished` is not death. An idle teammate can be resumed by a message
@@ -150,10 +160,9 @@ did you remove" and "how many could be removed".
 
 **`would-remove>0` is PENDING, never CLEAN, and the clause names the command
 that turns removal on.** These worktrees passed every gate and no terminal
-transaction claims them, so `reconcile-terminal-worktrees.py` — the mechanism
-that actually removes things — will never come for them. They sit until an
-operator runs `scripts/reap-stale-worktrees.sh <root> --discover --execute` by
-hand. That is the population the CEO found in his IDE on 2026-09-04.
+transaction claims them, so the reconciler — the mechanism that actually
+removed things — would never come for them. They sat until an operator ran the
+reaper with `--discover --execute` by hand. That is the population the CEO found in his IDE on 2026-09-04.
 
 **The verdict names EVERY pending condition, not the first one it meets.**
 First-match-wins hid whichever condition sorted later.
@@ -232,8 +241,8 @@ WRITES, and a test that writes the operator's real record is a test with side
 effects. Under `REAP_WORKTREES_ROOT` the two wrappers pin them inside the
 sandbox automatically.
 
-Suites: `scripts/lib/worktree-ledger.test.sh` (24), `scripts/reap-stale-worktrees.test.sh`
-(28), `scripts/create-teammate-worktree.test.sh` (16), plus the extended
+Suites: `scripts/lib/worktree-ledger.test.sh` (24), the reaper's suite (28, removed
+2026-09-11), `scripts/create-teammate-worktree.test.sh` (16), plus the extended
 guard, detector, lifecycle, removal and wrapper suites. Every verdict-shaped
 case is two-sided, and every suite was turned red by a source mutation before
 it was trusted.

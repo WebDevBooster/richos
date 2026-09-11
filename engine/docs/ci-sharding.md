@@ -81,8 +81,9 @@ still reports on a docs-only diff, where `affected` is correctly skipped and the
 required check would otherwise leave the commit ungated.
 
 **A NEW CHECK NEEDS NO EDIT HERE, and that was tested rather than claimed.** On 2026-09-10 the
-lead asked whether the changed-paths job wanted `engine/scripts/cleanup-routing-contract.py`,
-which had just landed as a standalone script with its own suite. The answer is no, and the
+lead asked whether the changed-paths job wanted the cleanup-routing contract script,
+which had just landed as a standalone script with its own suite (both were removed with the
+old workspace machinery on 2026-09-11; the measurement below is kept as it was taken). The answer is no, and the
 answer is the design:
 
 ```
@@ -108,7 +109,7 @@ suite dominated everything:
 | unit | Linux, run `34396549904` |
 |---|---|
 | `scripts/hooks/contract-integrity.test.sh` | 2335.9 s (39 min) |
-| `scripts/reconcile-terminal-worktrees.test.sh` | 939.7 s (16 min) |
+| the reconciler's suite (removed 2026-09-11) | 939.7 s (16 min) |
 | the other 119 suites together | 4133.4 s |
 
 `contract-integrity.test.sh` already takes `--only <section>` and carries 24 sections, so it
