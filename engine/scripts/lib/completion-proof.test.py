@@ -14,6 +14,8 @@ HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('completion_proof',HERE/'completion-proof.py')
 proof=importlib.util.module_from_spec(spec);spec.loader.exec_module(proof)
 HOOK=HERE.parent/'hooks/task-completed-handoff.sh'
+wspec=importlib.util.spec_from_file_location('completion_test_workspaces',HERE/'workspaces.py')
+ws=importlib.util.module_from_spec(wspec);wspec.loader.exec_module(ws)
 
 class Completion(unittest.TestCase):
     def setUp(self):
@@ -21,7 +23,8 @@ class Completion(unittest.TestCase):
         self.root=Path(self.temp.name).resolve();self.repo=self.root/'canonical';self.repo.mkdir()
         self.home=self.root/'home';self.home.mkdir();self.profile=self.home/'.claude';self.profile.mkdir()
         env={k:v for k,v in os.environ.items() if not k.startswith(('RICHOS_','CLAUDE_','TASK_COMPLETED_'))}
-        env.update(HOME=str(self.home),CLAUDE_CONFIG_DIR=str(self.profile),RICHOS_WORKTREE_LEDGER=str(self.root/'ledger.jsonl'))
+        env.update(HOME=str(self.home),CLAUDE_CONFIG_DIR=str(self.profile),RICHOS_WORKTREE_LEDGER=str(self.root/'ledger.jsonl'),
+                   RICHOS_WORKSPACES_DIR=str(self.root/'workspaces'))
         self.environment=patch.dict(os.environ,env,clear=True);self.environment.start()
         self.git(self.repo,'init','-b','main');self.git(self.repo,'config','user.name','Fixture');self.git(self.repo,'config','user.email','fixture@example.invalid')
         (self.repo/'orchestration.config').write_text('# fixture adoption\n');(self.repo/'tracked').write_text('initial\n');(self.repo/'.gitignore').write_text('ignored\n')
@@ -29,10 +32,11 @@ class Completion(unittest.TestCase):
         self.worker=self.root/'worker';self.git(self.repo,'worktree','add','-b','worker',str(self.worker))
         self.sid='fixture-session-123456';self.aid='fixture-agent-123456';self.owner='worker-fixture';self.tid='7'
         self.member=dict(path=str(self.worker),repo=str(self.repo),branch='worker',**{'class':'hand-rolled'})
-        self.tx=dict(record='transaction',session_id=self.sid,agent_id=self.aid,tool_use_id='tool-1',teammate=self.owner,kind='cwd',members=[self.member],sealed=True,start_cwd=str(self.worker),terminal=None)
-        self.write(self.profile/'state/worktree-transactions'/self.sid/(self.aid+'.json'),self.tx)
-        self.write(self.profile/'state/worktree-transactions'/self.sid/'bound'/(self.aid+'.json'),dict(agent_id=self.aid,session_id=self.sid,teammate=self.owner,tool_use_id='tool-1'))
-        self.write(self.profile/'state/worktree-transactions'/self.sid/'starts'/(self.aid+'.json'),dict(agent_id=self.aid,session_id=self.sid,cwd_real=str(self.worker)))
+        # The worker's registration (docs/plans/worktree-spec-2026-09-11.md,
+        # points 3, 6): recorded at spawn, bound to its agent id, one workspace.
+        self.rec=ws.new_record(ws.named_key(self.sid,self.owner),name=self.owner,session_id=self.sid,agent_id=self.aid)
+        ws._add_workspace(self.rec,'cc',str(self.repo),str(self.worker),'worker','fixture')
+        ws.save_agent(self.rec)
         self.task=dict(id=self.tid,subject='Fixture delivery',description='Work',status='in_progress',owner=self.owner)
         self.task_path=self.profile/'tasks'/self.sid/(self.tid+'.json');self.write(self.task_path,self.task)
         self.payload=dict(hook_event_name='TaskCompleted',session_id=self.sid,task_id=self.tid,task_subject=self.task['subject'],teammate_name=self.owner,cwd=str(self.repo))
@@ -74,8 +78,8 @@ class Completion(unittest.TestCase):
         # this a linked worktree with one __pycache__ could neither complete its
         # task nor ever be reclaimed. The proof's digest covers tracked entries
         # only, so the ignored file leaves it byte-identical; what becomes of the
-        # ignored bytes is the reclaim lane's decision, pinned in
-        # daily-workspace-cleanup.test.py.
+        # ignored bytes is the land's decision (point 8), pinned in
+        # workspaces.test.py.
         clean=proof.prove_member(self.member)
         (self.worker/'ignored').write_text('local build output')
         cache=self.worker/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00')
@@ -181,9 +185,9 @@ class Completion(unittest.TestCase):
         for key,value in [('task_id','wrong'),('session_id','wrong-session'),('teammate_name','different')]:
             payload=dict(self.payload,**{key:value})
             with self.subTest(key=key),self.assertRaises((proof.CompletionError,FileNotFoundError)):proof.complete(payload)
-        start=self.profile/'state/worktree-transactions'/self.sid/'starts'/(self.aid+'.json')
-        self.write(start,dict(agent_id=self.aid,session_id='other',cwd_real=str(self.worker)))
-        with self.assertRaisesRegex(proof.CompletionError,'session'):proof.complete(self.payload)
+        # The completion names a different agent than the one registered.
+        with self.assertRaisesRegex(proof.CompletionError,'different agent'):
+            proof.complete(dict(self.payload,agent_id='some-other-agent'))
     def test_foreign_canonical_and_changed_canonical_identity_refuse(self):
         other=self.root/'other';other.mkdir();self.git(other,'init','-b','main')
         with self.assertRaises(proof.CompletionError):proof.prove_member(dict(self.member,repo=str(other)))
@@ -243,9 +247,9 @@ class Completion(unittest.TestCase):
         self.assertEqual(receipts,[latest])
         prior=proof.receipt_root()/self.sid/'7.json';row=proof.read_json(prior);row['teammate']='tampered';self.write(prior,row)
         with self.assertRaisesRegex(proof.CompletionError,'digest'):proof.receipts_for_member(self.sid,self.aid,self.worker)
-    def test_remote_task_is_explicit_nonlocal_scope(self):
-        self.tx.update(kind='remote',members=[]);self.write(self.profile/'state/worktree-transactions'/self.sid/(self.aid+'.json'),self.tx)
-        receipt=proof.complete(self.payload);self.assertEqual(receipt['members'],[]);self.assertEqual(receipt['non_code_evidence'],'remote')
+    def test_a_registered_worker_with_no_workspace_is_explicit_nonlocal_scope(self):
+        self.rec['workspaces']=[];ws.save_agent(self.rec)
+        receipt=proof.complete(self.payload);self.assertEqual(receipt['members'],[]);self.assertEqual(receipt['non_code_evidence'],'no-local-workspace')
     def test_post_removal_replay_allows_exact_branch_absence_not_substitution(self):
         value=proof.prove_member(self.member);self.git(self.repo,'worktree','remove',str(self.worker))
         proof.verify_member_proof(value,path_present=False)

@@ -431,6 +431,7 @@ def complete(payload):
         proofs=[prove_member(m) for m in members]
         aid='lead-'+sid
         tx={'record':'native-lead-task','kind':'lead-git' if proofs else 'lead-non-git','native_session':lead}
+        evidence=tx['kind']
     else:
         tx=rec;aid=segment(rec.get('agent_id') or ('unbound-'+owner))
         if payload.get('agent_id') and rec.get('agent_id') and payload['agent_id']!=rec['agent_id']:
@@ -441,9 +442,12 @@ def complete(payload):
             proofs=[]  # a worker with no workspace on disk (a main-checkout run, a remote one) has no local scope
         else:
             proofs=[prove_member(m) for m in members]
+        # A registration record has no `kind`: a registered worker with no
+        # workspace on disk says so by name rather than raising KeyError.
+        evidence='no-local-workspace'
     receipt={'version':1,'kind':'integrated-completion','session_id':sid,'task_id':tid,'agent_id':aid,'teammate':owner,
              'task_record_sha256':digest(task),'transaction_sha256':digest(tx),'members':proofs,
-             'non_code_evidence':tx['kind'] if not proofs else None}
+             'non_code_evidence':evidence if not proofs else None}
     receipt['proof_sha256']=digest(receipt)
     directory=receipt_root()/sid;directory.mkdir(parents=True,exist_ok=True,mode=0o700)
     target=directory/(tid+'.json')
