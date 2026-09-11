@@ -23,7 +23,6 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEDGER_PY="$SCRIPT_DIR/worktree-ledger.py"
-TX_PY="$SCRIPT_DIR/worktree-transactions.py"
 
 PASS=0
 FAIL=0
@@ -38,7 +37,10 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 
 LEDGER="$SANDBOX/ledger.jsonl"
 L() { python3 "$LEDGER_PY" --ledger "$LEDGER" "$@"; }
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# A transaction store left on disk from before 2026-09-11, when it was removed
+# with every deleter the workspace spec does not have. Nothing reads it now;
+# the fixtures below write it to prove exactly that.
+OLD_TX="$SANDBOX/tx"
 
 # NO local git identity override: fixtures inherit the operator's real global
 # identity, which a machine-wide pre-commit identity guard requires.
@@ -133,17 +135,16 @@ else
     bad "L06  live session pid: $V"
 fi
 
-# 4b. THE PLATFORM'S TERMINAL RECORD DECIDES WHAT ABSENCE COULD NOT (round 14,
-#     2026-09-11, O2). Same registration as L06 -- session running, native
-#     shell absent -- plus a SEALED TERMINAL TRANSACTION in the store naming
-#     this exact path as a member: the platform's own SubagentStop claimed the
-#     agent. That is positive evidence, the same fact the reclaim lane removes
-#     on, and it turns L06's INDETERMINATE into NOT-ALIVE. A transaction that
-#     names a DIFFERENT path, or an adopted one, decides nothing (controls).
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# 4b. THE REMOVED TRANSACTION STORE DECIDES NOTHING (2026-09-11). Until the
+#     CEO's workspace spec (docs/plans/worktree-spec-2026-09-11.md) a SEALED
+#     TERMINAL TRANSACTION naming this exact path turned L06's INDETERMINATE
+#     into NOT-ALIVE. That store was removed with the deleters that read it;
+#     a record left where it lived is evidence of nothing, so the same
+#     registration stays INDETERMINATE while its session runs — never
+#     NOT-ALIVE on a record the engine no longer keeps.
 tx_terminal() { # <session-id> <agent-id> <member-path> [kind]
-    mkdir -p "$RICHOS_WORKTREE_TX_DIR/$1"
-    python3 - "$RICHOS_WORKTREE_TX_DIR/$1/$2.json" "$1" "$2" "$3" "${4:-}" <<'PY'
+    mkdir -p "$OLD_TX/$1"
+    python3 - "$OLD_TX/$1/$2.json" "$1" "$2" "$3" "${4:-}" <<'PY'
 import datetime, json, sys
 path, sid, aid, member, kind = sys.argv[1:6]
 rec = {"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": "zach-opus-live",
@@ -156,38 +157,11 @@ if kind:
 json.dump(rec, open(path, "w"))
 PY
 }
-tx_terminal sess-now live001 "$SANDBOX/wt/somewhere-else"
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
-printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
-    && ok "L06a  a terminal transaction naming ANOTHER path decides nothing about this one (control)" \
-    || bad "L06a  other-path transaction: $V"
-tx_terminal sess-now live001 "$SANDBOX/wt/zach-opus-live" adopted
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
-printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
-    && ok "L06a' an ADOPTED terminal transaction (the engine's own derivation, not the platform's word) decides nothing (control)" \
-    || bad "L06a' adopted transaction: $V"
 tx_terminal sess-now live001 "$SANDBOX/wt/zach-opus-live"
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
-if printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record: the platform.s own terminal record for agent live001: SubagentStop at .* is member 1 of 1'; then
-    ok "L06b  the platform's SEALED TERMINAL RECORD naming this exact path turns the same registration NOT-ALIVE while the session still runs -- positive evidence, the fact the reclaim lane removes on"
-else
-    bad "L06b  terminal record: $V"
-fi
-# 4c. ...and ROW 5 STILL APPLIES: a post-terminal start note with no stop
-#     after it means the platform ran the agent AGAIN, and the verdict is
-#     INDETERMINATE with row 5's own reason, never NOT-ALIVE.
-python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind start --detail /cwd >/dev/null
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
-if printf '%s' "$V" | grep -q '^INDETERMINATE.*RETRY, not a verdict: the platform started agent live001 again after its terminal record'; then
-    ok "L06c  a post-terminal run OPEN in the transaction's notes holds the verdict at INDETERMINATE with row 5's reason (the agent is running again; the record is not death)"
-else
-    bad "L06c  open run: $V"
-fi
-python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind stop --detail SubagentStop >/dev/null
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
-printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' \
-    && ok "L06d  and once that run's stop is recorded the verdict is NOT-ALIVE again" \
-    || bad "L06d  after the stop: $V"
+V="$(RICHOS_WORKTREE_TX_DIR="$OLD_TX" L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple --no-write)"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06b  a terminal record left by the REMOVED transaction store decides nothing: still INDETERMINATE while the session runs" \
+    || bad "L06b  removed store's record: $V"
 
 # =========================================================================
 # 4d-4k. ROUND 15 (2026-09-11, Frank D1-D3 / Sage D-A): THE LOCK IS RESOLVED
@@ -207,8 +181,8 @@ printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' \
 ENTITY_B="$SANDBOX/entity-b"
 seed_repo "$ENTITY_B"
 tx_terminal2() { # <session-id> <agent-id> <teammate> <native-repo> <native-path> <hand-rolled-path>
-    mkdir -p "$RICHOS_WORKTREE_TX_DIR/$1"
-    python3 - "$RICHOS_WORKTREE_TX_DIR/$1/$2.json" "$@" <<'PY'
+    mkdir -p "$OLD_TX/$1"
+    python3 - "$OLD_TX/$1/$2.json" "$@" <<'PY'
 import datetime, json, sys
 path, sid, aid, teammate, nrepo, npath, hpath = sys.argv[1:8]
 rec = {"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": teammate,
@@ -258,20 +232,23 @@ else
     bad "L06e  wrong entity (rows $N0 -> $N1): B=[$VB] A=[$VA]"
 fi
 
-# 4e. THE TRANSACTION'S OWN NATIVE MEMBER is enough — no native ledger row at
-#     all, only the hand-rolled row and the manifest the reclaim lane reads.
-#     And the CONTROL that proves the lookup is real rather than a stub that
-#     answers ALIVE: the same shape with the shell UNLOCKED is the observed
-#     termination it always was, written once, through the manifest's repo.
+# 4e. THE REMOVED TRANSACTION'S NATIVE MEMBER NAMES NOTHING (2026-09-11).
+#     Until the store was removed, a transaction's own native member named the
+#     repository whose lock speaks for a cross-repository tree with no native
+#     ledger row. Now only the ledger's own native rows and the caller's
+#     entity do. With the tree's entity and no native row, the shell cannot be
+#     found, and the verdict is INDETERMINATE while the session runs — held,
+#     never NOT-ALIVE and never a termination written from a guess — whether
+#     the shell in the session repository is locked (f) or unlocked (f').
 add_native "$ENTITY" "xr002" "$$"
 L record registered --teammate sage-fable-x2 --agent-id xr002 --session-id sess-now \
     --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY_B" \
     --worktree "$SANDBOX/wt-b/sage-fable-x2" --branch cc/sage-fable-x2 --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
 tx_terminal2 sess-now xr002 sage-fable-x2 "$ENTITY" "$ENTITY/.claude/worktrees/agent-xr002" "$SANDBOX/wt-b/sage-fable-x2"
 V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/sage-fable-x2" --format triple)"
-printf '%s' "$V" | grep -q '^ALIVE.*LOCKED by running pid' \
-    && ok "L06f  with NO native ledger row, the transaction's own native member names the repository whose lock speaks — ALIVE with the tree's entity" \
-    || bad "L06f  transaction member lookup: $V"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06f  with NO native ledger row, the removed transaction's native member names no repository: INDETERMINATE while the session runs" \
+    || bad "L06f  removed store's member lookup: $V"
 add_native "$ENTITY" "xr003"
 L record registered --teammate sage-fable-x3 --agent-id xr003 --session-id sess-now \
     --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY_B" \
@@ -280,31 +257,22 @@ tx_terminal2 sess-now xr003 sage-fable-x3 "$ENTITY" "$ENTITY/.claude/worktrees/a
 T0="$(terminated_rows)"
 V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/sage-fable-x3" --format triple)"
 T1="$(terminated_rows)"
-if printf '%s' "$V" | grep -q '^NOT-ALIVE.*OBSERVED now' && [ "$T1" -eq $((T0 + 1)) ] \
-   && grep '"agent_id": "xr003"' "$LEDGER" | grep -q '"witness": "reaper-observation"'; then
-    ok "L06f' (control) the same shape with the shell UNLOCKED in the session repository is the OBSERVED termination, witnessed once through the manifest — the lookup is real"
+if printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" && [ "$T1" -eq "$T0" ]; then
+    ok "L06f' the same shape with the shell UNLOCKED is not observed through the removed manifest either: INDETERMINATE, and no termination written"
 else
-    bad "L06f' unlocked shell via the manifest (terminated $T0 -> $T1): $V"
+    bad "L06f' unlocked shell via the removed manifest (terminated $T0 -> $T1): $V"
 fi
 
-# 4f. FRANK'S SEQUENCE. The terminal-record verdict with write ON persists
-#     NOTHING; then the platform starts the agent again, and the verdict is
-#     row 5's INDETERMINATE — a property one persisted row destroyed in
-#     round 14 (the sandbox in certification-frank-round4, D1).
+# 4f. NOTHING IS WRITTEN FROM A RECORD. With write ON, the registration whose
+#     only evidence was the removed store's terminal record appends no row.
 T0="$(terminated_rows)"
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple)"
+V="$(RICHOS_WORKTREE_TX_DIR="$OLD_TX" L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple)"
 T1="$(terminated_rows)"
-if printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' && [ "$T1" -eq "$T0" ]; then
-    ok "L06g  the terminal-record verdict with write ON appends NO terminated row — the store is re-read, never copied"
+if printf '%s' "$V" | grep -q '^INDETERMINATE' && [ "$T1" -eq "$T0" ]; then
+    ok "L06g  with write ON, a registration whose only evidence is the removed store's record appends NO terminated row and stays INDETERMINATE"
 else
-    bad "L06g  2b wrote (terminated $T0 -> $T1): $V"
+    bad "L06g  write from a removed record (terminated $T0 -> $T1): $V"
 fi
-python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind start --detail /cwd-again >/dev/null
-V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple)"
-printf '%s' "$V" | grep -q '^INDETERMINATE.*RETRY, not a verdict: the platform started agent live001 again' \
-    && ok "L06g' and a post-terminal start AFTER a write-enabled judgment still holds at row 5's INDETERMINATE — the record was not made permanent" \
-    || bad "L06g' open run after a write-enabled judgment: $V"
-python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind stop --detail SubagentStop >/dev/null
 
 # 4g. A RECORD-DERIVED WITNESS ON THE LEDGER NEVER OUTRANKS THE LOCK. The
 #     one row round 14 wrote on the operator's ledger has this exact shape;
@@ -344,14 +312,16 @@ printf '%s' "$OUT" | grep -q '"skipped": "already retracted"' && [ "$N1" -eq "$N
     && ok "L06j' a second retraction of the same row is skipped, not duplicated" \
     || bad "L06j' duplicate retraction: $OUT ($N0 -> $N1)"
 
-# 4h. THE TWO-ROW SHAPE (Frank D3). What every helper-made tree carries: a
+# 4h. THE TWO-ROW SHAPE (Frank D3). What every helper-made tree carried: a
 #     `prepared` row with NO agent id (create-teammate-worktree.sh, before the
 #     spawn) and a `registered` row with one (detect-nonnative-worktree.sh,
-#     after). Shell absent, session alive, terminal record closed. The
-#     id-less row is joined to the id, so the aggregate is the record's
-#     NOT-ALIVE and not step 3's INDETERMINATE — and the reason says so.
-#     Two controls: a HAND-WRITTEN prepared row never joins; two ids for one
-#     name in one session are ambiguous and never join.
+#     after). Shell absent, session alive, a witnessed termination on the
+#     ledger for the id. The id-less row is joined to the id, so the aggregate
+#     is the witnessed NOT-ALIVE and not step 3's INDETERMINATE -- and the
+#     reason says so. (Until 2026-09-11 the deciding evidence here was the
+#     removed transaction store's terminal record.) Two controls: a
+#     HAND-WRITTEN prepared row never joins; two ids for one name in one
+#     session are ambiguous and never join.
 two_rows() { # <teammate> <agent-id> <prepared-source> [second-agent-id]
     local tm="$1" aid="$2" src="$3" aid2="${4:-}"
     L record prepared --teammate "$tm" --session-id sess-now --session-pid "$$" --pid-start "$MY_START" \
@@ -360,13 +330,13 @@ two_rows() { # <teammate> <agent-id> <prepared-source> [second-agent-id]
         --repo "$ENTITY_B" --worktree "$SANDBOX/wt-b/$tm" --branch "cc/$tm" --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
     [ -z "$aid2" ] || L record registered --teammate "$tm" --agent-id "$aid2" --session-id sess-now --session-pid "$$" --pid-start "$MY_START" \
         --repo "$ENTITY_B" --worktree "$SANDBOX/wt-b/$tm" --branch "cc/$tm" --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
-    tx_terminal "sess-now" "$aid" "$SANDBOX/wt-b/$tm"
+    L record terminated --agent-id "$aid" --teammate "$tm" --session-id sess-now \
+        --worktree "$SANDBOX/wt-b/$tm" --reason "fixture: a termination this ledger witnessed" --witness reaper-observation >/dev/null
 }
 two_rows zach-opus-two two001 create-teammate-worktree.sh
 V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/zach-opus-two" --format triple)"
-if printf '%s' "$V" | grep -q '^NOT-ALIVE.*2 registrations match (ledger); prepared row joined to agent two001.*platform terminal record' \
-   && printf '%s' "$V" | grep -q 'two001' ; then
-    ok "L06k  the two-row shape (id-less prepared + registered with the id), shell absent, session alive, record closed -> NOT-ALIVE from the record, the prepared row JOINED to the id and the reason saying so"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*2 registrations match (ledger); prepared row joined to agent two001.*witnessed termination on record' ; then
+    ok "L06k  the two-row shape (id-less prepared + registered with the id), shell absent, session alive, termination witnessed -> NOT-ALIVE, the prepared row JOINED to the id and the reason saying so"
 else
     bad "L06k  two-row shape: $V"
 fi
@@ -381,8 +351,7 @@ printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
     && ok "L06k'' (control) two agent ids for one name in one session are ambiguous: no join, INDETERMINATE" \
     || bad "L06k'' ambiguous join: $V"
 
-# the fixture's transactions must not leak into the cases below, which assert L06's shape elsewhere
-rm -rf "$RICHOS_WORKTREE_TX_DIR/sess-now"
+rm -rf "$OLD_TX/sess-now"
 
 # 5. PID REUSED -> NOT-ALIVE. Same pid as case 4, but the recorded start time is
 #    not this process's start time: that process is gone and its number was
@@ -579,31 +548,13 @@ L registrations --worktree "$SANDBOX/other-wt/mark-opus-pr1" >/dev/null \
 L registrations --worktree "$SANDBOX/other-wt/mark-opus-pr1-twin" >/dev/null 2>&1 \
     && bad "L27  registrations matched a different path" || ok "L27  registrations --worktree does NOT match a different path with the same name"
 
-# 18. bound-members: NOTHING without a sealed transaction — no registration,
-#     no prepared record, no name is a substitute — and the sealed members
-#     with one. The transaction library is the only source.
-if [ -f "$TX_PY" ]; then
-    BM="$(L bound-members --session-id sess-now --agent-id bm0001)"
-    [ -z "$BM" ] && ok "L28  bound-members: no sealed transaction -> nothing (no fallback to registrations or names)" \
-                 || bad "L28  bound-members without a transaction returned: $BM"
-    add_native "$ENTITY" "bm0001" "$$"
-    python3 - "$TX_PY" <<'PY' >/dev/null
-import json, sys, importlib.util, os
-spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
-tx.write_intent("sess-now", "tu-bm", {"kind": "native", "teammate": "bm-opus-1", "externals": []})
-tx.bind("sess-now", "tu-bm", "bm0001", "test")
-PY
-    python3 "$TX_PY" start --session-id sess-now --agent-id bm0001 --cwd "$ENTITY/.claude/worktrees/agent-bm0001" >/dev/null
-    python3 "$TX_PY" seal --session-id sess-now --agent-id bm0001 >/dev/null
-    BM="$(L bound-members --session-id sess-now --agent-id bm0001)"
-    if printf '%s' "$BM" | grep -q "^native	$ENTITY	$ENTITY/.claude/worktrees/agent-bm0001	worktree-agent-bm0001	bound$"; then
-        ok "L29  bound-members: a sealed transaction's exact native member is returned"
-    else
-        bad "L29  bound-members sealed: [$BM]"
-    fi
-else
-    bad "L29  scripts/lib/worktree-transactions.py is missing beside the ledger"
-fi
+# 18. bound-members: NOTHING, ever. It returned a sealed transaction's exact
+#     members for a destructive caller; the store and the destructive callers
+#     are removed (2026-09-11), and no registration, prepared record or name
+#     is a substitute for what is gone.
+BM="$(L bound-members --session-id sess-now --agent-id bm0001)"
+[ -z "$BM" ] && ok "L28  bound-members: nothing (the transaction store is removed; no fallback to registrations or names)" \
+             || bad "L28  bound-members returned: $BM"
 
 # =========================================================================
 # SESSION DEATH BY EXHAUSTION — owners registered by PATH with a session id

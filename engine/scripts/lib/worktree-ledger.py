@@ -63,11 +63,12 @@ was matched by teammate name (= branch or directory name) and then by a
 transcript's name join; both keys are reusable across sessions, so a verdict
 that deleted on them could delete a later, unrelated tree. Both are removed
 from destructive authority (docs/plans/worktree-real-fix-2026-09-03.md). The
-transcript index survives for repository ELIGIBILITY reporting only. And for
-a worker spawned under the transaction lifecycle, the authoritative member
-set is `bound_members(session_id, agent_id)` — the sealed transaction in
-scripts/lib/worktree-transactions.py — with no fallback of any kind. Then,
-per exact-path registration:
+transcript index survives for repository ELIGIBILITY reporting only. (The
+transaction store that once held a worker's authoritative member set was
+removed on 2026-09-11 with every deleter the CEO's workspace spec does not
+have; docs/plans/worktree-spec-2026-09-11.md. A worker's workspaces are the
+workspace registry's now, scripts/lib/workspaces.py, and this ledger decides
+nothing destructive.) Then, per exact-path registration:
 
     a `terminated` record exists for the agent ........... NOT-ALIVE (witnessed)
     native isolation worktree LOCKED by a running pid ..... ALIVE
@@ -276,19 +277,8 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
             seen.add(real)
             paths.append(p)
 
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location("tx", os.path.join(here, "worktree-transactions.py"))
-        tx = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tx)
-        transaction = tx.load_tx(session_id, agent_id) if (session_id and agent_id) else None
-    except Exception:
-        transaction = None
-    if transaction:
-        teammate = teammate or (transaction.get("teammate") or "")
-        for member in transaction.get("members") or []:
-            add(member.get("path"))
-
+    # (The sealed transaction's members were read first here until the
+    # transaction store was removed on 2026-09-11.)
     try:
         rows = read_all()
     except Exception:
@@ -897,42 +887,13 @@ def prepared_records(records, session_id=None, teammate=None, worktree=None, rep
 
 
 def bound_members(session_id, agent_id):
-    """The AUTHORITATIVE member set for a destructive caller: the SEALED
-    transaction's exact members (scripts/lib/worktree-transactions.py), or
-    nothing. There is deliberately no fallback to a registration, a name, a
-    branch or a transcript — a caller that would delete on any of those is
-    the caller this function exists to refuse."""
-    mod = _transactions_module()
-    if mod is None:
-        return []
-    try:
-        return mod.bound_members(session_id, agent_id)
-    except Exception:
-        return []
-
-
-_TX_MODULE = None
-
-
-def _transactions_module():
-    """The transaction library, loaded ONCE per process. It reads its store
-    root from the environment on every call, so caching the module changes
-    nothing a test that redirects RICHOS_WORKTREE_TX_DIR can observe; what it
-    saves is one exec of a 2,300-line file per registration in a batch."""
-    global _TX_MODULE
-    if _TX_MODULE is not None:
-        return _TX_MODULE
-    try:
-        import importlib.util as ilu
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = ilu.spec_from_file_location(
-            "worktree_transactions_for_ledger", os.path.join(here, "worktree-transactions.py"))
-        mod = ilu.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _TX_MODULE = mod
-        return mod
-    except Exception:
-        return None
+    """The sealed transaction's exact members, for a destructive caller. The
+    transaction store was removed on 2026-09-11 with every deleter the
+    workspace spec does not have (docs/plans/worktree-spec-2026-09-11.md), so
+    there is no such set here any more: always empty, and never a fallback to a
+    registration, a name, a branch or a transcript. A workspace's deletion is
+    scripts/workspaces.sh's alone."""
+    return []
 
 
 RETRACTION_EVENT = "retracted"
@@ -1017,108 +978,14 @@ def registered_branches(records, repo):
 # --------------------------------------------------------------------------
 
 def platform_terminal_record(reg):
-    """(terminal, reason) — THE POSITIVE SIGNAL THE TRANSACTION STORE HOLDS
-    FOR THIS EXACT PATH, read by the one judge every door consults (round
-    14, 2026-09-11, observation O2).
-
-    WHAT WAS HAPPENING. A cross-repository worktree carries no lock; its
-    owner's liveness is read off the native isolation worktree in the
-    session's repository. When that native worktree was UNCHANGED, the
-    platform removed it at the agent's completion — Frank's round-three
-    shell (agent-a522d0a7173c7d3a1) was gone within minutes of his
-    SubagentStop — and this judge then had a registered cross-repository
-    path whose native shell was absent while the session pid still ran:
-    INDETERMINATE by step 3, "decidable once that session ends". Every
-    finished cross-repository reviewer therefore sat as a live row on the
-    CEO's screen until the whole session ended, and the operator door
-    (remove-agent-worktree.sh, 22:57:02Z) refused the same path the reclaim
-    lane removed sixteen minutes later (23:00:31Z, "in the terminal
-    event") — the lane and the operator door read one record two ways.
-
-    THE SIGNAL. The reclaim lane authorizes on the transaction's TERMINAL
-    RECORD: the platform's own terminal ingress (SubagentStop) claimed this
-    agent id, the transaction is sealed, and this exact path is one of its
-    members — a fact the platform produced, not an absence. Its known
-    caveat is that a terminal agent can be run again (14 of 74 on this
-    machine), and row 5 of the decision table answers that from two
-    sources with the session's death voiding it (post_terminal_run_open).
-    This function applies exactly that standard. An adopted transaction is
-    not the platform's word and never counts; a store that cannot be read
-    counts for nothing.
-
-    WHAT ROUND 14 GOT WRONG WITH IT, AND WHAT ROUND 15 CHANGED (2026-09-11,
-    Frank D1 / Sage D-A, both keys independently). Step 2b of
-    _judge_registration read this function only after resolving the lock
-    in the CALLER'S entity, and with write on it APPENDED a `terminated`
-    row (witness `platform-terminal-record`) that step 1 then returned on
-    every later call, ahead of the lock and ahead of row 5. A judge asked
-    with the tree's own repository as entity — the documented, observed
-    misuse — found no shell there, fell through to the record, and wrote a
-    termination while the owner's shell was LOCKED by a running pid in the
-    session's repository. It happened once on the operator's ledger, at
-    2026-09-11T00:02:34.984941+00:00 for agent ae904aac1949e5696
-    (sage-fable-cert3), written by round 14's own session-start-stdin suite
-    running the real reaper against the real ledger with a sandbox entity.
-    Now: the lock is resolved in EVERY repository that can hold this
-    owner's shell before this function is consulted (_lock_entities), a
-    held lock returns before the record is read, and NOTHING IS WRITTEN
-    from 2b — this function is re-read live on every judgment, as the lane
-    re-reads its transaction, so a door reading it authorizes nothing the
-    lane would not and nothing outlives the fact it was read from.
-
-    THE TWO-ROW SHAPE (Frank D3). Every tree create-teammate-worktree.sh
-    makes carries a `prepared` row with NO agent id and, after the spawn, a
-    `registered` row with one. This function needs the id, so on its own it
-    decided the registered row and the id-less row fell to step 3 — and
-    INDETERMINATE outranks NOT-ALIVE in judge(), so no helper-made tree was
-    ever decided by it while the session lived (76 of 76 on the operator's
-    ledger, both keys' count). judge() now joins the id-less row to the id
-    by the exact rule the lane's owner_check and bind_late_members already
-    trust (same session, same teammate, same exact path, both rows from an
-    engine writer, exactly one id), so both rows are judged as one agent.
-
-    Returns (state, reason): `terminal` (positive evidence, reason quotes it),
-    `open` (the record is terminal but a post-terminal run is OPEN — the
-    agent was started again; the reason is row 5's own), or `none` (no
-    sealed terminal transaction names this path, or the store could not be
-    read — absence, which decides nothing).
-    """
-    aid = (reg.get("agent_id") or "").strip()
-    sid = reg.get("session_id") or ""
-    path = reg.get("worktree") or ""
-    if not aid or not sid or not path:
-        return "none", ""
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location("ledger_tx", os.path.join(here, "worktree-transactions.py"))
-        tx = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tx)
-        transaction = tx.load_tx(sid, aid)
-    except Exception as error:
-        return "none", "the transaction store could not be read for agent %s: %s" % (aid, error)
-    if not isinstance(transaction, dict) or not transaction.get("sealed"):
-        return "none", ""
-    terminal = transaction.get("terminal")
-    if not isinstance(terminal, dict) or transaction.get("kind") == "adopted":
-        return "none", ""
-    members = transaction.get("members") or []
-    index = next((i for i, m in enumerate(members)
-                  if isinstance(m, dict) and norm_path(m.get("path") or "") == norm_path(path)), None)
-    if index is None:
-        return "none", ""
-    try:
-        spec = importlib.util.spec_from_file_location("ledger_daily", os.path.join(here, "daily-workspace-cleanup.py"))
-        daily = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(daily)
-        run_open, why_open = daily.post_terminal_run_open(tx, transaction)
-    except Exception as error:
-        return "none", "row 5 could not be read for agent %s: %s" % (aid, error)
-    if run_open:
-        return "open", why_open
-    return "terminal", ("the platform's own terminal record for agent %s: %s at %s claimed it, the transaction "
-                        "is sealed, %s is member %d of %d, and no post-terminal run is open in either source "
-                        "(the transaction's notes or the platform's event log)"
-                        % (aid, terminal.get("ingress") or "?", terminal.get("ts") or "?", path, index + 1, len(members)))
+    """(state, reason) — the transaction store's terminal record for this exact
+    path. Until 2026-09-11 this read the sealed transaction and the daily
+    lane's row 5; both were removed with every deleter the CEO's workspace spec
+    does not have (docs/plans/worktree-spec-2026-09-11.md). There is no such
+    record any more, so this is always `none`: absence, which decides nothing,
+    and a registration whose shell is absent while its session runs stays
+    INDETERMINATE — never NOT-ALIVE on a record that is not there."""
+    return "none", ""
 
 
 def _lock_entities(reg, records, entity):
@@ -1140,10 +1007,9 @@ def _lock_entities(reg, records, entity):
       2. every repository this agent id has a NATIVE registration in on the
          ledger — detect-nonnative-worktree.sh writes one per spawn, in the
          session's repository, beside the hand-rolled rows;
-      3. the transaction's own native member's repository — the manifest the
-         reclaim lane reads (owner_check), so both authorities look in the
-         same place;
-      4. the caller's entity.
+      3. the caller's entity.
+    (The transaction's own native member was a third source until the
+    transaction store was removed on 2026-09-11.)
 
     ALIVE anywhere is decisive (a lock held by a running pid is positive
     evidence of life wherever it is found); INDETERMINATE anywhere holds;
@@ -1164,25 +1030,6 @@ def _lock_entities(reg, records, entity):
             if (r.get("event") in OWNERSHIP_EVENTS and (r.get("agent_id") or "").strip() == aid
                     and r.get("class") == "native"):
                 add(r.get("repo"))
-        sid = reg.get("session_id") or ""
-        tx = _transactions_module() if sid else None
-        if tx is not None:
-            try:
-                transaction = tx.load_tx(sid, aid)
-            except Exception:
-                transaction = None
-            if isinstance(transaction, dict):
-                for m in transaction.get("members") or []:
-                    if isinstance(m, dict) and m.get("class") == "native":
-                        repo = m.get("repo") or ""
-                        if not repo and m.get("path"):
-                            # <entity>/.claude/worktrees/agent-<id>: the entity is
-                            # three levels up, and only that shape is a native member
-                            p = norm_path(m.get("path"))
-                            if os.path.basename(os.path.dirname(p)) == "worktrees" \
-                                    and os.path.basename(os.path.dirname(os.path.dirname(p))) == ".claude":
-                                repo = os.path.dirname(os.path.dirname(os.path.dirname(p)))
-                        add(repo)
     add(entity)
     return out
 
