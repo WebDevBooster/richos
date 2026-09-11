@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mutation harness for guard-worktree-removal.sh: M1-M4 cover the rule-4
 # (filesystem rm) rewrite, M5-M7 the 2026-09-02 clause-scoping fix to the git
-# rules. M5 and M7 are the under-blocking direction, M6 the over-permissive
+# rules, M12-M16 the workspace spec's no-override refusals. M5 and M7 are the under-blocking direction, M6 the over-permissive
 # one -- a fix for a false positive can always be faked by disabling the
 # guard, so that direction gets a mutant of its own.
 # Each mutant strips ONE fix back out and asserts (a) the suite fails, (b) the
@@ -66,8 +66,7 @@ MUT_WALL_T0="$(sw_now_ms)"
 # It ASSIGNS to the caller's locals (bash is dynamically scoped), so each mutant
 # function declares `local ENG GUARD SUITE W_DIR MUT_SCORE` and everything the
 # block already says about "$GUARD" and "$SUITE" keeps working unchanged against
-# the worker's own files. RICHOS_WORKTREE_TX_DIR is exported per worker, which is
-# safe because a pool worker is its own subshell.
+# the worker's own files.
 _mut_worker_sandbox() {
     W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
     ENG="$W_DIR/engine"
@@ -79,8 +78,6 @@ _mut_worker_sandbox() {
     fi
     GUARD="$ENG/scripts/hooks/guard-worktree-removal.sh"
     SUITE="$ENG/scripts/hooks/guard-worktree-removal.test.sh"
-    RICHOS_WORKTREE_TX_DIR="$W_DIR/tx"
-    export RICHOS_WORKTREE_TX_DIR
     MUT_SCORE=unproven
     return 0
 }
@@ -179,7 +176,7 @@ import re, sys
 p = sys.argv[1]
 s = open(p).read()
 start = s.index("RM_CLAUSE = re.compile(")
-end = s.index("# THE WHOLE COMMAND, AND THEN EVERY COMMAND SUBSTITUTION")
+end = s.index("# 5) Nobody starts a session in its own workspace")
 old = '''def collect_rm(text):
   if re.search(r"\\brm\\b", cmd):
     recursive = re.search(r"(?:^|\\s)-[A-Za-z]*[rR][A-Za-z]*\\b", cmd) or re.search(r"--recursive\\b", cmd)
@@ -218,7 +215,7 @@ mut_pool_submit M1b _mutant_M1b
 _mutant_M2() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
-perl -0pi -e 's/        if is_linked_worktree "\$_tok"; then _hit="\$_tok"; break; fi/        case "\$_tok" in *-wt|*-wt\/*) _hit="\$_tok"; break ;; esac/' "$GUARD"
+perl -0pi -e 's/^def workspace_kind\(p\):\n/def workspace_kind(p):\n    if re.search(r"-wt(?:\/|\$)", p):\n        return "other"\n/m' "$GUARD"
 if applied M2 "the *-wt naming heuristic comes back"; then
     check M2 "the *-wt naming heuristic comes back" "g8 "
 fi
@@ -232,7 +229,7 @@ mut_pool_submit M2 _mutant_M2
 _mutant_M3() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
-perl -0pi -e 's/is_linked_worktree\(\) \{ # <path>/is_linked_worktree() { return 0; }\nunused_is_linked_worktree() { # <path>/' "$GUARD"
+perl -0pi -e 's/^def workspace_kind\(p\):\n/def workspace_kind(p):\n    return "other"\n/m' "$GUARD"
 if applied M3 "every rm -r target counts as a worktree"; then
     check M3 "every rm -r target counts as a worktree" "g4 "
 fi
@@ -244,9 +241,9 @@ mut_pool_submit M3 _mutant_M3
 _mutant_M4() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
-perl -0pi -e 's/is_linked_worktree\(\) \{ # <path>/is_linked_worktree() { return 1; }\nunused_is_linked_worktree() { # <path>/' "$GUARD"
+perl -0pi -e 's/^def workspace_kind\(p\):\n/def workspace_kind(p):\n    return ""\n/m' "$GUARD"
 if applied M4 "no rm -r target ever counts as a worktree"; then
-    check M4 "no rm -r target ever counts as a worktree" "d2 "
+    check M4 "no rm -r target ever counts as a worktree" "d2 " "S2 "
 fi
     _mut_score
 }
@@ -365,7 +362,7 @@ fi
 }
 mut_pool_submit M10 _mutant_M10
 
-# --- M11: a helper invocation cannot exempt a separate raw prune operation.
+# --- M11: a workspaces.sh invocation cannot exempt a separate raw removal.
 _mutant_M11() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
@@ -373,16 +370,119 @@ python3 - "$GUARD" <<'PY_MUTANT'
 from pathlib import Path
 import sys
 path=Path(sys.argv[1]);source=path.read_text()
-old='if helper and not reasons and not candidates:'
+old='if helper and not reasons:'
 assert source.count(old)==1
 path.write_text(source.replace(old,'if helper:'))
 PY_MUTANT
-if applied M11 "helper marker exempts a separate raw prune"; then
-    check M11 "helper marker exempts a separate raw prune" "b8 "
+if applied M11 "a workspaces.sh call exempts a separate raw removal"; then
+    check M11 "a workspaces.sh call exempts a separate raw removal" "b9 "
 fi
     _mut_score
 }
 mut_pool_submit M11 _mutant_M11
+
+# === THE SPEC'S OWN REFUSALS (docs/plans/worktree-spec-2026-09-11.md) =======
+# Each of these is a refusal with NO override. The mutants below take one away
+# and name the case that notices: the ack-carrying S* cases, because a mutant
+# that merely demotes SPEC to BLOCK is still exit 2 without an ack.
+
+# --- M12: an agent's workspace (cc/, worktree-*) reads as an ordinary linked
+# worktree, so a worktree-remove-ack deletes it by hand (points 4, 7, 10).
+_mutant_M12() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''        return "system"'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''        return "other"'''))
+PY_MUTANT
+if applied M12 "an agent workspace is removable with an ack"; then
+    check M12 "an agent workspace is removable with an ack" "S2 " "S3 " "S4 "
+fi
+    _mut_score
+}
+mut_pool_submit M12 _mutant_M12
+
+# --- M13: a codex/ workspace is no longer recognized, so an ack removes it (point 2).
+_mutant_M13() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    if br.startswith("codex/"):
+        return "codex"
+'''
+assert source.count(old)==1
+path.write_text(source.replace(old,''))
+PY_MUTANT
+if applied M13 "a codex/ workspace is removable with an ack"; then
+    check M13 "a codex/ workspace is removable with an ack" "S6 "
+fi
+    _mut_score
+}
+mut_pool_submit M13 _mutant_M13
+
+# --- M14: a codex/ branch delete stops being refused (point 2).
+_mutant_M14() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''        if deletes and any(re.search(r"(?:^|refs/heads/)codex/\S+", t) for t in rest):'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''        if False:'''))
+PY_MUTANT
+if applied M14 "a codex/ branch may be deleted"; then
+    check M14 "a codex/ branch may be deleted" "S7 "
+fi
+    _mut_score
+}
+mut_pool_submit M14 _mutant_M14
+
+# --- M15: a raw git worktree add is no longer refused (points 1, 3).
+_mutant_M15() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''        elif sub2 == "add":'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''        elif sub2 == "add" and False:'''))
+PY_MUTANT
+if applied M15 "a raw git worktree add is allowed"; then
+    check M15 "a raw git worktree add is allowed" "RO11" "S9 "
+fi
+    _mut_score
+}
+mut_pool_submit M15 _mutant_M15
+
+# --- M16: claude --worktree is no longer refused (point 3).
+_mutant_M16() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''if CLAUDE_WT.search(scan):'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''if False:'''))
+PY_MUTANT
+if applied M16 "claude --worktree is allowed"; then
+    check M16 "claude --worktree is allowed" "S8 "
+fi
+    _mut_score
+}
+mut_pool_submit M16 _mutant_M16
 
 # (the `restore` that used to sit here reset the SHARED sandbox before M99.
 #  There is no shared mutated state any more: each mutant had its own copy.)

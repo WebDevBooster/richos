@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
 # guard-worktree-removal.test.sh — regression tests for the worktree-removal
-# safety PAIR, which moves and ships as one unit:
-#   - scripts/hooks/guard-worktree-removal.sh   (PreToolUse[Bash] BLOCKING guard)
-#   - scripts/remove-agent-worktree.sh          (sanctioned removal helper)
+# guard, scripts/hooks/guard-worktree-removal.sh (PreToolUse[Bash], blocking).
+# Under docs/plans/worktree-spec-2026-09-11.md the only deleters are a land and
+# a discard (scripts/workspaces.sh); the guard refuses, with no override, every
+# raw command that creates or deletes what only those events may (S* below).
 #
 # GUARD coverage (classification / precision):
 #   (a)  raw git worktree remove                  -> exit 2 (block)
@@ -12,7 +13,10 @@
 #   (c)  git branch -d/-D of a worktree-* branch  -> exit 2 (block)
 #   (d)  rm -rf a .claude/worktrees/agent-* path  -> exit 2 (block)
 #   (d2) rm -rf a REAL linked worktree top level  -> exit 2 (block)
-#   (e)  helper invocation (marker present)       -> exit 0 (allow)
+#   (e)  workspaces.sh invocation                 -> exit 0 (allow)
+#   S1-S9 the spec's own refusals, no override: git worktree add, a real
+#        agent workspace (cc/, worktree-*) removed by hand, codex/ touched,
+#        claude --worktree                        -> exit 2 even with an ack
 #   (f)  worktree-remove-ack: override            -> exit 0 (allow) + one log line
 #   NO FALSE FIRE:
 #   (g)  git worktree list / non-worktree branch -D / rm -rf of an
@@ -20,11 +24,12 @@
 #   (g7) *** `git rm -r <dir>` is NOT a filesystem removal ***  -> exit 0
 #   (g8) *** a plain directory merely NAMED `*-wt` ***          -> exit 0
 #   (g9) *** the MAIN checkout of a repo (not a linked worktree) *** -> exit 0
-#   RO1-RO11 *** a READ never fires, even beside another verb's -d ***  -> exit 0
+#   RO1-RO10 *** a READ never fires, even beside another verb's -d ***  -> exit 0
+#   RO11 a raw `git worktree add` is NOT a read: refused (points 1, 3)   -> exit 2
 #   RD1-RD8  *** ...and every destructive shape still blocks ***        -> exit 2
 #   PR1-PR8  *** prose that DESCRIBES a removal is not one ***          -> exit 0
 #   PX1-PX8  *** ...and text the shell WILL run still blocks ***        -> exit 2
-#   (h)  block message names the helper, the ENTITY liveness rule and the ack
+#   (h)  block message names workspaces.sh, the spec's refusal and the ack
 #   (i)  missing python3                          -> exit 2 (fail-closed)
 #   (j)  unadopted repository                     -> exit 0 (stand down)
 #   (k)  DECLARED-but-unadopted root              -> exit 2 (broken, not stand-down)
@@ -34,21 +39,10 @@
 # `git rm -r scripts/hooks` during the previous migration step; g8/g9 are the
 # `*-wt` naming heuristic replaced by a structural linked-worktree test.
 #
-# HELPER coverage (authoritative ENTITY-lock liveness):
-#   (H1) LIVE agent (locked wt + live pid)        -> REFUSE (exit 3), nothing removed
-#   (H2) STALE lock (dead pid)                    -> removed (exit 0)
-#   (H3) UNLOCKED entity worktree                 -> removed (exit 0)
-#   (H4) UNBOUND owner: no ownership record       -> REFUSE (exit 3), nothing
-#        names the path and no entity worktree         removed. Absence of a
-#        exists                                        record is not evidence
-#                                                      of death.
-#   (H4c) THE POSITIVE TWIN: the same shape, but the   -> removed (exit 0)
-#        owner is registered against the exact path
-#        and a witnessed termination is on record
-#   (H5) liveness on the HAND-ROLLED worktree lock is NOT trusted — a live pid
-#        there with an unlocked entity worktree is still DEAD (the incident)
-#   (H6) missing required args                    -> usage error (exit 2)
-#   (H7) no governed entity and no --entity-repo  -> REFUSE (exit 3), fail-closed
+# The removal HELPER this suite used to exercise (remove-agent-worktree.sh and
+# its ENTITY-lock liveness rules, H1-H7) is deleted: under the spec a workspace
+# is deleted by a land or a discard and by nothing else, and those are proven
+# by scripts/lib/workspaces.test.sh.
 #
 # Run directly: scripts/hooks/guard-worktree-removal.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
@@ -57,7 +51,6 @@ set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_GUARD="$SRC_DIR/guard-worktree-removal.sh"
-SRC_HELPER="$SRC_DIR/../remove-agent-worktree.sh"
 
 # --- Sandbox: a synthetic ADOPTED entity hosting a copy of the guard --------
 # The guard's bootstrap resolves its library relative to its OWN location, so a
@@ -72,7 +65,6 @@ chmod +x "$TMPROOT/entity/scripts/hooks/guard-worktree-removal.sh"
 cp "$SRC_DIR/../lib/resolve-roots.sh" "$TMPROOT/entity/scripts/lib/"
 printf 'PROTECTED_PATHS=""\n' > "$TMPROOT/entity/orchestration.config"
 GUARD="$TMPROOT/entity/scripts/hooks/guard-worktree-removal.sh"
-HELPER="$SRC_HELPER"
 
 # Declare the synthetic entity as the governed root. Without this the guard
 # would resolve the LAUNCHING session's repository (the engine is itself
@@ -131,6 +123,15 @@ git -C "$MAINREPO" commit -qm seed >/dev/null 2>&1
 REAL_WT="$FIX/linked-checkout"
 git -C "$MAINREPO" worktree add -q -b linked "$REAL_WT" >/dev/null 2>&1
 
+# A REAL agent workspace (cc/ branch), a REAL native one (worktree-* branch) and
+# a REAL codex/ workspace: the structural test reads their branches from disk.
+AGENT_WT="$FIX/dev-abc"
+git -C "$MAINREPO" worktree add -q -b cc/dev-abc "$AGENT_WT" >/dev/null 2>&1
+NATIVE_WT="$FIX/agent-native"
+git -C "$MAINREPO" worktree add -q -b worktree-agent-native "$NATIVE_WT" >/dev/null 2>&1
+CODEX_WT="$FIX/codex-work"
+git -C "$MAINREPO" worktree add -q -b codex/some-task "$CODEX_WT" >/dev/null 2>&1
+
 # A plain directory that merely LOOKS like the old convention.
 DECOY_WT="$FIX/not-a-worktree-wt"
 mkdir -p "$DECOY_WT"
@@ -152,13 +153,41 @@ run_case "d  rm -rf .claude/worktrees/agent-* -> block" 2 \
 run_case "d2 rm -rf a REAL linked worktree top level -> block" 2 \
     "$(bash_payload "rm -rf $REAL_WT")"
 
-run_case "e  helper invocation -> allow" 0 \
-    "$(bash_payload "scripts/remove-agent-worktree.sh --owner agent-abc $REAL_WT --repo $MAINREPO --branch linked")"
-run_case "e2 helper via bash prefix -> allow" 0 \
-    "$(bash_payload 'bash scripts/remove-agent-worktree.sh --owner agent-abc /x/.claude/worktrees/agent-abc')"
+run_case "e  workspaces.sh land -> allow" 0 \
+    "$(bash_payload "scripts/workspaces.sh land dev-abc")"
+run_case "e2 workspaces.sh discard via bash prefix -> allow" 0 \
+    "$(bash_payload "bash ~/.claude/richos-engine/scripts/workspaces.sh discard dev-abc --reason 'superseded by dev-abd' --not-ceo-ordered 'the lead chose this'")"
 
 run_case "f  worktree-remove-ack override -> allow" 0 \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc  # worktree-remove-ack: agent confirmed dead, unlocked wt')"
+
+echo "  -- the spec's own refusals: no override (points 1, 2, 3, 4, 6, 7, 10) --"
+run_case "S1 git worktree remove of a REAL cc/ workspace -> refuse" 2 \
+    "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT")"
+run_case "S2 ...and a worktree-remove-ack does NOT exempt it" 2 \
+    "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT # worktree-remove-ack: agent confirmed dead")"
+run_case "S3 git worktree remove of a REAL native worktree-* workspace + ack -> refuse" 2 \
+    "$(bash_payload "git -C $MAINREPO worktree remove --force $NATIVE_WT # worktree-remove-ack: done")"
+run_case "S4 rm -rf a REAL cc/ workspace + ack -> refuse" 2 \
+    "$(bash_payload "rm -rf $AGENT_WT # worktree-remove-ack: done")"
+run_case "S5 git branch -D cc/* + ack -> refuse" 2 \
+    "$(bash_payload "git branch -D cc/dev-abc # worktree-remove-ack: done")"
+run_case "S6 git worktree remove of a codex/ workspace + ack -> refuse (codex/ is never touched)" 2 \
+    "$(bash_payload "git -C $MAINREPO worktree remove $CODEX_WT # worktree-remove-ack: done")"
+run_case "S7 git branch -D codex/* + ack -> refuse" 2 \
+    "$(bash_payload "git branch -D codex/some-task # worktree-remove-ack: done")"
+run_case "S8 claude --worktree -> refuse (nobody starts a session in its own workspace)" 2 \
+    "$(bash_payload "claude --worktree feature-x")"
+run_case "S9 git worktree add + ack -> refuse (a raw workspace is registered by nothing)" 2 \
+    "$(bash_payload "git worktree add /tmp/x -b cc/dev-new # worktree-remove-ack: done")"
+run_case_msg "S10 the refusal names create-teammate-worktree.sh as the way to create one" 'create-teammate-worktree.sh <repo> <name>' \
+    "$(bash_payload "git worktree add /tmp/x -b cc/dev-new")"
+run_case "S11 control: a non-system linked worktree removal + ack -> allow (logged)" 0 \
+    "$(bash_payload "git -C $MAINREPO worktree remove $REAL_WT # worktree-remove-ack: my own scratch checkout")"
+run_case "S12 control: git branch -D of an ordinary branch -> allow" 0 \
+    "$(bash_payload "git branch -D linked-old")"
+run_case "S13 a trailing ack comment is not read as a worktree-* branch name -> allow" 0 \
+    "$(bash_payload "git branch -D linked-old # worktree-remove-ack: my own branch")"
 
 echo "  -- precision (must NOT fire) --"
 run_case "g1 git worktree list -> allow" 0 "$(bash_payload 'git worktree list --porcelain')"
@@ -168,7 +197,8 @@ run_case "b3 negated dry-run override cannot bypass" 2 "$(bash_payload 'git work
 run_case "b4 absolute Git prune cannot bypass" 2 "$(bash_payload '/usr/bin/git worktree prune')"
 run_case "b5 quoted Git and prune cannot bypass" 2 "$(bash_payload "'/usr/bin/git' 'worktree' 'prune'")"
 run_case "b6 relative Git prune cannot bypass" 2 "$(bash_payload './bin/git -C /repo worktree prune')"
-run_case "b8 helper cannot authorize a later prune" 2 "$(bash_payload 'scripts/remove-agent-worktree.sh --help; git worktree prune')"
+run_case "b8 workspaces.sh cannot authorize a later prune" 2 "$(bash_payload 'scripts/workspaces.sh status; git worktree prune')"
+run_case "b9 workspaces.sh cannot authorize a later raw worktree remove" 2 "$(bash_payload "scripts/workspaces.sh status; git -C $MAINREPO worktree remove $REAL_WT")"
 run_case "b7 cross-repo quoted-path prune cannot bypass" 2 "$(bash_payload "git -C '/repo with spaces' worktree prune")"
 run_case "g2b absolute read-only worktree list -> allow" 0 "$(bash_payload '/usr/bin/git worktree list --porcelain -z')"
 run_case "g3 git branch -D non-worktree branch -> allow" 0 "$(bash_payload 'git branch -D feature-login')"
@@ -233,7 +263,7 @@ run_case "RO9 git worktree list + ls -d -> allow" 0 \
     "$(bash_payload 'git worktree list --porcelain; ls -d /tmp')"
 run_case "RO10 git branch --merged + ls -d -> allow" 0 \
     "$(bash_payload 'git branch --merged main; ls -d /tmp')"
-run_case "RO11 git worktree add of a worktree-* branch -> allow" 0 \
+run_case "RO11 a raw git worktree add is refused: registered by nothing (points 1, 3)" 2 \
     "$(bash_payload 'git worktree add /tmp/wt -b worktree-agent-new')"
 
 echo "  -- ...and the destructive shapes still do (the other half) --"
@@ -304,11 +334,13 @@ run_case "PX8 a real removal with no message anywhere still blocks -> block" 2 \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
 
 echo "  -- block message content --"
-run_case_msg "h1 block message names the helper" 'remove-agent-worktree.sh' \
+run_case_msg "h1 block message names workspaces.sh" 'workspaces.sh land|discard' \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
-run_case_msg "h2 block message names the ENTITY lock liveness rule" "ENTITY's isolation-worktree lock" \
-    "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
-run_case_msg "h3 block message names THIS session's entity root" "$TMPROOT/entity" \
+run_case_msg "h2 a spec refusal names land and discard as the only deleters" 'There is no override for this refusal.' \
+    "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT")"
+run_case_msg "h2b ...and the land command itself" 'workspaces.sh land <agent>' \
+    "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT")"
+run_case_msg "h3 block message names the engine's workspaces.sh path" "$TMPROOT/entity/scripts/workspaces.sh" \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
 run_case_msg "h4 block message names the ack override" 'worktree-remove-ack:' \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
@@ -381,184 +413,6 @@ if [ "$K_RC" -eq 2 ]; then
     printf '  PASS  k  DECLARED unadopted root -> BROKEN, blocks (exit 2)\n'; PASS=$((PASS + 1))
 else
     printf '  FAIL  k  DECLARED unadopted root -> BROKEN, blocks (got exit %s)\n' "$K_RC"; FAIL=$((FAIL + 1))
-fi
-
-echo ""
-echo "=== remove-agent-worktree: HELPER liveness tests ==="
-
-# Build a sandbox ENTITY repo (+ a second repo for the hand-rolled case).
-HB="$TMPROOT/helper"
-ENT="$HB/entity"
-mkdir -p "$ENT/.claude/worktrees"
-git -C "$ENT" init -q -b main >/dev/null 2>&1
-git -C "$ENT" config user.name tester >/dev/null 2>&1
-git -C "$ENT" config user.email "$(git config user.email 2>/dev/null || echo tester@example.invalid)" >/dev/null 2>&1
-printf 'seed\n' > "$ENT/seed.txt"
-git -C "$ENT" add seed.txt >/dev/null 2>&1
-git -C "$ENT" commit -qm seed >/dev/null 2>&1
-
-# The ownership ledger every removal below may write to is pinned into the
-# sandbox: a removal whose verdict rested on an OBSERVATION copies it there as
-# a witnessed termination; one that rested on ABSENCE must not.
-WL="$HB/wt-ledger.jsonl"
-export RICHOS_WORKTREE_LEDGER="$WL"
-wl_has() { grep -q "\"agent_id\": \"$1\"" "$WL" 2>/dev/null; }
-
-helper_case() { # <name> <expected-rc> <expected-wt-exists yes|no> <wt-path> <extra-args...>
-    local name="$1" exp_rc="$2" exp_exists="$3" wt="$4"; shift 4
-    "$HELPER" --entity-repo "$ENT" "$@" >/dev/null 2>&1
-    local rc=$?
-    local exists="no"; [ -d "$wt" ] && exists="yes"
-    if [ "$rc" -eq "$exp_rc" ] && [ "$exists" = "$exp_exists" ]; then
-        printf '  PASS  %s (rc=%s, wt-exists=%s)\n' "$name" "$rc" "$exists"; PASS=$((PASS + 1))
-    else
-        printf '  FAIL  %s (rc=%s exp=%s ; wt-exists=%s exp=%s)\n' "$name" "$rc" "$exp_rc" "$exists" "$exp_exists"; FAIL=$((FAIL + 1))
-    fi
-}
-
-# (H1) LIVE agent — locked entity wt with a LIVE pid -> REFUSE (exit 3), keep wt.
-WT_LIVE="$ENT/.claude/worktrees/agent-live0001"
-git -C "$ENT" worktree add -q -b worktree-agent-live0001 "$WT_LIVE" >/dev/null 2>&1
-sleep 120 & LIVE_PID=$!
-git -C "$ENT" worktree lock --reason "claude agent agent-live0001 (pid $LIVE_PID start now)" "$WT_LIVE" >/dev/null 2>&1
-helper_case "H1 LIVE agent -> REFUSE, nothing removed" 3 yes "$WT_LIVE" \
-    --owner agent-live0001 "$WT_LIVE" --branch worktree-agent-live0001 --force
-H1_OUT="$("$HELPER" --entity-repo "$ENT" --owner agent-live0001 "$WT_LIVE" --force 2>&1 >/dev/null)"
-if printf '%s' "$H1_OUT" | grep -qF "ALIVE"; then
-    printf '  PASS  H1b refusal message states the agent is ALIVE\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H1b refusal message states the agent is ALIVE\n'; FAIL=$((FAIL + 1))
-fi
-kill "$LIVE_PID" 2>/dev/null
-wait "$LIVE_PID" 2>/dev/null
-if ! wl_has live0001; then
-    printf '  PASS  H1c a REFUSED removal writes no termination to the ownership ledger\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H1c a refused removal wrote a termination for a LIVE agent\n'; FAIL=$((FAIL + 1))
-fi
-
-# (H2) STALE lock — dead pid -> removed.
-WT_STALE="$ENT/.claude/worktrees/agent-stale002"
-git -C "$ENT" worktree add -q -b worktree-agent-stale002 "$WT_STALE" >/dev/null 2>&1
-git -C "$ENT" worktree lock --reason "claude agent agent-stale002 (pid 999999 start old)" "$WT_STALE" >/dev/null 2>&1
-helper_case "H2 STALE lock (dead pid) -> removed" 0 no "$WT_STALE" \
-    --owner agent-stale002 "$WT_STALE" --branch worktree-agent-stale002 --force
-if wl_has stale002 && grep -q '"witness": "remove-agent-worktree"' "$WL"; then
-    printf '  PASS  H2b the stale-lock verdict is copied to the ownership ledger as a witnessed termination\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H2b stale-lock removal left no witnessed termination in the ledger\n'; FAIL=$((FAIL + 1))
-fi
-
-# (H3) UNLOCKED entity worktree -> removed.
-WT_UNLK="$ENT/.claude/worktrees/agent-unlk003"
-git -C "$ENT" worktree add -q -b worktree-agent-unlk003 "$WT_UNLK" >/dev/null 2>&1
-helper_case "H3 UNLOCKED entity wt -> removed" 0 no "$WT_UNLK" \
-    --owner agent-unlk003 "$WT_UNLK" --force
-if wl_has unlk003; then
-    printf '  PASS  H3b the unlocked-worktree verdict is copied to the ownership ledger\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H3b unlocked removal left no witnessed termination in the ledger\n'; FAIL=$((FAIL + 1))
-fi
-
-# (H4) hand-rolled external-repo worktree with NO ownership record and no
-# entity worktree -> REFUSED (exit 3), nothing removed.
-#
-# THIS CASE ASSERTED THE OPPOSITE UNTIL 2026-09-05, AND THE ASSERTION WAS THE
-# BUG. It said: no record names this path, no isolation worktree is locked
-# anywhere, therefore the owner is dead, therefore delete. Every clause is
-# true of a string that names nobody at all — which is exactly the shape that
-# reached the helper on 2026-09-05 and recursively deleted the parent of every
-# workspace on the machine. Absence of a record is not evidence of death; it
-# is the absence of evidence. The helper now refuses with `owner-unbound`, and
-# this case pins the refusal so it cannot be relaxed back.
-OTHER="$HB/other"
-mkdir -p "$OTHER"
-git -C "$OTHER" init -q -b main >/dev/null 2>&1
-git -C "$OTHER" config user.name tester >/dev/null 2>&1
-git -C "$OTHER" config user.email "$(git config user.email 2>/dev/null || echo tester@example.invalid)" >/dev/null 2>&1
-printf 'r\n' > "$OTHER/r.txt"
-git -C "$OTHER" add r.txt >/dev/null 2>&1
-git -C "$OTHER" commit -qm r >/dev/null 2>&1
-WT_HAND="$HB/other-norm-wt"
-git -C "$OTHER" worktree add -q -b feat "$WT_HAND" >/dev/null 2>&1
-helper_case "H4 unbound owner, no ownership record -> REFUSE, nothing removed" 3 yes "$WT_HAND" \
-    --owner agent-norm999 "$WT_HAND" --repo "$OTHER" --branch feat --force
-H4_OUT="$("$HELPER" --entity-repo "$ENT" --owner agent-norm999 "$WT_HAND" --repo "$OTHER" --branch feat --force 2>&1 >/dev/null)"
-if printf '%s' "$H4_OUT" | grep -qF "owner-unbound"; then
-    printf '  PASS  H4a the refusal names the reason: owner-unbound\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H4a the refusal does not name owner-unbound\n'; FAIL=$((FAIL + 1))
-fi
-# THE NEGATIVE THAT MATTERS: an absence-based verdict must never be copied into
-# the ownership ledger, where a later sweep would read it back as positive
-# evidence. A refusal writes nothing, so nothing is laundered.
-if ! wl_has norm999; then
-    printf '  PASS  H4b an ABSENCE-based verdict is NOT written to the ownership ledger\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H4b an absence-based verdict was laundered into a witnessed termination\n'; FAIL=$((FAIL + 1))
-fi
-
-# (H4c/H4d) THE POSITIVE TWIN, and it is not optional. A negative case with no
-# positive twin passes for the wrong reason: a helper that refused every call
-# would satisfy H4, H4a and H4b perfectly while removing nothing anyone asked
-# it to remove. So bind the same shape properly — register the owner against
-# this exact path, record a WITNESSED termination for it — and the same helper
-# on the same arguments removes the tree.
-WT_BOUND="$HB/other-bound-wt"
-git -C "$OTHER" worktree add -q -b featbound "$WT_BOUND" >/dev/null 2>&1
-LEDGER_PY="$SRC_DIR/../lib/worktree-ledger.py"
-python3 "$LEDGER_PY" --ledger "$WL" record registered \
-    --teammate zach-opus-bound1 --agent-id bound004 --session-id sandbox-h4c-0000 \
-    --repo "$OTHER" --worktree "$WT_BOUND" --branch featbound --class hand-rolled >/dev/null 2>&1
-python3 "$LEDGER_PY" --ledger "$WL" record terminated \
-    --agent-id bound004 --teammate zach-opus-bound1 --worktree "$WT_BOUND" \
-    --reason "sandbox: the owner was observed registered-and-unlocked and stopped" \
-    --witness sandbox-h4c >/dev/null 2>&1
-helper_case "H4c bound owner + witnessed termination -> removed" 0 no "$WT_BOUND" \
-    --owner agent-bound004 "$WT_BOUND" --repo "$OTHER" --branch featbound --force
-H4D_REGS="$(grep -c '"agent_id": "bound004"' "$WL" 2>/dev/null || echo 0)"
-if [ "$H4D_REGS" -eq 2 ]; then
-    printf '  PASS  H4d the witnessed termination was USED, not duplicated (2 rows on record)\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H4d expected exactly the 2 seeded rows for bound004, found %s\n' "$H4D_REGS"; FAIL=$((FAIL + 1))
-fi
-
-# (H5) THE INCIDENT: a LIVE pid on the HAND-ROLLED worktree must NOT be trusted.
-# The entity wt is UNLOCKED (the agent finished its entity-side isolation) while
-# the hand-rolled wt is locked with a live pid. Liveness reads the ENTITY lock
-# only -> DEAD -> removed. This is exactly the artifact that was checked wrong.
-WT_ENT5="$ENT/.claude/worktrees/agent-inc005"
-git -C "$ENT" worktree add -q -b worktree-agent-inc005 "$WT_ENT5" >/dev/null 2>&1
-WT_HAND5="$HB/other-inc-wt"
-git -C "$OTHER" worktree add -q -b feat5 "$WT_HAND5" >/dev/null 2>&1
-sleep 120 & DECOY_PID=$!
-git -C "$OTHER" worktree lock --reason "claude agent agent-inc005 (pid $DECOY_PID start now)" "$WT_HAND5" >/dev/null 2>&1
-helper_case "H5 hand-rolled live pid NOT trusted; entity wt unlocked -> removed" 0 no "$WT_ENT5" \
-    --owner agent-inc005 "$WT_ENT5" --branch worktree-agent-inc005 --force
-kill "$DECOY_PID" 2>/dev/null
-wait "$DECOY_PID" 2>/dev/null
-
-# (H6) missing required args -> usage error (exit 2).
-"$HELPER" --entity-repo "$ENT" --owner agent-x >/dev/null 2>&1
-H6_RC=$?
-if [ "$H6_RC" -eq 2 ]; then
-    printf '  PASS  H6 missing worktree-path arg -> usage error (exit 2)\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H6 missing worktree-path arg -> usage error (got exit %s)\n' "$H6_RC"; FAIL=$((FAIL + 1))
-fi
-
-# (H7) NO governed entity and no --entity-repo -> REFUSE, fail-closed. The
-# entity's lock is the only authoritative liveness signal; with no entity there
-# is nothing to check against, and "nothing to check" must never mean "proceed".
-WT_H7="$HB/other-h7-wt"
-git -C "$OTHER" worktree add -q -b feat7 "$WT_H7" >/dev/null 2>&1
-H7_RC=0
-( unset RICHOS_ENTITY_ROOT REMOVE_AGENT_ENTITY_REPO
-  cd "$HB" && CLAUDE_PROJECT_DIR="$HB" "$HELPER" --owner agent-h7 "$WT_H7" --repo "$OTHER" --force ) >/dev/null 2>&1 || H7_RC=$?
-if [ "$H7_RC" -eq 3 ] && [ -d "$WT_H7" ]; then
-    printf '  PASS  H7 no governed entity -> REFUSE (exit 3), nothing removed\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  H7 no governed entity -> REFUSE (rc=%s, wt-exists=%s)\n' "$H7_RC" "$([ -d "$WT_H7" ] && echo yes || echo no)"; FAIL=$((FAIL + 1))
 fi
 
 echo ""

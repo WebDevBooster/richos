@@ -386,6 +386,13 @@ def collect_git(text):
         # The clause may be inside an enclosing shell quote. Preserve the
         # conservative executable scan instead of treating parse failure as safe.
         tokens = [word.strip("\"'") for word in m.group("args").split()]
+    # A shell comment ends the invocation's arguments. Without this, the
+    # trailing `# worktree-remove-ack: ...` token read as a `worktree-*` branch
+    # name and turned an ordinary acknowledged branch delete into a refusal.
+    for i, t in enumerate(tokens):
+        if t.startswith("#"):
+            tokens = tokens[:i]
+            break
     sub, rest = _git_subcommand(tokens)
     if sub is None or sub in GIT_READ_ONLY_SUBCOMMANDS:
         continue
