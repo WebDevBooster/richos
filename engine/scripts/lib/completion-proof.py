@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Committed/integrated proof for the existing TaskCompleted workflow.
+"""Committed proof for the TaskCompleted workflow.
 
-This is a cooperative engine invariant, not a same-user security sandbox.
-Completion does not prove death. Cleanup separately needs exact terminal and
-ownership evidence and must recheck this proof before touching any workspace.
+A worker's task is completed only when every workspace it has — its
+registration in scripts/lib/workspaces.py — is committed and clean. This is a
+cooperative engine invariant, not a same-user security sandbox. It deletes
+nothing: the workspace spec's land and discard decide deletion
+(docs/plans/worktree-spec-2026-09-11.md).
 """
 import hashlib
 import importlib.util
@@ -41,7 +43,6 @@ def segment(value):
 
 def profile(): return Path(os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude'))
 def receipt_root(): return Path(os.environ.get('RICHOS_COMPLETION_DIR') or profile()/'state/workspace-completions')
-def transaction_root(): return Path(os.environ.get('RICHOS_WORKTREE_TX_DIR') or profile()/'state/worktree-transactions')
 
 def read_json(path):
     info=os.lstat(path)
@@ -83,10 +84,8 @@ def direct(path,ref):
     # validate_member_schema refuses any other, so on a `master` repository
     # this raised 'Git proof could not complete' — fail-closed, which is right,
     # with a reason that sends the reader looking for a broken git. It is not
-    # broken: this lane only understands `main`, and worktree-adoption G7 uses
-    # the repository's own HEAD instead, so the two lanes answer differently
-    # about the same tree. Saying so is not a fix for that divergence; it is
-    # the difference between a hold somebody can act on and one they cannot.
+    # broken: this proof only understands `main`. Saying so is the difference
+    # between a hold somebody can act on and one they cannot.
     if git(path,'show-ref','--verify','--quiet',ref,allowed=(0,1)).returncode:
         head=''
         try:
@@ -96,9 +95,9 @@ def direct(path,ref):
         except Exception:
             head=''
         raise CompletionError(
-            'This repository has no %s. The reclamation lane understands `main` and nothing else, '
+            'This repository has no %s. This proof understands `main` and nothing else, '
             'so a repository whose trunk is %s is HELD rather than examined — deliberately, because '
-            'guessing the trunk is how a lane deletes work from a branch nobody integrated into. '
+            'guessing the trunk is how work gets called delivered into a branch nobody integrated into. '
             'It is not a broken repository and there is nothing to repair here.'
             % (ref, ('`%s`' % head) if head else 'something else'))
     value=text(path,'rev-parse','--verify',ref)
@@ -132,10 +131,9 @@ def clean_tree(path,head,reclaimable=True):
     # forever and stopped its worker marking a task complete: 20 of the 29
     # terminal members present on the operator's machine that day were held by
     # exactly this line (docs/worktree-reclaim-round-10-2026-09-10.md, P1).
-    # What happens to ignored bytes is decided at RECLAIM time, by
-    # daily-workspace-cleanup.py: disposable by policy is dropped, anything
-    # else is archived and verified before the tree goes. The digest below is
-    # over TRACKED entries only, so an ignored file never changes a proof.
+    # What happens to ignored bytes is decided at LAND time (the workspace
+    # spec's point 8, scripts/lib/workspaces.py). The digest below is over
+    # TRACKED entries only, so an ignored file never changes a proof.
     if git(path,'ls-files','--others','--exclude-standard','-z').stdout:
         raise CompletionError('Commit intended deliverables, remove disposable local copies/build output or preserve needed non-Git data before completing; do not add secrets to Git')
     flags=git(path,'ls-files','-v','-z').stdout
@@ -231,11 +229,8 @@ def prove_member(member):
     #
     # The integration fact is still established and still recorded, because the
     # question it answers is real; it is just a different question, asked by a
-    # different caller at a different time. verify_member_proof() — the replay
-    # path that daily-workspace-cleanup.py runs before it removes a worktree or
-    # deletes a branch — re-derives it against the CURRENT tip and refuses with
-    # 'Current canonical main no longer contains the delivery'. So reclaiming a
-    # workspace still requires integration; finishing a task does not.
+    # different caller at a different time: landing (scripts/lib/workspaces.py
+    # land) requires every tip to be in main; finishing a task does not.
     integration='refs/heads/main';main=direct(repo,integration)
     proof={'version':1,'original_path':str(path),'repo':str(repo),'common':str(common),'admin':str(admin),
            'identities':pins,'branch':branch,'head':head,'integration_ref':integration,'integration_tip':main,
@@ -417,44 +412,34 @@ def workspace_members(cwd):
     if len(canonical)!=1:raise CompletionError('Canonical checkout cannot be identified exactly')
     return [{'path':str(path),'repo':canonical[0],'branch':rows[str(path)].get('branch','')}]
 
+def registration(sid, owner):
+    """The worker's registration in the workspace registry (scripts/lib/workspaces.py;
+    docs/plans/worktree-spec-2026-09-11.md, points 3, 6, 10): every workspace it
+    has, recorded when it was spawned. None when the task owner has none."""
+    spec=importlib.util.spec_from_file_location('completion_workspaces', HERE/'workspaces.py')
+    ws=importlib.util.module_from_spec(spec);spec.loader.exec_module(ws)
+    if not owner:return None,ws
+    return ws.load_agent(ws.named_key(sid,owner)),ws
+
 def complete(payload):
     if payload.get('hook_event_name')!='TaskCompleted':raise CompletionError('Expected TaskCompleted evidence')
     sid,tid,owner,task=native_task(payload)
-    root=transaction_root()/sid
-    rows=list(root.glob('*.json'))
-    if len(rows)>10000:raise CompletionError('Session transaction inventory exceeds bound')
-    matches=[]
-    for path in rows:
-        row=read_json(path)
-        if row.get('record')=='transaction' and row.get('session_id')==sid and row.get('teammate')==owner:
-            matches.append(row)
-    if not matches:
+    rec,ws=registration(sid,owner)
+    if not rec:
         lead,cwd=native_lead(payload,sid,owner)
         members=workspace_members(cwd)
         proofs=[prove_member(m) for m in members]
         aid='lead-'+sid
         tx={'record':'native-lead-task','kind':'lead-git' if proofs else 'lead-non-git','native_session':lead}
     else:
-        if len(matches)!=1:raise CompletionError('Task owner has multiple bound workers; keep the task open')
-        tx=matches[0];aid=segment(tx.get('agent_id'))
-        if not tx.get('sealed') or (payload.get('agent_id') and payload['agent_id']!=aid):
-            raise CompletionError('Worker is not exactly sealed for this task')
-        bound=read_json(root/'bound'/(aid+'.json'));start=read_json(root/'starts'/(aid+'.json'))
-        if bound.get('agent_id')!=aid or start.get('agent_id')!=aid or bound.get('session_id')!=sid or start.get('session_id')!=sid or bound.get('teammate')!=owner or bound.get('tool_use_id')!=tx.get('tool_use_id'):
-            raise CompletionError('Worker binding or session identity changed')
-        members=tx.get('members')
-        if not isinstance(members,list):raise CompletionError('Missing bound member scope')
+        tx=rec;aid=segment(rec.get('agent_id') or ('unbound-'+owner))
+        if payload.get('agent_id') and rec.get('agent_id') and payload['agent_id']!=rec['agent_id']:
+            raise CompletionError('Task completion comes from a different agent than the registered worker')
+        members=[{'path':w['path'],'repo':w['repo'],'branch':w.get('branch') or ''}
+                 for w in ws.live_workspaces(rec) if w.get('path') and os.path.isdir(w['path'])]
         if not members:
-            if tx.get('kind')=='remote':
-                proofs=[]
-            elif tx.get('kind')=='main-checkout-run':
-                cwd=tx.get('start_cwd');actual=start.get('cwd_real') or os.path.realpath(start.get('cwd',''))
-                if not cwd or cwd!=actual:raise CompletionError('Main-checkout task scope changed')
-                proofs=[prove_member(m) for m in workspace_members(cwd)]
-            else:raise CompletionError('No local delivery scope was declared for this worker')
+            proofs=[]  # a worker with no workspace on disk (a main-checkout run, a remote one) has no local scope
         else:
-            if any(m.get('class')=='managed-image' for m in members):
-                raise CompletionError('Managed-image completion needs its host acceptance receipt')
             proofs=[prove_member(m) for m in members]
     receipt={'version':1,'kind':'integrated-completion','session_id':sid,'task_id':tid,'agent_id':aid,'teammate':owner,
              'task_record_sha256':digest(task),'transaction_sha256':digest(tx),'members':proofs,
