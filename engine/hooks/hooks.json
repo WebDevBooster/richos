@@ -294,11 +294,6 @@
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worker-created-handoff.sh",
             "timeout": 15
           }
@@ -307,11 +302,6 @@
       {
         "matcher": "SendMessage",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
-            "timeout": 15
-          },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worker-updated-handoff.sh",
@@ -335,7 +325,7 @@
         ]
       },
       {
-        "matcher": "TaskStop",
+        "matcher": "Agent|TaskStop|SendMessage",
         "hooks": [
           {
             "type": "command",

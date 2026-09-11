@@ -326,11 +326,6 @@
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/workspace-lifecycle.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-created-handoff.sh",
             "timeout": 15
           }
@@ -339,11 +334,6 @@
       {
         "matcher": "SendMessage",
         "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/workspace-lifecycle.sh",
-            "timeout": 15
-          },
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-updated-handoff.sh",
@@ -367,7 +357,7 @@
         ]
       },
       {
-        "matcher": "TaskStop",
+        "matcher": "Agent|TaskStop|SendMessage",
         "hooks": [
           {
             "type": "command",
