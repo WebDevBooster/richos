@@ -1,0 +1,49 @@
+# reclaim-round-15-suite-results.txt — one row per process, appended as each run ended
+# (label, rc, wall, UTC end, engine HEAD[, REAL-HOME]). Every row: `bash <suite>` from
+# /Users/alex/ab/richos-wt/zach-fable-fix4/engine, foreground, one process per row, at the
+# final code commit 8a46024d. HOME redirected to a scratch home seeded with the operator's
+# git identity, EXCEPT the two rows marked REAL-HOME, which ran with the operator's real HOME
+# on purpose (the shape that wrote the 00:02:34Z row) and compared the real record before and
+# after. Runner: scratchpad/r15/run-suite.sh (rc from the process, wall from `date +%s` around
+# it). The three heavy harnesses ran alone, one per call; the quick and medium rows ran in two
+# sequential batches while the reaper suite ran beside them, so their walls are upper bounds.
+process-identity	rc=0	wall=1s	2026-09-11T02:41:58Z	8a46024d
+hook-staleness	rc=0	wall=4s	2026-09-11T02:42:02Z	8a46024d
+finish-row-completion	rc=0	wall=3s	2026-09-11T02:42:05Z	8a46024d
+land-disposition	rc=0	wall=4s	2026-09-11T02:42:09Z	8a46024d
+completion-proof	rc=0	wall=6s	2026-09-11T02:42:15Z	8a46024d
+record-subagent-start	rc=0	wall=7s	2026-09-11T02:42:22Z	8a46024d
+engine-status	rc=0	wall=3s	2026-09-11T02:42:25Z	8a46024d
+stop-hook-visibility	rc=0	wall=2s	2026-09-11T02:42:27Z	8a46024d
+guard-ci-red-lands	rc=0	wall=18s	2026-09-11T02:42:45Z	8a46024d
+ci-run-record-check	rc=0	wall=1s	2026-09-11T02:42:46Z	8a46024d
+leak-canary	rc=0	wall=1s	2026-09-11T02:42:47Z	8a46024d
+global-state-witness	rc=0	wall=3s	2026-09-11T02:42:50Z	8a46024d
+ci-units	rc=0	wall=8s	2026-09-11T02:42:58Z	8a46024d
+ci-affected-units	rc=0	wall=7s	2026-09-11T02:43:05Z	8a46024d
+record-canary	rc=0	wall=0s	2026-09-11T02:43:05Z	8a46024d
+run-all-tests	rc=0	wall=2s	2026-09-11T02:43:07Z	8a46024d
+ci-shard	rc=0	wall=12s	2026-09-11T02:43:19Z	8a46024d
+land-completeness	rc=0	wall=2s	2026-09-11T02:43:21Z	8a46024d
+restart-after-terminal-measure	rc=0	wall=1s	2026-09-11T02:43:22Z	8a46024d
+escalations	rc=0	wall=5s	2026-09-11T02:43:27Z	8a46024d
+session-start-reap-worktrees	rc=0	wall=20s	2026-09-11T02:43:47Z	8a46024d
+worker-lifecycle	rc=0	wall=2s	2026-09-11T02:43:49Z	8a46024d
+session-start-stdin	rc=0	wall=23s	2026-09-11T02:44:12Z	8a46024d
+cleanup-routing-contract	rc=0	wall=26s	2026-09-11T02:44:38Z	8a46024d
+worktree-ledger	rc=0	wall=28s	2026-09-11T02:45:06Z	8a46024d
+discard-workspace-backlog	rc=0	wall=2s	2026-09-11T02:45:08Z	8a46024d
+daily-workspace-cleanup-unit	rc=0	wall=32s	2026-09-11T02:45:40Z	8a46024d
+reconcile-terminal-worktrees-unit	rc=0	wall=45s	2026-09-11T02:46:25Z	8a46024d
+worktree-adoption	rc=0	wall=60s	2026-09-11T02:47:25Z	8a46024d
+guard-sealed-worktree	rc=0	wall=49s	2026-09-11T02:48:14Z	8a46024d
+detect-nonnative-worktree	rc=0	wall=59s	2026-09-11T02:49:13Z	8a46024d
+terminalize-agent-worktrees	rc=0	wall=77s	2026-09-11T02:50:30Z	8a46024d
+workspace-retire	rc=0	wall=89s	2026-09-11T02:51:59Z	8a46024d
+root-contract	rc=0	wall=94s	2026-09-11T02:53:33Z	8a46024d
+worktree-transactions	rc=0	wall=116s	2026-09-11T02:55:29Z	8a46024d
+reap-stale-worktrees	rc=0	wall=318s	2026-09-11T03:00:47Z	8a46024d
+session-start-stdin-REALHOME	rc=0	wall=23s	2026-09-11T03:01:10Z	8a46024d	REAL-HOME
+root-contract-REALHOME	rc=0	wall=95s	2026-09-11T03:02:45Z	8a46024d	REAL-HOME
+reconcile-terminal-worktrees-harness	rc=0	wall=259s	2026-09-11T03:07:54Z	8a46024d
+daily-workspace-cleanup-harness	rc=0	wall=299s	2026-09-11T03:13:15Z	8a46024d
