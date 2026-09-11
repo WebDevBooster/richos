@@ -48,6 +48,8 @@ lib/shell-worktree-sparse.py	eligible	class	structural	literal(native)
 lib/shell-worktree-sparse.py	eligible	cleanup_owner	route	presence
 lib/shell-worktree-sparse.py	eligible	sparse	structural	is-none
 lib/shell-worktree-sparse.py	eligible	state	structural	literal(bound)
+lib/worktree-ledger.py	_lock_entities	class	structural	literal(native)
+lib/worktree-ledger.py	_lock_entities	path	structural	truthy
 lib/worktree-transactions.py	_reclaim_in_event	*no-member-variable*	canary	reads members, names none
 lib/worktree-transactions.py	_try_seal_locked	class	structural	literal(managed-image)
 lib/worktree-transactions.py	_verify_external_member	class	structural	literal(managed-image)
