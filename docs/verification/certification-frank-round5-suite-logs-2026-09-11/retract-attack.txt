@@ -1,0 +1,23 @@
+=== A. a GENUINE observation (shell registered+unlocked), then the shell is removed, then the observation is retracted
+  judge (write ON), shell unlocked: NOT-ALIVE	ra001	OBSERVED now: entity worktree /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/retract-attack.XXXXXX
+  terminated rows: 1
+  judge after shell removed: NOT-ALIVE	ra001	witnessed termination on record for agent ra001 (mark-opus-a): entity worktree /private/var/folders/mx/w46p9btx1t17
+  judge after RETRACTION of a true observation: INDETERMINATE	ra001	no native isolation worktree is registered for agent ra001 (mark-opus-a) while its session pid 27901 is still running; decidable onc
+  -> can a retraction make a dead owner ALIVE? no (ALIVE needs a held lock)
+  record terminated --once after the retraction:
+{"agent_id": "ra001", "event": "terminated", "reason": "re-witnessed", "witness": "reaper-observation", "worktree": "/pr
+
+=== B. a HAND-APPENDED retracted row (printf, no verb, any source) — is it honored?
+  before: NOT-ALIVE	rb001	witnessed termination on record for agent rb001 (mark-opus-b): observed unlocked at 2026-09-11
+  after a hand-written retracted row: INDETERMINATE	rb001	no native isolation worktree is registered for agent rb001 (mark-opus-b) while its session pid 27901 i
+
+=== C. the retract verb's CLI surface: can 'record' write a retracted row?
+worktree-ledger.py record: error: argument event: invalid choice: 'retracted' (choose from registered, prepared, terminated, finished)
+
+=== D. two terminated rows with the SAME ts for one agent — can either be retracted?
+{"agent_id": "rd001", "matches": 2, "refused": "exactly one terminated row must match", "ts": "2026-01-01T00:00:00+00:00"}
+  rc=2
+
+=== E. retract a reaper-observation while the shell is STILL registered and unlocked (the observation was true and still is)
+  judge (write ON) after retraction, shell still unlocked: NOT-ALIVE	re001	OBSERVED now: entity worktree /private/var/fo
+  terminated rows 6 -> 7 (a fresh observation re-witnessed: expected +1)

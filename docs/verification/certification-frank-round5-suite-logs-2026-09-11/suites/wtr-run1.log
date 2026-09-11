@@ -1,0 +1,19 @@
+=== guard-worktree-removal mutation harness ===
+PROVEN    M0   the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's
+PROVEN    M1   rule 4 reverted to the pre-move co-occurrence form ... turns g7d g8  g8b d2  g7c red
+PROVEN    M1b  the git-rm exclusion alone is removed ... turns g7d red
+PROVEN    M2   the *-wt naming heuristic comes back ... turns g8  red
+PROVEN    M3   every rm -r target counts as a worktree ... turns g4  red
+PROVEN    M4   no rm -r target ever counts as a worktree ... turns d2  red
+PROVEN    M5   the git argument run bleeds across statement separators ... turns RO2 RD3 red
+PROVEN    M6   the read-only allowlist swallows worktree and branch ... turns a   b   c   red
+PROVEN    M7   git -C's value is no longer skipped when finding the subcommand ... turns a2  red
+PROVEN    M8   prose and payloads are scanned as if they were commands ... turns PR2 PR5 red
+PROVEN    M9   substitutions inside inert text stop being classified ... turns PX3 red
+PROVEN    M10  plain and dry-run-overridden prune regain a direct bypass ... turns g2  b3  red
+PROVEN    M11  helper marker exempts a separate raw prune ... turns b8  red
+  [12 mutant(s), 8 at a time, wall 35.3s, slowest 16.1s M5, 4.8x serial]
+
+PROVEN    M99  the shipped guard was never opened for writing (contents AND mtime unchanged)
+reference sandbox guard never written to (md5 88e7bea1bf2c8d1c3a8841fbc1b5f8cc); every mutant used its own copy
+=== mutation harness: all 14 mutants proven load-bearing ===
