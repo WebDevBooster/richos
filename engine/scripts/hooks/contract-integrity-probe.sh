@@ -594,9 +594,9 @@ MT_Q_EOF
                     "$MT_SB/entity" "$1" "$2"
             }
             set +e
-            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKTREE_TX_DIR="$MT_SB/tx" bash "$MT_GUARD" 2>&1 >/dev/null)"
+            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" bash "$MT_GUARD" 2>&1 >/dev/null)"
             MT_DOWN_RC=$?
-            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKTREE_TX_DIR="$MT_SB/tx" bash "$MT_GUARD" 2>&1)"
+            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" bash "$MT_GUARD" 2>&1)"
             MT_UP_RC=$?
             set -e
             rm -rf "$MT_SB"
@@ -1727,7 +1727,7 @@ PY
     }
     br9_run() { # <payload> -> sets BR9_RC
         set +e
-        printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" RICHOS_WORKTREE_TX_DIR="$BR9_SB/tx" \
+        printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" RICHOS_WORKSPACES_DIR="$BR9_SB/ws" \
             bash "$ENGINE_ROOT/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
         BR9_RC=$?
         set -e
@@ -3305,7 +3305,11 @@ if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/de
         # sandbox: GIT_CONFIG_GLOBAL=/dev/null, as every q_env call below does too.
         GIT_CONFIG_GLOBAL=/dev/null git -C "$Q_ENT" -c user.name=probe -c user.email=probe@example.invalid commit -q -m seed >/dev/null 2>&1 || Q_SB=0
         Q_SESS_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+        # The registry is PINNED, never inherited: an inherited RICHOS_WORKSPACES_DIR
+        # would put this canary's registrations in a real registry, and its Stop
+        # gate would then scan (and land in) that registry's real repositories.
         q_env() { env HOME="$Q_DIR/home" CLAUDE_CONFIG_DIR="$Q_DIR/home/.claude" RICHOS_ENTITY_ROOT="$Q_ENT" \
+                      RICHOS_WORKSPACES_DIR="$Q_DIR/ws" \
                       RICHOS_SESSION_PID="$Q_SESS_PID" RICHOS_WORKSPACES_SPAWN_WINDOW=0 SEAL_WAIT_SECONDS=0 \
                       GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=probe GIT_AUTHOR_EMAIL=probe@example.invalid \
                       GIT_COMMITTER_NAME=probe GIT_COMMITTER_EMAIL=probe@example.invalid "$@"; }
