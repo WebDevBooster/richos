@@ -188,7 +188,200 @@ V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name z
 printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' \
     && ok "L06d  and once that run's stop is recorded the verdict is NOT-ALIVE again" \
     || bad "L06d  after the stop: $V"
-# the fixture's transaction must not leak into the cases below, which assert L06's shape elsewhere
+
+# =========================================================================
+# 4d-4k. ROUND 15 (2026-09-11, Frank D1-D3 / Sage D-A): THE LOCK IS RESOLVED
+# WHERE THE SHELL LIVES, NOTHING IS WRITTEN FROM THE RECORD, A WRONG ROW CAN
+# BE RETRACTED, AND THE TWO-ROW SHAPE IS JUDGED AS ONE AGENT.
+#
+# Round 14's step 2b resolved the lock in the CALLER'S entity, fell through
+# to the transaction's terminal record when that entity held no shell, and
+# with write on appended a `terminated` row that step 1 then returned on
+# every later call — ahead of the lock, ahead of row 5. It happened on the
+# operator's ledger at 00:02:34Z for an agent whose shell was LOCKED by a
+# running pid in the session's repository. Every case below is the shape a
+# real cross-repository tree has: the shell in repository A (the session's),
+# the tree in repository B, one entity argument from a caller that cannot
+# know which is which.
+# =========================================================================
+ENTITY_B="$SANDBOX/entity-b"
+seed_repo "$ENTITY_B"
+tx_terminal2() { # <session-id> <agent-id> <teammate> <native-repo> <native-path> <hand-rolled-path>
+    mkdir -p "$RICHOS_WORKTREE_TX_DIR/$1"
+    python3 - "$RICHOS_WORKTREE_TX_DIR/$1/$2.json" "$@" <<'PY'
+import datetime, json, sys
+path, sid, aid, teammate, nrepo, npath, hpath = sys.argv[1:8]
+rec = {"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": teammate,
+       "sealed": True, "state": "terminal",
+       "terminal": {"ingress": "SubagentStop", "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(), "detail": ""},
+       "members": [{"class": "native", "repo": nrepo, "path": npath, "branch": "worktree-agent-" + aid,
+                    "state": "bound", "cleanup_policy": "integrated-daily", "cleanup_owner": "claude-code"},
+                   {"class": "hand-rolled", "path": hpath, "branch": "cc/" + teammate,
+                    "state": "bound", "cleanup_policy": "integrated-daily"}]}
+json.dump(rec, open(path, "w"))
+PY
+}
+terminated_rows() { grep -c '"event": "terminated"' "$LEDGER" 2>/dev/null || true; }
+last_ts_for() { # <agent-id> <event> -> ts of the last such row
+    python3 - "$LEDGER" "$1" "$2" <<'PY'
+import json, sys
+ts = ""
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line: continue
+    try: d = json.loads(line)
+    except Exception: continue
+    if d.get("agent_id") == sys.argv[2] and d.get("event") == sys.argv[3]: ts = d.get("ts") or ""
+print(ts)
+PY
+}
+
+# 4d. THE WRONG ENTITY. Shell LOCKED by a running pid in A; both rows the
+#     engine writes (native in A, hand-rolled in B); a sealed terminal
+#     transaction naming both. Judged with entity B (where no shell can be)
+#     and with entity A, write ON: ALIVE both times and NOT ONE ROW appended.
+add_native "$ENTITY" "xr001" "$$"
+L record registered --teammate sage-fable-x1 --agent-id xr001 --session-id sess-now \
+    --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY" \
+    --worktree "$ENTITY/.claude/worktrees/agent-xr001" --class native --source detect-nonnative-worktree.sh >/dev/null
+L record registered --teammate sage-fable-x1 --agent-id xr001 --session-id sess-now \
+    --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY_B" \
+    --worktree "$SANDBOX/wt-b/sage-fable-x1" --branch cc/sage-fable-x1 --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
+tx_terminal2 sess-now xr001 sage-fable-x1 "$ENTITY" "$ENTITY/.claude/worktrees/agent-xr001" "$SANDBOX/wt-b/sage-fable-x1"
+N0="$(grep -c . "$LEDGER")"
+VB="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/sage-fable-x1" --format triple)"
+VA="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt-b/sage-fable-x1" --format triple)"
+N1="$(grep -c . "$LEDGER")"
+if printf '%s' "$VB" | grep -q '^ALIVE.*LOCKED by running pid' && printf '%s' "$VA" | grep -q '^ALIVE.*LOCKED by running pid' && [ "$N1" -eq "$N0" ]; then
+    ok "L06e  a cross-repository tree whose owner's shell is LOCKED in the SESSION repository is ALIVE whichever entity the caller passes, and nothing is appended (write ON) — the entity join lives inside the judge"
+else
+    bad "L06e  wrong entity (rows $N0 -> $N1): B=[$VB] A=[$VA]"
+fi
+
+# 4e. THE TRANSACTION'S OWN NATIVE MEMBER is enough — no native ledger row at
+#     all, only the hand-rolled row and the manifest the reclaim lane reads.
+#     And the CONTROL that proves the lookup is real rather than a stub that
+#     answers ALIVE: the same shape with the shell UNLOCKED is the observed
+#     termination it always was, written once, through the manifest's repo.
+add_native "$ENTITY" "xr002" "$$"
+L record registered --teammate sage-fable-x2 --agent-id xr002 --session-id sess-now \
+    --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY_B" \
+    --worktree "$SANDBOX/wt-b/sage-fable-x2" --branch cc/sage-fable-x2 --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
+tx_terminal2 sess-now xr002 sage-fable-x2 "$ENTITY" "$ENTITY/.claude/worktrees/agent-xr002" "$SANDBOX/wt-b/sage-fable-x2"
+V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/sage-fable-x2" --format triple)"
+printf '%s' "$V" | grep -q '^ALIVE.*LOCKED by running pid' \
+    && ok "L06f  with NO native ledger row, the transaction's own native member names the repository whose lock speaks — ALIVE with the tree's entity" \
+    || bad "L06f  transaction member lookup: $V"
+add_native "$ENTITY" "xr003"
+L record registered --teammate sage-fable-x3 --agent-id xr003 --session-id sess-now \
+    --session-pid "$$" --pid-start "$MY_START" --repo "$ENTITY_B" \
+    --worktree "$SANDBOX/wt-b/sage-fable-x3" --branch cc/sage-fable-x3 --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
+tx_terminal2 sess-now xr003 sage-fable-x3 "$ENTITY" "$ENTITY/.claude/worktrees/agent-xr003" "$SANDBOX/wt-b/sage-fable-x3"
+T0="$(terminated_rows)"
+V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/sage-fable-x3" --format triple)"
+T1="$(terminated_rows)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*OBSERVED now' && [ "$T1" -eq $((T0 + 1)) ] \
+   && grep '"agent_id": "xr003"' "$LEDGER" | grep -q '"witness": "reaper-observation"'; then
+    ok "L06f' (control) the same shape with the shell UNLOCKED in the session repository is the OBSERVED termination, witnessed once through the manifest — the lookup is real"
+else
+    bad "L06f' unlocked shell via the manifest (terminated $T0 -> $T1): $V"
+fi
+
+# 4f. FRANK'S SEQUENCE. The terminal-record verdict with write ON persists
+#     NOTHING; then the platform starts the agent again, and the verdict is
+#     row 5's INDETERMINATE — a property one persisted row destroyed in
+#     round 14 (the sandbox in certification-frank-round4, D1).
+T0="$(terminated_rows)"
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple)"
+T1="$(terminated_rows)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*platform terminal record' && [ "$T1" -eq "$T0" ]; then
+    ok "L06g  the terminal-record verdict with write ON appends NO terminated row — the store is re-read, never copied"
+else
+    bad "L06g  2b wrote (terminated $T0 -> $T1): $V"
+fi
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind start --detail /cwd-again >/dev/null
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt/zach-opus-live" --name zach-opus-live --format triple)"
+printf '%s' "$V" | grep -q '^INDETERMINATE.*RETRY, not a verdict: the platform started agent live001 again' \
+    && ok "L06g' and a post-terminal start AFTER a write-enabled judgment still holds at row 5's INDETERMINATE — the record was not made permanent" \
+    || bad "L06g' open run after a write-enabled judgment: $V"
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-now --agent-id live001 --kind stop --detail SubagentStop >/dev/null
+
+# 4g. A RECORD-DERIVED WITNESS ON THE LEDGER NEVER OUTRANKS THE LOCK. The
+#     one row round 14 wrote on the operator's ledger has this exact shape;
+#     put beside a LOCKED shell it decides nothing. Beside it, the ledger's
+#     OWN kind (an observed unlocked shell) still decides — the filter is by
+#     kind, not a disabled step — and THAT row can be RETRACTED.
+printf '{"event": "terminated", "agent_id": "xr001", "teammate": "sage-fable-x1", "session_id": "sess-now", "worktree": "%s", "reason": "the platform'"'"'s own terminal record for agent xr001 (fixture copy of the 00:02:34Z row)", "witness": "platform-terminal-record", "ts": "2026-09-11T00:02:34.984941+00:00"}\n' \
+    "$SANDBOX/wt-b/sage-fable-x1" >>"$LEDGER"
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt-b/sage-fable-x1" --format triple --no-write)"
+printf '%s' "$V" | grep -q '^ALIVE.*LOCKED by running pid' \
+    && ok "L06h  a 'platform-terminal-record' witness row on the ledger (the round-14 shape) does not outrank a held lock: ALIVE" \
+    || bad "L06h  record-derived witness outranked the lock: $V"
+L record terminated --agent-id xr001 --teammate sage-fable-x1 --session-id sess-now \
+    --worktree "$ENTITY/.claude/worktrees/agent-xr001" --reason "fixture: an observation this ledger holds as its own" --witness reaper-observation >/dev/null
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt-b/sage-fable-x1" --format triple --no-write)"
+printf '%s' "$V" | grep -q '^NOT-ALIVE.*witnessed termination on record.*an observation this ledger holds as its own' \
+    && ok "L06h' (control) the ledger's OWN witness kind still decides at step 1 — the filter is by kind, not a disabled step" \
+    || bad "L06h' own-kind witness: $V"
+TS="$(last_ts_for xr001 terminated)"
+N0="$(grep -c . "$LEDGER")"
+L retract --agent-id xr001 --ts "not-a-row" --reason "control" >/dev/null 2>&1 && bad "L06i  retract accepted a ts that names no row" || ok "L06i  retract REFUSES (rc 2) a ts that names no row"
+L retract --agent-id xr001 --ts "$TS" --reason "dry run" --dry-run >/dev/null
+N1="$(grep -c . "$LEDGER")"
+[ "$N1" -eq "$N0" ] && ok "L06i' --dry-run appends nothing" || bad "L06i' --dry-run appended $((N1 - N0)) line(s)"
+OUT="$(L retract --agent-id xr001 --ts "$TS" --reason "the shell was LOCKED by a running pid when this row was written (round 15 fixture)" --source test)"
+V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/wt-b/sage-fable-x1" --format triple --no-write)"
+if printf '%s' "$OUT" | grep -q '"retracts_ts": "'"$TS"'"' && printf '%s' "$V" | grep -q '^ALIVE.*LOCKED by running pid' \
+   && grep '"event": "retracted"' "$LEDGER" | grep -q '"retracts_witness": "reaper-observation"'; then
+    ok "L06j  RETRACTION: a 'retracted' row naming the exact ts supersedes the terminated row for step 1 — the same registration is ALIVE again, and the record keeps both rows with the reason"
+else
+    bad "L06j  retraction: out=[$OUT] verdict=[$V]"
+fi
+N0="$(grep -c . "$LEDGER")"
+OUT="$(L retract --agent-id xr001 --ts "$TS" --reason "again" --source test)"
+N1="$(grep -c . "$LEDGER")"
+printf '%s' "$OUT" | grep -q '"skipped": "already retracted"' && [ "$N1" -eq "$N0" ] \
+    && ok "L06j' a second retraction of the same row is skipped, not duplicated" \
+    || bad "L06j' duplicate retraction: $OUT ($N0 -> $N1)"
+
+# 4h. THE TWO-ROW SHAPE (Frank D3). What every helper-made tree carries: a
+#     `prepared` row with NO agent id (create-teammate-worktree.sh, before the
+#     spawn) and a `registered` row with one (detect-nonnative-worktree.sh,
+#     after). Shell absent, session alive, terminal record closed. The
+#     id-less row is joined to the id, so the aggregate is the record's
+#     NOT-ALIVE and not step 3's INDETERMINATE — and the reason says so.
+#     Two controls: a HAND-WRITTEN prepared row never joins; two ids for one
+#     name in one session are ambiguous and never join.
+two_rows() { # <teammate> <agent-id> <prepared-source> [second-agent-id]
+    local tm="$1" aid="$2" src="$3" aid2="${4:-}"
+    L record prepared --teammate "$tm" --session-id sess-now --session-pid "$$" --pid-start "$MY_START" \
+        --repo "$ENTITY_B" --worktree "$SANDBOX/wt-b/$tm" --branch "cc/$tm" --class hand-rolled --source "$src" >/dev/null
+    L record registered --teammate "$tm" --agent-id "$aid" --session-id sess-now --session-pid "$$" --pid-start "$MY_START" \
+        --repo "$ENTITY_B" --worktree "$SANDBOX/wt-b/$tm" --branch "cc/$tm" --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
+    [ -z "$aid2" ] || L record registered --teammate "$tm" --agent-id "$aid2" --session-id sess-now --session-pid "$$" --pid-start "$MY_START" \
+        --repo "$ENTITY_B" --worktree "$SANDBOX/wt-b/$tm" --branch "cc/$tm" --class hand-rolled --source detect-nonnative-worktree.sh >/dev/null
+    tx_terminal "sess-now" "$aid" "$SANDBOX/wt-b/$tm"
+}
+two_rows zach-opus-two two001 create-teammate-worktree.sh
+V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/zach-opus-two" --format triple)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*2 registrations match (ledger); prepared row joined to agent two001.*platform terminal record' \
+   && printf '%s' "$V" | grep -q 'two001' ; then
+    ok "L06k  the two-row shape (id-less prepared + registered with the id), shell absent, session alive, record closed -> NOT-ALIVE from the record, the prepared row JOINED to the id and the reason saying so"
+else
+    bad "L06k  two-row shape: $V"
+fi
+two_rows zach-opus-hand two002 rich-land-binding
+V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/zach-opus-hand" --format triple)"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06k' (control) a HAND-WRITTEN prepared row is never joined: it still reserves at INDETERMINATE while the session lives" \
+    || bad "L06k' hand-written prepared row joined: $V"
+two_rows zach-opus-twin2 two003 create-teammate-worktree.sh two004
+V="$(L judge --entity "$ENTITY_B" --worktree "$SANDBOX/wt-b/zach-opus-twin2" --format triple)"
+printf '%s' "$V" | grep -q "^INDETERMINATE.*session pid $$ is still running" \
+    && ok "L06k'' (control) two agent ids for one name in one session are ambiguous: no join, INDETERMINATE" \
+    || bad "L06k'' ambiguous join: $V"
+
+# the fixture's transactions must not leak into the cases below, which assert L06's shape elsewhere
 rm -rf "$RICHOS_WORKTREE_TX_DIR/sess-now"
 
 # 5. PID REUSED -> NOT-ALIVE. Same pid as case 4, but the recorded start time is

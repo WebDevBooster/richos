@@ -244,6 +244,13 @@ def _entities_for(worktree, records, mod, repo):
     So every repository the owner has a registration in is asked, and ALIVE
     from any of them is decisive — a lock held by a running process is
     positive evidence of life wherever it is found.
+
+    ROUND 15 (2026-09-11): the same join now lives INSIDE the judge
+    (worktree-ledger._lock_entities — the ledger's native rows, the
+    transaction's own native member, then the caller's entity), so a single
+    call with the wrong entity can no longer reach the terminal record while
+    a shell is locked elsewhere. This list is kept as a second, cheaper
+    reading for the report; it is no longer what protects the verdict.
     """
     ents = [repo]
     try:
