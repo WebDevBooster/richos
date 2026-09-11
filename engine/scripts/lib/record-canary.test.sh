@@ -124,6 +124,22 @@ case "$E" in
     *) bad "3d' the file inside the new directory is named" "got: $E" ;;
 esac
 
+# 3e. THE WORKSPACE REGISTRY — the 2026-09-11 shape: a suite registering a test
+#     spawn in the operator's registry, the record the Stop gate decides from.
+B3E="$SANDBOX/b3e.txt"
+rc_baseline "$B3E"
+mkdir -p "$CFG/state/workspaces/agents"
+printf '{"key": "deadbeef--dev-sonnet-q1"}\n' >"$CFG/state/workspaces/agents/deadbeef--dev-sonnet-q1.json"
+printf '{"event": "registered-spawn", "key": "deadbeef--dev-sonnet-q1", "ts": "2026-09-11T09:52:00Z"}\n' >"$CFG/state/workspaces/events.jsonl"
+E="$(rc_escaped "$B3E")"
+case "$E" in
+    *"workspace registry entry APPEARED: agents/deadbeef--dev-sonnet-q1.json"*"event=registered-spawn"*|*"event=registered-spawn"*"agents/deadbeef--dev-sonnet-q1.json"*)
+        ok "3e  RED: a registration written into the workspace registry is caught and named, record and event" ;;
+    "") bad "3e  RED on the workspace registry" "a registration appeared in the registry and the canary reported nothing" ;;
+    *)  bad "3e  the registration is named" "got: $E" ;;
+esac
+rm -rf "$CFG/state/workspaces"
+
 # ===========================================================================
 # 4. THE WITNESS IS CONTENTS, NOT COUNTS — an overwrite in place is a change
 # ===========================================================================

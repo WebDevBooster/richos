@@ -62,6 +62,13 @@
 #   <config>/teams/                        THE TEAM DIRECTORIES. Witness: the
 #        names of the `session-*` entries and of their immediate children —
 #        never contents, which the live session's own logs churn.
+#   <config>/state/workspaces/             THE WORKSPACE REGISTRY
+#        (scripts/lib/workspaces.py). Witness: the names of its session and
+#        agent records and every events.jsonl line, by content hash. A suite
+#        that registers, lands or discards against it is writing the record
+#        the Stop gate and the lock-out decide from (added 2026-09-11, the day
+#        two suites wrote 55 test registrations into it before they were
+#        sandboxed).
 #
 # ITS FALSE-POSITIVE VECTORS, NAMED: a real spawn during the run (a
 # `registered`/`prepared` row from detect-nonnative-worktree.sh or
@@ -86,18 +93,19 @@ RC_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 RC_LEDGER="$RC_CFG/state/worktree-ledger.jsonl"
 RC_FALLBACK="$RC_CFG/worker-events.jsonl"
 RC_TEAMS="$RC_CFG/teams"
+RC_WORKSPACES="$RC_CFG/state/workspaces"
 RC_HEALTHY=1
 
-# rc_paths — the three watched paths, one per line (for a banner).
-rc_paths() { printf '%s\n%s\n%s/\n' "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS"; }
+# rc_paths — the watched paths, one per line (for a banner).
+rc_paths() { printf '%s\n%s\n%s/\n%s/\n' "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS" "$RC_WORKSPACES"; }
 
 # rc_snapshot — the witnessed state of the record on stdout, one entry per
 # line, sorted. Exit 1 (and a line starting with UNREADABLE) when a present
 # path could not be read.
 rc_snapshot() {
-    python3 - "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS" <<'PY'
+    python3 - "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS" "$RC_WORKSPACES" <<'PY'
 import hashlib, json, os, sys
-ledger, fallback, teams = sys.argv[1:4]
+ledger, fallback, teams, workspaces = sys.argv[1:5]
 out, unreadable = [], False
 
 def h(raw):
@@ -160,6 +168,32 @@ if os.path.lexists(teams):
 else:
     out.append("teams\tabsent")
 
+if os.path.lexists(workspaces):
+    try:
+        for sub in ("sessions", "agents", "done"):
+            d = os.path.join(workspaces, sub)
+            if os.path.isdir(d):
+                for name in sorted(os.listdir(d)):
+                    out.append("workspaces\t%s/%s" % (sub, name))
+        ev = os.path.join(workspaces, "events.jsonl")
+        if os.path.exists(ev):
+            with open(ev, "rb") as f:
+                for raw in f:
+                    if not raw.strip():
+                        continue
+                    label = ""
+                    try:
+                        d = json.loads(raw.decode("utf-8"))
+                        if isinstance(d, dict):
+                            label = "event=%s key=%s" % (d.get("event"), d.get("key") or d.get("session_id") or "-")
+                    except Exception:
+                        label = "unparsable"
+                    out.append("workspaces\tevents.jsonl %s %s" % (h(raw), label))
+    except OSError as e:
+        out.append("UNREADABLE\tworkspaces\t%s" % e); unreadable = True
+else:
+    out.append("workspaces\tabsent")
+
 print("\n".join(sorted(out)))
 sys.exit(1 if unreadable else 0)
 PY
@@ -205,10 +239,12 @@ for line in after:
         print("fallback event log line APPEARED: %s" % rest.split("\t", 1)[-1])
     elif kind == "teams":
         print("team directory entry APPEARED: %s" % rest)
+    elif kind == "workspaces":
+        print("workspace registry entry APPEARED: %s" % rest)
     else:
         print(line)
 # a path that was present and is now absent, or vice versa, is a change too
-for kind in ("ledger", "fallback", "teams"):
+for kind in ("ledger", "fallback", "teams", "workspaces"):
     was = any(l.startswith(kind + "\t") for l in before)
     now = any(l.startswith(kind + "\t") for l in after)
     was_absent = (kind + "\tabsent") in before
