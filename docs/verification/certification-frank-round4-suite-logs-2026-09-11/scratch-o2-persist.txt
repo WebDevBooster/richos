@@ -1,0 +1,10 @@
+1. judge, write OFF (the L06b shape):
+NOT-ALIVE	live001	platform terminal record: the platform's own terminal record for agent live001: SubagentStop at 2026-0
+2. judge, write ON (the CLI default; the reaper's judge-batch default):
+NOT-ALIVE	live001	platform terminal record: the platform's own terminal record for agent live001: SubagentStop at 2026-0
+   terminated rows now in the sandbox ledger: 1
+   witness: platform-terminal-record
+3. the platform starts the agent AGAIN (start note, no stop) -- L06c says INDETERMINATE:
+NOT-ALIVE	live001	witnessed termination on record for agent live001 (zach-opus-live): the platform's own terminal record for agent live001: SubagentStop at 2026
+4. control: the same state with the terminated row removed from the ledger:
+INDETERMINATE	live001	RETRY, not a verdict: the platform started agent live001 again after its terminal record and that run is still open (the last observed lif
