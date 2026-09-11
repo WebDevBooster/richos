@@ -125,16 +125,19 @@ def event_log_paths():
 
 
 def event_rows():
-    """Every row of every event log the platform keeps, oldest first per file."""
+    """Every row of every event log the platform keeps, oldest first per file.
+    A line that is not UTF-8 is skipped like a line that is not JSON (Sage
+    D-C, round four): the fallback file is shared by every session, and one
+    bad byte must not stop the measure."""
     for path in event_log_paths():
         try:
-            with open(path, encoding='utf-8') as stream:
-                for line in stream:
-                    if not line.strip():
+            with open(path, 'rb') as stream:
+                for raw in stream:
+                    if not raw.strip():
                         continue
                     try:
-                        yield path, json.loads(line)
-                    except ValueError:
+                        yield path, json.loads(raw.decode('utf-8'))
+                    except (ValueError, UnicodeDecodeError):
                         continue
         except OSError:
             continue
