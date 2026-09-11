@@ -16,11 +16,13 @@
 #
 # The brief for this row was explicit that a test which removes a directory it
 # made in /tmp is not a proof. So the removal here is done by the engine's OWN
-# sanctioned remover, scripts/remove-agent-worktree.sh — the same command the
-# orchestrator runs, running the same `git worktree remove`, against a real
-# linked worktree of a real repository, which DEREGISTERS the worktree as well
-# as deleting it. Case 3 asserts positively that the artifact was destroyed
-# before it asserts that the ack still reads.
+# sanctioned deleter -- since 2026-09-11 that is `scripts/workspaces.sh
+# discard` (docs/plans/worktree-spec-2026-09-11.md: a land or a discard deletes
+# every workspace and branch an agent has, and nothing else deletes one) -- the
+# same command the orchestrator runs, against a real linked worktree of a real
+# repository, registered to a finished agent, which DEREGISTERS the worktree as
+# well as deleting it. Case 3 asserts positively that the artifact was
+# destroyed before it asserts that the ack still reads.
 #
 # BOTH DIRECTIONS, because a store that answers "acked" for everybody is worse
 # than the bug it replaces:
@@ -35,10 +37,11 @@
 # removed is the failure class this row belongs to; this suite refuses to be an
 # instance of it.
 #
-# NOTHING IS STUBBED except the three ledgers, which are redirected into the
-# sandbox because a test must never write into the operator's real state. Case
-# 10 is the canary for exactly that: it snapshots the operator's real ledgers
-# and the working directory before case 1 and proves nothing escaped.
+# NOTHING IS STUBBED except the ledgers and the workspace registry, which are
+# redirected into the sandbox because a test must never write into the
+# operator's real state. Case 13 is the canary for exactly that: it snapshots
+# the operator's real ledgers and the working directory before case 1 and
+# proves nothing escaped.
 #
 # Run directly:  scripts/hooks/inflight-ack-durability.test.sh [--verbose]
 
@@ -69,13 +72,17 @@ cannot_run() {
 
 command -v git      >/dev/null 2>&1 || cannot_run "git is not on PATH."
 command -v python3  >/dev/null 2>&1 || cannot_run "python3 is not on PATH."
-REMOVER="$ENGINE_ROOT/scripts/remove-agent-worktree.sh"
-[ -f "$REMOVER" ] || cannot_run "the sanctioned remover is missing at $REMOVER — this suite's whole point is a REAL removal, and it will not fake one."
+WORKSPACES="$ENGINE_ROOT/scripts/workspaces.sh"
+WS_PY="$ENGINE_ROOT/scripts/lib/workspaces.py"
+[ -f "$WORKSPACES" ] && [ -f "$WS_PY" ] || cannot_run "the sanctioned deleter (scripts/workspaces.sh and scripts/lib/workspaces.py) is missing — this suite's whole point is a REAL removal, and it will not fake one."
 [ -f "$ENGINE_ROOT/scripts/inflight-ack.sh" ]  || cannot_run "scripts/inflight-ack.sh is missing."
 [ -f "$ENGINE_ROOT/scripts/lib/inflight.py" ]  || cannot_run "scripts/lib/inflight.py is missing."
 
 SANDBOX="$(mktemp -d -t inflight-ack-dur.XXXXXX)"
-trap 'rm -rf "$SANDBOX"' EXIT
+# The registry's session identity: a process of this suite's own.
+RICHOS_SESSION_PID="$(sh -c 'sleep 900 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
+trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 
 REPO="$SANDBOX/repo"
 TEAMS="$SANDBOX/teams"
@@ -84,14 +91,15 @@ STATE="$SANDBOX/state"
 mkdir -p "$REPO" "$TEAM_DIR" "$STATE"
 
 # --- EVERY DURABLE LEDGER REDIRECTED INTO THE SANDBOX ----------------------
-# The ack ledger is the subject; the worktree ownership ledger is written by
-# the remover; the team directory holds the notice ledger. All three live under
+# The ack ledger is the subject; the workspace registry is what the deleter
+# reads and writes; the team directory holds the notice ledger. All live under
 # the operator's real home by default, and a suite that redirected one of them
 # while a second still followed the working directory is the generic leak shape
 # a sibling row is sweeping for. Case 10 proves this list is complete rather
 # than merely intended.
 export RICHOS_INFLIGHT_ACK_LEDGER="$STATE/inflight-acks.jsonl"
 export RICHOS_WORKTREE_LEDGER="$STATE/worktree-ledger.jsonl"
+export RICHOS_WORKSPACES_DIR="$STATE/workspaces"
 export INFLIGHT_TEAMS_DIR="$TEAMS"
 export RICHOS_ENTITY_ROOT="$REPO"
 
@@ -168,39 +176,44 @@ WT_GONE="$SANDBOX/wt/zach-opus-gone1"
 WT_NOACK="$SANDBOX/wt/zach-opus-noack1"
 WT_LOST="$SANDBOX/wt/zach-opus-lost1"
 
-# --- THE OWNERSHIP RECORDS A REAL REMOVAL REQUIRES -------------------------
-# The remover destroys nothing without BINDING and EVIDENCE: an ownership
-# record tying that owner to that exact path, plus a positive, witnessed
-# termination. Until 2026-09-05 it accepted the absence of both -- no record
-# names this path, no lock is held anywhere for this owner, therefore the owner
-# is dead, therefore delete -- and that reasoning is true of an owner string
-# naming nobody at all. It deleted the parent of every workspace on the machine.
-#
-# This suite's subject is what survives a REAL removal, and it insists on the
-# engine's own remover rather than an `rm` in a scratch directory. So it now has
-# to supply what a real removal requires, exactly as create-teammate-worktree.sh
-# does at creation and the reaper does when it witnesses a termination. Nothing
-# below relaxes the remover or reaches around it: it is the caller doing the job
-# a caller is supposed to do, and if these rows were absent the removal would
-# correctly refuse.
+# --- THE REGISTRATIONS A REAL REMOVAL REQUIRES ------------------------------
+# A land or a discard deletes the workspaces of a REGISTERED, FINISHED agent and
+# nothing else (points 3, 7, 11). So each teammate that is removed below is
+# registered first, exactly as create-teammate-worktree.sh registers one at
+# creation, and is finished by the platform's own end-of-run signal before its
+# removal. Nothing below reaches around the deleter; if these registrations
+# were absent, the discard would correctly refuse ("no registered agent").
 #
 # lost1 is deliberately NOT registered. Case 8 needs it to stay registered with
-# git and presumed live; it is never removed, so it never needs the record.
-LEDGER_PY="$ENGINE_ROOT/scripts/lib/worktree-ledger.py"
-[ -f "$LEDGER_PY" ] || cannot_run "scripts/lib/worktree-ledger.py is missing, so no ownership record can be written and the sanctioned remover would correctly refuse every removal below."
+# git and presumed live; it is never removed.
 SEED_SESSION="deadbeef-1111-4000-8000-000000000000"
-ledger_record() { # <event> <agent-id> <worktree> [extra args...]
-    local event="$1" aid="$2" wt="$3"; shift 3
-    python3 "$LEDGER_PY" --ledger "$RICHOS_WORKTREE_LEDGER" record "$event" \
-        --agent-id "$aid" --worktree "$wt" "$@" >/dev/null 2>&1
+ws_register() { # <name> <agent-id> <path> <branch> <kind>
+    python3 - "$WS_PY" "$SEED_SESSION" "$@" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
+ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+sid, name, aid, path, branch, kind = sys.argv[2:8]
+rec = ws.new_record(ws.named_key(sid, name), name=name, session_id=sid, agent_id=aid)
+ws._add_workspace(rec, kind, ws.main_checkout(path), path, branch, "inflight-ack-durability.test.sh")
+ws.save_agent(rec)
+PY
 }
-ledger_record registered agone1-000000000000 "$WT_GONE" \
-    --teammate zach-opus-gone1 --session-id "$SEED_SESSION" \
-    --repo "$REPO" --branch wt-zach-opus-gone1 --class hand-rolled
-ledger_record registered anoack1-000000000000 "$WT_NOACK" \
-    --teammate zach-opus-noack1 --session-id "$SEED_SESSION" \
-    --repo "$REPO" --branch wt-zach-opus-noack1 --class hand-rolled
-[ -s "$RICHOS_WORKTREE_LEDGER" ] || cannot_run "the sandboxed ownership ledger at $RICHOS_WORKTREE_LEDGER is empty after seeding, so every removal below would refuse with owner-unbound and nothing after it could be tested."
+ws_finish() { # <agent-id> -- the platform's end-of-run signal (point 11)
+    python3 - "$WS_PY" "$SEED_SESSION" "$1" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
+ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+assert ws.record_end(sys.argv[2], sys.argv[3], "SubagentStop"), "no registration for " + sys.argv[3]
+PY
+}
+ws_discard() { # <name> <reason>
+    bash "$WORKSPACES" --session "$SEED_SESSION" discard "$1" --reason "$2" \
+        --not-ceo-ordered "a sandbox fixture of this suite; nobody ordered it"
+}
+ws_register zach-opus-gone1 agone1-000000000000 "$WT_GONE" wt-zach-opus-gone1 cc
+ws_register zach-opus-noack1 anoack1-000000000000 "$WT_NOACK" wt-zach-opus-noack1 cc
+[ -f "$RICHOS_WORKSPACES_DIR/agents/$SEED_SESSION--zach-opus-gone1.json" ] \
+    || cannot_run "the sandboxed workspace registry at $RICHOS_WORKSPACES_DIR holds no registration after seeding, so every removal below would refuse and nothing after it could be tested."
 
 # main moves under all three — the whole failure, reproduced.
 echo "two" >> "$REPO/src/a.txt"
@@ -279,28 +292,24 @@ case "$BEFORE" in
 esac
 
 # ==========================================================================
-# 3. THE REAL REMOVAL — the engine's own remover, not an rm in a scratch dir
+# 3. THE REAL REMOVAL — the engine's own deleter, not an rm in a scratch dir
 # ==========================================================================
-# gone1 has finished, and that is a thing this suite KNOWS rather than infers
-# from a missing lock. In production the reaper writes this row when it observes
-# the isolation worktree registered-and-unlocked; here the suite writes it,
-# because the suite is what decided this teammate is done.
-ledger_record terminated agone1-000000000000 "$WT_GONE" \
-    --teammate zach-opus-gone1 \
-    --reason "the teammate finished and its termination was witnessed by the suite" \
-    --witness inflight-ack-durability.test.sh
-ROUT="$(bash "$REMOVER" --owner agone1-000000000000 --repo "$REPO" \
-        --branch wt-zach-opus-gone1 --force --entity-repo "$REPO" "$WT_GONE" 2>&1)"
+# gone1 has finished, and that is a thing this suite KNOWS rather than infers:
+# the platform's end-of-run signal is recorded for it, as SubagentStop records
+# it in production (point 11). Then it is discarded -- the deleter that needs
+# no merge, which is what this fixture's unmerged branch calls for.
+ws_finish agone1-000000000000
+ROUT="$(ws_discard zach-opus-gone1 "the teammate finished; its termination was witnessed by the suite" 2>&1)"
 RRC=$?
 say "3 removal" "$ROUT"
 if [ "$RRC" -ne 0 ]; then
     # The suite's subject is what happens AFTER a real removal. If the removal
     # did not happen, every assertion below would be vacuous, so this is a
     # refusal to continue rather than a failed case among others.
-    bad "3a. the sanctioned remover removes the worktree" "exit $RRC: $ROUT"
+    bad "3a. the sanctioned deleter removes the worktree" "exit $RRC: $ROUT"
     cannot_run "the REAL removal did not happen (exit $RRC), so nothing after it could be tested: $ROUT"
 fi
-ok "3a. the sanctioned remover ran and removed the worktree"
+ok "3a. the sanctioned deleter (workspaces.sh discard) ran and removed the worktree"
 
 # THE DESTRUCTION, ASSERTED POSITIVELY. Without this the rest of the case could
 # pass over a worktree that was never removed.
@@ -330,38 +339,18 @@ case "$AFTER" in
     *) bad "3g. the detail survives verbatim" "$AFTER" ;;
 esac
 
-# --- 3h: THE QUARANTINE IS NOT A TEAMMATE ---------------------------------
-# Removal stopped meaning deregistration on 2026-09-07 (6472bb60, "Preserve
-# Claude-owned native cleanup and prohibit bulk registration pruning"): the
-# remover now RENAMES the workspace to <parent>/.richos-retired/<base>
-# .richos-retired-ws-<16 hex>-<stamp>Z and runs `git worktree repair` on the new
-# path instead of unlocking and pruning. So a finished teammate's workspace is
-# still in `git worktree list`, at a new path, holding a copy of its ack.
-#
-# Nothing above notices, because 3d asks only whether the OLD path is gone. But
-# every loop in this operation is driven by that list, and a hand-rolled
-# worktree is presumed live — so the quarantine reads as a live teammate that
-# is owed a notice it can never be sent and can never ack, and the Stop hook
-# chases the operator about it forever. That is 8b's false chase arriving
-# through a new door, and 9a caught it only as a substring.
-#
-# The first two clauses make the case NON-VACUOUS: it asserts the new world
-# really is the new world (quarantine present AND registered) before asserting
-# that the sweep does not mistake it for a teammate.
-QPATH="$(ls -d "$SANDBOX/wt/.richos-retired/zach-opus-gone1.richos-retired-ws-"* 2>/dev/null | head -1)"
-QSTATUS="$(bash "$RUNNER" status --repo "$REPO" 2>&1)"
-say "3h status after removal" "$QSTATUS"
-if [ -z "$QPATH" ]; then
-    bad "3h. the retired quarantine is not read as a live teammate" \
-        "not asserted: no quarantine was produced under $SANDBOX/wt/.richos-retired/, so this case would pass over a remover that had simply deleted the workspace"
-elif ! git -C "$REPO" worktree list --porcelain | grep -qF "$QPATH"; then
-    bad "3h. the retired quarantine is not read as a live teammate" \
-        "not asserted: git does not register $QPATH, so the sweep could never have seen it and this case proves nothing"
-elif printf '%s' "$QSTATUS" | grep -qF "$QPATH"; then
-    bad "3h. the retired quarantine is not read as a live teammate" \
-        "the sweep lists the quarantine as a worktree, so a finished teammate is owed a notice forever: $QSTATUS"
+# --- 3h: THE BRANCH WENT WITH IT ------------------------------------------
+# A land or a discard deletes every workspace AND branch the agent has, as one
+# (point 10). Until 2026-09-11 the remover renamed the workspace into a
+# registered quarantine instead, and this case proved the sweep did not read
+# that quarantine as a live teammate; there is no quarantine now, so the case
+# asserts what replaced it: nothing of gone1's is left for any loop to see.
+if git -C "$REPO" rev-parse --verify --quiet "refs/heads/wt-zach-opus-gone1" >/dev/null 2>&1; then
+    bad "3h. the discard deleted the agent's branch with its workspace (point 10)" "wt-zach-opus-gone1 still exists"
+elif ls -d "$SANDBOX/wt/".richos-retired* >/dev/null 2>&1; then
+    bad "3h. the discard deleted the agent's branch with its workspace (point 10)" "a quarantine directory exists under $SANDBOX/wt"
 else
-    ok "3h. the retired quarantine is registered with git but is NOT read as a teammate — no notice is owed to a workspace nobody is standing in"
+    ok "3h. the discard deleted the agent's branch with its workspace, and left no quarantine (point 10)"
 fi
 
 # ==========================================================================
@@ -427,12 +416,8 @@ fi
 # A store that answered "acked" for everybody once their worktree was gone
 # would be worse than the bug. noack1 is now removed the same real way gone1
 # was; it must appear NOWHERE in the acks report for this tip.
-ledger_record terminated anoack1-000000000000 "$WT_NOACK" \
-    --teammate zach-opus-noack1 \
-    --reason "the teammate finished without acking and its termination was witnessed by the suite" \
-    --witness inflight-ack-durability.test.sh
-bash "$REMOVER" --owner anoack1-000000000000 --repo "$REPO" \
-    --branch wt-zach-opus-noack1 --force --entity-repo "$REPO" "$WT_NOACK" >/dev/null 2>&1
+ws_finish anoack1-000000000000
+ws_discard zach-opus-noack1 "the teammate finished without acking; witnessed by the suite" >/dev/null 2>&1
 NRC=$?
 if [ "$NRC" -ne 0 ] || [ -d "$WT_NOACK" ]; then
     bad "7a. the negative control's worktree is really removed too" "exit $NRC; dir present: $([ -d "$WT_NOACK" ] && echo yes || echo no)"
@@ -580,11 +565,12 @@ esac
 # LIVENESS both do, so "it works for hand-rolled" is an inference rather than a
 # result. This runs the whole lifecycle in the native shape instead:
 # locked with a live pid while it works, unlocked when it finishes, then removed
-# by the sanctioned remover.
+# by the sanctioned deleter.
 NAT_ID="azachnat-0123456789abcd"
 NAT_WT="$REPO/.claude/worktrees/agent-$NAT_ID"
 mkdir -p "$REPO/.claude/worktrees"
 git -C "$REPO" worktree add -q -b wt-native "$NAT_WT" >/dev/null 2>&1
+[ -d "$NAT_WT" ] && ws_register zachnat "$NAT_ID" "$NAT_WT" wt-native native
 if [ ! -d "$NAT_WT" ]; then
     bad "14a. a native-shaped worktree can be created" "git worktree add failed for $NAT_WT"
 else
@@ -606,12 +592,12 @@ else
         *) bad "14b. the live native teammate reads as told and proved" "$NAT_BEFORE" ;;
     esac
 
-    # The agent finishes: the harness releases the lock, then the worktree is
-    # removed. Both steps, in that order, because the remover REFUSES a locked
-    # worktree with a live pid — correctly.
+    # The agent finishes: the harness releases the lock and the platform's
+    # end-of-run signal is recorded; only then is the worktree discarded (a
+    # running agent is never discarded, point 11).
     git -C "$REPO" worktree unlock "$NAT_WT" >/dev/null 2>&1
-    NAT_ROUT="$(bash "$REMOVER" --owner "$NAT_ID" --repo "$REPO" \
-                --branch wt-native --force --entity-repo "$REPO" "$NAT_WT" 2>&1)"
+    ws_finish "$NAT_ID"
+    NAT_ROUT="$(ws_discard zachnat "the native teammate finished; witnessed by the suite" 2>&1)"
     NAT_RRC=$?
     say "14 native removal" "$NAT_ROUT"
     if [ "$NAT_RRC" -ne 0 ] || [ -d "$NAT_WT" ]; then
@@ -619,7 +605,7 @@ else
         bad "14d. the native teammate's ack survives its removal" \
             "not asserted: the removal did not happen, so this would assert nothing"
     else
-        ok "14c. the native worktree is really removed, by the sanctioned remover"
+        ok "14c. the native worktree is really removed, by the sanctioned deleter"
         NAT_AFTER="$(bash "$RUNNER" acks --repo "$REPO" 2>&1)"
         say "14 native acks after removal" "$NAT_AFTER"
         case "$NAT_AFTER" in
@@ -633,8 +619,8 @@ fi
 # 13. LEAK CANARY — nothing escaped the sandbox
 # ==========================================================================
 # Every case above wrote acks, removed worktrees and drove hooks. If any of the
-# three ledger redirects at the top of this file is incomplete, the operator's
-# real state grew while this suite "passed".
+# redirects at the top of this file is incomplete, the operator's real state
+# grew while this suite "passed".
 AFTER_CWD_LIST="$(ls -A "$START_CWD" 2>/dev/null | LC_ALL=C sort | cksum)"
 AFTER_ENGINE_LIST="$(ls -A "$ENGINE_ROOT" 2>/dev/null | LC_ALL=C sort | cksum)"
 LEAK_ACK="$(leaked_into "$REAL_ACK_LEDGER")"
