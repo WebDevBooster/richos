@@ -114,24 +114,23 @@
 #   its prompt ("git -C <repo> worktree add ..."), and nothing on disk said who
 #   owned it — so the moment its native worktree was landed, the improvised
 #   tree was permanently undecidable to the reaper. The rule is inverted:
-#     4a. A `cwd` spawn is ALLOWED without isolation ONLY when `cwd` is the top
-#         level of a LINKED git worktree AND that path is registered in the
-#         ownership ledger (scripts/lib/worktree-ledger.py — written by
-#         scripts/create-teammate-worktree.sh). Anything else -> BLOCKED,
-#         naming the helper.
+#     4a. A `cwd` path must be the top level of a LINKED git worktree on a cc/
+#         branch (docs/plans/worktree-spec-2026-09-11.md, point 1), never a
+#         codex/ one (point 2). Anything else -> BLOCKED, naming the helper.
+#         (A cwd-only spawn is then refused by clause 7f.)
 #     4b. `cwd` together with isolation:"worktree" -> BLOCKED (the harness
 #         refuses the pair; saying so here is cheaper than a failed spawn).
 #     4c. Every `cross-repo-worktree: <path>` line in the prompt (the shape
 #         that keeps native isolation in the session repo AND names the
-#         cross-repo tree) must be registered the same way -> else BLOCKED.
+#         cross-repo tree) must pass the same check -> else BLOCKED; whether it
+#         was registered for THIS session and THIS teammate is clause 7's
+#         question (the workspace registry, scripts/lib/workspaces.py).
 #     4d. A prompt that INSTRUCTS the teammate to run `git worktree add` is
 #         BLOCKED: that is the improvisation this clause ends. The audited
 #         escape hatch is a `hand-roll-ack: <reason>` prompt line, logged to
 #         .claude/state/hand-roll-acks.log like main-checkout-run: is.
 #   Clauses 1-3 are NOT relaxed by any of this: the name contract holds, and a
-#   `cwd` spawn still needs a truthful <role>-<model>-<identifier> name. When
-#   the ledger library is missing, a cwd/marker spawn is BLOCKED (fail-closed):
-#   an unverifiable registration is not a registration.
+#   `cwd` spawn still needs a truthful <role>-<model>-<identifier> name.
 #
 # CLAUSE 5 — A GENERIC AGENT IS NOT A TEAMMATE (STAFFING, 2026-09-02).
 #   READONLY_ALLOWLIST answers ONE question: does this agent need an isolated
@@ -570,11 +569,13 @@ fi
 
 # --- CLAUSE 4 helpers ------------------------------------------------------
 # registered_teammate_worktree <path> -> 0 when <path> is the top level of a
-# LINKED git worktree AND the ownership ledger holds a registration for it;
-# prints the reason for a refusal on stdout otherwise.
-LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
+# LINKED git worktree on a cc/ branch (docs/plans/worktree-spec-2026-09-11.md,
+# point 1) and not a codex/ one (point 2); prints the reason for a refusal on
+# stdout otherwise. Whether it is registered FOR THIS SPAWN — this session,
+# this teammate — is clause 7's question, answered by the workspace registry
+# (scripts/lib/workspaces.py register-spawn).
 registered_teammate_worktree() {
-  local p="$1" top common gitdir
+  local p="$1" top common gitdir br
   [ -n "$p" ] || { printf 'no path given'; return 1; }
   [ -d "$p" ] || { printf "'%s' does not exist" "$p"; return 1; }
   top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -585,18 +586,14 @@ registered_teammate_worktree() {
   common="$(git -C "$p" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
   gitdir="$(git -C "$p" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
   if [ -z "$common" ] || [ "$common" = "$gitdir" ]; then
-    if [ -f "$SCRIPT_DIR/../lib/managed-workspace-integration.py" ] && \
-       python3 "$SCRIPT_DIR/../lib/managed-workspace-integration.py" inspect --path "$p" >/dev/null 2>&1; then
-      return 0
-    fi
     printf "'%s' is a MAIN checkout, not a linked worktree — a teammate never works in the main checkout" "$p"; return 1
   fi
-  if [ ! -f "$LEDGER_PY" ]; then
-    printf "the ownership ledger library is missing at %s, so the registration of '%s' cannot be verified (fail-closed)" "$LEDGER_PY" "$p"; return 1
-  fi
-  if ! python3 "$LEDGER_PY" registrations --worktree "$p" >/dev/null 2>&1; then
-    printf "'%s' is a linked worktree but the ownership ledger holds NO registration for it — it was not created by scripts/create-teammate-worktree.sh" "$p"; return 1
-  fi
+  br="$(git -C "$p" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  case "$br" in
+    codex/*) printf "'%s' is a codex/ workspace — codex/ is never touched, and an agent never works inside one; it works from a copy in its own cc/ workspace (point 2)" "$p"; return 1 ;;
+    cc/*) : ;;
+    *) printf "'%s' is on branch '%s', not a cc/ branch — every non-native workspace is named cc/ (point 1)" "$p" "${br:-<detached>}"; return 1 ;;
+  esac
   return 0
 }
 HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
@@ -652,7 +649,7 @@ if printf '%s' "$PROMPT" | grep -E >/dev/null 'git([[:space:]]+-C[[:space:]]+[^[
     mkdir -p "$LOG_DIR" 2>/dev/null || true
     printf '%s\tagent=%s\tname=%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${SUBAGENT_TYPE:-<unset>}" "${NAME:-<unset>}" "$HAND_ROLL_ACK" >>"$LOG_DIR/hand-roll-acks.log" 2>/dev/null || true
   else
-    PROBLEMS+=("the prompt instructs the teammate to run 'git worktree add' — an improvised worktree carries no ownership record and becomes undecidable to the reaper the moment this session's evidence is gone. ${HELPER_HINT} If this instruction is genuinely intended (a task ABOUT worktree tooling), add a live prompt line 'hand-roll-ack: <reason>' — logged to .claude/state/hand-roll-acks.log.")
+    PROBLEMS+=("the prompt instructs the teammate to run 'git worktree add' — an improvised workspace has no registration, so it is finished work the moment it exists (docs/plans/worktree-spec-2026-09-11.md, point 3). ${HELPER_HINT} If this instruction is genuinely intended (a task ABOUT worktree tooling), add a live prompt line 'hand-roll-ack: <reason>' — logged to .claude/state/hand-roll-acks.log.")
   fi
 fi
 
@@ -880,227 +877,63 @@ PY
 fi
 
 # ---------------------------------------------------------------------------
-# CLAUSE 7 — THE SPAWN-INTENT (2026-09-03). Every clause above is satisfied;
-# before this call may run, its EXACT proposed member set is written durably,
-# keyed by (session_id, tool_use_id), for the PostToolUse binder to bind to the
-# agent id the harness returns. Specification: docs/plans/worktree-real-fix-
-# 2026-09-03.md, phase 2. What is recorded, and what is refused:
-#   7a. every external path (a `cwd`, every `cross-repo-worktree:` line) must
-#       have a PREPARED record for THIS session and THIS teammate, written by
-#       scripts/create-teammate-worktree.sh — clause 4 asked "is it a
-#       registered worktree?"; this asks "was it prepared for exactly this
-#       spawn?" — and the repository and branch must STILL match that record;
-#   7b. a file-capable Agent call with run_in_background: false is refused: a
-#       synchronous run's PostToolUse arrives after the worker has finished,
-#       too late to establish ownership of anything it wrote;
-#   7c. the lifecycle components the intent depends on must be present — the
-#       transaction library, the binder's start-fact recorder and the write
-#       barrier — or the spawn is refused: an intent nothing can bind or
-#       enforce is the best-effort registration this replaces;
-#   7d. the intent write itself must succeed (temp file, fsync, rename).
-# The intent authorizes nothing. It may remain on disk if a later hook in this
-# chain vetoes the call; nothing reads it until an Agent result binds it.
+# CLAUSE 7 — REGISTRATION AT SPAWN (docs/plans/worktree-spec-2026-09-11.md).
+# Every clause above is satisfied; before this call may run it is REGISTERED
+# in the workspace registry (scripts/lib/workspaces.py register-spawn), and:
+#   "If registration fails, the spawn does not happen."            (point 3)
+# The registration also carries point 5:
+#   "while any finished agent's work is neither landed nor discarded, Rich can
+#    neither start new work nor end his turn"
+# so a spawn is refused while finished work is pending — every finished agent
+# whose work is already in main is landed first, automatically (point 4) —
+# unless the spawn is the work that lands it: a `lands-pending: <name>` or a
+# `continues: <name>` prompt line naming the pending agent (points 5, 7).
+#   7a. every `cross-repo-worktree:` path must be a cc/ workspace registered for
+#       THIS session and THIS teammate when it was created
+#       (scripts/create-teammate-worktree.sh), still on its registered branch;
+#   7b. a file-capable Agent call with run_in_background: false is refused;
+#   7c. the lifecycle components registration depends on must be present — the
+#       registry, the lifecycle hook that records the platform's facts, and the
+#       lock-out — or the spawn is refused;
+#   7d. the registration itself must be written (temp file, fsync, rename);
+#   7f. a cwd-only spawn is refused: the platform creates no workspace of its
+#       own for it, and the registration names the native workspace every
+#       file-capable spawn is given.
 # ---------------------------------------------------------------------------
-if [ "$MAIN_CHECKOUT_MARKER" != "" ] && [ -z "$SPAWN_CWD" ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "remote" ]; then
-  INTENT_KIND="main-checkout-run"
-elif [ "$ISOLATION" = "remote" ]; then
-  INTENT_KIND="remote"
-elif [ -n "$SPAWN_CWD" ]; then
-  INTENT_KIND="cwd"
-else
-  INTENT_KIND="native"
-fi
-INTENT_EXTERNALS=""
-if [ -n "$SPAWN_CWD" ]; then
-  INTENT_EXTERNALS="$SPAWN_CWD"
-fi
-while IFS= read -r _marker_path; do
-  [ -n "$_marker_path" ] || continue
-  INTENT_EXTERNALS="${INTENT_EXTERNALS}${INTENT_EXTERNALS:+
-}$_marker_path"
-done <<MARKERS_EOF
-$(printf '%s' "$PROMPT" | sed -n -E 's/^[[:space:]]*cross-repo-worktree:[[:space:]]*([^[:space:]]+).*$/\1/p')
-MARKERS_EOF
-if [ "$INTENT_KIND" = "native" ] && [ -n "$INTENT_EXTERNALS" ]; then
-  INTENT_KIND="native+external"
-fi
-
 C7_PROBLEMS=()
-for _c in "scripts/lib/worktree-transactions.py" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
-  [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's worktrees could be recorded but never bound, sealed, barred or cleaned up. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+for _c in "scripts/lib/workspaces.py" "scripts/hooks/workspace-lifecycle.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
+  [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's workspaces could not be registered, finished or locked out. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
 done
-# 7c, continued (review 2026-09-03, blocker 3): PRESENT is not ENOUGH. The
-# write barrier now fails CLOSED on its own error — a library that does not
-# load, a barrier that cannot run — so a worker spawned into a broken engine
-# would be refused every write from its first call. The spawn is refused at
-# the door instead, naming the dependency, which is the safe degradation the
-# review asked for: a broken engine stops new workers rather than leaking
-# unowned writes or bricking running ones.
-_c7_lib_loads() { # <path>
-  python3 - "$1" <<'PY' >/dev/null 2>&1
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("tx", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-for fn in ("write_intent", "bind", "record_start", "try_seal", "claim_terminal", "terminalize", "is_terminal_agent", "record_pending_terminal"):
-    getattr(m, fn)
-PY
-}
-if [ -f "$SCRIPT_DIR/../lib/worktree-transactions.py" ] && ! _c7_lib_loads "$SCRIPT_DIR/../lib/worktree-transactions.py"; then
-  C7_PROBLEMS+=("lifecycle component BROKEN: scripts/lib/worktree-transactions.py does not load or lacks a required function. The write barrier (guard-sealed-worktree.sh) fails CLOSED on it, so a worker spawned now could never write. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
-fi
-for _c in "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
+for _c in "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/workspace-lifecycle.sh"; do
   if [ -f "$SCRIPT_DIR/../../$_c" ] && [ ! -x "$SCRIPT_DIR/../../$_c" ]; then
-    C7_PROBLEMS+=("lifecycle component NOT EXECUTABLE: $_c — the harness cannot run it, so this spawn could never be sealed, barred or terminalized. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+    C7_PROBLEMS+=("lifecycle component NOT EXECUTABLE: $_c — the harness cannot run it. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
   fi
 done
-# 7e. THE PERSISTENT RECONCILER CONTRACT MUST BE HEALTHY (review 2026-09-03,
-#     blocker 7). A worker's worktrees are removed by the reconciler under
-#     launchd, and by nothing else; a machine where that job is not loaded
-#     leaks every terminal worktree until somebody notices. So on macOS a
-#     file-writing spawn is refused unless `launchctl print` shows the job
-#     loaded and naming a reconciler that exists on disk — and the refusal
-#     names the one command that fixes it. The check is skipped when the
-#     transaction store is redirected (RICHOS_WORKTREE_TX_DIR: a sandboxed
-#     store has no machine-wide contract to be healthy — every suite and probe
-#     canary sets it) unless RICHOS_RECONCILER_CONTRACT_CHECK=1 asks for it
-#     with a shimmed launchctl. Non-macOS hosts have no launchd and stand down
-#     with a note: the contract there is the host scheduler, which this guard
-#     cannot see.
-if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-  _C7E_LABEL="com.richos.worktree-reconciler"
-  _C7E_FIX="run $ENGINE_ROOT/scripts/hooks/install.sh from the engine's MAIN checkout (it bootstraps and verifies the job; it exits 1 if it cannot)"
-  if ! command -v launchctl >/dev/null 2>&1; then
-    C7_PROBLEMS+=("the persistent reconciler contract cannot be checked: launchctl is not on PATH — $_C7E_FIX.")
-  elif ! _C7E_PRINT="$(launchctl print "gui/$(id -u)/$_C7E_LABEL" 2>&1)"; then
-    C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak FOREVER — no session start recovers anything; the nightly job is the only remover — $_C7E_FIX.")
-  else
-    _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | sed -n '1p' || true)"
-    if [ -z "$_C7E_PROG" ]; then
-      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL does not name a reconciler (no reconcile-terminal-worktrees.py in its arguments) — $_C7E_FIX.")
-    elif [ ! -f "$_C7E_PROG" ]; then
-      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL points at $_C7E_PROG, which does not exist — the engine it was installed from is gone (a removed worktree or an old checkout) — $_C7E_FIX.")
-    fi
-  fi
-fi
 RUN_IN_BG="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("tool_input") or {}).get("run_in_background"); print("false" if v is False else ("true" if v is True else ""))' 2>/dev/null || true)"
 if [ "$RUN_IN_BG" = "false" ]; then
-  C7_PROBLEMS+=("run_in_background: false on a file-capable spawn — a SYNCHRONOUS Agent call's PostToolUse arrives after the worker has finished, too late to bind its worktrees to its agent id, so nothing it wrote would be owned by anyone. Spawn it as a background teammate (omit run_in_background, or set it true).")
+  C7_PROBLEMS+=("run_in_background: false on a file-capable spawn — spawn it as a background teammate (omit run_in_background, or set it true), so the orchestrator can land it when it finishes.")
+fi
+if [ -n "$SPAWN_CWD" ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "remote" ]; then
+  C7_PROBLEMS+=("cwd-only spawn refused — spawn it with isolation:\"worktree\" and put the registered cc/ workspace on a 'cross-repo-worktree: ${SPAWN_CWD}' prompt line instead, so both of its workspaces are registered and go together (points 6, 10).")
 fi
 
 if [ "${#C7_PROBLEMS[@]}" -eq 0 ]; then
-  C7_OUT="$(SESSION_ID="$SESSION_ID" TOOL_USE_ID="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_use_id",""))' 2>/dev/null || true)" \
-    NAME="$NAME" SUBAGENT_TYPE="$SUBAGENT_TYPE" ISOLATION="$ISOLATION" INTENT_KIND="$INTENT_KIND" EXTERNALS="$INTENT_EXTERNALS" \
-    TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py" LEDGER_PY="$LEDGER_PY" \
-    python3 - <<'PY' 2>&1
-import importlib.util, json, os, subprocess, sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    return mod
-
-def problem(msg):
-    print("PROBLEM\t" + msg.replace("\n", " "))
-
-sid = os.environ.get("SESSION_ID", "")
-tuid = os.environ.get("TOOL_USE_ID", "")
-name = os.environ.get("NAME", "")
-kind = os.environ.get("INTENT_KIND", "")
-if not sid or not tuid:
-    problem("the PreToolUse payload carries no session_id/tool_use_id (session=%r tool_use=%r); a spawn-intent cannot be keyed and the spawn cannot be bound later." % (sid, tuid))
-    raise SystemExit(0)
-tx = load("tx", os.environ["TX_PY"])
-externals = []
-paths = [x for x in os.environ.get("EXTERNALS", "").split("\n") if x.strip()]
-# The ledger is consulted only when there is an external member to check;
-# a native-only spawn owes it nothing (clause 4 is inert for it too).
-wl = load("wl", os.environ["LEDGER_PY"]) if paths else None
-records = wl.read_all() if wl else []
-for p in paths:
-    real = wl.norm_path(p)
-    prepared = wl.prepared_records(records, session_id=sid, teammate=name, worktree=real)
-    if not prepared:
-        others = wl.prepared_records(records, worktree=real)
-        who = ", ".join("session %s teammate %s" % ((r.get("session_id") or "?")[:8], r.get("teammate") or "?") for r in others[-3:])
-        problem("no PREPARED record for %s in THIS session (%s) for teammate %s%s. A cross-repository worktree is spawned into only by the teammate it was prepared for, in the session that prepared it: create it with scripts/create-teammate-worktree.sh <repo> %s from inside this session." % (real, sid[:8], name, (" — it was prepared for: " + who) if who else " (it was never prepared at all)", name))
-        continue
-    rec = prepared[-1]
-    if rec.get('class') == 'managed-image':
-        try:
-            managed = tx._managed_workspaces().inspect_path(real, session_id=sid, agent_name=name)
-            if rec.get('manager_id') != managed['manager_id'] or wl.norm_path(rec.get('repo')) != managed['source_repo']:
-                raise RuntimeError('prepared manager identity changed')
-            if (rec.get('branch') or '') != tx.branch_of(real):
-                raise RuntimeError('prepared managed branch changed')
-            externals.append({'repo': managed['source_repo'], 'path': real, 'branch': tx.branch_of(real),
-                              'prepared_ts': rec.get('ts'), 'class': 'managed-image',
-                              'manager_id': managed['manager_id'], 'session_id': sid, 'agent_name': name})
-        except Exception as error:
-            problem('managed workspace verification failed: ' + str(error))
-        continue
-    repo_now = tx.main_checkout_of(real)
-    branch_now = tx.branch_of(real)
-    if wl.norm_path(rec.get("repo")) != repo_now:
-        problem("%s no longer belongs to the repository it was prepared in (prepared: %s, now: %s)." % (real, rec.get("repo"), repo_now or "?"))
-        continue
-    if (rec.get("branch") or "") != branch_now:
-        problem("%s is on branch %r, not the branch it was prepared on (%r); the worktree drifted between preparation and spawn." % (real, branch_now, rec.get("branch")))
-        continue
-    externals.append({"repo": repo_now, "path": real, "branch": branch_now,
-                      "prepared_ts": rec.get("ts"), "class": "hand-rolled"})
-if kind == "cwd":
-    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED (CEO specification 2026-09-03,
-    # worktree-terminal-authority-fix-recommendation section 6), after the
-    # 7a checks above so every finding about the prepared tree is still
-    # reported. A cwd-only spawn owns hand-rolled worktrees and nothing the
-    # platform owns: no WorktreeRemove will ever name its member and the
-    # reconciler's native-disappearance backstop has no native member to
-    # watch, so its only terminal signals are a SubagentStop carrying its
-    # exact id (never observed for a natural completion on this machine) or
-    # an explicit TaskStop. Measured 2026-09-03: a killed worker's
-    # hand-rolled worktree leaked with no exact event delivered. Until an
-    # exact natural-completion or idle event is MEASURED, a file-writing
-    # worker must carry the platform-owned lifecycle witness: isolation
-    # "worktree" plus a `cross-repo-worktree: <path>` prompt line per
-    # prepared tree (kind native+external), so the transaction holds the
-    # native member the backstop verifies and every hand-rolled member it
-    # retires.
-    first = (paths[0] if paths else "<path>")
-    problem("external-only spawn refused — a cwd-only worker (no isolation) has NO platform-owned lifecycle witness: no WorktreeRemove ever names its worktree and the reconciler's native-disappearance backstop has nothing to verify, so a kill or a natural completion that delivers no exact event would leak it forever (measured 2026-09-03). Spawn it with isolation:\"worktree\" and put the prepared tree on a 'cross-repo-worktree: %s' prompt line instead (kind native+external). CEO specification 2026-09-03, section 6." % first)
-    raise SystemExit(0)
-try:
-    tx.write_intent(sid, tuid, {"kind": kind, "teammate": name,
-                                "subagent_type": os.environ.get("SUBAGENT_TYPE", ""),
-                                "isolation": os.environ.get("ISOLATION", ""),
-                                "externals": externals})
-except Exception as e:
-    problem("the spawn-intent could not be written durably (%s: %s) — a spawn whose member set is not on disk cannot be bound." % (tx.tx_root(), e))
-    raise SystemExit(0)
-print("INTENT\t%s\t%s\t%d" % (tuid, kind, len(externals)))
-PY
-)" || C7_OUT="PROBLEM	the spawn-intent writer could not run (python3 failed)"
-  while IFS= read -r _line; do
-    case "$_line" in
-      PROBLEM*) C7_PROBLEMS+=("${_line#PROBLEM	}") ;;
-      INTENT*|"") : ;;
-      *) C7_PROBLEMS+=("the spawn-intent writer failed: ${_line}") ;;
-    esac
-  done <<C7_EOF
-$C7_OUT
-C7_EOF
+  # `set -e` is on: the failing substitution must not end the script silently.
+  C7_RC=0
+  C7_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-spawn 2>&1 >/dev/null)" || C7_RC=$?
+  if [ "$C7_RC" -ne 0 ]; then
+    C7_PROBLEMS+=("${C7_ERR:-the registration could not be written (exit $C7_RC)}")
+  fi
 fi
 
 if [ "${#C7_PROBLEMS[@]}" -gt 0 ]; then
   {
-    echo "=== Teammate-spawn guard: BLOCKED (clause 7 — spawn-intent) ==="
-    echo "  The spawn is well-formed, but its worktree membership could not be recorded"
-    echo "  for binding, so it is refused rather than run unowned:"
+    echo "=== Teammate-spawn guard: BLOCKED (clause 7 — registration at spawn) ==="
+    echo "  The spawn is well-formed, but it could not be registered, so it does not"
+    echo "  happen (docs/plans/worktree-spec-2026-09-11.md, point 3):"
     for p in "${C7_PROBLEMS[@]}"; do
       echo "    - $p"
     done
-    echo "  A worker whose worktrees are not bound to its agent id can never be sealed,"
-    echo "  and guard-sealed-worktree.sh refuses every write from an unsealed worker."
-    echo "  (specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 2)"
     echo "(hook: scripts/hooks/guard-worktree-isolation.sh)"
   } >&2
   exit 2
