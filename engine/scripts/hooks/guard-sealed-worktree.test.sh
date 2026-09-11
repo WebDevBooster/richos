@@ -1,295 +1,199 @@
 #!/usr/bin/env bash
 #
-# guard-sealed-worktree.test.sh — behavioral tests for the WRITE BARRIER,
-# scripts/hooks/guard-sealed-worktree.sh.
+# guard-sealed-worktree.test.sh — behavioral tests for THE LOCK-OUT,
+# scripts/hooks/guard-sealed-worktree.sh (docs/plans/worktree-spec-2026-09-11.md,
+# points 3, 9, 11, 12).
 #
-# What is proven, each refusal beside its pass: the lead's own calls (no
-# agent_id) are untouched; a sealed worker passes; an unsealed worker may use
-# only the read-only allowlist and is REFUSED Bash, Agent, every editor and
-# every unknown or MCP tool; the barrier waits for a late binding and passes
-# once it seals; read-only agent types are exempt; a TERMINAL agent is refused
-# everything; the guard fails CLOSED on an unsealed manifest AND on its own
-# error alike (review 2026-09-03 blocker 3: python3 missing, the library
-# missing, the root unresolvable, the payload unparseable, the resolver
-# raising — every potentially writing or unknown worker tool is REFUSED, and
-# only a proven lead call or a proven read-only tool passes).
+# What is proven, each refusal beside its pass: the lead's own calls pass; a
+# registered worker passes; a FINISHED worker — by its end-of-run signal, by its
+# session's recorded end, by its session's process no longer existing — is
+# refused EVERY tool, Read included, whatever its declared type, and still after
+# its workspace is gone; a PAUSED worker is not locked out; a worker with no
+# registration may use only the read-only allowlist; a read-only agent type
+# with no registration is exempt; the lead of a claude --worktree session may
+# only read; and the guard FAILS CLOSED on its own error (the registry missing,
+# python3 missing, an unparseable payload), passing only a proven lead call or a
+# proven read-only tool.
 #
-# The mutation harness proving each assertion load-bearing is
-# scripts/hooks/guard-sealed-worktree.mutation.sh, run at the end.
+# Everything runs in a sandbox: HOME and CLAUDE_CONFIG_DIR redirected, a real
+# `sleep` process as the session. The mutation harness proving each assertion
+# load-bearing is scripts/hooks/guard-sealed-worktree.mutation.sh, run at the end.
 #
-# Run directly: scripts/hooks/guard-sealed-worktree.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/guard-sealed-worktree.sh"
-TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
-# The governed entity is declared below, after the disposable repo exists.
-# Pointing this at the engine itself sources its production wait=5 and silently
-# overwrites the 0/1/4-second values each test deliberately selects.
-unset CLAUDE_PROJECT_DIR
+WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+unset CLAUDE_PROJECT_DIR RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t guard-sealed-test.XXXXXX)" && pwd -P)"
-trap 'rm -rf "$SANDBOX"' EXIT
+SANDBOX="$(cd "$(mktemp -d -t guard-lockout-test.XXXXXX)" && pwd -P)"
+SESS_PIDS=""
+cleanup() { for p in $SESS_PIDS; do kill "$p" 2>/dev/null || true; done; rm -rf "$SANDBOX"; }
+trap cleanup EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 [ -x "$HOOK" ] || { echo "FATAL: $HOOK missing/non-executable" >&2; exit 1; }
 
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
-export SEAL_WAIT_SECONDS=0
+export HOME="$SANDBOX/home" CLAUDE_CONFIG_DIR="$SANDBOX/home/.claude"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid \
+       GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
+export SEAL_WAIT_SECONDS=0 RICHOS_WORKSPACES_SPAWN_WINDOW=0
 SID="deadbeef-0000-4000-8000-000000000000"
-T() { python3 "$TX_PY" "$@"; }
 
 ENTITY="$SANDBOX/entity"
-mkdir -p "$ENTITY/.claude/worktrees"
+mkdir -p "$ENTITY"
 git -C "$ENTITY" init -q -b main
-printf 'seed\n' >"$ENTITY/seed.txt"; git -C "$ENTITY" add -A; git -C "$ENTITY" commit -q -m seed
-
-# Keep the real engine configuration except for the fixture's configurable
-# wait budget. Production still owns its fixed default; this adopted entity
-# preserves the per-case environment values for actual hook subprocesses.
+printf 'seed\n' >"$ENTITY/seed.txt"; printf '.claude/\n' >"$ENTITY/.gitignore"
 sed 's/^SEAL_WAIT_SECONDS=.*/: "${SEAL_WAIT_SECONDS:=0}"/' \
     "$SCRIPT_DIR/../../orchestration.config" >"$ENTITY/orchestration.config"
+git -C "$ENTITY" add -A; git -C "$ENTITY" commit -q -m seed
 export RICHOS_ENTITY_ROOT="$ENTITY"
 
-seal_agent() { # <agent-id> <teammate>
-    git -C "$ENTITY" worktree add -q -b "worktree-agent-$1" "$ENTITY/.claude/worktrees/agent-$1"
-    printf '{"kind":"native","teammate":"%s","externals":[]}' "$2" | T intent --session-id "$SID" --tool-use-id "tu-$1" >/dev/null
-    T bind --session-id "$SID" --tool-use-id "tu-$1" --agent-id "$1" >/dev/null
-    T start --session-id "$SID" --agent-id "$1" --cwd "$ENTITY/.claude/worktrees/agent-$1" >/dev/null
-    T seal --session-id "$SID" --agent-id "$1" >/dev/null
+new_session() { # <session-id> [cwd] -> exports RICHOS_SESSION_PID; records SessionStart
+    local pid
+    pid="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+    SESS_PIDS="$SESS_PIDS $pid"
+    export RICHOS_SESSION_PID="$pid"
+    printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s"}' "$1" "${2:-$ENTITY}" \
+        | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
 }
-
-payload() { # <tool_name> <agent_id|""> [agent_type]
+spawn_agent() { # <agent-id> <name> [session-id] -> registered, started, bound
+    local aid="$1" name="$2" sid="${3:-$SID}" np="$ENTITY/.claude/worktrees/agent-$1"
+    python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[1],"tool_use_id":"tu-"+sys.argv[2],"tool_name":"Agent","tool_input":{"name":sys.argv[2],"subagent_type":"dev","isolation":"worktree","prompt":"x"}}))' "$sid" "$name" \
+        | python3 "$WS_PY" --entity "$ENTITY" register-spawn >/dev/null
+    git -C "$ENTITY" worktree add -q "$np" -b "worktree-agent-$aid"
+    printf '{"hook_event_name":"SubagentStart","session_id":"%s","agent_id":"%s","agent_type":"dev","cwd":"%s"}' "$sid" "$aid" "$np" \
+        | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
+    printf '{"hook_event_name":"PostToolUse","session_id":"%s","tool_use_id":"tu-%s","tool_name":"Agent","tool_input":{"name":"%s"},"tool_response":{"agentId":"%s"}}' "$sid" "$name" "$name" "$aid" \
+        | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
+}
+stop_agent() { # <agent-id> [session-id]
+    printf '{"hook_event_name":"SubagentStop","session_id":"%s","agent_id":"%s"}' "${2:-$SID}" "$1" \
+        | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
+}
+payload() { # <tool_name> <agent_id|""> [agent_type] [session]
     python3 -c '
 import json, sys
-tool, aid, at = sys.argv[1:4]
-d = {"session_id": "deadbeef-0000-4000-8000-000000000000", "hook_event_name": "PreToolUse", "tool_name": tool,
+tool, aid, at, sid = sys.argv[1:5]
+d = {"session_id": sid, "hook_event_name": "PreToolUse", "tool_name": tool,
      "tool_input": {"file_path": "/tmp/x", "command": "ls"}, "tool_use_id": "toolu_x"}
 if aid:
     d["agent_id"] = aid
     d["agent_type"] = at or "dev"
-print(json.dumps(d))' "$1" "$2" "${3:-dev}"
+print(json.dumps(d))' "$1" "$2" "${3:-dev}" "${4:-$SID}"
 }
 run() { OUT="$(printf '%s' "$1" | "$HOOK" 2>&1)"; RC=$?; }
 
-echo "=== guard-sealed-worktree tests ==="
+echo "=== guard-sealed-worktree (the lock-out) tests ==="
+new_session "$SID"
 
 # G01 the lead
 run "$(payload Write "")"
 [ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "G01  the lead's own call (no agent_id) passes silently" || bad "G01  lead rc=$RC: $OUT"
 
-# G02 a sealed worker
-SEALED_AID="a00000000000sea1"
-seal_agent "$SEALED_AID" dev-opus-g2
-run "$(payload Write "$SEALED_AID")"
-[ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "G02  a SEALED worker's Write passes silently (the tool-specific guards decide next)" || bad "G02  sealed rc=$RC: $OUT"
-run "$(payload Bash "$SEALED_AID")"
-[ "$RC" -eq 0 ] && ok "G03  a SEALED worker's Bash passes" || bad "G03  sealed bash rc=$RC"
+# G02 a registered worker
+spawn_agent "a00000000000reg1" dev-opus-g2
+run "$(payload Write a00000000000reg1)"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "G02  a REGISTERED worker's Write passes silently" || bad "G02  registered rc=$RC: $OUT"
 
-# G04.. an UNSEALED worker: only the read-only allowlist
-UNSEALED_AID="a00000000000uns1"
-for tool in Write Edit MultiEdit NotebookEdit Bash Agent SendMessage mcp__github__create_issue SomeUnknownTool; do
-    run "$(payload "$tool" "$UNSEALED_AID")"
-    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (worktree manifest not sealed)' \
-       && printf '%s' "$OUT" | grep -E >/dev/null '^[[:space:]]*0s for both'; then
-        ok "G04  unsealed worker: $tool -> REFUSED (exit 2, 'not sealed')"
+# G03-G05 a finished worker: every tool refused, Read included
+stop_agent "a00000000000reg1"
+for t in Write Bash Read; do
+    run "$(payload "$t" a00000000000reg1)"
+    case "$t" in Write) id=G03 ;; Bash) id=G04 ;; Read) id=G05 ;; esac
+    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "finished agent"; then
+        ok "$id  a FINISHED worker's $t is refused (point 9)"
     else
-        bad "G04  unsealed worker: $tool rc=$RC: ${OUT:0:120}"
+        bad "$id  finished $t rc=$RC: $OUT"
     fi
 done
-for tool in Read Glob Grep LS WebFetch WebSearch ListAgents; do
-    run "$(payload "$tool" "$UNSEALED_AID")"
-    [ "$RC" -eq 0 ] && ok "G05  unsealed worker: $tool -> allowed (read-only allowlist)" || bad "G05  unsealed $tool rc=$RC: ${OUT:0:120}"
-done
-run "$(payload Write "$UNSEALED_AID")"
-printf '%s' "$OUT" | grep -q 'neither the bound record nor the start record exists' \
-    && ok "G06  the refusal names WHICH fact is missing" || bad "G06  refusal reason: ${OUT:0:200}"
-printf '%s' "$OUT" | grep -q 'do not work around it' \
-    && ok "G07  the refusal tells the worker to report and stop, not to route around" || bad "G07  refusal guidance missing"
 
-# G08 half-sealed: bound but not started; started but not bound
-HALF1="a00000000000hal1"
-printf '{"kind":"native","teammate":"dev-opus-h1","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-h1 >/dev/null
-T bind --session-id "$SID" --tool-use-id tu-h1 --agent-id "$HALF1" >/dev/null
-run "$(payload Write "$HALF1")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'no start record' && ok "G08  bound but not started -> REFUSED, naming the missing start" || bad "G08  rc=$RC: ${OUT:0:160}"
-HALF2="a00000000000hal2"
-git -C "$ENTITY" worktree add -q -b "worktree-agent-$HALF2" "$ENTITY/.claude/worktrees/agent-$HALF2"
-T start --session-id "$SID" --agent-id "$HALF2" --cwd "$ENTITY/.claude/worktrees/agent-$HALF2" >/dev/null
-run "$(payload Write "$HALF2")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'no bound record' && ok "G09  started but not bound -> REFUSED, naming the missing binding" || bad "G09  rc=$RC: ${OUT:0:160}"
+# G06 a finished worker of a read-only TYPE is still refused
+spawn_agent "a00000000000exp1" explore-opus-g6
+stop_agent "a00000000000exp1"
+run "$(payload Read a00000000000exp1 Explore)"
+[ "$RC" -eq 2 ] && ok "G06  a finished Explore-typed agent is refused (a type exemption is not permission to return)" || bad "G06  finished Explore rc=$RC: $OUT"
 
-# G10 the barrier WAITS: the binding lands 1s after the call starts -> sealed -> pass
-LATE="a00000000000lat1"
-git -C "$ENTITY" worktree add -q -b "worktree-agent-$LATE" "$ENTITY/.claude/worktrees/agent-$LATE"
-T start --session-id "$SID" --agent-id "$LATE" --cwd "$ENTITY/.claude/worktrees/agent-$LATE" >/dev/null
-printf '{"kind":"native","teammate":"dev-opus-late","externals":[]}' | T intent --session-id "$SID" --tool-use-id tu-late >/dev/null
-( sleep 1; T bind --session-id "$SID" --tool-use-id tu-late --agent-id "$LATE" >/dev/null ) &
-T0="$(date +%s)"
-OUT="$(printf '%s' "$(payload Write "$LATE")" | SEAL_WAIT_SECONDS=4 "$HOOK" 2>&1)"; RC=$?
-wait
-ELAPSED=$(( $(date +%s) - T0 ))
-if [ "$RC" -eq 0 ] && [ "$ELAPSED" -ge 1 ] && [ "$ELAPSED" -le 4 ]; then
-    ok "G10  a binding that lands during the wait seals the manifest and the write passes (${ELAPSED}s)"
-else
-    bad "G10  late binding rc=$RC elapsed=${ELAPSED}s: ${OUT:0:120}"
-fi
-# ...and the wait is bounded: with nothing coming, SEAL_WAIT_SECONDS=1 refuses in about a second
-T0="$(date +%s)"
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | SEAL_WAIT_SECONDS=1 "$HOOK" 2>&1)"; RC=$?
-ELAPSED=$(( $(date +%s) - T0 ))
-# Verify the effective configured budget as well as the elapsed bound. The old
-# test said one second while the engine config overwrote it with five; its
-# generous ceiling alone could never detect that. Keep startup headroom without
-# accepting a clobbered budget or an immediate refusal that skipped waiting.
-if [ "$RC" -eq 2 ] && [ "$ELAPSED" -ge 1 ] && [ "$ELAPSED" -le 8 ] \
-   && printf '%s' "$OUT" | grep -E >/dev/null '^[[:space:]]*1s for both'; then
-    ok "G11  the one-second configured wait is honored and bounded (refused after ${ELAPSED}s)"
-else
-    bad "G11  bounded wait rc=$RC elapsed=$ELAPSED: ${OUT:0:200}"
-fi
+# G07 a paused worker is not locked out
+spawn_agent "a00000000000pau1" dev-opus-g7
+python3 "$WS_PY" --session "$SID" pause dev-opus-g7 --until "the quota reset" >/dev/null
+stop_agent "a00000000000pau1"
+run "$(payload Write a00000000000pau1)"
+[ "$RC" -eq 0 ] && ok "G07  a PAUSED worker (pause recorded before its run ended) is not locked out (point 11)" || bad "G07  paused rc=$RC: $OUT"
 
-# G12 read-only agent types are exempt, plain and plugin-namespaced
-run "$(payload Bash "a00000000000exp1" Explore)"
-[ "$RC" -eq 0 ] && ok "G12  an Explore worker (read-only type) is exempt even for Bash" || bad "G12  Explore rc=$RC: ${OUT:0:120}"
-run "$(payload Bash "a00000000000exp2" "richos-engine:Explore")"
-[ "$RC" -eq 0 ] && ok "G13  ...and so is the plugin-namespaced form" || bad "G13  namespaced Explore rc=$RC"
-run "$(payload Bash "a00000000000dev9" "richos-engine:dev")"
-[ "$RC" -eq 2 ] && ok "G14  a namespaced FILE-CAPABLE type is not exempt (negative control for G13)" || bad "G14  namespaced dev rc=$RC"
+# G08/G09 an unregistered worker: read-only only
+run "$(payload Write a00000000000unr1)"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "no registration" && ok "G08  an UNREGISTERED worker's Write is refused (point 3)" || bad "G08  unregistered Write rc=$RC: $OUT"
+run "$(payload Read a00000000000unr1)"
+[ "$RC" -eq 0 ] && ok "G09  an unregistered worker may Read (so it can report why it stopped)" || bad "G09  unregistered Read rc=$RC: $OUT"
 
-# G15 a TERMINAL agent is refused everything, sealed or not, read-only or not
-TERM_AID="a00000000000ter1"
-seal_agent "$TERM_AID" dev-opus-term
-T claim --session-id "$SID" --agent-id "$TERM_AID" --ingress SubagentStop >/dev/null
-run "$(payload Write "$TERM_AID")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)' && ok "G15  a TERMINAL agent's Write is refused as terminal" || bad "G15  terminal write rc=$RC: ${OUT:0:120}"
-run "$(payload Read "$TERM_AID")"
-[ "$RC" -eq 2 ] && ok "G16  a TERMINAL agent's Read is refused too (nothing to read from; forbidden to return)" || bad "G16  terminal read rc=$RC"
+# G10 a read-only agent type with no registration is exempt
+run "$(payload Bash a00000000000exp2 Explore)"
+[ "$RC" -eq 0 ] && ok "G10  an unregistered read-only TYPE (Explore) is exempt" || bad "G10  Explore rc=$RC: $OUT"
+run "$(payload Bash a00000000000exp3 'richos-engine:Explore')"
+[ "$RC" -eq 0 ] && ok "G11  a plugin-namespaced read-only type is the same type" || bad "G11  namespaced rc=$RC: $OUT"
 
-# G26 a TERMINAL agent of a READ-ONLY TYPE is refused BEFORE the type
-# exemption (landed review 2026-09-03, blocker 5). Until this revision
-# READONLY_ALLOWLIST / HARNESS_UTILITY_TYPES returned EXEMPT before
-# is_terminal_agent() ran, so a terminal Explore passed the barrier for Read,
-# Bash and any unknown tool, and terminal finality depended on
-# guard-resume-isolation.sh having run first. The Explore agent here is
-# terminal by a pending terminal event (start-only, then its SubagentStop).
-TERM_EXP="a00000000000tex1"
-T start --session-id "$SID" --agent-id "$TERM_EXP" --cwd "$ENTITY" --agent-type Explore >/dev/null
-T claim --session-id "$SID" --agent-id "$TERM_EXP" --ingress SubagentStop >/dev/null 2>&1
-T terminal-agent --agent-id "$TERM_EXP" >/dev/null 2>&1 || bad "G26-setup  the Explore agent did not become terminal"
-for tool in Read Bash mcp__unknown__thing; do
-    run "$(payload "$tool" "$TERM_EXP" Explore)"
-    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)'; then
-        ok "G26  a TERMINAL Explore worker: $tool -> REFUSED as terminal (the terminal check runs BEFORE the type exemption)"
-    else
-        bad "G26  terminal Explore $tool rc=$RC: ${OUT:0:120}"
-    fi
-done
-run "$(payload Bash "$TERM_EXP" "richos-engine:Explore")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)' && ok "G27  ...and the plugin-namespaced terminal Explore is refused the same way" || bad "G27  namespaced terminal Explore rc=$RC"
-run "$(payload Bash "a00000000000exp3" Explore)"
-[ "$RC" -eq 0 ] && ok "G28  a NON-terminal Explore worker is still exempt for Bash (negative control for G26)" || bad "G28  live Explore rc=$RC: ${OUT:0:120}"
+# G12 the session's recorded end finishes its agents (point 12)
+spawn_agent "a00000000000end1" dev-opus-g12
+printf '{"hook_event_name":"SessionEnd","session_id":"%s","reason":"exit"}' "$SID" | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
+run "$(payload Write a00000000000end1)"
+[ "$RC" -eq 2 ] && ok "G12  an agent of a session that RECORDED ITS END is refused (point 12)" || bad "G12  ended-session rc=$RC: $OUT"
 
-# G17 FAIL CLOSED on the guard's own error (review 2026-09-03, blocker 3).
-# Until this revision G17, G18 and G21 asserted the OPPOSITE — that a missing
-# python3, a missing transaction library and an unparseable payload each let
-# a worker's Write through. Those assertions were the defect written as
-# tests, and they are inverted here:
-#   old G17: python3 missing -> rc 0 + fail-open NOTICE      new: rc 2, REFUSED
-#   old G18: library missing -> rc 0 + NOTICE                new: rc 2, REFUSED
-#   old G21: unparseable payload -> rc 0 (read as the lead)  new: rc 2, REFUSED
-# What still passes when the guard cannot evaluate: a payload PROVEN to be the
-# lead's, and a tool PROVEN read-only, under the read-only policy.
-FAKEBIN="$(mktemp -d -t sealed-nopy.XXXXXX)"
-for t in cat grep sed cut tr date mkdir git mktemp basename dirname rm ln awk sort uniq wc head tail env sleep; do
-    p="$(command -v "$t" 2>/dev/null || true)"; [ -n "$p" ] && ln -sf "$p" "$FAKEBIN/$t"
-done
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (the barrier cannot evaluate this call)' && printf '%s' "$OUT" | grep -q 'python3 is unavailable'; then
-    ok "G17  python3 missing -> a worker's Write is REFUSED (exit 2) naming python3 (INVERTED: it used to pass)"
-else
-    bad "G17  nopy rc=$RC: ${OUT:0:200}"
-fi
-OUT="$(printf '%s' "$(payload Write "")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G17b python3 missing -> a payload with NO agent_id (proven the lead's) still passes" || bad "G17b lead nopy rc=$RC: ${OUT:0:160}"
-OUT="$(printf '%s' "$(payload Read "$UNSEALED_AID")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'read-only policy' && ok "G17c python3 missing -> a worker's Read passes under the read-only policy (announced)" || bad "G17c read nopy rc=$RC: ${OUT:0:160}"
-OUT="$(printf '{"session_id":"x","agent_id":"a00000000000uns1","tool_name":"Bash","tool_input":{"command":"echo \\"agent_id\\""}}' | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && ok "G17d python3 missing -> a worker's Bash is REFUSED even though the only readable tell is the raw key" || bad "G17d bash nopy rc=$RC"
-rm -rf "$FAKEBIN"
-# ...library missing -> REFUSED, naming it; Read still passes
-NOLIB="$(mktemp -d -t sealed-nolib.XXXXXX)"
+# G13 a session whose process no longer exists finishes its agents (point 12)
+SID2="deadbeef-0000-4000-8000-000000000002"
+new_session "$SID2"
+S2_PID="$RICHOS_SESSION_PID"
+spawn_agent "a00000000000gon1" dev-opus-g13 "$SID2"
+run "$(payload Write a00000000000gon1 dev "$SID2")"
+G13_BEFORE="$RC"
+kill "$S2_PID"; while kill -0 "$S2_PID" 2>/dev/null; do sleep 0.1; done
+run "$(payload Write a00000000000gon1 dev "$SID2")"
+[ "$G13_BEFORE" -eq 0 ] && [ "$RC" -eq 2 ] && ok "G13  an agent whose session's PROCESS no longer exists is refused — read from the operating system (point 12)" || bad "G13  gone-session before=$G13_BEFORE after=$RC: $OUT"
+
+# G14 still refused after its workspace is gone (landed)
+SID3="deadbeef-0000-4000-8000-000000000003"
+new_session "$SID3"
+spawn_agent "a00000000000lnd1" dev-opus-g14 "$SID3"
+stop_agent "a00000000000lnd1" "$SID3"
+printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s"}' "$SID3" "$ENTITY" | python3 "$WS_PY" --entity "$ENTITY" gate-stop >/dev/null 2>&1
+run "$(payload Write a00000000000lnd1 dev "$SID3")"
+[ ! -e "$ENTITY/.claude/worktrees/agent-a00000000000lnd1" ] && [ "$RC" -eq 2 ] \
+    && ok "G14  a finished agent whose workspace is already deleted is still refused (point 9)" || bad "G14  after-land rc=$RC: $OUT"
+
+# G15 the lead of a claude --worktree session may only read (point 3)
+WT="$ENTITY/.claude/worktrees/my-session"
+git -C "$ENTITY" worktree add -q "$WT" -b worktree-my-session
+SID4="deadbeef-0000-4000-8000-000000000004"
+new_session "$SID4" "$WT"
+run "$(payload Bash "" dev "$SID4")"
+G15_BASH="$RC"
+run "$(payload Read "" dev "$SID4")"
+[ "$G15_BASH" -eq 2 ] && [ "$RC" -eq 0 ] && ok "G15  the lead of a claude --worktree session is refused Bash, allowed Read (point 3)" || bad "G15  worktree session bash=$G15_BASH read=$RC"
+
+# G16-G19 fail closed on its own error
+NOLIB="$SANDBOX/nolib"
 mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib"
-cp "$HOOK" "$NOLIB/scripts/hooks/"; cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$NOLIB/scripts/lib/"
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'worktree-transactions.py is missing' && printf '%s' "$OUT" | grep -q 'cannot evaluate' \
-    && ok "G18  transaction library missing -> a worker's Write is REFUSED (exit 2) naming the library (INVERTED: it used to pass)" || bad "G18  nolib rc=$RC: ${OUT:0:200}"
-OUT="$(printf '%s' "$(payload Grep "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G18b transaction library missing -> a worker's Grep passes under the read-only policy" || bad "G18b nolib grep rc=$RC: ${OUT:0:160}"
-OUT="$(printf '%s' "$(payload Write "")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G18c transaction library missing -> the lead's own Write passes" || bad "G18c nolib lead rc=$RC: ${OUT:0:160}"
-# ...resolve-roots.sh missing -> REFUSED
-rm "$NOLIB/scripts/lib/resolve-roots.sh"
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'resolve-roots.sh is missing' && ok "G18d resolve-roots.sh missing -> a worker's Write is REFUSED (exit 2)" || bad "G18d noroots rc=$RC: ${OUT:0:200}"
-rm -rf "$NOLIB"
-# ...and the two failure classes are different refusals: the unsealed refusal says so
-run "$(payload Write "$UNSEALED_AID")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (worktree manifest not sealed)' && ok "G19  ...while an UNSEALED manifest with the guard healthy is REFUSED for THAT reason — a different banner, the same exit" || bad "G19  rc=$RC"
-
-# G20 not-adopted repository: stand down (a RESOLVED state, not a failure)
-NOADOPT="$(mktemp -d -t sealed-noadopt.XXXXXX)"
-OUT="$(cd "$NOADOPT" && printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="" CLAUDE_PROJECT_DIR="$NOADOPT" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G20  a repository that never adopted the engine: the barrier stands down" || bad "G20  noadopt rc=$RC: ${OUT:0:120}"
-rm -rf "$NOADOPT"
-
-# G21 an UNPARSEABLE payload is NOT the lead (INVERTED: it used to pass)
-OUT="$(printf 'not json' | "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'unparseable' && ok "G21  an unparseable payload -> REFUSED (exit 2): a payload that cannot be proven the lead's is treated as a worker's" || bad "G21  rc=$RC: ${OUT:0:160}"
-OUT="$(printf '{"tool_name": "Read", "broken' | "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G21b ...unless the raw text names a read-only tool, which passes under the read-only policy" || bad "G21b rc=$RC: ${OUT:0:120}"
-
-# G24 root resolution BROKEN (an explicit RICHOS_ENTITY_ROOT that is not adopted) -> REFUSED
-BROKENROOT="$(mktemp -d -t sealed-brokenroot.XXXXXX)"
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="$BROKENROOT" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'governed root could not be resolved' && ok "G24  a broken root resolution -> a worker's Write is REFUSED (exit 2)" || bad "G24  brokenroot rc=$RC: ${OUT:0:200}"
-OUT="$(printf '%s' "$(payload Read "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="$BROKENROOT" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G24b ...and a worker's Read still passes under the read-only policy" || bad "G24b brokenroot read rc=$RC"
-rm -rf "$BROKENROOT"
-
-# G25 the resolver RAISES (the transaction store is a file, not a directory) -> REFUSED
-NOTADIR="$(mktemp -t sealed-notadir.XXXXXX)"
-OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_WORKTREE_TX_DIR="$NOTADIR" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'cannot evaluate' && ok "G25  transaction state unreadable (the resolver raised) -> a worker's Write is REFUSED (exit 2)" || bad "G25  notadir rc=$RC: ${OUT:0:200}"
-OUT="$(printf '%s' "$(payload Glob "$UNSEALED_AID")" | RICHOS_WORKTREE_TX_DIR="$NOTADIR" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G25b ...and a worker's Glob still passes under the read-only policy" || bad "G25b notadir glob rc=$RC"
-rm -f "$NOTADIR"
-
-# G22 a crash after the transaction's terminal write but BEFORE the index
-# write (blocker 5): the barrier must read terminal from the transaction.
-CRASH_AID="a00000000000cra1"
-seal_agent "$CRASH_AID" dev-opus-crash
-RICHOS_TX_CRASH_AFTER=tx T claim --session-id "$SID" --agent-id "$CRASH_AID" --ingress SubagentStop >/dev/null 2>&1
-[ ! -f "$SANDBOX/tx/terminal/$CRASH_AID" ] || bad "G22-setup  the crash point did not fire (index present)"
-run "$(payload Write "$CRASH_AID")"
-[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)' \
-    && ok "G22  a terminal transaction whose index write never happened is still REFUSED as terminal (the transaction is the truth)" || bad "G22  crash-orphaned terminal rc=$RC: ${OUT:0:160}"
-[ -f "$SANDBOX/tx/terminal/$CRASH_AID" ] && ok "G23  ...and the barrier's exact lookup repaired the index on its way out" || bad "G23  index not repaired"
-
+cp "$HOOK" "$NOLIB/scripts/hooks/"; chmod +x "$NOLIB/scripts/hooks/guard-sealed-worktree.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$NOLIB/scripts/lib/"
+OUT="$(printf '%s' "$(payload Write a00000000000reg1)" | bash "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && ok "G16  the registry library MISSING: a worker's Write is refused" || bad "G16  nolib Write rc=$RC: $OUT"
+OUT="$(printf '%s' "$(payload Read a00000000000reg1)" | bash "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G17  registry missing: a worker's Read passes under the read-only policy" || bad "G17  nolib Read rc=$RC: $OUT"
+OUT="$(printf '%s' "$(payload Write "")" | bash "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G18  registry missing: the lead's Write passes" || bad "G18  nolib lead rc=$RC: $OUT"
+run "not json"
+[ "$RC" -eq 2 ] && ok "G19  an UNPARSEABLE payload is refused (it cannot be proven the lead's)" || bad "G19  unparseable rc=$RC: $OUT"
 
 echo ""
-if [ "$FAIL" -gt 0 ]; then
-    echo "=== guard-sealed-worktree tests: $FAIL FAILED, $PASS passed ==="
-    exit 1
-fi
-echo "=== guard-sealed-worktree tests: all $PASS passed ==="
-
-if [ -f "$SCRIPT_DIR/guard-sealed-worktree.mutation.sh" ]; then
+echo "=== guard-sealed-worktree tests: $FAIL FAILED, $PASS passed ==="
+[ "$FAIL" -eq 0 ] || exit 1
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/guard-sealed-worktree.mutation.sh" ]; then
     bash "$SCRIPT_DIR/guard-sealed-worktree.mutation.sh" || exit 1
 fi
 exit 0
