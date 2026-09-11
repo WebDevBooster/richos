@@ -1,0 +1,14 @@
+2026-09-11T03:44:32.696347+00:00
+ledger lines: 17480
+events: {'terminated': 46, 'registered': 568, 'finished': 16768, 'prepared': 97, 'retracted': 1}
+terminated: 46
+platform-terminal-record: 1
+retracted: 1
+worker-events lines: 250
+teams entries: 10
+tx files: 116
+backup exists: False None
+--- retracted rows:
+{"agent_id": "ae904aac1949e5696", "event": "retracted", "reason": "written by session-start-stdin.test.sh 9b through the shipped reaper with a sandbox entity while the owner's shell was LOCKED by running pid 84597; round 14 step 2b, superseded by round 15", "retracts_ts": "2026-09-11T00:02:34.984941+00:00", "retracts_witness": "platform-terminal-record", "session_id": "b7869424-972c-4693-80f8-5e034a119d86", "source": "round-15-record", "teammate": "sage-fable-cert3", "ts": "2026-09-11T03:19:31.158740+00:00", "worktree": "/Users/alex/ab/richos-wt/sage-fable-cert3"}
+--- platform-terminal-record rows:
+{"agent_id": "ae904aac1949e5696", "event": "terminated", "reason": "the platform's own terminal record for agent ae904aac1949e5696: SubagentStop at 2026-09-10T22:52:36.608923+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/sage-fable-cert3 is member 2 of 2, and no post-terminal run is open in either source (the transaction's notes or the platform's event log)", "session_id": "b7869424-972c-4693-80f8-5e034a119d86", "teammate": "sage-fable-cert3", "ts": "2026-09-11T00:02:34.984941+00:00", "witness": "platform-terminal-record", "workspaces": ["/Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696", "/Users/alex/ab/richos-wt/sage-fable-cert3"], "worktree": "/Users/alex/ab/richos-wt/sage-fable-cert3"}

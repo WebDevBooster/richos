@@ -1,0 +1,15 @@
+ledger rows (non-finished): 712  fixture-shaped: 355
+    323  ('registered', 'detect-nonnative-worktree.sh', 'reed-sonnet-sc1')
+     13  ('registered', 'detect-nonnative-worktree.sh', 'dev-sonnet-led1')
+     13  ('registered', 'detect-nonnative-worktree.sh', 'deadbeefcafe0001')
+      1  ('terminated', 'reaper-observation', 'q4-dead-owner')
+      1  ('terminated', 'reaper-observation', 'q4-unmerged')
+      1  ('terminated', 'remove-agent-worktree', 'a2222222222222222')
+      1  ('terminated', 'remove-agent-worktree', 'a3333333333333333')
+      1  ('registered', 'detect-nonnative-worktree.sh', 'dev-sonnet-led2')
+      1  ('prepared', 'create-teammate-worktree.sh', 'victim-opus-v1')
+first: 2026-09-02T09:10:26.490706+00:00  last: 2026-09-10T19:39:38.691668+00:00
+written on 2026-09-11: 0
+terminated fixture rows: [('2026-09-02T09:10:26.490706+00:00', 'q4dead', 'reaper-observation'), ('2026-09-02T09:10:26.501896+00:00', 'q4dead', 'reaper-observation'), ('2026-09-02T09:12:40.119724+00:00', 'a2222222222222222', 'remove-agent-worktree'), ('2026-09-02T09:12:40.275047+00:00', 'a3333333333333333', 'remove-agent-worktree')]
+--- retirement journal: /Users/alex/.claude/state/workspace-retirement/retirements.jsonl True
+retirement rows: 10676  fixture-shaped: 10659

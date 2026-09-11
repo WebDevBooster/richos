@@ -1,0 +1,69 @@
+=== agent-liveness + guard-agent-state-claims ===
+
+--- A. the resolver's verdicts, on real worktrees and real pids ---
+  PASS  A1 locked worktree + LIVE pid -> ALIVE
+  PASS  A2 locked worktree + DEAD pid (stale lock) -> NOT-ALIVE
+  PASS  A3 registered but UNLOCKED -> NOT-ALIVE
+  PASS  A4 no registered worktree -> NOT-ALIVE
+  PASS  A5 locked but the lock line carries NO pid -> INDETERMINATE (a held lock this cannot attribute is never read as death)
+  PASS  A5b locked with an EMPTY reason (the measured artifact) -> INDETERMINATE, not NOT-ALIVE
+  PASS  A5c a lock naming a RUNNING pid still reads ALIVE (the inversion above is about attribution, not about locks)
+  PASS  A6 a worktree PATH resolves the same as its id
+
+--- B. INDETERMINATE is a real outcome, never collapsed ---
+  PASS  B1 git cannot be queried -> INDETERMINATE (not NOT-ALIVE)
+  PASS  B2 the shell lib with no resolver -> INDETERMINATE, never a guess
+
+--- C. the remover and the library AGREE ---
+  PASS  C ALIVE  -> remover REFUSES — library says ALIVE, remover exits 3 (agreed)
+  PASS  C2 the live agent's worktree still exists after the refusal
+  PASS  C3 INDETERMINATE -> remover REFUSES too (fail closed)
+  PASS  C NOT-ALIVE (stale lock) -> remover proceeds — library says NOT-ALIVE, remover exits 0 (agreed)
+  PASS  C NOT-ALIVE (unlocked)   -> remover proceeds — library says NOT-ALIVE, remover exits 0 (agreed)
+
+--- D. name -> agent id joins exactly, and refuses to guess ---
+  PASS  D1 the Agent tool_use name joins to toolUseResult.agentId
+  PASS  D2 a name never spawned is absent from the map — no guessing
+
+--- E. the extractor: the three measured constructions, and nothing else ---
+  PASS  E1 T1 TABLE ROW — the exact 2026-08-31 sentence
+  PASS  E2 T2 ADJACENT predicate
+  PASS  E3 T2b APPOSITIVE
+  PASS  E- a BARE ROLE is not an agent (three Zachs ran at once)
+  PASS  E- a CONDITIONAL is not a claim
+  PASS  E- a NEGATION is not a claim
+  PASS  E- REPORTED SPEECH about a past claim is the correction, not the claim
+  PASS  E- a FUTURE is not a claim
+  PASS  E- LANDED is about the work, not the agent — the row that was RIGHT
+  PASS  E- prose with no identifier at all
+
+--- F. the guard NOTICES a claim contradicted by a held lock ---
+  PASS  F1 the 2026-08-31 message, against a held lock -> NOTICE
+  PASS  F2 the notice NAMES the agent
+  PASS  F3 the notice states what the authoritative check returned
+  PASS  F4 the notice names the command that settles it
+  PASS  F5 it speaks on the ONE channel measured to reach the operator
+
+--- G. the guard is SILENT when it should be ---
+  PASS  G- a TRUE claim: the agent really is not alive (stale lock)
+  PASS  G- a TRUE claim: the agent's worktree is gone entirely
+  PASS  G- a name that cannot be joined to any agent id
+  PASS  G- a turn that says nothing about any agent
+  PASS  G- an UNADOPTED directory: silent (the noise control)
+  PASS  G- stop_hook_active: stands itself down
+
+--- H. it never blocks ---
+  PASS  H1 exit 0 on every path (report-only, by construction)
+
+--- R. resolver mutations: each must flip a case, BY NAME ---
+  PASS  R1 MUTANT 'a held lock is not alive' -> flips A1 (survivor: none)
+  PASS  R2a the second stale fixture reads NOT-ALIVE before mutation (positive probe)
+  PASS  R2 MUTANT 'never check the pid' -> flips A2 (the stale-lock case)
+  PASS  R3 MUTANT 'collapse INDETERMINATE into NOT-ALIVE' -> flips B1
+
+--- M. extractor mutations: each must flip a case, BY NAME ---
+  PASS  M1 MUTANT 'drop the conditional/future/reported filters' -> flips E- conditional, E- future, E- reported
+  PASS  M2 MUTANT 'treat LANDED as terminal' -> flips E- landed (the row that was RIGHT)
+  PASS  M3 the shipped NAME_CELL anchors the whole cell (an ALIVE row is not a claim)
+
+=== agent-state-claims tests: all 46 passed ===

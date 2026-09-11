@@ -1,0 +1,991 @@
+fallback	017005904c6294ca	event=WorkerRunEnded agent=a9403b73f7341bcf2 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:08:31.541828+00:00
+fallback	01ece0abdfd0fa2a	event=WorkerRunEnded agent=a693eab98141dac5c session=451ab625-e2c6-4932-9701-5e3227d84a74 ts=2026-09-10T16:34:17.776816+00:00
+fallback	0290fa17de53595f	event=WorkerRunEnded agent=ac094ac4a435ee2d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:26.314777+00:00
+fallback	044f34fcc975f34d	event=WorkerRunEnded agent=a19f6b27c7344847f session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:53:02.820442+00:00
+fallback	04b4a3b62f15012c	event=WorkerStarted agent=ab23130adf1595706 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:53:58.162122+00:00
+fallback	053e132ebc9d7ad1	event=WorkerCreated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.053144+00:00
+fallback	060522621b52c0be	event=WorkerRunEnded agent=a45d5d95ee9109f51 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:57.040157+00:00
+fallback	081543798e8f59d8	event=WorkerRunEnded agent=aa628e393988f1a79 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:30.102138+00:00
+fallback	09881c6379a059de	event=WorkerStarted agent=a665fe2449f180440 session=bb699ae3-8bc1-42c1-b891-c9378e52cd70 ts=2026-08-31T17:30:41.032202+00:00
+fallback	0aadb44a1bea394b	event=WorkerRunEnded agent=ab67c8bbfbd69af61 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:56:23.551770+00:00
+fallback	0fdfc9b8f7156fb5	event=WorkerRunEnded agent=a665fe2449f180440 session=bb699ae3-8bc1-42c1-b891-c9378e52cd70 ts=2026-08-31T17:31:54.868260+00:00
+fallback	1057d06950a4e7bd	event=WorkerRunEnded agent=ad534947fa9535b45 session=c97b3d0a-eb75-4352-a04c-a978a4b5460b ts=2026-09-08T18:56:35.475963+00:00
+fallback	10e9b072c4bde707	event=WorkerStarted agent=a0b0c3234bfd3abdd session=1152b13a-b49c-49ca-8173-d7c6f1d81101 ts=2026-09-08T20:44:58.341312+00:00
+fallback	133bba585d69772a	event=WorkerStarted agent=a45d5d95ee9109f51 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:51.869731+00:00
+fallback	1612f217a4d5ceda	event=WorkerRunEnded agent=a262e8313fa84332f session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:18:17.398670+00:00
+fallback	16c830d0de903185	event=WorkerStarted agent=aeecbeedd47c7a35f session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:31:41.818640+00:00
+fallback	16d8ffe719850d65	event=WorkerRunEnded agent=a6b9f03ed68e0908b session=cadd7f28-7391-498f-9785-3eb6151d7c7c ts=2026-08-31T17:34:12.896249+00:00
+fallback	16eea78b0d1d396c	event=WorkerRunEnded agent=a22b3008f4300658a session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:49:08.471536+00:00
+fallback	1721ae6edafecc5d	event=WorkerRunEnded agent=af4f048dbc4ed9ada session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:30:54.888409+00:00
+fallback	1917c99f641e68c5	event=WorkerRunEnded agent=a3c189ea5796d33c3 session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:30:32.852874+00:00
+fallback	1a8aca72ca870782	event=WorkerRunEnded agent=a07a05e747a963bfb session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:31:05.656981+00:00
+fallback	1a9952e3bb587d65	event=WorkerRunEnded agent=ad0c19a2975ef3c04 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:48:09.996292+00:00
+fallback	1ad3741b77f7901d	event=WorkerStarted agent=aa72d9616d36029d3 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:45.266911+00:00
+fallback	1b51ed445728de88	event=WorkerRunEnded agent=a2386012414f22ddb session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:58:08.820585+00:00
+fallback	1b8094a44776295c	event=WorkerRunEnded agent=a7de361ed50dac1cb session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:53:34.504073+00:00
+fallback	1cb92c1a8322130b	event=WorkerRunEnded agent=af4bf934aad2d77ff session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T10:55:39.896236+00:00
+fallback	1d38a5c7e1b12123	event=WorkerStarted agent=a9403b73f7341bcf2 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:07:00.397859+00:00
+fallback	1f2d9db2c34315ab	event=WorkerRunEnded agent=a8378878d626259da session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:35.434760+00:00
+fallback	1ff049fe2f7e6c6f	event=WorkerCreated agent=a9403b73f7341bcf2 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:08:07.166500+00:00
+fallback	2071fea4f77f4970	event=WorkerRunEnded agent=a75a914eb77894572 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:55:00.699081+00:00
+fallback	2094fd83ef250fa7	event=WorkerRunEnded agent=a2c04a926456f2d57 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:18:14.754077+00:00
+fallback	2188da2be14438cb	event=WorkerStarted agent=a2c04a926456f2d57 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:01.655595+00:00
+fallback	2205dadb7756bc9f	event=WorkerStarted agent=a9a772d318c162f0f session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:38:35.847226+00:00
+fallback	22328477b5547be6	event=WorkerRunEnded agent=a0c3b300736bfcbdb session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:08:38.278285+00:00
+fallback	22840883eb6735f9	event=WorkerRunEnded agent=a1fda1e085cb8fd33 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:34:05.953841+00:00
+fallback	22891fd6f8441e8c	event=WorkerRunEnded agent=a4b28d16af28fe54a session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:55:02.821982+00:00
+fallback	22e0c9c34108eea2	event=WorkerRunEnded agent=a956e92520ddfc407 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:46:04.394906+00:00
+fallback	23348abad2c37676	event=WorkerRunEnded agent=a598508f86b24cc22 session=f2880184-a14b-48b1-8bd6-331ff7538966 ts=2026-09-09T14:23:00.499433+00:00
+fallback	23358b50695b29ee	event=WorkerStarted agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:30.218392+00:00
+fallback	23bd55324b1d31cc	event=WorkerRunEnded agent=ac094ac4a435ee2d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:17.400679+00:00
+fallback	24fd0f42d4eab4a3	event=WorkerCreated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.974743+00:00
+fallback	25f91aacf16d55c3	event=WorkerRunEnded agent=a3b15fca7ca200174 session=083f7cdb-6cb6-43a0-b474-1e6ac8f0aa0b ts=2026-09-08T18:24:50.682163+00:00
+fallback	2762feb37e99a4a4	event=WorkerStarted agent=adcdfb44dd85ea16e session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:00:14.099585+00:00
+fallback	2aaa694387cae929	event=WorkerStarted agent=a5a3bc64af63a8b83 session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T11:00:01.737618+00:00
+fallback	2b90023effda800a	event=WorkerStarted agent=a9403b73f7341bcf2 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:09:15.555793+00:00
+fallback	2bba8db5d8343931	event=WorkerRunEnded agent=aad77b9f7342f009c session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:18:07.285639+00:00
+fallback	2bf310193ab90cf2	event=WorkerRunEnded agent=a155a0087ea7de611 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:17:38.679558+00:00
+fallback	2c1e65d07616d519	event=WorkerStarted agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:32:24.478880+00:00
+fallback	2cde1c32d7effc7a	event=WorkerRunEnded agent=addd2adc5bb2942d1 session=b3a2c02d-708a-438b-a95b-d8f454e01896 ts=2026-09-09T15:19:25.909229+00:00
+fallback	2dbf3ff6aa50a831	event=WorkerRunEnded agent=a04502ab19332a41e session=f2880184-a14b-48b1-8bd6-331ff7538966 ts=2026-09-09T14:22:13.922090+00:00
+fallback	2ee5fca1f2d2ade9	event=WorkerRunEnded agent=a6ea0775263a0dc79 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:12.244625+00:00
+fallback	2f97309d4c03f070	event=WorkerRunEnded agent=aa6ab181d395dc20f session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:00:45.299125+00:00
+fallback	319ddf4027f19495	event=WorkerStarted agent=ad604595ec59df1d7 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:23:17.033705+00:00
+fallback	31fc3bd7c16a78a4	event=WorkerStarted agent=a0c1f34d3fd5d90fa session=083f7cdb-6cb6-43a0-b474-1e6ac8f0aa0b ts=2026-09-08T18:24:19.075513+00:00
+fallback	33798488f0f829c4	event=WorkerRunEnded agent=a56c088ccbfc3ecf2 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:15:47.803633+00:00
+fallback	338dce5754bb73ec	event=WorkerRunEnded agent=ab0b5f824a0cbd5fb session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:32:09.424742+00:00
+fallback	3410cd5f0b2c96d6	event=WorkerRunEnded agent=a0c1f34d3fd5d90fa session=083f7cdb-6cb6-43a0-b474-1e6ac8f0aa0b ts=2026-09-08T18:25:47.905498+00:00
+fallback	346267b5bd03c9d7	event=WorkerRunEnded agent=a970c7bcd363255c5 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:23:49.647725+00:00
+fallback	35b11f377826e83b	event=WorkerRunEnded agent=a736efa0146c361a1 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:59:44.269524+00:00
+fallback	39d95e94c500ed5e	event=WorkerStarted agent=a3d4f1699fcdf00b8 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:47:11.993307+00:00
+fallback	3aba7333c49f08cf	event=WorkerRunEnded agent=aa618a78c42d8b324 session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T10:56:52.919744+00:00
+fallback	3cb56f63fe7da35c	event=WorkerStarted agent=a20389512ef5d60cf session=bb268a94-cfac-4c74-a557-2a0b9a968d4a ts=2026-09-07T17:26:50.450976+00:00
+fallback	3ceb072ec9703472	event=WorkerRunEnded agent=a28931cd7f9e72998 session=9384b9e6-7ad0-47bc-a370-165dffca46ea ts=2026-09-08T19:24:12.087694+00:00
+fallback	3d6d9c6ad143f761	event=WorkerStarted agent=a031e66119c2a5a6f session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T10:54:19.356472+00:00
+fallback	3d964c143ab9485b	event=WorkerRunEnded agent=ae89797d334f4d544 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:46:02.971284+00:00
+fallback	3dbc2a71bf2143f8	event=WorkerRunEnded agent=af8a64ee63b90a2a7 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:31:47.844476+00:00
+fallback	3dd0e99f38e4e5f4	event=WorkerRunEnded agent=a27e838ca0b21c7fc session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:16:10.515631+00:00
+fallback	3f871a3dae3521c9	event=WorkerUpdated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.801605+00:00
+fallback	3fbc153462415e5a	event=WorkerRunEnded agent=a5add240cbdb31dd6 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:34:38.113496+00:00
+fallback	409d7638d44005fb	event=WorkerRunEnded agent=a7da2858cdc30ccc8 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:58:40.770411+00:00
+fallback	40cc2e466d1ceab5	event=WorkerRunEnded agent=ac64834fbc61ec4d2 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:17:04.263912+00:00
+fallback	418816c52927b55a	event=WorkerRunEnded agent=a4d3dd00bfb61070b session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:59:07.775542+00:00
+fallback	439aff1041420454	event=WorkerRunEnded agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.585071+00:00
+fallback	44d7354bf2958766	event=WorkerRunEnded agent=ae8a4ee0e2af426c1 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:31:18.851552+00:00
+fallback	468948fd6af35a4f	event=WorkerStarted agent=ae8a4ee0e2af426c1 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:28:29.577761+00:00
+fallback	468fb91fab6c15eb	event=WorkerRunEnded agent=a25d8dd87195fbf00 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:25.402468+00:00
+fallback	469301a2ca1a0256	event=WorkerRunEnded agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:32:17.918635+00:00
+fallback	46a6dd8f7fa21e54	event=WorkerRunEnded agent=a102b511af0667db8 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:09:09.313352+00:00
+fallback	46da94ccfeaa14e0	event=WorkerStarted agent=af7552e449bd06bb9 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:43:56.242892+00:00
+fallback	48298c95cc8784db	event=WorkerRunEnded agent=aa98872f67634324c session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:58:09.331895+00:00
+fallback	4948e22a85afc032	event=WorkerRunEnded agent=a13dd1cb8e09581d2 session=af4b88d9-7ce6-44f2-b5f9-d2369a17f49d ts=2026-09-08T18:44:58.209299+00:00
+fallback	4ee925cb233ccd47	event=WorkerStarted agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:30:44.609827+00:00
+fallback	4f4cc4fd2f5cfeeb	event=WorkerRunEnded agent=ab9703668c10e501b session=b3a2c02d-708a-438b-a95b-d8f454e01896 ts=2026-09-09T15:20:10.378596+00:00
+fallback	50247ff7fd77e58a	event=WorkerRunEnded agent=a531470771d2b7ffd session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:29:45.883111+00:00
+fallback	504d81a1669d98e7	event=WorkerRunEnded agent=a5b1a44f4d9e37d67 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:59:12.020160+00:00
+fallback	50fd2a66ad354443	event=WorkerRunEnded agent=a355260ba9e2258d7 session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:54:58.966474+00:00
+fallback	529e423fc4d81288	event=WorkerRunEnded agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:27.049806+00:00
+fallback	52d70ae30659ae28	event=WorkerRunEnded agent=a5797728096a9d2b3 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:30:34.464049+00:00
+fallback	54d965f9b897d44a	event=WorkerRunEnded agent=a1aa5e242c206696b session=f2880184-a14b-48b1-8bd6-331ff7538966 ts=2026-09-09T14:22:28.885370+00:00
+fallback	56248b8a35d14653	event=WorkerRunEnded agent=a258607528e4df55e session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:54:27.461486+00:00
+fallback	58ef92f7a41abd3d	event=WorkerCreated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.187953+00:00
+fallback	5959d37c28f4e023	event=WorkerStarted agent=a240405261ba89626 session=49a021f2-6eb3-4942-a842-483e8a59ba55 ts=2026-09-09T10:54:13.402855+00:00
+fallback	5a0d8a9093bbd2a1	event=WorkerUpdated agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:49.910562+00:00
+fallback	5e02b7013a587d06	event=WorkerStarted agent=a956e92520ddfc407 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:45:31.921337+00:00
+fallback	5e64faa66ca74ff3	event=WorkerRunEnded agent=a1a21ce2a6959f3c9 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:34:37.299237+00:00
+fallback	5ee29350d02518d9	event=WorkerRunEnded agent=a4e893cfb4c33bc01 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:46:02.726720+00:00
+fallback	5fe38f921cc6c26c	event=WorkerUpdated agent=a2c04a926456f2d57 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:30.218488+00:00
+fallback	605655e95fd501ff	event=WorkerRunEnded agent=a9cd22b83c2f4a4d4 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:51.097668+00:00
+fallback	60f81083c6577a0f	event=WorkerRunEnded agent=aeba8916faf1847df session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:01.238995+00:00
+fallback	63c826b7e2c3aa85	event=WorkerRunEnded agent=adcdfb44dd85ea16e session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:01:23.816814+00:00
+fallback	6479e596710e0601	event=WorkerRunEnded agent=a28313fabd999d946 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:44:28.034786+00:00
+fallback	650e67838123b0c1	event=WorkerRunEnded agent=a81d3a9427fcbe3a8 session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:31:04.027267+00:00
+fallback	656e13a8a9a9bab8	event=WorkerRunEnded agent=af7552e449bd06bb9 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:46:23.214799+00:00
+fallback	69306d3d98e0c042	event=WorkerCreated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:25.922145+00:00
+fallback	6a4851ed22064608	event=WorkerStarted agent=adcdfb44dd85ea16e session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:58:41.535164+00:00
+fallback	6aa9fe85832db38b	event=WorkerStarted agent=a4b28d16af28fe54a session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:53:55.966975+00:00
+fallback	6b21a44d34d8b445	event=WorkerRunEnded agent=a7c6da3c9e3910804 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:29:43.851567+00:00
+fallback	6c66c6c15bf0fca2	event=WorkerCreated agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:01.655789+00:00
+fallback	6ea523ad5f3ae3c4	event=WorkerRunEnded agent=a9f770e03aed59510 session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:00:45.304497+00:00
+fallback	6f776a375c3950eb	event=WorkerRunEnded agent=a2d3b9b0201a47cd2 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:57:38.038329+00:00
+fallback	6fa92548c46abfa8	event=WorkerRunEnded agent=a3f99d0890717e32c session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:01:16.700091+00:00
+fallback	702d7afeeafff946	event=WorkerUpdated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.919144+00:00
+fallback	720ba7b86496f677	event=WorkerStarted agent=afc60f724eadda307 session=74d05ba6-e50f-40ab-8bcc-4ffc2ae998b1 ts=2026-09-09T10:28:07.149107+00:00
+fallback	744a21641f407811	event=WorkerRunEnded agent=a1360db6921e6c7d6 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:36:42.450342+00:00
+fallback	7489dcf0a97f327b	event=WorkerStarted agent=acebf8774f96ebaf2 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:15:39.255842+00:00
+fallback	7a0f6d0e4b2e7b2c	event=WorkerRunEnded agent=ae790e11ec0a2cfd0 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:33:34.685308+00:00
+fallback	7aac3a19bd87c0e1	event=WorkerStarted agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:27.000499+00:00
+fallback	7b4fa8e09524bd6c	event=WorkerStarted agent=ac094ac4a435ee2d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:44.320750+00:00
+fallback	7d41c76cc56d4e61	event=WorkerRunEnded agent=adecb9cbe19c9448a session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:16.560955+00:00
+fallback	7d8c592810e07f52	event=WorkerRunEnded agent=a3c290c5b2704d63b session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:43:59.973548+00:00
+fallback	7d8f6af1862bc8cf	event=WorkerRunEnded agent=a947b952ca3e10a05 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:22:19.008348+00:00
+fallback	7db55a27cfd6cc10	event=WorkerRunEnded agent=a3d4f1699fcdf00b8 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:55:41.015118+00:00
+fallback	7e455565e64afc5f	event=WorkerRunEnded agent=a64719abb064a79ea session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:31:35.351286+00:00
+fallback	7f466caf0fa6b9b8	event=WorkerRunEnded agent=acebf8774f96ebaf2 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:18:31.993982+00:00
+fallback	8061f66c9c411ed3	event=WorkerRunEnded agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:33:04.474711+00:00
+fallback	81acb27a1719ec2d	event=WorkerStarted agent=a372f2a91499ab275 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:16:35.845306+00:00
+fallback	82472ba81e9e56e0	event=WorkerRunEnded agent=a3365cc26bfe6c14b session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:15:41.049587+00:00
+fallback	82d34069798b5c33	event=WorkerRunEnded agent=af36d764c31599bec session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:21:43.845704+00:00
+fallback	835528b76db3c834	event=WorkerStarted agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.341700+00:00
+fallback	882260ff1e5c1238	event=WorkerRunEnded agent=aeca8d9e9dbcbe029 session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:54:14.673582+00:00
+fallback	8a3ea490264f1ff0	event=WorkerRunEnded agent=ac072d37a28859e55 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:47:01.309145+00:00
+fallback	8a58c5430d12a75a	event=WorkerStarted agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:01.272752+00:00
+fallback	8c2fe2292eb3a700	event=WorkerStarted agent=ac094ac4a435ee2d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:21:12.251526+00:00
+fallback	8f9a8ea57455d2a9	event=WorkerRunEnded agent=a3fad3071590df4ca session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:18:58.472964+00:00
+fallback	8fc7ddea7a6c0933	event=WorkerRunEnded agent=adf486629365db87f session=9384b9e6-7ad0-47bc-a370-165dffca46ea ts=2026-09-08T19:24:22.747027+00:00
+fallback	900dbef0b2725a36	event=WorkerRunEnded agent=a0c742af505e55d02 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:30:32.573524+00:00
+fallback	9112e347c5829396	event=WorkerStarted agent=aa628e393988f1a79 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:34:23.006335+00:00
+fallback	92cc34a3501a0a9a	event=WorkerRunEnded agent=ad89f084ca6ff8395 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:15.065372+00:00
+fallback	932ec7c4ea2de1f6	event=WorkerRunEnded agent=a45ab557c1419d069 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:29:00.969346+00:00
+fallback	9585323bddf68ba8	event=WorkerRunEnded agent=a54a239b1b9bc9023 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:21:43.964724+00:00
+fallback	9587a15d87128ea5	event=WorkerRunEnded agent=ac1ef9420b7e21f9d session=3fc7f872-efa6-40a2-ac9b-175b1a098d27 ts=2026-09-08T18:21:34.825858+00:00
+fallback	97b4c6d0adf48c0e	event=WorkerRunEnded agent=af20deea6da4e5676 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:29:32.130565+00:00
+fallback	9860a98203dbbcc9	event=WorkerRunEnded agent=a600d4617f1ed0075 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:18:26.624403+00:00
+fallback	9a657cd584cb1520	event=WorkerUpdated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:26.889691+00:00
+fallback	9ac53af31ea50db5	event=WorkerRunEnded agent=a0b0c3234bfd3abdd session=1152b13a-b49c-49ca-8173-d7c6f1d81101 ts=2026-09-08T20:46:16.415380+00:00
+fallback	9ad934ffd171c887	event=WorkerRunEnded agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:21.578159+00:00
+fallback	9be737cb3fd4e515	event=WorkerRunEnded agent=a372f2a91499ab275 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:18:01.361548+00:00
+fallback	9d56cd6ee8387649	event=WorkerRunEnded agent=a8e7c26ccc532c2c2 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:22:48.395913+00:00
+fallback	9d89e3935f01d277	event=WorkerStarted agent=ab24ceda5e6f8a552 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:22:16.308290+00:00
+fallback	9d8dc5285bb796f5	event=WorkerRunEnded agent=a2fc2fa41485d94f4 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:17:35.986254+00:00
+fallback	9da819df10b2abea	event=WorkerRunEnded agent=aa18203d20552da5a session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:59:59.296810+00:00
+fallback	9e3184f318897d54	event=WorkerRunEnded agent=a07cdfef7886da5dc session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T11:00:06.804728+00:00
+fallback	9e33fe64513ba7c9	event=WorkerRunEnded agent=ad54c705234d0def7 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:39:27.196340+00:00
+fallback	a177a7f3e7ed4eb5	event=WorkerRunEnded agent=a61a53d7a02f1f391 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:31:13.346755+00:00
+fallback	a1a2efd92386e580	event=WorkerRunEnded agent=a9cd84ffae7286c1e session=1152b13a-b49c-49ca-8173-d7c6f1d81101 ts=2026-09-08T20:46:01.374245+00:00
+fallback	a1a3881673b2eee8	event=WorkerRunEnded agent=a2bcad2c0a23f5f4a session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:18:42.651828+00:00
+fallback	a223ca636ae5403b	event=WorkerStarted agent=a00c045dfb34947e4 session=c0208cd0-91ff-4e4c-acad-5c0e9f9f926f ts=2026-09-09T14:22:02.928869+00:00
+fallback	a2a2d70967f4566c	event=WorkerRunEnded agent=adcdfb44dd85ea16e session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:59:54.346367+00:00
+fallback	a32c8167c09b15a0	event=WorkerRunEnded agent=ac39cf4b7269d5f0e session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:34:02.231612+00:00
+fallback	a8bfe5e25157174b	event=WorkerRunEnded agent=a0b63d005c41757fe session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:31:52.991447+00:00
+fallback	a9f283c7bbedb792	event=WorkerRunEnded agent=a093c1eb4b9915d5d session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:58:40.488409+00:00
+fallback	ac31cb10f33f3044	event=WorkerRunEnded agent=a7aa4d70e819f30e8 session=ae9f6b6d-0425-4a25-a6d5-7e4b7b242176 ts=2026-09-09T14:55:39.154252+00:00
+fallback	aefc8bced0f770f1	event=WorkerStarted agent=a947b952ca3e10a05 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:21:10.299325+00:00
+fallback	aff6ef790986397e	event=WorkerStarted agent=ad534947fa9535b45 session=c97b3d0a-eb75-4352-a04c-a978a4b5460b ts=2026-09-08T18:55:24.711220+00:00
+fallback	b0c33f84478f74f1	event=WorkerStarted agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:15:09.157818+00:00
+fallback	b20d3f8d116d70ce	event=WorkerRunEnded agent=a038af2ce831bf9d1 session=6630c4ae-69c7-4d15-97f4-7b6f54ac8cf5 ts=2026-09-10T16:38:26.938894+00:00
+fallback	b225f61fa04a3356	event=WorkerRunEnded agent=a5a3bc64af63a8b83 session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T11:00:59.654934+00:00
+fallback	b2d8ba951b7c6665	event=WorkerRunEnded agent=aaa24070e5b1ce506 session=b3a2c02d-708a-438b-a95b-d8f454e01896 ts=2026-09-09T15:20:43.597311+00:00
+fallback	b300f6d80d028478	event=WorkerRunEnded agent=a015f175fa35196c6 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:34:54.216430+00:00
+fallback	b3e2c67e235c35db	event=WorkerStarted agent=a9af6f4dee56c4f33 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:08:07.160711+00:00
+fallback	b4358142004c94ae	event=WorkerRunEnded agent=a7cd7e7050a24d9f1 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:32.624737+00:00
+fallback	b478b7285cdbfbdc	event=WorkerStarted agent=aa8778d6892564b04 session=3fc7f872-efa6-40a2-ac9b-175b1a098d27 ts=2026-09-08T18:21:02.964396+00:00
+fallback	b6323b1282419a86	event=WorkerRunEnded agent=aac46fde5ee8a2c50 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:54:05.787667+00:00
+fallback	b6f93a10a8ac14f9	event=WorkerRunEnded agent=aff72d6d8610851bf session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:16:41.882230+00:00
+fallback	b812a3cfee6882d3	event=WorkerStarted agent=a3d4f1699fcdf00b8 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:52:31.482510+00:00
+fallback	b965047fc217623a	event=WorkerRunEnded agent=ab0ce9a50d1e9b1ae session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:47.939893+00:00
+fallback	ba8b744df9c9bc01	event=WorkerStarted agent=a0c742af505e55d02 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:29:12.256795+00:00
+fallback	bae3716604a1dec5	event=WorkerRunEnded agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:51.351559+00:00
+fallback	bbadda8f6e1625f8	event=WorkerStarted agent=a4d3dd00bfb61070b session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:57:36.652494+00:00
+fallback	bbcf015d9df3ce1d	event=WorkerStarted agent=adf486629365db87f session=9384b9e6-7ad0-47bc-a370-165dffca46ea ts=2026-09-08T19:23:09.324382+00:00
+fallback	bc72b1cf9b632c42	event=WorkerStarted agent=a13dd1cb8e09581d2 session=af4b88d9-7ce6-44f2-b5f9-d2369a17f49d ts=2026-09-08T18:43:42.457522+00:00
+fallback	be1b2d8eec679c27	event=WorkerRunEnded agent=ac09912cd07d61219 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:57:06.465184+00:00
+fallback	bea75b117346e7fc	event=WorkerRunEnded agent=abb4202e0ae2c800e session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:18:20.490453+00:00
+fallback	bf7b8b924e85209f	event=WorkerRunEnded agent=aeac8aff4d61fbc9b session=20c14d1e-74da-499c-bf99-7e32c67576dc ts=2026-09-09T20:27:14.732994+00:00
+fallback	c5b083daf4a0db25	event=WorkerRunEnded agent=a5ab6013ee40a8168 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:30:15.187476+00:00
+fallback	c729ebc115221425	event=WorkerRunEnded agent=a6e05b22237acb741 session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:00:38.662443+00:00
+fallback	c865df92a075e3b8	event=WorkerRunEnded agent=a2c489a053121c692 session=083f7cdb-6cb6-43a0-b474-1e6ac8f0aa0b ts=2026-09-08T18:25:22.525861+00:00
+fallback	c8d9ad7dc3a191d9	event=WorkerRunEnded agent=a865aecd54dfe76c5 session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:32:13.114556+00:00
+fallback	c9a401fb5a7593bf	event=WorkerRunEnded agent=ab8d6d17f2f4b6cbe session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:08:03.797752+00:00
+fallback	cb4dc57ae9663929	event=WorkerRunEnded agent=acebf8774f96ebaf2 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:16:57.057375+00:00
+fallback	cbc92bc7d7929d32	event=WorkerRunEnded agent=ae0e5f9d7de79d8e4 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T11:00:24.451448+00:00
+fallback	cceb9de666975650	event=WorkerStarted agent=a6b9f03ed68e0908b session=cadd7f28-7391-498f-9785-3eb6151d7c7c ts=2026-08-31T17:32:57.725960+00:00
+fallback	cd04def1d26e7825	event=WorkerRunEnded agent=a7390043cfb43b420 session=af4b88d9-7ce6-44f2-b5f9-d2369a17f49d ts=2026-09-08T18:44:13.557106+00:00
+fallback	cd315acd28792a35	event=WorkerRunEnded agent=ab143c96412fed1d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:21:19.963202+00:00
+fallback	cf8b17a2f5edbefe	event=WorkerRunEnded agent=a31cc4500dab5b6ad session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:35:37.847734+00:00
+fallback	d0540125f658302f	event=WorkerRunEnded agent=a586629ee05bcea61 session=c97b3d0a-eb75-4352-a04c-a978a4b5460b ts=2026-09-08T18:56:27.073981+00:00
+fallback	d161d5415186ccdf	event=WorkerRunEnded agent=aa91a74f31d85fa5d session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T11:00:34.054864+00:00
+fallback	d16f164f8b66a8c3	event=WorkerStarted agent=a0c742af505e55d02 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:28:26.209291+00:00
+fallback	d2bd0c423e78d96e	event=WorkerRunEnded agent=aeecbeedd47c7a35f session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:32:24.445066+00:00
+fallback	d2d28ac25276d3f2	event=WorkerRunEnded agent=a2401a86485599e2e session=b3a2c02d-708a-438b-a95b-d8f454e01896 ts=2026-09-09T15:19:50.442268+00:00
+fallback	d3efc6bcc1b7d522	event=WorkerStarted agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:17:55.352758+00:00
+fallback	d56eaa05396efcfd	event=WorkerRunEnded agent=a3e4015e42eed54f1 session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:44:59.242472+00:00
+fallback	d6bc322af6d919dc	event=WorkerCreated agent=adcdfb44dd85ea16e session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:59:36.047586+00:00
+fallback	d7170aa0fbcef4df	event=WorkerRunEnded agent=a2c9ec0ee64bbf655 session=1152b13a-b49c-49ca-8173-d7c6f1d81101 ts=2026-09-08T20:45:30.113154+00:00
+fallback	d7af870a719ed6f5	event=WorkerRunEnded agent=ae31b6cf9628ef304 session=3f4d94f4-366a-4024-80c1-fa2d1d1fd4fc ts=2026-09-09T11:01:47.284802+00:00
+fallback	d8707cab320da281	event=WorkerRunEnded agent=aa26e6d2575a20a7b session=b7b8a5f3-3e38-4cf5-8f15-f665a13a4693 ts=2026-09-09T15:45:31.353638+00:00
+fallback	d88d3050cb4a5fa5	event=WorkerRunEnded agent=a8978e3a71aaa5e0d session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:59:44.678494+00:00
+fallback	d89140347f29e2c4	event=WorkerRunEnded agent=a06e65d5aa0216f4d session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:52:35.859309+00:00
+fallback	d8be5bafd9df5f3a	event=WorkerRunEnded agent=a23622e67303265e8 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:56:46.364476+00:00
+fallback	d967f60ef01031cc	event=WorkerStarted agent=a3d4f1699fcdf00b8 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:55:23.133558+00:00
+fallback	da34a8e38f1506c6	event=WorkerStarted agent=a58b30f10757553ef session=30b35616-213e-489f-8263-ab8963e9b5dd ts=2026-09-08T20:44:55.104635+00:00
+fallback	da425c510f97124b	event=WorkerRunEnded agent=a6ab0e95686dccbe3 session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:59:13.350651+00:00
+fallback	da97664720a6bfe2	event=WorkerRunEnded agent=a66de9ee001425321 session=399607c5-765d-4e1a-9d9a-83d42c67f411 ts=2026-09-09T10:29:17.984841+00:00
+fallback	dad3c17e5f23fbd7	event=WorkerStarted agent=a45d5d95ee9109f51 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:22:03.795744+00:00
+fallback	ddd5c454c6af65e9	event=WorkerRunEnded agent=a3fe639b4736e0e5e session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:32:55.614096+00:00
+fallback	deb2ad673ad10c17	event=WorkerRunEnded agent=aae176e0fb291dae1 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:17:07.170371+00:00
+fallback	e0b37058f4822ba8	event=WorkerStarted agent=a736efa0146c361a1 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:56:35.257157+00:00
+fallback	e24129a929454d23	event=WorkerRunEnded agent=a7cd651b28b6ad470 session=c97b3d0a-eb75-4352-a04c-a978a4b5460b ts=2026-09-08T18:55:55.893049+00:00
+fallback	e317ff2f1bfe9456	event=WorkerRunEnded agent=a91bd6f5caf9adecc session=8684d3b8-3af5-476d-a6eb-0a7ffd6ca0c9 ts=2026-09-10T16:33:41.441176+00:00
+fallback	e332bafaa94d9b40	event=WorkerRunEnded agent=abec146e113acc64a session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:07:32.390200+00:00
+fallback	e4042834fdc90add	event=WorkerRunEnded agent=a3d4f1699fcdf00b8 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:54:12.309559+00:00
+fallback	e50779bc943e8203	event=WorkerStarted agent=aa6ab181d395dc20f session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T07:59:36.045252+00:00
+fallback	e52283ff1dac3488	event=WorkerRunEnded agent=aa72d9616d36029d3 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:51.836916+00:00
+fallback	e738513d00b727a6	event=WorkerStarted agent=a2d19cb27f3fac652 session=ed803501-3b59-49ce-995b-6a8183e2f6d0 ts=2026-09-07T17:15:02.471619+00:00
+fallback	e7486455fac724bd	event=WorkerRunEnded agent=a365b9927d0ccf8b4 session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:30:01.535307+00:00
+fallback	e79ded79d36c963f	event=WorkerRunEnded agent=a017b6a58dd06168c session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:16:32.914459+00:00
+fallback	e91df5e44aa9bf3d	event=WorkerRunEnded agent=ad7decdb51ecef649 session=8d990c00-fb6a-4441-9359-71dafce1304b ts=2026-09-10T16:38:54.928446+00:00
+fallback	e9a61461514f7a7a	event=WorkerRunEnded agent=a3f9b048155dcc4a5 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:54:29.418054+00:00
+fallback	ea52315f3196556b	event=WorkerUpdated agent=aTESTWORKER00001 session=abcd1234-0000-0000-0000-00000000beef ts=2026-08-29T03:57:27.025261+00:00
+fallback	ed93909c45144186	event=WorkerStarted agent=acebf8774f96ebaf2 session=d9f8fdd2-5830-4f52-b96f-c4ff2ac183b7 ts=2026-09-09T11:17:45.857942+00:00
+fallback	edfe62ebbe667f28	event=WorkerStarted agent=abfae99e48ec21b2f session=fd01ca96-0cfa-4880-bb58-96e8f645855a ts=2026-09-09T14:47:29.980578+00:00
+fallback	f03ca84127069dee	event=WorkerRunEnded agent=ade52da7427721495 session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:24:00.252191+00:00
+fallback	f0fe84b0555bf39f	event=WorkerStarted agent=aeba8916faf1847df session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:33:02.882473+00:00
+fallback	f148917d4983ae4f	event=WorkerRunEnded agent=aa3594538efffab2c session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:59:43.216035+00:00
+fallback	f1e15e565bd05703	event=WorkerRunEnded agent=ab121a6b864f2b0c1 session=9384b9e6-7ad0-47bc-a370-165dffca46ea ts=2026-09-08T19:23:40.885776+00:00
+fallback	f2b01e81c9c60074	event=WorkerRunEnded agent=a338df2ddf017dedc session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:19:00.740185+00:00
+fallback	f2bc30aa785fab4d	event=WorkerRunEnded agent=ab23130adf1595706 session=5eb68203-b607-4908-b576-8d76d2277add ts=2026-09-09T14:55:23.100135+00:00
+fallback	f2bfa0adc0370dd4	event=WorkerRunEnded agent=a9af6f4dee56c4f33 session=8cd751fb-3087-4c60-b13b-028c4599e509 ts=2026-09-09T08:09:15.523050+00:00
+fallback	f4d699ee09df4363	event=WorkerRunEnded agent=afb20d4cb9bb2acf1 session=520083b6-724c-491b-99b4-556c7099ead4 ts=2026-09-09T10:57:38.528753+00:00
+fallback	f529fd9bbcf942f8	event=WorkerUpdated agent=a2c04a926456f2d57 session=6c63b935-cef3-4efc-b4d7-7eb505a0f199 ts=2026-09-09T08:17:55.352763+00:00
+fallback	f682a035728778c7	event=WorkerRunEnded agent=af45c1a6ff32a546a session=806036d8-dbce-4dc6-8d88-bd1281b0917a ts=2026-09-09T10:31:16.411013+00:00
+fallback	f7388843af741460	event=WorkerRunEnded agent=a7d2fee848d955ed5 session=af4b88d9-7ce6-44f2-b5f9-d2369a17f49d ts=2026-09-08T18:44:44.748687+00:00
+fallback	f8f571ba264bb28b	event=WorkerStarted agent=a64719abb064a79ea session=30721fd6-3cd2-46ff-b364-8495d12cf707 ts=2026-09-09T14:29:30.299127+00:00
+fallback	f90ca837882c164a	event=WorkerRunEnded agent=a7902a2f3efb1364f session=05684bd1-d92d-4a5d-a989-1f91eebfcf72 ts=2026-09-09T08:00:07.319362+00:00
+fallback	faa85bc13c238568	event=WorkerStarted agent=ab9703668c10e501b session=b3a2c02d-708a-438b-a95b-d8f454e01896 ts=2026-09-09T15:19:19.304345+00:00
+fallback	fab91ecda585e2f2	event=WorkerRunEnded agent=ab24ceda5e6f8a552 session=ee2d17af-fd46-4c49-ab95-ba212fec1080 ts=2026-09-09T10:23:19.961561+00:00
+fallback	faea04e7ace60a23	event=WorkerStarted agent=a349be20fe275baaf session=8c3ce1a1-5874-44e1-8b44-2fc638ac24c9 ts=2026-09-09T11:12:58.281831+00:00
+fallback	fd17482810f37661	event=WorkerRunEnded agent=a3dfabd95e34a45b8 session=ee734f73-8d50-483f-9e5b-024f404cf13e ts=2026-09-09T08:30:03.291663+00:00
+fallback	fd85b92ac9604c1f	event=WorkerStarted agent=ae6750a0b8949b60a session=f2880184-a14b-48b1-8bd6-331ff7538966 ts=2026-09-09T14:21:57.579428+00:00
+fallback	fe4cc497212b2ef2	event=WorkerStarted agent=ac094ac4a435ee2d7 session=5f056e92-9cc7-494d-ba55-84371a01590b ts=2026-09-09T10:23:09.046762+00:00
+ledger	007b265ad2dd0c09	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r3 agent=- ts=2026-09-09T06:16:08.947218+00:00
+ledger	017e97dbad8f0236	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:02:17.513010+00:00
+ledger	0284c767414f40dd	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-fix1 agent=- ts=2026-09-10T17:42:58.427784+00:00
+ledger	02ce1a8bf3bd1d87	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:08:45.661395+00:00
+ledger	02d06bce0cc4c03a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rf8 agent=- ts=2026-09-03T13:38:38.966136+00:00
+ledger	0335206f54782be0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:24:46.606942+00:00
+ledger	037a0af6c68e9fc1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:00:55.076778+00:00
+ledger	03d330c806d49846	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T23:37:27.002441+00:00
+ledger	04819daf2b83cce7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T12:50:06.908024+00:00
+ledger	049224461ba7ded4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:11:05.604397+00:00
+ledger	04b5b97e0362a27e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:28:33.053105+00:00
+ledger	05159aa18113387d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r4 agent=a0f948f550f8fb76a ts=2026-09-09T09:23:16.286059+00:00
+ledger	05301ce80bc7c1d1	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-wm1 agent=- ts=2026-09-10T02:21:55.501888+00:00
+ledger	0534c490e4472031	event=registered witness=- source=detect-nonnative-worktree.sh teammate=mark-fable-ecs3 agent=- ts=2026-09-02T10:10:40.424530+00:00
+ledger	056e5ccf4bbeb981	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert4 agent=a74708c0d2ef241b7 ts=2026-09-11T00:37:51.940451+00:00
+ledger	062dc290bbd913bf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-gb1 agent=ac4615014398fcd3b ts=2026-09-10T09:04:33.593467+00:00
+ledger	064fd24d820cfd9e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T18:59:06.164909+00:00
+ledger	072961c69cbc9760	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:11:15.305368+00:00
+ledger	07736e1403ffd685	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ciw3 agent=- ts=2026-09-10T06:19:02.539268+00:00
+ledger	07905bc69eae8067	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T07:36:57.108458+00:00
+ledger	07918a82c000bf0f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:35:00.182687+00:00
+ledger	08eca91c9ace5647	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-09T00:02:55.563734+00:00
+ledger	096be25432f7bc1c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T14:00:51.861130+00:00
+ledger	0991a3a09ed8f715	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:19:58.591631+00:00
+ledger	09ab4723997ae57e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw1 agent=a106362ef90f4d432 ts=2026-09-10T08:57:58.419744+00:00
+ledger	09f825ff12da9b64	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T21:25:18.196256+00:00
+ledger	09fefe2d9e8fa637	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ci2 agent=a5fc02d31ae338eba ts=2026-09-09T23:43:26.135733+00:00
+ledger	0afa2d0c955f7164	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r3 agent=a306a9b2ee2f0710d ts=2026-09-09T06:16:43.799624+00:00
+ledger	0bdb30e19ff75dd6	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-cert2 agent=- ts=2026-09-10T19:53:39.293592+00:00
+ledger	0c4af9cef9347413	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-row1 agent=ae2492c3e31323bad ts=2026-09-10T07:17:18.916705+00:00
+ledger	0ce3d9e10fe4b886	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:20:30.989995+00:00
+ledger	0cea37a3d332e9db	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:41:09.716245+00:00
+ledger	0e67c5b3dd8e0aaa	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-cg1 agent=a55174499abfccb2f ts=2026-09-08T16:06:37.049183+00:00
+ledger	0e72a82d125197d2	event=terminated witness=reaper-observation source=- teammate=zach-opus-ob1 agent=ae47b94b9585cce25 ts=2026-09-09T09:16:09.552827+00:00
+ledger	0f0ebb782de9b69c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:38:51.129495+00:00
+ledger	0f69a4ec3478da6c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:46:57.098239+00:00
+ledger	10a95b6758773951	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T08:40:44.564029+00:00
+ledger	10bfd311e9b953e4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:19:25.871117+00:00
+ledger	10d96f2562dd098b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rec1 agent=aea7c66005dd2aa6f ts=2026-09-10T07:10:41.002867+00:00
+ledger	10e13ee6037fe807	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-lc1 agent=- ts=2026-09-10T06:01:10.945350+00:00
+ledger	110ef48e3e2555d1	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-fable-cert3 agent=- ts=2026-09-10T21:56:48.445857+00:00
+ledger	1118ddd50ba9c9ad	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:14:50.848724+00:00
+ledger	1197399e5908971a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-cg1 agent=a55174499abfccb2f ts=2026-09-08T16:06:37.041160+00:00
+ledger	11ec138ceb22cf26	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:59:29.792505+00:00
+ledger	1225b6fbff7fa4ca	event=terminated witness=reaper-observation source=- teammate=- agent=a48d8419f59c221d9 ts=2026-09-02T18:55:49.590158+00:00
+ledger	126eaa6a9b841d6c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-unl1 agent=a2de3c7d8d8590224 ts=2026-09-10T16:07:26.851037+00:00
+ledger	12d0e03a9c255add	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:34:42.269714+00:00
+ledger	12f98d9ea132273f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T19:50:34.266517+00:00
+ledger	1320a19bb07ffb36	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:16:40.499502+00:00
+ledger	138d8e12e3f8161d	event=terminated witness=remove-agent-worktree source=- teammate=- agent=a5a82090e9729e92f ts=2026-09-02T17:27:47.484797+00:00
+ledger	13c8b35189123a27	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:17:54.161931+00:00
+ledger	141dc58a53a97fc6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt8 agent=- ts=2026-09-02T18:03:29.295190+00:00
+ledger	1463c7fc52d4c29a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf5 agent=- ts=2026-09-03T13:16:48.392218+00:00
+ledger	14880146c04a3192	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T02:08:37.949938+00:00
+ledger	1500925e0793750f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:26:02.068870+00:00
+ledger	169fcb51c31ff974	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rg1 agent=aef8aa1c742d40b2b ts=2026-09-08T16:07:04.966959+00:00
+ledger	16b1b10a24447167	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T02:07:40.233044+00:00
+ledger	16bfaa4b694aa2cc	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ctl1 agent=- ts=2026-09-05T22:29:06.652798+00:00
+ledger	16d7de13775a785a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-md1 agent=ad9d1795574bc7ee0 ts=2026-09-10T03:21:14.881527+00:00
+ledger	17a5b25cf39d755b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:58:56.445469+00:00
+ledger	17e7307dc67a3284	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:27:29.443288+00:00
+ledger	18461728eb67ec5e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert2 agent=aa2e08d7c39345d84 ts=2026-09-10T19:54:20.289700+00:00
+ledger	185d7572df7203b8	event=terminated witness=reaper-observation source=- teammate=- agent=a444290e35b7276b0 ts=2026-09-02T08:58:44.281290+00:00
+ledger	1868c7fe39794f5e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ci2 agent=a5fc02d31ae338eba ts=2026-09-09T23:43:26.126759+00:00
+ledger	18ef18179052f8ff	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r5 agent=- ts=2026-09-09T11:29:24.280956+00:00
+ledger	1972959b438bf6e8	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-gb1 agent=- ts=2026-09-10T09:04:02.956213+00:00
+ledger	1a017cb5b7ec51d0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert5 agent=ab26803c6aa0f3637 ts=2026-09-11T03:21:29.232237+00:00
+ledger	1b1002d4a29e45cc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rec1 agent=aea7c66005dd2aa6f ts=2026-09-10T07:10:40.995409+00:00
+ledger	1b138eef6e5cd9dd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T18:57:13.716783+00:00
+ledger	1b9ad34dc64e7ccf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:11:50.432766+00:00
+ledger	1bc94ec081637b6c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt2 agent=a2615268e905fdc13 ts=2026-09-08T17:18:13.064009+00:00
+ledger	1d17f465f0a236ff	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-land1 agent=- ts=2026-09-10T10:48:17.995062+00:00
+ledger	1d356c91f46cd7e4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:39:11.264768+00:00
+ledger	1d59e0a801202480	event=terminated witness=reaper-observation source=- teammate=- agent=afb01f81904cc3c31 ts=2026-09-03T01:10:02.775054+00:00
+ledger	1ee009d4dae8ee20	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:56:00.655743+00:00
+ledger	1f6dae28d30f2e38	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-fix1 agent=a97f2c691c34e2c0f ts=2026-09-10T17:43:42.179596+00:00
+ledger	1ff645819c5497db	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:11:50.956963+00:00
+ledger	20f28477a6d232c5	event=terminated witness=rich-observed-return source=- teammate=zach-opus-dor2 agent=af3b228967dc2b627 ts=2026-09-10T12:03:55.714226+00:00
+ledger	210478251cff7d9a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:43:50.911296+00:00
+ledger	21b006815e076a66	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-st1 agent=- ts=2026-09-10T08:35:57.257142+00:00
+ledger	221b960034d760e0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw1 agent=aee326394268ad9e9 ts=2026-09-10T06:13:24.292344+00:00
+ledger	231cd45527fd1043	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:06:15.701534+00:00
+ledger	2322c74035ede667	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:58:49.723014+00:00
+ledger	233142544d4be7d5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-c12 agent=af37719a6773ed314 ts=2026-09-09T09:50:21.105779+00:00
+ledger	23df05c2c3654186	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:14:50.551524+00:00
+ledger	24cd79c2a832c12f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:08:27.449103+00:00
+ledger	257af9aa95562506	event=terminated witness=reaper-observation source=- teammate=- agent=ab654e462fc138b61 ts=2026-09-02T11:41:11.842057+00:00
+ledger	257b463723a7d597	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-ac1 agent=- ts=2026-09-02T18:40:55.186698+00:00
+ledger	25efabc8acc3e878	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:13:52.435736+00:00
+ledger	261aa0736c7c4e1b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T02:55:19.918653+00:00
+ledger	266cb1787fe03e00	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:16:48.743764+00:00
+ledger	26f6f21ba04ac4fc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T06:19:30.407046+00:00
+ledger	2711a5ca84d419de	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rf8 agent=- ts=2026-09-03T13:38:38.975883+00:00
+ledger	271711e365d71afb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T10:20:37.874076+00:00
+ledger	27323e27715267e8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T13:30:34.649501+00:00
+ledger	2785a3b50da4200e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-prem1 agent=afff0c9ed56571e48 ts=2026-09-10T08:22:13.175740+00:00
+ledger	27e9a44f313d9079	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt3 agent=a150cb7e74abfa595 ts=2026-09-08T18:00:36.330492+00:00
+ledger	280bfb5b722d16a5	event=terminated witness=reaper-observation source=- teammate=- agent=a49532aca4e9a4200 ts=2026-09-02T08:58:44.562666+00:00
+ledger	28ae11cd51a9ab5c	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-fable-loop1 agent=- ts=2026-09-02T12:04:49.107491+00:00
+ledger	29131d766b5eca43	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T04:55:49.060310+00:00
+ledger	2a8fe2d814976484	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:10:33.158601+00:00
+ledger	2ac057264faa220d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:40:45.434964+00:00
+ledger	2b07e657639c4748	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-gate1 agent=a8922391964bc8c3b ts=2026-09-10T05:54:37.362017+00:00
+ledger	2b31836439df2bf8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw3 agent=aa45acc74c2d4fcef ts=2026-09-10T10:57:33.598593+00:00
+ledger	2c4389027df0285c	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-ci1 agent=- ts=2026-09-10T22:57:53.656522+00:00
+ledger	2c555acdbc81d7f1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:18:16.931938+00:00
+ledger	2c66d2062bfa3829	event=terminated witness=reaper-observation source=- teammate=- agent=a8922391964bc8c3b ts=2026-09-10T13:11:23.268006+00:00
+ledger	2c846c3d6a460dfb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf3 agent=- ts=2026-09-03T07:19:36.423312+00:00
+ledger	2d5b57fa33125f0f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T16:41:48.728602+00:00
+ledger	2db7539a6fcd7c40	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:11:31.065376+00:00
+ledger	2e20f5590c97dc6d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-ci1 agent=a2187141d264f4da9 ts=2026-09-10T22:59:58.641953+00:00
+ledger	2e65e5d8a8e13da4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:47:27.314754+00:00
+ledger	2ead2f63130cd42c	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-c12 agent=- ts=2026-09-09T09:49:24.926523+00:00
+ledger	2eb459ed4679cdfc	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-rk1 agent=- ts=2026-09-10T02:58:56.121061+00:00
+ledger	2edbd55184244069	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:19:19.707419+00:00
+ledger	2efb67472a575d40	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix2 agent=a446bbe852076df83 ts=2026-09-10T20:57:40.147198+00:00
+ledger	2f2c930859684b20	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-opus-lc1 agent=a49a82760e8a688d2 ts=2026-09-09T22:33:55.925173+00:00
+ledger	2f3d3555259cf963	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r8 agent=ad7e0f2ff9364d51f ts=2026-09-09T19:58:15.695881+00:00
+ledger	2f6b1347d6d2bee8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:34:39.353212+00:00
+ledger	2fb4b54e9575aedc	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r1 agent=- ts=2026-09-08T17:27:51.135562+00:00
+ledger	2fdad9fdca868ec7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-lc1 agent=adb908f67f1be5ba7 ts=2026-09-09T22:00:29.319690+00:00
+ledger	30c7400799aeb5d3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T04:49:23.456103+00:00
+ledger	30f3e15cbeddf5db	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T15:20:53.844148+00:00
+ledger	31935c2ab9e85fc1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T03:07:45.978998+00:00
+ledger	31a123de71b6b03a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T09:27:45.287193+00:00
+ledger	3245de6c0b32c6fd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-prem1 agent=- ts=2026-09-02T11:07:25.213022+00:00
+ledger	32655c78d9ace7df	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-09T23:48:55.880885+00:00
+ledger	32a680636c89363d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:59:18.477665+00:00
+ledger	330cb34cfb267329	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:18:51.273181+00:00
+ledger	3389e2dd5bd32cd5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T15:48:32.780224+00:00
+ledger	3421bcf23da4f7b5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:19:29.561180+00:00
+ledger	3496323487e38218	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:10:47.761786+00:00
+ledger	34c03c7e00e7ab4a	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-mc1 agent=- ts=2026-09-09T19:17:44.235186+00:00
+ledger	35245617b1025adb	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-unl1 agent=- ts=2026-09-10T16:06:19.717963+00:00
+ledger	35e6ae299df18da9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T20:41:57.663168+00:00
+ledger	3620133d31768e9c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T02:22:01.620177+00:00
+ledger	365bcc8a6ff7eabf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T06:30:27.531173+00:00
+ledger	36cd021d660ed883	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-cr2 agent=- ts=2026-09-10T00:35:48.407880+00:00
+ledger	36f2aea956a98bf2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:09:43.855390+00:00
+ledger	374784ea964ad359	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:21:36.848927+00:00
+ledger	37b12c5b2daad36d	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-win1 agent=- ts=2026-09-10T11:32:39.602993+00:00
+ledger	38451acfaefae7f8	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-fable-rf1 agent=- ts=2026-09-03T00:24:30.366037+00:00
+ledger	38bb0f33d19677ae	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T04:55:20.244745+00:00
+ledger	38c4d5a579f907ba	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-hw3 agent=- ts=2026-09-10T10:57:03.889512+00:00
+ledger	398623720958f0c5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:52:41.166238+00:00
+ledger	39a558c921bf5fa6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt11 agent=- ts=2026-09-02T20:04:34.863854+00:00
+ledger	3a49f5893a08524b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ecs1 agent=ab63a80f891ee7ec4 ts=2026-09-10T05:45:33.212177+00:00
+ledger	3a8a168b940f1259	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T08:37:52.526642+00:00
+ledger	3a90ea9aafeccb8d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T03:12:18.250357+00:00
+ledger	3aaf4d5502b606d7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-land1 agent=a731c0fc0a1a9310c ts=2026-09-10T10:48:45.550399+00:00
+ledger	3b759f34ded6381b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-red1 agent=a0dd67f5f596e9eb3 ts=2026-09-10T06:16:21.649786+00:00
+ledger	3b7627012b3f4899	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:10:33.455641+00:00
+ledger	3b7887c084d3a0f7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:11:10.845870+00:00
+ledger	3b99d3b11155df89	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T07:36:08.623206+00:00
+ledger	3bc86fbd37c86e6b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf5 agent=- ts=2026-09-03T13:16:48.401019+00:00
+ledger	3beea5d84e794850	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:26:51.254104+00:00
+ledger	3c82b8401440aff0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T18:37:35.085371+00:00
+ledger	3c935508e6209e4e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rf2 agent=- ts=2026-09-03T03:57:33.148518+00:00
+ledger	3ca53ab4aa2bd940	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-dor2 agent=af3b228967dc2b627 ts=2026-09-10T10:56:58.921089+00:00
+ledger	3ce610ce64fb6f40	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T07:49:02.800220+00:00
+ledger	3cfde91d6ad9c401	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:38:18.458218+00:00
+ledger	3dccdf6729c8d1dc	event=terminated witness=remove-agent-worktree source=- teammate=- agent=a2222222222222222 ts=2026-09-02T09:12:40.119724+00:00
+ledger	3e231c861e44d72a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert3 agent=ae904aac1949e5696 ts=2026-09-10T21:58:03.816342+00:00
+ledger	3e25b6aa5da4a34d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:48:45.428703+00:00
+ledger	3e3b5f0131e8edca	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T14:00:17.710547+00:00
+ledger	40af0e791c060910	event=terminated witness=reaper-observation source=- teammate=- agent=a111d85f0c9425b82 ts=2026-09-02T18:55:49.068579+00:00
+ledger	40bc7c08413b9f41	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:11:02.099814+00:00
+ledger	40d3defe5618a4c4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:16:33.613180+00:00
+ledger	410f64824d578b97	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:46:30.425023+00:00
+ledger	411ad297454cb919	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-fix1 agent=a97f2c691c34e2c0f ts=2026-09-10T17:43:42.187358+00:00
+ledger	41ac01cbb76eea1e	event=terminated witness=reaper-observation source=- teammate=- agent=adfb79cf09ee1115c ts=2026-09-02T19:03:04.150949+00:00
+ledger	41ef790ff9d2b87d	event=registered witness=- source=create-teammate-worktree.sh teammate=reed-opus-wl2 agent=- ts=2026-09-02T18:49:06.884820+00:00
+ledger	427770edba3d4589	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-inf1 agent=aa1627717a25e308e ts=2026-09-10T09:14:24.001454+00:00
+ledger	428fe28ced29ac23	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T23:48:33.247995+00:00
+ledger	43ad2ccfb75e722d	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ci2 agent=- ts=2026-09-09T23:42:01.669443+00:00
+ledger	43d06be21dfe0401	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rf2 agent=- ts=2026-09-03T03:57:33.136178+00:00
+ledger	44520811ad1b887c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T19:50:09.185929+00:00
+ledger	44ab3b7cb5978761	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T08:26:02.201977+00:00
+ledger	44b355ef17fca534	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:34:37.185751+00:00
+ledger	44eef448cad1d7e5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:17:05.298844+00:00
+ledger	450a3c42e1735d63	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:15:48.887514+00:00
+ledger	450db4641a2bdafc	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-rec1 agent=- ts=2026-09-10T07:10:10.586942+00:00
+ledger	454e96a170356d52	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:33:49.175352+00:00
+ledger	458e183caa07943a	event=terminated witness=reaper-observation source=- teammate=zach-opus-rg1 agent=aef8aa1c742d40b2b ts=2026-09-09T09:16:09.652210+00:00
+ledger	4679414a9469e85d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-opus-lc2 agent=a5306f23ec37a294f ts=2026-09-09T22:34:52.611836+00:00
+ledger	483389d62ffa280b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T14:37:02.632739+00:00
+ledger	48945876bac7ccb6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw1 agent=aee326394268ad9e9 ts=2026-09-10T06:13:24.272041+00:00
+ledger	490d295eb0710370	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T06:13:55.302549+00:00
+ledger	492e70f103e82173	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T10:39:04.242741+00:00
+ledger	499dbf8602bb1036	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:11:03.277514+00:00
+ledger	4a50ed439f0aa9ef	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:32:27.875939+00:00
+ledger	4a9265a21e732741	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:07:59.215510+00:00
+ledger	4acb1b020d8c106d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:09:49.329930+00:00
+ledger	4af28b5cac43e8ed	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-md1 agent=- ts=2026-09-10T03:20:55.478756+00:00
+ledger	4b22925931133be8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf4 agent=- ts=2026-09-03T07:41:46.625394+00:00
+ledger	4c012bcd05724a2e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T00:45:42.080362+00:00
+ledger	4c4a8f8a44df5ea5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:49:02.904122+00:00
+ledger	4c9bffdd8260a651	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:17:44.151468+00:00
+ledger	4d4ab54455c4375a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-waiv1 agent=- ts=2026-09-02T11:30:33.719627+00:00
+ledger	4e2426e7d1c008b3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:34:51.442147+00:00
+ledger	4e583210fe1c2d06	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:10:51.091051+00:00
+ledger	4e6b16202129f9bd	event=retracted witness=- source=round-15-record teammate=sage-fable-cert3 agent=ae904aac1949e5696 ts=2026-09-11T03:19:31.158740+00:00
+ledger	4f13b4f6b52ca3ca	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T23:48:11.343321+00:00
+ledger	4f4b2773148b9412	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:51:14.084464+00:00
+ledger	4f5529f1ec8e9d6a	event=terminated witness=reaper-observation source=- teammate=- agent=a57075d0698120f83 ts=2026-09-10T13:11:22.947723+00:00
+ledger	4f6f3bf4f8d3fb45	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:07:13.986081+00:00
+ledger	4f715eddd4da1289	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T00:52:41.727033+00:00
+ledger	501d0005f288ba72	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T18:56:05.730351+00:00
+ledger	505b7a002b21a6bc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-md2 agent=- ts=2026-09-02T18:57:34.884138+00:00
+ledger	50d0155e608f15fd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix4 agent=aff8b2753c392d9e3 ts=2026-09-11T01:38:48.979115+00:00
+ledger	50ee9a5706918637	event=registered witness=- source=detect-nonnative-worktree.sh teammate=tom-opus-fix1 agent=- ts=2026-09-02T11:54:39.740718+00:00
+ledger	5101a92826eac607	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf9 agent=acd8d9270d44b4ce4 ts=2026-09-03T14:00:03.552856+00:00
+ledger	51413a8e05bb08d4	event=terminated witness=reaper-observation source=- teammate=zach-opus-rk1 agent=a69a6328ea2c81817 ts=2026-09-10T05:39:34.837563+00:00
+ledger	51fabcb3f16d5a69	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T15:47:39.376796+00:00
+ledger	522dcaeea3a40e78	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T09:28:19.291910+00:00
+ledger	5268c880bf51b637	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:17:49.119441+00:00
+ledger	52aed158a457d616	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:50:08.492269+00:00
+ledger	52da20e06cdb2b7c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-auto1 agent=a42c90096292136f0 ts=2026-09-10T10:52:04.377430+00:00
+ledger	5360940a59e90848	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:58:30.427042+00:00
+ledger	538daf4c100d756e	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-g0c agent=- ts=2026-09-10T06:31:59.762352+00:00
+ledger	549ba13fe6085b50	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T20:18:38.658770+00:00
+ledger	55386c2e66b3a081	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T21:11:02.332048+00:00
+ledger	5616490c9e6753fc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T23:10:59.034397+00:00
+ledger	563ca4ed86bf3adb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:25:27.098922+00:00
+ledger	565885387a3c6650	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:21:31.619336+00:00
+ledger	56b701af72a281b7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:49:47.856607+00:00
+ledger	56d9fcf77ac3ed6d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert2 agent=aa2e08d7c39345d84 ts=2026-09-10T19:54:20.276370+00:00
+ledger	5728cd7f2e44deb2	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-pay1 agent=- ts=2026-09-10T08:43:22.797060+00:00
+ledger	5785b72a2895c8b1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ob1 agent=ae47b94b9585cce25 ts=2026-09-08T18:24:46.827330+00:00
+ledger	57a440d393027f9b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T00:17:35.207802+00:00
+ledger	5811c8f33f0ac2bd	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r8 agent=- ts=2026-09-09T19:56:26.293404+00:00
+ledger	585df587bb2db54c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-red1 agent=a0dd67f5f596e9eb3 ts=2026-09-10T06:16:21.633625+00:00
+ledger	58e01ef49d95ba91	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:20:08.038846+00:00
+ledger	58ed21f59379d698	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:28:56.457481+00:00
+ledger	596387d7656a477b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T06:31:06.532554+00:00
+ledger	5a1754ded46ea1ad	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf6 agent=- ts=2026-09-03T13:20:31.710300+00:00
+ledger	5a85d842dde02bd6	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-fix3 agent=- ts=2026-09-10T22:57:38.618366+00:00
+ledger	5c90fc97be3c5e1a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-st1 agent=a90f0dc00a0a3eb83 ts=2026-09-10T08:36:26.172766+00:00
+ledger	5ccac36e0a240953	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw2 agent=ae9c65c5948b1f36c ts=2026-09-10T09:00:52.701128+00:00
+ledger	5d52dee710dafdc6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T21:36:15.153333+00:00
+ledger	5db4d96a0358b4f0	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r4 agent=- ts=2026-09-09T09:21:54.468270+00:00
+ledger	5e895ad85a0db260	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:16:08.361645+00:00
+ledger	5ea0bee3238f2234	event=prepared witness=- source=create-teammate-worktree.sh teammate=tom-opus-ui1 agent=- ts=2026-09-10T06:09:28.183756+00:00
+ledger	5f12ad78a33520fb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T15:52:49.415299+00:00
+ledger	602930c97eff0ad4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-07T14:00:25.849179+00:00
+ledger	608920587781cbc4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-q1 agent=a57075d0698120f83 ts=2026-09-10T07:35:58.765141+00:00
+ledger	60a083475bcc9c74	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:06:22.581364+00:00
+ledger	60b4b34cc9d05724	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-opus-staff1 agent=- ts=2026-09-02T11:23:09.914997+00:00
+ledger	611b1b6c3eeac3c2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r5 agent=a589e6ad1b6b56955 ts=2026-09-09T11:30:05.144103+00:00
+ledger	619285035365d47f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert1 agent=a2bdb6c0d690737aa ts=2026-09-10T17:15:45.690113+00:00
+ledger	61e6f211083cdf55	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:52:34.014665+00:00
+ledger	6231cfd74792b5df	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-deg1 agent=a3f592cf0b588f705 ts=2026-09-10T07:58:39.153443+00:00
+ledger	6288386753095f72	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:46:27.785337+00:00
+ledger	62db819355055834	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt13 agent=- ts=2026-09-02T23:36:03.545221+00:00
+ledger	632c669c3eb75ce2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:34:47.136958+00:00
+ledger	63d6c3983158ffb1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:13:59.643716+00:00
+ledger	63dd08d599dbb9a8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-opus-wt2 agent=- ts=2026-09-02T17:13:39.585170+00:00
+ledger	640f418a4f5ecdbb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T08:55:58.475971+00:00
+ledger	643306a3a59e1afb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:00:24.519188+00:00
+ledger	643965fffbadee3d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=probe-fable-bind1 agent=a4601bb6c5f7e78ba ts=2026-09-03T13:58:18.843736+00:00
+ledger	64c3f66349a8028c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:41:32.295279+00:00
+ledger	64c8a0797bcd8719	event=terminated witness=reaper-observation source=- teammate=zach-fable-fix2 agent=a446bbe852076df83 ts=2026-09-10T21:49:48.753473+00:00
+ledger	64ce13c648db5007	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T10:39:28.866876+00:00
+ledger	655b9326023a30e0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:22:04.308738+00:00
+ledger	6565e6161a7fff31	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-ci1 agent=a2187141d264f4da9 ts=2026-09-10T22:59:58.649738+00:00
+ledger	657ef6a62635e4d2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert3 agent=a522d0a7173c7d3a1 ts=2026-09-10T21:58:22.523677+00:00
+ledger	65b30721162b729f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:24:37.843863+00:00
+ledger	65fcc6c68e91075d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-prem1 agent=afff0c9ed56571e48 ts=2026-09-10T08:22:13.185888+00:00
+ledger	661f2d5bbb320183	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T07:42:16.874810+00:00
+ledger	6621a03a1a6a5b22	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-auto1 agent=a42c90096292136f0 ts=2026-09-10T10:52:04.385593+00:00
+ledger	6624fce2b9f23264	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-gb1 agent=ac4615014398fcd3b ts=2026-09-10T09:04:33.614633+00:00
+ledger	66b11ca479367a85	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-cert5 agent=- ts=2026-09-11T03:19:38.140547+00:00
+ledger	66bf92f53a4e9c52	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:10:44.273727+00:00
+ledger	66c76f623964b3be	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-rf9 agent=- ts=2026-09-03T13:59:21.359327+00:00
+ledger	66dd09ba0c185bce	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T06:19:49.463942+00:00
+ledger	66e855af9a87bbd9	event=terminated witness=reaper-observation source=- teammate=- agent=a2b51c2b8f6924483 ts=2026-09-03T18:29:12.604090+00:00
+ledger	6744586bf1ad3b55	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt10 agent=- ts=2026-09-02T18:42:49.043412+00:00
+ledger	677c008905f2fe65	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:18:07.279564+00:00
+ledger	688178c625421e88	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:45:08.283709+00:00
+ledger	691be77c84f1a0a0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:46:33.479134+00:00
+ledger	69cd6626b03d95a1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T19:37:55.712827+00:00
+ledger	69ce833b98715c76	event=prepared witness=- source=create-teammate-worktree.sh teammate=victim-opus-v1 agent=- ts=2026-09-05T23:45:47.795785+00:00
+ledger	69f905dc8f5834db	event=terminated witness=reaper-observation source=- teammate=zach-opus-cg1 agent=a55174499abfccb2f ts=2026-09-09T09:16:09.452973+00:00
+ledger	6a231c4fd8c9db67	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw2 agent=a910ac90618ceea89 ts=2026-09-10T06:15:22.113741+00:00
+ledger	6a6c9e12d5722b04	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T06:05:28.409958+00:00
+ledger	6aa332402c3162d1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:16:15.601557+00:00
+ledger	6ace207c88627aa4	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-cert1 agent=- ts=2026-09-10T17:14:59.978811+00:00
+ledger	6b5b1c8eab180640	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:05:24.220324+00:00
+ledger	6bf83ae7add2183d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T11:49:31.347013+00:00
+ledger	6c8cb7cbaacc5a35	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T06:00:04.845972+00:00
+ledger	6c9da59b98c9c1b6	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r7 agent=- ts=2026-09-09T15:56:05.110830+00:00
+ledger	6ca7bb7b8f6b8d59	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix2 agent=a446bbe852076df83 ts=2026-09-10T20:57:40.130693+00:00
+ledger	6ce8025f8fc1909f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T20:08:20.767916+00:00
+ledger	6cf1cee2cd94617d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T00:37:51.736453+00:00
+ledger	6d14a26178811d7f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:14:43.799313+00:00
+ledger	6d2f02e0281f3cb3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-st1 agent=a90f0dc00a0a3eb83 ts=2026-09-10T08:36:26.182133+00:00
+ledger	6d5bb1ad14bd0425	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-loop1 agent=- ts=2026-09-02T12:05:31.299236+00:00
+ledger	6dc573749f0d54f8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:13:09.281331+00:00
+ledger	6e33c76296dbe582	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:23:18.265073+00:00
+ledger	6e9f5df6c5516b4a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:35:47.475291+00:00
+ledger	6fc49e9a7c310387	event=registered witness=- source=rich-land-binding teammate=zach-opus-dor2 agent=af3b228967dc2b627 ts=2026-09-10T12:03:36.831588+00:00
+ledger	6fd46b492c954d38	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-rf5 agent=- ts=2026-09-03T13:16:09.955793+00:00
+ledger	6fdba8ad28065e99	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T07:47:07.904646+00:00
+ledger	700ad6b5981b3cf3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T00:45:43.487068+00:00
+ledger	701accf2d41edc23	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-uc1 agent=- ts=2026-09-02T23:04:46.871181+00:00
+ledger	70dacd8b04364e7b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-mu2 agent=a6f1320a25d7f55ba ts=2026-09-09T23:43:11.976948+00:00
+ledger	719444266749fe1c	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor2 agent=- ts=2026-09-10T10:56:31.505345+00:00
+ledger	71b7617873457982	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:38:40.458896+00:00
+ledger	7266eddf746a30bf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:49:57.952618+00:00
+ledger	7287d0e4d87c3d66	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T23:09:46.103243+00:00
+ledger	732fb4256ece5ed8	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor1 agent=- ts=2026-09-10T08:58:50.123619+00:00
+ledger	7368f92b6e087eb0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T20:41:34.028304+00:00
+ledger	737ee59535b25800	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-si1 agent=- ts=2026-09-02T18:35:27.435936+00:00
+ledger	73a7a2f45a88e902	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-prem1 agent=- ts=2026-09-02T11:07:25.226942+00:00
+ledger	73ab223606b9cf65	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-auto1 agent=- ts=2026-09-10T10:51:35.245138+00:00
+ledger	73ac3ba4210858be	event=terminated witness=reaper-observation source=- teammate=zach-opus-fix1 agent=a97f2c691c34e2c0f ts=2026-09-10T21:49:48.913040+00:00
+ledger	7408e5724f2bdefe	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T14:36:38.258873+00:00
+ledger	740d12e1e789468d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-lc2 agent=aa37b13ba5df85f52 ts=2026-09-09T22:00:35.494504+00:00
+ledger	74659a1366877058	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-unl1 agent=a2de3c7d8d8590224 ts=2026-09-10T16:07:26.842296+00:00
+ledger	74a2ca61e1dea587	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:32:33.151732+00:00
+ledger	74f1c3acba8eaee4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T03:08:05.969829+00:00
+ledger	750bcb81b1067bf0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:15:11.027363+00:00
+ledger	751756da89f0518b	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-sonnet-499a5c442 agent=- ts=2026-09-07T16:47:54.133934+00:00
+ledger	754799496a6400ad	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-red1 agent=- ts=2026-09-10T06:15:52.971816+00:00
+ledger	759ca960ce4e2e60	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:31:48.868523+00:00
+ledger	75d2e19a40bbf75a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-wt6 agent=- ts=2026-09-02T17:53:33.330731+00:00
+ledger	75db1c459f9a69ff	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T22:46:48.064924+00:00
+ledger	75ff9c3f37ab378d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:00:10.884989+00:00
+ledger	760b48da9f238ae9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:34:09.786810+00:00
+ledger	76569b3064836e01	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T08:27:15.334371+00:00
+ledger	767d9e4b42b0395c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-cr2 agent=acbdd59bc72c530fc ts=2026-09-10T00:36:34.956731+00:00
+ledger	770b470f863a55c5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert3 agent=a522d0a7173c7d3a1 ts=2026-09-10T21:58:22.515921+00:00
+ledger	77767eea03260a5e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T15:53:07.472753+00:00
+ledger	779edb4086a3c89a	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-lc2 agent=- ts=2026-09-09T20:08:58.439299+00:00
+ledger	783f2d37d34c6533	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T19:11:12.969866+00:00
+ledger	78d31b03f5ade986	event=terminated witness=reaper-observation source=- teammate=sage-fable-r2 agent=a5140f1c3a1f2d893 ts=2026-09-09T09:16:08.948904+00:00
+ledger	79139a16869c118c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert1 agent=a2a9161bf0c3538b6 ts=2026-09-10T17:16:13.387685+00:00
+ledger	796c6a014df40969	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T13:04:49.341541+00:00
+ledger	797ee2b124b1abce	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r7 agent=a50aa2534ae039ad5 ts=2026-09-09T15:56:41.393984+00:00
+ledger	79cece3fe7e303c7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw3 agent=a66854cecacb96262 ts=2026-09-10T06:19:42.789259+00:00
+ledger	79e59230480f9252	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-q1 agent=- ts=2026-09-10T07:34:41.685353+00:00
+ledger	7a0153516ce26650	event=terminated witness=reaper-observation source=- teammate=q4-dead-owner agent=q4dead ts=2026-09-02T09:10:26.490706+00:00
+ledger	7a77b62e8eaa3e4a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T13:12:34.453474+00:00
+ledger	7adf990e7fbdf00a	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-deg1 agent=- ts=2026-09-10T07:39:21.453113+00:00
+ledger	7b1c3bebb970e811	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:29:56.627382+00:00
+ledger	7b35edf3fe05aa25	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T00:38:13.726633+00:00
+ledger	7c57f638eece8040	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T14:02:28.092860+00:00
+ledger	7c6f1f6adca85cb4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T12:56:30.926260+00:00
+ledger	7cbe4901f9668e43	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-g0a agent=adfe1d9b70d4b6bb4 ts=2026-09-10T06:23:10.214705+00:00
+ledger	7cd0d021adc7b68e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-dr1 agent=a9c7064f99c7df997 ts=2026-09-08T16:09:46.321761+00:00
+ledger	7cd8ab123b4b262f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:13:36.275176+00:00
+ledger	7ce0afb531f59ffd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-win1 agent=a75c5d7d8869af554 ts=2026-09-10T11:33:04.557440+00:00
+ledger	7d3e4445d8fc1af1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:16:54.783099+00:00
+ledger	7d77ebe10a471d5f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-wt9 agent=- ts=2026-09-02T18:33:34.902691+00:00
+ledger	7d7e39e770a0c775	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-g0c agent=acd9b3a49ebfc4aab ts=2026-09-10T06:32:54.909385+00:00
+ledger	7d9065f18fc6f139	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r4 agent=a0f948f550f8fb76a ts=2026-09-09T09:23:16.293631+00:00
+ledger	7e159316dbb27c3a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-mu2 agent=a6f1320a25d7f55ba ts=2026-09-09T23:43:11.986379+00:00
+ledger	7e7fe61961e5d916	event=registered witness=- source=detect-nonnative-worktree.sh teammate=tom-opus-ui1 agent=ad5469358d1abdc58 ts=2026-09-10T06:10:03.916299+00:00
+ledger	7f971f051e818c99	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:47:05.499889+00:00
+ledger	801ce1712f037cb3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:34:26.642649+00:00
+ledger	8082c75cbf123dca	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:22:02.353462+00:00
+ledger	808e3f8a37785f82	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:17:21.587226+00:00
+ledger	809751d135ac31c0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T19:10:54.392285+00:00
+ledger	81b1aa886cd6c4cb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert5 agent=ab26803c6aa0f3637 ts=2026-09-11T03:21:29.224612+00:00
+ledger	82501a2b3cdd074e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt7 agent=- ts=2026-09-02T18:00:31.415654+00:00
+ledger	82e321a146a5597a	event=terminated witness=reaper-observation source=- teammate=- agent=a00f13b85d2f25146 ts=2026-09-02T16:29:52.695325+00:00
+ledger	82eb8c0056269a19	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert3 agent=ae904aac1949e5696 ts=2026-09-10T21:58:03.807779+00:00
+ledger	835431b837beefcf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert5 agent=abc808e243aa0bf29 ts=2026-09-11T03:21:50.759769+00:00
+ledger	83d821415ef6ac8a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T20:17:38.996388+00:00
+ledger	84025af8892d1560	event=terminated witness=reaper-observation source=- teammate=zach-opus-swp2 agent=a9b5bc8e2b0f47586 ts=2026-09-02T09:03:18.795551+00:00
+ledger	845eefcfefe9b53e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw1 agent=a106362ef90f4d432 ts=2026-09-10T08:57:58.428437+00:00
+ledger	846c2312b75632c6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:36:16.804641+00:00
+ledger	85b2e1fe4d945a09	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:18:52.641975+00:00
+ledger	86120f15aa3335ab	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-opus-g0a agent=- ts=2026-09-10T06:22:39.839738+00:00
+ledger	865bdc440b6bc7af	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:59:10.680992+00:00
+ledger	86abffab6e4d4bfe	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-p5hq agent=- ts=2026-09-04T07:49:52.847138+00:00
+ledger	86b259a5a434aee1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-lc1 agent=a0af7565af1a7ae92 ts=2026-09-10T06:01:53.671703+00:00
+ledger	875305452d255d8c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:20:14.540236+00:00
+ledger	8799879c4a3baa55	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:25:53.235776+00:00
+ledger	879e9b8a59bc52ca	event=terminated witness=rich-observed-return source=- teammate=zach-opus-unl1 agent=a2de3c7d8d8590224 ts=2026-09-10T17:14:08.472951+00:00
+ledger	87cf54eac49ecc57	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert2 agent=aeb4b3b8c09514c02 ts=2026-09-10T19:54:42.438583+00:00
+ledger	87edc3329e60a7c0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix3 agent=ac47dedc61b0044b2 ts=2026-09-10T23:00:38.331714+00:00
+ledger	8864fd581710f4b9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T12:49:14.232628+00:00
+ledger	8981d8d7b28a830f	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-gate1 agent=- ts=2026-09-10T05:53:48.174159+00:00
+ledger	89baff9dd6dff82c	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-inf1 agent=- ts=2026-09-10T09:13:50.397075+00:00
+ledger	89e16d0de9822b97	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-land1 agent=a731c0fc0a1a9310c ts=2026-09-10T10:48:45.542187+00:00
+ledger	8a78d4b73907be03	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt3 agent=a150cb7e74abfa595 ts=2026-09-08T18:00:36.339210+00:00
+ledger	8a915acc099ccdf8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:16:28.924231+00:00
+ledger	8b2e99574c7127dc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:55:37.143651+00:00
+ledger	8b81eba3269568a9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:43:13.218777+00:00
+ledger	8b9ba1562fb2360d	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-up1 agent=- ts=2026-09-06T04:09:08.867360+00:00
+ledger	8c8e8ecd34eed168	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert4 agent=a74708c0d2ef241b7 ts=2026-09-11T00:37:51.932544+00:00
+ledger	8c99c4e9ebb9d549	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-prem1 agent=- ts=2026-09-10T08:21:35.499284+00:00
+ledger	8c9f8c92d341ff1d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:18:13.414126+00:00
+ledger	8cbe3965892d3590	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:59:51.424492+00:00
+ledger	8cf110609275ca47	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw3 agent=aa45acc74c2d4fcef ts=2026-09-10T10:57:33.589836+00:00
+ledger	8d0071e4c07455b5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-own1 agent=ac115bc42a1e283a9 ts=2026-09-10T06:35:47.071827+00:00
+ledger	8d9207d1e00319fa	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T13:37:26.023455+00:00
+ledger	8e21660120035055	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r6 agent=a19634452acde262a ts=2026-09-09T13:13:33.323820+00:00
+ledger	8e8c80b5ea83dbdb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-staff1 agent=- ts=2026-09-02T11:23:44.640266+00:00
+ledger	8eb954bf37bd0f94	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:07:16.802241+00:00
+ledger	8f962194b51ab56e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-pay1 agent=a2c44c899d4c7618e ts=2026-09-10T08:43:51.188459+00:00
+ledger	900349894be6c275	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r3 agent=a306a9b2ee2f0710d ts=2026-09-09T06:16:43.810970+00:00
+ledger	907a7aca3fd5f45a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T03:10:57.259820+00:00
+ledger	90c3153c15739829	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:16:08.645219+00:00
+ledger	915c018ca5641fb6	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ob1 agent=- ts=2026-09-08T18:24:12.711465+00:00
+ledger	916548a6572e8d54	event=registered witness=- source=detect-nonnative-worktree.sh teammate=tom-opus-ui1 agent=ad5469358d1abdc58 ts=2026-09-10T06:10:03.927230+00:00
+ledger	919ccf8918995f01	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T18:57:07.697908+00:00
+ledger	91a900cd3df415a4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rg1 agent=aef8aa1c742d40b2b ts=2026-09-08T16:07:04.974741+00:00
+ledger	9250dfa8f6fc569d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r6 agent=a19634452acde262a ts=2026-09-09T13:13:33.316137+00:00
+ledger	92774e7807b69c42	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-vf1 agent=ad41bfaaa49c869c7 ts=2026-09-09T09:49:55.220217+00:00
+ledger	92fb2d8084bb2638	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert4 agent=ac4c48bd0dfa5f039 ts=2026-09-11T00:38:15.318776+00:00
+ledger	9363e13d6470f021	event=terminated witness=reaper-observation source=- teammate=- agent=a29c7df67d1516203 ts=2026-09-02T21:03:40.564789+00:00
+ledger	93a7086d1ce30bca	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:19:26.412269+00:00
+ledger	93e09ef71bc14955	event=terminated witness=reaper-observation source=- teammate=zach-opus-cr2 agent=acbdd59bc72c530fc ts=2026-09-10T05:39:34.319017+00:00
+ledger	94172bf5b933317b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-win1 agent=a75c5d7d8869af554 ts=2026-09-10T11:33:04.549298+00:00
+ledger	9425e8f54830b062	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-vd1 agent=a1b934ce88fce07c7 ts=2026-09-09T09:35:23.671858+00:00
+ledger	94328912e17b2439	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T21:09:50.632732+00:00
+ledger	944f9b5b65aa0098	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T08:56:21.575425+00:00
+ledger	94c052e53055c322	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-md1 agent=ad9d1795574bc7ee0 ts=2026-09-10T03:21:14.872648+00:00
+ledger	94d3ff1d8e6a43e1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:12:18.699247+00:00
+ledger	94f8b53153f7125b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wd1 agent=a1195c97f453364bc ts=2026-09-09T23:56:03.095537+00:00
+ledger	953a65bb55c399f9	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-rf6 agent=- ts=2026-09-03T13:19:43.507277+00:00
+ledger	956e04c040e5de68	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-g0a agent=adfe1d9b70d4b6bb4 ts=2026-09-10T06:23:10.226090+00:00
+ledger	95de490a15fd0bd0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-wt1 agent=- ts=2026-09-02T16:53:51.299446+00:00
+ledger	96163d774b06074a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:56:06.882301+00:00
+ledger	962f7f2f5a3372bc	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:18:37.808765+00:00
+ledger	96535a716333aa1b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:07:39.302530+00:00
+ledger	966f7f20d6bedc4a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T00:52:21.216052+00:00
+ledger	970809686963660e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:39:18.507172+00:00
+ledger	9730720bbafc8325	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T16:41:21.404419+00:00
+ledger	9738751ae4e1abe2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:02:13.646220+00:00
+ledger	981e013591a51cae	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-key1 agent=a8b88e0ef2db330a5 ts=2026-09-10T16:22:40.084082+00:00
+ledger	9832b798ce0e691d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-vf1 agent=ad41bfaaa49c869c7 ts=2026-09-09T09:49:55.212422+00:00
+ledger	98b526d88dda07e4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:37:41.129595+00:00
+ledger	98be5d2e8025bc4e	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-opus-lc2 agent=- ts=2026-09-09T22:34:37.911891+00:00
+ledger	99b47935d61ed4e1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T09:06:24.886157+00:00
+ledger	9a7c0b4f941f2d5e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T20:23:20.947348+00:00
+ledger	9aabcfa9f9fc3e18	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor1 agent=- ts=2026-09-10T08:34:06.855686+00:00
+ledger	9ae5516b3d393c64	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T00:16:52.424851+00:00
+ledger	9b83bf5b37c49e64	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-dor1 agent=ae5b21e418fc9c421 ts=2026-09-10T08:31:03.955527+00:00
+ledger	9bc083d58f5283a9	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-opus-bt3 agent=- ts=2026-09-08T18:00:04.142425+00:00
+ledger	9be32d3000879c5f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T19:37:32.846886+00:00
+ledger	9c56782b8ca034ac	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor2 agent=- ts=2026-09-10T11:03:29.663083+00:00
+ledger	9cac50431c08f248	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T00:46:58.804273+00:00
+ledger	9cf066e76b319e02	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ciw1 agent=- ts=2026-09-10T06:12:35.485717+00:00
+ledger	9d118434f3aeeba1	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-fable-sa1 agent=- ts=2026-09-02T18:38:53.795920+00:00
+ledger	9d4fcbdc9697a38f	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-fable-cert1 agent=- ts=2026-09-10T17:15:01.066638+00:00
+ledger	9d7932a5ab4efa55	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ecs2 agent=a78612cec3afe1af3 ts=2026-09-10T05:49:00.766910+00:00
+ledger	9e45c75f035d1a60	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:12:10.283301+00:00
+ledger	9eef94aa8ead0936	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T02:22:24.329032+00:00
+ledger	9fa97ab3d7fe4f88	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-opus-lc1 agent=a49a82760e8a688d2 ts=2026-09-09T22:33:55.934023+00:00
+ledger	9ff1922472e94954	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T11:49:07.219470+00:00
+ledger	a064b1e55e46091f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:28:12.950868+00:00
+ledger	a0a8aa04f2f87a38	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-opus-wl2 agent=- ts=2026-09-02T18:49:49.316148+00:00
+ledger	a0f1a64206345c67	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:34:11.113911+00:00
+ledger	a1467d223b772003	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T03:10:34.384446+00:00
+ledger	a1b577ed6d4c569b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T07:55:08.580010+00:00
+ledger	a1c004c3b78d47d3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:14:14.353613+00:00
+ledger	a1c180711759be89	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:03:20.966185+00:00
+ledger	a1e10ecfdd1d45a1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:30:07.507702+00:00
+ledger	a24a4f9b5cc15b66	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:36:57.735429+00:00
+ledger	a36a3f420d4a4244	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:56:02.933161+00:00
+ledger	a36e9a3c170bbb59	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T14:36:35.726696+00:00
+ledger	a385e81ab5af293b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:16:27.744295+00:00
+ledger	a3b39d855b166d50	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T06:14:43.553502+00:00
+ledger	a3ca7b72855e25db	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T13:11:27.107743+00:00
+ledger	a41da17b54c10dbe	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-prem1 agent=- ts=2026-09-10T08:31:15.503276+00:00
+ledger	a55475438fe44a61	event=terminated witness=reaper-observation source=- teammate=- agent=a44e6817bce90ed1c ts=2026-09-02T20:17:24.245260+00:00
+ledger	a5dfd10419506232	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-07T14:00:42.984436+00:00
+ledger	a65095d7ec19491f	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-opus-bt1 agent=- ts=2026-09-08T16:34:23.291387+00:00
+ledger	a650e82cb02fff2d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-q1 agent=a57075d0698120f83 ts=2026-09-10T07:35:58.748873+00:00
+ledger	a6bb412ea2b0f3c8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T13:04:30.954997+00:00
+ledger	a767d45639d41a0a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:11:11.056680+00:00
+ledger	a7a811dc7812af42	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt12 agent=- ts=2026-09-02T22:58:10.926497+00:00
+ledger	a7ae519791901871	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T19:39:38.691668+00:00
+ledger	a861e236e5a28fe4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:05:45.309225+00:00
+ledger	a8781ecf46bfdf5e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:17:44.311628+00:00
+ledger	a929aabc21b61696	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-cert1 agent=a2bdb6c0d690737aa ts=2026-09-10T17:15:45.697693+00:00
+ledger	a95a3f582882a994	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-fable-ac1 agent=- ts=2026-09-02T18:57:53.572060+00:00
+ledger	aa0a040f93e5cbea	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T21:24:59.407315+00:00
+ledger	aa755f3c37e9a7f2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T10:13:49.912036+00:00
+ledger	aae9c087bfaeb06d	event=registered witness=- source=rich-operator-amnesty teammate=zach-opus-rec1r agent=- ts=2026-09-10T16:01:19.933471+00:00
+ledger	ab458eb8d08a105d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw3 agent=a66854cecacb96262 ts=2026-09-10T06:19:42.776830+00:00
+ledger	abb71a448c95ec2d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:15:49.161829+00:00
+ledger	ac20c1a86099668e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:01:54.836091+00:00
+ledger	acd085c5859c3741	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r8 agent=ad7e0f2ff9364d51f ts=2026-09-09T19:58:15.684251+00:00
+ledger	acd5e031b69424ce	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T20:23:41.499103+00:00
+ledger	acdec1ab963db18a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T18:17:08.246030+00:00
+ledger	ada36c0c17e68638	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wm1 agent=a070a7aa5412963e1 ts=2026-09-10T02:22:28.095842+00:00
+ledger	adcc222602bb699a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf7 agent=- ts=2026-09-03T13:34:01.945705+00:00
+ledger	add333f0d09ef12f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T07:48:16.727693+00:00
+ledger	add5e43f37df58a4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf4 agent=- ts=2026-09-03T07:41:46.613209+00:00
+ledger	adff171caaf27d98	event=terminated witness=reaper-observation source=- teammate=- agent=ac115bc42a1e283a9 ts=2026-09-10T13:11:23.601474+00:00
+ledger	ae22a528c88c2268	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T17:05:25.179592+00:00
+ledger	ae439f35d5f015fa	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T15:21:27.885988+00:00
+ledger	ae6fdc8b781d8c0d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T18:37:59.793751+00:00
+ledger	ae762565ae9e696d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf3 agent=- ts=2026-09-03T07:19:36.409376+00:00
+ledger	aed197179a6de4c0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T22:47:06.455836+00:00
+ledger	af066489e3f9ba11	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf7 agent=- ts=2026-09-03T13:34:01.936998+00:00
+ledger	af571d162fe131f0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ecs3 agent=ae66ffef818a38354 ts=2026-09-10T05:51:17.857796+00:00
+ledger	b069e7252156b791	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T00:00:01.820125+00:00
+ledger	b0bc37c901bb200f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-09T23:57:41.165974+00:00
+ledger	b114a3486e245423	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert4 agent=ac4c48bd0dfa5f039 ts=2026-09-11T00:38:15.310511+00:00
+ledger	b122bc959dd6c359	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:17:07.975435+00:00
+ledger	b1232933954c7c57	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-key1 agent=- ts=2026-09-10T16:22:06.860479+00:00
+ledger	b1266afd00938473	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:00:03.676313+00:00
+ledger	b1ca3f8562f37610	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r1 agent=ac44bf8765f95f65d ts=2026-09-08T17:28:28.911184+00:00
+ledger	b21f93c883f8af68	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix3 agent=ac47dedc61b0044b2 ts=2026-09-10T23:00:38.323419+00:00
+ledger	b314d75aaa0f9c80	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T23:48:58.236193+00:00
+ledger	b324dd473317ec39	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-rf7 agent=- ts=2026-09-03T13:33:04.562595+00:00
+ledger	b3b325f93d11ea81	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-waiv1 agent=- ts=2026-09-02T11:30:33.703162+00:00
+ledger	b593eaf12be9f709	event=terminated witness=reaper-observation source=- teammate=- agent=a0af7565af1a7ae92 ts=2026-09-10T13:11:22.715867+00:00
+ledger	b710e9ed182655a6	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-row1 agent=- ts=2026-09-10T07:16:46.008525+00:00
+ledger	b7510ce962b36fcf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt2 agent=a2615268e905fdc13 ts=2026-09-08T17:18:13.074306+00:00
+ledger	b7745e0049f21a68	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:21:09.006814+00:00
+ledger	b7c0bec8fc01c6ce	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert2 agent=aeb4b3b8c09514c02 ts=2026-09-10T19:54:42.423686+00:00
+ledger	b8145405858e2a89	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:25:05.623995+00:00
+ledger	b8cb2ba7c555e2ee	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:10:30.719266+00:00
+ledger	b99cc331c8c1ad83	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-deg1 agent=a3f592cf0b588f705 ts=2026-09-10T07:58:39.168989+00:00
+ledger	ba2c25f39d2e103f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T13:36:50.232114+00:00
+ledger	bacfb88fc32e7055	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-mu2 agent=- ts=2026-09-09T23:42:00.669634+00:00
+ledger	baf4178d32c03319	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T12:59:53.527756+00:00
+ledger	bb23399589a17c7d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt1 agent=acf641cab7756e8a8 ts=2026-09-08T16:35:15.022645+00:00
+ledger	bc69b04ee3a1a66e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-own1 agent=ac115bc42a1e283a9 ts=2026-09-10T06:35:47.052719+00:00
+ledger	bca4972b0b53ca77	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:18:38.925767+00:00
+ledger	bce0c46ef669ffaf	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:15:29.715157+00:00
+ledger	bd193ff914b1f0bd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T02:54:59.753657+00:00
+ledger	bd26a2ddddd9d820	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:41:54.465233+00:00
+ledger	bda486e755f6f64e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-pc1 agent=a20c58bbe810addd9 ts=2026-09-09T16:29:28.923639+00:00
+ledger	bdc326914a515ec7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:08:27.705274+00:00
+ledger	be0e77384d2998fb	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor2 agent=- ts=2026-09-10T11:03:26.570902+00:00
+ledger	be0f473decd93b26	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T13:12:42.097191+00:00
+ledger	be106b301c22426e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ob1 agent=ae47b94b9585cce25 ts=2026-09-08T18:24:46.837172+00:00
+ledger	be584cb9c5e8398c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-lc1 agent=adb908f67f1be5ba7 ts=2026-09-09T22:00:29.310782+00:00
+ledger	be9e4880520feebd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T09:15:29.371935+00:00
+ledger	becfcb2b8689fdaf	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-ciw2 agent=- ts=2026-09-10T06:14:46.437697+00:00
+ledger	bed71e911a75489c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:18:10.950272+00:00
+ledger	bee10e6f8565c1f6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T21:07:17.742564+00:00
+ledger	bf12d99e4dfeaf9c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:35:25.030460+00:00
+ledger	bfa8176d63540324	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-opus-waiv1 agent=- ts=2026-09-02T11:29:56.193768+00:00
+ledger	c055a469ebc48b0c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wp1 agent=a8d216a4f500c0c7c ts=2026-09-10T01:35:28.286217+00:00
+ledger	c122676910d31a79	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T03:11:55.609529+00:00
+ledger	c1e02df1df731db6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r2 agent=a5140f1c3a1f2d893 ts=2026-09-08T19:12:06.598619+00:00
+ledger	c224fb1c8680abc2	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-hw1 agent=- ts=2026-09-10T08:57:23.402331+00:00
+ledger	c286424c3855be7c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T12:52:19.000100+00:00
+ledger	c2de553ac23004f6	event=terminated witness=platform-terminal-record source=- teammate=sage-fable-cert3 agent=ae904aac1949e5696 ts=2026-09-11T00:02:34.984941+00:00
+ledger	c2e571fdfcdc235a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-c12 agent=af37719a6773ed314 ts=2026-09-09T09:50:21.115370+00:00
+ledger	c30fd545e8b237ec	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-g0b agent=a21dfea311b1c0ae8 ts=2026-09-10T06:25:35.516716+00:00
+ledger	c38e0b9583d8a445	event=terminated witness=remove-agent-worktree source=- teammate=- agent=a3333333333333333 ts=2026-09-02T09:12:40.275047+00:00
+ledger	c405d687e693f5a4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-dr1 agent=a9c7064f99c7df997 ts=2026-09-08T16:09:46.312540+00:00
+ledger	c40851194dc2ef20	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:55:29.433896+00:00
+ledger	c44abdf1802f16b0	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:02:02.993734+00:00
+ledger	c45e1bace9797a13	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-fable-cert5 agent=- ts=2026-09-11T03:19:39.338717+00:00
+ledger	c490acb442653479	event=registered witness=- source=detect-nonnative-worktree.sh teammate=tom-opus-audit1 agent=- ts=2026-09-02T11:16:17.800190+00:00
+ledger	c4aaf0e540b2e37e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-inf1 agent=aa1627717a25e308e ts=2026-09-10T09:14:24.010513+00:00
+ledger	c4bcb0baa8028699	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-fix2 agent=- ts=2026-09-10T20:57:10.138817+00:00
+ledger	c4d9629864721370	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:15:10.745616+00:00
+ledger	c528ef3e3856a70d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:11:30.764408+00:00
+ledger	c52c60d44f8af87b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:34:11.350903+00:00
+ledger	c577501e7f842760	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-fable-cert2 agent=- ts=2026-09-10T19:53:41.618235+00:00
+ledger	c58083e76c5f980e	event=terminated witness=reaper-observation source=- teammate=zach-opus-rec1 agent=aea7c66005dd2aa6f ts=2026-09-10T10:28:54.683579+00:00
+ledger	c5c3014bcf71a61f	event=terminated witness=reaper-observation source=- teammate=- agent=a61b1d0f5dc7bf879 ts=2026-09-02T15:13:14.442124+00:00
+ledger	c640703035b4c4d8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf6 agent=- ts=2026-09-03T13:20:31.701516+00:00
+ledger	c6711d8865d2a4ff	event=terminated witness=reaper-observation source=- teammate=- agent=a459bdab5bbe317ab ts=2026-09-02T16:29:53.229896+00:00
+ledger	c67a0a37567d2790	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:50:32.372410+00:00
+ledger	c6e966deb729b3bd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-md1 agent=- ts=2026-09-02T18:51:02.591242+00:00
+ledger	c7a4cd247181cc44	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r5 agent=a589e6ad1b6b56955 ts=2026-09-09T11:30:05.151680+00:00
+ledger	c811c4affe4ac5dd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T18:56:12.827353+00:00
+ledger	c896a3b426e382a2	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-rf8 agent=- ts=2026-09-03T13:37:51.880910+00:00
+ledger	c90549d6f090cb9c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T07:48:28.806847+00:00
+ledger	c988019170055a2e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt4 agent=- ts=2026-09-02T17:26:13.664986+00:00
+ledger	c9c5230e1d83bc09	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-loop1 agent=- ts=2026-09-02T12:05:31.282283+00:00
+ledger	c9e32745fd2d078f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-dor1 agent=ae5b21e418fc9c421 ts=2026-09-10T08:31:03.937783+00:00
+ledger	ca3f70b98da74365	event=terminated witness=reaper-observation source=- teammate=- agent=a4fde60ac976a387c ts=2026-09-02T18:55:50.054573+00:00
+ledger	ca510659050bc2c9	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r2 agent=- ts=2026-09-08T19:11:29.289936+00:00
+ledger	ca8830fadc6efef8	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-hw2 agent=- ts=2026-09-10T08:59:54.076075+00:00
+ledger	cad82a9532227a35	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T00:46:18.641237+00:00
+ledger	caeb1a68d1ba3d83	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-fable-wl1 agent=- ts=2026-09-02T18:48:30.999647+00:00
+ledger	caf9e9d07f78c33b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:49:25.472847+00:00
+ledger	cb05d10845e8d0ba	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:46:48.567642+00:00
+ledger	cb3a0eb2aa7bc17e	event=terminated witness=reaper-observation source=- teammate=- agent=aa1627717a25e308e ts=2026-09-10T13:11:23.430809+00:00
+ledger	cb43c5575e532867	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r1 agent=ac44bf8765f95f65d ts=2026-09-08T17:28:28.920180+00:00
+ledger	cbc41699c2e23f52	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wd1 agent=a1195c97f453364bc ts=2026-09-09T23:56:03.084456+00:00
+ledger	cc3b51c375b5e2be	event=terminated witness=reaper-observation source=- teammate=- agent=a42f580c43496138e ts=2026-09-02T12:31:52.705600+00:00
+ledger	cc5cb7764cf03601	event=terminated witness=reaper-observation source=- teammate=- agent=ae878902f589b3815 ts=2026-09-02T20:17:24.512680+00:00
+ledger	ccf069b3d55ec90d	event=terminated witness=rich-observed-return source=- teammate=zach-opus-auto1 agent=a42c90096292136f0 ts=2026-09-10T14:19:36.360623+00:00
+ledger	cdd512389bd4f8f9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-hw2 agent=ae9c65c5948b1f36c ts=2026-09-10T09:00:52.711272+00:00
+ledger	ce6225b02d55ad98	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T10:20:19.599001+00:00
+ledger	ceea4ef9655204e5	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-fable-cert4 agent=- ts=2026-09-11T00:36:35.821024+00:00
+ledger	cf292d32e65c1ba1	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-dr1 agent=- ts=2026-09-08T16:09:17.377591+00:00
+ledger	d0065a39168b89f6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-vd1 agent=a1b934ce88fce07c7 ts=2026-09-09T09:35:23.688674+00:00
+ledger	d031d15b295c1550	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T18:58:35.481720+00:00
+ledger	d0b41a722824cd32	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-staff1 agent=- ts=2026-09-02T11:23:44.624865+00:00
+ledger	d1ca23350ff3f601	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:30:54.156113+00:00
+ledger	d2220556063edd39	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:17:25.159693+00:00
+ledger	d2250bfc6fab9cf8	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r2 agent=a5140f1c3a1f2d893 ts=2026-09-08T19:12:06.590335+00:00
+ledger	d33e70eb4fab2177	event=registered witness=- source=rich-land-binding teammate=zach-opus-dor2 agent=af3b228967dc2b627 ts=2026-09-10T12:03:33.154847+00:00
+ledger	d34d577386889364	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-lc1 agent=- ts=2026-09-09T20:08:57.436235+00:00
+ledger	d36da54319ec73da	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-wt3 agent=- ts=2026-09-02T17:15:02.370508+00:00
+ledger	d3784e20a6fff830	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-vd1 agent=- ts=2026-09-09T09:34:22.368694+00:00
+ledger	d401296fd8360674	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T04:50:13.587985+00:00
+ledger	d415428ea6bd9c16	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert5 agent=abc808e243aa0bf29 ts=2026-09-11T03:21:50.767984+00:00
+ledger	d4173cfd4d39dcb3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-lc2 agent=aa37b13ba5df85f52 ts=2026-09-09T22:00:35.503335+00:00
+ledger	d49675872fa88683	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:36:40.259302+00:00
+ledger	d4a905e220ef3c46	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-fable-fix4 agent=- ts=2026-09-11T01:37:46.508901+00:00
+ledger	d525b452b60b20eb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:15:29.996619+00:00
+ledger	d54a07d4e1aed79e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-fable-cert1 agent=a2a9161bf0c3538b6 ts=2026-09-10T17:16:13.379922+00:00
+ledger	d5b2ac4064edc45a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T23:01:27.186316+00:00
+ledger	d647690177038824	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-pc1 agent=a20c58bbe810addd9 ts=2026-09-09T16:29:28.915689+00:00
+ledger	d6b839d28c13a1c7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:20:46.249012+00:00
+ledger	d6e9960e65d26d0e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T01:14:23.326662+00:00
+ledger	d807df8f0653cd63	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-dor1 agent=- ts=2026-09-10T08:30:30.474345+00:00
+ledger	d87240436e947d45	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-own1 agent=- ts=2026-09-10T06:35:11.528127+00:00
+ledger	d8ca1b51ce5fbc5d	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-opus-bt2 agent=- ts=2026-09-08T17:17:40.503056+00:00
+ledger	d8facbe6cc1ec620	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-opus-lc1 agent=- ts=2026-09-09T19:50:04.056241+00:00
+ledger	d92932380960d48c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-opus-wl2 agent=- ts=2026-09-02T18:49:49.325208+00:00
+ledger	d94a0431502071f9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:55:32.771755+00:00
+ledger	d9b50aa3693c2404	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T13:30:13.658879+00:00
+ledger	daa07e57972cb28d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T23:38:03.503758+00:00
+ledger	db2b2d9b776bbd72	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf1 agent=- ts=2026-09-03T00:25:10.324995+00:00
+ledger	db53dc9376e1b36d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T19:11:24.542760+00:00
+ledger	db74099156b2592e	event=terminated witness=reaper-observation source=- teammate=- agent=addd425ffd674be39 ts=2026-09-02T12:31:58.602639+00:00
+ledger	dbc09ad4ccc9a914	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T07:01:06.405872+00:00
+ledger	dbec166d6da8da45	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-pc1 agent=- ts=2026-09-09T16:28:56.484109+00:00
+ledger	dbfe47f8f6369e34	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T16:25:52.623679+00:00
+ledger	dc5226c648f8a0d5	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-opus-bt1 agent=acf641cab7756e8a8 ts=2026-09-08T16:35:15.012949+00:00
+ledger	dda2bc0741cda93d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T06:00:49.661956+00:00
+ledger	ddbaa3cd5eb511ef	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:41:24.731495+00:00
+ledger	df4a4dacf9f1536a	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-sonnet-499a5c440 agent=- ts=2026-09-07T16:47:19.901068+00:00
+ledger	dfc7cbeb23f3e9c4	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-vf1 agent=- ts=2026-09-09T09:49:23.980266+00:00
+ledger	dfeb0e7731d4e9be	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:22:34.037773+00:00
+ledger	e0432031ffb02c76	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:11:51.255411+00:00
+ledger	e0864c1199e47e5a	event=registered witness=- source=rich-operator-amnesty teammate=zach-opus-red1 agent=- ts=2026-09-10T14:23:47.526289+00:00
+ledger	e088297976ca2e9b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:11:10.553375+00:00
+ledger	e0f4045c7aabcc33	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-gate1 agent=a8922391964bc8c3b ts=2026-09-10T05:54:37.352201+00:00
+ledger	e16046014697b8ec	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:46:13.939492+00:00
+ledger	e166f09688e3008d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T08:39:58.916064+00:00
+ledger	e1d935dbd5ab409a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:16:27.466976+00:00
+ledger	e1e568109ff3fe09	event=registered witness=- source=create-teammate-worktree.sh teammate=zach-opus-prem1 agent=- ts=2026-09-02T11:05:52.049498+00:00
+ledger	e2948638cb2e32de	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:25:22.639558+00:00
+ledger	e2a97c29a285ef41	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:44:17.975204+00:00
+ledger	e2d3129decb79cbd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:18:57.068668+00:00
+ledger	e359e876b41ce1ea	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T23:01:45.887118+00:00
+ledger	e3a72a57ac892072	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wp1 agent=a8d216a4f500c0c7c ts=2026-09-10T01:35:28.295746+00:00
+ledger	e3c57f4bb5f19141	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:09:32.254440+00:00
+ledger	e3ca37dd31f795a2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:09:13.470076+00:00
+ledger	e4994e3be222d6f7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T14:02:07.792163+00:00
+ledger	e637657614015163	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-09T23:49:36.069878+00:00
+ledger	e704fd4d96c057d4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-lc1 agent=a0af7565af1a7ae92 ts=2026-09-10T06:01:53.661934+00:00
+ledger	e72f96adcffa58e3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-row1 agent=ae2492c3e31323bad ts=2026-09-10T07:17:18.905044+00:00
+ledger	e7a5a58db488a815	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-g0c agent=acd9b3a49ebfc4aab ts=2026-09-10T06:32:54.898699+00:00
+ledger	e8075dcca3ea4314	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-wt5 agent=- ts=2026-09-02T17:27:30.441760+00:00
+ledger	e88d10f057cb8519	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-cr2 agent=acbdd59bc72c530fc ts=2026-09-10T00:36:34.942272+00:00
+ledger	e8baf598c4ed81ef	event=registered witness=- source=detect-nonnative-worktree.sh teammate=- agent=deadbeefcafe0001 ts=2026-09-03T01:10:14.129282+00:00
+ledger	e99d25cba3b982ab	event=terminated witness=reaper-observation source=- teammate=- agent=a2c0e6ec671b8414f ts=2026-09-03T18:29:12.743876+00:00
+ledger	ea27d3d74f271803	event=terminated witness=reaper-observation source=- teammate=sage-fable-cert2 agent=aa2e08d7c39345d84 ts=2026-09-10T21:49:48.582885+00:00
+ledger	ea694858d59b0137	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-04T22:17:38.761619+00:00
+ledger	eaa0c5d54e997d69	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-wd1 agent=- ts=2026-09-09T23:55:36.697224+00:00
+ledger	eb27f6bda9189cfe	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T11:20:17.708496+00:00
+ledger	ebd2162b2e0dbc3b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-g0b agent=a21dfea311b1c0ae8 ts=2026-09-10T06:25:35.529306+00:00
+ledger	ec7a3a5c76ab15b6	event=registered witness=- source=detect-nonnative-worktree.sh teammate=sage-fable-r7 agent=a50aa2534ae039ad5 ts=2026-09-09T15:56:41.385988+00:00
+ledger	ec7be8adcfbc3de4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T14:36:18.051878+00:00
+ledger	ec7fc749ec8f2b4d	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-cert3 agent=- ts=2026-09-10T21:56:44.048988+00:00
+ledger	ec8b50c584098cd3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-02T09:16:28.813531+00:00
+ledger	ecb11a5b70747b29	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T08:00:02.390372+00:00
+ledger	ed830fe51839df37	event=terminated witness=reaper-observation source=- teammate=- agent=af77ad8de90efc5ff ts=2026-09-02T18:55:50.635340+00:00
+ledger	ed89f53dd63f1ba7	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r6 agent=- ts=2026-09-09T13:12:58.634946+00:00
+ledger	edb3e49c2c79b27f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T01:43:55.130076+00:00
+ledger	ede2fe1e10270aec	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T21:35:51.390646+00:00
+ledger	edef632870a513ee	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T07:41:54.278193+00:00
+ledger	ee0c39d6c29144f3	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-cert4 agent=- ts=2026-09-11T00:36:34.654357+00:00
+ledger	eec1545e0e9e3e45	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T07:59:23.273749+00:00
+ledger	eee5e75a8bb3c20a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:06:15.446882+00:00
+ledger	ef7a84f08e79d99c	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rk1 agent=a69a6328ea2c81817 ts=2026-09-10T02:59:23.156221+00:00
+ledger	f03fb8e412deed8b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T07:55:42.613328+00:00
+ledger	f1a28ce192c80d5f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=echo-opus-wm1 agent=a070a7aa5412963e1 ts=2026-09-10T02:22:28.075131+00:00
+ledger	f231ca1cf7853754	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-sonnet-499a5c441 agent=- ts=2026-09-07T16:47:37.550794+00:00
+ledger	f277c5999fe28b6b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-dor2 agent=af3b228967dc2b627 ts=2026-09-10T10:56:58.912915+00:00
+ledger	f2d0a6752781fe59	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-ciw2 agent=a910ac90618ceea89 ts=2026-09-10T06:15:22.150083+00:00
+ledger	f32a5dacaf6f2779	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T19:10:50.780487+00:00
+ledger	f3387e7fef05521a	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-key1 agent=a8b88e0ef2db330a5 ts=2026-09-10T16:22:40.092152+00:00
+ledger	f377bbb1731089a3	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:21:44.905316+00:00
+ledger	f45e785f64926617	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T18:31:24.686774+00:00
+ledger	f4edace97a55921f	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-05T23:46:38.673030+00:00
+ledger	f565a08bf925d17e	event=prepared witness=- source=create-teammate-worktree.sh teammate=frank-opus-lc1 agent=- ts=2026-09-09T22:33:37.069521+00:00
+ledger	f5ea4cd1444bf3e1	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T06:05:49.519792+00:00
+ledger	f62329b16831c2b2	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T08:37:05.702443+00:00
+ledger	f666ba0ca64d730e	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T05:40:05.271801+00:00
+ledger	f67293b82e172724	event=prepared witness=- source=create-teammate-worktree.sh teammate=echo-opus-wp1 agent=- ts=2026-09-10T01:35:02.953732+00:00
+ledger	f7c16fedc9e67eea	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led1 agent=deadbeefcafe0001 ts=2026-09-03T01:10:13.849153+00:00
+ledger	f81aa85b72b9edc9	event=terminated witness=reaper-observation source=- teammate=zach-fable-wtl3 agent=a5ab44207bd22dfc8 ts=2026-09-02T09:45:34.131647+00:00
+ledger	f845e63de5d1f1e9	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-fix4 agent=aff8b2753c392d9e3 ts=2026-09-11T01:38:48.971884+00:00
+ledger	f8732c734df60f8b	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-rec1r agent=- ts=2026-09-10T07:15:09.607733+00:00
+ledger	f8b2bb60703609a7	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:51:25.807006+00:00
+ledger	f929ea31356857fd	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-rk1 agent=a69a6328ea2c81817 ts=2026-09-10T02:59:23.145784+00:00
+ledger	f95e6d0a712e4cb5	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-rg1 agent=- ts=2026-09-08T16:05:55.078154+00:00
+ledger	fb679e3463b07361	event=prepared witness=- source=create-teammate-worktree.sh teammate=zach-opus-cg1 agent=- ts=2026-09-08T16:05:51.388495+00:00
+ledger	fb8515b5ecf68bbb	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-06T14:16:16.862904+00:00
+ledger	fb9c03e481389f5b	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-opus-pay1 agent=a2c44c899d4c7618e ts=2026-09-10T08:43:51.156239+00:00
+ledger	fbd020016392fc85	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf1 agent=- ts=2026-09-03T00:25:10.311095+00:00
+ledger	fc4f6784262bb552	event=registered witness=- source=detect-nonnative-worktree.sh teammate=dev-sonnet-led2 agent=deadbeefcafe0001 ts=2026-09-03T01:06:15.846288+00:00
+ledger	fc637f4a2dcd5f50	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T16:50:10.414377+00:00
+ledger	fcc6632a5b067061	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-03T04:30:28.907444+00:00
+ledger	fd7df4e217e2aa2a	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-r9 agent=- ts=2026-09-09T19:58:40.749796+00:00
+ledger	fdce1d28b391c981	event=terminated witness=reaper-observation source=- teammate=q4-unmerged agent=q4dead ts=2026-09-02T09:10:26.501896+00:00
+ledger	fdcf67e30d4d1c29	event=prepared witness=- source=create-teammate-worktree.sh teammate=sage-fable-g0b agent=- ts=2026-09-10T06:25:06.954172+00:00
+ledger	fe413a7fe064d2b4	event=registered witness=- source=detect-nonnative-worktree.sh teammate=frank-opus-lc2 agent=a5306f23ec37a294f ts=2026-09-09T22:34:52.602249+00:00
+ledger	fe7a9b20d9a7d172	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-10T09:01:29.926536+00:00
+ledger	feca07105740d13d	event=registered witness=- source=detect-nonnative-worktree.sh teammate=zach-fable-rf9 agent=acd8d9270d44b4ce4 ts=2026-09-03T14:00:03.544953+00:00
+ledger	ff62b939d609b264	event=registered witness=- source=detect-nonnative-worktree.sh teammate=reed-sonnet-sc1 agent=- ts=2026-09-08T20:08:38.820640+00:00
+ledger	ffdb0d619d6c16b4	event=terminated witness=reaper-observation source=- teammate=- agent=ae66ffef818a38354 ts=2026-09-10T13:11:23.780841+00:00
+teams	.DS_Store
+teams	session-3ec1301d/
+teams	session-3ec1301d/spawned-names.log
+teams	session-55ecab62/
+teams	session-55ecab62/config.json
+teams	session-5f59e087/
+teams	session-5f59e087/config.json
+teams	session-5f59e087/inboxes
+teams	session-63259f64/
+teams	session-63259f64/config.json
+teams	session-b7869424/
+teams	session-b7869424/config.json
+teams	session-b7869424/inflight-notices.jsonl
+teams	session-b7869424/inflight-repos.txt
+teams	session-b7869424/inflight-waivers.jsonl
+teams	session-b7869424/spawned-names.log
+teams	session-b7869424/worker-events.jsonl
+teams	session-ba482ecb/
+teams	session-ba482ecb/spawned-names.log
+teams	session-bb268a94/
+teams	session-bb268a94/inflight-repos.txt
+teams	session-bb268a94/spawned-names.log
+teams	session-bb268a94/worker-events.jsonl
+teams	session-ed803501/
+teams	session-ed803501/spawned-names.log
+teams	session-ed803501/worker-events.jsonl
+teams	session-f5b04269/
+teams	session-f5b04269/config.json
+teams	session-f5b04269/inboxes

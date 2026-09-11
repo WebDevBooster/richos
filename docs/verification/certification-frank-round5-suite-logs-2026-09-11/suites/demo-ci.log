@@ -1,0 +1,13 @@
+=== demo.test.sh ===
+  PASS  demo.sh: bash -n syntax check
+  PASS  demo.sh: executable
+  PASS  demo.sh: exits 0 on a clean run
+  PASS  demo.sh: reports 7/7 beats passed
+  PASS  demo.sh: exactly 7 individual 'Beat N PASSED' lines
+  PASS  demo.sh: labels both REAL ENFORCEMENT and NARRATED SIMULATION beats
+  PASS  demo.sh: engine repo git status unchanged by the run
+  PASS  demo.sh: the operator's engine pointer and registration are unchanged by the run
+  PASS  demo.sh: no leftover temp directories after exit
+  PASS  demo.sh: re-runnable (second invocation also exits 0)
+
+=== demo.test.sh: all 10 passed ===

@@ -1,0 +1,15 @@
+baseline healthy=1 lines=       8
+--- A. one ledger row DELETED (the terminated row):
+escaped=[]
+RESULT A: GREEN (deletion of a terminated row NOT reported)
+--- B. ledger TRUNCATED to empty:
+escaped=[]
+RESULT B: GREEN (ledger wiped, NOT reported)
+--- C. fallback log truncated to empty:
+escaped=[]
+RESULT C: GREEN (fallback wiped, NOT reported)
+--- D. a team directory REMOVED (rm -rf session-bbbbbbbb):
+escaped=[]
+RESULT D: GREEN (team directory removed, NOT reported)
+--- E. control: a row APPENDED after all that:
+escaped=[ledger row APPEARED: event=terminated witness=reaper-observation source=- teammate=- agent=zz ts=9]

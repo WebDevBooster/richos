@@ -1,0 +1,16 @@
+=== record canary: red on the operator's record, green on the noise ===
+  PASS  1a  the three watched paths resolve under CLAUDE_CONFIG_DIR as it was when the library was sourced
+  PASS  1b  and moving CLAUDE_CONFIG_DIR afterwards does not move them — a suite that relocates its config halfway through is still compared against the record it started with
+  PASS  2a  with the ledger and the fallback absent and one empty team directory, the baseline is healthy and nothing has escaped
+  PASS  2b  a 'finished' row appended to the ledger is NOT reported — the platform's own per-turn row, the one exclusion, stated in the library's header
+  PASS  3a  RED: a 'terminated' row appended to the ledger is caught and NAMED (event, witness, teammate) — the 2026-09-11 shape
+  PASS  3b  and so are registered, prepared and retracted rows — every event except 'finished' is witnessed, one line each
+  PASS  3c  RED: a fixture row appended to the fallback event log is caught and named — the feedbeef shape (Sage D4)
+  PASS  3d  RED: a fixture team directory is caught and named — the session-deadbeef shape (round 14, D4's sibling)
+  PASS  3d' and the file inside it, by name
+  PASS  4a  a row rewritten IN PLACE (same count, different bytes) is caught — the witness is contents, not a line count
+  PASS  5a  an unreadable ledger makes the baseline UNHEALTHY, so a runner can refuse to report a pass over it
+  PASS  5b  and the diff says UNREADABLE by name, never 'nothing escaped'
+  PASS  6a  the suite created nothing under a config directory it only named
+
+  13 passed, 0 failed

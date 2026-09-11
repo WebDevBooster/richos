@@ -1,0 +1,28 @@
+PREVIEW hold /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 — b7869424/ae904aac1949e5696 sage-fable-cert3 — native owner is live or unknown: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED and the locking pid 84597 is running
+PREVIEW hold /Users/alex/ab/richos-wt/sage-fable-cert3 — b7869424/ae904aac1949e5696 sage-fable-cert3 — native owner is live or unknown: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED and the locking pid 84597 is running
+PREVIEW branch-only /Users/alex/ab/femcboost/.claude/worktrees/agent-aff8b2753c392d9e3 — b7869424/aff8b2753c392d9e3 zach-fable-fix4 — workspace already gone; branch by exact compare-and-set
+PREVIEW hold /Users/alex/ab/richos-wt/zach-opus-unl1 — d0eef867/a2de3c7d8d8590224 zach-opus-unl1 — removed workspace has no retained completion proof
+PREVIEW hold /Users/alex/ab/richos-wt/zach-fable-fix2 — d0eef867/a446bbe852076df83 zach-fable-fix2 — removed workspace has no retained completion proof
+PREVIEW hold /Users/alex/ab/richos-wt/zach-opus-fix1 — d0eef867/a97f2c691c34e2c0f zach-opus-fix1 — removed workspace has no retained completion proof
+PREVIEW hold /Users/alex/ab/richos-wt/sage-fable-cert2 — d0eef867/aa2e08d7c39345d84 sage-fable-cert2 — removed workspace has no retained completion proof
+PREVIEW hold /Users/alex/ab/claude-orchestration-kit-wt/zach-opus-dor1 — d0eef867/ae5b21e418fc9c421 zach-opus-dor1 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW hold /Users/alex/ab/deeply-wt/zach-opus-dor1 — d0eef867/ae5b21e418fc9c421 zach-opus-dor1 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW hold /Users/alex/ab/claude-orchestration-kit-wt/zach-opus-dor2 — d0eef867/af3b228967dc2b627 zach-opus-dor2 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+PREVIEW hold /Users/alex/ab/deeply-wt/zach-opus-dor2 — d0eef867/af3b228967dc2b627 zach-opus-dor2 — RETRY, not a verdict: process(es) 1483 (com.apple.Virtualization.VirtualMachine) are standing in the tree. Nothing here kills a process; the hold clears when they leave
+
+EXCLUDED BY CEO RULING (ceo-decisions.md section 31) — never removed, never counted as clean, and never the reason anything else is refused (9):
+  EXCLUDED /Users/alex/.codex/worktrees/06e6/femcboost — codex/structural-failure-report
+  EXCLUDED /Users/alex/.codex/worktrees/67ec/femcboost — codex/inherited-publication-failure-report
+  EXCLUDED /Users/alex/ab/femcboost-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-completion — codex/owned-outcome-completion
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-live-repair — codex/owned-outcome-live-repair
+  EXCLUDED /Users/alex/ab/richos-wt/codex-owned-outcome-prd — codex/owned-outcome-prd
+  EXCLUDED /Users/alex/ab/richos-wt/codex-resumable-outcome-verification — codex/resumable-outcome-verification
+  EXCLUDED /Users/alex/ab/richos-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+  EXCLUDED /Users/alex/ab/richos-hq-wt/codex-rollback-owned-outcome — codex/rollback-owned-outcome
+NOT EXAMINED — registered in a repository this lane touches, owned by no transaction of this engine (4):
+  NOT-EXAMINED /Users/alex/ab/richos-wt/.richos-retired/sage-fable-cert2.richos-retired-ws-d747c9afcefb7512-20260910T225353.207274Z — no transaction of this engine owns it (branch cc/sage-fable-cert2)
+  NOT-EXAMINED /Users/alex/ab/richos-wt/.richos-retired/zach-fable-fix2.richos-retired-ws-fe7326c7cf724969-20260910T225424.060298Z — no transaction of this engine owns it (branch cc/zach-fable-fix2)
+  NOT-EXAMINED /Users/alex/ab/richos-wt/.richos-retired/zach-opus-fix1.richos-retired-ws-5fce7374b84d8d59-20260910T225455.847240Z — no transaction of this engine owns it (branch cc/zach-opus-fix1)
+  NOT-EXAMINED /Users/alex/ab/richos-wt/.richos-retired/zach-opus-unl1.richos-retired-ws-92bf3426f34d9703-20260910T225525.103630Z — no transaction of this engine owns it (branch cc/zach-opus-unl1)
+=== preview: remove=0 branch-only=1 observe=0 hold=10 excluded=9 not-examined=4 ===

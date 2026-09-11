@@ -1,0 +1,77 @@
+ledger rows: 17451  liveness module: loaded
+====================================================================================================
+/Users/alex/ab/richos-wt/sage-fable-cert3
+-- entity /Users/alex/ab/richos
+   reg prepared   aid=ae904aac1949e5696  joined=prepared -> ALIVE         prepared row joined to agent ae904aac1949e5696 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   reg registered aid=ae904aac1949e5696  joined=-        -> ALIVE         its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by running pid 84597
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   AGGREGATE ALIVE         agent_ids=['ae904aac1949e5696'] :: 2 registrations match (ledger); prepared row joined to agent ae904aac1949e5696 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by running pid 84597 [advisory, never de
+-- entity /Users/alex/ab/femcboost
+   reg prepared   aid=ae904aac1949e5696  joined=prepared -> ALIVE         prepared row joined to agent ae904aac1949e5696 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by
+      lock entities: ['/Users/alex/ab/femcboost']
+   reg registered aid=ae904aac1949e5696  joined=-        -> ALIVE         its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by running pid 84597
+      lock entities: ['/Users/alex/ab/femcboost']
+   AGGREGATE ALIVE         agent_ids=['ae904aac1949e5696'] :: 2 registrations match (ledger); prepared row joined to agent ae904aac1949e5696 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED by running pid 84597 [advisory, never de
+   agent-liveness.resolve(femcboost, ae904aac1949e5696) -> ALIVE :: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ae904aac1949e5696 is LOCKED and the locking pid 84597 is running
+   agent-liveness.resolve(richos, ae904aac1949e5696) -> NOT-ALIVE :: no registered entity worktree for agent-ae904aac1949e5696 in /Users/alex/ab/richos (absent/unregistered)
+   standing terminations: []
+   retractions: {'2026-09-11T00:02:34.984941+00:00'}
+   platform_terminal_record: ('terminal', "the platform's own terminal record for agent ae904aac1949e5696: SubagentStop at 2026-09-10T22:52:36.608923+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/sage-fable-cert3 is member 2 of 2, and no post-terminal run is open in either source (the transaction's notes or the platform's event log)")
+====================================================================================================
+/Users/alex/ab/richos-wt/frank-fable-cert4
+-- entity /Users/alex/ab/richos
+   reg prepared   aid=ac4c48bd0dfa5f039  joined=prepared -> NOT-ALIVE     prepared row joined to agent ac4c48bd0dfa5f039 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   reg registered aid=ac4c48bd0dfa5f039  joined=-        -> NOT-ALIVE     platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop at 2026-09-11T01:36:42.180145+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/frank-fable-cert4 is member
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   AGGREGATE NOT-ALIVE     agent_ids=['ac4c48bd0dfa5f039'] :: 2 registrations match (ledger); prepared row joined to agent ac4c48bd0dfa5f039 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop at 2026-09-11T01:36:42.180145+00:00 c
+-- entity /Users/alex/ab/femcboost
+   reg prepared   aid=ac4c48bd0dfa5f039  joined=prepared -> NOT-ALIVE     prepared row joined to agent ac4c48bd0dfa5f039 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop
+      lock entities: ['/Users/alex/ab/femcboost']
+   reg registered aid=ac4c48bd0dfa5f039  joined=-        -> NOT-ALIVE     platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop at 2026-09-11T01:36:42.180145+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/frank-fable-cert4 is member
+      lock entities: ['/Users/alex/ab/femcboost']
+   AGGREGATE NOT-ALIVE     agent_ids=['ac4c48bd0dfa5f039'] :: 2 registrations match (ledger); prepared row joined to agent ac4c48bd0dfa5f039 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop at 2026-09-11T01:36:42.180145+00:00 c
+   agent-liveness.resolve(femcboost, ac4c48bd0dfa5f039) -> NOT-ALIVE :: no registered entity worktree for agent-ac4c48bd0dfa5f039 in /Users/alex/ab/femcboost (absent/unregistered)
+   agent-liveness.resolve(richos, ac4c48bd0dfa5f039) -> NOT-ALIVE :: no registered entity worktree for agent-ac4c48bd0dfa5f039 in /Users/alex/ab/richos (absent/unregistered)
+   standing terminations: []
+   retractions: set()
+   platform_terminal_record: ('terminal', "the platform's own terminal record for agent ac4c48bd0dfa5f039: SubagentStop at 2026-09-11T01:36:42.180145+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/frank-fable-cert4 is member 2 of 2, and no post-terminal run is open in either source (the transaction's notes or the platform's event log)")
+====================================================================================================
+/Users/alex/ab/richos-wt/zach-fable-fix4
+-- entity /Users/alex/ab/richos
+   reg prepared   aid=aff8b2753c392d9e3  joined=prepared -> NOT-ALIVE     prepared row joined to agent aff8b2753c392d9e3 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   reg registered aid=aff8b2753c392d9e3  joined=-        -> NOT-ALIVE     platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop at 2026-09-11T03:18:03.138036+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/zach-fable-fix4 is member 2
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   AGGREGATE NOT-ALIVE     agent_ids=['aff8b2753c392d9e3'] :: 2 registrations match (ledger); prepared row joined to agent aff8b2753c392d9e3 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop at 2026-09-11T03:18:03.138036+00:00 c
+-- entity /Users/alex/ab/femcboost
+   reg prepared   aid=aff8b2753c392d9e3  joined=prepared -> NOT-ALIVE     prepared row joined to agent aff8b2753c392d9e3 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop
+      lock entities: ['/Users/alex/ab/femcboost']
+   reg registered aid=aff8b2753c392d9e3  joined=-        -> NOT-ALIVE     platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop at 2026-09-11T03:18:03.138036+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/zach-fable-fix4 is member 2
+      lock entities: ['/Users/alex/ab/femcboost']
+   AGGREGATE NOT-ALIVE     agent_ids=['aff8b2753c392d9e3'] :: 2 registrations match (ledger); prepared row joined to agent aff8b2753c392d9e3 (same session, same teammate, same exact path, both rows from an engine writer): platform terminal record: the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop at 2026-09-11T03:18:03.138036+00:00 c
+   agent-liveness.resolve(femcboost, aff8b2753c392d9e3) -> NOT-ALIVE :: no registered entity worktree for agent-aff8b2753c392d9e3 in /Users/alex/ab/femcboost (absent/unregistered)
+   agent-liveness.resolve(richos, aff8b2753c392d9e3) -> NOT-ALIVE :: no registered entity worktree for agent-aff8b2753c392d9e3 in /Users/alex/ab/richos (absent/unregistered)
+   standing terminations: []
+   retractions: set()
+   platform_terminal_record: ('terminal', "the platform's own terminal record for agent aff8b2753c392d9e3: SubagentStop at 2026-09-11T03:18:03.138036+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/zach-fable-fix4 is member 2 of 2, and no post-terminal run is open in either source (the transaction's notes or the platform's event log)")
+====================================================================================================
+/Users/alex/ab/richos-wt/frank-fable-cert5
+-- entity /Users/alex/ab/richos
+   reg prepared   aid=abc808e243aa0bf29  joined=prepared -> ALIVE         prepared row joined to agent abc808e243aa0bf29 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   reg registered aid=abc808e243aa0bf29  joined=-        -> ALIVE         its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by running pid 84597
+      lock entities: ['/Users/alex/ab/femcboost', '/Users/alex/ab/richos']
+   AGGREGATE ALIVE         agent_ids=['abc808e243aa0bf29'] :: 2 registrations match (ledger); prepared row joined to agent abc808e243aa0bf29 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by running pid 84597
+-- entity /Users/alex/ab/femcboost
+   reg prepared   aid=abc808e243aa0bf29  joined=prepared -> ALIVE         prepared row joined to agent abc808e243aa0bf29 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by
+      lock entities: ['/Users/alex/ab/femcboost']
+   reg registered aid=abc808e243aa0bf29  joined=-        -> ALIVE         its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by running pid 84597
+      lock entities: ['/Users/alex/ab/femcboost']
+   AGGREGATE ALIVE         agent_ids=['abc808e243aa0bf29'] :: 2 registrations match (ledger); prepared row joined to agent abc808e243aa0bf29 (same session, same teammate, same exact path, both rows from an engine writer): its isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED by running pid 84597
+   agent-liveness.resolve(femcboost, abc808e243aa0bf29) -> ALIVE :: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-abc808e243aa0bf29 is LOCKED and the locking pid 84597 is running
+   agent-liveness.resolve(richos, abc808e243aa0bf29) -> NOT-ALIVE :: no registered entity worktree for agent-abc808e243aa0bf29 in /Users/alex/ab/richos (absent/unregistered)
+   standing terminations: []
+   retractions: set()
+   platform_terminal_record: ('none', '')
