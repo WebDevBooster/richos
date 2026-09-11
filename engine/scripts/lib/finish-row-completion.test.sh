@@ -23,11 +23,11 @@
 # all three writers get it and none of them gains a line.
 #
 # WHAT THIS IS NOT. The row is advisory and stays advisory: `judge()` prints
-# finish signals as "advisory, never decisive", and adoption quotes T3 without
-# authorizing. Reclamation is anchored on the transaction's terminal record,
-# which the same event writes about every member -- zach-opus-dor1 has ZERO
-# finish rows of any kind and its transaction is sealed, terminal and carrying
-# all four of its workspaces. F5 is that boundary, asserted.
+# finish signals as "advisory, never decisive". A workspace is deleted only
+# when its work is landed or discarded (docs/plans/worktree-spec-2026-09-11.md),
+# never on a finish row. F5 is that boundary, asserted. The assignment is read
+# from the workspace registry (scripts/lib/workspaces.py); until 2026-09-11 it
+# was read from the transaction store, which was removed.
 #
 # ===========================================================================
 # THE SECOND DEFECT — this file was GREEN while the fix produced NOTHING
@@ -71,7 +71,7 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 [ -f "$LEDGER_PY" ] || { echo "FATAL: missing $LEDGER_PY" >&2; exit 1; }
 
 export RICHOS_WORKTREE_LEDGER="$SANDBOX/ledger.jsonl"
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 SID="feedbeef-0000-4000-8000-000000000001"
 
 # ===========================================================================
@@ -105,18 +105,18 @@ export HOME="$SANDBOX/home"
 export WORKER_EVENTS_TEAMS_DIR="$HOME/.claude/teams"
 mkdir -p "$WORKER_EVENTS_TEAMS_DIR"
 
-seal_tx() { # <agent-id> <teammate>
-    mkdir -p "$RICHOS_WORKTREE_TX_DIR/$SID"
-    python3 - "$RICHOS_WORKTREE_TX_DIR/$SID/$1.json" "$SID" "$1" "$2" "$SANDBOX" <<'PY'
-import json, sys
-path, sid, aid, teammate, sandbox = sys.argv[1:6]
-json.dump({"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": teammate,
-           "sealed": True, "state": "sealed", "members": [
-               {"class": "native", "cleanup_owner": "claude-code",
-                "path": sandbox + "/entity/.claude/worktrees/agent-" + aid},
-               {"class": "hand-rolled", "path": sandbox + "/richos-wt/" + teammate},
-               {"class": "hand-rolled", "path": sandbox + "/deeply-wt/" + teammate}]},
-          open(path, "w"))
+seal_tx() { # <agent-id> <teammate> -- register the assignment in the workspace registry
+    python3 - "$SCRIPT_DIR/workspaces.py" "$SID" "$1" "$2" "$SANDBOX" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
+ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+sid, aid, teammate, sandbox = sys.argv[2:6]
+rec = ws.new_record(ws.named_key(sid, teammate), name=teammate, session_id=sid, agent_id=aid)
+ws._add_workspace(rec, "native", sandbox + "/entity", sandbox + "/entity/.claude/worktrees/agent-" + aid,
+                  "worktree-agent-" + aid, "fixture")
+ws._add_workspace(rec, "cc", sandbox + "/richos", sandbox + "/richos-wt/" + teammate, "cc/" + teammate, "fixture")
+ws._add_workspace(rec, "cc", sandbox + "/deeply", sandbox + "/deeply-wt/" + teammate, "cc/" + teammate, "fixture")
+ws.save_agent(rec)
 PY
 }
 

@@ -253,7 +253,7 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
     The entry side already had all of it. 65 agents had folders registered at
     spawn that day and 61 of them had more than one, native paired with its
     cross-repo siblings, keyed by agent id. So this resolves rather than
-    guesses: the sealed transaction's members first (authoritative), then this
+    guesses: the workspace registry's record first (authoritative), then this
     ledger's own rows for the SAME agent id, and finally — only when exactly
     one agent id has ever been recorded for that teammate in this session —
     the id-less preparation rows that `create-teammate-worktree.sh` writes
@@ -261,11 +261,9 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
 
     ADVISORY, AND IT STAYS ADVISORY. `judge()` prints finish signals as
     "advisory, never decisive" and adoption quotes T3 without authorizing.
-    Reclamation is anchored on the transaction's terminal record, which the
-    same event writes about every member. Measured the same day: zach-opus-dor1
-    has ZERO finish rows of any kind and its transaction is sealed, terminal
-    and carrying all four of its workspaces. This makes the human-legible
-    record true; it does not make it powerful.
+    A workspace is deleted only when its work is landed or discarded
+    (docs/plans/worktree-spec-2026-09-11.md), never on a finish row. This makes
+    the human-legible record true; it does not make it powerful.
     """
     paths, seen = [], set()
 
@@ -277,8 +275,29 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
             seen.add(real)
             paths.append(p)
 
-    # (The sealed transaction's members were read first here until the
-    # transaction store was removed on 2026-09-11.)
+    # The workspace registry first (authoritative): every workspace the agent
+    # has, recorded at spawn and at its start, and its name
+    # (docs/plans/worktree-spec-2026-09-11.md, points 3 and 6). Until
+    # 2026-09-11 this read the sealed transaction's members, from a store that
+    # was removed with the deleters that used it. A registration the registry
+    # made for an agent it never saw spawned carries a placeholder name, which
+    # is not a teammate name and is not used as one.
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("ledger_workspaces", os.path.join(here, "workspaces.py"))
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        key = ws.key_for_id(agent_id) if agent_id else ""
+        reg = ws.load_agent(key) if key else None
+    except Exception:
+        reg = None
+    if isinstance(reg, dict) and (not session_id or (reg.get("session_id") or "") == session_id):
+        if not reg.get("provisional"):
+            teammate = teammate or (reg.get("name") or "")
+        for w in reg.get("workspaces") or []:
+            if isinstance(w, dict):
+                add(w.get("path"))
+
     try:
         rows = read_all()
     except Exception:

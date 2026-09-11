@@ -68,4 +68,12 @@ mutant completion-can-block-the-row "F14" "$F" \
     '    except Exception:{NL}        raise{NL}    path = path or ledger_path()' \
     "a resolver that raised would take the terminal row with it — the finish signal lost to the bookkeeping that was only ever meant to decorate it."
 
+# The assignment is READ FROM THE WORKSPACE REGISTRY (2026-09-11). Without it
+# the row falls back to this ledger's own rows, which name the native worktree
+# and never the cross-repository ones.
+mutant registry-ignored "F1" "$F" \
+    '    if isinstance(reg, dict) and (not session_id or (reg.get("session_id") or "") == session_id):' \
+    '    if False:' \
+    "the finish row would stop naming the cross-repository workspaces and the teammate the registry holds, which is the gap this completion exists to close."
+
 mutation_end
