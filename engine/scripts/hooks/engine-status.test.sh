@@ -553,6 +553,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # BR_EXPECTED, this set, README.md's guard table and install.sh's hashed set
 # (the predicate and the ack recorder, since the guard itself is derived from
 # hooks.json).
+# 66 -> 64 on 2026-09-11: the CEO's workspace spec
+# (docs/plans/worktree-spec-2026-09-11.md). REMOVED: record-subagent-start.sh,
+# terminalize-agent-worktrees.sh, session-start-reap-worktrees.sh and
+# notice-land-disposition.sh -- the transaction store's writers, the terminal
+# ingress, the session-start deleter and the land-disposition demand, none of
+# which is on the page. ADDED: workspace-lifecycle.sh (the platform's facts on
+# six events) and guard-workspace-gate.sh (the page's point-5 turn-end gate on
+# Stop). The other inventories were derived the way the note above says:
+# hooks.json, .claude/settings.local.json, the probe's BR_EXPECTED, Layer R and
+# Layer M lists, and Layer Q, all of which carry the change.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -560,19 +570,19 @@ engine-status.sh
 guard-agent-state-claims.sh
 guard-bash-main-writes.sh
 guard-ceo-ask-first.sh
-guard-ci-red-lands.sh
 guard-ceo-ruled-ask.sh
 guard-ceo-todos-commits.sh
+guard-ci-red-lands.sh
 guard-completeness-commits.sh
 guard-definition-drift.sh
 guard-dialect.sh
-guard-named-persons-commands.sh
-guard-named-persons-writes.sh
 guard-idle-land.sh
 guard-inflight-notify.sh
 guard-interactive-prompt.sh
 guard-main-checkout-writes.sh
 guard-model-ceiling.sh
+guard-named-persons-commands.sh
+guard-named-persons-writes.sh
 guard-owned-state.sh
 guard-publication-commits.sh
 guard-publication-writes.sh
@@ -585,6 +595,7 @@ guard-stop-live-work.sh
 guard-unresolved-claims.sh
 guard-vendoring-commits.sh
 guard-workflow-ban.sh
+guard-workspace-gate.sh
 guard-worktree-isolation.sh
 guard-worktree-removal.sh
 notice-ceo-asks.sh
@@ -595,31 +606,28 @@ notice-escalations.sh
 notice-hook-staleness.sh
 notice-inflight-acks.sh
 notice-inflight-sends.sh
-notice-land-disposition.sh
 notice-mechanical-findings.sh
 notice-unasked-deferral.sh
 notice-unlanded-branches.sh
 notice-unstarted-rows.sh
 notice-waiver-repetition.sh
 reader-teammate-hint.sh
-record-subagent-start.sh
 scan-secrets.sh
-shell-evidence.sh
 session-start-ceo-ask.sh
 session-start-ci-surface.sh
 session-start-escalations.sh
-session-start-reap-worktrees.sh
+shell-evidence.sh
 snapshot-agent-definitions.sh
 snapshot-enforcing-hooks.sh
 task-completed-handoff.sh
 teammate-idle-handoff.sh
-terminalize-agent-worktrees.sh
 turn-manifest.sh
 verify-agent-prompt.sh
 worker-created-handoff.sh
 worker-ended-handoff.sh
 worker-started-handoff.sh
 worker-updated-handoff.sh
+workspace-lifecycle.sh
 ACK
 )"
 ACKNOWLEDGED_N="$(printf '%s\n' "$ACKNOWLEDGED_SCRIPTS" | grep -c .)"
@@ -674,7 +682,7 @@ registered_hook_scripts() {
         guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh \
         verify-agent-prompt.sh guard-main-checkout-writes.sh scan-secrets.sh \
         guard-resume-isolation.sh guard-bash-main-writes.sh guard-workflow-ban.sh \
-        detect-nonnative-worktree.sh session-start-reap-worktrees.sh \
+        detect-nonnative-worktree.sh workspace-lifecycle.sh \
         snapshot-agent-definitions.sh teammate-idle-handoff.sh task-completed-handoff.sh
 }
 STALE
