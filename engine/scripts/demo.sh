@@ -112,14 +112,17 @@ beat_fail() {
 # the X's directly. This form gives byte-for-byte identical, clean output on
 # both platforms. (See docs/ci-portability-notes.md.)
 SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX")" && pwd -P)"
-# THE WORKTREE TRANSACTION STORE IS PINNED INSIDE THE SAMPLE REPO, for the
-# reason CLAUDE_CONFIG_DIR is redirected below: since 2026-09-03 clause 7 of
-# guard-worktree-isolation.sh WRITES a spawn-intent for every allowed
-# file-capable spawn, and Beat 3 runs that guard for real. Unpinned, a
-# sixty-second demo would append demo0000's intents to the operator's own
-# ~/.claude/state/worktree-transactions and they would outlive the temp
-# directory this trap removes.
-export RICHOS_WORKTREE_TX_DIR="$SAMPLE_ROOT/.demo-state/worktree-transactions"
+# THE WORKSPACE REGISTRY IS PINNED INSIDE THE SAMPLE REPO, for the reason
+# CLAUDE_CONFIG_DIR is redirected below: clause 7 of guard-worktree-isolation.sh
+# REGISTERS every allowed file-capable spawn (docs/plans/worktree-spec-2026-09-
+# 11.md, point 3), and Beat 3 runs that guard for real. Unpinned, a sixty-second
+# demo would put demo0000's registrations in the operator's own registry, where
+# a later session would find them. And the registration needs a SESSION whose
+# end the operating system can report (point 12): this demo's own process is
+# that session, so nothing it registers borrows the identity of whatever
+# Claude session happens to be running on the machine.
+export RICHOS_WORKSPACES_DIR="$SAMPLE_ROOT/.demo-state/workspaces"
+export RICHOS_SESSION_PID="$$"
 
 cleanup() {
     rm -rf "$SAMPLE_ROOT" 2>/dev/null || true
@@ -308,37 +311,18 @@ DEMO_FILES+=(
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
     "scripts/hooks/contract-integrity-probe.sh"
-    # The session's worktree INVENTORY. install.sh mints its sidecar and probe
-    # Layer Q hashes + exercises it, so the sample repo needs it. Since
-    # 2026-09-03 it removes nothing: one trigger (the SessionStart wrapper,
-    # derived from hooks.json above) runs it in DRY-RUN, and this is the file
-    # that trigger shares with no hook table.
-    "scripts/reap-stale-worktrees.sh"
-    # THE WORKTREE LIFECYCLE'S TWO NON-HOOK HALVES (2026-09-03). Both are on
-    # this list for the refuse-to-start reason rather than the soft one, which
-    # is why a sample repo without them does not merely look thinner:
-    #   worktree-transactions.py is the transaction store itself. Clause 7c of
-    #   guard-worktree-isolation.sh REFUSES every file-capable spawn when it is
-    #   absent (fail-closed, deliberately: an intent nothing can bind is the
-    #   best-effort registration this replaced), so the demo's own spawn beat
-    #   would be blocked by the engine it is demonstrating.
-    #   reconcile-terminal-worktrees.py is the only code that deletes a
-    #   worktree directory. install.sh hashes it and probe Layer Q asserts the
-    #   SessionStart wrapper RECOVERS a quarantined transaction with it, so
-    #   Beat 7 fails without it for a reason that is not about the demo.
-    "scripts/lib/worktree-transactions.py"
-    "scripts/reconcile-terminal-worktrees.py"
-    # The sanctioned worktree-removal helper. It ships as a PAIR with
-    # guard-worktree-removal.sh — the guard blocks every raw removal and names
-    # this as the only way through — so the probe's Layer S verifies both, and
-    # the sample repo must carry both or Beat 7 fails for a reason that is not
-    # about the demo.
-    "scripts/remove-agent-worktree.sh"
-    # The agent-liveness resolver, both halves and its operator CLI. The removal
-    # helper above now DELEGATES its entire decision to these, and probe Layer AL
-    # verifies and exercises them, so Beat 7 fails without them for a reason that
-    # is not about the demo — which is the same sentence the helper carries, one
-    # file further down the chain.
+    # THE WORKSPACE SPEC (docs/plans/worktree-spec-2026-09-11.md), both halves:
+    # the registry library every workspace hook hands its facts and verdicts
+    # to, and the one command that lands or discards. Clause 7 of
+    # guard-worktree-isolation.sh REFUSES a file-capable spawn it cannot
+    # register, so the demo's own spawn beat would be blocked by the engine it
+    # is demonstrating; install.sh hashes both, and probe Layers Q and S
+    # exercise them, so Beat 7 fails without them for a reason that is not
+    # about the demo. (Until 2026-09-11 this slot held the reaper, the
+    # transaction store, the nightly reconciler and the removal helper, all
+    # removed with every deleter the spec does not have.)
+    "scripts/lib/workspaces.py"
+    "scripts/workspaces.sh"
     # The interactive-prompt shape table. guard-interactive-prompt.sh refuses
     # to start without it, so a sample repo missing it would ship a buyer an
     # engine whose newest blocking guard is dead on arrival — while the probe's
@@ -382,24 +366,20 @@ DEMO_FILES+=(
     # them and says "MECHANICAL SWEEP IS OFF" where the demo has no reader.
     "scripts/lib/mechanical-findings.sh"
     "scripts/lib/mechanical-findings.py"
-    # The agent-liveness resolver. A FOURTH caller joined it on 2026-09-01 and
-    # it fails SOFT, which puts it in the teammate-identity.py category rather
-    # than the refuse-to-start one: scripts/reap-stale-worktrees.sh asks this
-    # resolver whether a hand-rolled worktree's OWNER is alive, and without it
-    # the reaper starts fine, declares the blindness, and treats every
-    # hand-rolled worktree as undecidable forever. A sample repo missing it
-    # would demonstrate a reaper that cannot reap the class it was rebuilt for,
-    # and would look perfectly healthy doing it.
+    # The agent-liveness resolver, both halves and its operator CLI. It fails
+    # SOFT, which puts it in the teammate-identity.py category rather than the
+    # refuse-to-start one: guard-agent-state-claims.sh asks it whether an agent
+    # a turn called finished is alive, and probe Layer AL verifies and
+    # exercises it, so Beat 7 fails without it for a reason that is not about
+    # the demo.
     "scripts/lib/agent-liveness.py"
     "scripts/lib/agent-liveness.sh"
     "scripts/agent-liveness.sh"
     # THE OWNERSHIP LEDGER and the cross-repository worktree helper (2026-09-02).
-    # Both reasons at once: guard-worktree-isolation.sh BLOCKS a cwd spawn
-    # without scripts/lib/worktree-ledger.py (fail-closed), and the reaper,
-    # the spawn detector and the three lifecycle hooks degrade SOFTLY without
-    # it — every hand-rolled worktree reads UNRESOLVED and nothing is recorded
-    # — which is the 2026-09-01 engine, looking fine. The helper is the escape
-    # route the guard's refusal names.
+    # The ledger fails SOFT: the three handoff hooks record their advisory
+    # signals in it and degrade without it. The helper is how a cross-repository
+    # workspace is registered before it is created (points 1, 3), and the
+    # route the spawn guard's refusal names.
     "scripts/lib/worktree-ledger.py"
     "scripts/create-teammate-worktree.sh"
     # Cosmetic but buyer-facing: without it Beat 7's probe banner opens with
@@ -859,7 +839,10 @@ else
 fi
 
 set +e
-PROBE_OUT="$("$SAMPLE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1)"
+# The probe reads the SAME redirected config dir install.sh wrote above: the
+# sample repo is a sandbox, and a sandboxed probe does not judge the operator's
+# own machine (Layer Q7 reads the operator's launchd only for the real config).
+PROBE_OUT="$(CLAUDE_CONFIG_DIR="$SAMPLE_ROOT/.claude-config" "$SAMPLE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1)"
 PROBE_RC=$?
 set -e
 show_output "$PROBE_OUT"
