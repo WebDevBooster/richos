@@ -5,8 +5,8 @@
 # Until round 14 (2026-09-11) this was section 9 of root-contract.test.sh,
 # moved out whole and unchanged for one reason: TIME, and what time did to a
 # reviewer. Each hook here is run twice (a control arm with stdin closed, a
-# test arm with stdin open and never closed), the reaper's control arm alone
-# is ~14 s on this machine, and root-contract.mutation.sh replays the whole
+# test arm with stdin open and never closed), the (since removed) reaper's
+# control arm alone was ~14 s on this machine, and root-contract.mutation.sh replays the whole
 # inner suite for every root-contract mutant — seven times. So the parent
 # file took 713 s on a shared machine (Sage, round three), past the 600 s
 # ceiling of a single harness call; the harness moved the call to the
@@ -63,10 +63,11 @@ unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROO
 #
 # So: the real record's witness is taken FIRST (the library captures the real
 # paths at source time), then HOME moves into the sandbox, and every path the
-# reaper or the hooks resolve under HOME is named explicitly as well — belt
-# and braces, because one of them being missed is the whole class. Case 9l
-# proves the redirect is honored (the reaper names the SANDBOX paths in its
-# own output); case 9m proves the real record did not move. The runner's
+# hooks resolve under HOME is named explicitly as well — belt and braces,
+# because one of them being missed is the whole class. Case 9l proves the
+# redirect is honored (workspace-lifecycle.sh records the session under the
+# SANDBOX config directory); case 9m proves the real record did not move. The
+# reaper itself was removed with the workspace spec of 2026-09-11. The runner's
 # record canary (scripts/lib/record-canary.sh) is the backstop for every
 # suite; this is the suite that earned it.
 # ===========================================================================
@@ -94,7 +95,10 @@ export REAP_TEAM_DIR="$HOME/.claude/teams" RICHOS_TEAMS_DIR="$HOME/.claude/teams
 export REAP_LEDGER="$HOME/.claude/state/reap-known-repos.txt"
 export REAP_PROJECTS_DIR="$HOME/.claude/projects" RICHOS_PROJECTS_DIR="$HOME/.claude/projects"
 export RICHOS_SESSIONS_DIR="$HOME/.claude/sessions"
-export RICHOS_WORKTREE_TX_DIR="$HOME/.claude/state/worktree-transactions"
+export RICHOS_WORKSPACES_DIR="$HOME/.claude/state/workspaces"
+RICHOS_SESSION_PID="$(sh -c 'sleep 900 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
+trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 export RICHOS_WORKTREE_CAPTURE_DIR="$HOME/.claude/state/worktree-captures"
 
 # --- build the topology ----------------------------------------------------
@@ -315,7 +319,10 @@ say_hang() {
 }
 
 say_hang 9a engine-status.sh
-say_hang 9b session-start-reap-worktrees.sh
+# 9b — workspace-lifecycle.sh (docs/plans/worktree-spec-2026-09-11.md), which
+# took the SessionStart slot of the removed reaper. It NEEDS the payload (the
+# session id is the whole record), so it reads it with a bounded read.
+say_hang 9b workspace-lifecycle.sh
 # The snapshotter with --session must not read stdin at all: that is the exact
 # invocation the contract-integrity probe uses, and the exact one that hung.
 say_hang 9c snapshot-agent-definitions.sh --session cafe1234-0000
@@ -383,7 +390,7 @@ fi
 # scripts/lib/registered-hooks.sh exists: a hand-maintained inventory of what
 # is covered drifts, and a coverage claim over a stale inventory is exactly the
 # hole 9f and 9g fell through.
-COVERED="engine-status.sh session-start-reap-worktrees.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh session-start-ci-surface.sh"
+COVERED="engine-status.sh workspace-lifecycle.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh session-start-ci-surface.sh"
 # Read the SHIPPED registration surface, not the sandbox copy: the sandbox
 # engine is assembled from scripts/ and .claude*/ and deliberately has no
 # hooks/hooks.json, and the claim being made here is about what the host
@@ -417,23 +424,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 9l / 9m — BOTH ARMS OF THE REDIRECT (round 15). 9l POSITIVE: the reaper,
-# run exactly as 9b runs it but with its output kept, names the SANDBOX
-# ledger and the SANDBOX team directory in its own blind lines — so the paths
-# it resolved are provably under the moved HOME, not the operator's. It needs
-# a hand-rolled worktree of the session repository on disk, because the
-# ledger line is only printed when there is a hand-rolled candidate to judge.
-# 9m NEGATIVE: the operator's real record — ledger rows (except the
-# platform's per-turn `finished` rows), the fallback event log, the team
-# directory entries — is exactly as it was before HOME moved.
+# 9l / 9m — BOTH ARMS OF THE REDIRECT (round 15). 9l POSITIVE: with no
+# explicit registry, workspace-lifecycle.sh records a SessionStart under the
+# SANDBOX config directory -- so the path it resolved is provably under the
+# moved HOME, not the operator's. It is also 9b's partner, as 9d is 9c's: the
+# record needs the payload's session id, so "does not hang" cannot have been
+# satisfied by never reading the payload. 9m NEGATIVE: the
+# operator's real record -- ledger rows (except the platform's per-turn
+# `finished` rows), the fallback event log, the team directory entries, the
+# workspace registry -- is exactly as it was before HOME moved.
 # ---------------------------------------------------------------------------
-git -C "$SESSREPO" worktree add -q -b mark-opus-t1 "$SANDBOX/sessrepo-wt/mark-opus-t1" >/dev/null 2>&1
-run session-start-reap-worktrees.sh '' "CLAUDE_PROJECT_DIR=$SESSREPO"
-if printf '%s' "$OUT" | grep -q "no ownership ledger exists yet at $HOME/.claude/state/worktree-ledger.jsonl" \
-   && printf '%s' "$OUT" | grep -q "no inflight-repos.txt under $HOME/.claude/teams"; then
-    ok "9l POSITIVE  the reaper resolved the ownership ledger and the team directories under the SANDBOX home ($HOME) — the redirect is honored, not assumed"
+run workspace-lifecycle.sh '{"session_id":"aaaa5555-0000","cwd":"'"$SESSREPO"'","hook_event_name":"SessionStart"}' "CLAUDE_PROJECT_DIR=$SESSREPO" "RICHOS_WORKSPACES_DIR="
+if [ -f "$HOME/.claude/state/workspaces/sessions/aaaa5555-0000.json" ]; then
+    ok "9l POSITIVE  workspace-lifecycle.sh recorded the session under the SANDBOX home ($HOME) -- the redirect is honored, not assumed"
 else
-    bad "9l the reaper did not name the sandbox ledger and team directory in its blind lines (out=${OUT:0:600})"
+    bad "9l the session was not recorded under the sandbox config directory (out=${OUT:0:600})"
 fi
 TOUCHED="$(rc_escaped "$SANDBOX/real-record-baseline.txt")"
 if [ "$RC_HEALTHY" -eq 1 ] && [ -z "$TOUCHED" ]; then

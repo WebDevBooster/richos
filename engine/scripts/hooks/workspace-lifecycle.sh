@@ -53,7 +53,13 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-INPUT="$(cat)"
+# A BOUNDED read, never `cat`: this hook fires on SessionStart, and no
+# SessionStart hook may block on a stdin nobody closes (session-start-stdin.
+# test.sh). The platform closes stdin within milliseconds; a 225 KB payload
+# reads in under 0.1 s, so 3 s is ample. `-d ''` reads to EOF and returns
+# nonzero on a complete read, so the value is judged, never `$?`.
+INPUT=""
+IFS= read -r -t "${RICHOS_HOOK_STDIN_TIMEOUT:-3}" -d '' INPUT || true
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
