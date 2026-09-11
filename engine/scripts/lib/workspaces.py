@@ -2049,7 +2049,9 @@ def main(argv):
         return 0
     except SpecError as e:
         sys.stderr.write("workspaces: REFUSED — %s\n" % e)
-        return 2
+        # The Stop gate's exit 2 means "block the turn"; a refusal inside it
+        # is an evaluation failure, which the gate reports and never blocks on.
+        return 4 if a.cmd == "gate-stop" else 2
 
 
 if __name__ == "__main__":

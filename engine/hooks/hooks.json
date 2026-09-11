@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-reap-worktrees.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
             "timeout": 30
           }
         ]
@@ -65,6 +65,17 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-ci-surface.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
             "timeout": 15
           }
         ]
@@ -283,6 +294,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worker-created-handoff.sh",
             "timeout": 15
           }
@@ -291,6 +307,11 @@
       {
         "matcher": "SendMessage",
         "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
+            "timeout": 15
+          },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worker-updated-handoff.sh",
@@ -318,8 +339,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/terminalize-agent-worktrees.sh",
-            "timeout": 20
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
+            "timeout": 60
           }
         ]
       }
@@ -329,8 +350,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/record-subagent-start.sh",
-            "timeout": 15
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
+            "timeout": 20
           },
           {
             "type": "command",
@@ -345,24 +366,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/terminalize-agent-worktrees.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
             "timeout": 20
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worker-ended-handoff.sh",
             "timeout": 15
-          }
-        ]
-      }
-    ],
-    "WorktreeRemove": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/terminalize-agent-worktrees.sh",
-            "timeout": 20
           }
         ]
       }
@@ -385,6 +395,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/task-completed-handoff.sh",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/workspace-lifecycle.sh",
+            "timeout": 15
           }
         ]
       }
@@ -433,8 +448,8 @@
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-land-disposition.sh",
-            "timeout": 25
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-workspace-gate.sh",
+            "timeout": 60
           },
           {
             "type": "command",
