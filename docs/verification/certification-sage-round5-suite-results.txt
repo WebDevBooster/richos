@@ -1,0 +1,30 @@
+2026-09-11T03:24:58Z	rc=0	wall=35s	HEAD=15b872c3	home=scratch	wtr-harness-run1
+2026-09-11T03:25:45Z	rc=0	wall=35s	HEAD=15b872c3	home=scratch	wtr-harness-run2
+2026-09-11T03:27:06Z	rc=0	wall=28s	HEAD=15b872c3	home=scratch	worktree-ledger.test
+2026-09-11T03:27:34Z	rc=0	wall=38s	HEAD=15b872c3	home=scratch	wtr-harness-run3-underload
+2026-09-11T03:33:13Z	rc=0	wall=0s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	record-canary.test
+2026-09-11T03:33:13Z	rc=0	wall=2s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	run-all-tests.test
+2026-09-11T03:33:16Z	rc=0	wall=21s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	ci-shard.test
+2026-09-11T03:33:37Z	rc=0	wall=1s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	restart-after-terminal-measure.test
+2026-09-11T03:33:39Z	rc=0	wall=5s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	land-completeness.test
+2026-09-11T03:33:44Z	rc=0	wall=4s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	worker-lifecycle.test
+2026-09-11T03:33:48Z	rc=0	wall=5s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	finish-row-completion.test
+2026-09-11T03:33:54Z	rc=0	wall=3s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	process-identity.test
+2026-09-11T03:33:57Z	rc=0	wall=52s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	cleanup-routing-contract.test
+2026-09-11T03:35:19Z	rc=0	wall=34s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	daily-workspace-cleanup.test-unit
+2026-09-11T03:35:54Z	rc=0	wall=45s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	reconcile-terminal-worktrees.test-unit
+2026-09-11T03:36:39Z	rc=0	wall=97s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	worktree-adoption.test
+2026-09-11T03:38:17Z	rc=0	wall=72s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	guard-sealed-worktree.test
+2026-09-11T03:39:30Z	rc=0	wall=24s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	session-start-reap-worktrees.test
+2026-09-11T03:40:36Z	rc=0	wall=85s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	detect-nonnative-worktree.test
+2026-09-11T03:42:01Z	rc=0	wall=121s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	terminalize-agent-worktrees.test
+2026-09-11T03:44:02Z	rc=0	wall=94s	HEAD=15b872c3	home=scratch	record-untouched	healthy=1	workspace-retire.test
+2026-09-11T03:46:25Z	rc=0	wall=23s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	session-start-stdin.test
+2026-09-11T03:46:49Z	rc=0	wall=118s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	root-contract.test
+2026-09-11T03:48:47Z	rc=0	wall=120s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	worktree-transactions.test
+2026-09-11T03:50:48Z	rc=3	wall=40s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	contract-integrity.only-WTR
+2026-09-11T03:51:41Z	rc=0	wall=346s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	daily-workspace-cleanup.mutation
+2026-09-11T03:57:48Z	rc=0	wall=444s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	reconcile-terminal-worktrees.mutation
+2026-09-11T04:06:24Z	rc=0	wall=297s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	wti-harness-run1
+2026-09-11T04:12:22Z	rc=0	wall=417s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	reap-stale-worktrees.test
+2026-09-11T04:20:06Z	rc=0	wall=362s	HEAD=9b3bca0f	home=scratch	record-untouched	healthy=1	wti-harness-run2
