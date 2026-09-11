@@ -74,12 +74,12 @@
 #      modified since the session-start snapshot and ALLOWS an unchanged one
 #      (paired functional canaries — a negative test alone can pass for the
 #      wrong reason).
-#   Q. WORKTREE-REAPER CHAIN: SessionStart wires session-start-reap-worktrees.sh
-#      EXACTLY ONCE, and both it and the scripts/reap-stale-worktrees.sh it runs
-#      with --execute are present, executable and manifest-matched. A throwaway
-#      sandbox sweep then proves the reaper still REMOVES a merged/clean/unlocked
-#      agent worktree and still REFUSES one carrying uncommitted work (paired
-#      canaries; real worktrees are never touched).
+#   Q. THE WORKSPACE SPEC (docs/plans/worktree-spec-2026-09-11.md):
+#      workspace-lifecycle.sh wired exactly once on each of its six events, the
+#      Stop gate exactly once, every retired deleter wired nowhere, the registry
+#      and its hooks manifest-matched, and a sandboxed spawn -> commit -> finish
+#      that is locked out, holds the turn, and once merged is landed with its
+#      workspace and branch gone (real worktrees are never touched).
 #   R. THE ROOT-RESOLUTION CONTRACT is present, hashed, sourced by every rooted
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
@@ -157,7 +157,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # while looking in a repository that never had one.
 #
 #   ENGINE_ROOT   VERSION, scripts/hooks/*.sh, scripts/lib/*,
-#                 scripts/reap-stale-worktrees.sh   — what the engine SHIPS
+#                 scripts/workspaces.sh             — what the engine SHIPS
 #   ENTITY_ROOT   .claude/settings*.json, orchestration.config, the
 #                 PROTECTED_PATHS canary            — what the engine GOVERNS
 _RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
@@ -384,7 +384,7 @@ run_layer_R() {
     guard-vendoring-commits \
     guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
-    session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
+    workspace-lifecycle guard-workspace-gate snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     notice-mechanical-findings \
@@ -398,7 +398,7 @@ run_layer_R() {
     guard-stated-actions \
     notice-escalations session-start-escalations \
     commit-ceo-inputs notice-ceo-inputs-unheld \
-    notice-unlanded-branches notice-land-disposition"
+    notice-unlanded-branches"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -470,12 +470,13 @@ run_layer_R() {
 
 # run_layer_AL — Layer AL, the LIVENESS RESOLVER, as a function.
 #
-# Mode-independent, for run_layer_R's reason one step over. Three callers now
+# Mode-independent, for run_layer_R's reason one step over. Two callers
 # delegate the whole question "is this agent alive?" to
-# scripts/lib/agent-liveness.{py,sh}: remove-agent-worktree.sh, which DELETES a
-# worktree on the answer; guard-agent-state-claims.sh, which contradicts the
-# lead's report on the answer; and scripts/agent-liveness.sh, the call an
-# operator makes before saying anything about an agent's state.
+# scripts/lib/agent-liveness.{py,sh}: guard-agent-state-claims.sh, which
+# contradicts the lead's report on the answer, and scripts/agent-liveness.sh,
+# the call an operator makes before saying anything about an agent's state. No
+# workspace is deleted on its answer: the workspace spec asks no liveness
+# question, and its only deleters are land and discard.
 #
 # On 2026-08-31 the lead told the CEO a LIVE agent had completed, because he
 # read a stale roster instead of this answer. A tampered or reverted resolver
@@ -818,7 +819,7 @@ run_layer_AL() {
     done
 
     if [ -n "$AL_MISSING" ]; then
-        emit_fail "AL. the agent-liveness resolver is MISSING:$AL_MISSING. remove-agent-worktree.sh, guard-agent-state-claims.sh and scripts/agent-liveness.sh all decide nothing themselves — without it the removal helper refuses every removal and the claim check stops running."
+        emit_fail "AL. the agent-liveness resolver is MISSING:$AL_MISSING. guard-agent-state-claims.sh and scripts/agent-liveness.sh decide nothing themselves — without it the claim check stops running."
         AL_OK=0
     fi
     if [ -n "$AL_UNHASHED" ]; then
@@ -858,7 +859,7 @@ run_layer_AL() {
             AL_V_IND="$(python3 "$AL_PY" --entity "$AL_SB/not-a-repo" --owner aprobe0000000001 --format triple 2>/dev/null | cut -f1)"
             rm -rf "$AL_SB"
             if [ "$AL_V_LIVE" != "ALIVE" ]; then
-                emit_fail "AL. FUNCTIONAL CANARY: a worktree locked by a RUNNING pid resolved '$AL_V_LIVE', not ALIVE. The resolver is gutted — remove-agent-worktree.sh would now delete a live teammate's workspace, and no claim about an agent's state is being checked against anything."
+                emit_fail "AL. FUNCTIONAL CANARY: a worktree locked by a RUNNING pid resolved '$AL_V_LIVE', not ALIVE. The resolver is gutted — no claim about an agent's state is being checked against anything."
                 AL_OK=0
             elif [ "$AL_V_GONE" != "NOT-ALIVE" ]; then
                 emit_fail "AL. FUNCTIONAL CANARY: an unregistered worktree resolved '$AL_V_GONE', not NOT-ALIVE. A resolver that never says NOT-ALIVE refuses every removal, and an operator who cannot remove anything reaches for the ack override."
@@ -985,7 +986,8 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # two days uncounted by anything.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
-session-start-reap-worktrees.sh|SessionStart
+workspace-lifecycle.sh|SessionStart
+workspace-lifecycle.sh|SessionEnd
 snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
@@ -1025,19 +1027,19 @@ worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
 notice-inflight-sends.sh|PostToolUse
 notice-ceo-asks.sh|PostToolUse
-record-subagent-start.sh|SubagentStart
+workspace-lifecycle.sh|PostToolUse
+workspace-lifecycle.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
-terminalize-agent-worktrees.sh|SubagentStop
-terminalize-agent-worktrees.sh|WorktreeRemove
-terminalize-agent-worktrees.sh|PostToolUse
+workspace-lifecycle.sh|SubagentStop
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted
+workspace-lifecycle.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-unlanded-branches.sh|Stop
-notice-land-disposition.sh|Stop
+guard-workspace-gate.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
@@ -1935,16 +1937,6 @@ CANONICAL_IDLELAND_PY="$REPO_ROOT/scripts/hooks/guard-idle-land.py"
 CANONICAL_INTERACTIVE_LIB="$REPO_ROOT/scripts/lib/interactive-prompt.py"
 CANONICAL_DRIFTGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
 CANONICAL_DEFSNAPSHOT_HOOK="$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
-CANONICAL_REAPHOOK="$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
-# The SECOND trigger of the same reaper, and it is not redundant with the one
-# above. A hand-rolled worktree takes no lock, so the reaper judges its OWNER
-# from the owner's native isolation-worktree lock — and that native worktree is
-# removed at land time. At agent-finish the evidence still exists; an hour later
-# it does not. A session-start-only reaper is therefore structurally incapable
-# of ever deciding a hand-rolled worktree, however often it runs.
-# NOT under scripts/hooks/ — this is the half of the reaper chain that actually
-# removes worktrees and deletes branches (Layer Q hashes all three).
-CANONICAL_REAPER="$REPO_ROOT/scripts/reap-stale-worktrees.sh"
 CANONICAL_AGENT_CHAIN=(
     "$REPO_ROOT/scripts/hooks/guard-worktree-isolation.sh"
     "$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
@@ -2717,7 +2709,11 @@ CANON = [
     "detect-nonnative-worktree.sh",
     "teammate-idle-handoff.sh",
     "task-completed-handoff.sh",
-    "session-start-reap-worktrees.sh",
+    # The Stop gate of the workspace spec. BLOCKING, and registered twice it
+    # would print the same pending-work refusal twice, which reads as twice the
+    # work. workspace-lifecycle.sh is registered once on EACH of six events by
+    # design, so BR2 counts it per event and this list does not name it.
+    "guard-workspace-gate.sh",
     # The worker-lifecycle emitters. They are append-only loggers, which is
     # exactly the class that MAKES a double-registration visible (byte-identical
     # duplicate lines) — and exactly the class a consumer would then read as two
@@ -3193,530 +3189,223 @@ elif [ "$P_OK" -eq 1 ]; then
     emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — a half is missing/non-executable, mktemp is unavailable, or a prior P check already failed. Wiring is verified; BEHAVIOR IS NOT."
 fi
 
-# --- Layer Q: THE WORKTREE LIFECYCLE at session start — the wrapper is
-# RECOVERY + INVENTORY and holds NO destructive authority (HARD gate) ---
+# --- Layer Q: THE WORKSPACE SPEC is wired, hashed, and does what the page says
+# (HARD gate) ---
 #
-# THE CHAIN, since 2026-09-03 (docs/plans/worktree-real-fix-2026-09-03.md):
-#   SessionStart -> session-start-reap-worktrees.sh
-#                     -> scripts/reconcile-terminal-worktrees.py --max-seconds N
-#                        (crash recovery for terminal worktree transactions)
-#                     -> scripts/reap-stale-worktrees.sh          (DRY-RUN inventory)
-# Until then the wrapper ran the reaper with --execute at every session start
-# and on every TeammateIdle/TaskCompleted: a sweep that DECIDED, from locks,
-# names and transcripts, whether an agent might return, and removed its
-# worktree when it decided not. Nine rounds of that failed in nine shapes, the
-# last by removing a live agent's worktree. The ruling: the system stops
-# discovering whether an agent might return; it is forbidden to return.
-# Removal is now the terminal ingress (SubagentStop / WorktreeRemove) plus the
-# reconciler, on a transaction bound at spawn to the platform's agent id.
-#
-# WHY A HARD GATE, AND WHAT IT ASSERTS NOW: the two failure modes are still
-# asymmetric and still invisible, but they have moved. GUTTED: the wrapper runs
-# no reconciler, so a transaction a crash left mid-way sits in quarantine until
-# launchd happens to be installed — nothing reports it. OVER-REACHING: a
-# wrapper that passes --execute again is the old sweep, back, deleting a live
-# agent's worktree with every guard reporting green. So Layer Q proves, in a
-# throwaway sandbox: the wrapper REMOVES NOTHING on its own (a merged, clean,
-# unlocked native worktree survives session start), and it DOES complete a
-# terminal transaction left at `quarantined` (captured, verified, removed). It
-# also proves the retired agent-finish trigger is registered NOWHERE.
-#
-# SIDE-EFFECT SAFETY: the canary NEVER runs against this repo. REAP_WORKTREES_ROOT
-# (test-only override, see the wrapper's header) retargets the sweep at a
-# throwaway git repo built under mktemp, while the wrapper still resolves and
-# runs the canonical, manifest-verified reaper. Real worktrees are untouched.
-REAPHOOK_HITS=0
-REAPHOOK_WIRED_CMD=""
-for c in "${SESSIONSTART_CMDS[@]}"; do
-    RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
-    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
-    WIRED_PATH_C="${RESOLVED_C%% *}"
-    if [ "$(realpath_of "$WIRED_PATH_C")" = "$(realpath_of "$CANONICAL_REAPHOOK")" ]; then
-        [ -z "$REAPHOOK_WIRED_CMD" ] && REAPHOOK_WIRED_CMD="$RESOLVED_C"
-        REAPHOOK_HITS=$((REAPHOOK_HITS+1))
-    fi
-done
-
+# docs/plans/worktree-spec-2026-09-11.md, the CEO's workspace spec, has two
+# events: a workspace is registered when its agent is spawned, and every
+# workspace and branch it has is deleted when its work is landed or discarded.
+# scripts/lib/workspaces.py implements it; workspace-lifecycle.sh records the
+# platform's facts on six events; guard-workspace-gate.sh is the Stop half of
+# point 5. Until 2026-09-11 this layer proved a SessionStart reaper and a nightly
+# reconciler; both are gone, and so are the in-event terminal reclaim, the
+# adoption pass and the daily lane. So Layer Q now proves:
+#   Q1  workspace-lifecycle.sh is registered exactly once on each of its six
+#       events, and on PostToolUse for Agent, TaskStop AND SendMessage; the
+#       Stop gate exactly once; and every RETIRED deleter hook is wired nowhere;
+#   Q2  the registry, its command, the hook and the gate are present and match
+#       their manifests (the registry is the only code that deletes a workspace);
+#   Q3  a FUNCTIONAL canary, in a sandbox with HOME and CLAUDE_CONFIG_DIR
+#       redirected: a spawned, committed, finished agent refuses the end of the
+#       turn; once merged, the same gate lands it, and its workspace and branch
+#       are gone; the finished agent is refused every tool;
+#   Q7  the retired nightly reconciler is not loaded under launchd (macOS, the
+#       operator's own account only; a sandboxed run cannot see it and says so).
 Q_OK=1
-# Q1 — SessionStart wrapper wired exactly once.
-if [ "$REAPHOOK_HITS" -eq 0 ]; then
-    emit_fail "Q. SessionStart worktree reaper (session-start-reap-worktrees.sh) NOT wired in settings.local.json — landed teammate worktrees will accumulate silently again. Restore: git checkout -- .claude/settings.local.json"
-    Q_OK=0
-elif [ "$REAPHOOK_HITS" -gt 1 ]; then
-    emit_fail "Q. session-start-reap-worktrees.sh wired ${REAPHOOK_HITS}x under SessionStart — expected exactly 1 (double-fire: two concurrent --execute sweeps of the same worktree set). Remove the duplicate stanza from .claude/settings.local.json."
-    Q_OK=0
-fi
+CANONICAL_WS_LIB="$REPO_ROOT/scripts/lib/workspaces.py"
+CANONICAL_WS_CLI="$REPO_ROOT/scripts/workspaces.sh"
+CANONICAL_WS_HOOK="$REPO_ROOT/scripts/hooks/workspace-lifecycle.sh"
+CANONICAL_WS_GATE="$REPO_ROOT/scripts/hooks/guard-workspace-gate.sh"
 
-# Q1b — the RETIRED agent-finish trigger is wired NOWHERE. TeammateIdle and
-# TaskCompleted are diagnostic only (every one of their 580 ledger rows is a
-# test fixture; never fired for a real agent) and hold no destructive
-# authority. A stanza that brings the old sweep back on either event is the
-# defect, and it would be invisible: the hook is log-only and fail-open, so it
-# would announce nothing while deleting.
-# Read the plugin hook table HERE rather than borrowing Layer R's parse: Layer R
-# runs after this one, so BR_HOOKS_ROWS is unset at this point and a check that
-# read it would silently see an empty table and pass.
-Q_FINISH_IDLE=0
-Q_FINISH_TASK=0
-Q_HOOKS_JSON="$ENGINE_ROOT/hooks/hooks.json"
-if [ -f "$Q_HOOKS_JSON" ] && command -v python3 >/dev/null 2>&1; then
-    Q_FINISH_COUNTS="$(python3 - "$Q_HOOKS_JSON" <<'PY' 2>/dev/null || true
-import json, sys
+Q_WIRING="$(python3 - "$SETTINGS" <<'PY' 2>/dev/null || true
+import json, os, sys
 try:
     d = json.load(open(sys.argv[1], encoding="utf-8"))
 except Exception:
-    sys.exit(0)
-needle = "scripts/hooks/agent-finished-reap-worktrees.sh"
-for event in ("TeammateIdle", "TaskCompleted"):
-    n = 0
-    for entry in d.get("hooks", {}).get(event, []) or []:
-        for h in entry.get("hooks", []) or []:
-            if needle in str(h.get("command", "")):
-                n += 1
-    print(n)
+    print("ERROR\tsettings unparseable"); sys.exit(0)
+hooks = d.get("hooks") or {}
+life, gate, retired, post_matchers = {}, 0, [], []
+RETIRED = ("session-start-reap-worktrees.sh", "terminalize-agent-worktrees.sh", "record-subagent-start.sh",
+           "notice-land-disposition.sh", "agent-finished-reap-worktrees.sh")
+for event, entries in hooks.items():
+    for entry in entries or []:
+        for h in entry.get("hooks") or []:
+            base = os.path.basename((h.get("command") or "").split()[-1] if (h.get("command") or "").split() else "")
+            if base == "workspace-lifecycle.sh":
+                life[event] = life.get(event, 0) + 1
+                if event == "PostToolUse":
+                    post_matchers.append(entry.get("matcher") or "")
+            elif base == "guard-workspace-gate.sh" and event == "Stop":
+                gate += 1
+            elif base in RETIRED:
+                retired.append("%s on %s" % (base, event))
+for event in ("SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "TaskCompleted", "PostToolUse"):
+    print("LIFE\t%s\t%d" % (event, life.get(event, 0)))
+import re
+for tool in ("Agent", "TaskStop", "SendMessage"):
+    hit = any(re.fullmatch(m, tool) for m in post_matchers if m)
+    print("POST\t%s\t%d" % (tool, 1 if hit else 0))
+print("GATE\t%d" % gate)
+for r in retired:
+    print("RETIRED\t%s" % r)
 PY
-    )"
-    Q_FINISH_IDLE="$(printf '%s\n' "$Q_FINISH_COUNTS" | sed -n '1p')"
-    Q_FINISH_TASK="$(printf '%s\n' "$Q_FINISH_COUNTS" | sed -n '2p')"
-    [ -n "$Q_FINISH_IDLE" ] || Q_FINISH_IDLE=0
-    [ -n "$Q_FINISH_TASK" ] || Q_FINISH_TASK=0
+)"
+Q_WIRE_PROBLEMS=""
+while IFS=$'\t' read -r _k _a _b; do
+    case "$_k" in
+        LIFE) [ "$_b" = "1" ] || Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [workspace-lifecycle.sh registered ${_b}x on $_a, expected 1]" ;;
+        POST) [ "$_b" = "1" ] || Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [workspace-lifecycle.sh does not see PostToolUse[$_a]]" ;;
+        GATE) [ "$_a" = "1" ] || Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [guard-workspace-gate.sh registered ${_a}x on Stop, expected 1]" ;;
+        RETIRED) Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [a retired deleter is wired: $_a]" ;;
+        ERROR) Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [$_a]" ;;
+    esac
+done <<Q_EOF
+$Q_WIRING
+Q_EOF
+if [ -z "$Q_WIRING" ]; then
+    Q_WIRE_PROBLEMS="$Q_WIRE_PROBLEMS [the wiring could not be read from $SETTINGS]"
 fi
-if [ "$Q_FINISH_IDLE" -ne 0 ] || [ "$Q_FINISH_TASK" -ne 0 ]; then
-    emit_fail "Q. agent-finished-reap-worktrees.sh is wired ${Q_FINISH_IDLE}x on TeammateIdle and ${Q_FINISH_TASK}x on TaskCompleted — expected 0 of each. That hook was RETIRED on 2026-09-03: TeammateIdle and TaskCompleted are diagnostic only and hold no destructive authority; the only removal path is the terminal ingress (terminalize-agent-worktrees.sh) plus the reconciler. Remove the stanzas from hooks/hooks.json."
+if [ -n "$Q_WIRE_PROBLEMS" ]; then
+    emit_fail "Q. the workspace spec is not wired as it must be:$Q_WIRE_PROBLEMS. Restore: git checkout -- .claude/settings.local.json hooks/hooks.json"
     Q_OK=0
 fi
 
-# Q2 — all three parts present + executable, sidecars current: the wrapper,
-# the inventory it runs dry, and the reconciler it runs for recovery.
-CANONICAL_RECONCILER="$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
-for pair in "reaper-hook|$CANONICAL_REAPHOOK" "inventory|$CANONICAL_REAPER" "reconciler|$CANONICAL_RECONCILER"; do
+for pair in "registry|$CANONICAL_WS_LIB" "command|$CANONICAL_WS_CLI" "lifecycle hook|$CANONICAL_WS_HOOK" "Stop gate|$CANONICAL_WS_GATE"; do
     Q_LABEL="${pair%%|*}"
-    Q_HOOK="${pair#*|}"
-    if [ ! -f "$Q_HOOK" ] || { [ "$Q_LABEL" != "reconciler" ] && [ ! -x "$Q_HOOK" ]; }; then
-        emit_fail "Q. $Q_LABEL not found / not executable: $Q_HOOK"
+    Q_FILE="${pair#*|}"
+    if [ ! -f "$Q_FILE" ] || { [ "$Q_LABEL" != "registry" ] && [ ! -x "$Q_FILE" ]; }; then
+        emit_fail "Q. $Q_LABEL not found / not executable: $Q_FILE"
         Q_OK=0
         continue
     fi
-    Q_HASH="$(sha256_of "$(realpath_of "$Q_HOOK")")"
-    Q_MANIFEST="$(manifest_hash_of "$Q_HOOK")"
-    if [ -z "$Q_HASH" ]; then
-        emit_fail "Q. $Q_LABEL content hash could not be computed"
-        Q_OK=0
-    elif [ -z "$Q_MANIFEST" ]; then
-        emit_fail "Q. $Q_LABEL manifest missing or unreadable: $Q_HOOK.sha256 — run scripts/hooks/install.sh to regenerate."
+    Q_HASH="$(sha256_of "$(realpath_of "$Q_FILE")")"
+    Q_MANIFEST="$(manifest_hash_of "$Q_FILE")"
+    if [ -z "$Q_MANIFEST" ]; then
+        emit_fail "Q. $Q_LABEL manifest missing or unreadable: $Q_FILE.sha256 — run scripts/hooks/install.sh to regenerate."
         Q_OK=0
     elif [ "$Q_HASH" != "$Q_MANIFEST" ]; then
-        emit_fail "Q. $Q_LABEL content hash mismatch — live script differs from manifest (tamper or stale manifest). Expected $Q_MANIFEST, got $Q_HASH. Run scripts/hooks/install.sh and review the diff — the reconciler is the one script that deletes a worktree directory."
+        emit_fail "Q. $Q_LABEL content hash mismatch — live file differs from manifest (tamper or stale manifest). Expected $Q_MANIFEST, got $Q_HASH. Run scripts/hooks/install.sh and review the diff — the registry is the only code that deletes a workspace."
         Q_OK=0
     fi
 done
 
-# Q3 — PAIRED functional canaries in a throwaway git sandbox, both arms:
-#   NO DESTRUCTIVE AUTHORITY  a merged, clean, unlocked native worktree — the
-#                             exact shape the old sweep removed — SURVIVES the
-#                             wrapper. A wrapper that passes --execute again
-#                             turns this red.
-#   RECOVERY                  a terminal transaction left at `quarantined` (as
-#                             a crash between the ingress and the reconciler
-#                             leaves it) is CARRIED FORWARD by the wrapper:
-#                             captured, then verified, with the archive on
-#                             disk. A wrapper that runs no reconciler turns
-#                             this red.
-#   RETENTION                 ...and the quarantine and its Git registration
-#                             are still THERE afterwards, because automatic
-#                             erasure is disabled. A path that deletes them
-#                             again turns this red.
-# The transaction store and the capture directory are pinned inside the
-# sandbox; the wrapper's inventory is pinned by REAP_WORKTREES_ROOT as before.
-#
-# ===========================================================================
-# THE END STATE CHANGED ON 2026-09-06 AND THIS LAYER HAD NOT (esc-20260906T045828Z-ff83c1e6)
-# ===========================================================================
-# Until this revision the RECOVERY arm asserted the member reached `removed`
-# and the quarantine was GONE. Commit a6c076c retired exactly that: after the
-# repeated reviews of the worktree-container deletion, the managed cleanup
-# paths preserve workspaces and refuse automatic erasure, because no process
-# scan and no final content check can exclude a concurrent writer
-# (docs/workspace-retirement-safety.md). `unregister_member` and
-# `remove_member` in reconcile-terminal-worktrees.py now raise
-# `exclusive-access-unavailable: automatic erasure is disabled; quarantine and
-# Git registration are retained`, so `verified` is the terminal member state.
-#
-# a6c076c did not touch this file. The layer therefore went on asserting a
-# rule the engine had deliberately dropped, and because EVERY
-# `<case>-probe-passes` case in contract-integrity.test.sh runs the whole
-# probe and expects exit 0, one stale layer put a FAIL on 21 of them.
-#
-# THIS IS NOT A RELAXATION, AND THE DIFFERENCE MATTERS. The old arm checked
-# three things (state, quarantine gone, an archive exists). This one checks
-# SIX, and every one of them is something a gutted recovery path would fail:
-#   1. before the wrapper runs, the member is at `quarantined` with NO archive
-#      — the negative control, in the same sandbox, so a canary that was
-#      already in its end state cannot report success for doing nothing;
-#   2. after, the member is at `verified`;
-#   3. `verified_ts` and `verified_files` are set, so the state was EARNED by
-#      the re-read rather than written over nothing;
-#   4. the archive is on disk and non-empty;
-#   5. the quarantine directory and its Git registration are BOTH still there;
-#   6. the member's `blocked_reason` names the disabled-erasure policy — so
-#      retention is the declared decision and not a remover that crashed.
-# If erasure ever comes back, 5 and 6 go red together and this layer says so.
-if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER" ] && [ -f "$CANONICAL_RECONCILER" ] \
-   && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-    Q_DIR="$(cd "$(mktemp -d -t contract-integrity-reap.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
+if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1 \
+   && command -v python3 >/dev/null 2>&1; then
+    Q_DIR="$(cd "$(mktemp -d -t contract-integrity-workspaces.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
     if [ -n "$Q_DIR" ]; then
-        Q_REPO="$Q_DIR/repo"
-        Q_SURVIVOR="$Q_REPO/.claude/worktrees/agent-q0000001"
-        Q_TERMINAL="$Q_REPO/.claude/worktrees/agent-q0000002"
-        Q_SID="q3canary-0000-4000-8000-000000000000"
-        Q_AID="q0000002"
-        Q_TX_PY="$ENGINE_ROOT/scripts/lib/worktree-transactions.py"
-        Q_SANDBOX_OK=1
-        Q_WHY=""
-        Q_ERR=""
-        Q_DIAG=""
-        Q_STEP_ERR="$Q_DIR/step.err"
-
-        # ===================================================================
-        # EVERY STEP OF THIS FIXTURE NAMES ITSELF (2026-09-10)
-        # ===================================================================
-        # Until this revision the steps below were a column of
-        # `... >/dev/null 2>&1 || Q_SANDBOX_OK=0`, and exactly one of them
-        # (the historical-format edit) set Q_WHY. So when the fixture broke,
-        # the layer said "a step of the throwaway fixture FAILED" — no step,
-        # no reason, and the step's own stderr thrown away by the 2>&1 that
-        # was there to keep the run quiet. This layer then sat red across
-        # three landed merges, two of which rewrote the very files it covers,
-        # and identifying the failing step needed a hand-built replica of the
-        # fixture. A diagnostic that cannot say what failed is not a
-        # diagnostic; q_step keeps the run quiet AND keeps the words.
-        #
-        # First failure wins: once the sandbox is broken every later step
-        # fails for a derived reason, and the FIRST one is the cause.
-        q_step() { # <what this step is, in words> <command...>
-            local _q_name="$1"; shift
-            [ "$Q_SANDBOX_OK" -eq 1 ] || return 0
-            if ! "$@" >/dev/null 2>"$Q_STEP_ERR"; then
-                Q_SANDBOX_OK=0
-                Q_WHY="$_q_name"
-                if [ -s "$Q_STEP_ERR" ]; then
-                    Q_ERR="$(tail -3 "$Q_STEP_ERR" | tr '\n' ' ')"
-                fi
-            fi
-            return 0
-        }
-        # Two shapes q_step cannot take as a bare argv: a redirection and a
-        # pipeline. Named functions rather than `bash -c`, so the failing
-        # step's stderr is still the tool's own.
-        q_write_file() { printf '%s\n' "$2" >"$1"; }
-        q_tx_intent() {
-            printf '{"kind":"native","teammate":"q3-opus-canary","externals":[]}' \
-              | RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" intent --session-id "$Q_SID" --tool-use-id tu-q3
-        }
-
-        q_step "creating the sandbox worktree directory" \
-            mkdir -p "$Q_REPO/.claude/worktrees"
-        q_step "git init of the throwaway repository" \
-            git -C "$Q_REPO" init -q -b main
-        # A LOCAL IDENTITY, as layers AL and IL already set for their fixtures.
-        # Without one this fixture inherits the ambient identity, and where
-        # there is none (a container, a runner, or any caller that neutralized
-        # GIT_CONFIG_GLOBAL) `git commit` exits 128 and this whole canary
-        # reports DID NOT RUN — a probe that looks complete with the reaper
-        # unverified. Fixing it here rather than demanding an identity of every
-        # caller: the fixture is thrown away, so whose name is on its commits
-        # is nobody's business but this canary's.
-        q_step "setting the fixture's own user.email" \
-            git -C "$Q_REPO" config user.email probe@probe.invalid
-        q_step "setting the fixture's own user.name" \
-            git -C "$Q_REPO" config user.name probe
-        # AND AMBIENT GIT HOOKS NEUTRALIZED — the half layers AL and IL have
-        # had since 2026-08-31 and this fixture never got.
-        #
-        # THE INCIDENT, because the two halves above and below are a matched
-        # pair and removing either one breaks a different platform. 4a0e1194
-        # (2026-09-10) added the local identity to fix Linux, where a caller
-        # that neutralizes GIT_CONFIG_GLOBAL leaves no identity at all. On
-        # THIS machine a global core.hooksPath (git-identity-guard, installed
-        # 2026-08-28) refuses any commit whose committer is not the operator's
-        # own address — so the identity that rescued Linux is precisely what
-        # the ambient hook rejects, `git commit` exits 1, and Layer Q went red
-        # within hours of the fix landing and stayed red.
-        #
-        # A fixture that reads the operator's git configuration is not a
-        # fixture. The commit belongs to a throwaway repository that exists
-        # for four seconds; no ambient hook has any business inspecting it,
-        # and pointing core.hooksPath at an empty directory is how AL and IL
-        # already say so. This is NOT the canary asking less: the assertions
-        # below are untouched, and what changed is only that the sandbox now
-        # gets built on every machine instead of one.
-        q_step "creating the empty hooks directory that neutralizes ambient git hooks" \
-            mkdir -p "$Q_DIR/nohooks"
-        q_step "pointing the fixture's core.hooksPath at that empty directory" \
-            git -C "$Q_REPO" config core.hooksPath "$Q_DIR/nohooks"
-        q_step "writing the seed file" \
-            q_write_file "$Q_REPO/seed.txt" seed
-        q_step "git add of the seed file" \
-            git -C "$Q_REPO" add seed.txt
-        q_step "the sandbox seed commit" \
-            git -C "$Q_REPO" commit -q -m "probe sandbox seed"
-        q_step "adding the survivor worktree (the must-not-be-removed arm)" \
-            git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000001 "$Q_SURVIVOR"
-        q_step "adding the terminal worktree (the recovery arm)" \
-            git -C "$Q_REPO" worktree add -q -b worktree-agent-q0000002 "$Q_TERMINAL"
-        q_step "writing the evidence file inside the terminal worktree" \
-            q_write_file "$Q_TERMINAL/evidence.txt" evidence
-        # a sealed, claimed transaction for the second tree, left at quarantined
-        q_step "the transaction intent record" \
-            q_tx_intent
-        q_step "binding the transaction to the agent id" \
-            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" bind --session-id "$Q_SID" --tool-use-id tu-q3 --agent-id "$Q_AID"
-        q_step "the transaction start record" \
-            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" start --session-id "$Q_SID" --agent-id "$Q_AID" --cwd "$Q_TERMINAL"
-        q_step "sealing the transaction" \
-            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" seal --session-id "$Q_SID" --agent-id "$Q_AID"
-        # This arm tests recovery of a historical quarantine. New native
-        # seals explicitly belong to Claude and must never be renamed by
-        # RichOS. Model the old record format only inside this disposable
-        # store, rather than asking current platform-owned code to violate
-        # its ownership contract just to manufacture a quarantine.
-        #
-        # A record is "new format" by TWO independent markers and a
-        # historical one predates BOTH:
-        #   cleanup_owner                     routes terminalize() into the
-        #                                     platform-owned branch, which
-        #                                     never renames anything;
-        #   cleanup_policy=integrated-daily   makes terminalize() skip
-        #                                     save_ref+quarantine even once
-        #                                     the first marker is gone.
-        # This fixture stripped only the first, because the second did not
-        # exist when it was written (2afb9703 added it). The member then sat
-        # at `bound` with no quarantine, the guard below fell through, and
-        # the canary reported "could not be built" — six assertions silently
-        # not evaluated. Both markers are asserted present before removal, so
-        # a THIRD marker arriving later fails this fixture loudly instead of
-        # quietly leaving the old format unmodeled, and the result is read
-        # back and put to the module's own predicate rather than assumed.
-        #
-        # Written to a file rather than fed on stdin so that it can go through
-        # q_step like every other step and carry its own assertion text into
-        # the failure message.
-        cat >"$Q_DIR/fixture.py" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location('historical_probe_fixture', sys.argv[1])
-tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
-record = tx.load_tx(sys.argv[2], sys.argv[3])
-assert record['sealed'] and len(record['members']) == 1, record
-member = record['members'][0]
-assert member['class'] == 'native', 'class: %r' % member.get('class')
-assert member['cleanup_owner'] == 'claude-code', 'cleanup_owner: %r' % member.get('cleanup_owner')
-assert member['cleanup_policy'] == 'integrated-daily', 'cleanup_policy: %r' % member.get('cleanup_policy')
-del member['cleanup_owner']
-del member['cleanup_policy']
-tx.atomic_write_json(tx.tx_path(sys.argv[2], sys.argv[3]), record)
-back = tx.load_tx(sys.argv[2], sys.argv[3])['members'][0]
-assert 'cleanup_owner' not in back and 'cleanup_policy' not in back, back
-assert not tx.platform_native(back), back
-PY
-        q_step "the historical-format fixture edit" \
-            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_DIR/fixture.py" "$Q_TX_PY" "$Q_SID" "$Q_AID"
-        q_step "claiming the transaction at the terminal ingress" \
-            env RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" claim --session-id "$Q_SID" --agent-id "$Q_AID" --ingress SubagentStop
-        Q_QUAR="$Q_TERMINAL.richos-terminal-${Q_SID:0:8}-$Q_AID"
-
-        if [ "$Q_SANDBOX_OK" -eq 1 ] && [ -d "$Q_SURVIVOR" ] && [ -d "$Q_QUAR" ]; then
+        Q_PROBLEMS=""
+        Q_ENT="$Q_DIR/entity"
+        Q_SB=1
+        mkdir -p "$Q_ENT" "$Q_DIR/home/.claude" 2>/dev/null || Q_SB=0
+        git -C "$Q_ENT" init -q -b main >/dev/null 2>&1 || Q_SB=0
+        cp "$REPO_ROOT/orchestration.config" "$Q_ENT/orchestration.config" 2>/dev/null || Q_SB=0
+        printf '.claude/\n' >"$Q_ENT/.gitignore"
+        git -C "$Q_ENT" add -A >/dev/null 2>&1 || Q_SB=0
+        git -C "$Q_ENT" -c user.name=probe -c user.email=probe@example.invalid commit -q -m seed >/dev/null 2>&1 || Q_SB=0
+        Q_SESS_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+        q_env() { env HOME="$Q_DIR/home" CLAUDE_CONFIG_DIR="$Q_DIR/home/.claude" RICHOS_ENTITY_ROOT="$Q_ENT" \
+                      RICHOS_SESSION_PID="$Q_SESS_PID" RICHOS_WORKSPACES_SPAWN_WINDOW=0 SEAL_WAIT_SECONDS=0 \
+                      GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=probe GIT_AUTHOR_EMAIL=probe@example.invalid \
+                      GIT_COMMITTER_NAME=probe GIT_COMMITTER_EMAIL=probe@example.invalid "$@"; }
+        q_hook() { # <hook> <json> -> Q_RC
             set +e
-            # The canary asserts CORRECTNESS, not latency: the wrapper's default
-            # 20s recovery budget is a session-start bound, and under a loaded
-            # machine (several suites at once) a budget cut turned this arm red
-            # for a reason that had nothing to do with recovery. The budget is
-            # pinned generously here; W11 of the wrapper's own suite proves the
-            # budget itself is honored.
-            # NEGATIVE CONTROL, read in this same sandbox BEFORE the wrapper
-            # runs. Every assertion below is of the form "the member got
-            # further than it was", and that phrase is empty unless somebody
-            # checks where it started. If the fixture were already at
-            # `verified` with an archive on disk, the arms below would report a
-            # recovery that never happened — the failure class this engine has
-            # recorded five instances of. Two file reads; it costs nothing.
-            Q_TAR="$Q_DIR/captures/$Q_SID/$Q_AID/member-0/tree.tar"
-            Q_STATE_PRE="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
-            Q_PRE_OK=1
-            [ "$Q_STATE_PRE" = "quarantined" ] || Q_PRE_OK=0
-            [ -e "$Q_TAR" ] && Q_PRE_OK=0
-            Q_OUT="$(REAP_WORKTREES_ROOT="$Q_REPO" RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" RICHOS_WORKTREE_CAPTURE_DIR="$Q_DIR/captures" \
-                     RICHOS_RECONCILE_SETTLE=0.2 SESSION_START_RECONCILE_BUDGET=300 "$CANONICAL_REAPHOOK" </dev/null 2>/dev/null)"
-            q_rc=$?
-            # THE RECOVERY OWNER MOVED, SO THE CANARY FOLLOWS IT. Until
-            # 28f07ab5 the session-start wrapper ran the reconciler with a time
-            # budget and recovery happened here; that commit made the wrapper
-            # STATUS-ONLY ("daily idle cleanup owns recovery") and left the
-            # reconciler to be driven by launchd and the daily idle pass. The
-            # arms below assert quarantined -> verified, and after 28f07ab5 the
-            # wrapper alone can no longer satisfy them.
-            #
-            # THE ASSERTIONS ARE NOT RELAXED TO MATCH — the recovery contract is
-            # unchanged and every arm below still has to hold. What changed is
-            # WHO performs it, so the canary now drives the reconciler directly,
-            # which is exactly what launchd and the idle pass do. Deleting these
-            # arms because the wrapper stopped satisfying them would have retired
-            # the only executable proof that crash recovery works at all.
-            Q_STATE_MID="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
-            RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" RICHOS_WORKTREE_CAPTURE_DIR="$Q_DIR/captures" \
-                RICHOS_RECONCILE_SETTLE=0.2 python3 "$CANONICAL_RECONCILER" --max-seconds 300 >/dev/null 2>&1
+            printf '%s' "$2" | q_env bash "$ENGINE_ROOT/scripts/hooks/$1" >/dev/null 2>"$Q_DIR/err"
+            Q_RC=$?
             set -e
-            Q_STATE="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" members --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | cut -f5)"
-            # verified_ts / verified_files / blocked_reason distinguish a state
-            # that was EARNED from a state that was merely written.
-            Q_WITNESS="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" show --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | python3 -c '
-import json, sys
-try:
-    m = (json.load(sys.stdin).get("members") or [{}])[0]
-except Exception:
-    print("\t\t"); raise SystemExit(0)
-print("%s\t%s\t%s" % (m.get("verified_ts") or "", m.get("verified_files") or 0,
-                       (m.get("blocked_reason") or "").replace("\t", " ")))
-' 2>/dev/null)"
-            Q_VERIFIED_TS="$(printf '%s' "$Q_WITNESS" | cut -f1)"
-            Q_VERIFIED_N="$(printf '%s' "$Q_WITNESS" | cut -f2)"
-            Q_BLOCKED_WHY="$(printf '%s' "$Q_WITNESS" | cut -f3)"
-            Q_STILL_REGISTERED=0
-            git -C "$Q_REPO" worktree list 2>/dev/null | grep -qF "$Q_QUAR" && Q_STILL_REGISTERED=1
-            if [ "$Q_PRE_OK" -ne 1 ]; then
-                emit_fail "Q. the crash-recovery canary was ALREADY in its expected end state before the wrapper ran (pre-state '${Q_STATE_PRE:-none}', archive $([ -e "$Q_TAR" ] && echo present || echo absent); expected 'quarantined' and absent) — every arm below would then pass without anything having been recovered. The negative control failed, so this canary proves nothing and is reported as broken rather than green."
-                Q_OK=0
-            elif [ "$q_rc" -ne 0 ]; then
-                emit_fail "Q. session-start worktree hook exited $q_rc on a sandbox run (expected 0) — this hook is log-only and must NEVER block a session start."
-                Q_OK=0
-            elif [ ! -d "$Q_SURVIVOR" ]; then
-                emit_fail "Q. the session-start wrapper REMOVED a merged, clean, unlocked native worktree — the old liveness-inferring sweep is back with --execute. Live-agent eviction is not permitted, whatever the git state (the 2026-09-02 ruling). Restore immediately: git checkout -- scripts/hooks/session-start-reap-worktrees.sh"
-                Q_OK=0
-            elif [ "$Q_STATE" != "verified" ]; then
-                # The phrase "did NOT recover a terminal transaction" is the
-                # contract case 50d greps for. Keep it verbatim in any rewording.
-                emit_fail "Q. did NOT recover a terminal transaction left at quarantined — it was never carried forward to 'verified' (state '${Q_STATE:-none}', it started at '$Q_STATE_PRE'; after the status-only session-start wrapper it was at '${Q_STATE_MID:-none}', and the reconciler was then run directly with a 300s budget). Crash recovery is gutted: a transaction the ingress left mid-way is never captured or verified, so the work inside the quarantine is unrecoverable by any automatic path."
-                Q_OK=0
-            elif [ ! -s "$Q_TAR" ]; then
-                emit_fail "Q. the member reached 'verified' with no archive on disk at $Q_TAR — 'verified' MEANS the capture was re-read and every digest matched, so a verified member with no bytes behind it is a state written over nothing."
-                Q_OK=0
-            elif [ -z "$Q_VERIFIED_TS" ] || [ "${Q_VERIFIED_N:-0}" -lt 1 ]; then
-                emit_fail "Q. the member reached 'verified' with no verified_ts / verified_files (ts='${Q_VERIFIED_TS:-none}', files='${Q_VERIFIED_N:-none}') — the state was set without the re-read that earns it, which is a green tick over an unchecked archive."
-                Q_OK=0
-            elif [ ! -d "$Q_QUAR" ]; then
-                emit_fail "Q. the wrapper DELETED the quarantine at $Q_QUAR. Automatic erasure is disabled (a6c076c; docs/workspace-retirement-safety.md): the reconciler captures and verifies and then RETAINS the quarantine, because neither a process scan nor a final content check can exclude a concurrent writer. A path that erases it again is the reviewed deletion failure coming back."
-                Q_OK=0
-            elif [ "$Q_STILL_REGISTERED" -ne 1 ]; then
-                emit_fail "Q. the quarantine at $Q_QUAR is no longer registered as a git worktree of $Q_REPO — the retention contract keeps the quarantine AND its Git registration, and an unregistered directory is one a later sweep will read as ownerless residue and delete."
-                Q_OK=0
-            elif ! printf '%s' "$Q_BLOCKED_WHY" | grep -q 'automatic erasure is disabled'; then
-                emit_fail "Q. the quarantine survived but the member does not say WHY (blocked_reason: '${Q_BLOCKED_WHY:-none}') — retention has to be the declared policy, not a remover that happened to fail. Expected 'exclusive-access-unavailable: automatic erasure is disabled ...'."
-                Q_OK=0
-            elif ! printf '%s' "$Q_OUT" | grep -q '"hookEventName": *"SessionStart"'; then
-                emit_fail "Q. the wrapper emitted no SessionStart summary JSON (got: $Q_OUT) — a session-start run can no longer be audited from the transcript."
-                Q_OK=0
-            elif ! printf '%s' "$Q_OUT" | grep -q 'DRY-RUN, nothing removed'; then
-                emit_fail "Q. the wrapper's inventory is not labeled DRY-RUN (got: $Q_OUT) — either the inventory ran with --execute or its summary no longer says what it did."
-                Q_OK=0
-            elif ! printf '%s' "$Q_OUT" | grep -q 'coverage (DRY-RUN)'; then
-                emit_fail "Q. the inventory reported no coverage line — a session would open blind to every worktree nothing owns, which is the 'reaped=1 residue=0' false green again. The inventory is gutted."
-                Q_OK=0
-            elif printf '%s' "$Q_OUT" | grep -q 'terminal members with a directory present=0'; then
-                # THE PRICE OF STATUS-ONLY, MADE INTO AN ASSERTION. 28f07ab5
-                # moved recovery off session start, so at this point in the run
-                # a real quarantine was sitting unrecovered and the wrapper's
-                # ONLY remaining job for it was to say so. A status-only hook
-                # that reports zero is worse than one that does nothing: the
-                # session opens believing there is nothing outstanding, and the
-                # member waits for an idle pass nobody knows to check on.
-                emit_fail "Q. the session-start wrapper reported 'terminal members with a directory present=0' while a quarantined member was in fact sitting unrecovered in its own sandbox. Since 28f07ab5 this hook does not recover anything itself — reporting the outstanding member is the whole of what it still owes, and it is reporting zero."
-                Q_OK=0
-            else
-                emit_pass "Q. worktree lifecycle at session start: the wrapper REMOVES NOTHING on its own (a merged/clean/unlocked tree survives) and REPORTS the terminal member it no longer recovers (status-only since 28f07ab5) + the reconciler, recovery's current owner, carries a quarantined terminal transaction forward quarantined->verified with a non-empty archive and verified_ts/verified_files set (negative control: it was at '''quarantined''' with no archive beforehand) + RETAINS the quarantine, its git registration and a blocked_reason naming the disabled-erasure policy + inventory is DRY-RUN — path-confined, manifest-matched"
-            fi
-        else
-            # THE DIAGNOSTIC NAMES WHICH OF THE THREE THINGS WENT WRONG.
-            # It used to say "(transaction seal, fixture classification or
-            # claim failed)" for all of them at once. On 2026-09-08 all three
-            # of those had SUCCEEDED and the real cause was that the fixture no
-            # longer produced a quarantine at all; the message sent the reader
-            # to the wrong commit. A dead check that also misdescribes itself
-            # costs more than no check.
-            if [ "$Q_SANDBOX_OK" -ne 1 ]; then
-                # q_step has already recorded WHICH step failed and captured
-                # that step's own stderr. The only way Q_WHY can still be empty
-                # is that the flag was cleared by something which is not a
-                # step — say so rather than printing the old anonymous
-                # sentence, because "a step failed" with no step is what let
-                # this layer sit red across three merges.
-                if [ -z "$Q_WHY" ]; then
-                    Q_WHY="an UNNAMED step: no fixture step reported a failure, so Q_SANDBOX_OK was cleared by something that is not a q_step call — every step of this fixture is required to name itself"
-                fi
-                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — a step of the throwaway fixture FAILED at $Q_WHY${Q_ERR:+ — the step said: $Q_ERR}. Wiring and hashes alone do not prove recovery; this probe is incomplete."
-            elif [ ! -d "$Q_SURVIVOR" ]; then
-                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — every fixture step reported success but the survivor worktree $Q_SURVIVOR does not exist, so the must-not-be-removed arm has nothing to watch. Wiring and hashes alone do not prove recovery; this probe is incomplete."
-            else
-                Q_DIAG="$(RICHOS_WORKTREE_TX_DIR="$Q_DIR/tx" python3 "$Q_TX_PY" show --session-id "$Q_SID" --agent-id "$Q_AID" 2>/dev/null | python3 -c '
-import json, sys
-try:
-    m = (json.load(sys.stdin).get("members") or [{}])[0]
-except Exception:
-    print("unreadable"); raise SystemExit(0)
-print("state=%s cleanup_owner=%s cleanup_policy=%s quarantine=%s" % (
-    m.get("state"), m.get("cleanup_owner"), m.get("cleanup_policy"), m.get("quarantine")))
-' 2>/dev/null)"
-                emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — every fixture step SUCCEEDED but no quarantine exists at $Q_QUAR (member: ${Q_DIAG:-unreadable}). The fixture no longer models a HISTORICAL record: terminalize() takes the save_ref+quarantine route only for a member with NEITHER the cleanup_owner marker NOR cleanup_policy=integrated-daily, so a newly added marker leaves the member at 'bound' and these six assertions are never evaluated. Strip every current new-format marker in the fixture above — do NOT relax the assertions below to match a member that was never quarantined."
-            fi
+        }
+        Q_AID="aprobecanary0001"
+        Q_NP="$Q_ENT/.claude/worktrees/agent-$Q_AID"
+        if [ "$Q_SB" -eq 1 ]; then
+            q_hook workspace-lifecycle.sh "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"probe-ws-0001\",\"cwd\":\"$Q_ENT\"}"
+            q_hook guard-worktree-isolation.sh "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"probe-ws-0001\",\"tool_use_id\":\"tu-probe\",\"tool_name\":\"Agent\",\"cwd\":\"$Q_ENT\",\"tool_input\":{\"name\":\"zach-opus-probe\",\"subagent_type\":\"zach\",\"isolation\":\"worktree\",\"prompt\":\"probe\"}}"
+            [ "$Q_RC" -eq 0 ] || Q_PROBLEMS="$Q_PROBLEMS [a well-formed spawn was not registered: exit $Q_RC: $(head -c 300 "$Q_DIR/err" | tr '\n' ' ')]"
+            git -C "$Q_ENT" worktree add -q "$Q_NP" -b "worktree-agent-$Q_AID" >/dev/null 2>&1 || Q_SB=0
+            q_hook workspace-lifecycle.sh "{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"probe-ws-0001\",\"agent_id\":\"$Q_AID\",\"agent_type\":\"zach\",\"cwd\":\"$Q_NP\"}"
+            q_hook workspace-lifecycle.sh "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"probe-ws-0001\",\"tool_use_id\":\"tu-probe\",\"tool_name\":\"Agent\",\"cwd\":\"$Q_ENT\",\"tool_input\":{\"name\":\"zach-opus-probe\"},\"tool_response\":{\"agentId\":\"$Q_AID\"}}"
+            printf 'work\n' >"$Q_NP/work.txt"
+            q_env git -C "$Q_NP" add work.txt >/dev/null 2>&1 && q_env git -C "$Q_NP" commit -q -m work >/dev/null 2>&1 || Q_SB=0
+            q_hook workspace-lifecycle.sh "{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"probe-ws-0001\",\"agent_id\":\"$Q_AID\",\"cwd\":\"$Q_ENT\"}"
+            q_hook guard-sealed-worktree.sh "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"probe-ws-0001\",\"agent_id\":\"$Q_AID\",\"agent_type\":\"zach\",\"tool_name\":\"Read\",\"cwd\":\"$Q_ENT\",\"tool_input\":{}}"
+            [ "$Q_RC" -eq 2 ] || Q_PROBLEMS="$Q_PROBLEMS [point 9: a finished agent's Read was allowed (exit $Q_RC)]"
+            q_hook guard-workspace-gate.sh "{\"hook_event_name\":\"Stop\",\"session_id\":\"probe-ws-0001\",\"cwd\":\"$Q_ENT\"}"
+            [ "$Q_RC" -eq 2 ] || Q_PROBLEMS="$Q_PROBLEMS [point 5: the turn was allowed to end with finished work neither landed nor discarded (exit $Q_RC)]"
+            q_env git -C "$Q_ENT" merge -q --no-edit "worktree-agent-$Q_AID" >/dev/null 2>&1 || Q_SB=0
+            q_hook guard-workspace-gate.sh "{\"hook_event_name\":\"Stop\",\"session_id\":\"probe-ws-0001\",\"cwd\":\"$Q_ENT\"}"
+            [ "$Q_RC" -eq 0 ] || Q_PROBLEMS="$Q_PROBLEMS [point 4: merged work was not landed on its own (exit $Q_RC: $(head -c 300 "$Q_DIR/err" | tr '\n' ' '))]"
+            [ ! -e "$Q_NP" ] || Q_PROBLEMS="$Q_PROBLEMS [point 4: the landed agent's workspace still exists]"
+            git -C "$Q_ENT" rev-parse --verify --quiet "refs/heads/worktree-agent-$Q_AID" >/dev/null 2>&1 \
+                && Q_PROBLEMS="$Q_PROBLEMS [point 4: the landed agent's branch still exists]"
+        fi
+        kill "$Q_SESS_PID" 2>/dev/null || true
+        if [ "$Q_SB" -ne 1 ]; then
+            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the sandbox repository could not be built. Wiring and hashes are verified; BEHAVIOR IS NOT."
+        elif [ -n "$Q_PROBLEMS" ]; then
+            emit_fail "Q. the workspace spec's FUNCTIONAL canary failed:$Q_PROBLEMS"
             Q_OK=0
+        else
+            emit_pass "Q. the workspace spec is wired on its six events and its Stop gate, every retired deleter is wired nowhere, all four files match their manifests, and a sandboxed spawn -> commit -> finish was locked out, held the turn, and — once merged — was landed with its workspace and branch gone"
         fi
         rm -rf "$Q_DIR" 2>/dev/null || true
     else
-        emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory could be created (mktemp). Wiring and hashes are verified; BEHAVIOR IS NOT."
+        emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory could be created (mktemp)."
     fi
 elif [ "$Q_OK" -eq 1 ]; then
-    emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git, mktemp or python3 unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOR IS NOT."
+    emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git, mktemp or python3 unavailable. Wiring and hashes are verified; BEHAVIOR IS NOT."
 fi
 
-# --- Layer Q6: THE WRITE BARRIER FAILS CLOSED (HARD gate; review 2026-09-03
-# blocker 3) ---
+# Q7 — the retired nightly deleter is not loaded. Only on macOS, and only for the
+# operator's own account and config: a sandboxed probe (a redirected HOME or
+# CLAUDE_CONFIG_DIR, as every suite runs it) must not read the operator's
+# launchd, and says so rather than passing.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v launchctl >/dev/null 2>&1; then
+    _q7_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"
+    if [ -n "$_q7_home" ] && [ "$( (cd "$HOME" 2>/dev/null && pwd -P) || echo "$HOME")" = "$( (cd "$_q7_home" 2>/dev/null && pwd -P) || echo "$_q7_home")" ] \
+       && [ -z "${CLAUDE_CONFIG_DIR:-}" ]; then
+        if launchctl print "gui/$(id -u)/com.richos.worktree-reconciler" >/dev/null 2>&1; then
+            emit_fail "Q7. the RETIRED nightly reconciler (com.richos.worktree-reconciler) is still loaded under launchd. It deletes worktrees, and the workspace spec's only deleters are land and discard. Run scripts/hooks/install.sh from the engine's main checkout; it unloads and removes it."
+        else
+            emit_pass "Q7. the retired nightly reconciler is not loaded under launchd"
+        fi
+    fi
+fi
+
+# --- Layer Q6: THE LOCK-OUT FAILS CLOSED (HARD gate) ---
 #
-# guard-sealed-worktree.sh is the mechanism that makes a nonblocking
-# SubagentStart usable: a worker cannot write until its manifest is sealed.
-# Until 2026-09-03 it ALLOWED the call whenever it could not evaluate — no
-# python3, no transaction library, a broken root, an unparseable payload —
-# and its own suite asserted that. The review ruled it the hole the barrier
-# exists to close. This layer proves, on the LIVE engine and a sandbox copy
-# with the library removed, that every one of those conditions now REFUSES a
-# worker's potentially writing tool (exit 2), while a proven lead call and a
-# proven read-only worker tool still pass. Every arm has its positive control
-# beside it, so a guard that refuses everything fails the layer too.
+# guard-sealed-worktree.sh refuses a FINISHED agent every tool and an
+# UNREGISTERED worker every potentially writing tool (docs/plans/worktree-spec-
+# 2026-09-11.md, points 3 and 9). This layer proves, on the LIVE engine and a
+# sandbox copy with the registry removed, that every condition in which the
+# barrier cannot evaluate a worker's call REFUSES a potentially writing tool
+# (exit 2), while a proven lead call and a proven read-only worker tool still
+# pass. Every arm has its positive control beside it, so a guard that refuses
+# everything fails the layer too.
 #
-# SIDE-EFFECT SAFETY: the transaction store is pinned inside the sandbox; the
-# entity root is a throwaway directory; nothing here reads or writes
-# ~/.claude/state.
+# SIDE-EFFECT SAFETY: the registry is pinned inside the sandbox; the entity
+# root is a throwaway directory; nothing here reads or writes ~/.claude/state.
 Q6_GUARD="$ENGINE_ROOT/scripts/hooks/guard-sealed-worktree.sh"
 if [ ! -x "$Q6_GUARD" ]; then
-    emit_fail "Q6. write barrier not found / not executable: $Q6_GUARD — every worker write is ungoverned."
+    emit_fail "Q6. the lock-out not found / not executable: $Q6_GUARD — every worker call is ungoverned."
 elif ! command -v mktemp >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-    emit_warn "Q6. FAIL-CLOSED CANARY DID NOT RUN — mktemp or python3 unavailable. The barrier's wiring is verified; its fail-closed BEHAVIOR IS NOT."
+    emit_warn "Q6. FAIL-CLOSED CANARY DID NOT RUN — mktemp or python3 unavailable. The lock-out's wiring is verified; its fail-closed BEHAVIOR IS NOT."
 else
     Q6_DIR="$(cd "$(mktemp -d -t contract-integrity-q6.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
     if [ -z "$Q6_DIR" ]; then
         emit_warn "Q6. FAIL-CLOSED CANARY DID NOT RUN — no sandbox directory could be created (mktemp). BEHAVIOR IS NOT verified."
     else
-        mkdir -p "$Q6_DIR/nolib/scripts/hooks" "$Q6_DIR/nolib/scripts/lib" "$Q6_DIR/entity" "$Q6_DIR/tx" "$Q6_DIR/home" "$Q6_DIR/nopy"
+        mkdir -p "$Q6_DIR/nolib/scripts/hooks" "$Q6_DIR/nolib/scripts/lib" "$Q6_DIR/entity" "$Q6_DIR/ws" "$Q6_DIR/home" "$Q6_DIR/nopy"
         cp "$Q6_GUARD" "$Q6_DIR/nolib/scripts/hooks/" 2>/dev/null || true
         cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$Q6_DIR/nolib/scripts/lib/" 2>/dev/null || true
         chmod +x "$Q6_DIR/nolib/scripts/hooks/guard-sealed-worktree.sh" 2>/dev/null || true
         printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\n' >"$Q6_DIR/entity/orchestration.config"
-        for q6t in bash cat grep sed cut tr head env dirname basename; do
+        for q6t in bash cat grep sed cut tr head env dirname basename date sleep; do
             q6p="$(command -v "$q6t" 2>/dev/null || true)"; [ -n "$q6p" ] && ln -sf "$q6p" "$Q6_DIR/nopy/$q6t"
         done
         q6_run() { # <engine-dir> <payload> [path] -> Q6_RC
             set +e
             if [ -n "${3:-}" ]; then
-                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKTREE_TX_DIR="$Q6_DIR/tx" SEAL_WAIT_SECONDS=0 PATH="$3" bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
+                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKSPACES_DIR="$Q6_DIR/ws" SEAL_WAIT_SECONDS=0 PATH="$3" bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
             else
-                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKTREE_TX_DIR="$Q6_DIR/tx" SEAL_WAIT_SECONDS=0 bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
+                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKSPACES_DIR="$Q6_DIR/ws" SEAL_WAIT_SECONDS=0 bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
             fi
             Q6_RC=$?
             set -e
@@ -3728,10 +3417,10 @@ else
         q6_expect() { # <arm> <want-rc>
             if [ "$Q6_RC" -ne "$2" ]; then Q6_PROBLEMS="$Q6_PROBLEMS [$1: exit $Q6_RC, expected $2]"; fi
         }
-        q6_run "$ENGINE_ROOT" "$Q6_WW";                 q6_expect "healthy engine, UNSEALED worker Write" 2
-        q6_run "$ENGINE_ROOT" "$Q6_WR";                 q6_expect "healthy engine, unsealed worker Read (read-only policy)" 0
+        q6_run "$ENGINE_ROOT" "$Q6_WW";                 q6_expect "healthy engine, UNREGISTERED worker Write" 2
+        q6_run "$ENGINE_ROOT" "$Q6_WR";                 q6_expect "healthy engine, unregistered worker Read (read-only policy)" 0
         q6_run "$ENGINE_ROOT" "$Q6_LW";                 q6_expect "healthy engine, the lead's Write" 0
-        q6_run "$Q6_DIR/nolib" "$Q6_WW";                q6_expect "transaction LIBRARY MISSING, worker Write" 2
+        q6_run "$Q6_DIR/nolib" "$Q6_WW";                q6_expect "registry LIBRARY MISSING, worker Write" 2
         q6_run "$Q6_DIR/nolib" "$Q6_WR";                q6_expect "library missing, worker Read (read-only policy)" 0
         q6_run "$Q6_DIR/nolib" "$Q6_LW";                q6_expect "library missing, the lead's Write" 0
         q6_run "$ENGINE_ROOT" "$Q6_WW" "$Q6_DIR/nopy";  q6_expect "NO python3, worker Write" 2
@@ -3739,191 +3428,34 @@ else
         q6_run "$ENGINE_ROOT" "$Q6_LW" "$Q6_DIR/nopy";  q6_expect "no python3, the lead's Write" 0
         q6_run "$ENGINE_ROOT" "not json";               q6_expect "UNPARSEABLE payload" 2
         if [ -z "$Q6_PROBLEMS" ]; then
-            emit_pass "Q6. the write barrier FAILS CLOSED: an unsealed worker, a missing transaction library, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms"
+            emit_pass "Q6. the lock-out FAILS CLOSED: an unregistered worker, a missing registry, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms"
         else
-            emit_fail "Q6. the write barrier does NOT fail closed:$Q6_PROBLEMS. A worker whose ownership the barrier cannot evaluate must be refused every potentially writing or unknown tool (review 2026-09-03 blocker 3). Restore: git checkout -- scripts/hooks/guard-sealed-worktree.sh"
+            emit_fail "Q6. the lock-out does NOT fail closed:$Q6_PROBLEMS. A worker whose registration the lock-out cannot evaluate must be refused every potentially writing or unknown tool. Restore: git checkout -- scripts/hooks/guard-sealed-worktree.sh"
         fi
         rm -rf "$Q6_DIR" 2>/dev/null || true
     fi
 fi
 
-# --- Layer Q4: SCOPE + SAFETY canary — a SECOND repository, a HAND-ROLLED
-# worktree, and the owner-liveness rule, all in one throwaway sandbox ---
-#
-# WHY Q3 IS NOT ENOUGH, AND WHY THIS LAYER IS TWO-SIDED IN BOTH DIRECTIONS.
-#
-# Q3 above proves the reaper removes a merged/clean NATIVE worktree in ONE
-# repository and refuses a dirty one. On 2026-09-01 that was entirely true and
-# entirely beside the point: the reaper printed `reaped=1 skipped=0 errors=0
-# residue=0` at session start and 25 worktrees sat unswept all day in two other
-# repositories, under a path convention it never looked at, with no trigger
-# between session starts. Q3 was green for every hour of it. A layer that only
-# asks "does it still do the thing it already did" cannot see a scope hole.
-#
-# So this canary holds the failure modes Q3 is blind to, and each assertion has
-# a mutation that flips it:
-#
-#   Q4a DISCOVERY   a sibling repository, reachable only through the
-#                   neighborhood scan, is swept. Remove discovery and this
-#                   fails — the layer goes red when the reaper GOES BLIND,
-#                   which is the property the old Q could not check.
-#   Q4b SAFETY      a hand-rolled worktree whose OWNER IS ALIVE is skipped,
-#                   by name and with the reason. Remove the owner-liveness
-#                   gate and this worktree is selected for removal — a live
-#                   agent's uncommitted work. This is the assertion that
-#                   matters most and the one a corpse cannot satisfy.
-#   Q4c NOT GUTTED  a hand-rolled worktree whose owner terminated OBSERVABLY
-#                   (its isolation worktree registered and unlocked) and whose
-#                   branch is merged and clean IS selected. Gut the hand-rolled
-#                   path into "skip everything" and this fails — the
-#                   satisfied-by-a-corpse hole, closed from the other side.
-#   Q4d UNMERGED    a hand-rolled worktree with unlanded commits is NEVER
-#                   selected, whatever its owner's state.
-#   Q4e DENOMINATOR the coverage line reports the scope the summary line is a
-#                   fraction of. Drop it and a one-repository sweep reads as a
-#                   clean machine again, which is the whole defect.
-#
-# HERMETIC BY CONSTRUCTION: discovery is restricted to primary+neighborhood and
-# the team dir, ledger and transcript are all inside the sandbox, so this can
-# never reach the operator's real checkouts. DRY-RUN, so the assertions are
-# about SELECTION; Q3 above is what proves removal actually happens.
-if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPER" ] \
-   && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1 \
-   && command -v python3 >/dev/null 2>&1; then
-    Q4_DIR="$(cd "$(mktemp -d -t contract-integrity-reapscope.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
-    if [ -n "$Q4_DIR" ]; then
-        Q4_ENTITY="$Q4_DIR/entity"
-        Q4_OTHER="$Q4_DIR/other"
-        Q4_OK_SB=1
-        # The ENTITY: carries the two NATIVE isolation worktrees that are the
-        # only liveness evidence a lockless hand-rolled tree ever has.
-        mkdir -p "$Q4_ENTITY/.claude/worktrees" 2>/dev/null || Q4_OK_SB=0
-        git -C "$Q4_ENTITY" init -q -b main >/dev/null 2>&1 || Q4_OK_SB=0
-        printf 'seed\n' >"$Q4_ENTITY/seed.txt" 2>/dev/null || Q4_OK_SB=0
-        printf 'PROTECTED_PATHS="src"\n' >"$Q4_ENTITY/orchestration.config" 2>/dev/null || Q4_OK_SB=0
-        git -C "$Q4_ENTITY" add -A >/dev/null 2>&1 || Q4_OK_SB=0
-        git -C "$Q4_ENTITY" commit -q -m "probe reap-scope seed" >/dev/null 2>&1 || Q4_OK_SB=0
-        git -C "$Q4_ENTITY" worktree add -q -b worktree-agent-q4live "$Q4_ENTITY/.claude/worktrees/agent-q4live" >/dev/null 2>&1 || Q4_OK_SB=0
-        git -C "$Q4_ENTITY" worktree add -q -b worktree-agent-q4dead "$Q4_ENTITY/.claude/worktrees/agent-q4dead" >/dev/null 2>&1 || Q4_OK_SB=0
-        # ALIVE: locked, and the lock names a pid that is unambiguously running
-        # — this probe's own. NOT-ALIVE-OBSERVED: registered and simply not
-        # locked, which is what a teammate that has just finished looks like.
-        git -C "$Q4_ENTITY" worktree lock --reason "claude agent agent-q4live (pid $$ start probe)" \
-            "$Q4_ENTITY/.claude/worktrees/agent-q4live" >/dev/null 2>&1 || Q4_OK_SB=0
-
-        # The SIBLING repository. Nothing points at it: no log, no config, no
-        # argument. It is reachable ONLY because it sits beside the entity.
-        mkdir -p "$Q4_OTHER" "$Q4_DIR/other-wt" 2>/dev/null || Q4_OK_SB=0
-        git -C "$Q4_OTHER" init -q -b main >/dev/null 2>&1 || Q4_OK_SB=0
-        printf 'seed\n' >"$Q4_OTHER/seed.txt" 2>/dev/null || Q4_OK_SB=0
-        git -C "$Q4_OTHER" add -A >/dev/null 2>&1 || Q4_OK_SB=0
-        git -C "$Q4_OTHER" commit -q -m "probe reap-scope sibling seed" >/dev/null 2>&1 || Q4_OK_SB=0
-        for wt in q4-live-owner q4-dead-owner q4-unmerged; do
-            git -C "$Q4_OTHER" worktree add -q -b "$wt" "$Q4_DIR/other-wt/$wt" >/dev/null 2>&1 || Q4_OK_SB=0
-        done
-        # The unmerged one gets a commit that never landed — the handoff a
-        # bold reaper would destroy.
-        printf 'unlanded\n' >"$Q4_DIR/other-wt/q4-unmerged/work.txt" 2>/dev/null || Q4_OK_SB=0
-        git -C "$Q4_DIR/other-wt/q4-unmerged" add work.txt >/dev/null 2>&1 || Q4_OK_SB=0
-        git -C "$Q4_DIR/other-wt/q4-unmerged" commit -q -m "committed but not landed" >/dev/null 2>&1 || Q4_OK_SB=0
-
-        # The session's own record: which names this machine spawned (what
-        # makes a neighborhood repository reap-eligible at all) and the
-        # OWNERSHIP LEDGER, which since 2026-09-03 is EXACT PATH ONLY — a
-        # registration names the worktree it owns; a name or a transcript
-        # join is not ownership. So each hand-rolled tree is registered by
-        # path to the agent whose native worktree carries its evidence.
-        mkdir -p "$Q4_DIR/teams/session-q4probe" 2>/dev/null || Q4_OK_SB=0
-        printf 'q4-live-owner\nq4-dead-owner\nq4-unmerged\n' >"$Q4_DIR/teams/session-q4probe/spawned-names.log" 2>/dev/null || Q4_OK_SB=0
-        Q4_TRANSCRIPT="$Q4_DIR/transcript.jsonl"
-        : >"$Q4_TRANSCRIPT"
-        Q4_LEDGER_PY="$ENGINE_ROOT/scripts/lib/worktree-ledger.py"
-        for _q4 in "q4-live-owner:q4live" "q4-dead-owner:q4dead" "q4-unmerged:q4dead"; do
-            python3 "$Q4_LEDGER_PY" --ledger "$Q4_DIR/wt-ledger.jsonl" record registered \
-                --teammate "${_q4%%:*}" --agent-id "${_q4#*:}" --session-id q4probe-0000 \
-                --repo "$Q4_OTHER" --worktree "$Q4_DIR/other-wt/${_q4%%:*}" --branch "${_q4%%:*}" --class hand-rolled >/dev/null 2>&1 || Q4_OK_SB=0
-        done
-
-        if [ "$Q4_OK_SB" -eq 1 ]; then
-            set +e
-            Q4_OUT="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" \
-                      REAP_TEAM_DIR="$Q4_DIR/teams" \
-                      REAP_LEDGER="$Q4_DIR/ledger.txt" \
-                      REAP_WORKTREE_LEDGER="$Q4_DIR/wt-ledger.jsonl" \
-                      REAP_PROJECTS_DIR="$Q4_DIR/projects" \
-                      "$CANONICAL_REAPER" "$Q4_ENTITY" --discover \
-                          --entity "$Q4_ENTITY" --transcript "$Q4_TRANSCRIPT" 2>&1)"
-            q4_rc=$?
-            set -e
-            Q4_PROBLEMS=""
-            [ "$q4_rc" -eq 0 ] || Q4_PROBLEMS="$Q4_PROBLEMS [exited $q4_rc on a clean dry-run]"
-            printf '%s\n' "$Q4_OUT" | grep -q -- "--- repo: $Q4_OTHER " \
-                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4a DISCOVERY: the sibling repository was never swept — the reaper is back to one repository, which is how 25 worktrees accumulated unseen]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^SKIP q4-live-owner owner-alive' \
-                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4b SAFETY: a hand-rolled worktree whose owner is ALIVE was not skipped with owner-alive]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-live-owner' \
-                && Q4_PROBLEMS="$Q4_PROBLEMS [Q4b SAFETY: a LIVE agent's hand-rolled worktree was SELECTED FOR REMOVAL — this destroys uncommitted work. Restore immediately: git checkout -- scripts/reap-stale-worktrees.sh]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-dead-owner' \
-                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4c GUTTED: a hand-rolled worktree whose owner terminated observably, merged and clean, was NOT selected — the hand-rolled path skips everything, so those trees accumulate forever while the layer stays green]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^SKIP q4-unmerged unmerged(' \
-                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4d UNMERGED: a hand-rolled worktree carrying unlanded commits was not skipped as unmerged]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-unmerged' \
-                && Q4_PROBLEMS="$Q4_PROBLEMS [Q4d UNMERGED: a worktree with unlanded commits was SELECTED FOR REMOVAL]"
-            printf '%s\n' "$Q4_OUT" | grep -q '^=== coverage .*repos=2 .*hand-rolled=3' \
-                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4e DENOMINATOR: no coverage line reporting repos=2 and hand-rolled=3 — the summary no longer says what it is a fraction of, which is exactly how 'reaped=1 residue=0' read as a clean machine]"
-
-            if [ -n "$Q4_PROBLEMS" ]; then
-                emit_fail "Q4. reaper SCOPE/SAFETY canary FAILED:$Q4_PROBLEMS"
-                Q_OK=0
-            else
-                emit_pass "Q4. the inventory (DRY-RUN) sees a SIBLING repository found only by discovery, marks a live owner's path-registered hand-rolled worktree owner-alive, would select a terminated owner's merged+clean one, refuses an unmerged one, and reports its own denominator"
-            fi
-        else
-            emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — the two-repository sandbox could not be built, so nothing here proves the reaper looks past one repository or that it spares a live agent's hand-rolled worktree."
-        fi
-        rm -rf "$Q4_DIR" 2>/dev/null || true
-    else
-        emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — no sandbox directory could be created (mktemp)."
-    fi
-elif [ "$Q_OK" -eq 1 ]; then
-    emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — git, mktemp or python3 unavailable. Wiring and hashes are verified; SCOPE AND SAFETY BEHAVIOR ARE NOT."
-else
-    # A LAYER THAT DISAPPEARS IS A LAYER NOBODY MISSES. Q4 is gated on Q, and
-    # until 2026-09-10 that gate was silent in the one direction that matters:
-    # with Q red the probe printed 26 layers instead of 27 and said nothing at
-    # all about the 27th. The run was already failing, so this was never a
-    # false green — but for the whole time Q sat broken, the scope-and-safety
-    # canary was also not running, and the only way to notice was to count the
-    # layers. Nobody counts the layers.
-    emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — Layer Q above is broken and Q4 is gated on it, so this run carries ONE FEWER LAYER than an intact one. Fix Q and re-run: until then nothing proves the reaper looks past one repository or that it spares a live agent's hand-rolled worktree."
-fi
-
-# --- Layer Q5 (RETIRED 2026-09-03): the agent-finish trigger no longer exists.
-# Its absence is asserted by Q1b above; a canary that proved it "actually
-# sweeps" would be proving the defect.
-
-# --- Layer S: WORKTREE-REMOVAL guard wired exactly once + path-confined +
-# manifest-matched + functionally blocks a raw removal AND allows a read, AND
-# its sanctioned helper is installed (HARD gate) ---
+# --- Layer S: the WORKTREE guard wired exactly once + path-confined +
+# manifest-matched + refuses a raw removal and a raw creation AND allows a
+# read, AND the sanctioned command is installed (HARD gate) ---
 #
 # THE PAIR: guard-worktree-removal.sh (PreToolUse[Bash], blocking) and
-#           scripts/remove-agent-worktree.sh (the ONLY blessed removal path).
-# The guard blocks every raw `git worktree remove` / `prune --expire` /
-# `branch -D worktree-*` / `rm -r <worktree>` and points the operator at the
-# helper, which performs the authoritative entity-lock + live-pid liveness check.
+#           scripts/workspaces.sh (land and discard — the ONLY deleters,
+#           docs/plans/worktree-spec-2026-09-11.md). The guard refuses every raw
+#           `git worktree remove` / `prune` / `add`, every `branch -D` of an
+#           agent's branch and every `rm -r` of a workspace, and names the
+#           sanctioned commands.
 #
-# WHY BOTH HALVES ARE CHECKED HERE: a guard whose sanctioned escape route is not
-# installed is a guard that only blocks, and the first operator who hits it will
-# reach for the ack override — turning a structural gate into a formality. So
-# the helper's presence, executability and hash are part of THIS layer, not a
-# separate one. They ship as a pair and they are verified as a pair.
+# WHY BOTH HALVES ARE CHECKED HERE: a guard whose sanctioned route is not
+# installed only blocks. They ship as a pair and they are verified as a pair.
 #
 # WHY A PAIRED CANARY: "does it block?" is satisfied by a guard gutted to
 # `exit 2`, which would also block `git worktree list` and every other Bash
 # call — useless, and worse than absent, because it gets disabled. Both arms run.
 S_OK=1
 CANONICAL_WTREMOVAL_HOOK="$REPO_ROOT/scripts/hooks/guard-worktree-removal.sh"
-CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/scripts/remove-agent-worktree.sh"
+CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/scripts/workspaces.sh"
 
 WTREMOVAL_WIRED_CMD=""
 WTREMOVAL_WIRED_N=0
@@ -3938,66 +3470,59 @@ for c in "${BASH_MATCHER_CMDS[@]}"; do
 done
 
 if [ "$WTREMOVAL_WIRED_N" -eq 0 ]; then
-    emit_fail "S. PreToolUse[Bash] worktree-removal guard (guard-worktree-removal.sh) NOT wired — a raw 'git worktree remove' of a LIVE agent's worktree is unguarded. Run scripts/hooks/install.sh and confirm the Bash matcher stanza carries both Bash guards."
+    emit_fail "S. PreToolUse[Bash] worktree guard (guard-worktree-removal.sh) NOT wired — a raw 'git worktree remove' of an agent's workspace is unguarded. Run scripts/hooks/install.sh and confirm the Bash matcher stanza carries it."
     S_OK=0
 elif [ "$WTREMOVAL_WIRED_N" -gt 1 ]; then
-    emit_fail "S. worktree-removal guard wired ${WTREMOVAL_WIRED_N}x on PreToolUse[Bash] — hook sources merge additively, so it fires ${WTREMOVAL_WIRED_N} times per Bash call and duplicates every ack-log line."
+    emit_fail "S. worktree guard wired ${WTREMOVAL_WIRED_N}x on PreToolUse[Bash] — hook sources merge additively, so it fires ${WTREMOVAL_WIRED_N} times per Bash call and duplicates every ack-log line."
     S_OK=0
 else
     WTREMOVAL_EXE="${WTREMOVAL_WIRED_CMD%% *}"
     WTREMOVAL_HASH="$(sha256_of "$(realpath_of "$WTREMOVAL_EXE")")"
     WTREMOVAL_MANIFEST="$(manifest_hash_of "$CANONICAL_WTREMOVAL_HOOK")"
     if [ ! -x "$WTREMOVAL_EXE" ]; then
-        emit_fail "S. wired worktree-removal guard not found / not executable: $WTREMOVAL_EXE"
+        emit_fail "S. wired worktree guard not found / not executable: $WTREMOVAL_EXE"
         S_OK=0
     elif [ -z "$WTREMOVAL_MANIFEST" ]; then
-        emit_fail "S. worktree-removal guard manifest missing or unreadable: $CANONICAL_WTREMOVAL_HOOK.sha256 — run scripts/hooks/install.sh to regenerate."
+        emit_fail "S. worktree guard manifest missing or unreadable: $CANONICAL_WTREMOVAL_HOOK.sha256 — run scripts/hooks/install.sh to regenerate."
         S_OK=0
     elif [ "$WTREMOVAL_HASH" != "$WTREMOVAL_MANIFEST" ]; then
-        emit_fail "S. worktree-removal guard content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
+        emit_fail "S. worktree guard content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
         S_OK=0
     fi
 fi
 
-# The sanctioned helper — the other half of the pair.
-if [ "$S_OK" -eq 1 ]; then
-    if [ ! -x "$CANONICAL_WTREMOVAL_HELPER" ]; then
-        emit_fail "S. the sanctioned removal helper is MISSING or not executable: $CANONICAL_WTREMOVAL_HELPER. The guard blocks every raw removal and names this script as the only way through; without it the guard has no escape route but the ack override, which is a one-off, not a workflow."
-        S_OK=0
-    else
-        S_HELPER_HASH="$(sha256_of "$CANONICAL_WTREMOVAL_HELPER")"
-        S_HELPER_MANIFEST="$(manifest_hash_of "$CANONICAL_WTREMOVAL_HELPER")"
-        if [ -z "$S_HELPER_MANIFEST" ]; then
-            emit_fail "S. removal-helper manifest missing or unreadable: $CANONICAL_WTREMOVAL_HELPER.sha256 — run scripts/hooks/install.sh."
-            S_OK=0
-        elif [ "$S_HELPER_HASH" != "$S_HELPER_MANIFEST" ]; then
-            emit_fail "S. removal-helper content hash mismatch — the one script allowed to delete a teammate's worktree differs from its manifest. Run scripts/hooks/install.sh and review the diff."
-            S_OK=0
-        fi
-    fi
+if [ "$S_OK" -eq 1 ] && [ ! -x "$CANONICAL_WTREMOVAL_HELPER" ]; then
+    emit_fail "S. the sanctioned command is MISSING or not executable: $CANONICAL_WTREMOVAL_HELPER. The guard refuses every raw removal and names land and discard as the only way; without it nothing can land or discard."
+    S_OK=0
 fi
 
-# Paired functional canary: BLOCK a raw removal, ALLOW an ordinary read.
+# Paired functional canary: REFUSE a raw removal and a raw creation, ALLOW a read.
 if [ "$S_OK" -eq 1 ] && command -v python3 >/dev/null 2>&1; then
     S_BLOCK_PAYLOAD="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git worktree remove /x/.claude/worktrees/agent-canary"}}))' 2>/dev/null || true)"
+    S_ADD_PAYLOAD="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git worktree add ../canary -b feature/canary"}}))' 2>/dev/null || true)"
     S_ALLOW_PAYLOAD="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git worktree list --porcelain"}}))' 2>/dev/null || true)"
     set +e
     printf '%s' "$S_BLOCK_PAYLOAD" | RICHOS_ENTITY_ROOT="$REPO_ROOT" "$WTREMOVAL_EXE" >/dev/null 2>&1
     s_block_rc=$?
+    printf '%s' "$S_ADD_PAYLOAD" | RICHOS_ENTITY_ROOT="$REPO_ROOT" "$WTREMOVAL_EXE" >/dev/null 2>&1
+    s_add_rc=$?
     printf '%s' "$S_ALLOW_PAYLOAD" | RICHOS_ENTITY_ROOT="$REPO_ROOT" "$WTREMOVAL_EXE" >/dev/null 2>&1
     s_allow_rc=$?
     set -e
     if [ "$s_block_rc" -ne 2 ]; then
-        emit_fail "S. wired worktree-removal guard did NOT block a raw 'git worktree remove' (exit=$s_block_rc, expected 2) — the guard is shimmed or gutted."
+        emit_fail "S. wired worktree guard did NOT block a raw 'git worktree remove' (exit=$s_block_rc, expected 2) — the guard is shimmed or gutted."
+        S_OK=0
+    elif [ "$s_add_rc" -ne 2 ]; then
+        emit_fail "S. wired worktree guard did NOT refuse a raw 'git worktree add' of a non-cc/ workspace (exit=$s_add_rc, expected 2) — points 1 and 3 of the workspace spec are unenforced."
         S_OK=0
     elif [ "$s_allow_rc" -ne 0 ]; then
-        emit_fail "S. wired worktree-removal guard BLOCKED 'git worktree list' (exit=$s_allow_rc, expected 0) — a guard that blocks reads gets disabled, which is worse than no guard."
+        emit_fail "S. wired worktree guard BLOCKED 'git worktree list' (exit=$s_allow_rc, expected 0) — a guard that blocks reads gets disabled, which is worse than no guard."
         S_OK=0
     else
-        emit_pass "S. worktree-removal guard wired exactly once + BLOCKS a raw 'git worktree remove' + ALLOWS 'git worktree list'; sanctioned helper (remove-agent-worktree.sh) present, executable and manifest-matched"
+        emit_pass "S. worktree guard wired exactly once + REFUSES a raw 'git worktree remove' and 'git worktree add' + ALLOWS 'git worktree list'; the sanctioned command (workspaces.sh) is present and executable"
     fi
 elif [ "$S_OK" -eq 1 ]; then
-    emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree-removal guard still blocks a raw removal or still allows a read. Wiring, the helper and both hashes are verified; BEHAVIOR IS NOT."
+    emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree guard still blocks a raw removal or still allows a read. Wiring and hashes are verified; BEHAVIOR IS NOT."
 fi
 
 run_layer_R
@@ -4045,13 +3570,12 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
           guard-definition-drift.sh), then run scripts/hooks/install.sh. Either
           half missing silently disables the pair: with no session-start
           snapshot the guard fails OPEN and blocks nothing.
-  - "worktree reaper NOT wired" / "did NOT remove" / "REMOVED a ...
-    worktree carrying uncommitted work" (Layer Q)
-       -> the SessionStart worktree-reaper chain has been unwired, gutted,
-          or has become dangerous. Restore both halves:
-            git checkout -- .claude/settings.local.json \\
-            scripts/hooks/session-start-reap-worktrees.sh \\
-            scripts/reap-stale-worktrees.sh
+  - "the workspace spec is not wired" / "FUNCTIONAL canary failed" (Layer Q)
+       -> the workspace lifecycle hook, its Stop gate or the registry has been
+          unwired, gutted or altered. Restore them:
+            git checkout -- .claude/settings.local.json hooks/hooks.json \\
+            scripts/lib/workspaces.py scripts/workspaces.sh \\
+            scripts/hooks/workspace-lifecycle.sh scripts/hooks/guard-workspace-gate.sh
           then: scripts/hooks/install.sh
 
   - "MODEL_TIERS ... is blank" / "MODEL_TIERS and ALLOWED_MODELS disagree" /
