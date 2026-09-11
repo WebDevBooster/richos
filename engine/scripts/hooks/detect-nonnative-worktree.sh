@@ -308,8 +308,9 @@ if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
     echo "============================================================"
     echo ""
     if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ]; then
-      echo "Directories under .claude/worktrees/ that git does not list as worktrees."
-      echo "Nothing was removed; no workspace is deleted except by a land or a discard:"
+      echo "PRESERVED directories under .claude/worktrees/ that git does not list as"
+      echo "worktrees. Nothing was removed; no workspace is deleted except by a land or"
+      echo "a discard:"
       for r in "${PRESERVED_RESIDUE[@]}"; do
         echo "  - preserved $r"
       done

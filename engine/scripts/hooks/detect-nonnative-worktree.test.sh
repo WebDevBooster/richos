@@ -93,17 +93,9 @@ make_sandbox() {
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib"
     cp "$HOOK_SRC" "$root/scripts/hooks/detect-nonnative-worktree.sh"
     cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
-       "$SCRIPT_DIR/../lib/worktree-transactions.py" "$SCRIPT_DIR/../lib/worktree-ledger.py" \
-       "$SCRIPT_DIR/../lib/agent-liveness.py" "$SCRIPT_DIR/../lib/workspace-retire.py" \
        "$SCRIPT_DIR/../lib/unevaluated-notice.sh" \
        "$root/scripts/lib/"
     chmod +x "$root/scripts/hooks/detect-nonnative-worktree.sh"
-    # The spawn-intent guard-worktree-isolation.sh would have written for this
-    # suite's fixed tool_use_id: a native isolation spawn, no externals.
-    RICHOS_WORKTREE_TX_DIR="$root/tx" python3 "$SCRIPT_DIR/../lib/worktree-transactions.py" intent \
-        --session-id "$TEST_SID" --tool-use-id toolu_test_agent >/dev/null <<'JSON'
-{"kind": "native", "teammate": "dev-1", "subagent_type": "dev", "isolation": "worktree", "externals": []}
-JSON
     printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup"\n' >"$root/orchestration.config"
     git init -q "$root"
     printf 'seed\n' > "$root/README.md"
@@ -310,9 +302,9 @@ run_case "hand-rolled worktree present -> warning even for a clean launch" 2 "$R
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 run_case_msg "warning names the stray worktree + two-causes explanation" "lingering NON-NATIVE worktree" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "two-causes explanation mentions the LEAD cause" "the LEAD omitted isolation" "$ROOT" \
+run_case_msg "two-causes explanation mentions the claude --worktree cause" "claude --worktree" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "two-causes explanation mentions the SUBAGENT-freelance cause" "SUBAGENT ran 'git worktree add' ITSELF" "$ROOT" \
+run_case_msg "two-causes explanation mentions the SUBAGENT-freelance cause" "the SUBAGENT ran 'git worktree add' itself" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 rm -rf "$ROOT"
 
@@ -384,84 +376,6 @@ else
 fi
 rm -rf "$ROOT"
 
-# =========================================================================
-# (c) THE JOURNAL IS CONSULTED — and what it can and cannot establish
-# =========================================================================
-# Tell (c) used to reason "unregistered == unowned == safe to auto-reap" and
-# ran `rm -rf` on the result: the 2026-09-05 deletion's inference, reached
-# independently in a second file. The deletion is gone. What replaced it must
-# not be the same glob wearing calmer language, so the retirement journal is
-# consulted and the two kinds of entry are named apart. These cases pin BOTH
-# halves, because a detector that reported everything as an unknown mystery
-# would pass a refusal-only test perfectly while telling the operator nothing.
-
-# seed_retirement <repo> <path> — one completed quarantine record for <path>,
-# written into the SANDBOX journal that run_case redirects the hook to.
-seed_retirement() {
-    local repo="$1" wtpath="$2"
-    mkdir -p "$repo/retire"
-    RETIRE_DIR="$repo/retire" WTPATH="$wtpath" python3 - <<'PY'
-import json, os, time
-d = os.environ["RETIRE_DIR"]
-os.makedirs(d, exist_ok=True)
-rec = {"operation": "retire", "outcome": "quarantined", "reason_code": "quarantined",
-       "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-       "workspace": {"id": "ws-00000000feedface", "path": os.environ["WTPATH"]},
-       "quarantine": {"path": os.path.join(os.path.dirname(os.environ["WTPATH"]),
-                                           ".richos-retired",
-                                           os.path.basename(os.environ["WTPATH"])
-                                           + ".richos-retired-ws-00000000feedface-20260906T000000Z")},
-       "preservation": {"status": "verified"}}
-with open(os.path.join(d, "retirements.jsonl"), "a", encoding="utf-8") as f:
-    f.write(json.dumps(rec) + "\n")
-PY
-}
-
-# --- (c) THE REFUSAL: the journal cannot account for this path, so it is
-# named as unestablished and every byte is left alone. Nothing this detector
-# reads can establish a directory as OWNERLESS, so nothing is removable.
-ROOT="$(make_sandbox)"
-add_worktree "$ROOT" "agent-cafefeed20" "worktree-cafefeed20"
-mkdir -p "$ROOT/.claude/worktrees/agent-deaddead21"
-printf 'irreplaceable\n' > "$ROOT/.claude/worktrees/agent-deaddead21/work.txt"
-run_case_msg "(c) journal silent -> reported as PRESERVED, ownership unknown" "PRESERVED" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "(c) journal silent -> the report says nothing establishes it as ownerless" \
-    "establishes a directory as ownerless" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead21/work.txt" 2>/dev/null)" = "irreplaceable" ]; then
-    printf '  PASS  (c) the unexplained directory and its bytes are intact\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  (c) the unexplained directory was damaged or removed\n'; FAIL=$((FAIL + 1))
-fi
-rm -rf "$ROOT"
-
-# --- (c) THE POSITIVE TWIN: the same directory, in the same place, with the
-# SAME name — and a retirement record naming it. Now the journal accounts for
-# it, so it is reported as EXPLAINED rather than as an unknown. This is what
-# proves the journal is READ: the only difference between this case and the one
-# above is one line in the journal, so a hook that ignored the journal would
-# fail here while passing the refusal.
-ROOT="$(make_sandbox)"
-add_worktree "$ROOT" "agent-cafefeed22" "worktree-cafefeed22"
-mkdir -p "$ROOT/.claude/worktrees/agent-deaddead21"
-printf 'irreplaceable\n' > "$ROOT/.claude/worktrees/agent-deaddead21/work.txt"
-seed_retirement "$ROOT" "$ROOT/.claude/worktrees/agent-deaddead21"
-run_case_msg "(c) POSITIVE TWIN: journal accounts for the path -> reported as EXPLAINED" \
-    "EXPLAINED" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "(c) the explanation carries the journal's own outcome and workspace id" \
-    "ws-00000000feedface" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "(c) and the operator is pointed at the recovery command, not at a mystery" \
-    "workspace-retire.py restore" "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case "(c) an EXPLAINED entry is still a signal, not silence -> exit 2" 2 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead21/work.txt" 2>/dev/null)" = "irreplaceable" ]; then
-    printf '  PASS  (c) an EXPLAINED entry is preserved too — explained is not permission\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  (c) an EXPLAINED entry was damaged or removed\n'; FAIL=$((FAIL + 1))
-fi
-rm -rf "$ROOT"
-
 # --- (c) THE QUARANTINE ITSELF is never residue. The container is
 # ".richos-retired" and each quarantine inside it is "<base>.richos-retired-ws-
 # <id>-<stamp>Z"; both are dot-prefixed, so bash's default globbing already
@@ -510,118 +424,6 @@ if printf '%s' "$ZP_OUT" | grep -qF "kill ${GHOST_PID}"; then
 else
     printf '  FAIL  zombie process report missing kill recommendation\n'; FAIL=$((FAIL + 1))
 fi
-rm -rf "$ROOT"
-
-# =========================================================================
-# THE BINDER (third job, 2026-09-03): bound(session_id, tool_use_id, agent_id,
-# members). Each refusal sits beside the pass it differs from by one fact.
-# =========================================================================
-bound_file() { printf '%s/tx/%s/bound/%s.json' "$1" "$TEST_SID" "$2"; }
-
-# (B1) intent + async acknowledgement -> exit 0 and a bound record carrying
-#      the intent's members and the acknowledged agent id
-ROOT="$(make_sandbox)"
-run_case "B01  intent + async acknowledgement -> bound, clean exit" 0 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-if python3 -c '
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d["record"] == "bound" and d["agent_id"] == sys.argv[2] and d["tool_use_id"] == "toolu_test_agent"
-assert d["kind"] == "native" and d["bound_source"] == "tool_response.agentId", d
-' "$(bound_file "$ROOT" "$TEST_AID")" "$TEST_AID" 2>/dev/null; then
-    printf '  PASS  B02  the bound record carries the acknowledged agent id, the tool_use_id and the intent kind\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  B02  bound record: %s\n' "$(cat "$(bound_file "$ROOT" "$TEST_AID")" 2>/dev/null | tr '\n' ' ')"; FAIL=$((FAIL + 1))
-fi
-if grep -q "\"agent_id\": \"$TEST_AID\"" "$ROOT/wt-ledger.jsonl" 2>/dev/null; then
-    printf '  PASS  B03  the ledger inventory row carries the REAL agent id (not agent_id="")\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  B03  ledger row: %s\n' "$(cat "$ROOT/wt-ledger.jsonl" 2>/dev/null | tail -1)"; FAIL=$((FAIL + 1))
-fi
-rm -rf "$ROOT"
-
-# (B4) NO acknowledgement, but the parent transcript joins this tool_use_id
-#      to an agent id -> bound from the shared transcript join
-ROOT="$(make_sandbox)"
-python3 - "$ROOT/transcript.jsonl" <<'PY'
-import json, sys
-with open(sys.argv[1], "w") as f:
-    f.write(json.dumps({"message": {"content": [{"type": "tool_use", "name": "Agent", "id": "toolu_test_agent", "input": {"name": "dev-1"}}]}}) + "\n")
-    f.write(json.dumps({"message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_test_agent"}]}, "toolUseResult": {"agentId": "cafef00d00000002"}}) + "\n")
-PY
-run_case "B04  no acknowledgement + transcript join on the tool_use_id -> bound, clean exit" 0 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none "$ROOT/transcript.jsonl")"
-if grep -q '"bound_source": "transcript"' "$(bound_file "$ROOT" cafef00d00000002)" 2>/dev/null; then
-    printf '  PASS  B05  the bound record names the transcript as its source\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  B05  transcript-sourced binding missing\n'; FAIL=$((FAIL + 1))
-fi
-rm -rf "$ROOT"
-
-# (B6) intent, but NO agent id anywhere: a SYNCHRONOUS file-writing call ->
-#      exit 2, and the message says it ran unbound
-ROOT="$(make_sandbox)"
-run_case "B06  intent + no agent id (synchronous return) -> exit 2" 2 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
-# B07 INVERTED 2026-09-03. Old assertion: stderr must say "SYNCHRONOUS run".
-# That message was asserted from a FAILED TEXT MATCH while isAsync sat unread in
-# the payload, and it sent the reader to re-issue a spawn that was already
-# asynchronous. New assertion: an async result with no readable id must name the
-# BINDER as the defect. The synchronous case is covered separately by isAsync
-# false in the fixture builder.
-run_case_msg "B07  ...naming a genuinely synchronous run from isAsync, not from a failed match" "was SYNCHRONOUS (isAsync false)" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
-# B07b, NEW 2026-09-03: asynchronous result with no readable agentId. This is the
-# shape every real spawn produced while the binder parsed prose, and no fixture
-# had ever reproduced it. It must blame the BINDER, never tell the caller to
-# re-issue a spawn that was already asynchronous.
-RESP_ASYNC_NO_ID=1 run_case_msg "B07b ...naming the BINDER when an async result carries no id" "BINDER DEFECT" "$ROOT" \
-    "$(RESP_ASYNC_NO_ID=1 json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent aaaa1111bbbb2222)"
-run_case_msg "B08  ...under the binding-failed banner" "WORKTREE BINDING FAILED" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
-[ ! -e "$(bound_file "$ROOT" "$TEST_AID")" ] && { printf '  PASS  B09  ...and nothing was bound\n'; PASS=$((PASS + 1)); } \
-                                            || { printf '  FAIL  B09  a synchronous run was bound\n'; FAIL=$((FAIL + 1)); }
-rm -rf "$ROOT"
-
-# (B10) NO spawn-intent for this tool_use_id -> exit 2, naming the missing intent
-ROOT="$(make_sandbox)"
-run_case "B10  acknowledgement but NO spawn-intent on disk -> exit 2" 2 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_never_intended)"
-run_case_msg "B11  ...naming the absent intent" "NO spawn-intent is on disk for tool_use toolu_never_intended" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_never_intended)"
-[ ! -e "$(bound_file "$ROOT" "$TEST_AID")" ] && { printf '  PASS  B12  ...and nothing was invented: no bound record\n'; PASS=$((PASS + 1)); } \
-                                            || { printf '  FAIL  B12  a member set was invented without an intent\n'; FAIL=$((FAIL + 1)); }
-rm -rf "$ROOT"
-
-# (B13) a READ-ONLY type with no intent is silent (it was never meant to be bound)
-ROOT="$(make_sandbox)"
-run_case "B13  read-only type, no intent -> silent exit 0" 0 "$ROOT" \
-    "$(json_agent 'Explore' '' '' 'Find the login button.' toolu_never_intended none)"
-rm -rf "$ROOT"
-
-# (B14) the transaction library MISSING -> exit 2 naming it (a worker that
-#       cannot be bound is announced, never quietly registered)
-ROOT="$(make_sandbox)"
-rm -f "$ROOT/scripts/lib/worktree-transactions.py"
-run_case "B14  transaction library missing -> exit 2" 2 "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case_msg "B15  ...naming the missing library" "worktree-transactions.py is MISSING" "$ROOT" \
-    "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-rm -rf "$ROOT"
-
-# (B16) the same agent id bound twice to the SAME tool_use_id is idempotent
-#       (a double-fired hook), and to a DIFFERENT one is refused loudly
-ROOT="$(make_sandbox)"
-run_case "B16  first binding -> exit 0" 0 "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-run_case "B17  the same binding again (double fire) -> still exit 0" 0 "$ROOT" "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
-RICHOS_WORKTREE_TX_DIR="$ROOT/tx" python3 "$SCRIPT_DIR/../lib/worktree-transactions.py" intent \
-    --session-id "$TEST_SID" --tool-use-id toolu_second >/dev/null <<'JSON'
-{"kind": "native", "teammate": "dev-2", "externals": []}
-JSON
-run_case "B18  the same agent id under a DIFFERENT tool_use_id -> exit 2 (refused rebind)" 2 "$ROOT" \
-    "$(json_agent 'dev' 'dev-2' 'worktree' 'Do the thing.' toolu_second)"
-run_case_msg "B19  ...naming the rebind" "already bound" "$ROOT" \
-    "$(json_agent 'dev' 'dev-2' 'worktree' 'Do the thing.' toolu_second)"
 rm -rf "$ROOT"
 
 # --- python3 missing from PATH -> BLOCKS (fail-closed), loud stderr ---
@@ -702,127 +504,6 @@ else
 fi
 rm -rf "$LEDGER_TEAMS" "$ROOT"
 
-# --- THIRD JOB: the OWNERSHIP LEDGER registration ---------------------------
-#
-# spawned-names.log is names only. The ownership ledger is what lets a
-# worktree's owner be judged after its native lock is gone, so it must carry
-# the agent id, the session identity and the paths. The sandbox for these
-# cases carries the ledger library (the hook records nothing without it, by
-# design — a sandbox modeling an engine without the library records nothing,
-# and that is the honest answer, not a silent success).
-ROOT="$(make_sandbox)"
-cp "$SCRIPT_DIR/../lib/worktree-ledger.py" "$SCRIPT_DIR/../lib/agent-liveness.py" "$ROOT/scripts/lib/"
-ROOT_PHYS="$(cd "$ROOT" && pwd -P)"
-WL="$ROOT/wt-ledger.jsonl"
-ACK='Async agent launched successfully.\nagentId: a1b2c3d4e5f60718\nYou can check on it later.'
-json_spawn() { # <name> <isolation> <prompt> <tool_response|""> <cwd|"">
-    python3 - "$1" "$2" "$3" "$4" "$5" <<'PY'
-import json, sys
-name, isolation, prompt, resp, cwd = sys.argv[1:6]
-ti = {"subagent_type": "dev", "name": name, "prompt": prompt}
-if isolation: ti["isolation"] = isolation
-if cwd: ti["cwd"] = cwd
-d = {"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_agent"}
-if resp: d["tool_response"] = resp.replace("\\n", "\n")
-print(json.dumps(d))
-PY
-}
-wl_run() { # <json> ; runs the hook with the ledger pinned, our own pid as the session
-    printf '%s' "$1" | RICHOS_WORKTREE_LEDGER="$WL" CLAUDE_PID="$$" GUARD_ISOLATION_TEAMS_DIR="$ROOT/teams" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" \
-        RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1 || true
-}
-wl_last() { tail -1 "$WL" 2>/dev/null; }
-
-# (W1) an ASYNC native spawn: the acknowledgement names the agent id; the
-#      native worktree exists and is LOCKED with a session pid -> registered
-#      with agent_id, worktree path, branch, session_pid from the LOCK, pid_start.
-add_worktree "$ROOT" "agent-a1b2c3d4e5f60718" "worktree-agent-a1b2c3d4e5f60718"
-git -C "$ROOT" worktree lock --reason "claude agent agent-a1b2c3d4e5f60718 (pid $$ start test)" "$ROOT/.claude/worktrees/agent-a1b2c3d4e5f60718"
-wl_run "$(json_spawn 'dev-sonnet-wl1' 'worktree' 'Do the thing.' "$ACK" '')"
-if wl_last | python3 -c '
-import json, os, sys
-d = json.loads(sys.stdin.read())
-assert d["event"] == "registered" and d["class"] == "native", d
-assert d["teammate"] == "dev-sonnet-wl1" and d["agent_id"] == "a1b2c3d4e5f60718", d
-assert d["session_pid"] == int(sys.argv[1]) and d.get("pid_start"), d
-assert d["worktree"].endswith("/.claude/worktrees/agent-a1b2c3d4e5f60718"), d
-assert d["branch"] == "worktree-agent-a1b2c3d4e5f60718" and d["native_registered"] is True, d
-assert d["session_id"].startswith("deadbeef"), d
-' "$$" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  ledger: an async native spawn is REGISTERED with agent id, lock pid, start time, path, branch\n'
-else
-    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: async native spawn registration: %s\n' "$(wl_last)"
-fi
-
-# (W2) a `cwd` spawn (no isolation — the harness forbids both) into a linked
-#      worktree of another repository -> a HAND-ROLLED registration keyed by
-#      the exact path, with that repository and branch.
-OTHER="$ROOT/../other-$RANDOM"; mkdir -p "$OTHER"
-git -C "$OTHER" init -q -b main; printf 'r\n' >"$OTHER/r.txt"; git -C "$OTHER" add -A; git -C "$OTHER" commit -q -m r
-git -C "$OTHER" worktree add -q -b dev-sonnet-wl2 "$OTHER-wt/dev-sonnet-wl2"
-wl_run "$(json_spawn 'dev-sonnet-wl2' '' 'Work in the other repo.' "$ACK" "$OTHER-wt/dev-sonnet-wl2")"
-if grep -q '"class": "hand-rolled"' "$WL" && wl_last | python3 -c '
-import json, os, sys
-d = json.loads(sys.stdin.read())
-assert d["event"] == "registered" and d["class"] == "hand-rolled", d
-assert d["teammate"] == "dev-sonnet-wl2" and d["agent_id"] == "a1b2c3d4e5f60718", d
-assert os.path.realpath(d["worktree"]) == os.path.realpath(sys.argv[1]), (d["worktree"], sys.argv[1])
-assert d["branch"] == "dev-sonnet-wl2" and d["repo"] == os.path.realpath(sys.argv[2]), d
-assert d["session_pid"] == int(sys.argv[3]), d
-' "$OTHER-wt/dev-sonnet-wl2" "$OTHER" "$$" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  ledger: a cwd spawn is REGISTERED hand-rolled by exact path, repo and branch\n'
-else
-    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: cwd spawn registration: %s\n' "$(wl_last)"
-fi
-
-# (W3) `cross-repo-worktree: <path>` prompt lines register the same way,
-#      alongside the native registration.
-git -C "$OTHER" worktree add -q -b dev-sonnet-wl3 "$OTHER-wt/dev-sonnet-wl3"
-BEFORE="$(grep -c . "$WL")"
-wl_run "$(json_spawn 'dev-sonnet-wl3' 'worktree' $'Do it.\ncross-repo-worktree: '"$OTHER-wt/dev-sonnet-wl3"$'\nThen commit.' "$ACK" '')"
-AFTER="$(grep -c . "$WL")"
-if [ "$AFTER" -eq $((BEFORE + 2)) ] && wl_last | python3 -c '
-import json, os, sys
-d = json.loads(sys.stdin.read())
-assert d["class"] == "hand-rolled" and d["teammate"] == "dev-sonnet-wl3", d
-assert os.path.realpath(d["worktree"]) == os.path.realpath(sys.argv[1]), d
-' "$OTHER-wt/dev-sonnet-wl3" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  ledger: a cross-repo-worktree: prompt line registers the path beside the native record\n'
-else
-    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: marker registration (lines %s -> %s): %s\n' "$BEFORE" "$AFTER" "$(wl_last)"
-fi
-
-# (W4) NEGATIVE — a read-only type registers nothing.
-BEFORE="$(grep -c . "$WL" 2>/dev/null || echo 0)"
-wl_run "$(python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"Explore","name":"Explore","prompt":"look"},"session_id":"deadbeef-0000-4000-8000-000000000000"}))')"
-[ "$(grep -c . "$WL" 2>/dev/null || echo 0)" -eq "$BEFORE" ] \
-    && { PASS=$((PASS + 1)); printf '  PASS  ledger: a read-only type is NOT registered\n'; } \
-    || { FAIL=$((FAIL + 1)); printf '  FAIL  ledger: read-only type was registered\n'; }
-
-# (W5) a SYNCHRONOUS run (no acknowledgement, no agent id) still registers the
-#      name with its session identity, so a name-owned tree can be judged by
-#      session — agent_id empty, never invented.
-wl_run "$(json_spawn 'dev-sonnet-wl5' 'worktree' 'Quick sync task.' 'Done: the answer is 42.' '')"
-if wl_last | python3 -c '
-import json, sys
-d = json.loads(sys.stdin.read())
-assert d["event"] == "registered" and d["teammate"] == "dev-sonnet-wl5" and d["agent_id"] == "", d
-assert d["session_pid"] == int(sys.argv[1]) and d["worktree"] == "", d
-' "$$" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  ledger: a synchronous run registers name + session identity with NO invented agent id\n'
-else
-    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: sync-run registration: %s\n' "$(wl_last)"
-fi
-
-# (W6) the write is best-effort: an unwritable ledger leaves the verdict alone.
-printf '%s' "$(json_spawn 'dev-sonnet-wl6' 'worktree' 'Do the thing.' "$ACK" '')" \
-    | RICHOS_WORKTREE_LEDGER="/nonexistent-dir/ledger.jsonl" CLAUDE_PID="$$" RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" \
-      "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
-rc=$?
-[ "$rc" -eq 0 ] \
-    && { PASS=$((PASS + 1)); printf '  PASS  ledger: an unwritable ledger does not change the detector verdict\n'; } \
-    || { FAIL=$((FAIL + 1)); printf '  FAIL  ledger: unwritable ledger changed the verdict (exit %s)\n' "$rc"; }
-rm -rf "$ROOT" "$OTHER" "$OTHER-wt"
 
 # (L1/L2) the spawned-names ledger stayed in the sandbox — positive arm first,
 # so the negative arm cannot pass because nothing was written anywhere.
@@ -848,9 +529,7 @@ if [ "$FAIL" -gt 0 ]; then
 fi
 echo "=== detect-nonnative-worktree tests: all $PASS passed ==="
 
-# The mutation harness is part of this suite's definition of green: a suite
-# nobody has watched go red proves nothing (open-items rows 3.22-3.29).
-if [ -f "$SCRIPT_DIR/worktree-binder.mutation.sh" ]; then
-    bash "$SCRIPT_DIR/worktree-binder.mutation.sh" || exit 1
-fi
+# This suite's former mutation harness exercised the transaction binder, which
+# was removed with the store (docs/plans/worktree-spec-2026-09-11.md); binding
+# is now scripts/lib/workspaces.py's and is mutated by workspaces.mutation.sh.
 exit 0
