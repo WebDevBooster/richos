@@ -2,17 +2,10 @@
 #
 # detect-nonnative-worktree.sh — PostToolUse (Agent) DETECTOR.
 #
-# THIRD JOB (2026-09-03) — THE BINDER. PreToolUse[Agent] wrote a spawn-intent
-# keyed by (session_id, tool_use_id) with the exact member set; this hook
-# receives the same tool_use_id and the Agent result, resolves the platform's
-# agent id (the async-launch acknowledgement, else the parent transcript's
-# exact call/result join in scripts/lib/agent-liveness.py), and BINDS the
-# intent to it in scripts/lib/worktree-transactions.py, then attempts the
-# seal. Same reason it lives HERE and not in the PreToolUse guard: PostToolUse
-# fires only for a spawn that ran, and only here is the agent id known. NOT
-# best-effort: a file-capable spawn that cannot be bound is announced loudly
-# (exit 2), because guard-sealed-worktree.sh will refuse its writes. The
-# ledger's inventory rows are still written beside the binding.
+# It REGISTERS nothing and DELETES nothing. Registration of the spawn's agent
+# id and native workspace is workspace-lifecycle.sh's job on this same event
+# (docs/plans/worktree-spec-2026-09-11.md, points 3 and 6); deletion is the
+# page's land and discard, and nothing else.
 #
 # SECOND JOB — the spawned-names ledger APPEND. This hook is also the ONLY
 # place a spawned teammate's name is written to the session-scoped
@@ -213,230 +206,12 @@ if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -n "$SESSION_ID" ]; then
   printf '%s\n' "$NAME" >>"$GI_TEAM_DIR/spawned-names.log" 2>/dev/null || true
 fi
 
-# --- THIRD JOB — THE BINDER: bound(session_id, tool_use_id, agent_id, members) --
-#
-# Until 2026-09-03 this block was a BEST-EFFORT registration: it wrote what it
-# could, swallowed every failure, and recorded `agent_id=""` on every one of
-# the 50 spawns of one measured session. That record could never bind a
-# worktree to the agent that works in it.
-#
-# Now it is the binder the specification names (docs/plans/worktree-real-fix-
-# 2026-09-03.md, phase 3). PreToolUse[Agent] wrote a spawn-intent keyed by
-# (session_id, tool_use_id) with the complete exact member set. This hook
-# receives the SAME tool_use_id, resolves the platform's agent id from the
-# Agent result, and binds the intent to it:
-#
-#   agent_id   FIRST from the async-launch acknowledgement in tool_response
-#              ("Async agent launched successfully ... agentId: <id>");
-#              ELSE from the parent transcript's exact call/result join on
-#              this tool_use_id — scripts/lib/agent-liveness.py
-#              tool_use_ids_to_agent_ids(), the ONE parser of that join,
-#              shared with every other consumer and never reimplemented here.
-#
-# Then try_seal: if the worker's SubagentStart fact is already on disk the
-# manifest seals now; otherwise the start hook seals it when it fires. Either
-# order works and neither side waits.
-#
-# FAIL LOUD, never best-effort. This is PostToolUse, so nothing can be
-# blocked — but a spawn that ran and could NOT be bound is a worker whose
-# writes guard-sealed-worktree.sh will refuse, and the lead must hear that
-# now rather than discover it from a blocked teammate. So:
-#   - a file-capable spawn with NO spawn-intent on disk        -> LOUD
-#   - a file-capable spawn that returned SYNCHRONOUSLY (no id) -> LOUD: it
-#     ran unbound, its PostToolUse arrived after it finished, and nothing it
-#     wrote is owned by anyone
-#   - an intent that will not bind (library missing, write failed) -> LOUD
-# The ledger's `registered` rows are still written beside the binding — now
-# with the real agent id — for the inventory readers that predate it.
-#
-# RICHOS_WORKTREE_TX_DIR / RICHOS_WORKTREE_LEDGER redirect both stores for
-# tests.
-_LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
-_TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
-_AL_PY="$SCRIPT_DIR/../lib/agent-liveness.py"
-_RETIRE_PY="$SCRIPT_DIR/../lib/workspace-retire.py"
-BIND_PROBLEMS=()
-if [ "$is_readonly" -eq 0 ]; then
-  if [ ! -f "$_TX_PY" ]; then
-    BIND_PROBLEMS+=("scripts/lib/worktree-transactions.py is MISSING at $_TX_PY — this spawn cannot be bound to its agent id, its manifest will never seal, and every potentially writing tool call it makes will be refused by guard-sealed-worktree.sh. Restore the engine before spawning again.")
-  else
-    # Feed the complete event separately from the inline program, including
-    # its prompt. Neither may consume an exec environment entry.
-    BIND_OUT="$(NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
-      ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" TX_PY="$_TX_PY" AL_PY="$_AL_PY" \
-      python3 - 3<<< "$INPUT" <<'PY' 2>&1
-import importlib.util, json, os, re, subprocess, sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    return mod
-
-def problem(msg):
-    print("PROBLEM\t" + msg.replace("\n", " "))
-
-tx = load("tx", os.environ["TX_PY"])
-wl = load("wl", os.environ["LEDGER_PY"]) if os.path.isfile(os.environ["LEDGER_PY"]) else None
-al = load("al", os.environ["AL_PY"]) if os.path.isfile(os.environ["AL_PY"]) else None
-
-try:
-    payload = json.load(os.fdopen(3))
-except Exception:
-    payload = {}
-tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
-prompt_text = str(tool_input.get("prompt") or "").replace("\t", " ").replace("\x01", "\n")
-sid = os.environ.get("SESSION_ID", "")
-tuid = str(payload.get("tool_use_id") or "")
-resp = payload.get("tool_response")
-try:
-    resp_text = resp if isinstance(resp, str) else json.dumps(resp)
-except Exception:
-    resp_text = str(resp)
-resp_text = resp_text or ""
-
-# 1. the agent id — the acknowledgement first, the shared transcript join second
-# MEASURED 2026-09-03 from three real spawns in a live session transcript:
-# the Agent result reaches this hook as a STRUCTURED OBJECT, never as the prose
-# a human sees. Keys: agentId, canReadOutputFile, description, isAsync,
-# outputFile, prompt, resolvedModel, status. Example values: agentId
-# "a5a82090e9729e92f", isAsync true, status "async_launched".
-# The first version searched resp_text for the phrase "Async agent launched"
-# and regexed agentId out of it. json.dumps of that object contains neither:
-# no such phrase, and "agentId": "..." whose quote defeats the pattern. BOTH
-# gates failed on EVERY real spawn, nothing was ever bound, and the diagnostic
-# then asserted a SYNCHRONOUS run from that absence while isAsync sat unread
-# two keys away. Read the field.
-agent_id = ""
-source = ""
-is_async = None
-if isinstance(resp, dict):
-    cand = str(resp.get("agentId") or "").strip()
-    if cand and re.fullmatch(r"[A-Za-z0-9_-]+", cand):
-        agent_id, source = cand, "tool_response.agentId"
-    if isinstance(resp.get("isAsync"), bool):
-        is_async = resp["isAsync"]
-    elif str(resp.get("status") or ""):
-        is_async = str(resp["status"]) == "async_launched"
-if not agent_id:
-    m = re.search(r"agentId:\s*([A-Za-z0-9_-]+)", resp_text) if "Async agent launched" in resp_text else None
-    if m:
-        agent_id, source = m.group(1), "tool_response.prose"
-if not agent_id and al is not None and tuid:
-    tp = str(payload.get("transcript_path") or "")
-    try:
-        agent_id = (al.tool_use_ids_to_agent_ids(tp) or {}).get(tuid, "")
-    except Exception:
-        agent_id = ""
-    if agent_id:
-        source = "transcript"
-
-# 2. the intent this call was made under
-intent = None
-if sid and tuid:
-    try:
-        intent = tx.read_intent(sid, tuid)
-    except Exception as e:
-        problem("the spawn-intent for tool_use %s could not be read: %s" % (tuid, e))
-if not tuid:
-    problem("the PostToolUse payload carries no tool_use_id, so this spawn cannot be joined to its spawn-intent and cannot be bound.")
-elif intent is None:
-    problem("NO spawn-intent is on disk for tool_use %s (session %s). guard-worktree-isolation.sh writes it before every file-capable spawn it allows; either that guard is not wired, failed to write, or this spawn reached the harness by a route the guard never saw. The worker is UNBOUND: guard-sealed-worktree.sh will refuse every potentially writing tool call it makes." % (tuid, sid[:8] or "?"))
-elif not agent_id:
-    # NEVER infer synchronous from a missing id again. is_async is read from the
-    # structured result (isAsync, else status == async_launched); only None means
-    # the payload genuinely did not say. See the MEASURED note above.
-    who = os.environ.get("NAME") or "?"
-    if is_async is False:
-        problem("this file-capable spawn (teammate %s) was SYNCHRONOUS (isAsync false), so its PostToolUse arrives after the work is over and it cannot be bound. It ran unbound: nothing it wrote is owned by any transaction. Re-issue it as a background teammate." % who)
-    elif is_async is True:
-        problem("this file-capable spawn (teammate %s) was ASYNCHRONOUS and the result carried no readable agentId, so the binder could not bind it. This is a BINDER DEFECT, not a caller mistake: the id is expected at tool_response.agentId. Do not re-issue the spawn differently; fix the binder. Keys seen: %s" % (who, ",".join(sorted(resp.keys())) if isinstance(resp, dict) else type(resp).__name__))
-    else:
-        problem("this file-capable spawn (teammate %s) returned no agent id and the result did not say whether it was asynchronous (no isAsync, no status). The binder cannot tell a synchronous run from its own failure, so it refuses to guess. Result shape: %s" % (who, ",".join(sorted(resp.keys())) if isinstance(resp, dict) else type(resp).__name__))
-else:
-    try:
-        tx.bind(sid, tuid, agent_id, source)
-    except Exception as e:
-        problem("binding tool_use %s to agent %s FAILED: %s. The worker is unbound and its writes will be refused." % (tuid, agent_id, e))
-    else:
-        try:
-            sealed, res = tx.try_seal(sid, agent_id)
-        except Exception as e:
-            sealed, res = False, "try_seal raised: %s" % e
-        print("BOUND\t%s\t%s\t%s" % (agent_id, source, "sealed" if sealed else "unsealed: %s" % res))
-
-# 3. the inventory rows (best-effort, never a verdict) — with the real agent id
-if wl is not None:
-    entity = os.environ.get("ENTITY_ROOT", "")
-    base = {"teammate": os.environ["NAME"], "session_id": sid, "agent_id": agent_id,
-            "source": "detect-nonnative-worktree.sh", "isolation": os.environ.get("ISOLATION", "")}
-    # session identity: the native lock line first (it names the host session
-    # pid, measured identical for every agent of a session), CLAUDE_PID second
-    entries = wl.worktree_entries(entity) if entity else None
-    native_path = os.path.join(entity, ".claude", "worktrees", "agent-" + agent_id) if (entity and agent_id) else ""
-    lock_pid = None
-    native_branch = ""
-    native_registered = False
-    if entries and native_path:
-        for path, branch, lock in entries:
-            if wl.norm_path(path) == wl.norm_path(native_path):
-                native_registered = True
-                native_branch = branch
-                lock_pid, _start = wl.lock_identity(lock)
-                break
-    pid = lock_pid or wl.session_pid_from_env()
-    if pid:
-        base["session_pid"] = int(pid)
-        st = wl.pid_start(pid)
-        if st:
-            base["pid_start"] = st
-    def repo_of(path):
-        try:
-            r = subprocess.run(["git", "-C", path, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
-            first = next((l[len("worktree "):] for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
-            return os.path.realpath(first) if first else ""
-        except Exception:
-            return ""
-    def branch_of(path):
-        try:
-            r = subprocess.run(["git", "-C", path, "symbolic-ref", "-q", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
-            return r.stdout.strip()
-        except Exception:
-            return ""
-    if agent_id or not os.environ.get("SPAWN_CWD"):
-        rec = dict(base); rec.update({"event": "registered", "class": "native", "repo": entity,
-                                      "worktree": native_path,
-                                      "branch": native_branch or ("worktree-agent-" + agent_id if agent_id else ""),
-                                      "native_registered": native_registered})
-        wl.append(rec)
-    paths = []
-    cwd = os.environ.get("SPAWN_CWD", "").strip()
-    if cwd:
-        paths.append(cwd)
-    for mm in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", prompt_text, re.M):
-        paths.append(mm.group(1).strip())
-    seen = set()
-    for p in paths:
-        p = os.path.realpath(p)
-        if p in seen:
-            continue
-        seen.add(p)
-        rec = dict(base); rec.update({"event": "registered", "class": "hand-rolled", "repo": repo_of(p),
-                                      "worktree": p, "branch": branch_of(p)})
-        wl.append(rec)
-PY
-)" || true
-    while IFS= read -r _line; do
-      case "$_line" in
-        PROBLEM*) BIND_PROBLEMS+=("${_line#PROBLEM	}") ;;
-        BOUND*) : ;;
-        "") : ;;
-        *) BIND_PROBLEMS+=("the binder itself failed: ${_line}") ;;
-      esac
-    done <<BIND_EOF
-$BIND_OUT
-BIND_EOF
-  fi
-fi
+# --- BINDING IS NOT THIS HOOK'S JOB ANY MORE --------------------------------
+# The spawn's agent id and the native workspace the platform created for it
+# are registered by workspace-lifecycle.sh on this same PostToolUse[Agent]
+# event (scripts/lib/workspaces.py bind_agent; docs/plans/
+# worktree-spec-2026-09-11.md, points 3 and 6). This hook detects and records
+# the spawned name; it registers and deletes nothing.
 
 
 # (b) Any non-native worktree on disk (name != agent-<hex>).
@@ -445,154 +220,39 @@ while IFS= read -r wt; do
   base="$(basename "$wt")"
   case "$base" in
     agent-*) : ;;                       # native isolation worktree — fine
-    *) WARN+=("lingering NON-NATIVE worktree: .claude/worktrees/${base} — native isolation always names worktrees 'agent-<hex>', so a readable slug means someone hand-rolled it. TWO possible causes, and this hook cannot tell them apart: (1) the LEAD omitted isolation:\"worktree\" on the spawn; or (2) the SUBAGENT ran 'git worktree add' ITSELF from inside its own correctly-native worktree — spawn flags were fine, the agent went freelance. Check 'git worktree list': if an agent-<hex> worktree for the same agent sits alongside this stray, it is cause (2), so do NOT go auditing spawn flags that were never wrong. Either way: verify + land any work on its branch, then 'git worktree remove' it — or confirm it was a deliberate hand-roll.") ;;
+    *) WARN+=("lingering NON-NATIVE worktree: .claude/worktrees/${base} — native isolation always names worktrees 'agent-<hex>', so a readable slug means someone hand-rolled it, or a session was started with claude --worktree (not allowed: docs/plans/worktree-spec-2026-09-11.md, point 3). Check 'git worktree list': if an agent-<hex> worktree for the same agent sits alongside this stray, the SUBAGENT ran 'git worktree add' itself. It has no registration, so it is finished work: land it or discard it with workspaces.sh (point 3).") ;;
   esac
 done < <(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' | grep "/.claude/worktrees/" || true)
 
 # --- new tells: ZOMBIE RESIDUE (dirs + processes) -------------------------
 #
 # A background child (a detached long-running verification — install-fresh, a
-# build, a device sync) can outlive BOTH its agent AND its worktree. `git
-# worktree remove` drops the registration, but the still-running orphan
-# re-creates the directory on its way to a state write. Tell (b) above cannot
+# build, a device sync) can outlive BOTH its agent AND its worktree, and
+# re-create the directory on its way to a state write. Tell (b) above cannot
 # catch a re-created agent-<hex> dir (its NAME is native-shaped); these two
-# tells close that gap.
-#
-# Registry + main checkout resolved once. `git worktree list` works from any
-# checkout; its FIRST porcelain 'worktree' line is the main working tree. If the
-# list is empty/unavailable, MAIN_CO is empty and BOTH tells no-op — fail-safe:
-# never reap when registration cannot be proven.
+# tells close that gap. Both REPORT; neither deletes nor kills anything. The
+# only things that delete a workspace are the page's land and discard.
 REGISTERED_WT="$(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' || true)"
 MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | sed -n '1p')"
 
 PRESERVED_RESIDUE=()
-EXPLAINED_RESIDUE=()
 ZOMBIE_PROCS=()
 
 # (c) UNREGISTERED DIRECTORIES under <main>/.claude/worktrees/ — present on
-# disk, ABSENT from the git registry.
-#
-# ABSENCE IS NOT OWNERSHIP, AND IT NEVER WAS. Until a6c076c this loop reasoned
-# "unregistered == unowned == safe to auto-reap" and ran `rm -rf` on whatever
-# came out of a glob. That is the SAME inference that authorized the
-# 2026-09-05 deletion, reached independently in a second file: every clause is
-# equally true of a directory nobody has any information about. The deletion is
-# gone, and it stays gone — docs/workspace-retirement-safety.md is explicit
-# that restoring automatic erasure needs an enforced access boundary, not
-# another policy check that a policy check can be talked past.
-#
-# BUT A REPORT IS NOT A RULE EITHER. Preserving everything and telling the
-# operator "ownership is unknown" about every entry is the same glob wearing
-# calmer language: it hands back a retirement quarantine and a genuine mystery
-# in one undifferentiated list, and a list that cries wolf is a list somebody
-# stops reading. So the retirement journal is CONSULTED, and the two are named
-# apart:
-#
-#   EXPLAINED   — the journal holds a record for this exact path. This is the
-#                 recreated-original-path case: the workspace was retired, and
-#                 something put a directory back at its old address. The
-#                 operator is told WHAT it is and where the archive is, rather
-#                 than being sent to investigate from nothing.
-#   PRESERVED   — the journal says nothing about it. Genuinely unestablished.
-#
-# NEITHER IS REMOVABLE, and that is the finding rather than a limitation of the
-# implementation: the journal can say "this path was retired at T", and it can
-# never say "nobody owns this now". Nothing this detector can read establishes
-# a directory as ownerless, so the removable list is empty by construction and
-# no code path exists to act on one.
+# disk, ABSENT from the git registry. Reported, never removed.
 if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
   for d in "$MAIN_CO/.claude/worktrees"/*/; do
     [ -d "$d" ] || continue
     dir="$( cd "${d%/}" 2>/dev/null && pwd -P )" || continue
-    dbase="$(basename "$dir")"
-    # BELT AND BRACES, EXPLICITLY, AND SECOND. The quarantine container is
-    # QUARANTINE_DIRNAME=".richos-retired" and every quarantine inside it is
-    # named "<base>.richos-retired-ws-<id>-<stamp>Z" (workspace-retire.py).
-    # Both are dot-prefixed, so bash's default globbing already never matched
-    # them here — which is precisely why this is written down: the quarantine's
-    # safety was resting on the absence of `shopt -s dotglob` in this file, an
-    # invisible dependency that one unrelated line could remove without anyone
-    # connecting the two. The PRIMARY defense is that nothing is deleted at
-    # all; this is the second layer, and a name test is never allowed to be the
-    # first.
-    case "$dbase" in
-      .*|*.richos-retired-*) continue ;;
+    case "$(basename "$dir")" in
+      .*) continue ;;
     esac
     if printf '%s\n' "$REGISTERED_WT" | grep -xF >/dev/null "$dir"; then
       continue
     fi
-    if git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null \
-         | sed -n 's|^worktree ||p' | grep -xF >/dev/null "$dir"; then
-      continue
-    fi
-    # Ask the journal. It answers about this exact path or it answers nothing;
-    # an unreadable, absent or unparseable journal yields no explanation, which
-    # lands the entry in PRESERVED — the conservative side, where an entry
-    # nobody can account for belongs.
-    _WHY=""
-    if [ -f "$_RETIRE_PY" ]; then
-      _WHY="$(DIR="$dir" RETIRE_PY="$_RETIRE_PY" python3 - <<'PY' 2>/dev/null || true
-import importlib.util, os, sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    return mod
-
-try:
-    wr = load("wr", os.environ["RETIRE_PY"])
-except Exception:
-    sys.exit(0)
-
-target = os.environ["DIR"]
-
-def same(a, b):
-    if not a or not b:
-        return False
-    a = a.rstrip("/"); b = b.rstrip("/")
-    if a == b:
-        return True
-    try:
-        return os.path.realpath(a) == os.path.realpath(b)
-    except Exception:
-        return False
-
-hits = []
-try:
-    for r in wr.read_records():
-        ws = r.get("workspace") or {}
-        q = r.get("quarantine") or {}
-        if same(ws.get("path"), target) or same(q.get("path"), target):
-            hits.append(r)
-except Exception:
-    sys.exit(0)
-
-if not hits:
-    sys.exit(0)
-last = hits[-1]
-ws = last.get("workspace") or {}
-q = last.get("quarantine") or {}
-bits = ["the retirement journal holds %d record(s) for this exact path" % len(hits)]
-bits.append("most recent: outcome '%s'%s at %s"
-            % (last.get("outcome") or "?",
-               (" (%s)" % last.get("reason_code")) if last.get("reason_code") else "",
-               last.get("ts") or "?"))
-if ws.get("id"):
-    bits.append("workspace %s" % ws["id"])
-if q.get("path"):
-    bits.append("its preserved copy is at %s" % q["path"])
-print("; ".join(bits))
-PY
-)"
-    fi
-    if [ -n "$_WHY" ]; then
-      EXPLAINED_RESIDUE+=("$dir -- $_WHY")
-    else
-      PRESERVED_RESIDUE+=("$dir")
-    fi
+    PRESERVED_RESIDUE+=("$dir")
   done
 fi
-
 # (d) ORPHANED PROCESSES referencing an UNREGISTERED worktree path. A background
 # child can keep running after its agent and worktree are gone. REPORT-ONLY —
 # never auto-kill (it may be mid-write). Scoped to THIS repo's worktrees so a
@@ -630,46 +290,26 @@ if [ "${#WARN[@]}" -gt 0 ]; then
     echo ""
     echo "MANDATORY RESPONSE — do this NOW, before any other work:"
     echo "  1. STOP. Do not continue orchestrating."
-    echo "  2. TERMINATE the mis-spawned teammate immediately (SendMessage shutdown_request),"
-    echo "     and WAIT for its termination to confirm."
-    echo "  3. CORRECT THE MISTAKE: preserve any committed work on its branch, then remove the"
-    echo "     non-native worktree ('git worktree remove'). Re-spawn correctly with"
-    echo "     isolation:\"worktree\" if the work still needs doing — or add"
-    echo "     'main-checkout-run: <reason>' if it genuinely belongs in the main checkout."
-    echo "  4. Verify 'git worktree list' shows only agent-<hex> worktrees before proceeding."
+    echo "  2. TERMINATE the mis-spawned teammate (TaskStop); its run has then ended."
+    echo "  3. CORRECT THE MISTAKE: land or discard its work with workspaces.sh — the only"
+    echo "     thing that deletes a workspace (docs/plans/worktree-spec-2026-09-11.md)."
+    echo "     Re-spawn correctly with isolation:\"worktree\" if the work still needs doing"
+    echo "     — or add 'main-checkout-run: <reason>' if it belongs in the main checkout."
     echo ""
     echo "(hook: scripts/hooks/detect-nonnative-worktree.sh — detective; this is the"
     echo " guard-free backstop for when the PreToolUse preventer fails.)"
   } >&2
 fi
 
-if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
+if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
   {
     echo "============================================================"
     echo "  ZOMBIE WORKTREE RESIDUE — orphaned dir/process detected"
     echo "============================================================"
     echo ""
-    if [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ]; then
-      echo "EXPLAINED unregistered director(ies): the retirement journal accounts"
-      echo "for this exact path, so a directory is here at an address that was"
-      echo "already retired — something recreated it. Still preserved, still not"
-      echo "removed; it is named apart so it does not consume the attention the"
-      echo "unexplained entries below need:"
-      for r in "${EXPLAINED_RESIDUE[@]}"; do
-        echo "  - explained $r"
-      done
-      echo ""
-      echo "  Recover the retired copy with:"
-      echo "    python3 <engine>/scripts/lib/workspace-retire.py list"
-      echo "    python3 <engine>/scripts/lib/workspace-retire.py restore <ws-id> <dest>"
-      echo ""
-    fi
     if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ]; then
-      echo "PRESERVED unregistered worktree directories: ownership is unknown."
-      echo "The retirement journal does not account for these, and nothing this"
-      echo "detector can read establishes a directory as ownerless. No directory"
-      echo "was removed. Investigate the owner and recovery state before making"
-      echo "any lifecycle decision:"
+      echo "Directories under .claude/worktrees/ that git does not list as worktrees."
+      echo "Nothing was removed; no workspace is deleted except by a land or a discard:"
       for r in "${PRESERVED_RESIDUE[@]}"; do
         echo "  - preserved $r"
       done
@@ -687,36 +327,11 @@ if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] 
       echo "  Recommended (after confirming these are stray): kill ${pids}"
       echo ""
     fi
-    echo "Corollary (CLAUDE.md non-handoff rule / playbook #13): a background"
-    echo "child can outlive its agent AND its worktree — reap PROCESSES, not just"
-    echo "directories, and run long verification foreground so it dies with its"
-    echo "agent."
     echo "(hook: scripts/hooks/detect-nonnative-worktree.sh)"
   } >&2
 fi
 
-if [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
-  {
-    echo "============================================================"
-    echo "  WORKTREE BINDING FAILED — this spawn's worktrees are UNOWNED"
-    echo "============================================================"
-    echo ""
-    echo "The spawn ran, but it could not be bound to its agent id:"
-    for b in "${BIND_PROBLEMS[@]}"; do
-      echo "  ! $b"
-    done
-    echo ""
-    echo "Consequence: the worker's manifest is not sealed. guard-sealed-worktree.sh"
-    echo "REFUSES every potentially writing tool call from an unsealed worker, so this"
-    echo "teammate can read and can report, and cannot write. No cleanup will ever"
-    echo "run for a worktree that was never bound. Shut it down and re-spawn once the"
-    echo "cause above is fixed."
-    echo "(hook: scripts/hooks/detect-nonnative-worktree.sh — the binder;"
-    echo " specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 3)"
-  } >&2
-fi
-
-if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#EXPLAINED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
+if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
   exit 2
 fi
 

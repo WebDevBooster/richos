@@ -214,88 +214,49 @@ case "$TO_LC" in
   main|team-lead|lead|leader|user|"") exit 0 ;;
 esac
 
-# --- (0) A TERMINAL AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH (2026-09-03) --
+# --- (0) A FINISHED AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH ------------
 #
-# The first terminal ingress (SubagentStop or WorktreeRemove,
-# terminalize-agent-worktrees.sh) claimed this agent's worktree transaction:
-# its worktrees are quarantined for capture and removal, and it is forbidden
-# to return — the CEO's ruling, not a heuristic. So a message to it is refused
-# HERE, before the protocol exemption, before `resume-ack:`, before the roster
-# and the lock are even consulted. There is no escape hatch: a resumed
-# terminal agent would wake with no workspace and improvise, which is the
-# failure this whole guard exists to prevent, now made permanent by design.
+# docs/plans/worktree-spec-2026-09-11.md, points 9 and 11: "a finished agent
+# never writes again"; "An agent Rich pauses ... is not finished: it keeps its
+# workspaces, is not locked out, and resumes." Both come from ONE record — the
+# workspace registry (scripts/lib/workspaces.py), keyed by this session and the
+# teammate's name (names are unique within a session by clause 3 of the spawn
+# guard). So:
 #
-# The lookup is EXACT: the terminal index keyed by agent id, the per-session
-# index keyed by teammate name (names are unique within a session by clause 3
-# of the spawn guard, and the index is per session so a reused name in a
-# later session matches nothing), and the identity index's exact name -> id
-# join. Nothing is matched by prefix or role.
-#
-# If the transaction library is absent the check cannot run, and the guard
-# carries on to its existing (still fail-closed) verdict rather than inventing
-# one — announced on stderr so the absence is not silent.
-_TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
-if [ -f "$_TX_PY" ]; then
-  TERMINAL_VERDICT="$(RESUME_TO="$TO" RESUME_SESSION_ID="$SESSION_ID" RESUME_TEAM_DIR="${RESUME_GUARD_TEAMS_DIR:-$SESSION_TEAMS_DIR}/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)" \
-    RESUME_TRANSCRIPT="$TRANSCRIPT" RESUME_LIB_DIR="$SCRIPT_DIR/../lib" TX_PY="$_TX_PY" python3 - <<'PY' 2>/dev/null || printf 'UNKNOWN\tthe terminal check could not run'
-import importlib.util, os, sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    return mod
-
-def out(kind, detail=""):
-    sys.stdout.write("%s\t%s\n" % (kind, detail.replace("\t", " ").replace("\n", " ")))
-    raise SystemExit(0)
-
-tx = load("tx", os.environ["TX_PY"])
-to = (os.environ.get("RESUME_TO") or "").strip()
-sid = os.environ.get("RESUME_SESSION_ID") or ""
-if to.startswith("agent-"):
-    to_id = to[len("agent-"):]
-else:
-    to_id = to
-if tx.is_terminal_agent(to_id, sid or None):
-    out("TERMINAL", "agent id %s is terminal" % to_id)
-if sid and tx.is_terminal_name(sid, to):
-    out("TERMINAL", "teammate %s is terminal in session %s" % (to, sid[:8]))
-# the exact name -> id join, so a name whose agent id is terminal is caught too
-ti_path = os.path.join(os.environ.get("RESUME_LIB_DIR", ""), "teammate-identity.py")
-if os.path.isfile(ti_path):
-    try:
-        ti = load("ti", ti_path)
-        index = ti.identity_index(os.environ.get("RESUME_TEAM_DIR", ""), os.environ.get("RESUME_TRANSCRIPT", ""), sid)
-        aid, _how = ti.agent_id_for_name(to, index)
-        if aid and tx.is_terminal_agent(aid, sid or None):
-            out("TERMINAL", "teammate %s resolves exactly to agent id %s, which is terminal" % (to, aid))
-    except Exception:
-        pass
-out("LIVE", "")
-PY
-)"
-  TKIND="$(printf '%s' "$TERMINAL_VERDICT" | sed -n '1p' | cut -f1)"
-  TDETAIL="$(printf '%s' "$TERMINAL_VERDICT" | sed -n '1p' | cut -f2-)"
-  if [ "$TKIND" = "TERMINAL" ]; then
-    {
-      echo "=== Resume-isolation guard: REFUSED (terminal agent) ==="
-      echo "  SendMessage to '${TO}': ${TDETAIL}."
-      echo ""
-      echo "  Its first terminal event claimed its worktree transaction; its worktrees"
-      echo "  are quarantined for capture and removal, and it is forbidden to return."
-      echo "  There is NO escape hatch — not resume-ack:, not a protocol message."
-      echo "  For a follow-up, spawn a FRESH teammate with the Agent tool and a new"
-      echo "  <role>-<model>-<identifier> name. Its committed work is on its branch"
-      echo "  and under refs/richos/handoffs/<session>/<agent-id>/<branch>."
-      echo "  (specification: docs/plans/worktree-real-fix-2026-09-03.md)"
-      echo "$HOOK_TAG"
-    } >&2
-    exit 2
-  elif [ "$TKIND" = "UNKNOWN" ]; then
-    echo "NOTICE: guard-resume-isolation.sh: the terminal-agent check could not run ($TDETAIL); continuing to the liveness verdict." >&2
-  fi
-else
-  echo "NOTICE: guard-resume-isolation.sh: scripts/lib/worktree-transactions.py is missing at $_TX_PY — a TERMINAL agent cannot be recognized here; continuing to the liveness verdict." >&2
+#   finished      -> REFUSED here, before the protocol exemption and before
+#                    resume-ack:. The lock-out (guard-sealed-worktree.sh) would
+#                    refuse its every tool anyway; a message would only restart
+#                    an agent that can do nothing.
+#   paused/active -> ALLOWED here: a registered agent that is not finished may
+#                    be messaged, and a message to a paused one resumes it
+#                    (workspace-lifecycle.sh records that on PostToolUse).
+#                    Nothing further is asked — no liveness question (the page:
+#                    "No question of whether an agent is still alive").
+#   unregistered  -> not a workspace-owning teammate of this session; the checks
+#                    below decide, unchanged.
+_WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+if [ -f "$_WS_PY" ] && [ -n "$SESSION_ID" ]; then
+  WS_VERDICT="$(python3 "$_WS_PY" --session "$SESSION_ID" recipient --name "$TO" 2>/dev/null || printf 'unknown\tthe registry could not be read')"
+  WKIND="$(printf '%s' "$WS_VERDICT" | sed -n '1p' | cut -f1)"
+  WDETAIL="$(printf '%s' "$WS_VERDICT" | sed -n '1p' | cut -f2-)"
+  case "$WKIND" in
+    finished)
+      {
+        echo "=== Resume-isolation guard: REFUSED (finished agent) ==="
+        echo "  SendMessage to '${TO}': it is finished — ${WDETAIL}."
+        echo ""
+        echo "  A finished agent never writes again (point 9); there is NO escape hatch —"
+        echo "  not resume-ack:, not a protocol message. Its work is landed or discarded"
+        echo "  (workspaces.sh land|discard ${TO}). To continue unfinished work, spawn a"
+        echo "  FRESH teammate with a 'continues: ${TO}' prompt line (point 7)."
+        echo "$HOOK_TAG"
+      } >&2
+      exit 2 ;;
+    paused|active)
+      exit 0 ;;
+    unknown)
+      echo "NOTICE: guard-resume-isolation.sh: the workspace registry could not be read ($WDETAIL); continuing to the checks below." >&2 ;;
+  esac
 fi
 
 # --- (4b) protocol / control messages — NEVER blocked --------------------
