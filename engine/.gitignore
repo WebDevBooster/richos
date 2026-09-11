@@ -12,12 +12,12 @@
 # hooks.
 scripts/hooks/*.sha256
 
-# Same rule for the TWO managed files that do not live under scripts/hooks/:
-# scripts/reap-stale-worktrees.sh (the half of the SessionStart worktree-reaper
-# chain that actually removes worktrees) and scripts/lib/resolve-roots.sh (the
-# root-resolution contract — every guard refuses to start without it, and every
-# guard's answer to "which repository am I protecting?" comes out of it, so it
-# is hashed for the same reason the reaper is). install.sh mints both sidecars.
+# Same rule for the managed files that do not live under scripts/hooks/:
+# scripts/workspaces.sh and scripts/lib/workspaces.py (the workspace registry —
+# the only code that deletes a workspace, docs/plans/worktree-spec-2026-09-11.md)
+# and scripts/lib/resolve-roots.sh (the root-resolution contract — every guard
+# refuses to start without it, and every guard's answer to "which repository am
+# I protecting?" comes out of it). install.sh mints their sidecars.
 scripts/*.sha256
 scripts/lib/*.sha256
 

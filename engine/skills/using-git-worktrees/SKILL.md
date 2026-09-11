@@ -65,24 +65,15 @@ Touches:  <source-tree> | docs-only | scripts-only | explicit mix
 Notes:    <anything the orchestrator needs — e.g. where test evidence lives>
 ```
 
-## Managed external workspace delivery
+## What happens to your workspace
 
-For a managed external workspace, the teammate branch exists only inside its
-independent image. Commit there and report the exact commit and manager UUID
-shown by the preparation helper. The orchestrator must wait for terminal capture
-then query:
-
-```sh
-python3 'scripts/lib/managed-workspace-integration.py' delivery --id '<manager-id>' --repo '/absolute/canonical/repo'
-```
-
-The owner-authenticated receipt names `source_repo`, `ref` and exact `tip`.
-The same receipt is stored in the transaction member's `delivery` field when
-reclamation completes. Review and merge that exact tip in the stated canonical
-repository using the normal integration procedure. Never assume a canonical
-branch matching the teammate name exists. Pending capture is unfinished delivery;
-removed storage is not proof that the commit has been merged. Existing native
-and directory worktrees keep their ordinary branch handoff contract.
+Your workspace — and every workspace and branch you have, including a
+cross-repository `cc/` one — is registered when you are spawned and deleted
+when the orchestrator lands or discards your work
+(`docs/plans/worktree-spec-2026-09-11.md`). Nothing else deletes it, and you
+never delete it yourself. Nothing uncommitted is ever landed, so commit
+everything you want kept before you finish. (Managed external workspaces were
+removed on 2026-09-11 with the machinery that ran them.)
 
 ## Prohibitions
 
