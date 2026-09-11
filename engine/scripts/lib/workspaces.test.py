@@ -648,8 +648,14 @@ class _Result(unittest.TextTestResult):
 
 
 if __name__ == "__main__":
+    # No arguments: every point. Arguments: the named classes or tests only,
+    # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof.
     runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=0, resultclass=_Result)
-    result = runner.run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))
+    loader = unittest.defaultTestLoader
+    names = [a for a in sys.argv[1:] if a]
+    suite = (loader.loadTestsFromNames(names, sys.modules[__name__]) if names
+             else loader.loadTestsFromModule(sys.modules[__name__]))
+    result = runner.run(suite)
     print("=== workspaces spec tests: %d run, %d failed ===" % (
         result.testsRun, len(result.failures) + len(result.errors)))
     sys.exit(0 if result.wasSuccessful() else 1)
