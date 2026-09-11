@@ -3344,7 +3344,11 @@ if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/de
         fi
         kill "$Q_SESS_PID" 2>/dev/null || true
         if [ "$Q_SB" -ne 1 ]; then
-            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the sandbox repository could not be built. Wiring and hashes are verified; BEHAVIOR IS NOT."
+            # A FAILURE, not a warning: a warning-only path here once concealed a
+            # stale fixture for days (contract-integrity.test.sh case 41c), and a
+            # canary that cannot run proves nothing about the spec's behavior.
+            emit_fail "Q. FUNCTIONAL CANARY DID NOT RUN — a step of the sandbox repository (init, seed commit, worktree add, or the agent's commit) failed. Wiring and hashes are verified; BEHAVIOR IS NOT."
+            Q_OK=0
         elif [ -n "$Q_PROBLEMS" ]; then
             emit_fail "Q. the workspace spec's FUNCTIONAL canary failed:$Q_PROBLEMS"
             Q_OK=0
