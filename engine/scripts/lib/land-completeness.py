@@ -418,9 +418,8 @@ def analyze(repo, main="main", ledger=None):
             # on 2026-09-10 (O1). It is decided: retired, not a land, not
             # residue, and never blocking.
             disp, reason = QUARANTINED, (
-                "retired by workspace-retire and renamed to quarantine; still registered with git by "
-                "that route's design (offline retirement owns registration removal: "
-                "`python3 engine/scripts/lib/workspace-retire.py sweep`); not a land, not residue")
+                "renamed to quarantine by the retired workspace-retire route (removed 2026-09-11); "
+                "still registered with git; not a land, not residue")
         elif merged == "unmerged":
             disp, reason = RETAINED_UNMERGED, (
                 "its branch has commits that are NOT in %s — never swept, by rule, and never "

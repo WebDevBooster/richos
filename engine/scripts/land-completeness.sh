@@ -43,13 +43,9 @@
 # ===========================================================================
 # WHY IT DOES NOT REMOVE ANYTHING
 # ===========================================================================
-# Because two things already do, they disagree about what they are allowed to
-# touch, and adding a third would make the disagreement worse rather than
-# settle it. `reconcile-terminal-worktrees.py` runs nightly and removes both
-# worktree and branch for sealed daily-lane members; `reap-stale-worktrees.sh`
-# is hand-run and removes neither ref. This one REPORTS, in the vocabulary both
-# of them use, so that the answer to "what is left over" does not depend on
-# which of the two you happened to run.
+# Because the workspace spec (docs/plans/worktree-spec-2026-09-11.md) allows
+# exactly two deleters — land and discard, scripts/workspaces.sh — and this is
+# neither. It REPORTS.
 #
 # Self-test:  scripts/land-completeness.sh --self-test
 
@@ -291,8 +287,8 @@ if not quiet and not as_json:
         w("  WHAT TO DO. Each line above is one land that pushed and stopped. The terminal steps\n")
         w("  of the land sequence are collect, remove, resolve:\n\n")
         w("      engine/scripts/collect-worktree-artifacts.sh <worktree>\n")
-        w("      engine/scripts/remove-agent-worktree.sh --owner <agent-id> <worktree>\n")
-        w("      (the agent id is on the row above; a bare path exits 2 with usage)\n\n")
+        w("      engine/scripts/workspaces.sh land <agent>   (or: discard <agent> --reason '...')\n")
+        w("      (workspaces.sh status names the agent; land and discard are the only deleters)\n\n")
         w("  If one of them is retained ON PURPOSE, that is a first-class answer and the only\n")
         w("  thing wrong with it is leaving it unsaid — retained silently is the defect this\n")
         w("  report exists to remove.\n")
