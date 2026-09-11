@@ -3301,7 +3301,9 @@ if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/de
         cp "$REPO_ROOT/orchestration.config" "$Q_ENT/orchestration.config" 2>/dev/null || Q_SB=0
         printf '.claude/\n' >"$Q_ENT/.gitignore"
         git -C "$Q_ENT" add -A >/dev/null 2>&1 || Q_SB=0
-        git -C "$Q_ENT" -c user.name=probe -c user.email=probe@example.invalid commit -q -m seed >/dev/null 2>&1 || Q_SB=0
+        # The operator's global git config (and its commit hooks) must not reach a
+        # sandbox: GIT_CONFIG_GLOBAL=/dev/null, as every q_env call below does too.
+        GIT_CONFIG_GLOBAL=/dev/null git -C "$Q_ENT" -c user.name=probe -c user.email=probe@example.invalid commit -q -m seed >/dev/null 2>&1 || Q_SB=0
         Q_SESS_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
         q_env() { env HOME="$Q_DIR/home" CLAUDE_CONFIG_DIR="$Q_DIR/home/.claude" RICHOS_ENTITY_ROOT="$Q_ENT" \
                       RICHOS_SESSION_PID="$Q_SESS_PID" RICHOS_WORKSPACES_SPAWN_WINDOW=0 SEAL_WAIT_SECONDS=0 \

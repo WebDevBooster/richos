@@ -114,7 +114,7 @@ MUT_WALL_T0="$(sw_now_ms)"
 # It ASSIGNS to the caller's locals (bash is dynamically scoped), so each mutant
 # function declares `local ENG GUARD SUITE W_DIR MUT_SCORE` and everything the
 # block already says about "$GUARD" and "$SUITE" keeps working unchanged against
-# the worker's own files. RICHOS_WORKTREE_TX_DIR is exported per worker, which is
+# the worker's own files. RICHOS_WORKSPACES_DIR is exported per worker, which is
 # safe because a pool worker is its own subshell.
 _mut_worker_sandbox() {
     W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
@@ -127,8 +127,8 @@ _mut_worker_sandbox() {
     fi
     GUARD="$ENG/scripts/hooks/guard-worktree-isolation.sh"
     SUITE="$ENG/scripts/hooks/guard-worktree-isolation.test.sh"
-    RICHOS_WORKTREE_TX_DIR="$W_DIR/tx"
-    export RICHOS_WORKTREE_TX_DIR
+    RICHOS_WORKSPACES_DIR="$W_DIR/workspaces"
+    export RICHOS_WORKSPACES_DIR
     MUT_SCORE=unproven
     return 0
 }
@@ -142,13 +142,16 @@ _mut_score() {
 # Cleanup is now a tidiness measure, not a correctness one. That is the point:
 # if this trap never runs, nothing is broken — previously, if it never ran, the
 # spawn gate stayed inverted.
-trap 'rm -rf "$MUT_SANDBOX_DIR"' EXIT
-# Clause 7 (2026-09-03) writes a spawn-intent for every allowed file-capable
-# spawn; the control payload carries a tool_use_id as a real one does, and the
-# transaction store is pinned to a scratch directory so this harness never
-# touches the operator's record. It lives inside the sandbox so the one trap
-# above cleans it up — as its own `mktemp -d` it was leaked on every run.
-export RICHOS_WORKTREE_TX_DIR="$MUT_SANDBOX_DIR/tx"
+# Clause 7 REGISTERS every allowed file-capable spawn in the workspace registry
+# (docs/plans/worktree-spec-2026-09-11.md, point 3); the control payload carries
+# a tool_use_id as a real one does, the registry is pinned inside the sandbox so
+# this harness never touches the operator's record, and the session is a
+# process of this harness's own so no registration borrows a real session's
+# identity.
+export RICHOS_WORKSPACES_DIR="$MUT_SANDBOX_DIR/workspaces"
+RICHOS_SESSION_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
+trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null; rm -rf "$MUT_SANDBOX_DIR"' EXIT
 
 PROVEN=0; UNPROVEN=0
 BASE_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
@@ -777,10 +780,8 @@ fi
 }
 mut_pool_submit M19 _mutant_M19
 
-# --- M20: CLAUSE 7e deleted — the persistent reconciler contract unchecked
-# (review 2026-09-03, blocker 7). A machine with no loaded reconciler would
-# spawn file-writing teammates whose terminal worktrees nothing removes.
-# macOS only: the clause stands down elsewhere and the case is a SKIP there.
+# --- M20: REGISTRATION AT SPAWN deleted — the spawn happens whether or not it
+# could be registered, which is the one thing point 3 says it may not do.
 _mutant_M20() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
@@ -788,30 +789,22 @@ python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = 'if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then'
-assert old in s, "clause 7e anchor not found"
-open(p, "w", encoding="utf-8").write(s.replace(old, "if false; then", 1))
+old = 'C7_ERR="$(printf ' + "'%s'" + ' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-spawn 2>&1 >/dev/null)" || C7_RC=$?'
+assert old in s, "clause 7 registration anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, 'C7_ERR=""', 1))
 PY
-if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
-   && alive M20 "the reconciler contract unchecked (clause 7e deleted)"; then
-    # `check` matches the suite's FAIL lines, whose wording differs from the
-    # PASS lines (the harness run of 2026-09-03 went red at exactly Q19a, Q19c
-    # and Q19d and was scored unproven only because these named the PASS text).
-    check M20 "the reconciler contract unchecked (clause 7e deleted)" \
-        "Q19a not-loaded" \
-        "Q19c dangling job" \
-        "Q19d wrong program"
+if applied M20 "registration at spawn deleted (clause 7)" \
+   && alive M20 "registration at spawn deleted (clause 7)"; then
+    check M20 "registration at spawn deleted (clause 7)" \
+        "L08  cross-repo-worktree: UNREGISTERED cc/ path" \
+        "Q01"
 fi
     _mut_score
 }
-if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-    mut_pool_submit M20 _mutant_M20
-fi
+mut_pool_submit M20 _mutant_M20
 
-# --- M21: the external-only refusal deleted (clause 7f, CEO specification
-# 2026-09-03 section 6) — a cwd-only file-writing spawn would be allowed again,
-# owning hand-rolled worktrees with no platform-owned lifecycle witness: the
-# exact shape that leaked zach-opus-b1's richos worktree on 2026-09-03.
+# --- M21: the cwd-only refusal deleted (clause 7f) — a spawn with no native
+# workspace of its own, so its workspaces would not all go together (point 10).
 _mutant_M21() {
     local ENG GUARD SUITE W_DIR MUT_SCORE
     _mut_worker_sandbox || return 1
@@ -819,15 +812,14 @@ python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = 'if kind == "cwd":\n    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED'
+old = 'if [ -n "$SPAWN_CWD" ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "remote" ]; then\n  C7_PROBLEMS+=("cwd-only spawn refused'
 assert old in s, "clause 7f anchor not found"
-open(p, "w", encoding="utf-8").write(s.replace(old, 'if kind == "cwd" and False:\n    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED', 1))
+open(p, "w", encoding="utf-8").write(s.replace(old, 'if false; then\n  C7_PROBLEMS+=("cwd-only spawn refused', 1))
 PY
-if applied M21 "the external-only refusal deleted (clause 7f)" \
-   && alive M21 "the external-only refusal deleted (clause 7f)"; then
-    check M21 "the external-only refusal deleted (clause 7f)" \
-        "cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED" \
-        "Q02"
+if applied M21 "the cwd-only refusal deleted (clause 7f)" \
+   && alive M21 "the cwd-only refusal deleted (clause 7f)"; then
+    check M21 "the cwd-only refusal deleted (clause 7f)" \
+        "cwd into a REGISTERED cc/ workspace, no isolation -> BLOCKED"
 fi
     _mut_score
 }

@@ -365,8 +365,13 @@ def session_pid(session_id=""):
             break
         f = os.path.join(_platform_sessions_dir(), "%d.json" % pid)
         rec = read_json(f)
-        if rec and (not session_id or str(rec.get("sessionId") or "") == session_id):
-            return pid
+        if rec:
+            if not session_id or str(rec.get("sessionId") or "") == session_id:
+                return pid
+            # The platform says this process is ANOTHER session. The payload's
+            # session is therefore not the one running this code, and its
+            # identity is not this process's to lend.
+            return None
         ppid, comm = _ps_parent_and_comm(pid)
         if named is None and os.path.basename(comm) == "claude":
             named = pid
