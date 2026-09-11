@@ -42,14 +42,14 @@ SANDBOX="$(mktemp -d -t worker-lifecycle-test.XXXXXX)"
 # case after that then "fails" against a directory that is simply gone, which
 # is a spectacularly misleading way to be told about a one-line typo.
 TOP_SHELL="${BASHPID:-$$}"
-trap '[ "${BASHPID:-$$}" = "$TOP_SHELL" ] && rm -rf "$SANDBOX"' EXIT
-
-# The isolation guard's clause 7 writes a spawn-intent for every allowed
-# file-capable spawn, and clause 7e holds a production store to the machine's
-# reconciler contract (launchd). The store is pinned into the sandbox so this
-# suite never writes the operator's record and never depends on whether the
-# reconciler job is loaded on the machine running it.
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# The isolation guard's clause 7 registers every allowed file-capable spawn
+# (docs/plans/worktree-spec-2026-09-11.md, point 3). The registry is pinned into
+# the sandbox so this suite never writes the operator's record, and the
+# registration's session identity is a process of this suite's own.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
+RICHOS_SESSION_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
+trap '[ "${BASHPID:-$$}" = "$TOP_SHELL" ] && { kill "$RICHOS_SESSION_PID" 2>/dev/null; rm -rf "$SANDBOX"; }' EXIT
 TEAMS_DIR="$SANDBOX/teams"
 SESSION_ID="abcd1234-0000-0000-0000-00000000beef"
 SESSION_DIR="$TEAMS_DIR/session-abcd1234"
@@ -436,11 +436,11 @@ fi
 #    to exist — another session's log, which only that session's reader opens
 #    and this session's reader never does. Reproduced by Frank in a sandbox:
 #    one foreign directory, the row landed there, the reader returned []. Now
-#    a known session whose own directory is absent writes to the fallback file,
-#    which the reader (worktree-transactions.platform_lifecycle_after) opens
-#    keyed by the full session id. Both arms: 9a the row reaches the fallback
-#    AND the reader returns it; 9b the single-directory guess still serves the
-#    case it was written for, a payload with NO session id.
+#    a known session whose own directory is absent writes to the fallback file.
+#    Both arms: 9a the row reaches the fallback; 9b the single-directory guess
+#    still serves the case it was written for, a payload with NO session id.
+#    (The reader this used to be checked against was the transaction store,
+#    removed with the workspace spec of 2026-09-11; 9a' went with it.)
 # ---------------------------------------------------------------------------
 # The topology is the real one: the teams directory under the home's .claude,
 # so the writer's fallback ($HOME/.claude/worker-events.jsonl) and the reader's
@@ -455,16 +455,6 @@ if [ "$rc" = "0" ] && [ ! -e "$TEAMS2/session-ffffffff/worker-events.jsonl" ] \
     pass "9a  writer: a KNOWN session whose own directory is absent writes to the FALLBACK file, never into the one foreign directory that happens to exist"
 else
     fail "9a  writer: foreign-dir=$([ -e "$TEAMS2/session-ffffffff/worker-events.jsonl" ] && echo written || echo untouched) fallback=$([ -e "$HOME2/.claude/worker-events.jsonl" ] && echo written || echo missing) rc=$rc"
-fi
-# ...and the READER finds that row through the same door, so the two agree.
-if RICHOS_TEAMS_DIR="$TEAMS2" python3 - "$SCRIPT_DIR/../lib/worktree-transactions.py" "$SESSION_ID" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
-rows = tx.platform_lifecycle_after(sys.argv[2], "aTESTWORKER00001", "2000-01-01T00:00:00+00:00")
-assert [k for _w, k, _s in rows] == ["start"], rows
-PY
-then pass "9a' reader: platform_lifecycle_after returns that start from the fallback file, keyed by the full session id — the writer and the reader agree"
-else fail "9a' reader: the row the writer filed was not read back (writer and reader disagree)"
 fi
 # 9b CONTROL — no session id at all: the single-directory guess is the only
 # key there is, and it still applies (the pre-existing behavior, kept for the

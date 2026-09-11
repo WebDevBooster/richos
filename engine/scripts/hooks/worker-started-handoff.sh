@@ -85,7 +85,7 @@ def resolve_team_dir():
             return candidate
         # ROUND 15 (2026-09-11, Frank D4): A KNOWN SESSION WHOSE OWN DIRECTORY
         # IS ABSENT WRITES TO THE FALLBACK FILE, NEVER TO SOMEBODY ELSE'S
-        # DIRECTORY. The reader (worktree-transactions.platform_lifecycle_after)
+        # DIRECTORY. A reader (the transaction store, removed 2026-09-11)
         # opens this session's directory and the fallback file, keyed by the
         # full session id this row carries; it never opens a foreign session's
         # log. The single-directory guess below filed this row into whatever
