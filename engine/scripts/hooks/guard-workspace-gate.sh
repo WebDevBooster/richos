@@ -103,6 +103,28 @@ else
 fi
 stop_notice_init "guard-workspace-gate.sh" "$ENTITY_ROOT" "$INPUT"
 
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# A turn that ends without this check having run must not look like a turn that
+# ran it and found nothing. The sentence comes from
+# scripts/lib/unevaluated-notice.sh so every hook says it the same way, and it
+# goes out through the notice channel measured for the Stop event. The turn is
+# not held: a payload that cannot be read names no session to hold it for.
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        # ONE LINE for the call itself, deliberately: stop-hook-visibility.test.sh
+        # proves its case 3a by sed-ing out every such call, and a multi-line
+        # continuation would leave the argument lines behind as orphaned commands.
+        _UE_MSG="$(unevaluated_sentence "guard-workspace-gate.sh" \
+            "whether this turn ended with finished work neither landed nor discarded (point 5)" \
+            "$_UE_REASON" turn)"
+        stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
+        exit 0
+    fi
+fi
+
 LIB="$SCRIPT_DIR/../lib/workspaces.py"
 if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$LIB" ]; then
     stop_notice_abnormal "cannot-run" \

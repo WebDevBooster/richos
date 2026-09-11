@@ -411,9 +411,10 @@ fi
 # found carrying the identical `|| true` hole on 2026-09-10, wired to the
 # library, and pinned by four cases in its OWN suite — which is where a
 # PostToolUse hook has to be judged, because driving it needs the sandbox that
-# suite builds. Driving the SessionStart set from here would run the worktree
-# reaper against this machine, which is why the derivation stops where it does
-# and why this case exists to say so out loud rather than in a comment.
+# suite builds. Driving the SessionStart set from here would record sessions in,
+# and scan the repositories of, the registry on this machine, which is why the
+# derivation stops where it does and why this case exists to say so out loud
+# rather than in a comment.
 #
 # What this asserts: every event hooks.json registers is one this suite has
 # CLASSIFIED. A new event — or a hook moved into one — turns this red with the
@@ -427,7 +428,8 @@ ASKED = {"PreToolUse", "Stop"}
 # Judged and NOT asked, with the reason each is out of scope. The value is the
 # claim; if it stops being true the event belongs in ASKED.
 JUDGED = {
-    "SessionStart":     "cannot refuse anything; driving it here would run the reaper on this machine",
+    "SessionStart":     "cannot refuse anything; driving it here would record sessions and scan repositories on this machine",
+    "SessionEnd":       "one hook, workspace-lifecycle.sh, which records the end and always exits 0",
     "UserPromptSubmit": "one hook, commit-ceo-inputs.sh, which never exits non-zero",
     "PostToolUse":      "fires after the call it reports on; judged in each hook's own suite",
     "SubagentStart":    "recorders; the engine's own design note calls this event non-blocking",
