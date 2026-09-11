@@ -269,7 +269,15 @@ REGISTERED_EOF
 # These stay explicit because there is no registration surface to derive them
 # from — each is here for a reason stated at its own line.
 HOOK_FILES+=(
-    "$REPO_ROOT/scripts/reap-stale-worktrees.sh"
+    # THE WORKSPACE REGISTRY and the one command Rich runs. Not hooks, and
+    # hashed because they are the ONLY code in the engine that deletes a
+    # workspace or an agent's branch (docs/plans/worktree-spec-2026-09-11.md:
+    # land and discard, and their automatic retry), and because the spawn
+    # guard, the lock-out and the Stop gate take their whole answer from the
+    # registry. A tampered copy would leave every one of them wired, hashed,
+    # executable and deciding from something nobody verifies.
+    "$REPO_ROOT/scripts/lib/workspaces.py"
+    "$REPO_ROOT/scripts/workspaces.sh"
     # The model-tier parser. guard-worktree-isolation.sh sources it to decide
     # clause 6 (is this explicit model: override a move DOWN the declared
     # capability order?), and a trimmed or inverted copy would leave the guard
@@ -285,21 +293,6 @@ HOOK_FILES+=(
     # judging the wrong model, and they would agree with each other while doing
     # it. Layer MC compares this sidecar.
     "$REPO_ROOT/scripts/lib/resolve-model.sh"
-    # Not a hook either, and hashed for the same reason as the reaper: it is the
-    # OTHER piece of engine code that DELETES worktrees, and it is the escape
-    # route guard-worktree-removal.sh points every blocked operator at. The two
-    # ship as a pair; hashing the guard while leaving its sanctioned helper
-    # unverified would check the lock and ignore the key.
-    "$REPO_ROOT/scripts/remove-agent-worktree.sh"
-    # The retirement operation the removal helper now routes to, and the same
-    # sentence one step further on: remove-agent-worktree.sh is hashed because
-    # it is the code that deletes worktrees, and since 2026-09-05 its
-    # --workspace mode DECIDES NOTHING ITSELF — it derives the repository, the
-    # path and the owner from the ownership ledger through this file, and
-    # refuses on anything it cannot derive. A tampered copy would leave the
-    # helper wired, hashed, executable and taking its whole answer from
-    # something nobody verifies. Check the lock, ignore the key.
-    "$REPO_ROOT/scripts/lib/workspace-retire.py"
     # Not a hook, and hashed anyway. Every guard's bootstrap refuses to start
     # without scripts/lib/resolve-roots.sh, and every guard's answer to "which
     # repository am I protecting?" comes out of it. An unhashed resolver would
@@ -423,12 +416,10 @@ HOOK_FILES+=(
     # and ignoring the key, once more.
     "$REPO_ROOT/scripts/lib/unevaluated-notice.sh"
     # The LIVENESS RESOLVER, in both its halves, plus its operator CLI. Not
-    # hooks, and hashed for remove-agent-worktree.sh's reason turned up one
-    # notch: THREE callers now delegate the entire question "is this agent
-    # alive?" to these files — the removal helper (which deletes worktrees on
-    # the answer), guard-agent-state-claims.sh (which contradicts the lead's
-    # report on the answer), and the CLI an operator runs before saying
-    # anything about an agent's state. On 2026-08-31 the lead told the CEO a
+    # hooks: guard-agent-state-claims.sh (which contradicts the lead's report
+    # on the answer) and the CLI an operator runs before saying anything about
+    # an agent's state delegate the question to these files. It decides no
+    # deletion: no workspace is deleted on a liveness answer any more. On 2026-08-31 the lead told the CEO a
     # live agent had completed because he read a stale roster instead of this
     # answer; a tampered or reverted resolver would make the stale reading the
     # CORRECT one everywhere at once, and it would look like nothing happened.
@@ -454,41 +445,12 @@ HOOK_FILES+=(
     # changing one line of the guard.
     "$REPO_ROOT/scripts/lib/stop-live-work.py"
     "$REPO_ROOT/scripts/stop-work-ack.sh"
-    # The ownership ledger, hashed for the reaper's reason one step further:
-    # it is the file the reaper's REMOVAL decision for every hand-rolled
-    # worktree now rests on, and the file a blocking guard consults to admit a
-    # cross-repository spawn. A quietly edited copy that said NOT-ALIVE for
-    # everything would leave the reaper hashed, wired, and deleting live work.
-    # The helper is hashed because it WRITES that record.
+    # The ownership ledger (an advisory record several reporters read; it
+    # decides nothing about a workspace now), the TaskCompleted delivery check,
+    # and the one command that creates and registers a cc/ workspace.
     "$REPO_ROOT/scripts/lib/worktree-ledger.py"
     "$REPO_ROOT/scripts/lib/completion-proof.py"
-    "$REPO_ROOT/scripts/lib/daily-workspace-cleanup.py"
-    "$REPO_ROOT/scripts/lib/cleanup-schedule.py"
     "$REPO_ROOT/scripts/create-teammate-worktree.sh"
-    # The worktree TRANSACTION store — the file that now decides the exact
-    # member set a terminal ingress quarantines and the reconciler removes.
-    # Hashed for the ledger's reason turned all the way up: it is the only
-    # destructive authority left in the lifecycle. A quietly edited copy that
-    # sealed a wrong path, or matched by prefix, would be wired, executable and
-    # deleting the wrong tree with every guard reporting green.
-    "$REPO_ROOT/scripts/lib/worktree-transactions.py"
-    # ADOPTION — the file that decides which worktrees a transaction may be
-    # created FOR. Hashed for the line above's reason, one link earlier in the
-    # same chain: the transaction store decides what a claim quarantines, and
-    # since 2026-09-06 this file decides what may be claimed at all. Every
-    # refusal it makes is the only thing standing between the reconciler and a
-    # workspace nobody asked it to touch, and a tampered copy that answered
-    # ADOPTABLE to everything would leave the reconciler wired, hashed,
-    # scheduled and renaming live worktrees on its say-so. It is also the file
-    # reap-stale-worktrees.sh quotes when it tells a reader "no operator action
-    # is needed", so a reverted copy would make the report wrong as well as the
-    # behavior. Check the lock, ignore the key.
-    "$REPO_ROOT/scripts/lib/worktree-adoption.py"
-    # The reconciler: the ONLY code in the engine that deletes a worktree
-    # directory now, and it deletes only a quarantine whose archive verified.
-    # Hashed for the reaper's original reason, which now applies to this file
-    # alone.
-    "$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
     # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
     # reason rather than the reaper's: it is not documentation, it IS the
     # decision. guard-dialect.sh blocks a write on nothing but what this file
@@ -620,7 +582,7 @@ POINTER_MAIN_HINT=""
 # Until 2026-09-03 this block was skipped under the flag, which left the flag
 # at 0 for every later reader — and the launchd step reads it. A forced run
 # from a temp checkout therefore scheduled a machine-wide job at a directory
-# that was deleted a second later (install-reconciler-schedule.test.sh S11).
+# that was deleted a second later (the retired reconciler schedule, 2026-09-03).
 if true; then
     _PTR_GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
     _PTR_GIT_COMMON="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
@@ -729,202 +691,71 @@ else
     echo "NOTE: could not create $ENGINE_CONFIG_DIR — engine pointer not minted. (install.sh)" >&2
 fi
 
-# --- The persistent reconciler, under launchd -------------------------------
+# --- The retired nightly reconciler: taken OFF launchd --------------------
 #
-# The worktree lifecycle's cleanup is a persistent, user-level job: each
-# day at the configured local hour it drives terminal worktree transactions to
-# removal, retrying normal failures until they succeed, so that no cleanup ever
-# waits for a later session start and no human is asked to run anything
-# (docs/plans/worktree-real-fix-2026-09-03.md, "Capture and removal").
+# Until 2026-09-11 this step scheduled com.richos.worktree-reconciler, a nightly
+# launchd job that deleted worktrees. The CEO's workspace spec
+# (docs/plans/worktree-spec-2026-09-11.md) has exactly two events — a workspace
+# is registered when its agent is spawned, and deleted when its work is landed
+# or discarded — and the only deleters are that land and discard and their
+# automatic retry (scripts/workspaces.sh). The reconciler is not on the page,
+# and its code is gone; a job still loaded under launchd would run a file that
+# no longer exists, or an old copy that still does.
 #
-# It is withheld under the conditions the engine pointer is withheld — a linked
-# worktree, an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR — for the same
-# reason: this is a machine-wide registration and a test fixture must never be
-# able to point it at a directory that is deleted a second later. UNLIKE the
-# pointer, --force-engine-pointer does not open a way through: the flag is the
-# pointer's escape hatch and governs nothing here. On 2026-09-03 it did — the
-# ephemeral/worktree facts were only computed when the flag was off — and a
-# test's forced run from a temp checkout bootstrapped gui/501/
-# com.richos.worktree-reconciler at a path that was gone a second later; the
-# job survived, RunAtLoad, every 300s, until somebody ran `launchctl list`.
-# One more wall the pointer does not need: HOME must be this account's passwd
-# home. A redirected HOME is a test fixture by definition, and the sandbox
-# check below (config dir == $HOME/.claude) cannot see it, because both sides
-# of that comparison move together. gui/<uid> is per-account and reads nothing
-# from $HOME, so a plist under any other home is a machine-wide job aimed at a
-# fixture. It is also withheld on a non-macOS host (launchd is macOS), with a
-# note naming what to schedule instead. RICHOS_LAUNCH_AGENTS_DIR redirects the
-# plist for tests, in which case launchctl is never invoked.
-# `|| true` IS LOAD-BEARING under `set -eo pipefail`, which this script runs.
-# Without it, an engine checkout with no orchestration.config (every fixture in
-# locate-engine.test.sh and global-state-witness.test.sh, and any adopter tree
-# before its first config lands) killed the whole installer HERE, with rc 1,
-# right after the pointer step and with 2>/dev/null hiding the reason. The
-# interval already has a default one line down; a missing config is a default,
-# never a failed install.
-RECONCILE_HOUR="$(sed -n 's/^RECONCILE_HOUR=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1 || true)"
-[ -n "$RECONCILE_HOUR" ] || RECONCILE_HOUR=4
-if [ "$RECONCILE_HOUR" -gt 23 ]; then
-    echo "ERROR: RECONCILE_HOUR must be between 0 and 23" >&2; exit 2
-fi
-RECONCILE_IDLE_MINUTES=10
-RECONCILE_BUDGET=300
-LAUNCHD_PROD_LABEL="com.richos.worktree-reconciler"
-LAUNCHD_LABEL="${RICHOS_LAUNCHD_LABEL:-$LAUNCHD_PROD_LABEL}"
-# A custom label is a TEST label, and only a test label: it must carry the
-# production label as a prefix plus `.test-`, so the worst a misused override
-# can do is load a job under a name that says what it is. Anything else is
-# refused outright — a job under an arbitrary name is a machine-wide
-# registration nobody would find.
-LAUNCHD_TEST_LABEL=0
-if [ "$LAUNCHD_LABEL" != "$LAUNCHD_PROD_LABEL" ]; then
-    case "$LAUNCHD_LABEL" in
-        "$LAUNCHD_PROD_LABEL".test-*) LAUNCHD_TEST_LABEL=1 ;;
-        *) echo "ERROR: install.sh: RICHOS_LAUNCHD_LABEL='$LAUNCHD_LABEL' is not the production label and not a test label ($LAUNCHD_PROD_LABEL.test-<id>) — refusing to register a launchd job under it." >&2; exit 1 ;;
-    esac
-fi
+# So the installer now REMOVES it: bootout, delete the plist, verify with
+# `launchctl print` that the label is gone. The same walls as before decide
+# whether this run may touch the operator's launchd at all (a redirected HOME,
+# a linked worktree, an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR, a
+# non-macOS host), and RICHOS_LAUNCH_AGENTS_DIR redirects the plist directory
+# for tests, in which case launchctl is never invoked. A job that is present
+# and cannot be removed FAILS the install: a deleter the page does not have is
+# not left running quietly.
+LAUNCHD_RETIRED_LABEL="com.richos.worktree-reconciler"
 LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
-LAUNCHD_PLIST="$LAUNCHD_DIR/$LAUNCHD_LABEL.plist"
-RECONCILER="$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
+LAUNCHD_RETIRED_PLIST="$LAUNCHD_DIR/$LAUNCHD_RETIRED_LABEL.plist"
 PYTHON_BIN="$(command -v python3 || true)"
-write_reconciler_plist() {
-    mkdir -p "$LAUNCHD_DIR" || return 1
-    # EnvironmentVariables: only when a caller redirected the stores — a test
-    # loading a live job must reconcile a sandbox, never ~/.claude/state. A
-    # production install sets neither and the block is omitted.
-    _ENV_BLOCK=""
-    if [ -n "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ -n "${RICHOS_WORKTREE_CAPTURE_DIR:-}" ]; then
-        _ENV_BLOCK="    <key>EnvironmentVariables</key>
-    <dict>"
-        [ -n "${RICHOS_WORKTREE_TX_DIR:-}" ] && _ENV_BLOCK="$_ENV_BLOCK
-        <key>RICHOS_WORKTREE_TX_DIR</key><string>$RICHOS_WORKTREE_TX_DIR</string>"
-        [ -n "${RICHOS_WORKTREE_CAPTURE_DIR:-}" ] && _ENV_BLOCK="$_ENV_BLOCK
-        <key>RICHOS_WORKTREE_CAPTURE_DIR</key><string>$RICHOS_WORKTREE_CAPTURE_DIR</string>"
-        _ENV_BLOCK="$_ENV_BLOCK
-    </dict>"
+RETIRE_FAILED=""
+if [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
+    if [ -e "$LAUNCHD_RETIRED_PLIST" ]; then
+        rm -f "$LAUNCHD_RETIRED_PLIST" || true
+        if [ -e "$LAUNCHD_RETIRED_PLIST" ]; then
+            RETIRE_FAILED="could not delete $LAUNCHD_RETIRED_PLIST"
+        else
+            echo "✓ retired reconciler plist removed (not unloaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> $LAUNCHD_RETIRED_PLIST"
+        fi
     fi
-    cat >"$LAUNCHD_PLIST.tmp" <<PLIST || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>$LAUNCHD_LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$PYTHON_BIN</string>
-        <string>$RECONCILER</string>
-        <string>--quiet</string>
-        <string>--max-seconds</string>
-        <string>$RECONCILE_BUDGET</string>
-        <string>--scheduled</string>
-        <string>--schedule-hour</string>
-        <string>$RECONCILE_HOUR</string>
-        <string>--idle-minutes</string>
-        <string>$RECONCILE_IDLE_MINUTES</string>
-    </array>
-    <key>StartCalendarInterval</key>
-    <dict><key>Hour</key><integer>$RECONCILE_HOUR</integer><key>Minute</key><integer>0</integer></dict>
-    <key>RunAtLoad</key><true/>
-    <key>ProcessType</key><string>Background</string>
-${_ENV_BLOCK:+$_ENV_BLOCK
-}    <key>StandardOutPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
-    <key>StandardErrorPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
-</dict>
-</plist>
-PLIST
-    mv "$LAUNCHD_PLIST.tmp" "$LAUNCHD_PLIST" || return 1
-}
-# schedule_reconciler_job — bootout, bootstrap, then VERIFY with launchctl print
-# that the job is loaded and names THIS checkout's reconciler. Returns nonzero
-# with the reason on stderr; never tells anybody to load anything by hand.
-schedule_reconciler_job() {
-    local domain="gui/$(id -u)" printed
-    if ! command -v launchctl >/dev/null 2>&1; then
-        echo "launchctl is not on PATH" >&2; return 1
-    fi
-    launchctl bootout "$domain/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
-    if ! launchctl bootstrap "$domain" "$LAUNCHD_PLIST" 2>"$LAUNCHD_PLIST.bootstrap.err"; then
-        echo "launchctl bootstrap $domain $LAUNCHD_PLIST failed: $(tr '\n' ' ' <"$LAUNCHD_PLIST.bootstrap.err" 2>/dev/null)" >&2
-        rm -f "$LAUNCHD_PLIST.bootstrap.err"; return 1
-    fi
-    rm -f "$LAUNCHD_PLIST.bootstrap.err"
-    if ! printed="$(launchctl print "$domain/$LAUNCHD_LABEL" 2>&1)"; then
-        echo "launchctl print $domain/$LAUNCHD_LABEL failed after bootstrap: $(printf '%s' "$printed" | tr '\n' ' ' | cut -c1-200)" >&2; return 1
-    fi
-    if ! printf '%s' "$printed" | grep -qF "$RECONCILER"; then
-        echo "launchctl print $domain/$LAUNCHD_LABEL does not name this checkout's reconciler ($RECONCILER) — the loaded job points elsewhere" >&2; return 1
-    fi
-    return 0
-}
-RECONCILER_SCHEDULE_FAILED=""
-# The walls come FIRST: a withheld schedule (a test, a worktree, an ephemeral
-# or sandboxed checkout, a foreign HOME, a non-macOS host) is a NOTE and never
-# a failed install, whatever the checkout lacks — locate-engine.test.sh 6d
-# runs the installer from a fixture with no reconciler. Only a run that would
-# actually schedule (the real install, or a live test-label load) requires
-# python3 and the reconciler to exist, and fails when they do not.
-if [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ] && [ "$LAUNCHD_TEST_LABEL" -eq 1 ]; then
-    # A redirected plist directory AND a test label: a LIVE load under a name
-    # that says what it is (install-reconciler-schedule.test.sh S17+). This is
-    # the one way through the withholding walls below, bounded by the label.
-    if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
-        RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
-    elif ! write_reconciler_plist; then
-        RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
-    elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
-        RECONCILER_SCHEDULE_FAILED="a live launchd load was requested (test label) but this host is not macOS"
-    elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
-        RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
-    else
-        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL — a TEST label, daily at ${RECONCILE_HOUR}:00 when idle) -> $LAUNCHD_PLIST; verified with launchctl print"
-    fi
-elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
-    # A redirected plist directory with the production label is a test of the
-    # definition: write it, never load it.
-    write_reconciler_plist && echo "✓ reconciler plist written (not loaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> $LAUNCHD_PLIST"
 elif LAUNCHD_ACCOUNT_HOME="$("$PYTHON_BIN" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"; \
      [ -z "$LAUNCHD_ACCOUNT_HOME" ] \
      || [ "$( (cd "$HOME" 2>/dev/null && pwd -P) || printf '%s' "$HOME" )" != "$( (cd "$LAUNCHD_ACCOUNT_HOME" 2>/dev/null && pwd -P) || printf '%s' "$LAUNCHD_ACCOUNT_HOME" )" ]; then
-    echo "NOTE: reconciler NOT scheduled — HOME ($HOME) is not this account's home (${LAUNCHD_ACCOUNT_HOME:-unresolvable}); a redirected HOME is a test fixture, and gui/$(id -u) is machine-wide. (install.sh)" >&2
+    : # a redirected HOME is a test fixture; gui/<uid> is machine-wide
 elif [ "$POINTER_EPHEMERAL" -eq 1 ] || [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
-    echo "NOTE: reconciler NOT scheduled from this checkout (ephemeral or a linked worktree) — the schedule would point at a directory that goes away. Run install.sh from the main checkout to schedule it. (install.sh)" >&2
+    [ -e "$LAUNCHD_RETIRED_PLIST" ] && echo "NOTE: the retired reconciler ($LAUNCHD_RETIRED_PLIST) is still installed; run install.sh from the main checkout to remove it. (install.sh)" >&2
 elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
-    echo "NOTE: reconciler NOT scheduled — launchd is macOS only. Use your host's idle-aware scheduler to run '$PYTHON_BIN $RECONCILER --quiet' daily at ${RECONCILE_HOUR}:00; --scheduled uses macOS idle detection. (install.sh)" >&2
+    : # launchd is macOS only; nothing was ever scheduled here
 elif [ "$(cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
-    echo "NOTE: reconciler NOT scheduled — CLAUDE_CONFIG_DIR is not the operator's real ~/.claude, so this is a sandboxed install. (install.sh)" >&2
+    : # a sandboxed install never touches the operator's launchd
 else
-    # THE REAL INSTALLATION (review 2026-09-03, blocker 7). Until this revision
-    # a plist that could not be written, a launchctl that was not there, and a
-    # bootstrap that failed all exited 0 — the last one telling the operator to
-    # load the job by hand, which is the babysitting this lifecycle exists to
-    # remove. A real macOS install now FAILS (exit 1) unless the job is loaded
-    # AND verified with `launchctl print` to name this checkout's reconciler.
-    # Re-running install.sh from the landed main checkout is the whole
-    # upgrade path: bootout, bootstrap, verify — no manual command. Until the
-    # job is healthy, guard-worktree-isolation.sh clause 7e refuses every
-    # file-writing spawn on this machine, naming this script as the fix.
-    mkdir -p "$ENGINE_CONFIG_DIR/state" 2>/dev/null || true
-    if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
-        RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
-    elif ! write_reconciler_plist; then
-        RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
-    elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
-        RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
-    else
-        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, daily at ${RECONCILE_HOUR}:00 when idle) -> $LAUNCHD_PLIST; verified with launchctl print"
+    _domain="gui/$(id -u)"
+    if command -v launchctl >/dev/null 2>&1; then
+        launchctl bootout "$_domain/$LAUNCHD_RETIRED_LABEL" >/dev/null 2>&1 || true
+        if launchctl print "$_domain/$LAUNCHD_RETIRED_LABEL" >/dev/null 2>&1; then
+            RETIRE_FAILED="launchctl still lists $_domain/$LAUNCHD_RETIRED_LABEL after bootout"
+        fi
     fi
+    if [ -e "$LAUNCHD_RETIRED_PLIST" ]; then
+        rm -f "$LAUNCHD_RETIRED_PLIST" || true
+        [ -e "$LAUNCHD_RETIRED_PLIST" ] && RETIRE_FAILED="${RETIRE_FAILED:+$RETIRE_FAILED; }could not delete $LAUNCHD_RETIRED_PLIST"
+    fi
+    [ -z "$RETIRE_FAILED" ] && echo "✓ the retired nightly reconciler is not under launchd ($LAUNCHD_RETIRED_LABEL)"
 fi
-if [ -n "$RECONCILER_SCHEDULE_FAILED" ]; then
+if [ -n "$RETIRE_FAILED" ]; then
     {
-        echo "=== install.sh: FAILED — the persistent reconciler is NOT scheduled ==="
-        echo "  $RECONCILER_SCHEDULE_FAILED"
-        echo "  A RichOS installation without its reconciler leaks every terminal worktree"
-        echo "  until somebody notices, which is the babysitting this lifecycle removes. This"
-        echo "  install is therefore NOT complete: file-writing spawns stay refused on this"
-        echo "  machine (guard-worktree-isolation.sh clause 7e) until it is."
-        echo "  Fix the cause above, then run this script again from the main checkout:"
+        echo "=== install.sh: FAILED — the retired nightly reconciler is still installed ==="
+        echo "  $RETIRE_FAILED"
+        echo "  It deletes worktrees, and the workspace spec's only deleters are land and"
+        echo "  discard (docs/plans/worktree-spec-2026-09-11.md). Fix the cause above, then"
+        echo "  run this script again from the main checkout:"
         echo "    $REPO_ROOT/scripts/hooks/install.sh"
-        echo "  (review 2026-09-03 blocker 7; specification: docs/plans/worktree-real-fix-2026-09-03.md, 'Capture and removal')"
     } >&2
     exit 1
 fi
