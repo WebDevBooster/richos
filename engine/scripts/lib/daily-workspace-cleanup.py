@@ -368,6 +368,18 @@ def post_terminal_run_open(tx, transaction):
          hooks missed (`worktree-transactions.py note-after-terminal`). That
          is an operator asserting a fact into the record, the same shape as
          `git worktree unlock`, not a flag that unlocks the class.
+
+    WHAT THE SECOND SOURCE IS (Sage D3 / Frank F1, round three): per-session
+    and ephemeral. The platform's per-session log lives under the session's
+    team directory, which the platform deletes at session end; a session
+    with no team directory — 31 of the 49 in the operator's transaction
+    store on 2026-09-11 — has its rows only in the fallback file
+    ~/.claude/worker-events.jsonl, which `platform_lifecycle_after` now reads
+    keyed by the full session id. So "two sources" is true exactly while the
+    owning session lives, which is exactly when a note can be lost (hooks
+    fire only then); after the session ends, item 2 takes over. The design
+    fails safe; the sentence saying so was missing (worktree-transactions.
+    lifecycle_teams_dir carries the measured substrate).
     """
     if not tx.running_after_terminal(transaction):
         return False, ''
@@ -771,15 +783,80 @@ def ignored_files(path):
     `git version 2.50.1 (Apple Git-155)`): a clone at `vendor/lib` inside an
     ignored `vendor/` lists as `['extra', 'vendor/lib/', 'vendor/plain-ignored']`.
     The trailing slash is therefore the signature of a nested repository, and
-    is_nested_repository() reads it as exactly that."""
+    is_nested_repository() reads it as exactly that.
+
+    SAGE D1 (round three, 2026-09-10): THAT SIGNATURE IS ONLY WRITTEN FOR A
+    REPOSITORY WITH A WORKING TREE. A BARE repository (`git clone --bare`,
+    `git init --bare`, a `--mirror`) has no working tree, so git does not
+    stop at it: `ls-files` lists `HEAD`, `config`, `objects/9b/...` and
+    `refs/heads/main` one file at a time, none carrying a `.git` component,
+    and every one matched its disposable parent and went to the dropped set
+    -- reproduced under the lane's binary, 48 entries, 0 trailing-slash, all
+    48 dropped, `git worktree remove` rc=0, a commit that existed nowhere else
+    gone (round 14, `bare_repro.py`). Same class as Frank R1, one shape over.
+
+    So this function now RECOGNIZES A GIT OBJECT STORE ITSELF, by the test
+    git uses (`is_git_directory`: a `HEAD` file beside an `objects/` and a
+    `refs/` directory), and collapses everything under it into the ONE
+    trailing-slash entry a nested repository already gets. Whatever the store
+    is called -- `mirror.git`, `.cache/store`, a `.git` directory copied
+    somewhere -- and however its objects are kept (loose, packed-only after a
+    `gc`, refs packed into `packed-refs`), it reaches partition_ignored() in
+    the shape the archive walks whole and restores as a repository.
+    Downstream nothing changes: `_expand_residue` walks it, the archive holds
+    it as directory entries, `never_disposable` refuses to drop it."""
     raw = _load('completion-proof').git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').stdout
-    return [os.fsdecode(x) for x in raw.split(b'\0') if x]
+    listed = [os.fsdecode(x) for x in raw.split(b'\0') if x]
+    stores = git_store_roots(path, listed)
+    if not stores:
+        return listed
+    kept = [rel for rel in listed if not any(rel.startswith(store) for store in stores)]
+    return sorted(kept + stores)
+
+
+def git_store_roots(path, listed):
+    """The OUTERMOST directories under `path` that git would recognize as a
+    repository (bare or not): a regular `HEAD` file beside an `objects/` and a
+    `refs/` directory, checked on disk for every directory whose `HEAD` the
+    listing names. Returned as trailing-slash relative paths, sorted. The
+    worktree's own root is never one (its `.git` is not listed at all); a
+    symlink is never followed into (its contents are not listed either)."""
+    roots = []
+    for rel in listed:
+        if rel.endswith('/') or os.path.basename(rel) != 'HEAD':
+            continue
+        rel_dir = os.path.dirname(rel)
+        if not rel_dir:
+            continue
+        full = os.path.join(path, rel_dir)
+        if os.path.islink(full) or not os.path.isdir(full):
+            continue
+        if (os.path.isfile(os.path.join(full, 'HEAD')) and not os.path.islink(os.path.join(full, 'HEAD'))
+                and os.path.isdir(os.path.join(full, 'objects')) and os.path.isdir(os.path.join(full, 'refs'))):
+            roots.append(rel_dir + '/')
+    roots.sort()
+    outermost = []
+    for root in roots:
+        if not any(root.startswith(outer) for outer in outermost):
+            outermost.append(root)
+    return outermost
 
 
 def is_nested_repository(rel):
     """A trailing slash from ignored_files() is a directory git would not
-    enter: a nested repository (its own `.git`, its own commits)."""
+    enter, or one this lane recognized as a git object store: a nested
+    repository (its own `.git` or its own bare layout, its own commits)."""
     return rel.endswith('/')
+
+
+# A loose object (`objects/9b/<38 hex>`) or a pack (`objects/pack/pack-<hex>.pack|.idx`)
+# is git's own byte layout and nothing else's; a path shaped like one holds
+# commits, wherever it sits and whether or not a HEAD is beside it.
+_GIT_OBJECT_RE = re.compile(r'(^|/)objects/(([0-9a-f]{2}/[0-9a-f]{38,62})|(pack/pack-[0-9a-f]+\.(pack|idx)))$')
+
+
+def looks_like_git_object(rel):
+    return bool(_GIT_OBJECT_RE.search(rel.rstrip('/')))
 
 
 def never_disposable(rel):
@@ -794,12 +871,17 @@ def never_disposable(rel):
     disposable list's own bar is "a build reproduces it from what is
     committed"; no build reproduces somebody's commits.
 
-    So two things are never disposable, whatever their parent is called: a
-    nested repository (the trailing-slash entry), and any path carrying a
-    `.git` component. Both go to the residue, which is archived and verified
+    So three things are never disposable, whatever their parent is called: a
+    nested repository or a git object store (the trailing-slash entry --
+    ignored_files() writes it for both since Sage D1, round three), any path
+    carrying a `.git` component, and any file laid out as a git object or
+    pack (looks_like_git_object: the bytes of a commit with no HEAD beside
+    them, which git would not recognize as a repository and this lane still
+    will not drop). All go to the residue, which is archived and verified
     before anything is removed -- or, if the archive cannot take them, HELD.
     """
-    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
+    return (is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')
+            or looks_like_git_object(rel))
 
 
 def partition_ignored(files, disposable):
@@ -1578,7 +1660,8 @@ def await_platform_release(tx, transaction, member, deadline):
         time.sleep(0.1)
 
 
-def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None):
+def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max_files=None,
+                max_residue_bytes=None):
     """Capture, verify and remove this member's workspace in the terminal
     event itself. Returns (outcome, detail) with outcome one of
 
@@ -1588,9 +1671,12 @@ def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max
         skipped     not this lane's member at all
 
     `deadline` bounds the wait for the platform's lock; `budget_deadline`
-    (the calling hook's own, Sage D4) caps that wait too, and `max_files` is
+    (the calling hook's own, Sage D4) caps that wait too, `max_files` is
     the tracked-file ceiling above which the member is not started here at
-    all — the same two bounds sweep_session applies to its candidates.
+    all, and `max_residue_bytes` (round 14, Frank F2 / Sage D5) is the
+    ignored-residue byte ceiling, measured by os.lstat before any archive —
+    the same three bounds sweep_session applies to its candidates. The
+    nightly pass passes none of them.
 
     NEVER RAISES. A terminal event must not be prevented by a cleanup, and a
     worker must never be kept alive by this function's own failure. Every
@@ -1663,6 +1749,19 @@ def reclaim_now(tx, transaction, index, deadline=None, budget_deadline=None, max
                                            'ceiling of %d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second '
                                            'hook is the wrong place to start it and the nightly pass is '
                                            'the right one' % (count, max_files))
+        if max_residue_bytes is not None:
+            measured = residue_bytes(member.get('path') or '', member.get('repo'))
+            if measured is None:
+                return journal('deferred', 'could not measure the ignored residue of this workspace, so the '
+                                           'in-event reclaim does not start it; the nightly pass has no '
+                                           'ceiling and will')
+            if measured[0] > max_residue_bytes:
+                return journal('deferred', 'this workspace holds %d bytes of ignored residue in %d file(s), '
+                                           'above the in-event ceiling of %d (IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES); '
+                                           'archiving it is four passes over those bytes (digest, tar, verify, '
+                                           'last look) and a 20-second hook is the wrong place to start it; the '
+                                           'nightly pass has no ceiling and takes it with the same refusals'
+                                           % (measured[0], measured[1], max_residue_bytes))
         run_open, why_open = post_terminal_run_open(tx, transaction)
         if run_open:
             return journal('deferred', why_open)
@@ -1715,6 +1814,56 @@ def sweep_max_files(repo=None):
         return int(float(config_value('IMMEDIATE_RECLAIM_SWEEP_MAX_FILES', '20000', repo)))
     except (TypeError, ValueError):
         return 20000
+
+
+DEFAULT_RESIDUE_MAX_BYTES = 256 * 1024 * 1024
+
+
+def sweep_max_residue_bytes(repo=None):
+    """The ignored-RESIDUE byte ceiling above which the IN-EVENT lane will
+    not START a candidate (Frank F2 / Sage D5, round three, 2026-09-10).
+
+    The tracked-file ceiling above says nothing about ignored bytes, and
+    since round 13 the residue can be a whole repository: archive_residue
+    digests every file, tars it, re-reads and re-digests the tar, and
+    residue_last_look digests it all once more before the rm -- four passes
+    over bytes nothing bounded. A candidate under the file ceiling with a
+    large residue started its archive inside the 15 s a 20-second hook
+    leaves, was killed, and was retried by the next event's sweep 15 s
+    later, spending every subagent stop's whole budget until the 04:00 pass
+    took it. No loss (the .tmp tar is unlinked on retry; the journal advances
+    only after verify), but a hook that always dies is a hook that never
+    finishes anything else either.
+
+    Measured from os.lstat sizes before anything is archived: no digest, no
+    tar. THE NIGHTLY PASS HAS NO CEILING -- it defers nothing on size and
+    skips nothing; only the in-event lane defers, and what it defers the
+    nightly pass takes with the same refusals. Committed data, in
+    orchestration.config, with the reasoning beside the number."""
+    try:
+        return int(float(config_value('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES', str(DEFAULT_RESIDUE_MAX_BYTES), repo)))
+    except (TypeError, ValueError):
+        return DEFAULT_RESIDUE_MAX_BYTES
+
+
+def residue_bytes(path, repo):
+    """(bytes, files) of the ignored residue as os.lstat sees it NOW -- the
+    cheapest honest measure of what archive_residue would have to read four
+    times. Nested repositories and git stores are expanded, disposables are
+    excluded, nothing is opened. None when it cannot be listed, and None is
+    NOT zero: an unanswerable size defers the candidate rather than admitting
+    it, for the same reason tracked_file_count fails closed."""
+    try:
+        _keep, residue = partition_ignored(ignored_files(path), disposable_paths(repo))
+        total = files = 0
+        for rel, _kind in _expand_residue(path, residue):
+            info = os.lstat(os.path.join(path, rel))
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+                files += 1
+        return total, files
+    except Exception:
+        return None
 
 
 def tracked_file_count(path):
@@ -1773,6 +1922,7 @@ def sweep_session(tx, session_id, deadline=None):
     try:
         budget, interval = sweep_seconds()
         ceiling = sweep_max_files()
+        residue_ceiling = sweep_max_residue_bytes()
         marker = _sweep_marker(tx, session_id)
         now = time.time()
         if deadline is not None and now >= deadline:
@@ -1802,7 +1952,7 @@ def sweep_session(tx, session_id, deadline=None):
                     continue
                 if not os.path.lexists(member.get('path') or ''):
                     continue
-                candidates.append((transaction['agent_id'], index, member.get('path')))
+                candidates.append((transaction['agent_id'], index, member.get('path'), member.get('repo')))
         if not candidates:
             return out
         try:
@@ -1816,7 +1966,7 @@ def sweep_session(tx, session_id, deadline=None):
         stop_at = now + budget
         if deadline is not None:
             stop_at = min(stop_at, deadline)
-        for aid, index, path in candidates:
+        for aid, index, path, repo in candidates:
             if time.time() >= stop_at:
                 out.append(('', 'budget-expired',
                             'the catch-up sweep ran out of its %.1fs budget with %d candidate(s) '
@@ -1840,6 +1990,21 @@ def sweep_session(tx, session_id, deadline=None):
                             '%d (IMMEDIATE_RECLAIM_SWEEP_MAX_FILES); a 20-second hook is the wrong '
                             'place to start it and the nightly pass is the right one'
                             % (count, ceiling)))
+                continue
+            # THE RESIDUE CEILING, THE SAME WAY (round 14, Frank F2 / Sage
+            # D5): sized by os.lstat, never digested, before anything starts.
+            measured = residue_bytes(path or '', repo)
+            if measured is None:
+                out.append((path, 'deferred',
+                            'could not measure the ignored residue of this workspace, so the in-event '
+                            'sweep does not start it; the nightly pass has no ceiling and will'))
+                continue
+            if measured[0] > residue_ceiling:
+                out.append((path, 'deferred',
+                            'this workspace holds %d bytes of ignored residue in %d file(s), above the '
+                            'in-event ceiling of %d (IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES); the nightly '
+                            'pass has no ceiling and takes it with the same refusals'
+                            % (measured[0], measured[1], residue_ceiling)))
                 continue
             try:
                 with tx.tx_lock(session_id, aid, timeout=1):

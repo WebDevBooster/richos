@@ -183,8 +183,13 @@ def main(argv=None):
         "  tool that reads 'the latest run' is reporting an EARLIER commit's verdict for them.\n"
         "  The usual cause is GitHub's account-wide 20-job concurrency limit, which DROPS runs\n"
         "  rather than queueing them.\n\n"
-        "  Re-dispatch each one and then find out why it was dropped:\n"
-        "      gh workflow run %s --repo %s --ref <sha>\n\n" % (args.workflow, args.repo))
+        "  Find out why it was dropped, then give it a run. A workflow_dispatch ref must be a\n"
+        "  BRANCH OR TAG, never a bare SHA, so a superseded push cannot be re-dispatched in place:\n"
+        "      git push origin <sha>:refs/heads/rerun/<sha8>\n"
+        "      gh workflow run %s --repo %s --ref rerun/<sha8>\n"
+        "  If the gap is permanent and nothing is at risk, move --since past it AND SAY WHY in\n"
+        "  the workflow file; a check red over history nobody can change is a check nobody reads.\n\n"
+        % (args.workflow, args.repo))
     return 1
 
 

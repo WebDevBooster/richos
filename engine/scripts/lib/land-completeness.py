@@ -121,6 +121,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INCOMPLETE_LAND = "incomplete-land"      # merged + registered + not alive -> the gate
 LIVE = "live"                            # retained: its owner is running
 RETAINED_UNMERGED = "retained-unmerged"  # retained: never swept, by rule
+QUARANTINED = "quarantined"              # retained: retired by workspace-retire, registered by design
 UNOWNED = "unowned"                      # unknown: no ownership record
 UNKNOWN_MERGE = "unknown-merge"          # unknown: merge status undecidable
 MISSING_ON_DISK = "missing-on-disk"      # unknown: registered, not present
@@ -272,11 +273,11 @@ def _judge_owner(worktree, records, mod, repo, liveness):
     INDETERMINATE, which does.
     """
     if mod is None:
-        return "UNRESOLVED", "the ownership ledger could not be loaded"
+        return "UNRESOLVED", "the ownership ledger could not be loaded", []
     if liveness is None:
         return "UNRESOLVED", ("the liveness module could not be loaded, so no worktree lock could "
-                              "be read and NO owner was judged")
-    best, reason = None, ""
+                              "be read and NO owner was judged"), []
+    best, reason, ids = None, "", []
     for entity in _entities_for(worktree, records, mod, repo):
         try:
             res = mod.judge(entity, worktree, [], records, None, liveness, False, None)
@@ -284,11 +285,17 @@ def _judge_owner(worktree, records, mod, repo, liveness):
             best, reason = best or "UNRESOLVED", "judging failed: %s" % exc
             continue
         v, why = res.get("verdict"), res.get("reason") or ""
+        # The agent ids the judgment rested on ride along, so a blocking row
+        # can print a remover command that actually runs (round 14, O1: the
+        # gate printed a bare path, which exits 2 with usage).
+        for aid in res.get("agent_ids") or []:
+            if aid and aid not in ids:
+                ids.append(aid)
         if v == "ALIVE":
-            return v, why
+            return v, why, ids
         if best is None or (best == "UNRESOLVED" and v != "UNRESOLVED"):
             best, reason = v, why
-    return (best or "UNRESOLVED"), reason
+    return (best or "UNRESOLVED"), reason, ids
 
 
 def main_checkout(path):
@@ -384,7 +391,8 @@ def analyze(repo, main="main", ledger=None):
             seen_branches.add(branch)
         present = os.path.isdir(path)
         merged = _merge_status(repo, branch, main) if branch else None
-        owner, why = _judge_owner(path, records, mod, repo, liveness)
+        owner, why, owner_ids = _judge_owner(path, records, mod, repo, liveness)
+        quarantined = "/.richos-retired/" in (path.rstrip("/") + "/")
 
         # ORDER MATTERS AND IS THE SAFETY ARGUMENT. Live first, so a running
         # agent is never named. Unmerged next, so R3's protection outranks
@@ -392,6 +400,20 @@ def analyze(repo, main="main", ledger=None):
         # can anything become blocking.
         if owner == "ALIVE":
             disp, reason = LIVE, "its owner is running: %s" % why
+        elif quarantined:
+            # A workspace remove-agent-worktree / workspace-retire has already
+            # preserved, verified and RENAMED to quarantine. That route keeps
+            # the git registration by design (repaired to the quarantine path;
+            # `workspace-retire.py sweep` owns registration removal), so the
+            # tree is still in `git worktree list` on a merged branch with no
+            # ownership record for its new path. Until round 14 this report
+            # called it `unowned` and could not decide it -- four such trees
+            # on 2026-09-10 (O1). It is decided: retired, not a land, not
+            # residue, and never blocking.
+            disp, reason = QUARANTINED, (
+                "retired by workspace-retire and renamed to quarantine; still registered with git by "
+                "that route's design (offline retirement owns registration removal: "
+                "`python3 engine/scripts/lib/workspace-retire.py sweep`); not a land, not residue")
         elif merged == "unmerged":
             disp, reason = RETAINED_UNMERGED, (
                 "its branch has commits that are NOT in %s — never swept, by rule, and never "
@@ -416,6 +438,7 @@ def analyze(repo, main="main", ledger=None):
         report["worktrees"].append({
             "path": path, "branch": branch, "merged": merged, "present": present,
             "locked": e["locked"], "owner": owner, "owner_reason": why,
+            "owner_agent_ids": owner_ids,
             "disposition": disp, "reason": reason,
         })
 
@@ -455,7 +478,7 @@ def analyze(repo, main="main", ledger=None):
 
 def _counts(report):
     c = {"worktrees": len(report["worktrees"]), "branches": len(report["branches"]),
-         "incomplete_lands": 0, "live": 0, "retained_unmerged": 0, "unknown": 0,
+         "incomplete_lands": 0, "live": 0, "retained_unmerged": 0, "quarantined": 0, "unknown": 0,
          "unreclaimed_branches": 0, "retained_unmerged_branches": 0,
          "not_examined": len(report["not_examined"])}
     for w in report["worktrees"]:
@@ -466,6 +489,8 @@ def _counts(report):
             c["live"] += 1
         elif d == RETAINED_UNMERGED:
             c["retained_unmerged"] += 1
+        elif d == QUARANTINED:
+            c["quarantined"] += 1
         elif d in UNKNOWN_CLASSES:
             c["unknown"] += 1
     for b in report["branches"]:

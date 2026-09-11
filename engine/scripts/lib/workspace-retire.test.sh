@@ -1178,6 +1178,62 @@ else
     bad "F1c   absence-only evidence authorized a removal, or positive evidence did not"
 fi
 
+# --- F1c'. THE DOOR READS THE PLATFORM'S TERMINAL RECORD (round 14, 2026-09-11,
+# O2). Same shape as F1c -- the owner bound to the path, no isolation worktree,
+# the host session still running -- refused while the transaction store is
+# silent; then the platform's own SubagentStop claims the agent (a sealed
+# terminal transaction naming this exact path) and the identical request
+# proceeds on basis platform-terminal-record. And row 5 still holds the door:
+# with a post-terminal run OPEN (the agent started again) the same request is
+# refused, and after that run's stop it proceeds. Frank's round-three tree was
+# refused at this door at 22:57Z and reclaimed by the lane on this very record
+# at 23:00Z; the two authorities now read the same evidence.
+new_fixture --indeterminate
+# alpha carries TWO registrations (the fixture's original owner and the
+# indeterminate one); as in F1c, the original owner is witnessed terminated so
+# the verdict below is about eeee5555ffff6666 alone.
+L record terminated --agent-id "$ALPHA_AGENT" --worktree "$CONTAINER/alpha" \
+    --reason "test fixture: witnessed termination" --witness test
+BEFORE_ALPHA="$(snapshot "$CONTAINER/alpha")"
+rc=0
+OUT="$(H --repo "$OWNER_REPO" --owner eeee5555ffff6666 --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "silent transaction store: refused" || rc=1
+assert_contains "$OUT" "owner-indeterminate" "indeterminate reason code" || rc=1
+mkdir -p "$RICHOS_WORKTREE_TX_DIR/sess-c"
+python3 - "$RICHOS_WORKTREE_TX_DIR/sess-c/eeee5555ffff6666.json" "$CONTAINER/alpha" "$OWNER_REPO" <<'PY'
+import datetime, json, sys
+path, member, repo = sys.argv[1:4]
+json.dump({"record": "transaction", "session_id": "sess-c", "agent_id": "eeee5555ffff6666", "teammate": "zach-alpha2",
+           "sealed": True, "state": "terminal",
+           "terminal": {"ingress": "SubagentStop", "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(), "detail": ""},
+           "members": [{"class": "hand-rolled", "repo": repo, "path": member, "branch": "alpha",
+                        "state": "bound", "cleanup_policy": "integrated-daily"}]}, open(path, "w"))
+PY
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-c --agent-id eeee5555ffff6666 --kind start --detail /cwd >/dev/null
+OUT="$(H --repo "$OWNER_REPO" --owner eeee5555ffff6666 --force "$CONTAINER/alpha")"
+assert_eq "3" "$?" "terminal record, but a post-terminal run is OPEN: refused" || rc=1
+assert_contains "$OUT" "started agent eeee5555 again after its terminal record" "row 5's own reason at the door" || rc=1
+assert_eq "$BEFORE_ALPHA" "$(snapshot "$CONTAINER/alpha")" "alpha untouched" || rc=1
+python3 "$SCRIPT_DIR/worktree-transactions.py" note-after-terminal --session-id sess-c --agent-id eeee5555ffff6666 --kind stop --detail SubagentStop >/dev/null
+OUT="$(H --repo "$OWNER_REPO" --owner eeee5555ffff6666 --force "$CONTAINER/alpha")"
+assert_eq "0" "$?" "terminal record, run closed: the identical request proceeds" || rc=1
+JSON="$(printf '%s\n' "$OUT" | python3 -c 'import sys,json; s=sys.stdin.read(); i=s.index("{"); j=s.rindex("}")+1; print(s[i:j])' 2>/dev/null)"
+# Two registrations bind alpha and both are NOT-ALIVE now: the sibling by a
+# witnessed termination, eeee5555ffff6666 by the platform's terminal record.
+# judge() joins the reasons in registration order, so the basis label reads the
+# sibling's; the evidence for THIS owner is the reason text, asserted verbatim.
+assert_contains "$(jf "$JSON" liveness.reason)" "platform terminal record: the platform's own terminal record for agent eeee5555ffff6666: SubagentStop at" "the door's liveness reason quotes the platform's terminal record for this owner" || rc=1
+case "$(jf "$JSON" authority.basis)" in
+    witnessed-termination|platform-terminal-record) : ;;
+    *) printf '        ASSERT FAILED: basis %s is neither positive basis in play\n' "$(jf "$JSON" authority.basis)"; rc=1 ;;
+esac
+assert_absent "$CONTAINER/alpha" "the worktree was retired" || rc=1
+if [ "$rc" -eq 0 ]; then
+    ok "F1c'  the operator door reads the platform's terminal record in the transaction store -- refused while the store is silent, refused while a post-terminal run is open, and the identical request proceeds on basis platform-terminal-record once the record is terminal and closed"
+else
+    bad "F1c'  the door does not read the transaction store the way the reclaim lane does -- authority: $(printf '%s' "$JSON" | python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin).get("authority")))' 2>/dev/null | cut -c1-900)"
+fi
+
 # --- F1d. NO record, NO isolation worktree, an owner nobody can bind: refused
 # whatever the owner string is. And the one binding that needs no record —
 # the agent's OWN isolation worktree, registered and unlocked — proceeds and

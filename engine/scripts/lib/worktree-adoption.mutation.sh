@@ -103,15 +103,21 @@ mutant hermetic-rooting-removed "A40" "$F" \
     "a suite that overrode only the transaction store would read the OPERATOR'S REAL ownership ledger and rename a live engineer's worktree into a temporary directory."
 
 # --- the record is the enumeration, never a directory scan --------------------
-mutant t4-without-a-registration "A72" "$F" \
-    "    uncertain = [s for s in statuses if s[3] == \"unknown\"]{NL}    if uncertain:" \
-    "    uncertain = [s for s in statuses if s[3] == \"unknown\"] or [(\"\", None, \"\", \"unknown\")]{NL}    if uncertain:" \
-    "crash recovery would reach a folder THIS ENGINE NEVER REGISTERED -- a stranger's directory, a CI checkout, one of the CEO's codex worktrees -- because the registration is the only thing that puts a folder in front of the tier at all."
+# T4 RETIRED (round 14, 2026-09-11). The two mutants that stood here pinned the
+# crash-recovery tier's preconditions; the tier is gone, and so are they. What
+# replaces them pins the two properties that remain: an unidentifiable owner
+# is never authorized (the exact authorization Sage D2 found), and a folder no
+# record names is refused by name rather than falling through to a generic
+# refusal.
+mutant t4-resurrected "A70" "$F" \
+    "        sid, pid, _start, _st = uncertain[0]{NL}        return None, (\"session %s pid %s has UNKNOWN process identity; retain its worktree \"" \
+    "        sid, pid, _start, _st = uncertain[0]{NL}        return \"T4\", (\"mutant: crash recovery resurrected; session %s pid %s has UNKNOWN process identity; retain its worktree \"" \
+    "an owner whose identity is malformed, legacy or absent would be authorized again on the strength of a process-name scan -- a running pid with an unreadable start token, a registration with no identity -- which is the exact authorization Sage D2 (round three) found and process-identity.test.sh forbids by name."
 
-mutant t4-ignores-a-live-session "A71" "$F" \
-    "        none_alive, why = _ledger_no_session_alive(){NL}        if none_alive:" \
-    "        none_alive, why = True, 'mutant: liveness ignored'{NL}        if none_alive:" \
-    "the tier's ONE safety property would be gone: an allow-listed workspace with no record would be adopted while its agent is still running, which is the 2026-08-24 incident."
+mutant no-record-is-not-refused "A72" "$F" \
+    "    if not aids:{NL}        return None, (\"no ownership record: nothing in the ledger or the transaction store names %s, \"" \
+    "    if not aids and False:{NL}        return None, (\"no ownership record: nothing in the ledger or the transaction store names %s, \"" \
+    "a folder THIS ENGINE NEVER REGISTERED -- a stranger's directory, a CI checkout, one of the CEO's codex worktrees -- would be refused by a generic 'no authorizing evidence' line instead of by the sentence that says absence of a record is never a claim, and the codex case (A73) would lose the wording section 31 is satisfied by."
 
 mutant candidates-from-disk "A60" "$F" \
     '    out = set(){NL}    for r in records:{NL}        p = r.get("worktree") or ""' \

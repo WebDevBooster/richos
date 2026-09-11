@@ -1167,6 +1167,9 @@ def restore(ws_id, destination):
 AUTH_BASIS_WITNESSED = "witnessed-termination"
 AUTH_BASIS_OBSERVED = "observed-isolation-worktree"
 AUTH_BASIS_SESSION = "session-provably-over"
+# The platform's own terminal record in the transaction store, with row 5 of
+# the decision table applied (round 14, O2; worktree-ledger.platform_terminal_record).
+AUTH_BASIS_TRANSACTION = "platform-terminal-record"
 
 
 def _owner_forms(owner):
@@ -1308,6 +1311,8 @@ def termination_authority(entity, repo, path, owner="", records=None, ledger_mod
             basis = AUTH_BASIS_WITNESSED
         elif "OBSERVED now" in reason:
             basis = AUTH_BASIS_OBSERVED
+        elif "platform terminal record" in reason:
+            basis = AUTH_BASIS_TRANSACTION
         else:
             basis = AUTH_BASIS_SESSION
         out.update(authorized=True, basis=basis, reason_code="terminated", reason=reason)

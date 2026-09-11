@@ -254,7 +254,17 @@ def main(argv=None):
     w("  1. FINISH THE LAND. It is two commands per item and it clears this for everybody:\n")
     for it, _why in problems:
         w("       engine/scripts/collect-worktree-artifacts.sh %s\n" % it["path"])
-        w("       engine/scripts/remove-agent-worktree.sh %s\n" % it["path"])
+        # The remover takes an IDENTITY, never a bare path: a bare path exits 2
+        # with usage (measured 2026-09-10, round 14 O1 — this printed a command
+        # that could not run). The owner id comes from the same ledger judgment
+        # that made the row blocking; when it is not on the row, the retirement
+        # mode addresses the workspace by its ledger identity instead.
+        ids = it.get("owner_agent_ids") or []
+        if ids:
+            w("       engine/scripts/remove-agent-worktree.sh --owner %s %s\n" % (ids[0], it["path"]))
+        else:
+            w("       python3 engine/scripts/lib/workspace-retire.py list      # the ws-id for %s\n" % it["path"])
+            w("       engine/scripts/remove-agent-worktree.sh --workspace <ws-id>\n")
     w("\n")
     w("  2. SAY WHY IT IS KEPT. Add one comment to the command, naming EACH item:\n\n")
     w("       git merge ...   # land-residue-ack: %s — <why this is kept>\n\n"

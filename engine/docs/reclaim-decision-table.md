@@ -109,7 +109,7 @@ Outcomes are exactly three:
 | 2 | **A = not ours** — no transaction member names this path | **REFUSE**, never reached, and REPORTED under NOT EXAMINED | every other input. Half the raw table dies here | not enumerated; `preview()` reports it | reconciler preview, `not-examined` count |
 | 3 | Ownership is contested — another transaction reserves this scope, or a preparation row is unbound | **REFUSE** "active or unbound preparation reservation" | everything below | `owner_check` | `…unbound_preparation_refuse` |
 | 4 | The ledger row that would bind this by NAME was not written by an engine writer | **REFUSE**, and the row still RESERVES | — | `row_may_bind_by_name` | `…hand_written_ledger_row_RESERVES_but_never_BINDS` |
-| 5 | **F = mid-run** — a post-terminal start with no stop after it, in the transaction's notes OR the platform's own event log; void once the owning session is provably gone; past `POST_TERMINAL_RUN_STALE_SECONDS` the reason names a person and the command to record the stop | **RETRY** "the platform started this agent again" | everything below | `post_terminal_run_open` in `owner_check` and `reclaim_now`, over `running_after_terminal` (two sources) and `session_gone` | `…restart_after_terminal…HOLDS…`; `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`; `…cannot_outlive_its_session`; `…stale_open_run_names_the_operator_remedy…`; hook-level R40/R41 |
+| 5 | **F = mid-run** — a post-terminal start with no stop after it, in the transaction's notes OR the platform's own event log; void once the owning session is provably gone; past `POST_TERMINAL_RUN_STALE_SECONDS` the reason names a person and the command to record the stop. **The second source is per-session and ephemeral** (round 14, Sage D3 / Frank F1): the platform's log lives under `~/.claude/teams/session-<sid8>/`, which the platform deletes at session end, and a session with no team directory writes to the fallback `~/.claude/worker-events.jsonl`, keyed by the full session id — which the reader now opens too. Measured 2026-09-11 (`scratchpad/r14/fallback-overlap.py`, round-14 record §2): 49 store sessions, 3 with a team directory (all with a log), 31 with rows only in the fallback, 15 with neither. So "two sources" holds exactly while the owning session lives — the only time a note can be lost — and after that `session_gone` takes over | **RETRY** "the platform started this agent again" | everything below | `post_terminal_run_open` in `owner_check` and `reclaim_now`, over `running_after_terminal` (two sources: the session log and the fallback, `platform_lifecycle_after`) and `session_gone` | `…restart_after_terminal…HOLDS…`; `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`; `…second_source_is_read_from_the_FALLBACK_log…` + mutant `fallback-log-ignored`; `…cannot_outlive_its_session`; `…stale_open_run_names_the_operator_remedy…`; hook-level R40/R41 |
 | 6 | The owner is ALIVE by its native lock, or liveness is INDETERMINATE | **RETRY** "native owner is live or unknown" | everything below | `agent-liveness.resolve` veto | `…lock_naming_a_live_pid_refuses…` |
 | 7 | No platform stop was ever recorded for this agent | **REFUSE** "not a candidate" | — | `platform_recorded_a_stop` | `…engine_derived_terminal_fact_stays_platform_owned` |
 | 8 | **B = absent** and **E = ancestor** | **REMOVE (branch only)** by CAS on the tip checked | C and D are moot — there is no tree | `_absent_native_without_receipt` | `…absent_native_without_receipt…` |
@@ -205,6 +205,26 @@ on this machine can say whether they were re-locked. **Re-lock on restart is
 UNMEASURED**, and the lock is defense in depth, not the fact the design rests
 on.
 
+**Those three lines were measured 2026-09-10 on session `d0eef867`'s event log,
+which the platform has since deleted with that session's team directory** (round
+14, Sage D3 / Frank F1: the corpus of (a) and (b) is per-session and ephemeral,
+and the numbers above cannot be re-derived from it). Re-run 2026-09-11 at this
+commit, with `--locks` reading the fallback file and falling back to the ledger
+witness plus the start fact when a session's log is gone:
+
+```
+(a) initial starts with a lock file on disk : 3; lock PRECEDES the start in 3 of them
+(b) restarts with a lock file on disk       : 1; lock mtime moved AFTER the restart (a re-lock OBSERVED) in 0 of them
+(c) restarts into a tree the reaper witnessed UNLOCKED : 4; admin directory still on disk for 0 of them; known only from the start fact (event log gone) for 4 of them
+    a57075d0698120f83  witnessed unlocked 2026-09-10T13:11:22  restarted 2026-09-10T14:34:37  (+4994 s)  admin dir GONE -- re-lock unobservable; restart from start-fact -- session event log GONE (the platform deleted it with the session), unobservable from the log
+    (and a8922391964bc8c3b, aa1627717a25e308e, ac115bc42a1e283a9, identically)
+```
+
+(a) and (b) are this session's agents only — the corpus lifetime line the script
+now prints says why. (c) is the same four as before, no longer dropped: the
+ledger witness and the start fact are durable, the log was not. The sentence the
+paragraph above rests on — UNMEASURED — is unchanged by any of it.
+
 **What actually protects a restart into an unlocked tree — the case the
 premise existed for — is three things the table never named as such:**
 
@@ -250,12 +270,15 @@ a write a terminal agent can make after its restart.**
 
 | Claim | Command | Answer today |
 |---|---|---|
-| A terminal agent never runs again | `restart-after-terminal-measure.py` | **FALSE** — 10 of 66 when written; 12 of 69 at round 13 (the authors of rounds 12 and the round-two reviews among them) |
+| A terminal agent never runs again | `restart-after-terminal-measure.py` | **FALSE** — 10 of 66 when written; 12 of 69 at round 13; 14 of 72 at round 14 (the authors of round 12, round 13 and both round-two and round-three reviews among them; the fourteenth on Claude Code 2.1.268, through the harness backgrounding a Bash call over its 600 s ceiling) |
+| A foreground Bash call stays foreground | Sage, round three: `root-contract.test.sh` at 713 s in one call | **FALSE** — over the tool ceiling (600 s max) the harness moves the call to the background, and that job's exit resumes a barred agent after its terminal record. The suite is split so no call needs it (round 14, O3) |
 | The platform emits a "finished" event | `restart-after-terminal-measure.py --census` | **FALSE** — three event types, none of them |
 | The platform releases its lock within a second | the immediate-reclaim journal | **FALSE** — 3 of 3 own-event attempts deferred; one held 77 min |
 | A locked worktree can be removed non-force | `git worktree remove` on a locked tree, under `completion-proof.GIT` (Apple Git 2.50.1) | **FALSE** — exit 128 |
 | The lock is taken before an **initial** run | `restart-after-terminal-measure.py --locks`, line (a) | **TRUE** — 4 of 4, −42.9 to −101.6 ms |
-| The platform **re-locks** for a **restarted** run | `restart-after-terminal-measure.py --locks`, lines (b) and (c) | **UNMEASURED** — (b) 0 of 3 restarts with a lock on disk re-took it (all held throughout); (c) 4 restarts into witnessed-unlocked trees left no admin directory |
+| The platform **re-locks** for a **restarted** run | `restart-after-terminal-measure.py --locks`, lines (b) and (c) | **UNMEASURED** — measured 2026-09-10 on a log since deleted: (b) 0 of 3 re-took it (all held throughout); (c) 4 into witnessed-unlocked trees, no admin directory. Re-run 2026-09-11: (b) 0 of 1, (c) 4 of 4 known only from the start fact, event log gone (§3) |
+| The second source (row 5) is durable | `ls ~/.claude/teams/`; `scratchpad/r14/fallback-overlap.py` (round-14 record §2) | **FALSE** — per-session, deleted by the platform at session end; 3 of 49 store sessions have one, 31 have rows only in the fallback file, which the reader opens since round 14 |
+| A **bare** repository under a disposable path is dropped as disposable | `daily-workspace-cleanup.test.py …BARE_repository…` + mutants `bare-repository-dropped-as-disposable`, `git-object-bytes-disposable` | **FALSE** since round 14 (was TRUE: reproduced, 48 of 48 entries dropped, `exists after: False` — Sage D1) |
 | A restarted terminal agent can use a tool | `scripts/hooks/guard-sealed-worktree.test.sh` G15 + mutant `terminal-not-refused`; live: fix1 19:57Z / 20:27Z, sage-fable-cert2 21:01Z | **FALSE** — every tool refused, `Read` included |
 | An ignored nested repository is dropped as disposable | `daily-workspace-cleanup.test.py …nested_repository…` + mutant `nested-repository-dropped-as-disposable` | **FALSE** since round 13 (was TRUE: reproduced, `exists after: False`) |
 | A lost post-terminal stop note holds a workspace forever | `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`, `…cannot_outlive_its_session`, `…stale_open_run_names_the_operator_remedy…` | **FALSE** since round 13 (was TRUE: one source, no expiry) |

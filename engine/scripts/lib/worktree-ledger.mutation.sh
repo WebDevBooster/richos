@@ -24,6 +24,16 @@ mutant name-match-restored "L03" "$F" \
     '    regs = registrations(records, worktree=worktree, names=names, repo=repo, match_names=True)' \
     "a tree would be judged by its branch or directory NAME — reusable across sessions — and a dead owner's verdict would delete a later, unrelated tree."
 
+mutant platform-terminal-record-ignored "L06b" "$F" \
+    '        state, why_terminal = platform_terminal_record(reg){NL}        if state == "terminal":' \
+    '        state, why_terminal = platform_terminal_record(reg){NL}        if False:' \
+    "a finished cross-repository worktree whose native shell the platform removed at completion would sit INDETERMINATE until the whole session ended, refused by the operator door while the reclaim lane removed it on the same record (round 14, O2: Frank's round-three tree, 22:57Z refused, 23:00Z reclaimed)."
+
+mutant open-post-terminal-run-ignored "L06c" "$F" \
+    '        if state == "open":{NL}            # The agent was run AGAIN' \
+    '        if False:{NL}            # The agent was run AGAIN' \
+    "a terminal agent the platform started again -- with that run still open in the transaction's notes or the platform's event log -- would be judged by the generic session-alive branch instead of by row 5, and the reason would stop saying the agent is running."
+
 mutant prepared-ignores-session "L22" "$F" \
     '        if session_id and (r.get("session_id") or "") != session_id:{NL}            continue' \
     '        if False:{NL}            continue' \

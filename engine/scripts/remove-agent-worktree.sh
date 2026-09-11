@@ -87,12 +87,17 @@
 #   runs — preserve unconditionally (committed, staged, dirty, untracked AND
 #   ignored; verified by re-reading), re-check ownership after preservation,
 #   RENAME to quarantine under <parent>/.richos-retired/, re-check again after
-#   the rename and undo on any change, record before and after, unlock and
-#   repair the exact quarantine registration without unlocking or bulk prune.
+#   the rename and undo on any change, record before and after, and repair
+#   the exact quarantine registration without unlocking or bulk prune.
 #   Claude-owned native members refuse this route. The directory is gone from
-#   its original path but remains registered; the bytes
-#   remain in quarantine indefinitely and in a verified archive
-#   after it.
+#   its original path but REMAINS REGISTERED with git, pointing at the
+#   quarantine (`git worktree list` keeps listing it under .richos-retired/,
+#   and its branch stays checked out there, so --branch is left in place);
+#   the bytes remain in quarantine indefinitely and in a verified archive
+#   after it. Measured 2026-09-10 on four merged worktrees: every outcome
+#   said git_registration=present, git_worktree_prune=not-attempted,
+#   branch reason_code=branch-checked-out, while the usage text below said
+#   "registration pruned" — corrected in round 14 (O1).
 #
 #   WHY (the second review's three findings, all on this route): a worker that
 #   acquired the workspace during preservation lost its new file, because the
@@ -184,10 +189,15 @@ usage, LEGACY mode (the reaper's route, and operator work from a bare path):
            [--entity-repo <path>]
 
   The SAME transaction as retirement, addressed by path + owner: preserved
-  (verified), RENAMED to <parent>/.richos-retired/, registration pruned.
-  Nothing is deleted. --branch is an ASSERTION that must name the branch
-  checked out at the path; it is deleted afterward by compare-and-delete.
-  Without --force a tree with modified or untracked paths is refused.
+  (verified), RENAMED to <parent>/.richos-retired/, and the git registration
+  RETAINED and repaired to point at the quarantine (offline retirement owns
+  registration removal: workspace-retire.py sweep). Nothing is deleted and
+  nothing is pruned. --branch is an ASSERTION that must name the branch
+  checked out at the path; because the quarantine still has that branch
+  checked out, compare-and-delete then leaves it in place
+  (reason_code branch-checked-out) — delete it with retire-branch after
+  the quarantine is swept. Without --force a tree with modified or
+  untracked paths is refused.
 
 The ONLY sanctioned way to retire an agent-associated worktree. Acts only
 when the owner is BOUND to the path (an ownership record, or the agent's own

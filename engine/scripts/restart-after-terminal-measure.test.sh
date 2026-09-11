@@ -169,6 +169,64 @@ else
     bad "M9  rc=$RC: $(printf '%s' "$OUT" | tail -3)"
 fi
 
+# ===========================================================================
+# 10-11. THE SUBSTRATE IS PER-SESSION AND EPHEMERAL (Sage D3 / Frank F1,
+# round three). A second session with NO team directory: its rows are in the
+# FALLBACK file beside the teams directory, and one of its agents was
+# witnessed unlocked and restarted with no event row anywhere -- the shape
+# the four live cases took once the platform deleted their session's log.
+# ===========================================================================
+# M9 above is `VAR=x OUT="$(...)"` with no command word, which assigns BOTH in
+# this shell; the empty store it named would otherwise be the corpus here.
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+SID2="22222222-0000-4000-8000-000000000002"
+A_FALLBACK="eeeeee000005"   # terminal, restarted; the restart is recorded ONLY in the fallback file
+A_LOGGONE="dddddd000004"    # witnessed unlocked, restarted per its start fact; NO event row anywhere
+mkdir -p "$SANDBOX/tx/$SID2/starts"
+tx_record2() { # <agent-id> <terminal-epoch>
+    python3 - "$SANDBOX/tx/$SID2/$1.json" "$SID2" "$1" "$(iso "$2")" "$REPO" <<'PY'
+import json, sys
+path, sid, aid, terminal_ts, repo = sys.argv[1:6]
+json.dump({"record": "transaction", "session_id": sid, "agent_id": aid, "teammate": "dev-" + aid[:6],
+           "sealed": True, "state": "terminal",
+           "terminal": {"ingress": "SubagentStop", "ts": terminal_ts, "detail": ""},
+           "members": [{"class": "native", "repo": repo,
+                        "path": repo + "/.claude/worktrees/agent-" + aid,
+                        "branch": "worktree-agent-" + aid, "state": "bound", "cleanup_policy": "integrated-daily"}]},
+          open(path, "w"))
+PY
+}
+tx_record2 "$A_FALLBACK" "$T1"
+tx_record2 "$A_LOGGONE" "$T1"
+# the fallback file: the sibling of the teams directory, rows keyed by the FULL session id
+printf '{"timestamp": "%s", "event": "WorkerStarted", "agent_id": "%s", "session_id": "%s", "source_hook": "fixture"}\n' \
+    "$(iso "$T2")" "$A_FALLBACK" "$SID2" >>"$SANDBOX/worker-events.jsonl"
+# the log-gone agent: a ledger witness, a later start fact, no event row
+printf '{"event": "terminated", "agent_id": "%s", "ts": "%s", "reason": "native isolation worktree registered and unlocked", "witness": "reaper"}\n' \
+    "$A_LOGGONE" "$(iso "$((T2 + 50))")" >>"$RICHOS_WORKTREE_LEDGER"
+printf '{"record": "start", "session_id": "%s", "agent_id": "%s", "cwd": "", "ts": "%s"}\n' "$SID2" "$A_LOGGONE" "$(iso "$((T2 + 100))")" >"$SANDBOX/tx/$SID2/starts/$A_LOGGONE.json"
+
+OUT="$(python3 "$MEASURE" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'DENOMINATOR: those that own at least one workspace : 5' \
+   && printf '%s' "$OUT" | grep -q 'NUMERATOR  : those with a start strictly after their terminal record : 4' \
+   && printf '%s' "$OUT" | grep -E "dev-eeeeee +$A_FALLBACK" | grep -qE ' 1 +no ' \
+   && printf '%s' "$OUT" | grep -E "dev-dddddd +$A_LOGGONE" | grep -qE ' 0 +yes ' \
+   && printf '%s' "$OUT" | grep -q 'plus the fallback file if present) : 2'; then
+    ok "M10 the FALLBACK file is read: a session with no team directory contributes its WorkerStarted (events=1, fact=no), a session whose log is gone contributes only its start fact (events=0, fact=yes), 4 of 5, 2 logs scanned"
+else
+    bad "M10 rc=$RC: $(printf '%s' "$OUT" | grep -E 'DENOMINATOR|NUMERATOR|eeeeee|dddddd|scanned' | head -6)"
+fi
+
+L3="$(python3 "$MEASURE" --locks 2>&1)"
+if printf '%s' "$L3" | grep -q '(c) restarts into a tree the reaper witnessed UNLOCKED : 2; admin directory still on disk for 0 of them; known only from the start fact (event log gone) for 1 of them' \
+   && printf '%s' "$L3" | grep -E "$A_LOGGONE" | grep -q 'restart from start-fact -- session event log GONE' \
+   && printf '%s' "$L3" | grep -E "$A_UNLOCKED" | grep -q 'restart from events' \
+   && printf '%s' "$L3" | grep -q 'CORPUS LIFETIME'; then
+    ok "M11 --locks (c): a witnessed-unlocked restart whose event log is gone is REPORTED from the ledger witness and the start fact, named as unobservable from the log, never dropped; and the corpus lifetime is stated"
+else
+    bad "M11 (c): $(printf '%s' "$L3" | grep -E '\(c\)|dddddd|cccccc|LIFETIME' | head -5)"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== restart-after-terminal-measure tests: $FAIL FAILED, $PASS passed ==="

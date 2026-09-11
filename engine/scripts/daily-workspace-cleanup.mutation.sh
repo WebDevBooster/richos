@@ -51,9 +51,29 @@ mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_r
     "an ignored file the disposable policy does not name would go with the tree and no copy would exist — PF9: git worktree remove deletes ignored files without refusing."
 
 mutant nested-repository-dropped-as-disposable "test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
-    "    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')" \
+    "    return (is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/'){NL}            or looks_like_git_object(rel))" \
     "    return False" \
     "a clone an agent made under an ignored vendor/, .cache/ or node_modules/ -- with commits nowhere else -- would be classified disposable by its PARENT's name and deleted by the non-force removal with no copy taken. Frank R1, round two: reproduced under the lane's own binary, the only loss path found in two rounds."
+
+mutant bare-repository-dropped-as-disposable "test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
+    "            roots.append(rel_dir + '/')" \
+    "            pass  # mutant: a bare repository is not recognized as a store" \
+    "a BARE repository (clone --bare, --mirror, init --bare) under an ignored .cache/ or node_modules/ has no working tree, so git lists its HEAD, config and objects one file at a time with no trailing slash and no .git component; each file matched its disposable parent and the store -- with a commit that existed nowhere else -- was deleted by the non-force removal with no copy taken. Sage D1, round three: reproduced under the lane's binary, 48 of 48 entries dropped."
+
+mutant git-object-bytes-disposable "test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
+    "            or looks_like_git_object(rel))" \
+    "            or False)" \
+    "a file laid out as a git loose object or pack under a disposable parent, with no HEAD beside it (an object store git itself would not recognize), would be dropped by its parent's name; the bytes of a commit are never a build artifact."
+
+mutant residue-byte-ceiling-ignored-in-event "test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling" "$D" \
+    "            if measured[0] > max_residue_bytes:" \
+    "            if False:" \
+    "the event's own member would start a four-pass archive of any size inside a 20-second hook, be killed, and be retried by every later event's sweep until the nightly pass (Frank F2 / Sage D5, round three); the tracked-file ceiling says nothing about ignored bytes."
+
+mutant residue-byte-ceiling-ignored-in-sweep "test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling" "$D" \
+    "            if measured[0] > residue_ceiling:" \
+    "            if False:" \
+    "the catch-up sweep would start the same unbounded archive for a deferred member on every subagent stop of the session."
 
 mutant ignored-last-look-removed "test_an_ignored_file_written_after_the_archive_HOLDS_the_removal" "$D" \
     "        unchanged, why_changed = residue_last_look(member['path'], repo, residue_archived)" \
@@ -136,6 +156,11 @@ mutant second-source-ignored "test_a_lost_stop_note_is_closed_by_the_platforms_o
     "    out.extend(platform_lifecycle_after(transaction.get(\"session_id\") or \"\",{NL}                                        transaction.get(\"agent_id\") or \"\", terminal_ts))" \
     "    pass  # mutant: the platform's own event log is never consulted" \
     "a stop note lost to the 5-second flock a sweep holds for a whole reclaim would leave the run open in the record FOREVER, and a lost start note would leave a restart invisible to the lane; the platform wrote both events down in its own log and nothing would read it (Type J: a claim with no condition that voids it)."
+
+mutant fallback-log-ignored "test_the_second_source_is_read_from_the_FALLBACK_log_for_a_session_with_no_team_directory" "$X" \
+    "               (lifecycle_fallback_log(), True)]" \
+    "               (None, True)]" \
+    "a session with no team directory -- 31 of 49 in the operator's store -- would have ONE source again: its lost start note would hold nothing and its lost stop note would hold everything (Sage D3, round three)."
 
 mutant session-death-does-not-void-an-open-run "test_a_post_terminal_run_cannot_outlive_its_session" "$D" \
     "    if gone:{NL}        return False, ('a post-terminal run of agent %s was recorded open, but %s" \

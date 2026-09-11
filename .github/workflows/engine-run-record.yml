@@ -74,7 +74,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # --since IS THE DAY THE TRIGGER CAME BACK, and it is declared rather
+          # --since IS THE MOMENT THE TRIGGER CAME BACK, and it is declared rather
           # than derived. `push:` was absent from engine-self-verify.yml from
           # 2026-09-01 to 2026-09-10, so 95 pushes to main in the event feed
           # correctly have no run. Without this bound the check would be red on
@@ -84,10 +84,25 @@ jobs:
           # DERIVING IT FROM THE RUN HISTORY WOULD BE CIRCULAR: if every run had
           # been dropped there would be no history to derive it from.
           #
-          # When the trigger changes again, change this date and say why.
+          # A DAY WAS THE WRONG GRAIN (round 14, 2026-09-11). The restoring
+          # commit 328ff8c9 is dated 2026-09-10T00:46:20Z; the first run this
+          # trigger ever produced is 8bec9050 at 04:11:27Z (`gh run list
+          # --workflow engine-self-verify.yml --branch main --json
+          # headSha,createdAt,event`, event=push). The seven pushes between —
+          # a84784d3 01:27Z, cc4ec69e 01:34Z, e587a7bb 02:10Z, 1efbbbab 02:20Z,
+          # 05124e66 03:03Z, 3a0c6925 03:13Z, 0c37c356 03:20Z — have no run and
+          # never will: a `workflow_dispatch` ref must be a branch or a tag, so
+          # the re-dispatch this check prints cannot target a superseded SHA.
+          # Whether GitHub had not yet honored the trigger or dropped the runs
+          # is UNVERIFIED (the enable time is not in the API). Three of those
+          # seven fell outside the grace window and kept this check red on
+          # every firing (run 34530537060), over a gap nobody can close.
+          # The bound is therefore the push that produced the first run.
+          #
+          # When the trigger changes again, change this timestamp and say why.
           scripts/ci-run-record-check.sh \
             --repo "${{ github.repository }}" \
             --workflow engine-self-verify.yml \
             --branch main \
-            --since 2026-09-10 \
+            --since 2026-09-10T04:11:26Z \
             --grace-minutes 30

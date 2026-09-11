@@ -225,6 +225,78 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(self.git(dest/'node_modules'/'lib','rev-parse','HEAD').strip(),nested_head)
         self.assertEqual(self.git(dest/'node_modules'/'lib','cat-file','-p','HEAD:only-here'),'commits nobody else holds\n')
 
+    def test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped(self):
+        # SAGE D1, ROUND THREE -- the same class as Frank R1, one shape over.
+        # The trailing-slash signature ignored_files() reads is written by git
+        # only for a repository WITH A WORKING TREE. A bare repository
+        # (`git clone --bare`, `--mirror`, `git init --bare`) has none, so git
+        # lists its files one by one, none carrying a `.git` component, and
+        # every one matched its disposable parent: reproduced under the lane's
+        # binary, 48 entries, 0 trailing-slash, 48 dropped, `git worktree
+        # remove` rc=0, tree gone, a commit that existed nowhere else with it.
+        #
+        # Two shapes are pinned here, because the second is the one a reviewer
+        # would try next: a bare CLONE under node_modules/ with loose objects,
+        # and a bare store under .cache/ named nothing like `.git`, packed-only
+        # after a `gc` (no loose object directories, refs in packed-refs).
+        (self.repo/'.git/info/exclude').write_text('node_modules/\n.cache/\n')
+        shapes={'node_modules/pkg/mirror.git':'loose','.cache/store':'packed'}
+        heads={}
+        for rel,kind in shapes.items():
+            src=self.root/('src-'+kind);src.mkdir()
+            self.git(src,'init','-q','-b','main');self.git(src,'config','user.name','Fixture');self.git(src,'config','user.email','fixture@example.invalid')
+            (src/'only-here').write_text('commits nobody else holds (%s)\n'%kind);self.git(src,'add','only-here');self.git(src,'commit','-q','-m','only here')
+            heads[rel]=self.git(src,'rev-parse','HEAD').strip()
+            dest=self.work/rel;dest.parent.mkdir(parents=True,exist_ok=True)
+            self.git(self.root,'clone','-q','--bare',str(src),str(dest))
+            if kind=='packed':
+                self.git(dest,'gc','-q','--prune=now')
+                self.assertTrue(list((dest/'objects'/'pack').glob('*.pack')))
+                self.assertFalse([d for d in (dest/'objects').iterdir() if len(d.name)==2])  # no loose objects left
+            import shutil;shutil.rmtree(src)                                             # the commit now exists ONLY in the bare store
+            self.assertTrue((dest/'HEAD').is_file() and (dest/'objects').is_dir() and (dest/'refs').is_dir())
+        (self.work/'node_modules'/'plain-ignored').write_text('a disposable file beside it\n')
+        # the premise, asserted: git lists the bare stores file by file with no
+        # trailing slash and no .git component (what the lane used to see) ...
+        raw=self.git(self.work,'ls-files','--others','--ignored','--exclude-standard').split('\n')
+        self.assertIn('node_modules/pkg/mirror.git/HEAD',raw);self.assertIn('.cache/store/HEAD',raw)
+        self.assertFalse([x for x in raw if x.endswith('/')])
+        # ... and the lane now collapses each store into ONE trailing-slash entry
+        listed=daily.ignored_files(str(self.work))
+        self.assertEqual([x for x in listed if x.endswith('/')],['.cache/store/','node_modules/pkg/mirror.git/'])
+        self.assertFalse([x for x in listed if not x.endswith('/') and (x.startswith('.cache/store/') or x.startswith('node_modules/pkg/mirror.git/'))])
+        self.assertIn('node_modules/plain-ignored',listed)
+        keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
+        self.assertEqual((keep,residue),(['node_modules/plain-ignored'],['.cache/store/','node_modules/pkg/mirror.git/']))
+        # the third shape, without needing a HEAD beside it: a file laid out as
+        # a git object or pack is never disposable on its own name
+        for obj in ('node_modules/x/objects/ab/'+'c'*38,'build/objects/pack/pack-'+'0'*40+'.idx','.cache/objects/pack/pack-'+'f'*40+'.pack'):
+            self.assertTrue(daily.never_disposable(obj),obj)
+        for control in ('node_modules/x/objects/readme','build/objects/pack/notes.txt','node_modules/objects/ab/short'):
+            self.assertFalse(daily.never_disposable(control),control)
+        decision,reason=self.assess();self.assertEqual(decision,'remove');self.assertIn('2 archived first',reason)
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        journal=result['members'][0]['daily_cleanup']
+        self.assertEqual(journal['ignored_disposable'],1)
+        residue=journal['ignored_residue']
+        self.assertEqual(residue['nested_repositories'],['.cache/store','node_modules/pkg/mirror.git'])
+        self.assertEqual(residue['nested_repository_count'],2)
+        loose=heads['node_modules/pkg/mirror.git']
+        with tarfile.open(residue['archive']) as tar:
+            names=tar.getnames()
+            self.assertIn('node_modules/pkg/mirror.git/HEAD',names)
+            self.assertIn('node_modules/pkg/mirror.git/objects/%s/%s'%(loose[:2],loose[2:]),names)   # THE COMMIT ITSELF
+            self.assertTrue([n for n in names if n.startswith('.cache/store/objects/pack/') and n.endswith('.pack')])
+            self.assertIn('.cache/store/packed-refs',names)
+            self.assertNotIn('node_modules/plain-ignored',names)                                     # the disposable file was dropped
+        # restore both and prove each commit is reachable again, from the bare store alone
+        dest=self.root/'restore';dest.mkdir()
+        with tarfile.open(residue['archive']) as tar:
+            tar.extractall(dest)
+        for rel,head in heads.items():
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'rev-parse','HEAD').strip(),head)
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'cat-file','-p','HEAD:only-here'),'commits nobody else holds (%s)\n'%shapes[rel])
+
     def test_an_ignored_file_written_after_the_archive_HOLDS_the_removal(self):
         # SAGE D3, ROUND TWO. reconcile() archived and verified the residue,
         # then re-checked the tracked side and the lock -- and never the
@@ -863,6 +935,44 @@ class Cleanup(unittest.TestCase):
             self.assertEqual(self.assess()[0],'remove')
             self.assert_reclaimed(self.run_cleanup())
 
+    def test_the_second_source_is_read_from_the_FALLBACK_log_for_a_session_with_no_team_directory(self):
+        # SAGE D3 / FRANK F1, ROUND THREE. The per-session log lives under the
+        # session's team directory, which the platform deletes at session end,
+        # and a session with NO team directory never had one: its rows went
+        # to ~/.claude/worker-events.jsonl, the fallback file, which the
+        # reader did not open -- 31 of 49 sessions in the operator's store on
+        # 2026-09-11. The reader opens it now, keyed by the FULL session id
+        # each row carries, with the same exact join as the session log.
+        from datetime import datetime,timezone,timedelta
+        t0=datetime.now(timezone.utc)-timedelta(minutes=5)
+        self.record['terminal']={'ingress':'SubagentStop','ts':t0.isoformat()}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        teams=self.root/'teams';teams.mkdir()                       # exists, but NO session-<sid8>/ under it
+        fallback=self.root/'worker-events.jsonl'                    # the sibling of the teams directory
+        def row(when,event,agent_id=AID,session_id=SID):
+            r={'timestamp':when.isoformat(),'event':event,'agent_id':agent_id,'source_hook':'fixture'}
+            if session_id is not None:r['session_id']=session_id
+            with open(fallback,'a') as stream:stream.write(json.dumps(r)+'\n')
+        with patch.dict(os.environ,{'RICHOS_TEAMS_DIR':str(teams)}):
+            self.assertEqual(tx.lifecycle_fallback_log(),str(fallback))
+            self.assertEqual(self.assess()[0],'remove')
+            # rows that never count: another agent; this agent in ANOTHER session; a row with NO session id
+            row(t0+timedelta(seconds=5),'WorkerStarted',agent_id='abcdef999999')
+            row(t0+timedelta(seconds=5),'WorkerStarted',session_id='other-session')
+            row(t0+timedelta(seconds=5),'WorkerStarted',session_id=None)
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            # THE LOST START NOTE, seen only in the fallback file: held
+            row(t0+timedelta(seconds=10),'WorkerStarted')
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn("platform's event log",reason)
+            self.assert_kept()
+            # and the run's end, in the same file, closes it
+            row(t0+timedelta(seconds=20),'WorkerRunEnded')
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual([(kind,src) for _w,kind,src in tx.post_terminal_events(tx.load_tx(SID,AID))],[('start','events'),('stop','events')])
+            self.assertEqual(self.assess()[0],'remove')
+            self.assert_reclaimed(self.run_cleanup())
+
     def test_a_post_terminal_run_cannot_outlive_its_session(self):
         # FRANK R2 (2): row 5 preceded row 10a, so `session_gone` never
         # overrode it — a session that died mid-run held the workspace on a
@@ -909,6 +1019,63 @@ class Cleanup(unittest.TestCase):
         self.assertEqual(json.loads(r.stdout)['after_terminal_counts'],{'start':1,'stop':1})
         self.assertEqual(self.assess()[0],'remove')
         self.assert_reclaimed(self.run_cleanup())
+
+    def test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling(self):
+        # FRANK F2 / SAGE D5, ROUND THREE. The in-event lane was bounded on
+        # TRACKED files and not on ignored residue, and since round 13 the
+        # residue can be a whole repository: a candidate under the file
+        # ceiling with a large residue started its four-pass archive inside a
+        # 20-second hook, was killed, and was retried by every later event's
+        # sweep until the nightly pass. The ceiling is measured by os.lstat
+        # before anything is archived; disposables are never counted; an
+        # unanswerable size is not zero; and the NIGHTLY pass has no ceiling.
+        (self.repo/'.git/info/exclude').write_text('big.bin\n__pycache__/\n')
+        (self.work/'big.bin').write_bytes(b'x'*4096)
+        cache=self.work/'__pycache__';cache.mkdir();(cache/'x.pyc').write_bytes(b'\x00'*8192)   # disposable: never counted
+        self.assertEqual(daily.residue_bytes(str(self.work),str(self.repo)),(4096,1))
+        # the event's own member reads the ceiling from its own repository's config
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=1024\n')
+        self.assertEqual(daily.sweep_max_residue_bytes(str(self.repo)),1024)
+        tx.terminalize(SID,AID)
+        member=tx.load_tx(SID,AID)['members'][0]
+        self.assertEqual(member['immediate_reclaim']['outcome'],'deferred')
+        self.assertIn('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES',member['immediate_reclaim']['reason'])
+        self.assertIn('4096 bytes of ignored residue in 1 file(s)',member['immediate_reclaim']['reason'])
+        self.assertIn('nightly pass has no ceiling',member['immediate_reclaim']['reason'])
+        self.assert_kept()
+        # the catch-up sweep applies the same ceiling before it starts a candidate
+        with patch.object(daily,'sweep_max_residue_bytes',return_value=1024),patch.object(daily,'sweep_seconds',return_value=(10.0,0.0)):
+            swept=daily.sweep_session(tx,SID)
+        self.assertTrue(any(o=='deferred' and 'IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES' in r for _p,o,r in swept),swept)
+        self.assert_kept()
+        # an unanswerable size defers too -- None is not zero
+        with patch.object(daily,'residue_bytes',return_value=None):
+            with tx.tx_lock(SID,AID):
+                outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0,max_residue_bytes=1024)
+        self.assertEqual(outcome,'deferred');self.assertIn('could not measure',str(why));self.assert_kept()
+        # under the ceiling, the same member reclaims in its own event
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=8192\n')
+        with tx.tx_lock(SID,AID):
+            outcome,why=daily.reclaim_now(tx,tx.load_tx(SID,AID),0,max_residue_bytes=daily.sweep_max_residue_bytes(str(self.repo)))
+        self.assertEqual(outcome,'reclaimed',why)
+        result=tx.load_tx(SID,AID)
+        self.assertEqual(result['members'][0]['daily_cleanup']['ignored_residue']['bytes'],4096)
+        self.assertFalse(self.work.exists())
+
+    def test_the_nightly_pass_has_no_residue_ceiling_and_archives_what_the_event_deferred(self):
+        # the other half of D5: what the hook defers on size, the nightly pass
+        # takes -- same refusals, no ceiling, residue archived and verified first
+        (self.repo/'.git/info/exclude').write_text('big.bin\norchestration.config\n')
+        (self.work/'big.bin').write_bytes(b'y'*4096)
+        (self.repo/'orchestration.config').write_text('IMMEDIATE_RECLAIM_RESIDUE_MAX_BYTES=1\n')   # stays in force for the nightly pass
+        tx.terminalize(SID,AID)
+        self.assertEqual(tx.load_tx(SID,AID)['members'][0]['immediate_reclaim']['outcome'],'deferred')
+        self.assert_kept()
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        residue=result['members'][0]['daily_cleanup']['ignored_residue']
+        self.assertEqual(residue['bytes'],4096)
+        with tarfile.open(residue['archive']) as tar:
+            self.assertEqual(tar.getnames(),['big.bin'])
 
     def test_the_events_own_member_is_bounded_by_the_ceiling_and_the_hooks_deadline(self):
         # SAGE D4, ROUND TWO. `_reclaim_in_event` ran with no ceiling and no

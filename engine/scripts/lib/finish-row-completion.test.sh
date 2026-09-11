@@ -74,6 +74,37 @@ export RICHOS_WORKTREE_LEDGER="$SANDBOX/ledger.jsonl"
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 SID="feedbeef-0000-4000-8000-000000000001"
 
+# ===========================================================================
+# THE EVENT LOG IS REDIRECTED, AND THE REDIRECT IS PROVEN (Sage D4, round
+# three, 2026-09-10). Every hook this suite fires also writes the platform-
+# shaped row worker-ended-handoff.sh keeps -- and for a session with no team
+# directory that row goes to ~/.claude/worker-events.jsonl, the FALLBACK
+# file, which is a real file on the operator's machine that the reclaim lane
+# reads as its second source (row 5). Nothing here redirected it: 130 rows
+# with this fixture's session id were in the operator's real log by the time
+# Sage looked, written between 13:20Z and 16:30Z on 2026-09-10 by this suite.
+#
+# HOME and WORKER_EVENTS_TEAMS_DIR both move into the sandbox, and the move is
+# asserted BOTH WAYS at the end (F15, F16), the way escalations.test.sh 17o
+# does it: the sandbox log must have received the rows (so the negative check
+# can fail for the right reason), and the count of fixture rows in the REAL
+# log -- read from its real path, captured before HOME moves -- must not
+# change. A suite that leaks into the operator's record is a suite that
+# writes evidence the lane will later read as a fact about a session.
+# ===========================================================================
+REAL_EVENTS_LOG="$HOME/.claude/worker-events.jsonl"
+count_real_fixture_rows() {
+    if [ -f "$REAL_EVENTS_LOG" ]; then
+        grep -c "\"session_id\": \"$SID\"" "$REAL_EVENTS_LOG" 2>/dev/null || printf '0'
+    else
+        printf '0'
+    fi
+}
+REAL_FIXTURE_ROWS_BEFORE="$(count_real_fixture_rows)"
+export HOME="$SANDBOX/home"
+export WORKER_EVENTS_TEAMS_DIR="$HOME/.claude/teams"
+mkdir -p "$WORKER_EVENTS_TEAMS_DIR"
+
 seal_tx() { # <agent-id> <teammate>
     mkdir -p "$RICHOS_WORKTREE_TX_DIR/$SID"
     python3 - "$RICHOS_WORKTREE_TX_DIR/$SID/$1.json" "$SID" "$1" "$2" "$SANDBOX" <<'PY'
@@ -325,6 +356,23 @@ if printf '%s' "$ROW" | grep -q '"agent_id": "a99999999run0014"'; then
     ok "F14  a resolver that raises still leaves the row on disk exactly as the hook wrote it -- a terminal event is never prevented by bookkeeping"
 else
     bad "F14  row=$ROW"
+fi
+
+# --- F15/F16. the platform-shaped event rows stayed in the sandbox ----------
+# F15 is the positive arm: the fallback log INSIDE the sandbox received this
+# fixture's rows, so F16 is not green because nothing was written anywhere.
+SANDBOX_EVENTS_LOG="$HOME/.claude/worker-events.jsonl"
+SANDBOX_FIXTURE_ROWS="$(if [ -f "$SANDBOX_EVENTS_LOG" ]; then grep -c "\"session_id\": \"$SID\"" "$SANDBOX_EVENTS_LOG" 2>/dev/null || printf '0'; else printf '0'; fi)"
+if [ "${SANDBOX_FIXTURE_ROWS:-0}" -gt 0 ]; then
+    ok "F15  POSITIVE  the hooks' event rows landed in the SANDBOX fallback log ($SANDBOX_FIXTURE_ROWS rows at $SANDBOX_EVENTS_LOG) -- so F16 can fail for the right reason"
+else
+    bad "F15  no fixture row reached the sandbox log at $SANDBOX_EVENTS_LOG; the redirect is not being exercised and F16 would pass for the wrong reason"
+fi
+REAL_FIXTURE_ROWS_AFTER="$(count_real_fixture_rows)"
+if [ "$REAL_FIXTURE_ROWS_AFTER" = "$REAL_FIXTURE_ROWS_BEFORE" ]; then
+    ok "F16  and no fixture row reached the operator's REAL event log at $REAL_EVENTS_LOG ($REAL_FIXTURE_ROWS_BEFORE before, $REAL_FIXTURE_ROWS_AFTER after)"
+else
+    bad "F16  fixture rows in $REAL_EVENTS_LOG went $REAL_FIXTURE_ROWS_BEFORE -> $REAL_FIXTURE_ROWS_AFTER; something ignored HOME / WORKER_EVENTS_TEAMS_DIR"
 fi
 
 echo ""

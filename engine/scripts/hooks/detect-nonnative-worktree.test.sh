@@ -51,6 +51,26 @@ export RICHOS_WORKTREE_TX_DIR="$DEFAULT_TX_SANDBOX/tx"
 export RICHOS_WORKTREE_LEDGER="$DEFAULT_TX_SANDBOX/wt-ledger.jsonl"
 TEST_AID="deadbeefcafe0001"
 
+# THE SESSION TEAMS DIRECTORY IS REDIRECTED TOO (round 14, 2026-09-11 — the
+# sibling of Sage D4). The hook appends every spawn's name to
+# <teams>/session-<sid8>/spawned-names.log, and its default teams directory
+# is $HOME/.claude/teams. Six firing sites in this file passed no
+# GUARD_ISOLATION_TEAMS_DIR, so on the operator's machine
+# ~/.claude/teams/session-deadbeef/spawned-names.log held 25 KB of this
+# suite's fixture names (dev-1 x2,483, deviceqa-1 x241, dev-2 x160, ...),
+# written on every run of a suite that is run on every land. The default
+# below catches every site that does not name its own; the per-case
+# overrides (an unwritable directory, a ledger-specific one) still win, as
+# an environment assignment on the command line does. Asserted both ways at
+# the end: the sandbox log received names, the real file did not grow.
+REAL_SPAWNED_NAMES_LOG="$HOME/.claude/teams/session-${TEST_SID:0:8}/spawned-names.log"
+count_real_spawned_names() {
+    if [ -f "$REAL_SPAWNED_NAMES_LOG" ]; then wc -l <"$REAL_SPAWNED_NAMES_LOG" | tr -d ' '; else printf '0'; fi
+}
+REAL_SPAWNED_NAMES_BEFORE="$(count_real_spawned_names)"
+export GUARD_ISOLATION_TEAMS_DIR="$DEFAULT_TX_SANDBOX/teams"
+mkdir -p "$GUARD_ISOLATION_TEAMS_DIR/session-${TEST_SID:0:8}"
+
 PASS=0
 FAIL=0
 
@@ -803,6 +823,23 @@ rc=$?
     && { PASS=$((PASS + 1)); printf '  PASS  ledger: an unwritable ledger does not change the detector verdict\n'; } \
     || { FAIL=$((FAIL + 1)); printf '  FAIL  ledger: unwritable ledger changed the verdict (exit %s)\n' "$rc"; }
 rm -rf "$ROOT" "$OTHER" "$OTHER-wt"
+
+# (L1/L2) the spawned-names ledger stayed in the sandbox — positive arm first,
+# so the negative arm cannot pass because nothing was written anywhere.
+SANDBOX_SPAWNED_NAMES_LOG="$GUARD_ISOLATION_TEAMS_DIR/session-${TEST_SID:0:8}/spawned-names.log"
+SANDBOX_SPAWNED_NAMES="$(if [ -f "$SANDBOX_SPAWNED_NAMES_LOG" ]; then wc -l <"$SANDBOX_SPAWNED_NAMES_LOG" | tr -d ' '; else printf '0'; fi)"
+if [ "${SANDBOX_SPAWNED_NAMES:-0}" -gt 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  L1 POSITIVE  spawned names were appended in the SANDBOX teams directory (%s lines at %s)\n' "$SANDBOX_SPAWNED_NAMES" "$SANDBOX_SPAWNED_NAMES_LOG"
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  L1 no spawned name reached the sandbox teams directory %s; the redirect is not exercised and L2 would pass for the wrong reason\n' "$SANDBOX_SPAWNED_NAMES_LOG"
+fi
+REAL_SPAWNED_NAMES_AFTER="$(count_real_spawned_names)"
+if [ "$REAL_SPAWNED_NAMES_AFTER" = "$REAL_SPAWNED_NAMES_BEFORE" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  L2 and the operator'"'"'s REAL %s did not grow (%s before, %s after)\n' "$REAL_SPAWNED_NAMES_LOG" "$REAL_SPAWNED_NAMES_BEFORE" "$REAL_SPAWNED_NAMES_AFTER"
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  L2 %s went %s -> %s lines; a firing site ignored GUARD_ISOLATION_TEAMS_DIR\n' "$REAL_SPAWNED_NAMES_LOG" "$REAL_SPAWNED_NAMES_BEFORE" "$REAL_SPAWNED_NAMES_AFTER"
+fi
+rm -rf "$DEFAULT_TX_SANDBOX"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

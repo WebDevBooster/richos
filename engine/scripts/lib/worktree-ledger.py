@@ -652,53 +652,15 @@ def session_registry():
     return out
 
 
-def no_session_alive():
-    """(none_alive, reason). Is there ANY orchestrator session running?
-
-    Two independent reads, and either one finding a session answers no:
-
-      * the harness's own live-session registry (~/.claude/sessions/<pid>.json)
-        with each pid probed;
-      * the process table, for a `claude` process of any kind.
-
-    Written for adoption tier T4. Its value is that it is universally
-    quantified: T2 says "this owner's process is gone", which needs a record
-    naming the owner, while this says "no owner of any kind exists", which
-    needs no record at all. The second read is deliberately over-inclusive —
-    anything that looks like a session REFUSES — because a false positive here
-    costs a night's delay and a false negative costs somebody's work.
-    """
-    registry = session_registry()
-    for pid, row in registry.items():
-        if _pid_running(pid):
-            return False, ("session %s is registered to running pid %s"
-                           % ((row.get("session_id") or "?")[:8], pid))
-    # RICHOS_SESSION_PROCESSES stands in for the table under test ("none" = an
-    # empty one), the same shape RICHOS_DAILY_PROCESSES uses for the reclaim
-    # lane. Without it this predicate would answer differently on a developer's
-    # machine (a session is running) and in CI (none is), which is a test that
-    # decides nothing.
-    override = os.environ.get("RICHOS_SESSION_PROCESSES")
-    if override is not None:
-        rows = [line.strip() for line in override.splitlines()
-                if line.strip() and line.strip() != "none"]
-    else:
-        try:
-            res = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=20)
-        except Exception as error:
-            return False, "the process table could not be read (%s); not provably session-free" % error
-        if res.returncode != 0:
-            return False, "the process table could not be read (ps exited %d); not provably session-free" % res.returncode
-        rows = [line.strip() for line in res.stdout.splitlines() if line.strip()]
-    for line in rows:
-        parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
-        command = os.path.basename(parts[1].strip())
-        if command == "claude" or command.startswith("claude"):
-            return False, "a %s process is running as pid %s" % (command, parts[0])
-    return True, ("no session is registered to a running pid (%d registration(s) checked) and no "
-                  "claude process is in the table (%d rows scanned)" % (len(registry), len(rows)))
+# no_session_alive() stood here from 2026-09-10 14:39Z to 2026-09-11: "is ANY
+# orchestrator session running?", answered from the session registry and a
+# process-NAME scan of the table, written for adoption tier T4. T4 is retired
+# (worktree-adoption.py, round 14 — Sage D2: it authorized what
+# process-identity.test.sh forbids, on the strength of that name scan), and
+# this was its only caller. A universally-quantified liveness predicate with
+# no caller is exactly the shape a future tier would reach for first, so it
+# is removed rather than left as a convenience; the CEO's 2026-09-03 ruling is
+# that a sweep never decides liveness, and a name scan is a sweep.
 
 
 def session_gone_by_exhaustion(session_id, last_write_epoch, tolerance=300.0):
@@ -1009,6 +971,81 @@ def registered_branches(records, repo):
 # the judgment
 # --------------------------------------------------------------------------
 
+def platform_terminal_record(reg):
+    """(terminal, reason) — THE POSITIVE SIGNAL THE TRANSACTION STORE HOLDS
+    FOR THIS EXACT PATH, read by the one judge every door consults (round
+    14, 2026-09-11, observation O2).
+
+    WHAT WAS HAPPENING. A cross-repository worktree carries no lock; its
+    owner's liveness is read off the native isolation worktree in the
+    session's repository. When that native worktree was UNCHANGED, the
+    platform removed it at the agent's completion — Frank's round-three
+    shell (agent-a522d0a7173c7d3a1) was gone within minutes of his
+    SubagentStop — and this judge then had a registered cross-repository
+    path whose native shell was absent while the session pid still ran:
+    INDETERMINATE by step 3, "decidable once that session ends". Every
+    finished cross-repository reviewer therefore sat as a live row on the
+    CEO's screen until the whole session ended, and the operator door
+    (remove-agent-worktree.sh, 22:57:02Z) refused the same path the reclaim
+    lane removed sixteen minutes later (23:00:31Z, "in the terminal
+    event") — two authorities, two readings of one record.
+
+    THE SIGNAL. The reclaim lane authorizes on the transaction's TERMINAL
+    RECORD: the platform's own terminal ingress (SubagentStop) claimed this
+    agent id, the transaction is sealed, and this exact path is one of its
+    members — a fact the platform produced, not an absence. Its known
+    caveat is that a terminal agent can be run again (14 of 72 on this
+    machine), and row 5 of the decision table answers that from two
+    sources with the session's death voiding it (post_terminal_run_open).
+    This function applies exactly that standard, so a door reading it
+    authorizes nothing the lane would not. An adopted transaction is not
+    the platform's word and never counts; a store that cannot be read
+    counts for nothing.
+
+    Returns (state, reason): `terminal` (positive evidence, reason quotes it),
+    `open` (the record is terminal but a post-terminal run is OPEN — the
+    agent was started again; the reason is row 5's own), or `none` (no
+    sealed terminal transaction names this path, or the store could not be
+    read — absence, which decides nothing).
+    """
+    aid = (reg.get("agent_id") or "").strip()
+    sid = reg.get("session_id") or ""
+    path = reg.get("worktree") or ""
+    if not aid or not sid or not path:
+        return "none", ""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("ledger_tx", os.path.join(here, "worktree-transactions.py"))
+        tx = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tx)
+        transaction = tx.load_tx(sid, aid)
+    except Exception as error:
+        return "none", "the transaction store could not be read for agent %s: %s" % (aid, error)
+    if not isinstance(transaction, dict) or not transaction.get("sealed"):
+        return "none", ""
+    terminal = transaction.get("terminal")
+    if not isinstance(terminal, dict) or transaction.get("kind") == "adopted":
+        return "none", ""
+    members = transaction.get("members") or []
+    index = next((i for i, m in enumerate(members)
+                  if isinstance(m, dict) and norm_path(m.get("path") or "") == norm_path(path)), None)
+    if index is None:
+        return "none", ""
+    try:
+        spec = importlib.util.spec_from_file_location("ledger_daily", os.path.join(here, "daily-workspace-cleanup.py"))
+        daily = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(daily)
+        run_open, why_open = daily.post_terminal_run_open(tx, transaction)
+    except Exception as error:
+        return "none", "row 5 could not be read for agent %s: %s" % (aid, error)
+    if run_open:
+        return "open", why_open
+    return "terminal", ("the platform's own terminal record for agent %s: %s at %s claimed it, the transaction "
+                        "is sealed, %s is member %d of %d, and no post-terminal run is open in either source "
+                        "(the transaction's notes or the platform's event log)"
+                        % (aid, terminal.get("ingress") or "?", terminal.get("ts") or "?", path, index + 1, len(members)))
+
+
 def _judge_registration(reg, entity, records, mod, write, ledger):
     """(verdict, reason) for ONE registration. NOT-ALIVE only on positive
     evidence; absence lands in INDETERMINATE."""
@@ -1044,6 +1081,25 @@ def _judge_registration(reg, entity, records, mod, write, ledger):
             return NOT_ALIVE, "OBSERVED now: " + reason
         # NOT-ALIVE on ABSENCE: never accepted here. Fall through to the one
         # piece of evidence that outlives the lock — the session identity.
+
+    # 2b. THE PLATFORM'S TERMINAL RECORD in the transaction store — the same
+    #     positive fact the reclaim lane removes on, with row 5 applied
+    #     (round 14, O2). Reached only when the native shell is absent or
+    #     unregistered: a held lock (ALIVE, or INDETERMINATE with no pid) has
+    #     already returned above, and the lock outranks the record.
+    if aid:
+        state, why_terminal = platform_terminal_record(reg)
+        if state == "terminal":
+            if write:
+                append({"event": "terminated", "agent_id": aid, "teammate": name,
+                        "session_id": reg.get("session_id") or "",
+                        "worktree": reg.get("worktree") or "",
+                        "reason": why_terminal, "witness": "platform-terminal-record"}, ledger)
+            return NOT_ALIVE, "platform terminal record: " + why_terminal
+        if state == "open":
+            # The agent was run AGAIN after its terminal record and that run
+            # is open: not dead, not provably alive through a lock either.
+            return INDETERMINATE, why_terminal
 
     # 3. session identity — the evidence the lock carried, retained
     pid = reg.get("session_pid")

@@ -13,6 +13,23 @@ ENGINE = Path(os.environ.get('RICHOS_IDENTITY_TEST_ROOT', Path(__file__).resolve
 LEDGER = ENGINE / 'scripts/lib/worktree-ledger.py'
 ADOPTION = ENGINE / 'scripts/lib/worktree-adoption.py'
 
+# THE CI SHAPE, PINNED (Sage D2, round three, 2026-09-10). This suite pinned
+# RICHOS_ADOPTION_PROCESSES and not the session-process table, so its verdict
+# was a fact about the machine: green wherever a `claude` process happened to
+# be running (the operator's laptop), 21 failures on a CI runner where none
+# is, and the same 21 on the operator's machine at 04:00 after his session
+# closed. A test that decides differently on different machines decides
+# nothing. So the table is an EMPTY one and the harness's live-session
+# registry is an EMPTY directory, unconditionally — the shape in which every
+# invariant below must hold, because it is the shape in which the retired T4
+# tier used to authorize what they forbid.
+import atexit
+import shutil
+_NO_SESSIONS = tempfile.mkdtemp(prefix='identity-no-sessions-')
+atexit.register(shutil.rmtree, _NO_SESSIONS, True)
+os.environ['RICHOS_SESSION_PROCESSES'] = 'none'
+os.environ['RICHOS_SESSIONS_DIR'] = _NO_SESSIONS
+
 
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
