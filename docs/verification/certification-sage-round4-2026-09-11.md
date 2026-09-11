@@ -1,4 +1,4 @@
-DRAFT — sections complete, first line not yet final
+NOT CERTIFIED
 
 # Certification review, round four — richos main `2d2f6cf1` — Sage, 2026-09-11
 
