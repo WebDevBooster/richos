@@ -174,8 +174,8 @@ fi
 # launchctl is SHIMMED for this call. On 2026-09-03 this exact line — forced,
 # temp checkout, fake HOME — ran a REAL `launchctl bootstrap gui/501` on a
 # plist under $FAKEHOME, and the job outlived $SCRATCH. install.sh now
-# withholds the schedule from a redirected HOME whatever the flag says
-# (install-reconciler-schedule.test.sh S11–S16 prove it), and this suite
+# withholds every launchd step from a redirected HOME whatever the flag says
+# (install-retire-reconciler.test.sh R4 proves it), and this suite
 # stops borrowing the real launchctl regardless, for the reason it borrows
 # nothing else real: a red run must not be able to leave anything moved.
 GSW_SHIM="$SCRATCH/shim"; mkdir -p "$GSW_SHIM"
@@ -219,8 +219,7 @@ RUNNERS=(
     scripts/hooks/contract-integrity.test.sh # exports a sandbox for the whole suite
     scripts/hooks/by-reference.test.sh       # sandboxes CLAUDE_CONFIG_DIR at the call
     scripts/lib/global-state-witness.test.sh # this file: fake HOME and a sandbox
-    scripts/hooks/install-reconciler-schedule.test.sh # exports a sandbox config dir + redirects RICHOS_LAUNCH_AGENTS_DIR
-    scripts/hooks/install-reconciler-schedule.mutation.sh # names install.sh only as its mutation target; every run goes through the suite above, under its sandbox
+    scripts/hooks/install-retire-reconciler.test.sh # sandbox CLAUDE_CONFIG_DIR + fake HOME + RICHOS_LAUNCH_AGENTS_DIR, launchctl shimmed
 )
 UNPROTECTED=""
 for f in "${RUNNERS[@]}"; do
