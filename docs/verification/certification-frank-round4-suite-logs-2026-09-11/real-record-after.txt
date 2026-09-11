@@ -1,0 +1,7 @@
+snapshot 2026-09-11T01:35:36Z
+ledger lines:    17344
+ledger sha256: 1f2780bfe1a08fdd
+fallback event log lines:      250
+teams dirs: 9
+transaction files: 113
+terminated rows: 46

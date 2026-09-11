@@ -1,4 +1,4 @@
-DRAFT — no verdict yet
+NOT CERTIFIED
 
 # Certification review, round four, Frank — workspace reclamation at richos main `2d2f6cf1`
 
@@ -132,7 +132,45 @@ The four hand-rolled members Rich retired on 2026-09-10 at 22:53–22:55Z (`rich
 
 ## 5. Suites run at this tip — foreground, one per call, logs in `docs/verification/certification-frank-round4-suite-logs-2026-09-11/` (`RESULTS.tsv` is the row-per-run record)
 
-SUITE-TABLE-PLACEHOLDER
+Every row is one process I ran from `engine/` through `scratchpad/run-suite.sh` (rc from the process, wall from `date +%s` around it); the heavy harnesses ran alone, one per call; nothing was backgrounded and no call exceeded 397 s. The machine was shared with the other key's runs throughout.
+
+| Suite | rc | wall | Note |
+|---|---|---|---|
+| `lib/worktree-ledger.test.sh` | 0 | 17 s | 42 + 10/10 incl. `platform-terminal-record-ignored`, `open-post-terminal-run-ignored` (L06a–d) |
+| `lib/workspace-retire.test.sh` | 0 | 92 s | 54 passed, 2 not covered (stated), 428 assertions, F1c′ |
+| `hooks/session-start-stdin.test.sh` — **run with `REAP_WORKTREE_LEDGER=<copy of the ledger without the 00:02:34Z row>`** | 0 | 42 s | all 11 passed; **the copy gained the `platform-terminal-record` row for sage-fable-cert3** (D2) |
+| `lib/worktree-adoption.test.sh` | 0 | 65 s | 43 + 15/15 incl. `t4-resurrected`, `no-record-is-not-refused` |
+| `lib/process-identity.test.sh` — this machine | 0 | 2 s | Ran 12, OK |
+| `lib/process-identity.test.sh` — CI shape forced (`RICHOS_SESSION_PROCESSES=none`, empty `RICHOS_SESSIONS_DIR`) | 0 | 1 s | Ran 12, OK — Sage's round-three red is green in both shapes |
+| `daily-workspace-cleanup.test.sh` (unit, `RICHOS_MUTATION_INNER=1`) | 0 | 32 s | all 65 passed |
+| `daily-workspace-cleanup.mutation.sh` (alone) | 0 | 341 s | **33 of 33** incl. `bare-repository-dropped-as-disposable`, `git-object-bytes-disposable`, `residue-byte-ceiling-ignored-in-event`, `…-in-sweep`, `nested-repository-dropped-as-disposable` (the `cee2aab6` anchor) |
+| `restart-after-terminal-measure.test.sh` | 0 | 1 s | 11 (M10, M11) |
+| `lib/finish-row-completion.test.sh` | 0 | 3 s | 16 + 5/5 (F15/F16) |
+| `hooks/hook-staleness.test.sh` | 0 | 4 s | 28/28 (case 11 was red in CI) |
+| `land-completeness.test.sh` | 0 | 3 s | 18 |
+| `hooks/land-disposition.test.sh` | 0 | 4 s | 33 |
+| `hooks/guard-ci-red-lands.test.sh` | 0 | 18 s | 16 |
+| `ci-run-record-check.test.sh` | 0 | 1 s | 14 |
+| `lib/completion-proof.test.sh` | 0 | 6 s | 25 |
+| `hooks/engine-status.test.sh` | 0 | 3 s | 16 |
+| `hooks/stop-hook-visibility.test.sh` | 0 | 2 s | 40 |
+| `hooks/record-subagent-start.test.sh` | 0 | 8 s | 14 + 6/6 |
+| `hooks/escalations.test.sh` — first run | **1** | 6 s | 78 passed, 1 failed: **17n** named my own runner's log file under `docs/verification/…` inside the root its canary watches — my logging location, not the suite |
+| `hooks/escalations.test.sh` — rerun, log written outside the worktree | 0 | 9 s | 79 passed, 0 failed |
+| `discard-workspace-backlog.test.py` | 0 | 2 s | Ran 10, OK |
+| `lib/worktree-transactions.test.sh` | 0 | 146 s | 70 + 25/25 incl. `fallback-log-ignored` |
+| `hooks/terminalize-agent-worktrees.test.sh` | 0 | 87 s | 54 + 15/15 incl. `post-terminal-stop-unrecorded` |
+| `hooks/detect-nonnative-worktree.test.sh` | 0 | 68 s | + 7/7 (L1/L2) |
+| `hooks/guard-sealed-worktree.test.sh` | 0 | 64 s | 53 + 18/18 incl. `terminal-not-refused` (G15) |
+| `reconcile-terminal-worktrees.test.sh` (unit, `RICHOS_MUTATION_INNER=1`) | 0 | 71 s | all 59 passed |
+| `reconcile-terminal-worktrees.mutation.sh` (alone) | 0 | 340 s | 30 of 30 |
+| `reap-stale-worktrees.test.sh` (alone) | 0 | 397 s | 54 + 6/6 incl. S31 |
+| `hooks/root-contract.test.sh` — run with `REAP_WORKTREE_LEDGER=<copy>` | 0 | 192 s | 27 + 11/11; the copy unchanged (45→45): post-split the suite no longer reaches the reaper |
+| `hooks/session-start-reap-worktrees.test.sh` | 0 | 21 s | 16 + 5/5 |
+| `cleanup-routing-contract.test.sh` | 0 | 28 s | 14 + 9/9 |
+| **CI** `engine-self-verify` run **34547178102** at `2d2f6cf1` (push, 00:36:08Z → 00:57:20Z) | — | — | **conclusion: success**; receipts: `✓ ci-receipts: 165/165 planned unit(s) ran, all green, all at 2d2f6cf160957614f5344216644e003348e0b2a1` — Sage's round-three condition 2 is met at this tip |
+
+Thirty-two local runs; thirty-one exit 0, and the one that did not is my own log file tripping the suite's canary, re-run green with the log outside. 206 mutants proven load-bearing. Not run: `contract-integrity.test.sh`, `by-reference.test.sh`, the ~180 suites outside this area. **The operator's record before and after the whole pass** (`real-record-baseline.txt`, `real-record-after.txt`): `terminated` rows 46 → 46, fallback event log 250 → 250 lines, team directories 9 → 9, transaction files 113 → 113; ledger lines 17,296 → 17,344 — the `finished` rows the platform's own hooks append for my helper turns (`owner_agent_id: ac4c48bd0dfa5f039`, `source: worker-ended-handoff.sh`), not a write of mine.
 
 ## 6. What would have to be true for me to certify
 

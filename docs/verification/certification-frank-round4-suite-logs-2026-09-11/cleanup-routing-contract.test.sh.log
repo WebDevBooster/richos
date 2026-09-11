@@ -1,0 +1,32 @@
+=== cleanup-routing contract: the two defects, replayed ===
+
+  PASS  C1  the contract holds on this checkout in 309ms: cleanup-routing contract holds: 62 routing test(s) across 31 function(s), 2 route key(s) (cleanup_owner, cleanup_policy), every converter complete; 7 locked blind spot(s).
+  PASS  C2  2afb9703: the lock held one commit earlier and R1 names the change itself — + lib/worktree-transactions.py:1375,1405  terminalize() now tests member['cleanup_policy']  (literal(integrated-daily))
+  PASS  C3  2afb9703: R2 names the converter the commit forgot — 6 incomplete converter(s), including hooks/terminalize-agent-worktrees.test.sh missing cleanup_policy
+  PASS  C4  6472bb60: R1 names the change and the suite that must agree — + lib/shell-worktree-sparse.py:493  eligible() now tests member['cleanup_owner']  (presence)
+  PASS  C5  6472bb60 is INVISIBLE to a converter check: R2 reports nothing and the tree passes — the sparse suite has no converter to be incomplete. R1 is the only assertion that catches this defect.
+  PASS  C6  the 2afb9703 miss, reintroduced on today's tree, is named exactly — converter:  scripts/hooks/terminalize-agent-worktrees.test.sh:73
+  PASS  C6b the failure names the routing function that consumes the missing key, so the fix does not need a search
+  PASS  C7  a declared partial converter passes: the subset and a reason, in the comment attached to the removal
+  PASS  C7b a declaration that no longer matches what the converter strips is a failure, not a permanent pass
+  PASS  C8  a routing decision hidden from the walk fails R3 by name, instead of leaving R1 green over nothing
+  PASS  C9  --record writes `?` for a key it has never seen and the check refuses it by name: a routing key cannot enter the lock without a human saying what it is
+  PASS  C10 a routing key in a docstring, a comment and a string literal produces no signature row: the extractor reads code, not text
+  PASS  C11 a root with no scripts/ is exit 2 — a refusal to read, never a green tick over nothing
+  PASS  C11b a missing signature is exit 2 and says how to create one
+
+=== cleanup-routing contract: 14 passed, 0 failed ===
+
+=== cleanup-routing contract (a routing key cannot be added quietly): every property, proven load-bearing by removing it ===
+  PASS  signature-diff-ignored — removing it turns "C2" red  [12.6s]
+  PASS  suites-not-listed — removing it turns "C4" red  [13.6s]
+  PASS  converter-coverage-ignored — removing it turns "C6" red  [13.7s]
+  PASS  partial-declaration-unchecked — removing it turns "C7b" red  [13.7s]
+  PASS  blind-spots-not-locked — removing it turns "C8" red  [13.6s]
+  PASS  unclassified-key-accepted — removing it turns "C9" red  [13.7s]
+  PASS  extractor-regressed-to-grep — removing it turns "C10" red  [14.3s]
+  PASS  structural-keys-demanded-of-converters — removing it turns "C5" red  [14.3s]
+  PASS  unreadable-root-reported-as-pass — removing it turns "C11" red  [7.8s]
+  [9 mutant(s), 8 at a time, wall 20.7s, slowest 14.3s extractor-regressed-to-grep, 5.6x serial]
+
+=== mutation: all 9 properties proven load-bearing ===

@@ -1,0 +1,28 @@
+=== session-start-reap-worktrees (status + inventory) tests ===
+  PASS  W01  empty repo: exit 0, reconciler DONE, inventory DRY-RUN
+  PASS  W02  exactly one line of valid SessionStart JSON
+  PASS  W03  a merged, clean, unlocked native worktree SURVIVES session start (no sweep decides liveness any more)
+  PASS  W04  the inventory's summary is labeled DRY-RUN (a selection, never a removal)
+  PASS  W05  the inventory still carries its denominator (coverage line)
+  PASS  W06  dirty and unmerged worktrees are untouched
+  PASS  W07  pending quarantine and exact transaction remain unchanged; no capture is created
+  PASS  W08  original pending evidence survives byte-for-byte at its existing path
+  PASS  W09  status reports zero transactions touched
+  PASS  W10  recreated original, exact pending transaction and absent captures remain unchanged
+  PASS  W10b existing BLOCKED status remains visible and its transaction is untouched
+  PASS  W11  status-only SessionStart leaves every pending record/capture unchanged regardless of old recovery budget
+  PASS  W12  missing reconciler: exit 0 and an INSTALL FAILURE in the context, not a skip
+  PASS  W13  missing inventory script: exit 0 and an INSTALL FAILURE in the context
+  PASS  W14  garbage stdin: exit 0, JSON still emitted
+  PASS  W15  no transaction for the test session reached the operator's real store
+
+=== session-start-reap-worktrees tests: all 16 passed ===
+=== session-start-reap-worktrees (status + inventory): every property, proven load-bearing by removing it ===
+  PASS  execute-is-back — removing it turns "W03" red  [11.9s]
+  PASS  reconciler-status-skipped — removing it turns "W07" red  [11.0s]
+  PASS  recovery-runs-at-session-start — removing it turns "W11" red  [12.2s]
+  PASS  missing-reconciler-silent — removing it turns "W12" red  [11.3s]
+  PASS  blocked-word-suppressed — removing it turns "W10b" red  [11.5s]
+  [5 mutant(s), 8 at a time, wall 12.3s, slowest 12.2s recovery-runs-at-session-start, 4.7x serial]
+
+=== mutation: all 5 properties proven load-bearing ===

@@ -1,0 +1,7 @@
+scripts/hooks/root-contract.test.sh rc=0 wall=192s
+
+=== mutation harness: all 11 fixes proven load-bearing ===
+
+=== root-contract end-to-end: all 27 passed ===
+copy terminated rows before=45 after=45
+real ledger terminated rows now: 46
