@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
 #
 # guard-worktree-removal.sh — BLOCKING PreToolUse guard on the Bash tool.
-# Makes it STRUCTURALLY impossible to remove a LIVE agent's worktree with a
-# raw command.
+# Keeps the workspace spec's two events the only ones:
 #
-# THE FAILURE MODE (a downstream adopter's operator directive, 2026-08-24):
-#   The orchestrator removed a RUNNING agent's hand-rolled worktree because it
-#   checked the WRONG artifact for liveness — the hand-rolled worktree (which
-#   carries NO agent lock) instead of the agent's native isolation-worktree
-#   lock in the ENTITY's own repository. The agent was alive and had to be
-#   cancelled. A doctrine note is not enough: removal must be gated by
-#   STRUCTURE, like every other guard here.
+#   "1) spawned/workspace registered 2) landed/workspace to be deleted. What
+#    the hell else is there needed to be?"   — docs/plans/worktree-spec-2026-09-11.md
+#
+# A workspace is CREATED by scripts/create-teammate-worktree.sh, which registers
+# it first, and DELETED by scripts/workspaces.sh land|discard (and that
+# command's own automatic retry), which stops every process the agent started
+# and deletes every workspace and branch it has, together. Nothing else creates
+# or deletes one, and codex/ is never touched.
 #
 # THE CONTRACT (precision over recall — a guard that blocks normal work gets
-# disabled, so this fires ONLY on genuine worktree-destroying ops):
-#   BLOCK a Bash command that is a worktree-destroying op:
-#     - git worktree remove            (incl. `git -C <repo> worktree remove`)
+# disabled, so this fires ONLY on genuine workspace-creating or -destroying ops):
+#   REFUSED, with no override (SPEC):
+#     - git worktree add               (points 1, 3: a raw workspace is registered
+#                                       by nothing, and one not named cc/ is refused)
 #     - git worktree prune             (all forms; use worktree list to inspect)
-#     - git branch -d / -D of a `worktree-*` branch
-#     - a FILESYSTEM `rm -r`/`-rf` whose target is a `.claude/worktrees/agent-*`
-#       path OR the top level of a real linked git worktree (see below)
-#   Helper invocations pass when they contain no separate destructive command.
-#   The helper performs its own authoritative lifecycle checks.
-#   A detected raw destructive command requires an explicit
-#           worktree-remove-ack:<reason>
-#         override token (mirrors resume-ack: / main-checkout-run:) — logged to
-#         the ENTITY's .claude/state/worktree-remove-acks.log.
-#   Everything else Bash-related (git worktree list,
-#   rm of non-worktree paths, ordinary git/rm) passes untouched.
+#     - git worktree remove / rm -r of an agent's workspace (cc/, worktree-*,
+#       .claude/worktrees/) or of a codex/ one
+#     - git branch -d / -D of a cc/, worktree-* or codex/ branch
+#     - claude --worktree / -w         (point 3: nobody starts a session in its
+#                                       own workspace)
+#   BLOCKED unless it carries `worktree-remove-ack:<reason>` (logged to the
+#   ENTITY's .claude/state/worktree-remove-acks.log):
+#     - git worktree remove / rm -r of a linked worktree that is NOT an agent's
+#       (point 1: "only cc/ ones are the system's concern")
+#   workspaces.sh passes when the payload carries no separate destructive
+#   command. Everything else Bash-related (git worktree list, rm of
+#   non-worktree paths, ordinary git/rm) passes untouched.
 #
 # THREE FALSE POSITIVES THIS VERSION REMOVES, every one of them measured:
 #
@@ -76,13 +78,11 @@
 #   a residue directory whose registration is already gone is exactly the shape
 #   the zombie-residue doctrine says not to reach for casually.
 #
-# WHY THE HELPER BYPASSES THIS GUARD CLEANLY: PreToolUse[Bash] fires on the
+# WHY THE SANCTIONED COMMANDS PASS CLEANLY: PreToolUse[Bash] fires on the
 # AGENT's top-level Bash tool call only, never on subprocesses a script spawns.
-# remove-agent-worktree.sh runs `git worktree remove` internally as a
-# subprocess, so the destructive git call is invisible to this hook; the guard
-# sees only the helper invocation (not destructive-shaped) and allows it.
-# Clause (a) is belt-and-suspenders for any invocation form where the guard
-# WOULD see the git call.
+# workspaces.sh and create-teammate-worktree.sh run git internally as
+# subprocesses, so their git calls are invisible to this hook; the guard sees
+# only the invocation (not destructive-shaped) and allows it.
 #
 # FAIL-CLOSED on missing python3, matching the sibling PreToolUse[Bash] guard
 # (guard-bash-main-writes.sh): an unparsed payload must never wave a worktree
@@ -151,20 +151,19 @@ if [ -f "$_UE_LIB" ]; then
     . "$_UE_LIB"
     unevaluated_or_continue "guard-worktree-removal.sh" "$INPUT" \
         "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
-        "whether this command removes a worktree whose owner may still be running"
+        "whether this command creates or deletes a workspace outside the workspace spec's own land and discard"
 fi
 
 HOOK_TAG="(hook: scripts/hooks/guard-worktree-removal.sh)"
 
 # Detection + classification in one python pass. Prints one of:
-#   PASS                     not a Bash tool / not a worktree-destroying op
-#   HELPER                   destructive but invokes remove-agent-worktree.sh
-#   ACK\t<reason>            destructive but carries worktree-remove-ack:<reason>
-#   BLOCK\t<reasons>         destructive, no helper, no ack
-#   CANDIDATE\t<reasons>\t<tok>[\t<tok>...]
-#                            an `rm -r` whose targets need the STRUCTURAL
-#                            linked-worktree test, which needs git. Resolved
-#                            below in bash; if no target is a worktree -> PASS.
+#   PASS                     not a Bash tool / not a worktree-creating or -destroying op
+#   HELPER                   invokes workspaces.sh and nothing destructive besides
+#   SPEC\t<reasons>          creates or deletes what only the spec's events may:
+#                            refused, no override
+#   ACK\t<reason>            removes a worktree that is not an agent's, and
+#                            carries worktree-remove-ack:<reason>
+#   BLOCK\t<reasons>         removes a worktree that is not an agent's, no ack
 #
 # The classifier is assigned to a VARIABLE via a quoted heredoc first, and only
 # then handed to `python3 -c "$VAR"`. Embedding it directly inside a `$(...)`
@@ -176,7 +175,7 @@ HOOK_TAG="(hook: scripts/hooks/guard-worktree-removal.sh)"
 # lines further down, pointing at innocent code. A heredoc assignment is
 # scanned once, as text, so the class is impossible.
 read -r -d '' _WTR_CLASSIFIER <<'PYEOF' || true
-import json, os, re, shlex, sys
+import json, os, re, shlex, subprocess, sys
 
 try:
     d = json.loads(sys.stdin.read() or "{}")
@@ -395,20 +394,35 @@ def collect_git(text):
         sub2 = next((t for t in rest if not t.startswith("-")), None)
         if sub2 == "remove":
             reasons.append("git worktree remove")
+            after = rest[rest.index("remove") + 1:] if "remove" in rest else []
+            paths.extend(t for t in after if not t.startswith("-"))
         elif sub2 == "prune":
             # Even default pruning deletes Git metadata for absent worktrees,
-            # including unique indexes. Block dry-run forms too: later options
+            # including registered ones. Block dry-run forms too: later options
             # can override them. The supported inspection command is list.
-            reasons.append("git worktree prune")
+            spec.append("git worktree prune (it deletes git's record of every "
+                        "absent workspace at once; only a land or a discard deletes one)")
+        elif sub2 == "add":
+            # docs/plans/worktree-spec-2026-09-11.md, points 1 and 3: every
+            # non-native workspace is a cc/ workspace registered when it is
+            # created, and creating one that is not is refused. A raw add is
+            # registered by nothing.
+            spec.append("git worktree add (a workspace is created by "
+                        "create-teammate-worktree.sh, which registers it first; a raw one "
+                        "has no registration, and one not named cc/ is refused — points 1, 3)")
 
     elif sub == "branch":
         # -d, -D, a short bundle containing either, or --delete. A bare delete
-        # of a NON-worktree branch is still NOT blocked -- precision.
+        # of a branch that is not the system's (points 1, 2) is still NOT
+        # blocked -- precision.
         deletes = any(
             t == "--delete" or re.fullmatch(r"-[A-Za-z]*[dD][A-Za-z]*", t)
             for t in rest)
-        if deletes and any(re.search(r"\bworktree-\S+", t) for t in rest):
-            reasons.append("git branch -D of a worktree-* branch")
+        if deletes and any(re.search(r"(?:^|refs/heads/)codex/\S+", t) for t in rest):
+            spec.append("git branch -D of a codex/ branch (codex/ is never touched — point 2)")
+        elif deletes and any(re.search(r"(?:^|refs/heads/)(?:worktree-\S+|cc/\S+)", t) for t in rest):
+            spec.append("git branch -D of an agent's branch (a land or a discard deletes it, "
+                        "with every workspace it has — points 4, 7, 10)")
 
 # 4) A FILESYSTEM recursive rm whose OWN argument list names a worktree.
 #
@@ -417,8 +431,8 @@ def collect_git(text):
 #    reaches this rule no matter how much whitespace separates the two words.
 #    `sudo rm` / `xargs rm` are NOT excluded — those really do remove files.
 #
-#    FIX 2 — the target must LOOK like a worktree to even become a candidate;
-#    whether it IS one is decided structurally in bash, below.
+#    FIX 2 — the target must BE a workspace to make the command destructive:
+#    decided structurally, below, from git.
 RM_CLAUSE = re.compile(r"(?:^|[;&|(]\s*|\s)rm\b(?P<args>[^;&|)]*)")
 
 
@@ -436,9 +450,14 @@ def collect_rm(text):
             continue
         if re.search(r"\.claude/worktrees/agent-\S*", tok):
             # Structural, self-describing, and decided without touching disk.
-            reasons.append("rm -r of a .claude/worktrees/agent-* path")
+            spec.append("rm -r of a .claude/worktrees/agent-* workspace (point 6: native "
+                        "workspaces are deleted by a land or a discard)")
         else:
-            candidates.append(tok)
+            rm_paths.append(tok)
+
+
+# 5) Nobody starts a session in its own workspace (point 3).
+CLAUDE_WT = re.compile(r"(?:^|[;&|(\n]\s*|\s)(?:\S*/)?claude\b[^;&|\n]*\s(?:--worktree|-w)(?:\s|=|$)")
 
 # THE WHOLE COMMAND, AND THEN EVERY COMMAND SUBSTITUTION INSIDE IT.
 #
@@ -450,36 +469,78 @@ def collect_rm(text):
 #
 # the OUTER `git commit` match swallows the inner one, the inner `git` is never
 # classified, and a real removal rides into the object store inside a message.
-# Measured on the shipped guard before this change: PASS.
-#
-# The obvious repair -- find every `git` token rather than every git invocation
-# -- was measured too, and REJECTED: it turns `git log --grep="git worktree
-# remove"` into a refusal, and a guard that fires on a SEARCH is one an operator
-# learns to waive. So the second pass is confined to text the shell will
-# actually execute: a `$( ... )` or backtick substitution, which is a command by
-# construction. A quoted string that merely CONTAINS the words is not.
+# So the second pass is confined to text the shell will actually execute: a
+# `$( ... )` or backtick substitution, which is a command by construction.
+spec = []
+paths = []
+rm_paths = []
 collect_git(scan)
 collect_rm(scan)
 for _sub in _SUBST.finditer(scan):
     collect_git(_sub.group(0))
     collect_rm(_sub.group(0))
+if CLAUDE_WT.search(scan):
+    spec.append("claude --worktree / -w (nobody starts a session in its own workspace in "
+                "RichOS; it is not allowed — point 3)")
 
-# A helper cannot authorize a separate raw destructive command in the same
-# shell payload. Its own operations run behind its independent lifecycle checks.
-helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?remove-agent-worktree\.sh\b", scan))
+
+# --- STRUCTURAL workspace test ---------------------------------------------
+# A path is a workspace iff, on disk, it is the TOP LEVEL of a LINKED git
+# worktree: `rev-parse --show-toplevel` is the path, and `--git-dir` differs
+# from `--git-common-dir`. Its branch then says whose concern it is.
+def _git(p, *a):
+    try:
+        r = subprocess.run(["git", "-C", p] + list(a), capture_output=True, text=True, timeout=20)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def workspace_kind(p):
+    p = os.path.expanduser(p)
+    if not os.path.isdir(p):
+        return ""
+    top = _git(p, "rev-parse", "--show-toplevel")
+    if not top or os.path.realpath(top) != os.path.realpath(p):
+        return ""
+    gd = _git(p, "rev-parse", "--absolute-git-dir")
+    cd = _git(p, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not gd or not cd or os.path.realpath(gd) == os.path.realpath(cd):
+        return ""
+    br = _git(p, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if br.startswith("codex/"):
+        return "codex"
+    if br.startswith("cc/") or br.startswith("worktree-") or "/.claude/worktrees/" in os.path.realpath(p) + "/":
+        return "system"
+    return "other"
+
+
+for tok in paths + rm_paths:
+    k = workspace_kind(tok)
+    if k == "codex":
+        spec.append("a codex/ workspace (%s) — codex/ is never touched (point 2)" % tok)
+    elif k == "system":
+        spec.append("an agent's workspace (%s) — deleted by a land or a discard, with every "
+                    "workspace and branch it has (points 4, 7, 10)" % tok)
+    elif k == "other" and tok in rm_paths:
+        reasons.append("rm -r of a linked git worktree (%s)" % tok)
+
+
+# The sanctioned command: scripts/workspaces.sh (land / discard) is the only
+# thing that deletes a workspace. It cannot authorize a separate raw
+# destructive command in the same shell payload.
+helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?workspaces\.sh\b", scan))
 ack = re.search(r"worktree-remove-ack:[ \t]*(.+)", scan)
 
-if helper and not reasons and not candidates:
+if spec:
+    print("SPEC\t" + "; ".join(sorted(set(spec)))); raise SystemExit
+if helper and not reasons:
     print("HELPER"); raise SystemExit
-if not reasons and not candidates:
+if not reasons:
     print("PASS"); raise SystemExit
 if ack:
     print("ACK\t" + ack.group(1).strip()); raise SystemExit
-if reasons:
-    print("BLOCK\t" + "; ".join(sorted(set(reasons)))); raise SystemExit
-
-# Only unresolved rm targets remain — bash decides.
-print("CANDIDATE\trm -r of a linked git worktree\t" + "\t".join(candidates))
+print("BLOCK\t" + "; ".join(sorted(set(reasons))))
 PYEOF
 
 # Payload bytes use stdin: environment strings have a much smaller per-value
@@ -491,66 +552,13 @@ fi
 
 RESULT_KIND="$(printf '%s' "$RESULT" | cut -f1)"
 
-# --- STRUCTURAL linked-worktree test (replaces the old `*-wt` heuristic) ----
-# A token is a worktree iff, on disk:
-#   git -C <tok> rev-parse --show-toplevel   == <tok>   (it is a TOP LEVEL, not
-#                                                        some directory inside one)
-#   git -C <tok> rev-parse --git-dir  differs from  --git-common-dir
-#                                                       (it is LINKED, not a main
-#                                                        checkout — in a main
-#                                                        checkout the two are the
-#                                                        SAME path, in a linked
-#                                                        worktree --git-dir is
-#                                                        <common>/worktrees/<name>)
-# The --git-dir/--git-common-dir comparison is used rather than a `<top>/.git`
-# string test because it needs no path-format flag (portable to older git) and
-# is unaffected by a repository whose .git is a file, a symlink, or elsewhere.
-# Any token that is not a directory, not in a repo, a subdirectory, or a main
-# checkout is not a worktree and does not make the command destructive.
-is_linked_worktree() { # <path>
-    local p="$1" top gd cd_
-    [ -d "$p" ] || return 1
-    top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" || return 1
-    [ -n "$top" ] || return 1
-    [ "$(cd "$p" 2>/dev/null && pwd -P)" = "$(cd "$top" 2>/dev/null && pwd -P)" ] || return 1
-    gd="$(cd "$p" 2>/dev/null && git rev-parse --absolute-git-dir 2>/dev/null)" || return 1
-    cd_="$(cd "$p" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null)" || return 1
-    case "$cd_" in
-        /*) : ;;
-        *)  cd_="$(cd "$p" 2>/dev/null && cd "$cd_" 2>/dev/null && pwd -P)" || return 1 ;;
-    esac
-    [ -n "$gd" ] && [ -n "$cd_" ] || return 1
-    [ "$gd" != "$cd_" ]
-}
-
-if [ "$RESULT_KIND" = "CANDIDATE" ]; then
-    _reason="$(printf '%s' "$RESULT" | cut -f2)"
-    _hit=""
-    _i=3
-    while :; do
-        _tok="$(printf '%s' "$RESULT" | cut -f"$_i")"
-        [ -n "$_tok" ] || break
-        if is_linked_worktree "$_tok"; then _hit="$_tok"; break; fi
-        _i=$((_i + 1))
-    done
-    if [ -n "$_hit" ]; then
-        RESULT="$(printf 'BLOCK\t%s (%s)' "$_reason" "$_hit")"
-        RESULT_KIND="BLOCK"
-    else
-        RESULT_KIND="PASS"
-    fi
-fi
-
 case "$RESULT_KIND" in
     PASS|HELPER)
         exit 0 ;;
     ACK)
         ACK_REASON="$(printf '%s' "$RESULT" | cut -f2-)"
-        # Best-effort audit log (mirrors resume-acks.log / main-checkout-runs.log),
-        # written into the ENTITY's state dir — never the engine's.
-        # Consecutive-duplicate dedup keyed on the ack text ONLY (the timestamp is
-        # display-only) so a settings double-fire collapses to one line while two
-        # genuinely different overrides both persist.
+        # Best-effort audit log, written into the ENTITY's state dir — never the
+        # engine's. Consecutive-duplicate dedup keyed on the ack text ONLY.
         LOG_DIR="$ENTITY_ROOT/.claude/state"
         LOG_FILE="$LOG_DIR/worktree-remove-acks.log"
         mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -561,31 +569,33 @@ case "$RESULT_KIND" in
                 >>"$LOG_FILE" 2>/dev/null || true
         fi
         exit 0 ;;
+    SPEC)
+        REASONS="$(printf '%s' "$RESULT" | cut -f2-)"
+        {
+            echo "=== Worktree guard: REFUSED ==="
+            echo "  This Bash command does what only the workspace spec's own events do:"
+            echo "    $REASONS"
+            echo ""
+            echo "  docs/plans/worktree-spec-2026-09-11.md: a workspace is registered when it"
+            echo "  is created, and deleted when its work is landed or discarded — every"
+            echo "  workspace and branch the agent has, together, after its processes are"
+            echo "  stopped. Those are the only deleters, and codex/ is never touched:"
+            echo "    create:  $ENGINE_ROOT/scripts/create-teammate-worktree.sh <repo> <name>"
+            echo "    land:    $ENGINE_ROOT/scripts/workspaces.sh land <agent>"
+            echo "    discard: $ENGINE_ROOT/scripts/workspaces.sh discard <agent> --reason '...'"
+            echo "  There is no override for this refusal."
+            echo "$HOOK_TAG"
+        } >&2
+        exit 2 ;;
     BLOCK)
         REASONS="$(printf '%s' "$RESULT" | cut -f2-)"
         {
             echo "=== Worktree-removal guard: BLOCKED ==="
-            echo "  This Bash command is a worktree-destroying op ($REASONS) issued"
-            echo "  RAW — not through the sanctioned helper. Removing a LIVE agent's"
-            echo "  worktree corrupts its workspace and forces a cancel (the"
-            echo "  2026-08-24 incident)."
+            echo "  This Bash command removes a git worktree ($REASONS) that is not an"
+            echo "  agent's workspace. If it is an agent's, land or discard it instead:"
+            echo "    $ENGINE_ROOT/scripts/workspaces.sh land|discard <agent>"
             echo ""
-            echo "  Use the ONLY blessed removal path, which checks the AUTHORITATIVE"
-            echo "  liveness signal before removing anything:"
-            echo "    $ENGINE_ROOT/scripts/remove-agent-worktree.sh \\"
-            echo "        --owner <agent-id> <worktree-path> [--branch <branch>] \\"
-            echo "        [--repo <repo-path>] [--force]"
-            echo ""
-            echo "  Liveness = the ENTITY's isolation-worktree lock with a LIVE pid."
-            echo "  This session's entity is:"
-            echo "    $ENTITY_ROOT"
-            echo "    git -C $ENTITY_ROOT worktree list --porcelain"
-            echo "      -> 'locked claude agent agent-<id> (pid <p> ...)' AND pid <p> running."
-            echo "  A stale lock (dead pid), an UNLOCKED worktree, or an ABSENT one = not"
-            echo "  alive. NEVER judge liveness from a hand-rolled external-repo"
-            echo "  worktree — it carries no lock (the exact 2026-08-24 mistake)."
-            echo ""
-            echo "  Deliberate one-off override (logged): add a"
+            echo "  Deliberate removal of a worktree that is not the system's (logged): add a"
             echo "    worktree-remove-ack: <why this removal is safe>"
             echo "  token to the command."
             echo "$HOOK_TAG"
@@ -593,7 +603,6 @@ case "$RESULT_KIND" in
         exit 2 ;;
     *)
         # Unknown classifier output -> fail OPEN (precision; never block unrelated
-        # Bash on an unexpected result). Destructive ops are only ever emitted as
-        # BLOCK/ACK/HELPER/CANDIDATE above.
+        # Bash on an unexpected result).
         exit 0 ;;
 esac
