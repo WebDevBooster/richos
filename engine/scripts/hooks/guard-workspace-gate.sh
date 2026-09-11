@@ -55,26 +55,64 @@ fi
 # shellcheck source=../lib/resolve-roots.sh
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+# --- NOTICE CHANNEL --------------------------------------------------------
+# A Stop hook's stand-down and cannot-run notices go to the OPERATOR, never to
+# stderr. The measurement behind that, and the argument for announcing on state
+# change rather than every turn, are in scripts/lib/stop-hook-notice.sh. This
+# block is byte-identical in every Stop hook and stop-hook-visibility.test.sh
+# asserts it, for the reason Layer R asserts the same of the root bootstrap: a
+# divergent copy is one hook disagreeing with its siblings about how it tells
+# you it has stopped working.
+_SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
+if [ -f "$_SHN_LIB" ]; then
+    # shellcheck source=../lib/stop-hook-notice.sh
+    . "$_SHN_LIB"
+else
+    # The helper is the thing that makes these notices visible, so its absence
+    # must not make them invisible. The hook then announces EVERY turn,
+    # undeduplicated, and says why. Degrading toward noise is recoverable by an
+    # operator who can read it; degrading toward silence rebuilds the defect.
+    stop_notice_init() { :; }
+    stop_notice_normal() { :; }
+    stop_notice_abnormal() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
+    # The recurring form degrades to the same unconditional announcement. An
+    # interval it cannot honor is announced MORE often, never less: a notice
+    # channel's degraded mode leans toward noise, because noise is recoverable
+    # by an operator who can read it and silence rebuilds the defect.
+    stop_notice_abnormal_recurring() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
+fi
 
 INPUT="$(cat)"
+HOOK_TAG="(hook: scripts/hooks/guard-workspace-gate.sh)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else
+    stop_notice_init "guard-workspace-gate.sh" "" "$INPUT"
+    stop_notice_abnormal "root-failure" \
+        "WORKSPACE GATE IS OFF: this hook cannot tell which repository it governs (${RICHOS_ROOT_REASON:-root resolution failed}). Point 5 of the workspace spec — finished work landed or discarded before the turn ends — is not enforced. $HOOK_TAG"
     root_failure_banner "scripts/hooks/guard-workspace-gate.sh" >&2
     exit 0
 fi
+stop_notice_init "guard-workspace-gate.sh" "$ENTITY_ROOT" "$INPUT"
 
 LIB="$SCRIPT_DIR/../lib/workspaces.py"
 if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$LIB" ]; then
-    echo "=== WORKSPACE GATE NOT RUNNING: python3 or $LIB is unavailable. Point 5 of docs/plans/worktree-spec-2026-09-11.md is NOT enforced until the engine is restored. ===" >&2
+    stop_notice_abnormal "cannot-run" \
+        "WORKSPACE GATE IS OFF: python3 or scripts/lib/workspaces.py is unavailable. Point 5 of the workspace spec is not enforced until the engine is restored. $HOOK_TAG"
     exit 0
 fi
 
 ERRF="$(mktemp "${TMPDIR:-/tmp}/workspace-gate.XXXXXX")" || ERRF=""
 if [ -z "$ERRF" ]; then
-    echo "=== WORKSPACE GATE NOT RUNNING: no temporary file could be made. ===" >&2
+    stop_notice_abnormal "cannot-run" "WORKSPACE GATE IS OFF this turn: no temporary file could be made. $HOOK_TAG"
     exit 0
 fi
 OUT="$(printf '%s' "$INPUT" | python3 "$LIB" --entity "$ENTITY_ROOT" gate-stop 2>"$ERRF")"
@@ -88,13 +126,10 @@ case "$RC" in
         exit 0 ;;
     2)
         printf '%s\n' "$ERR" >&2
-        echo "(hook: scripts/hooks/guard-workspace-gate.sh)" >&2
+        echo "$HOOK_TAG" >&2
         exit 2 ;;
     *)
-        {
-            echo "=== WORKSPACE GATE FAILED TO EVALUATE (exit $RC) — the turn is allowed to end, and point 5 is NOT enforced this turn ==="
-            printf '%s\n' "$ERR" | tail -20
-            echo "(hook: scripts/hooks/guard-workspace-gate.sh)"
-        } >&2
+        stop_notice_abnormal "evaluation-failed" \
+            "WORKSPACE GATE FAILED TO EVALUATE (exit $RC) — the turn is allowed to end and point 5 is NOT enforced: $(printf '%s' "$ERR" | tail -3 | tr '\n' ' ' | tr '"' "'" | cut -c1-400) $HOOK_TAG"
         exit 0 ;;
 esac
