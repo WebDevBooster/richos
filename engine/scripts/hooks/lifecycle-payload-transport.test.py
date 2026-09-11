@@ -3,6 +3,7 @@
 Override RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT to exercise an older engine.
 No hook is mocked and every persistent store is isolated below a temporary HOME.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -32,11 +33,27 @@ class PayloadTransport(unittest.TestCase):
                     'LANG': 'C', 'LC_ALL': 'C', 'TMPDIR': str(self.root),
                     'RICHOS_ENTITY_ROOT': str(self.entity), 'CLAUDE_PROJECT_DIR': str(self.entity),
                     'RICHOS_WORKTREE_LEDGER': str(self.root / 'ledger.jsonl'),
-                    'RICHOS_WORKTREE_TX_DIR': str(self.root / 'tx'),
+                    'RICHOS_WORKSPACES_DIR': str(self.root / 'ws'),
                     'WORKER_EVENTS_TEAMS_DIR': str(self.root / 'teams'),
                     'TEAMMATE_IDLE_TEAMS_DIR': str(self.root / 'teams'),
                     'TASK_COMPLETED_TEAMS_DIR': str(self.root / 'teams')}
         subprocess.run(['git', 'init', '-q', str(self.entity)], env=self.env, check=True)
+        # The registry's session identity: a process of this test's own, so no
+        # registration is ever attributed to (or scanned for) a real session.
+        self.session_proc = subprocess.Popen(['sleep', '600'])
+        self.addCleanup(self.session_proc.wait)
+        self.addCleanup(self.session_proc.kill)
+        self.env['RICHOS_SESSION_PID'] = str(self.session_proc.pid)
+
+    def registry(self):
+        spec = importlib.util.spec_from_file_location('lpt_workspaces', ENGINE / 'scripts/lib/workspaces.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def agent(self, key):
+        path = Path(self.env['RICHOS_WORKSPACES_DIR']) / 'agents' / (key + '.json')
+        return json.loads(path.read_text()) if path.exists() else None
 
     def run_hook(self, name, data, expected=0):
         raw = data if isinstance(data, str) else json.dumps(data)
@@ -51,17 +68,18 @@ class PayloadTransport(unittest.TestCase):
                 'cwd': str(self.entity), 'context': PADDING if large else '', **extra}
 
     def test_large_start_records_platform_identity(self):
-        self.run_hook('record-subagent-start.sh', self.payload('SubagentStart'))
-        record = self.root / 'tx' / SID / 'starts/agent-large.json'
-        self.assertTrue(record.exists(), 'large start fact disappeared')
-        self.assertEqual(json.loads(record.read_text())['agent_id'], 'agent-large')
+        native = self.prepare_native_worker(bind=False)
+        self.run_hook('workspace-lifecycle.sh', self.payload('SubagentStart', aid='agent0large0002', cwd=str(self.second_native(native))))
+        record = self.agent(SID + '--agent-agent0large0002')
+        self.assertIsNotNone(record, 'large start fact disappeared')
+        self.assertEqual(record['agent_id'], 'agent0large0002')
 
-    def test_large_terminal_event_persists_pending_claim(self):
-        self.run_hook('record-subagent-start.sh', self.payload('SubagentStart', large=False))
-        self.run_hook('terminalize-agent-worktrees.sh', self.payload('SubagentStop'))
-        claim = self.root / 'tx' / SID / 'pending-terminal/agent-large.json'
-        self.assertTrue(claim.exists(), 'large terminal event disappeared')
-        self.assertIn('SubagentStop', claim.read_text())
+    def test_large_terminal_event_records_the_end(self):
+        self.prepare_native_worker()
+        self.run_hook('workspace-lifecycle.sh', self.payload('SubagentStop', aid='agent0large0001'))
+        record = self.agent(SID + '--dev-opus-large')
+        self.assertIsNotNone(record['end'], 'large terminal event disappeared')
+        self.assertEqual(record['end']['signal'], 'SubagentStop')
 
     def prepare_completed_task(self, aid, task_id, owner='dev-large'):
         # task-completed-handoff.sh is a GATE, not a log: it refuses any
@@ -70,19 +88,19 @@ class PayloadTransport(unittest.TestCase):
         # the fixture supplies the evidence rather than the assertion dropping
         # back to the log-only contract this hook had before it became a gate.
         profile = self.root / 'home/.claude'
-        tx = self.root / 'tx' / SID
-        for path, body in (
-                (profile / 'tasks' / SID / (task_id + '.json'),
-                 {'id': task_id, 'subject': 'Large delivery', 'status': 'in_progress', 'owner': owner}),
-                (tx / (aid + '.json'),
-                 {'record': 'transaction', 'session_id': SID, 'agent_id': aid, 'tool_use_id': 'tool-large',
-                  'teammate': owner, 'kind': 'remote', 'members': [], 'sealed': True}),
-                (tx / 'bound' / (aid + '.json'),
-                 {'agent_id': aid, 'session_id': SID, 'teammate': owner, 'tool_use_id': 'tool-large'}),
-                (tx / 'starts' / (aid + '.json'),
-                 {'agent_id': aid, 'session_id': SID})):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(body))
+        path = profile / 'tasks' / SID / (task_id + '.json')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'id': task_id, 'subject': 'Large delivery', 'status': 'in_progress', 'owner': owner}))
+        saved = os.environ.get('RICHOS_WORKSPACES_DIR')
+        os.environ['RICHOS_WORKSPACES_DIR'] = self.env['RICHOS_WORKSPACES_DIR']
+        try:
+            ws = self.registry()
+            ws.save_agent(ws.new_record(ws.named_key(SID, owner), name=owner, session_id=SID, agent_id=aid))
+        finally:
+            if saved is None:
+                os.environ.pop('RICHOS_WORKSPACES_DIR', None)
+            else:
+                os.environ['RICHOS_WORKSPACES_DIR'] = saved
 
     def test_large_handoffs_preserve_both_ledger_and_team_event(self):
         for hook, event, logfile in (
@@ -129,57 +147,61 @@ class PayloadTransport(unittest.TestCase):
         self.assertEqual(row['message_chars'], len(body))
         self.assertNotIn(body, json.dumps(row))
 
-    def tx_cli(self, *args, data=None):
-        return subprocess.run([shutil.which('python3'), str(ENGINE / 'scripts/lib/worktree-transactions.py'),
-                               *args], input=json.dumps(data) if data is not None else None,
-                              text=True, capture_output=True, env=self.env, check=True, timeout=30)
-
-    def prepare_native_worker(self, large_binding=False):
+    def prepare_native_worker(self, large_binding=False, bind=True):
         for args in (('config', 'user.name', 'Fixture'), ('config', 'user.email', 'fixture@example.invalid'),
                      ('config', 'core.hooksPath', str(self.root / 'no-hooks')),
                      ('add', 'orchestration.config'), ('commit', '-qm', 'fixture')):
             subprocess.run(['git', '-C', str(self.entity), *args], env=self.env,
                            capture_output=True, check=True)
-        native = self.entity / '.claude/worktrees/agent-agent-large'
-        subprocess.run(['git', '-C', str(self.entity), 'worktree', 'add', '-qb', 'worker', str(native)],
+        native = self.entity / '.claude/worktrees/agent-agent0large0001'
+        spawn = {'hook_event_name': 'PreToolUse', 'session_id': SID, 'tool_use_id': 'tool-large', 'tool_name': 'Agent',
+                 'cwd': str(self.entity), 'tool_input': {'name': 'dev-opus-large', 'subagent_type': 'dev',
+                                                         'isolation': 'worktree', 'prompt': 'Implement the task.'}}
+        subprocess.run([shutil.which('python3'), str(ENGINE / 'scripts/lib/workspaces.py'), '--entity', str(self.entity),
+                        'register-spawn'], input=json.dumps(spawn), text=True, capture_output=True,
+                       env=self.env, check=True, timeout=30)
+        subprocess.run(['git', '-C', str(self.entity), 'worktree', 'add', '-qb', 'worktree-agent-agent0large0001', str(native)],
                        env=self.env, capture_output=True, check=True)
-        self.tx_cli('intent', '--session-id', SID, '--tool-use-id', 'tool-large',
-                    data={'kind': 'native', 'teammate': 'dev-opus-large', 'subagent_type': 'dev', 'externals': []})
-        self.run_hook('record-subagent-start.sh', self.payload('SubagentStart', large=False, cwd=str(native)))
-        prompt = ('Implement the task.\n' + PADDING) if large_binding else 'Implement the task.'
-        self.run_hook('detect-nonnative-worktree.sh', self.payload('PostToolUse', large=large_binding,
-            tool_name='Agent', tool_use_id='tool-large',
-            tool_input={'name': 'dev-opus-large', 'subagent_type': 'dev', 'isolation': 'worktree', 'prompt': prompt},
-            tool_response={'agentId': 'agent-large', 'isAsync': True, 'status': 'async_launched'}))
+        self.run_hook('workspace-lifecycle.sh', self.payload('SubagentStart', aid='agent0large0001', large=False, cwd=str(native)))
+        if bind:
+            prompt = ('Implement the task.\n' + PADDING) if large_binding else 'Implement the task.'
+            self.run_hook('workspace-lifecycle.sh', self.payload('PostToolUse', aid='', large=large_binding,
+                tool_name='Agent', tool_use_id='tool-large',
+                tool_input={'name': 'dev-opus-large', 'subagent_type': 'dev', 'isolation': 'worktree', 'prompt': prompt},
+                tool_response={'agentId': 'agent0large0001', 'isAsync': True, 'status': 'async_launched'}))
         return native
 
-    def test_large_binding_seals_real_native_worker(self):
-        native = self.prepare_native_worker(large_binding=True)
-        tx = self.root / 'tx' / SID / 'agent-large.json'
-        self.assertTrue(tx.exists(), 'large Agent result failed to bind and seal')
-        row = json.loads(tx.read_text())
-        self.assertTrue(row['sealed'])
-        self.assertEqual(row['agent_id'], 'agent-large')
-        self.assertEqual(row['members'][0]['path'], str(native))
+    def second_native(self, first):
+        second = first.parent / 'agent-agent0large0002'
+        subprocess.run(['git', '-C', str(self.entity), 'worktree', 'add', '-qb', 'worktree-agent-agent0large0002', str(second)],
+                       env=self.env, capture_output=True, check=True)
+        return second
 
-    def test_large_barrier_preserves_sealed_and_unsealed_policy(self):
+    def test_large_binding_registers_real_native_worker(self):
+        native = self.prepare_native_worker(large_binding=True)
+        row = self.agent(SID + '--dev-opus-large')
+        self.assertIsNotNone(row, 'large Agent result failed to bind')
+        self.assertEqual(row['agent_id'], 'agent0large0001')
+        self.assertEqual([w['path'] for w in row['workspaces']], [os.path.realpath(native)])
+
+    def test_large_barrier_preserves_registered_and_unregistered_policy(self):
         native = self.prepare_native_worker()
-        data = self.payload('PreToolUse', tool_name='Write', cwd=str(native),
+        data = self.payload('PreToolUse', aid='agent0large0001', tool_name='Write', cwd=str(native),
                             tool_input={'file_path': str(native / 'result.txt'), 'content': PADDING})
         self.run_hook('guard-sealed-worktree.sh', data)
-        unsealed = dict(data, agent_id='agent-unsealed')
-        output = self.run_hook('guard-sealed-worktree.sh', unsealed, expected=2)
-        self.assertIn('manifest not sealed', output)
+        unregistered = dict(data, agent_id='agent0unregist01')
+        output = self.run_hook('guard-sealed-worktree.sh', unregistered, expected=2)
+        self.assertIn('REFUSED (no registration)', output)
 
-    def test_large_barrier_refuses_terminal_readonly_tool(self):
+    def test_large_barrier_refuses_finished_readonly_tool(self):
         native = self.prepare_native_worker()
-        data = self.payload('PreToolUse', tool_name='Read', cwd=str(native),
+        data = self.payload('PreToolUse', aid='agent0large0001', tool_name='Read', cwd=str(native),
                             tool_input={'file_path': str(native / 'result.txt')})
-        self.tx_cli('claim', '--session-id', SID, '--agent-id', 'agent-large', '--ingress', 'test')
-        # Terminal is authoritative even for read-only tools. An oversized
-        # resolver environment used to fall back to the read-only error policy.
-        output = self.run_hook('guard-sealed-worktree.sh', dict(data, tool_name='Read'), expected=2)
-        self.assertIn('terminal agent', output)
+        self.run_hook('workspace-lifecycle.sh', self.payload('SubagentStop', aid='agent0large0001', large=False))
+        # Finished is authoritative even for read-only tools (point 9). An
+        # oversized payload must not fall back to the read-only policy.
+        output = self.run_hook('guard-sealed-worktree.sh', data, expected=2)
+        self.assertIn('REFUSED (finished agent)', output)
 
     def test_large_ruled_question_extraction_is_complete(self):
         data = {'tool_input': {'questions': [{'question': 'Should we delete the ACP adapter?'}]},
@@ -216,7 +238,7 @@ class PayloadTransport(unittest.TestCase):
         self.assertIn('YOU ASKED HIM SOMETHING THE RECORD ALREADY RULES', output)
 
     def test_malformed_lifecycle_payloads_keep_nonblocking_contract(self):
-        for hook in ('record-subagent-start.sh', 'terminalize-agent-worktrees.sh',
+        for hook in ('workspace-lifecycle.sh',
                      'worker-ended-handoff.sh', 'teammate-idle-handoff.sh',
                      'worker-created-handoff.sh', 'worker-started-handoff.sh', 'worker-updated-handoff.sh',
                      'notice-inflight-sends.sh'):
@@ -227,7 +249,7 @@ class PayloadTransport(unittest.TestCase):
 
     def test_malformed_completion_payload_is_recorded_but_never_blocks(self):
         # task-completed-handoff.sh keeps the same non-blocking contract as the
-        # eight above and takes the same absence of advisory side effects, but
+        # seven above and takes the same absence of advisory side effects, but
         # it is the one lifecycle hook that can hold a task open, so "I could
         # not read this" is written down instead of passing silently. Two
         # findings, two assertions, neither weakened to fit the other.

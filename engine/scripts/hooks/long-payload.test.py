@@ -34,13 +34,19 @@ class LongPayload(unittest.TestCase):
             'RICHOS_ENTITY_ROOT': str(self.entity), 'CLAUDE_PROJECT_DIR': str(self.entity),
             'VERIFY_REPO_ROOT_OVERRIDE': str(self.entity),
             'RICHOS_WORKTREE_LEDGER': str(self.root / 'ledger.jsonl'),
-            'RICHOS_WORKTREE_TX_DIR': str(self.root / 'tx'),
+            'RICHOS_WORKSPACES_DIR': str(self.root / 'ws'),
             'RICHOS_WORKTREE_CAPTURE_DIR': str(self.root / 'captures'),
             'V8_TEAMS_DIR_OVERRIDE': str(self.root / 'teams'),
             'RESUME_GUARD_TEAMS_DIR': str(self.root / 'teams'),
             'SEAL_WAIT_SECONDS': '0',
         }
         Path(self.env['HOME']).mkdir()
+        # A session process of this test's own: no registration borrows the
+        # identity of whatever real session happens to be running the suite.
+        session = subprocess.Popen(['sleep', '600'])
+        self.addCleanup(session.wait)
+        self.addCleanup(session.kill)
+        self.env['RICHOS_SESSION_PID'] = str(session.pid)
 
     def run_hook(self, name, payload, expected, *, env=None):
         raw = payload if isinstance(payload, str) else json.dumps(payload)
@@ -75,9 +81,11 @@ class LongPayload(unittest.TestCase):
         self.run_hook('guard-worktree-isolation.sh', self.agent(marker), 0)
         log = self.entity / '.claude/state/main-checkout-runs.log'
         self.assertIn(marker, log.read_text())
-        intents = list((self.root / 'tx').rglob('*.json'))
-        self.assertTrue(any(json.loads(p.read_text()).get('kind') == 'main-checkout-run'
-                            for p in intents), 'the permitted spawn never recorded an intent')
+        # The permitted spawn is registered at spawn (docs/plans/worktree-spec-
+        # 2026-09-11.md, point 3), with no isolation recorded.
+        registrations = list((self.root / 'ws' / 'agents').glob('*--dev-opus-long1.json'))
+        self.assertEqual(len(registrations), 1, 'the permitted spawn was never registered')
+        self.assertEqual(json.loads(registrations[0].read_text()).get('isolation'), '')
 
     def test_long_resume_retains_ack_and_does_not_invent_one(self):
         payload = {'tool_name': 'SendMessage', 'session_id': SID,
