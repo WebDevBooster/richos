@@ -179,7 +179,6 @@ scripts/lib/native-platform-cleanup.test.sh	1.2	linux-run-34434314424
 scripts/lib/process-identity.test.sh	1.4	linux-run-34434314424
 scripts/lib/resolve-roots.test.sh	0.6	linux-run-34434314424
 scripts/lib/seat-jurisdiction.test.sh	1.6	linux-run-34434314424
-scripts/lib/shell-worktree-sparse.test.sh	15.9	linux-run-34434314424
 scripts/lib/stopwatch.test.sh	1.0	linux-run-34434314424
 scripts/lib/terminal-branch-cleanup.test.sh	1.2	linux-run-34434314424
 scripts/lib/terminal-branch-shadow.test.sh	0.9	linux-run-34434314424
