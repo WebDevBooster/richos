@@ -209,6 +209,29 @@ mutant fixture-preflight-honest "fixture: the live agent worktree is NOT locked"
     ': skip the lock entirely' \
     "A fixture that never locked would let the live-agent cases pass for the wrong reason."
 
+# 10. THE WORKSPACE SPEC'S FINISHED REFUSAL (points 9, 11). A message to a
+#     finished agent would restart it; the lock-out would then refuse its every
+#     tool, so the message could only waste a turn nobody can use.
+mutant finished-refusal-removed "T04  a FINISHED agent addressed by TEAMMATE NAME -> REFUSED" \
+    scripts/hooks/guard-resume-isolation.sh \
+    '    finished)
+      {
+        echo "=== Resume-isolation guard: REFUSED (finished agent) ==="' \
+    '    finished-never)
+      {
+        echo "=== Resume-isolation guard: REFUSED (finished agent) ==="' \
+    "a finished agent could be messaged and restarted, contradicting the lock-out that refuses its every tool."
+
+# 11. A PAUSED AGENT RESUMES (point 11). Without the registry's allow, a paused
+#     teammate falls through to the liveness checks and is refused as completed.
+mutant paused-not-allowed "T11  a PAUSED agent may be messaged" \
+    scripts/hooks/guard-resume-isolation.sh \
+    '    paused|active)
+      exit 0 ;;' \
+    '    active)
+      exit 0 ;;' \
+    "a paused agent could not be resumed; every pause would end in a stop."
+
 # --- the verdict ------------------------------------------------------------
 # Drained rather than accumulated: PASS/FAIL below come from the workers' exit
 # codes, and a worker that left no exit code is counted as a FAILURE. The tally

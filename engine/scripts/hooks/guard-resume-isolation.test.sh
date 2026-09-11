@@ -501,53 +501,67 @@ git -C "$BG_REPO" worktree unlock "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >
 rm -rf "$BG"
 
 # =========================================================================
-# (t) A TERMINAL AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH (2026-09-03).
-# The terminal indexes are written by terminalize-agent-worktrees.sh through
-# scripts/lib/worktree-transactions.py; here they are produced through the
-# same library so the refusal is exercised against the real record shape.
+# (t) A FINISHED AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH; A PAUSED ONE IS NOT
+# (docs/plans/worktree-spec-2026-09-11.md, points 9 and 11). The recipient is
+# registered, bound and ended through the real workspace registry
+# (scripts/lib/workspaces.py), pinned inside the sandbox with a session process
+# of this suite's own.
 # =========================================================================
-TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
+RICHOS_SESSION_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
 TX_ENTITY="$SANDBOX/tx-entity"
 mkdir -p "$TX_ENTITY/.claude/worktrees"
 git -C "$TX_ENTITY" init -q -b main; printf 'seed\n' >"$TX_ENTITY/seed.txt"; git -C "$TX_ENTITY" add -A; git -C "$TX_ENTITY" commit -q -m seed
+ws_spawn() { # <name> <agent-id>
+    python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[1],"tool_use_id":"tu-"+sys.argv[2],"tool_name":"Agent","tool_input":{"name":sys.argv[2],"subagent_type":"dev","isolation":"worktree","prompt":"x"}}))' "$SESSION_ID" "$1" \
+        | python3 "$WS_PY" --entity "$TX_ENTITY" register-spawn >/dev/null
+    git -C "$TX_ENTITY" worktree add -q -b "worktree-agent-$2" "$TX_ENTITY/.claude/worktrees/agent-$2"
+    printf '{"hook_event_name":"PostToolUse","session_id":"%s","tool_use_id":"tu-%s","tool_name":"Agent","tool_input":{"name":"%s"},"tool_response":{"agentId":"%s"}}' "$SESSION_ID" "$1" "$1" "$2" \
+        | python3 "$WS_PY" --entity "$TX_ENTITY" hook >/dev/null
+}
+ws_stop() { # <agent-id>
+    printf '{"hook_event_name":"SubagentStop","session_id":"%s","agent_id":"%s"}' "$SESSION_ID" "$1" \
+        | python3 "$WS_PY" --entity "$TX_ENTITY" hook >/dev/null
+}
 TERM_AID="a0000000000term1"
-git -C "$TX_ENTITY" worktree add -q -b "worktree-agent-$TERM_AID" "$TX_ENTITY/.claude/worktrees/agent-$TERM_AID"
-printf '{"kind":"native","teammate":"dev-live","externals":[]}' | python3 "$TX_PY" intent --session-id "$SESSION_ID" --tool-use-id tu-term >/dev/null
-python3 "$TX_PY" bind --session-id "$SESSION_ID" --tool-use-id tu-term --agent-id "$TERM_AID" >/dev/null
-python3 "$TX_PY" start --session-id "$SESSION_ID" --agent-id "$TERM_AID" --cwd "$TX_ENTITY/.claude/worktrees/agent-$TERM_AID" >/dev/null
-python3 "$TX_PY" seal --session-id "$SESSION_ID" --agent-id "$TERM_AID" >/dev/null
-# BEFORE the claim: dev-live is an active roster member and is allowed (control).
-run_case "T01  before terminalization the same recipient is allowed (control)" 0 \
+ws_spawn dev-live "$TERM_AID"
+run_case "T01  a registered, unfinished recipient is allowed (control)" 0 \
     "$(send_json 'dev-live' '"One more thing."')"
-python3 "$TX_PY" claim --session-id "$SESSION_ID" --agent-id "$TERM_AID" --ingress SubagentStop >/dev/null 2>&1
-# AFTER: refused by agent id, by name, with resume-ack:, and as a protocol message.
-run_case "T02  terminal agent addressed by AGENT ID -> REFUSED" 2 \
-    "$(send_json "$TERM_AID" '"Are you there?"')"
-run_case_msg "T03  ...with the terminal banner" 'REFUSED (terminal agent)' \
-    "$(send_json "$TERM_AID" '"Are you there?"')"
-run_case "T04  terminal agent addressed by TEAMMATE NAME (still an active roster member) -> REFUSED" 2 \
+ws_stop "$TERM_AID"
+run_case "T04  a FINISHED agent addressed by TEAMMATE NAME -> REFUSED" 2 \
     "$(send_json 'dev-live' '"One more thing."')"
-run_case "T05  terminal agent + resume-ack: -> STILL REFUSED (no escape hatch)" 2 \
+run_case_msg "T03  ...with the finished banner" 'REFUSED (finished agent)' \
+    "$(send_json 'dev-live' '"One more thing."')"
+run_case "T05  finished agent + resume-ack: -> STILL REFUSED (no escape hatch)" 2 \
     "$(send_json 'dev-live' '"resume-ack: writes land nowhere, pure question"')"
-run_case "T06  terminal agent + shutdown_request protocol body -> STILL REFUSED" 2 \
-    "$(send_json "$TERM_AID" '{"type":"shutdown_request","reason":"done"}')"
-run_case_msg "T07  the refusal tells the lead where the work is (backup ref) and to spawn fresh" 'refs/richos/handoffs/' \
+run_case "T06  finished agent + shutdown_request protocol body -> STILL REFUSED" 2 \
+    "$(send_json 'dev-live' '{"type":"shutdown_request","reason":"done"}')"
+run_case_msg "T07  the refusal names land/discard and continues: as the way on" 'continues: dev-live' \
     "$(send_json 'dev-live' '"One more thing."')"
+# a PAUSED agent (the pause recorded before its run ended) may be messaged: it resumes
+PAUSE_AID="a0000000000paus1"
+ws_spawn dev-held "$PAUSE_AID"
+python3 "$WS_PY" --session "$SESSION_ID" pause dev-held --until "the CEO's answer" >/dev/null
+ws_stop "$PAUSE_AID"
+run_case "T11  a PAUSED agent may be messaged — it is not finished (point 11)" 0 \
+    "$(send_json 'dev-held' '"Go ahead."')"
 # a DIFFERENT active teammate is unaffected
-run_case "T08  another active recipient is unaffected by one agent being terminal" 0 \
+run_case "T08  another active recipient is unaffected by one agent being finished" 0 \
     "$(send_json 'dev-inproc' '"Continue."')"
-# the lead channel is never touched by the terminal check
+# the lead channel is never touched by the finished check
 run_case "T09  the lead/reply channel passes regardless" 0 \
     "$(send_json 'team-lead' '"Report: done."')"
-# the same name in ANOTHER session is not terminal: whatever the guard's
-# ordinary verdict for an unknown session is, it is NOT the terminal refusal.
+# the same name in ANOTHER session is not finished: whatever the guard's
+# ordinary verdict for an unknown session is, it is NOT the finished refusal.
 T10_OUT="$(python3 -c 'import json; print(json.dumps({"tool_name":"SendMessage","tool_input":{"to":"dev-live","message":"hi"},"session_id":"33333333-0000-4000-8000-000000000003"}))' | "$HOOK" 2>&1 >/dev/null)"
-if ! printf '%s' "$T10_OUT" | grep -q 'REFUSED (terminal agent)'; then
-    printf '  PASS  T10  the same teammate name under another session id is NOT refused as terminal (index is per session)\n'; PASS=$((PASS + 1))
+if ! printf '%s' "$T10_OUT" | grep -q 'REFUSED (finished agent)'; then
+    printf '  PASS  T10  the same teammate name under another session id is NOT refused as finished (registrations are per session)\n'; PASS=$((PASS + 1))
 else
-    printf '  FAIL  T10  a reused name in another session inherited terminal state\n'; FAIL=$((FAIL + 1))
+    printf '  FAIL  T10  a reused name in another session inherited finished state\n'; FAIL=$((FAIL + 1))
 fi
+kill "$RICHOS_SESSION_PID" 2>/dev/null || true
 
 rm -rf "$SANDBOX"
 
@@ -558,9 +572,7 @@ if [ "$FAIL" -gt 0 ]; then
 fi
 echo "=== guard-resume-isolation tests: all $PASS passed ==="
 
-# The mutation harness for the terminal refusal is part of this suite's
-# definition of green (open-items rows 3.22-3.29).
-if [ -f "$SCRIPT_DIR/worktree-terminal-refusal.mutation.sh" ]; then
-    bash "$SCRIPT_DIR/worktree-terminal-refusal.mutation.sh" || exit 1
-fi
+# The mutation harness for this guard is guard-resume-isolation.mutation.sh
+# (run by contract-integrity.test.sh). The finished/paused verdict itself is
+# scripts/lib/workspaces.py's, mutated by workspaces.mutation.sh.
 exit 0
