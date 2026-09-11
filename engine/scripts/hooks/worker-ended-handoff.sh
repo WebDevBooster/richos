@@ -131,6 +131,18 @@ def resolve_team_dir():
         candidate = os.path.join(teams_dir, "session-%s" % session_id[:8])
         if os.path.isdir(candidate):
             return candidate
+        # ROUND 15 (2026-09-11, Frank D4): A KNOWN SESSION WHOSE OWN DIRECTORY
+        # IS ABSENT WRITES TO THE FALLBACK FILE, NEVER TO SOMEBODY ELSE'S
+        # DIRECTORY. The reader (worktree-transactions.platform_lifecycle_after)
+        # opens this session's directory and the fallback file, keyed by the
+        # full session id this row carries; it never opens a foreign session's
+        # log. The single-directory guess below filed this row into whatever
+        # one directory happened to exist, where only THAT session's reader
+        # looks and this session's never does -- reproduced in a sandbox by
+        # Frank (round four, D4): one foreign directory present, the row landed
+        # there, the reader returned nothing. The guess stays for the case it
+        # was written for: a payload that carries NO session id at all.
+        return None
     try:
         sessions = [
             os.path.join(teams_dir, name)
