@@ -1,0 +1,20 @@
+=== the session banner's guard fraction is derived, not remembered ===
+
+  PASS  1a  baseline: banner reports 65/65, matching hooks.json minus the announcer
+  PASS  1b  sanity: hooks.json registers exactly the 66 scripts acknowledged here (announcer included), so the banner reads 65/65 guards
+  PASS  1c  the adopted entity still gets ENFORCEMENT ACTIVE
+  PASS  2a  one more wired guard is counted immediately: 66/66
+  PASS  2b  the extra guard did not break the derivation
+  PASS  3a  NEGATIVE CONTROL: a hand-typed inventory reports a full 14/14 while 66 guards are wired — the historical defect, reproduced
+  PASS  3b  NEGATIVE CONTROL: case 2's assertion is load-bearing — it goes red under the mutation
+  PASS  4a  SHORTFALL: a registered guard that is not executable drops the numerator only (64/65)
+  PASS  4b  SHORTFALL: a registered guard missing from disk drops the numerator only (64/65)
+  PASS  4c  a guard UNWIRED from hooks.json leaves the count (present on disk, loads nothing): 64/64
+  PASS  5a  a missing hooks.json yields '?/?', not a number
+  PASS  5b  and says so, loudly, in the announcement
+  PASS  5c  a MALFORMED hooks.json yields '?/?' too — no count scraped out of a file the host cannot load either
+  PASS  5d  still exits 0 — a broken inventory is announced, never blocking
+  PASS  6a  without python3 the fraction is unchanged: 65/65
+  PASS  6b  without python3 one more wired guard is still counted: 66/66
+
+engine-status: 16/16 cases pass

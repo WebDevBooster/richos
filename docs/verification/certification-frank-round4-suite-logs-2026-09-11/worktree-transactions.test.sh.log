@@ -1,0 +1,102 @@
+  PASS  T00  cleanup-routing contract: cleanup-routing contract holds: 62 routing test(s) across 31 function(s), 2 route key(s) (cleanup_owner, cleanup_policy), every converter complete; 7 locked blind spot(s).
+=== worktree-transactions tests ===
+  PASS  T01  atomic_write_json writes the file and leaves no temp file beside it
+  PASS  T02  a path-traversing agent id is refused as a segment
+  PASS  T03  bind REFUSES when no intent exists for the tool_use_id (nothing is invented)
+  PASS  T04  bind copies the intent's exact member set onto the agent id
+  PASS  T05  bind is idempotent for the same (tool_use_id, agent_id)
+  PASS  T06  bind REFUSES to rebind an agent id to a different tool_use_id
+  PASS  T07  bind refuses a malformed agent id
+  PASS  T08  seal REFUSES with the bound record alone (no SubagentStart yet)
+  PASS  T09  seal succeeds once both facts exist (order A: bind, then start)
+  PASS  T10  seal REFUSES with the start record alone (nothing bound yet)
+  PASS  T11  seal succeeds in order B (start, then bind)
+  PASS  T12  both event orders produce the same sealed manifest shape
+  PASS  T13  sealed: exit 0 for a sealed agent
+  PASS  T14  sealed: exit 1 for an unknown agent
+  PASS  T15  seal REFUSES a native spawn whose SubagentStart cwd is not agent-<id>
+  PASS  T16  seal REFUSES a correctly-named directory that git does not know
+  PASS  T17  seal REFUSES a start cwd that is ANOTHER agent's native worktree
+  PASS  T18  cwd worker: seal REFUSES a start cwd that is not a prepared external member
+  PASS  T19  cwd worker: seal REFUSES when the external member's branch no longer matches the prepared record
+  PASS  T20  cwd worker: seal succeeds with the exact prepared external member (no native member)
+  PASS  T21  cwd worker has exactly ONE member, the external one
+  PASS  T22  two-member worker: native AND external are both bound in one manifest
+  PASS  T23  seal REFUSES an external member whose repository is not the prepared one
+  PASS  T24  a main-checkout-run spawn seals with ZERO members (nothing is owned, nothing will be removed)
+  PASS  T25  claim on an unknown/unsealed agent: nothing to terminalize (rc 3)
+  PASS  T26  the FIRST terminal ingress wins the claim
+  PASS  T27  a SECOND ingress loses the claim and resumes idempotently (rc 2)
+  PASS  T28  the transaction records the WINNING ingress, and the loser did not overwrite it
+  PASS  T29  terminal index: the agent id is terminal
+  PASS  T30  terminal index: a live agent is NOT terminal
+  PASS  T31  terminal index: the teammate NAME is terminal in this session
+  PASS  T32  a reused name in a LATER session is not terminal (index is per session)
+  PASS  T33  a backup ref refs/richos/handoffs/<sid>/<aid>/<branch> = HEAD exists in EACH owning repository
+  PASS  T34  both members were renamed beside their originals: <path>.richos-terminal-<sid8>-<aid>
+  PASS  T35  untracked evidence traveled with the quarantine byte-for-byte (a rename, not a copy)
+  PASS  T35b  the quarantine is a REGISTERED, readable worktree (git worktree repair ran): a prune cannot orphan it
+  PASS  T36  every member is persisted as quarantined
+  PASS  T37  a third SubagentStop is an idempotent no-op on the member states
+  PASS  T38  recovery: rename done but unrecorded -> the record is completed, nothing is renamed twice
+  PASS  T39  recovery: original AND quarantine both present -> the quarantine advances (registered, ours by exact name), the original is recorded present and left untouched for the reconciler (INVERTED: it used to park as FAILED)
+  PASS  T40  recovery: neither original nor quarantine -> member CLOSED ABSENT: removed, absence recorded, backup ref re-created from the recorded head even though the harness deleted worktree AND branch (INVERTED: it used to park as MISSING)
+  PASS  T41  recovery: a crash after one of two repositories is quarantined recovers the remaining member
+  PASS  T42  by-native-path: the exact native path resolves its sealed agent
+  PASS  T43  by-native-path: the quarantine name is the same identity
+  PASS  T44  by-native-path: a PREFIX of a real path resolves nothing
+  PASS  T45  by-native-path: the same path under ANOTHER session id resolves nothing
+  PASS  T46  WorktreeRemove-first: the claim quarantines the named native path AND the external member
+  PASS  T51  a stalled external repository exhausts the hook budget AFTER the native path is quarantined and recorded (native: quarantined; external: bound, untouched)
+  PASS  T52  ...and the next run, with the repository responsive again, finishes the external member
+  PASS  T53  a failed `git worktree repair` leaves the member at ref_saved with the directory preserved, the failure recorded, retryable
+  PASS  T54  ...and the retry, with git working, repairs the registration and advances to quarantined
+  PASS  T55-tx  crash after the 'tx' write (rc 137; index absent, name index absent): the agent STILL reads as terminal from the transaction
+  PASS  T56-tx  ...and the next ingress repaired both indexes idempotently
+  PASS  T55-index  crash after the 'index' write (rc 137; index present, name index absent): the agent STILL reads as terminal from the transaction
+  PASS  T56-index  ...and the next ingress repaired both indexes idempotently
+  PASS  T55-name  crash after the 'name' write (rc 137; index present, name index present): the agent STILL reads as terminal from the transaction
+  PASS  T56-name  ...and the next ingress repaired both indexes idempotently
+  PASS  T57  with NO session id, a crash-orphaned terminal transaction is found by exact agent id and its index repaired
+  PASS  T58  ...and an agent id with no record anywhere is NOT terminal (negative control)
+  PASS  T47  a later session reusing the name echo-opus-e2 is NOT terminal and its tree is untouched
+  PASS  T48  the reused-name tree still exists after the old transaction's terminalization
+  PASS  T49  metrics count terminal members present (incl. FAILED and MISSING) and pending retries
+  PASS  T50  tx_lock: a second writer waits for the holder (kernel flock, released on exit)
+  PASS  T59  a failed FILE fsync raises EIO; nothing is left at the path and no temp file beside it
+  PASS  T60  a failed RENAME raises EIO; nothing is left at the path and the temp file is removed
+  PASS  T61  a failed DIRECTORY fsync raises EIO: the record is on disk but the caller is NOT told it is durable (INVERTED: it used to be swallowed)
+  PASS  T61b ...and touch_marker (the terminal indexes) raises the same way
+  PASS  T62  the ONE documented exception: a filesystem answering EINVAL to a directory fsync is accepted, and announced with the errno (the weaker guarantee is named, never silent)
+  PASS  T63  a claim whose directory fsync fails RAISES (not reported durable); the next ingress resumes the claim that did land and the agent reads terminal
+
+=== worktree-transactions tests: all 70 passed ===
+=== worktree-transactions: every property, proven load-bearing by removing it ===
+  PASS  claim-never-loses — removing it turns "T27" red  [29.5s]
+  PASS  seal-without-start — removing it turns "T08" red  [29.7s]
+  PASS  seal-without-bound — removing it turns "T10" red  [29.3s]
+  PASS  native-name-unchecked — removing it turns "T15" red  [29.9s]
+  PASS  native-git-unchecked — removing it turns "T16" red  [29.1s]
+  PASS  external-branch-unchecked — removing it turns "T19" red  [29.5s]
+  PASS  cwd-not-prepared — removing it turns "T18" red  [29.6s]
+  PASS  bind-invents-intent — removing it turns "T03" red  [29.7s]
+  PASS  rebind-allowed — removing it turns "T06" red  [30.8s]
+  PASS  both-present-renames-over — removing it turns "T39" red  [30.9s]
+  PASS  rename-not-idempotent — removing it turns "T38" red  [31.2s]
+  PASS  native-path-prefix — removing it turns "T44" red  [31.0s]
+  PASS  native-path-any-session — removing it turns "T45" red  [31.0s]
+  PASS  terminal-name-global — removing it turns "T32" red  [30.7s]
+  PASS  metrics-hide-failed — removing it turns "T49" red  [31.0s]
+  PASS  lock-is-noop — removing it turns "T50" red  [31.0s]
+  PASS  second-stop-mutates — removing it turns "T37" red  [37.5s]
+  PASS  refs-before-any-rename — removing it turns "T51" red  [20.8s]
+  PASS  repair-result-ignored — removing it turns "T53" red  [39.5s]
+  PASS  terminal-index-is-truth — removing it turns "T55" red  [39.0s]
+  PASS  loser-does-not-repair — removing it turns "T56" red  [39.1s]
+  PASS  ref-not-saved — removing it turns "T33" red  [38.9s]
+  PASS  absent-parked-as-missing — removing it turns "T40" red  [39.4s]
+  PASS  absent-loses-the-head — removing it turns "T40" red  [38.5s]
+  PASS  dir-fsync-swallowed — removing it turns "T61" red  [36.6s]
+  [25 mutant(s), 8 at a time, wall 1m58.5s, slowest 39.5s repair-result-ignored, 6.8x serial]
+
+=== mutation: all 25 properties proven load-bearing ===

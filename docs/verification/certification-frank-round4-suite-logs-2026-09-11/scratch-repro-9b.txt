@@ -1,0 +1,6 @@
+copy without the 00:02:34Z row:    17300 lines; with:    17301 lines
+ARM 1 (ledger as it was when the fixer's suite ran): terminated rows in the COPY before=45 after=46
+   NEW ROW: 2026-09-11T00:59:33.132585+00:00 platform-terminal-record ae904aac1949e5696 /Users/alex/ab/richos-wt/sage-fable-cert3
+   reason: the platform's own terminal record for agent ae904aac1949e5696: SubagentStop at 2026-09-10T22:52:36.608923+00:00 claimed it, the transaction is sealed, /Users/a
+ARM 2 (ledger as it is today): terminated rows in the COPY before=46 after=46
+REAL ledger lines before=   17301 after=   17302 (must be equal)

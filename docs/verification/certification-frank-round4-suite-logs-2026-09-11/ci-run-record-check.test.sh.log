@@ -1,0 +1,17 @@
+=== ci-run-record-check tests ===
+  PASS  R1   every push having a run is green
+  PASS  R2   a push with no run FAILS and the SHA is named
+  PASS  R3   commits batched into one push need one run, not one each — no false positive per batch
+  PASS  R4   a push two minutes old with no run yet is PENDING, printed, and does not fail
+  PASS  R4b  the same push FAILS with a one-minute window — pending is a window, not a permanent excuse
+  PASS  R5   --since excludes pushes made before the trigger existed, and counts them out loud
+  PASS  R5b  without --since the same old push IS a finding — the bound is explicit, never implied
+  PASS  R5c  an unparseable --since exits 2 rather than silently watching everything or nothing
+  PASS  R6a  an unparseable runs payload exits 2 — no answer is not a pass
+  PASS  R6b  an unparseable event payload exits 2
+  PASS  R7   a feed with no pushes to the branch exits 2 rather than reporting a green nothing
+  PASS  R8a  the tip fallback fails on a tip with no run, and names the predicate it used
+  PASS  R8b  the tip fallback passes on a tip that has a run, and says what it did NOT check
+  PASS  R9   runs for other commits do not satisfy a push — matching is on head_sha
+
+=== ci-run-record-check tests: all 14 passed ===

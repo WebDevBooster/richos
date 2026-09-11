@@ -1,0 +1,59 @@
+=== worktree-ledger tests ===
+  PASS  L01  record appends one line with ts, fields, and pid_start read from ps
+  PASS  L02  no record for the path -> UNRESOLVED
+  PASS  L03  a name that matches a registration for ANOTHER path is UNRESOLVED (names are reusable, never ownership)
+  PASS  L04  the same name at the EXACT registered path is judged (positive control for 2b)
+  PASS  L05  registration whose session pid is GONE -> NOT-ALIVE (prior-session owner is decidable)
+  PASS  L06  registration whose session pid is RUNNING and native worktree absent -> INDETERMINATE
+  PASS  L06a  a terminal transaction naming ANOTHER path decides nothing about this one (control)
+  PASS  L06a' an ADOPTED terminal transaction (the engine's own derivation, not the platform's word) decides nothing (control)
+  PASS  L06b  the platform's SEALED TERMINAL RECORD naming this exact path turns the same registration NOT-ALIVE while the session still runs -- positive evidence, the fact the reclaim lane removes on
+  PASS  L06c  a post-terminal run OPEN in the transaction's notes holds the verdict at INDETERMINATE with row 5's reason (the agent is running again; the record is not death)
+  PASS  L06d  and once that run's stop is recorded the verdict is NOT-ALIVE again
+  PASS  L07  running pid with a DIFFERENT start time -> NOT-ALIVE (pid reuse is not liveness)
+  PASS  L08  two registrations for one path, one LOCKED by a running pid -> ALIVE (a live owner outranks a dead twin)
+  PASS  L09  native registered+unlocked -> NOT-ALIVE observed, and a 'terminated' record is written
+  PASS  L10  AFTER the native worktree is gone, the owner is STILL NOT-ALIVE from the witnessed record
+  PASS  L11  native removed with NO witnessed record and a live session -> INDETERMINATE (never guessed)
+  PASS  L12  --no-write appends nothing, even on an observation that would be written
+  PASS  L13  TeammateIdle/TaskCompleted/SubagentStop are reported as advisory and never decide
+  PASS  L14  a transcript-only name join is UNRESOLVED and the reason names the refused join
+  PASS  L15  the same agent WITH a path registration is judged (positive control for 10)
+  PASS  L16  judge-batch emits path<TAB>verdict<TAB>agent-ids<TAB>reason per input line
+  PASS  L17  branches --repo lists ledger-registered branches
+  PASS  L18  a malformed ledger line is skipped, not fatal
+  PASS  L19  a path-registered tree is judged by its registration, not its name
+  PASS  L20  record prepared appends one durable line
+  PASS  L21  prepared: exact (session, teammate, path) resolves
+  PASS  L22  prepared: a different session id does NOT match
+  PASS  L23  prepared: a different teammate name does NOT match
+  PASS  L24  prepared: a different path with the SAME basename does NOT match (no prefix, no basename)
+  PASS  L25  prepared: a different repository does NOT match
+  PASS  L26  registrations --worktree resolves a prepared record by exact path
+  PASS  L27  registrations --worktree does NOT match a different path with the same name
+  PASS  L28  bound-members: no sealed transaction -> nothing (no fallback to registrations or names)
+  PASS  L29  bound-members: a sealed transaction's exact native member is returned
+  PASS  L30  EXHAUSTION: a path owner whose session no running process predates -> NOT-ALIVE
+  PASS  L31  EXHAUSTION: the registry names the running pid as THIS session -> INDETERMINATE (session alive)
+  PASS  L32  EXHAUSTION: an unaccounted process that predates the last write -> INDETERMINATE (never guessed)
+  PASS  L33  EXHAUSTION: a predating process registered to a DIFFERENT session is ruled out -> NOT-ALIVE
+  PASS  L34  EXHAUSTION: a registry row with a mismatched start does not account for the process
+  PASS  L35  EXHAUSTION: an enumeration missing our own pid is refused -> INDETERMINATE
+  PASS  L36  EXHAUSTION never fires on a transcript-only name: no path record -> UNRESOLVED
+  PASS  L37  the running session's own agent stays INDETERMINATE
+
+=== worktree-ledger tests: all 42 passed ===
+=== worktree-ledger: every property, proven load-bearing by removing it ===
+  PASS  name-match-restored — removing it turns "L03" red  [7.8s]
+  PASS  platform-terminal-record-ignored — removing it turns "L06b" red  [7.6s]
+  PASS  open-post-terminal-run-ignored — removing it turns "L06c" red  [7.8s]
+  PASS  prepared-ignores-session — removing it turns "L22" red  [7.7s]
+  PASS  prepared-ignores-teammate — removing it turns "L23" red  [7.8s]
+  PASS  prepared-matches-basename — removing it turns "L24" red  [7.6s]
+  PASS  prepared-ignores-repo — removing it turns "L25" red  [7.7s]
+  PASS  prepared-not-ownership — removing it turns "L26" red  [7.7s]
+  PASS  bound-members-fallback — removing it turns "L28" red  [4.6s]
+  PASS  transcript-join-accepted — removing it turns "L14" red  [4.5s]
+  [10 mutant(s), 8 at a time, wall 12.4s, slowest 7.8s name-match-restored, 5.7x serial]
+
+=== mutation: all 10 properties proven load-bearing ===

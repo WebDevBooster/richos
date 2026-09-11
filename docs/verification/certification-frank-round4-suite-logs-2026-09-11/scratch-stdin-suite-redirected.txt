@@ -1,0 +1,10 @@
+copy terminated rows before: 45
+scripts/hooks/session-start-stdin.test.sh rc=0 wall=42s
+  PASS  9i NEGATIVE  snapshot-enforcing-hooks.sh still reads the payload session id
+  PASS  9j POSITIVE  every SessionStart script registered in hooks.json has a hang case
+
+=== session-start stdin: all 11 passed ===
+copy terminated rows after: 46
+NEW platform-terminal-record row(s) written by the suite into the COPY:
+{"agent_id": "ae904aac1949e5696", "event": "terminated", "reason": "the platform's own terminal record for agent ae904aac1949e5696: SubagentStop at 2026-09-10T22:52:36.608923+00:00 claimed it, the transaction is sealed, /Users/alex/ab/richos-wt/sage-fable-cert
+real ledger terminated rows now: 46

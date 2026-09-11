@@ -1,0 +1,4 @@
+rc=0 ; output lines:        1
+{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "worktree reconciler: BLOCKED (6 member(s) cannot proceed by waiting); last daily pass 2026-09-10, last run 2026-09-10T17:14:16.120465+00:00, launchd job loaded \u2014 terminal members with a directory present=10, pending retry=14, BLOCKED=6, hard failures (dead-present)=0, sealed transactions whose native member is gone=0, overdue pending terminal events=0, live workers positively present=2, transactions touched=0 || worktree inventory: not run \u2014 this repository has not adopted the engine (no orchestration.config at its root)."}}
+
+--- lines mentioning richos-wt / sage-fable-cert3 / judge / ledger ---

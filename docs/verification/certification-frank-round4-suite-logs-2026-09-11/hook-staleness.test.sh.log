@@ -1,0 +1,32 @@
+=== landed mid-session means inert, and the operator is told to restart ===
+
+  PASS  1   snapshotter writes .claude/state/enforcing-hooks-<session8>.snapshot
+  PASS  1a  the rows= header matches the rows actually written (68), and is non-zero
+  PASS  1b  the latest handle is refreshed
+  PASS  1c  the baseline is DERIVED: 68 rows, matching an independent parse of the same surface
+  PASS  2   nothing changed -> byte-empty output (the property the whole design turns on)
+  PASS  2b  table REORDERED, same set -> byte-empty (a set comparison, not a diff)
+  PASS  2c  guard BODY edited mid-session -> byte-empty (bodies re-execute per event; only registration is frozen)
+  PASS  0f  fixture sentinels are absent from the shipped registration (a fixture that names a real hook tests nothing)
+  PASS  3   a guard landed mid-session is NAMED in the notice
+  PASS  3b  the notice states all three: WHICH guard, that it is inert NOW, and that RESTARTING is the operator's act
+  PASS  3c  emitted as {"systemMessage":...} — the operator channel, not the model's
+  PASS  4   the same drift a second time -> silent (a notice every turn gets muted)
+  PASS  4b  drift GROWS -> speaks again, naming both the new guard and the one already reported
+  PASS  4c  drift shrinks back -> silent (nothing new to say)
+  PASS  5a  baseline with ZERO rows -> CANNOT CHECK, never 'no drift'
+  PASS  5b  baseline whose rows= header LIES -> CANNOT CHECK
+  PASS  5c  baseline recorded against a DIFFERENT engine -> CANNOT CHECK
+  PASS  5d  no baseline at all -> CANNOT CHECK
+  PASS  5d2 the no-baseline message ALSO names restart as the operator's act
+  PASS  5e  current surface unparseable -> CANNOT CHECK
+  PASS  6   an already-wired script added to a NEW event is reported as a dead hook point
+  PASS  7   a registration REMOVED mid-session is reported as STILL FIRING this session
+  PASS  8   unadopted repository -> byte-empty (the plugin loads everywhere; a notice in each would be noise)
+  PASS  8a  a DECLARED root that is not adopted -> CANNOT CHECK, not silence
+  PASS  8b  a guard landed in the SETTINGS surface -> byte-empty (that surface hot-reloads; it is already enforcing)
+  PASS  9   META: the silence assertion is load-bearing — a doctored baseline DOES produce a notice
+  PASS  10  every path exits 0 — this is information, never enforcement
+  PASS  11  both registration surfaces carry the pair exactly once, no duplicate keys, identical sets (66 scripts) — verified by PARSING
+
+hook-staleness: 28/28 cases pass

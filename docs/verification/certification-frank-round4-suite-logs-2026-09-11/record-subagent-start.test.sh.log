@@ -1,0 +1,27 @@
+=== record-subagent-start tests ===
+  PASS  S01  the start fact is written with agent id, exact cwd, type and session
+  PASS  S02  a recorded start is silent
+  PASS  S03  no bound record yet -> the manifest stays unsealed
+  PASS  S04  bound record on disk + start fact -> the start hook SEALS the manifest
+  PASS  S05  the sealed native member is the event cwd, verified against git
+  PASS  S06  start before bind -> recorded, unsealed
+  PASS  S07  ...and the binder's own try_seal seals it from the recorded start (either order works)
+  PASS  S08  a start in the MAIN checkout is recorded and NOT sealed (the barrier will refuse its writes)
+  PASS  S09  an unattributable start (no agent id) records nothing and exits 0
+  PASS  S10  a payload for another event is ignored
+  PASS  S13  a start for an agent with a terminal record is ANNOUNCED and written on the transaction where the reclaim lane reads it
+  PASS  S14  an ordinary start says nothing about a restart
+  PASS  S11  unparseable payload -> exit 0 (SubagentStart cannot block, and this hook never pretends to)
+  PASS  S12  library missing -> exit 0 and a NOTICE naming the missing file
+
+=== record-subagent-start tests: all 14 passed ===
+=== record-subagent-start: every property, proven load-bearing by removing it ===
+  PASS  start-not-recorded — removing it turns "S01" red  [3.3s]
+  PASS  seal-not-attempted — removing it turns "S04" red  [3.2s]
+  PASS  cwd-not-recorded — removing it turns "S05" red  [3.4s]
+  PASS  hook-pretends-to-block — removing it turns "S01" red  [3.5s]
+  PASS  restart-after-terminal-unnoticed — removing it turns "S13" red  [4.4s]
+  PASS  library-missing-swallowed — removing it turns "S12" red  [4.5s]
+  [6 mutant(s), 8 at a time, wall 4.6s, slowest 4.5s library-missing-swallowed, 4.8x serial]
+
+=== mutation: all 6 properties proven load-bearing ===
