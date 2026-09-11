@@ -1,4 +1,4 @@
-DRAFT — verdict not yet reached
+NOT CERTIFIED
 
 # Certification review, round five, Frank — workspace reclamation at richos main `1c58c017`
 
