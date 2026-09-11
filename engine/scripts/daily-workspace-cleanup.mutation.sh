@@ -51,7 +51,7 @@ mutant residue-archive-skipped "test_ignored_disposable_is_dropped_and_ignored_r
     "an ignored file the disposable policy does not name would go with the tree and no copy would exist — PF9: git worktree remove deletes ignored files without refusing."
 
 mutant nested-repository-dropped-as-disposable "test_a_nested_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
-    "    return is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/')" \
+    "    return (is_nested_repository(rel) or '.git' in rel.rstrip('/').split('/'){NL}            or looks_like_git_object(rel))" \
     "    return False" \
     "a clone an agent made under an ignored vendor/, .cache/ or node_modules/ -- with commits nowhere else -- would be classified disposable by its PARENT's name and deleted by the non-force removal with no copy taken. Frank R1, round two: reproduced under the lane's own binary, the only loss path found in two rounds."
 
