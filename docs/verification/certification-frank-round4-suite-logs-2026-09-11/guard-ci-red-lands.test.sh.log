@@ -1,0 +1,19 @@
+=== guard-ci-red-lands tests ===
+  PASS  R1   a commit on the watched branch is silent, even with red standing
+  PASS  R2   pushing a non-watched branch is silent (every teammate handoff is one)
+  PASS  R3   a dry run lands nothing and is allowed
+  PASS  R4   a push to main with red standing is REFUSED, naming both workflows and both ages
+  PASS  R5   a merge while HEAD is on the watched branch is REFUSED
+  PASS  R6   a bare ack exempts nothing, and says why
+  PASS  R7   a partial ack still refuses, and names only the workflow that was not acked
+  PASS  R8   an ack naming a workflow that is not red exempts nothing
+  PASS  R9   a complete ack allows, and both acks are written to the durable log
+  PASS  R10  the third ack for the same workflow says so — a habit is turned into evidence
+  PASS  R11  an unknown answer ALLOWS and ANNOUNCES — 'could not look' is never 'found nothing'
+  PASS  R12  a clear answer is completely silent
+  PASS  R13  a repository with no GitHub origin has no CI surface and is not gated
+  PASS  R14  NEGATIVE CONTROL: the gate still refuses, so the silences above are real silences
+  PASS  R15  an empty, truncated or non-JSON payload is ALLOWED and SAID OUT LOUD — an unevaluated call is never silent
+  PASS  R16  with the notice library loaded, a well-formed red land is still REFUSED and a clean land is still silent
+
+=== guard-ci-red-lands tests: all 16 passed ===

@@ -1,0 +1,79 @@
+=== terminalize-agent-worktrees tests ===
+  PASS  R01  SubagentStop exits 0 (a terminal event is never prevented)
+  PASS  R02  the ingress reports that it WON the claim
+  PASS  R03  a backup ref for the native member's HEAD exists in the entity repository
+  PASS  R04  a backup ref for the external member's HEAD exists in ITS repository
+  PASS  R05  the native member was quarantined beside its original path
+  PASS  R06  the external member was quarantined with its untracked evidence intact
+  PASS  R07  the agent id is in the terminal index
+  PASS  R08  the teammate name is terminal in this session
+  PASS  R09  both members are persisted as quarantined
+  PASS  R10  a second SubagentStop RESUMES (does not re-claim) and exits 0
+  PASS  R11  a WorktreeRemove for the (now quarantined) native path also resumes, exit 0
+  PASS  R12  ...and neither changed the transaction record (idempotent)
+  PASS  R13  ...and the quarantines are untouched
+  PASS  R14  WorktreeRemove for the exact native path WINS the claim
+  PASS  R15  THREE repositories: native + two externals all quarantined under one transaction
+  PASS  R16  the record names WorktreeRemove as the winning ingress
+  PASS  R17  the later SubagentStop resumes; the same transaction completes once
+  PASS  R18  ...and did not overwrite the winner
+  PASS  R19  SubagentStop for an agent with no transaction (a helper subagent) is silent and exits 0
+  PASS  R20  WorktreeRemove for a path RichOS never sealed: not adopted, not moved, silent
+  PASS  R21  an UNSEALED (bound, never started) agent's SubagentStop is PERSISTED as pending, the agent is terminal by policy, and its worktree is not touched yet (nothing is sealed)
+  PASS  R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), reclaims the clean workspace and its branch in that same event, and is consumed
+  PASS  R21c ...and a later SubagentStop resumes the same transaction (idempotent)
+  PASS  R21d WorktreeRemove for an unsealed-but-bound agent's native path is recorded as a pending WorktreeRemove (exact platform id; nothing moved)
+  PASS  R21e an agent with neither a bound nor a start record gets NO pending record (a stop event about nobody is silence)
+  PASS  R28  TEN different nested stop ids from inside a live worker's cwd claim NOTHING: no terminal record, no pending record, both worktrees untouched, the transaction still sealed
+  PASS  R29  ...while the SubagentStop whose agent_id IS the ownership id claims it (exact authority, not a preferred event)
+  PASS  R30  a successful TaskStop whose request named the TEAMMATE and whose result (a JSON string, the measured shape) returned the ownership id claims that exact transaction: both members quarantined, agent terminal
+  PASS  R31  the record names TaskStop as the ingress and keeps the requested name as provenance only
+  PASS  R32  a second TaskStop result resumes idempotently
+  PASS  R33  tool_response as a structured dict claims too
+  PASS  R34  tool_response as content blocks whose text is the JSON claims too
+  PASS  R35  a result with NO structured task_id claims nothing — even though its success sentence names the id and its request names a sealed teammate (neither prose nor the request is authority)
+  PASS  R36  a result carrying an error marker claims nothing, task_id or not (a failed stop stops nothing)
+  PASS  R37  a successful TaskStop for an id RichOS never recorded is a silent no-op (TaskStop may target an agent that owns no worktree)
+  PASS  R38  a PostToolUse for any tool other than TaskStop is ignored even when its response happens to carry a task_id
+  PASS  R22  the same teammate name in a LATER session is not terminal; its transaction is its own
+  PASS  R23  ...and its worktree is untouched by the earlier agent's terminalization
+  PASS  R24  unparseable payload -> exit 0
+  PASS  R25  TeammateIdle is NOT YET a terminal ingress (payload unmeasured on this platform; CEO specification section 3): no claim, no mutation, even with the exact id AND the exact cwd in the payload
+  PASS  R26  library missing -> exit 0 with a NOTICE naming it
+  PASS  R27  the terminal indexes are on disk where guard-sealed-worktree.sh and guard-resume-isolation.sh read them
+  PASS  E1  a finished agent's workspaces are GONE and both branches resolved in the stop event itself (native + cross-repository)
+        [01:12:50.671373000 -> 01:12:51.977998000, 1.31s]
+  PASS  E2  UNMERGED work is never swept: the workspace and its branch tip survive the ingress
+  PASS  E3  UNCOMMITTED work is never destroyed: modified and untracked bytes are exactly where the worker left them
+  PASS  E4  a LIVE-LOCKED workspace is untouched and its lock is still the platform's -- this engine never removes it
+        [deferral written on the member: the platform is holding its own lock on /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/terminalize-t]
+  PASS  E5  a workspace with NO ownership record is not swept, while the recorded one beside it is: nothing is ever matched by name, by shape or by what it sits next to
+  PASS  E6  the nightly reconciler still reclaims what the ingress skipped (E4's locked member, once the platform released it) -- the backstop is unchanged and still works
+  PASS  E7  ...and the nightly pass refuses the unmerged and the uncommitted exactly as the ingress did
+  PASS  E8  a member the ingress DEFERRED is reclaimed by the next terminal event, not by the nightly job -- even an event for an agent that owns no worktree
+        [catch-up: deferred /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/terminalize-test.XXXXXX.CrS6arFZ6p/entity/.claude/worktrees/agent-a000000000000t10]
+  PASS  E9  the catch-up leaves the unmerged, the uncommitted and the unrecorded exactly where they are
+  PASS  E10 a LIVE agent's workspace (sealed, clean, integrated, NO terminal record) survives a catch-up belonging to another event
+  PASS  R40  a repeat SubagentStop for an agent whose post-terminal run is OPEN records the stop that closes it, through the hook -- the branch nothing tested
+  PASS  R41  ...and a repeat ingress with NO open run records nothing: a duplicate event is not a run ending
+
+=== terminalize-agent-worktrees tests: all 54 passed ===
+=== terminalize-agent-worktrees (the terminal ingress): every property, proven load-bearing by removing it ===
+  PASS  worktreeremove-ignored — removing it turns "R14" red  [34.8s]
+  PASS  worktreeremove-adopts-stranger — removing it turns "R20" red  [35.2s]
+  PASS  catch-up-sweep-removed — removing it turns "E8" red  [33.2s]
+  PASS  claim-not-made — removing it turns "R07" red  [21.3s]
+  PASS  terminalize-not-run — removing it turns "R05" red  [30.7s]
+  PASS  stop-promotes-cwd-to-owner — removing it turns "R28" red  [35.6s]
+  PASS  taskstop-ignored — removing it turns "R30" red  [35.0s]
+  PASS  taskstop-error-accepted — removing it turns "R36" red  [35.5s]
+  PASS  taskstop-scrapes-prose — removing it turns "R35" red  [32.9s]
+  PASS  stop-acts-on-teammateidle — removing it turns "R25" red  [32.3s]
+  PASS  pending-not-recorded — removing it turns "R21" red  [31.4s]
+  PASS  seal-ignores-pending — removing it turns "R21b" red  [15.5s]
+  PASS  worktreeremove-unsealed-ignored — removing it turns "R21d" red  [32.0s]
+  PASS  post-terminal-stop-unrecorded — removing it turns "R40" red  [31.9s]
+  PASS  pending-for-nobody — removing it turns "R21e" red  [32.0s]
+  [15 mutant(s), 8 at a time, wall 1m08.1s, slowest 35.6s stop-promotes-cwd-to-owner, 6.9x serial]
+
+=== mutation: all 15 properties proven load-bearing ===

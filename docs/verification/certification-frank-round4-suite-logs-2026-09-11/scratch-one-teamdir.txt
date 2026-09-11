@@ -1,0 +1,10 @@
+where the writer put session bbbbbbbb's WorkerStarted row:
+  /tmp/oneteam.7cVqUz/home/.claude/teams/session-aaaaaaaa/worker-events.jsonl : 1 row(s)
+  /tmp/oneteam.7cVqUz/home/.claude/worker-events.jsonl : (absent)
+  /tmp/oneteam.7cVqUz/home/.claude/teams/session-bbbbbbbb/worker-events.jsonl : (absent)
+what the reader (platform_lifecycle_after) returns for session bbbbbbbb / agentB01 since epoch:
+  sources: /tmp/oneteam.7cVqUz/home/.claude/teams /tmp/oneteam.7cVqUz/home/.claude/worker-events.jsonl
+  rows: []
+control: with TWO session directories present the writer uses the fallback file:
+  fallback rows: 1
+  reader rows: [(datetime.datetime(2026, 9, 11, 0, 53, 48, 488923, tzinfo=datetime.timezone.utc), 'start', 'events')]

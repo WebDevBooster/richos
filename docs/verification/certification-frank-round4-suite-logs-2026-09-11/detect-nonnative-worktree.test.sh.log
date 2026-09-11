@@ -1,0 +1,92 @@
+=== detect-nonnative-worktree tests ===
+  PASS  non-Agent tool
+  PASS  unreadable payload (empty) is allowed, not blocked
+  PASS  unreadable payload (empty) SAYS the spawn was not examined
+  PASS  unreadable payload (truncated) is allowed, not blocked
+  PASS  unreadable payload (truncated) SAYS the spawn was not examined
+  PASS  unreadable payload (non-json) is allowed, not blocked
+  PASS  unreadable payload (non-json) SAYS the spawn was not examined
+  PASS  a payload it COULD read is not announced — silence stays correct on the happy path
+  PASS  no isolation, no marker, dev -> warning
+  PASS  warning names the missing-isolation tell
+  PASS  read-only type Explore, no isolation
+  PASS  native-only worktree list + isolated launch -> clean
+  PASS  deviceqa: no isolation, no marker -> warning
+  PASS  visualqa: no isolation, no marker -> warning
+  PASS  funcqa: no isolation, no marker -> warning
+  PASS  deviceqa: isolation worktree, clean worktree list -> no warning
+  PASS  deviceqa: main-checkout-run marker, no isolation -> no warning
+  PASS  marker present, no isolation -> no (a) warning
+  PASS  hand-rolled worktree present -> warning even for a clean launch
+  PASS  warning names the stray worktree + two-causes explanation
+  PASS  two-causes explanation mentions the LEAD cause
+  PASS  two-causes explanation mentions the SUBAGENT-freelance cause
+  PASS  stray alongside a native worktree still warns
+  PASS  isolated deviceqa launch does not suppress (b) when a stray exists
+  PASS  marker present suppresses (a) but not (b) when a stray exists
+  PASS  zombie residue dir present -> exit 2 (report-only path)
+  PASS  zombie residue dir -> stderr names PRESERVED
+  PASS  unregistered directory and its file were preserved
+  PASS  registered native worktree survived the reap (critical negative)
+  PASS  registered-only worktree list -> clean exit 0 (no false reap)
+  PASS  registered worktree untouched when no residue exists
+  PASS  (c) journal silent -> reported as PRESERVED, ownership unknown
+  PASS  (c) journal silent -> the report says nothing establishes it as ownerless
+  PASS  (c) the unexplained directory and its bytes are intact
+  PASS  (c) POSITIVE TWIN: journal accounts for the path -> reported as EXPLAINED
+  PASS  (c) the explanation carries the journal's own outcome and workspace id
+  PASS  (c) and the operator is pointed at the recovery command, not at a mystery
+  PASS  (c) an EXPLAINED entry is still a signal, not silence -> exit 2
+  PASS  (c) an EXPLAINED entry is preserved too — explained is not permission
+  PASS  (c) a retirement quarantine alone is not residue -> clean exit 0
+  PASS  (c) the quarantine and its bytes are intact
+  PASS  zombie process present -> exit 2
+  PASS  zombie process report names the PID
+  PASS  zombie process report recommends a kill command
+  PASS  B01  intent + async acknowledgement -> bound, clean exit
+  PASS  B02  the bound record carries the acknowledged agent id, the tool_use_id and the intent kind
+  PASS  B03  the ledger inventory row carries the REAL agent id (not agent_id="")
+  PASS  B04  no acknowledgement + transcript join on the tool_use_id -> bound, clean exit
+  PASS  B05  the bound record names the transcript as its source
+  PASS  B06  intent + no agent id (synchronous return) -> exit 2
+  PASS  B07  ...naming a genuinely synchronous run from isAsync, not from a failed match
+  PASS  B07b ...naming the BINDER when an async result carries no id
+  PASS  B08  ...under the binding-failed banner
+  PASS  B09  ...and nothing was bound
+  PASS  B10  acknowledgement but NO spawn-intent on disk -> exit 2
+  PASS  B11  ...naming the absent intent
+  PASS  B12  ...and nothing was invented: no bound record
+  PASS  B13  read-only type, no intent -> silent exit 0
+  PASS  B14  transaction library missing -> exit 2
+  PASS  B15  ...naming the missing library
+  PASS  B16  first binding -> exit 0
+  PASS  B17  the same binding again (double fire) -> still exit 0
+  PASS  B18  the same agent id under a DIFFERENT tool_use_id -> exit 2 (refused rebind)
+  PASS  B19  ...naming the rebind
+  PASS  python3 missing from PATH -> BLOCKS (exit 2)
+  PASS  python3-missing stderr names the missing interpreter
+  PASS  ledger: an executed spawn is appended to spawned-names.log
+  PASS  ledger: a read-only type is NOT recorded
+  PASS  ledger: a nameless spawn adds no line
+  PASS  ledger: an unwritable ledger does not change the detector verdict
+  PASS  ledger: an async native spawn is REGISTERED with agent id, lock pid, start time, path, branch
+  PASS  ledger: a cwd spawn is REGISTERED hand-rolled by exact path, repo and branch
+  PASS  ledger: a cross-repo-worktree: prompt line registers the path beside the native record
+  PASS  ledger: a read-only type is NOT registered
+  PASS  ledger: a synchronous run registers name + session identity with NO invented agent id
+  PASS  ledger: an unwritable ledger does not change the detector verdict
+  PASS  L1 POSITIVE  spawned names were appended in the SANDBOX teams directory (42 lines at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/detect-tx-default.XXXXXX.JeTkeVpFuO/teams/session-deadbeef/spawned-names.log)
+  PASS  L2 and the operator's REAL /Users/alex/.claude/teams/session-deadbeef/spawned-names.log did not grow (0 before, 0 after)
+
+=== detect-nonnative-worktree tests: all 78 passed ===
+=== detect-nonnative-worktree binder + residue: every property, proven load-bearing by removing it ===
+  PASS  sync-run-fabricates-id — removing it turns "B06" red  [37.4s]
+  PASS  missing-intent-invented — removing it turns "B10" red  [37.5s]
+  PASS  library-missing-silent — removing it turns "B14" red  [37.2s]
+  PASS  transcript-join-dropped — removing it turns "B04" red  [37.0s]
+  PASS  bind-failure-swallowed — removing it turns "B18" red  [37.2s]
+  PASS  banner-does-not-exit — removing it turns "B06" red  [37.2s]
+  PASS  residue-journal-not-consulted — removing it turns "(c) POSITIVE TWIN" red  [37.0s]
+  [7 mutant(s), 8 at a time, wall 37.5s, slowest 37.5s missing-intent-invented, 6.9x serial]
+
+=== mutation: all 7 properties proven load-bearing ===

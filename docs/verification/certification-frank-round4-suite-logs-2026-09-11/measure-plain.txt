@@ -1,0 +1,29 @@
+RESTART AFTER TERMINAL -- the round-11 falsifier, re-derived
+  corpus     : sealed non-adopted transactions with a terminal record, in /Users/alex/.claude/state/worktree-transactions
+  terminal transactions (sealed, non-adopted) : 108
+  DENOMINATOR: those that own at least one workspace : 74
+  NUMERATOR  : those with a start strictly after their terminal record : 14
+  rate       : 18.919%
+  event logs scanned (per-session logs still on disk, plus the fallback file if present) : 4
+  a session whose log the platform has deleted contributes only its start fact
+
+  teammate         agent              terminal_ts              events   fact  first_gap   last_gap
+  sage-fable-r2    a5140f1c3a1f2d893  2026-09-08T19:31:30.735       0    yes      529.5s      529.5s
+  zach-opus-ob1    ae47b94b9585cce25  2026-09-09T00:02:08.086       0    yes        0.3s        0.3s
+  zach-opus-cr2    acbdd59bc72c530fc  2026-09-10T02:12:53.895       0    yes      122.7s      122.7s
+  zach-opus-gate1  a8922391964bc8c3b  2026-09-10T06:37:01.301       0    yes    28656.0s    28656.0s
+  zach-fable-lc1   a0af7565af1a7ae92  2026-09-10T07:05:37.906       0    yes      160.6s      160.6s
+  zach-opus-q1     a57075d0698120f83  2026-09-10T08:22:45.698       0    yes    22311.6s    22311.6s
+  zach-opus-deg1   a3f592cf0b588f705  2026-09-10T08:26:00.966       0    yes        2.1s        2.1s
+  zach-opus-own1   ac115bc42a1e283a9  2026-09-10T08:41:50.265       0    yes    21167.0s    21167.0s
+  zach-opus-inf1   aa1627717a25e308e  2026-09-10T10:25:18.951       0    yes    14958.3s    14958.3s
+  zach-opus-auto1  a42c90096292136f0  2026-09-10T14:16:21.015       0    yes        1.3s        1.3s
+  zach-opus-fix1   a97f2c691c34e2c0f  2026-09-10T19:52:07.872       0    yes     2103.5s     2103.5s
+  sage-fable-cert2 aa2e08d7c39345d84  2026-09-10T20:21:19.646       0    yes     2390.0s     2390.0s
+  zach-fable-fix2  a446bbe852076df83  2026-09-10T21:35:47.922       0    yes       86.7s       86.7s
+  sage-fable-cert3 ae904aac1949e5696  2026-09-10T22:52:36.608       1    yes      187.3s      187.3s
+
+  Every row here is an agent this engine recorded as terminal and the platform
+  then ran again. `events` counts WorkerStarted rows; `fact` is the start record
+  in the transaction store, which is rewritten in place and so shows only that a
+  later start happened, never how many.

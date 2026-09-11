@@ -1,0 +1,37 @@
+=== finished work: landed, or held for a written reason ===
+
+  PASS  D01 finished work standing longer than the threshold is UNDISPOSED
+  PASS  D02 the identical branch under the threshold is YOUNG and owes nothing
+  PASS  D23 3.1h past a 3h threshold is DEMANDED, and reads 3.1h not 2.4h (undisposed 3.10)
+  PASS  D08 a branch a LOCKED worktree holds is not a finding at all
+  PASS  D10a a codex/ branch is NAMED rather than passed over in silence
+  PASS  D16a something is owed and the exit code says 3
+  PASS  D01b --demand writes exactly one row per undisposed piece of work
+  PASS  D01c the demand is a work-complete record, not a stall
+  PASS  D10b a codex/ branch is NEVER demanded on
+  PASS  D03 the same demand raised twice is still ONE row
+  PASS  D03b once raised, the work reads as DEMANDED rather than undisposed
+  PASS  D04 a NEW COMMIT on a demanded branch demands again — new work at risk
+  PASS  D05 a demand whose work LANDED closes itself, with no hand on it
+  PASS  D22 a demand a newer one replaced is CLOSED as superseded, not left standing
+  PASS  D05b the closing ack states the FACT that closed it, with the SHA
+  PASS  D06 the demand whose work did NOT land is still standing
+  PASS  D11 after three --demand runs every branch and worktree still exists
+  PASS  D12 every git verb in the tool is a reader (found:cat-file log merge-base rev-parse)
+  PASS  D07 a demand whose tip cannot be read is UNDECIDED and stays open
+  PASS  D20 the escape hatch runs in the state where the demand fires (R7)
+  PASS  D09 an acknowledged demand reads as HELD and the REASON is printed
+  PASS  D18 COULD NOT DECIDE and NOT EXAMINED are printed, empty or not
+  PASS  D19 the same state gives the same exit code in every format
+  PASS  D16b a repository with nothing outstanding exits 0
+  PASS  D16c nothing examinable exits 4 — an unexamined main is not a clean one
+  PASS  D17 nine owed raise six demands, and the three deferred are COUNTED
+  PASS  D17b the deferred overflow is named in the one line the operator reads
+  PASS  D13 the notice exits 0 on every payload — it never refuses a turn
+  PASS  D14 standing the check down ANNOUNCES itself — never a silent permission
+  PASS  D15 a missing analyzer is ANNOUNCED, not mistaken for a clean main
+  PASS  D21 the derivation refuses to propose a threshold, in the output
+  PASS  D22 the output carries the exact command that reproduces its own corpus
+  PASS  D23 a repository that is denominator-only is named, and one carrying the tail is not
+
+  passed: 33   failed: 0

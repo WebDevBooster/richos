@@ -1,0 +1,30 @@
+=== finish-row completion tests ===
+  PASS  F1  worker-ended-handoff.sh: the row carries the teammate AND all three workspaces, including the two cross-repository ones no finish row has ever named
+  PASS  F2  teammate-idle-handoff.sh: the same, with NO change to that hook -- the completion is in the ledger, so a fourth writer was never created
+  PASS  F3  all three writers reach ONE implementation (wl.append), and that implementation completes the row -- so the third hook gets this without a line of its own and a fourth writer was never created
+  PASS  F4  the 'worktree' field still carries the native cwd exactly as before: this ADDS a field, it never redefines an old one, so no existing reader changes meaning
+  PASS  F5  the ledger still prints finish signals as advisory and never decisive -- a truer breadcrumb is not a new authority
+  PASS  F6  an agent nothing has registered still gets its row, and NO workspaces are invented for it
+  PASS  F7  a folder prepared BEFORE the spawn -- with no agent id, because none existed yet -- joins the row through the teammate name when that name is unambiguous in the session
+  PASS  F8  ...and a SECOND agent id recorded for that teammate makes the name ambiguous, so the id-less folder joins nobody (the negative control for F7)
+  PASS  F9  a PER-RUN payload id that resolves to nothing does not defeat the completion: the owning id is taken from the worktree path, the row names the teammate and all three workspaces, the run's own id is preserved, and owner_agent_id records which key was used
+  PASS  F10  the same for the second writer, with no line of its own -- the resolution is in the ledger, where all three hooks already converge
+  PASS  F11  a payload id that DOES resolve still wins over the path it is running in, and no owner_agent_id is written -- the rule is prefer-the-resolvable, never prefer-the-path
+  PASS  F12  when NEITHER key names a registered assignment the row is still written and stays empty -- a hole in the record, never a guess at ownership
+  PASS  F13  a cwd that is not an agent-<id> worktree at all (the lead's own checkout, which is where 5,070 of the real rows were written) yields no second key and invents nothing
+  PASS  F14  a resolver that raises still leaves the row on disk exactly as the hook wrote it -- a terminal event is never prevented by bookkeeping
+  PASS  F15  POSITIVE  the hooks' event rows landed in the SANDBOX fallback log (8 rows at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/finish-row-test.XXXXXX.2u107FKROC/home/.claude/worker-events.jsonl) -- so F16 can fail for the right reason
+  PASS  F16  and no fixture row reached the operator's REAL event log at /Users/alex/.claude/worker-events.jsonl (0
+0 before, 0
+0 after)
+
+=== finish-row completion tests: all 16 passed ===
+=== finish-row-completion: every property, proven load-bearing by removing it ===
+  PASS  prefer-the-present — removing it turns "F9" red  [1.7s]
+  PASS  fallback-never-taken — removing it turns "F9" red  [1.7s]
+  PASS  path-always-wins — removing it turns "F11" red  [1.7s]
+  PASS  no-owner-recorded — removing it turns "F9" red  [1.7s]
+  PASS  completion-can-block-the-row — removing it turns "F14" red  [1.7s]
+  [5 mutant(s), 8 at a time, wall 1.8s, slowest 1.7s no-owner-recorded, 4.7x serial]
+
+=== mutation: all 5 properties proven load-bearing ===

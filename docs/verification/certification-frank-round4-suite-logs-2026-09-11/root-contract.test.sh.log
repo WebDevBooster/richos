@@ -1,0 +1,48 @@
+=== root contract, end to end: engine in one repo, session in another ===
+
+  PASS  1a POSITIVE  blocks a main-checkout write to the SESSION repo's protected tree
+  PASS  1b NEGATIVE  does NOT block app/ — that tree is protected in the ENGINE's config, not the session's
+  PASS  1c NEGATIVE  does not guard the ENGINE's own tree from the session's repo
+  PASS  1d POSITIVE  stands down in an unadopted repository (never bricks an unrelated project)
+  PASS  1e POSITIVE  a broken declared root BLOCKS with the loud banner
+  PASS  2a POSITIVE  blocks a Bash write into the SESSION repo's protected tree
+  PASS  2b NEGATIVE  does not block app/ (the ENGINE's protected tree, not the session's)
+  PASS  3a POSITIVE  a truthful spawn against the SESSION roster is allowed
+  PASS  3b POSITIVE  an untruthful model token is caught using the SESSION repo's roster
+  PASS  3c POSITIVE  a NAMESPACED type is checked against the ENGINE roster (clark is sonnet, 'opus' rejected)
+  PASS  3d NEGATIVE  the TRUTHFUL namespaced spawn is still allowed (3c is a real check, not a blanket block)
+  PASS  3e POSITIVE  an unresolvable namespaced type is REFUSED, not waved through
+  PASS  3f NEGATIVE  a bare built-in type with no definition is still allowed
+  PASS  4a POSITIVE  drift state is written into the SESSION repo
+  PASS  4b NEGATIVE  NOTHING was written into the engine's repo or the engine itself
+  PASS  5a POSITIVE  snapshots the SESSION repo's roster, session-scoped
+  PASS  5b POSITIVE  an unadopted repo is reported as a stand-down, not as 'skipped'
+  PASS  5c NEGATIVE  the ambiguous 'snapshot: skipped' wording is gone
+  PASS  5d POSITIVE  a broken root screams AND names the downstream consequence
+  PASS  6a POSITIVE  finds the ENGINE's inventory and reads the SESSION's repo
+  PASS  6b POSITIVE  a broken root is reported as a failure, not as a skip
+  PASS  7a POSITIVE  announces ACTIVE and names the governed repository
+  PASS  7b POSITIVE  announces the stand-down explicitly in an unadopted repo
+  PASS  7c POSITIVE  announces a broken root as ENFORCEMENT IS NOT ACTIVE
+  PASS  7d NEGATIVE  a stand-down is never announced as enforcement being on
+  PASS  8a POSITIVE  the secret scanner still fires in the governed repo
+  PASS  8b POSITIVE  and stands down in an unadopted repo
+
+=== running the mutation harness: root-contract.mutation.sh ===
+=== mutation harness: is each fix load-bearing? ===
+
+  PROVEN     M1 root resolution -> always the engine root — removing the fix turns '1c' red
+  PROVEN     M2 resolve_agent_def stops stripping the namespace — removing the fix turns '8c' red
+  PROVEN     M2b strip_agent_namespace becomes an identity function — removing the fix turns '8a' red
+  PROVEN     M3 not-adopted silently falls back to the engine root — removing the fix turns '4a' red
+  PROVEN     M4 a declared root falls through instead of failing — removing the fix turns '1c' red
+  PROVEN     M5 reaper collapses its two roots into one — removing the fix turns '6a' red
+  PROVEN     M6 snapshotter reverts to the ambiguous 'skipped' — removing the fix turns '5b' red
+  PROVEN     M7 a BROKEN root stands down instead of blocking — removing the fix turns '1e' red
+  PROVEN     M8 an unresolvable namespace is accepted again — removing the fix turns '3e' red
+  PROVEN     M9 engine-status reports ACTIVE without checking — removing the fix turns '7b' red
+  PROVEN     M10 the snapshotter reads stdin unconditionally again (the 92s hang) — removing the fix turns '9c' red
+
+=== mutation harness: all 11 fixes proven load-bearing ===
+
+=== root-contract end-to-end: all 27 passed ===

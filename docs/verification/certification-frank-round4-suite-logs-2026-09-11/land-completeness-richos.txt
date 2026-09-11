@@ -1,0 +1,42 @@
+=== LAND COMPLETENESS ===
+    branch: main    repositories: 1
+
+  INCOMPLETE LANDS — a merged branch whose worktree is still registered (1)
+    /Users/alex/ab/richos-wt/sage-fable-cert3
+        branch cc/sage-fable-cert3, merged into main; owner INDETERMINATE
+        2 registrations match (ledger); no native isolation worktree is registered for agent ? (sage-fable-cert3) while its session pid 84597 is still running; decidable once that session ends (absence is not a termination signal) [advisory, never decisive: ae904aac1949e5696: 2 advisory finish signal(s), last SubagentStop at 2026-09-10T22:56:08.700630+00:00]
+
+  RETAINED, WITH A REASON — never residue, never swept
+    live (owner holds a running lock) .............. 2
+    unmerged worktrees (R3: never swept) ........... 1
+    unmerged branches without a worktree ........... 0
+    quarantined (retired, registered by design) .... 4
+
+  COUNTED SEPARATELY, BECAUSE THEY ARE DIFFERENT OBJECTS
+    worktrees registered ........................... 12
+    branches with no worktree ...................... 0
+    of those, merged and unreclaimed (benign) ...... 0
+
+  COULD NOT DECIDE (4) — reported, never rounded to clean, never blocked on
+    unowned          /Users/alex/ab/richos-wt/codex-owned-outcome-completion
+        branch codex/owned-outcome-completion — no ownership record for this exact path, so whose it is was NOT established: no ownership record: no ledger registration for the exact path /Users/alex/ab/richos-wt/codex-owned-outcome-completion; name-based and transcript-based matching are not ownership
+    unowned          /Users/alex/ab/richos-wt/codex-owned-outcome-live-repair
+        branch codex/owned-outcome-live-repair — no ownership record for this exact path, so whose it is was NOT established: no ownership record: no ledger registration for the exact path /Users/alex/ab/richos-wt/codex-owned-outcome-live-repair; name-based and transcript-based matching are not ownership
+    unowned          /Users/alex/ab/richos-wt/codex-resumable-outcome-verification
+        branch codex/resumable-outcome-verification — no ownership record for this exact path, so whose it is was NOT established: no ownership record: no ledger registration for the exact path /Users/alex/ab/richos-wt/codex-resumable-outcome-verification; name-based and transcript-based matching are not ownership
+    unowned          /Users/alex/ab/richos-wt/codex-rollback-owned-outcome
+        branch codex/rollback-owned-outcome — no ownership record for this exact path, so whose it is was NOT established: no ownership record: no ledger registration for the exact path /Users/alex/ab/richos-wt/codex-rollback-owned-outcome; name-based and transcript-based matching are not ownership
+
+  NOT EXAMINED (0) — the absence of a finding is not a finding
+    (everything named above was read)
+
+  WHAT TO DO. Each line above is one land that pushed and stopped. The terminal steps
+  of the land sequence are collect, remove, resolve:
+
+      engine/scripts/collect-worktree-artifacts.sh <worktree>
+      engine/scripts/remove-agent-worktree.sh --owner <agent-id> <worktree>
+      (the agent id is on the row above; a bare path exits 2 with usage)
+
+  If one of them is retained ON PURPOSE, that is a first-class answer and the only
+  thing wrong with it is leaving it unsaid — retained silently is the defect this
+  report exists to remove.

@@ -1,0 +1,27 @@
+THE LOCK AGAINST THE START -- is "the platform re-locks before a restarted run" measured?
+  corpus: native members of sealed transactions in /Users/alex/.claude/state/worktree-transactions whose admin directory is still on disk, joined to WorkerStarted rows under /Users/alex/.claude/teams; unlocked witnesses from /Users/alex/.claude/state/worktree-ledger.jsonl
+
+  teammate         agent              kind     start_ts                    lock   lock_mtime                  lock-start
+  echo-opus-ci1    a2187141d264f4da9  initial  2026-09-10T22:59:58.494109+ gone   -                           -
+  frank-fable-cert a522d0a7173c7d3a1  initial  2026-09-10T21:58:22.372151+ gone   -                           -
+  sage-fable-cert4 a74708c0d2ef241b7  initial  2026-09-11T00:37:51.789409+ yes    2026-09-11T00:37:51.742926+ -46.5 ms
+  zach-fable-fix3  ac47dedc61b0044b2  initial  2026-09-10T23:00:38.181611+ gone   -                           -
+  frank-fable-cert ac4c48bd0dfa5f039  initial  2026-09-11T00:38:15.163231+ yes    2026-09-11T00:38:15.117173+ -46.1 ms
+  sage-fable-cert3 ae904aac1949e5696  initial  2026-09-10T21:58:03.661054+ yes    2026-09-10T21:58:03.615232+ -45.8 ms
+  sage-fable-cert3 ae904aac1949e5696  restart  2026-09-10T22:55:43.886185+ yes    2026-09-10T21:58:03.615232+ -3460271.0 ms
+
+  (a) initial starts with a lock file on disk : 3; lock PRECEDES the start in 3 of them
+  (b) restarts with a lock file on disk       : 1; lock mtime moved AFTER the restart (a re-lock OBSERVED) in 0 of them
+  (c) restarts into a tree the reaper witnessed UNLOCKED : 4; admin directory still on disk for 0 of them; known only from the start fact (event log gone) for 4 of them
+      a57075d0698120f83  witnessed unlocked 2026-09-10T13:11:22  restarted 2026-09-10T14:34:37  (+4994 s)  admin dir GONE -- re-lock unobservable; restart from start-fact -- session event log GONE (the platform deleted it with the session), unobservable from the log
+      a8922391964bc8c3b  witnessed unlocked 2026-09-10T13:11:23  restarted 2026-09-10T14:34:37  (+4994 s)  admin dir GONE -- re-lock unobservable; restart from start-fact -- session event log GONE (the platform deleted it with the session), unobservable from the log
+      aa1627717a25e308e  witnessed unlocked 2026-09-10T13:11:23  restarted 2026-09-10T14:34:37  (+4994 s)  admin dir GONE -- re-lock unobservable; restart from start-fact -- session event log GONE (the platform deleted it with the session), unobservable from the log
+      ac115bc42a1e283a9  witnessed unlocked 2026-09-10T13:11:23  restarted 2026-09-10T14:34:37  (+4994 s)  admin dir GONE -- re-lock unobservable; restart from start-fact -- session event log GONE (the platform deleted it with the session), unobservable from the log
+
+  READ (b) AND (c) BEFORE QUOTING (a). (a) is what round 12 measured and it holds; it
+  says the platform locks before an INITIAL run. Whether the platform re-takes a RELEASED
+  lock for a RESTARTED run is answered only by (b) on a tree whose lock was absent before
+  the restart, and by (c) if an admin directory survives. A lock held throughout a restart
+  (fix1, twice) is not a re-lock. Until (b) has a sample, "re-locks on restart" is UNMEASURED.
+
+  CORPUS LIFETIME: per-session event logs are deleted by the platform with the session's team directory; (a) and (b) can only be re-derived while a log exists, (c) falls back to the ledger witness and the start fact. Every (a)/(b) number is a claim with the date of the run on it.

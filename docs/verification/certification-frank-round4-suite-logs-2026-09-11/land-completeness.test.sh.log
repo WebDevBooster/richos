@@ -1,0 +1,21 @@
+=== land-completeness tests ===
+  PASS  L1   a repository with no linked worktrees reports no incomplete land, exit 0
+  PASS  L1b  the GATE is completely silent on a clean land, even under enforcement
+  PASS  L2   a merged branch whose worktree is still registered is an INCOMPLETE LAND
+  PASS  L3   an UNMERGED branch is retained-unmerged and can never be residue (R3)
+  PASS  L4   a worktree LOCKED by a running pid is exempt even with its branch merged
+  PASS  L5   a worktree with no ownership record is 'unowned', never 'incomplete-land'
+  PASS  L6   a merged branch whose worktree is gone is a NAMED benign state, not silence (R4)
+  PASS  L7   COULD NOT DECIDE and NOT EXAMINED print even when both are empty (R5)
+  PASS  L8   a repository that cannot be read is NOT EXAMINED and never reads as clean
+  PASS  L9   the same state REFUSES under enforcement (2) and ANNOUNCES without it (0)
+  PASS  L13  NEGATIVE CONTROL: the gate really refuses and names the item, so L1b's silence is real
+  PASS  L9b  the reporting-only run says so, so an allowed land is never mistaken for a clean one
+  PASS  L10  a bare acknowledgement exempts nothing and says why
+  PASS  L11  acknowledging the UNMERGED branch does not excuse the merged one still left behind
+  PASS  L12  the third acknowledgement for the same worktree says so — a habit becomes evidence
+  PASS  L14  with no liveness module every owner is UNRESOLVED -> unowned, never incomplete-land
+  PASS  L15  run from inside a worktree, the MAIN CHECKOUT is never named as residue
+  PASS  L16  a linked worktree and its main checkout resolve to ONE repository identity
+
+=== land-completeness tests: all 18 passed ===

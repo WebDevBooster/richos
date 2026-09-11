@@ -1,0 +1,44 @@
+=== every Stop hook can be seen going quiet ===
+
+  PASS  1a. the Stop set is DERIVED from /Users/alex/ab/richos-wt/frank-fable-cert4/engine/hooks/hooks.json — 17 hook(s): guard-agent-state-claims.sh guard-idle-land.sh guard-stated-actions.sh guard-unresolved-claims.sh notice-ceo-inputs-unheld.sh notice-ceo-ruled-prose.sh notice-ceo-unasked.sh notice-escalations.sh notice-hook-staleness.sh notice-inflight-acks.sh notice-land-disposition.sh notice-mechanical-findings.sh notice-unasked-deferral.sh notice-unlanded-branches.sh notice-unstarted-rows.sh notice-waiver-repetition.sh turn-manifest.sh
+  PASS  1b. the two registration surfaces agree on the Stop set (plugin hooks.json == seated settings.local.json)
+  PASS  1c. on BOTH surfaces every Stop script appears exactly once in the PARSED table
+  PASS  1d. neither surface hides a shadowed duplicate key (two "command" keys in one object is valid JSON and keeps only the last)
+  PASS  1e. the derivation parses rather than greps (naive "command" count 2, registered scripts 0)
+  PASS  1f. without python3 the event filter REFUSES (rc 3) rather than returning every event's hooks under Stop's name
+  PASS  2a. the shared notice channel exists at scripts/lib/stop-hook-notice.sh
+  PASS  2b. the shared notice channel is used by: guard-agent-state-claims.sh guard-idle-land.sh guard-stated-actions.sh guard-unresolved-claims.sh notice-ceo-inputs-unheld.sh notice-land-disposition.sh notice-unasked-deferral.sh notice-unlanded-branches.sh turn-manifest.sh (hand-rolled, and asserted by 3a instead: notice-ceo-ruled-prose.sh notice-ceo-unasked.sh notice-escalations.sh notice-hook-staleness.sh notice-inflight-acks.sh notice-mechanical-findings.sh notice-unstarted-rows.sh notice-waiver-repetition.sh)
+  PASS  2c. the NOTICE CHANNEL block is byte-identical across every hook that carries it
+  PASS  3a. guard-agent-state-claims.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. guard-idle-land.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. guard-stated-actions.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. guard-unresolved-claims.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-ceo-inputs-unheld.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-ceo-ruled-prose.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-ceo-unasked.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-escalations.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-hook-staleness.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-inflight-acks.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-land-disposition.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-mechanical-findings.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-unasked-deferral.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-unlanded-branches.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-unstarted-rows.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. notice-waiver-repetition.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3a. turn-manifest.sh announces to the OPERATOR when it cannot resolve the repository it governs
+  PASS  3b. negative control: the same hook, reaching the same branch but announcing on stderr, FAILS 3a
+  PASS  3c. noise control: an unadopted directory is not-applicable, and every Stop hook stays silent there
+  PASS  4a. the first abnormal turn announces
+  PASS  4b. the same abnormal state, unchanged, says nothing again
+  PASS  4c. a DIFFERENT abnormal state is news, and is announced
+  PASS  4d. the return to normal is announced, so silence means 'unchanged' rather than 'probably fine'
+  PASS  4e. a healthy guard stays quiet — running normally is never announced
+  PASS  4f. a guard that was healthy from its very first turn announces nothing at all
+  PASS  4g. a NEW session re-announces a stand-down that is still in force
+  PASS  4h. with no entity root there is no ledger, so it announces every turn rather than assuming it already has
+  PASS  4i. a message containing a quote and a backslash still produces valid JSON
+  PASS  4j. the recurring form announces on entry, exactly like the plain one
+  PASS  4k. the same state inside the interval still says nothing — the rung is not a per-turn repeat
+  PASS  4l. once the interval has passed the persisting condition speaks again — it cannot go silent for a working day
+
+[32m✓ 40/40 stop-hook visibility checks passed (17 Stop hook(s) derived from hooks/hooks.json).[0m

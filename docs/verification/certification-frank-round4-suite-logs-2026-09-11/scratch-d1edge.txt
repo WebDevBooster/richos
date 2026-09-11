@@ -1,0 +1,13 @@
+A. symlink HEAD: git opens it? rc=0 fad4a871f150
+A. bare store, HEAD is a symlink                     trailing=[] kept(DROPPED)=19 residue=3
+   refs/packed-refs dropped? True | objects dropped? False
+B. git bundle under build/                           trailing=[] kept(DROPPED)=1 residue=0
+   bundle dropped? True
+C. bare sha256 store under node_modules/             trailing=['node_modules/pkg/store256/'] kept(DROPPED)=0 residue=1
+   loose object (64 hex) in residue via store root? True
+C2. same, HEAD removed (clause ii only)              trailing=[] kept(DROPPED)=17 residue=1
+   loose sha256 object kept by looks_like_git_object? True
+D. objects is a symlink: git opens it? rc=0 fad4a871f150
+D. bare store, objects -> ../objs-elsewhere          trailing=['.cache/linkobj.git/'] kept(DROPPED)=3 residue=1
+   store collapsed? True | real object files in residue? False | real object files DROPPED? True
+   manifest entries under objs-elsewhere: 0 | symlink entry for objects: symlink

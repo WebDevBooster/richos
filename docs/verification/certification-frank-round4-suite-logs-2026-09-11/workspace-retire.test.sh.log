@@ -1,0 +1,116 @@
+=== workspace-retire: the ten acceptance rows of the 2026-09-05 diagnosis ===
+
+--- ROW 1: the incident, replayed ---
+  PASS  R1a  NEGATIVE CONTROL — the pre-containment helper [git history (1b84a1c^, the commit before containment)] deletes the whole container on the incident's arguments and exits 0  [4 assertions]
+  PASS  R1b  the incident's exact malformed owner and container path are REFUSED, before mutation, with both siblings, all refs and all registrations byte-identical  [8 assertions]
+  PASS  R1c  retirement mode cannot express the incident at all — a path is not a workspace ID and is refused before any filesystem access  [4 assertions]
+--- ROW 2: empty, unknown, mismatched, wrong repository ---
+  PASS  R2   empty / unknown / mismatched-owner / wrong-repository / mismatched-path all refuse before mutation, and the caller's strings can only fail to match — never widen the target  [13 assertions]
+--- ROW 3: parents, spellings, symlinks, redirection ---
+  PASS  R3a  a parent directory is refused EVEN WITH a valid ownership record of its own — containing another workspace is disqualifying by itself  [4 assertions]
+  PASS  R3b  equivalent path spellings collapse to one identity and distinct workspaces stay distinct — respelling cannot create an unvalidated target  [4 assertions]
+  PASS  R3c  a symlink at a recorded workspace path is refused with O_NOFOLLOW, and the object it pointed at is untouched  [4 assertions]
+  PASS  R3d  a path redirected between validation and execution is detected by the held-descriptor identity check, so the rename never lands on the substitute  [2 assertions]
+--- ROW 4: the target exists but is not a registered worktree ---
+  PASS  R4   an existing but unregistered target is refused in BOTH modes with no recursive fallback, including a real worktree registered to a different repository  [9 assertions]
+--- ROW 5: alive, unknown, and a startup racing retirement ---
+  PASS  R5a  a workspace whose owner holds a live isolation lock is refused and untouched  [3 assertions]
+scripts/lib/workspace-retire.test.sh: line 171:   687 Terminated: 15          sleep 300
+  PASS  R5b  an owner whose state is UNKNOWN refuses — absence of a lock is never read as a termination  [4 assertions]
+held
+  PASS  R5c  retirement is serialized: while another caller holds the workspace lock it refuses rather than proceeding beside it  [3 assertions]
+  PASS  R5d  a worker that acquires the workspace while retirement waits on the lock is detected by the under-lock record re-read, and retirement refuses  [3 assertions]
+--- ROW 6: preservation and verified restoration ---
+  PASS  R6   committed, staged, dirty, untracked and ignored content plus the git index are preserved, and a restore reproduces every byte — the quarantine keeps the tree and the tip stays reachable  [20 assertions]
+--- ROW 7: preservation fails, quarantine fails ---
+  PASS  R7a  when preservation cannot be written the workspace is left exactly where it was and the outcome is 'failed' — no success is reported  [5 assertions]
+  PASS  R7b  when the quarantine rename fails the workspace remains available at its own path and the outcome is 'failed'  [5 assertions]
+--- ROW 8: repeated requests and a replacement at the same path ---
+  PASS  R8   a repeat reports already-retired accurately, and the same ID against a path that a REPLACEMENT workspace now occupies takes no action against it  [9 assertions]
+--- ROW 9: the OS authority boundary ---
+  NOT COVERED  R9   OS boundary denies writes outside an agent's authority
+           reason: NOT BUILT, and deliberately. The diagnosis's 'Enforced authority boundary'
+           section specifies kernel-enforced restriction of agent processes plus a
+           separate privileged workspace service. It is platform architecture, its
+           worked example (Landlock) is Linux and this machine is a Mac, and it needs
+           a decision that has not been made. NOTHING in this module can make this row
+           pass: any check it ran would be a check of itself. The half that IS in this
+           module's power is asserted immediately below.
+  PASS  R9-partial  managed retirement contains no directory-erasing operation  [2 assertions]
+--- ROW 10: recovery copies and manager policy ---
+  NOT COVERED  R10  access denied when policy or recovery copies are attacked
+           reason: NOT BUILT for the ACCESS-CONTROL half, for the same reason as row 9: denying
+           an agent write access to the manager's own files requires the OS boundary
+           and a privileged service outside agent authority. Both are excluded from
+           this change. The BEHAVIORAL half — what the manager does when a recovery
+           copy is missing or tampered with — is asserted immediately below, and it is
+           the half that decides whether data is lost.
+  PASS  R10-partial  erasing or tampering with the recovery copy does not let the retention sweep complete — the quarantine is kept, byte-identical, in both cases  [7 assertions]
+--- retention: expiry never authorizes an unsafe erase ---
+  PASS  RET  the quarantine and archive are RETAINED before and after expiry, and an unrecorded sibling directory is never touched  [8 assertions]
+--- branch retirement: separate, retained, and reachability-checked ---
+  PASS  BR   branch deletion is a separate operation with its own retention, refuses without a backup ref or after the branch moved, and when it proceeds the tip stays reachable  [16 assertions]
+--- structured outcomes ---
+  PASS  SO   refused / dry-run / quarantined / already-retired each return a distinct structured outcome carrying the exact workspace identity, the liveness verdict and the preservation result  [5 assertions]
+--- the legacy route still removes a real registered worktree ---
+  PASS  LEG  the legacy route the reaper calls quarantines a genuinely registered worktree while retaining its registration and branch — the repair refuses the unknown, not the known  [5 assertions]
+--- REVIEW 2026-09-06, finding 1: the legacy route and the unbound owner ---
+  PASS  F1-control  NEGATIVE CONTROL — the helper at the reviewed revision c3e52af deletes a live worker's registered worktree on a bogus owner and exits 0 (the reviewer's finding 1, reproduced)  [5 assertions]
+scripts/lib/workspace-retire.test.sh: line 171: 10554 Terminated: 15          sleep 300
+  PASS  F1a/b  a bogus owner against a live worker's registered worktree is REFUSED as owner-unbound before mutation, and the real owner is refused as ALIVE — the uncommitted file, the registration and the isolation worktree are untouched  [12 assertions]
+scripts/lib/workspace-retire.test.sh: line 171: 11219 Terminated: 15          sleep 300
+  PASS  F1c   an owner the record binds to the path is still refused while its only evidence is ABSENCE, and the identical request proceeds once a witnessed termination is on record — the refusal was the evidence, not something else  [7 assertions]
+  PASS  F1c'  the operator door reads the platform's terminal record in the transaction store -- refused while the store is silent, refused while a post-terminal run is open, and the identical request proceeds on basis platform-terminal-record once the record is terminal and closed  [8 assertions]
+  PASS  F1d   with no record and no isolation worktree NO owner string authorizes anything — not a nonsense one, not a real terminated agent asserted against somebody else's path — while an agent's own unlocked isolation worktree is removed on that observation and the observation is written to the ledger  [10 assertions]
+  PASS  F1e   a --force legacy removal preserves the tree (verified) before git destroys it, records intent and completion, and restore reproduces every byte  [7 assertions]
+--- REVIEW 2026-09-06, finding 2: worker startup after the last check ---
+  PASS  F2a   a worker that acquires the workspace INSIDE preservation is detected before the rename: retirement refuses (reacquired), nothing is renamed, the worker's new file is at the original path, and the sweep erases nothing  [9 assertions]
+  PASS  F2b   a worker that acquires between the last check and the rename is caught AFTER the rename: the directory is renamed back (same inode), git still registers it, the worker's file is intact, and no completed quarantine exists for the sweep to erase  [11 assertions]
+  PASS  F2c   the sweep refuses (quarantine-diverged) while the quarantine holds any byte the verified archive does not — an extra file, a changed file — and retains even when the archive covers every byte  [7 assertions]
+--- REVIEW 2026-09-06, finding 3: the journal that would not take a record ---
+  PASS  F3a   an unwritable journal fails the retirement BEFORE anything moves (outcome failed, workspace byte-identical, journal empty, restore accurately finds nothing), and the identical retirement proceeds once the journal is writable  [10 assertions]
+  PASS  F3b   when the completion record cannot be written after the rename, the rename is undone (same inode, git registration intact, nothing pruned), the outcome is failed, reconcile names the dangling intent as source-present, and restore still finds the verified archive through the intent  [13 assertions]
+  PASS  F3c   the sweep retains the quarantine regardless of journal writability  [5 assertions]
+  PASS  F3d   the legacy route removes nothing it cannot first put on record, and removes once it can  [6 assertions]
+--- REVIEW 2026-09-06: the reviewer's own script, verbatim ---
+  PASS  REVIEW  the reviewer's reproduce.py, run verbatim: finding 1 refuses with the workspace intact, finding 2 refuses with the original path and the new worker's file intact and nothing swept, finding 3 fails with the workspace intact and nothing to restore — read by the named outcomes, as the reviewer specified  [17 assertions]
+--- RECHECK 2026-09-06, finding 1: acquisition during preservation, legacy route ---
+  PASS  G1-control  NEGATIVE CONTROL — the library at the reviewed revision 3aa3acb deletes a workspace, and a file a live worker wrote into it after the archive, on the reviewer's interleaving (finding 1, reproduced)  [6 assertions]
+  PASS  G1a   a worker that acquires the workspace INSIDE preservation on the LEGACY route is caught before the rename: refused (reacquired), nothing renamed, the worker's file at the original path, git registration intact, nothing swept  [10 assertions]
+  PASS  G1b   a worker that acquires between the last check and the rename on the LEGACY route is caught AFTER the rename: renamed back (same inode), git registration intact, the worker's file intact, intent resolved  [10 assertions]
+--- RECHECK 2026-09-06, finding 2: ignored files, no --force, clean status ---
+  PASS  G2-control  NEGATIVE CONTROL — the helper at 3aa3acb erases an ignored file over a clean git status with no archive, exit 0 (finding 2, reproduced)  [4 assertions]
+  PASS  G2a   an ordinary legacy removal (no --force) of a tree whose only local content is an IGNORED file preserves it: verified archive counting it, byte-identical in quarantine, restorable — the clean status decided nothing  [13 assertions]
+  PASS  G2b   the legacy route without --force refuses a tree with modified or untracked paths before preservation (git's own rule, which the reaper relies on), and the identical request with --force quarantines it  [9 assertions]
+--- RECHECK 2026-09-06, finding 3: --branch names an unrelated branch ---
+  PASS  G3-control  NEGATIVE CONTROL — the helper at 3aa3acb deletes an UNRELATED unmerged branch named by --branch and leaves its tip unreferenced, exit 0 (finding 3, reproduced)  [3 assertions]
+  PASS  G3a   --branch naming a branch other than the one checked out at the path is REFUSED (branch-mismatch) before the lock: the unrelated branch, every ref, the workspace and its registration are untouched  [8 assertions]
+  PASS  G3b   the retained quarantine registration blocks branch deletion before its ref transaction; the branch and backup tip remain intact  [11 assertions]
+--- the same class, found by looking: stale locks, the quarantine's neighbors, reoccupied paths ---
+  PASS  LOCK  historical stale-locked worktrees quarantine on both routes with repaired registrations, unchanged locks and branches retained for offline cleanup  [10 assertions]
+  PASS  QDIR  the quarantine lives in <parent>/.richos-retired/, which the `*/` glob of the residue scan and of the auto-reaping hook does not enumerate (while the same glob does enumerate a real sibling), and the sweep retains it after expiry  [8 assertions]
+  PASS  PRIOR an object nobody has claimed at a retired path is refused on the legacy route (already-retired-path-reoccupied), while a replacement claimed by a new, witnessed-terminated owner is retired on its own evidence — reused hand-rolled paths keep working for the reaper  [9 assertions]
+  PASS  TWICE the same workspace ID retired twice with no pause mints two distinct quarantine names and two distinct archives, the first recovery copy is byte-identical afterward, and fifty immediate stamps are distinct  [10 assertions]
+  PASS  STAMP with the stamp pinned to one constant, the second retirement of the same ID stops before anything moves (preservation refuses the existing directory) and the first recovery copy is byte-identical — the collision guards are reached, not merely present  [6 assertions]
+--- RECHECK 2026-09-06: the reviewer's own script, verbatim ---
+  PASS  RECHECK  the reviewer's second reproduce.py, run verbatim: finding 1 refuses as reacquired with the workspace and the new file intact, finding 2 quarantines with a verified archive, finding 3 refuses with the unrelated branch and its ref intact — read by the named outcomes, as the reviewer specified  [18 assertions]
+  PASS  S31    a codex/ branch and a path under ~/.codex/worktrees are EXCLUDED BY CEO RULING on both routes and at the door, in the ruling's words, with nothing preserved, renamed, pruned or deleted — and the identical shape on an ordinary branch is authorized  [18 assertions]
+test_all_unmerged_index_stages_are_recoverable (__main__.RecoverySafety.test_all_unmerged_index_stages_are_recoverable) ... ok
+test_distinct_staged_version_survives_original_object_cleanup (__main__.RecoverySafety.test_distinct_staged_version_survives_original_object_cleanup) ... ok
+test_legacy_archive_never_claims_complete_staged_recovery (__main__.RecoverySafety.test_legacy_archive_never_claims_complete_staged_recovery) ... ok
+test_missing_post_rename_identity_restores_workspace_without_pruning (__main__.RecoverySafety.test_missing_post_rename_identity_restores_workspace_without_pruning) ... ok
+test_submodule_index_refuses_without_moving_workspace (__main__.RecoverySafety.test_submodule_index_refuses_without_moving_workspace) ... ok
+test_sweep_cannot_erase_a_write_after_coverage (__main__.RecoverySafety.test_sweep_cannot_erase_a_write_after_coverage) ... ok
+test_sweep_cli_reports_refusal_exit (__main__.RecoverySafety.test_sweep_cli_reports_refusal_exit) ... ok
+test_terminal_retention_keeps_only_recovery_copy (__main__.RecoverySafety.test_terminal_retention_keeps_only_recovery_copy) ... ok
+test_terminal_unregistered_member_refuses_erasure (__main__.RecoverySafety.test_terminal_unregistered_member_refuses_erasure) ... ok
+test_terminal_verified_member_refuses_erasure (__main__.RecoverySafety.test_terminal_verified_member_refuses_erasure) ... ok
+test_unreadable_index_object_refuses_before_quarantine (__main__.RecoverySafety.test_unreadable_index_object_refuses_before_quarantine) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 1.447s
+
+OK
+  PASS  SAFETY  independent Git recovery and non-erasure regression suite  [1 assertions]
+
+=== workspace-retire: 54 passed, 0 failed, 2 not covered (stated by name above), 428 assertions ===

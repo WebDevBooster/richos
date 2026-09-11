@@ -1,0 +1,65 @@
+=== reconcile-terminal-worktrees tests ===
+  PASS  C01  one run drives both members quarantined -> verified and retained
+  PASS  C02  both quarantine directories are retained and neither original was recreated
+  PASS  C03  Git still lists both quarantines
+  PASS  C04  the backup refs survive in both repositories (unlanded commits stay reachable)
+  PASS  C05  the member's branch itself is left alone
+  PASS  C06  the archive holds tree.tar, manifest.json, index.json and provenance.json
+  PASS  C07  unstaged, staged, untracked, IGNORED evidence and a symlink survive byte-for-byte in the archive
+  PASS  C08  the declared disposable path (node_modules) is not captured
+  PASS  C09  the staged blob's bytes are archived under its index sha
+  PASS  C10  provenance names the repo, original path, branch, HEAD and backup ref
+  PASS  C11  --status: retained members keep done false (exit 1)
+  PASS  C12  each transition of the external member can be taken alone and persists (crash after every step)
+  PASS  C13  the next run finishes the OTHER member from wherever it was
+  PASS  C14  a process whose cwd is inside the quarantine is terminated before capture (fixture readiness waited on lsof, the reconciler's own detector, in 0 poll(s))
+  PASS  C15  a recreated original path is detected, its bytes and quarantine remain intact
+  PASS  C16  a write between manifest scans defers capture and retains the quarantine
+  PASS  C17  ...and the next run captures the settled bytes completely
+  PASS  C18  a damaged archive does not verify: the capture is VOID, the quarantine is kept, nothing is deleted on its strength
+  PASS  C18b ...and the next run re-captures from the untouched quarantine and completes
+  PASS  C19  both original and quarantine survive; unknown ownership blocks capture
+  PASS  C20  ...and --status distinguishes blocked cleanup from a hard failure
+  PASS  C21  a LIVE agent reusing a terminal agent's name is untouched (nothing is matched by name)
+  PASS  C22  a stranger directory at a retained member's old path is not reclaimed
+  PASS  C23  --max-seconds stops cleanly, says so, and leaves the rest for the next run
+  PASS  C24  --agent reconciles exactly one transaction
+  PASS  C25  an unbudgeted run finishes what the budgeted one left
+  PASS  C26  within the grace period a pending event waits: no transaction is built, nothing moves
+  PASS  C27  after the grace period the BOUND record's prepared external member is verified, terminalized and retained with its evidence captured; the never-started native tree is not invented
+  PASS  C28a a start-only helper in the MAIN checkout: no filesystem mutation, but the terminal event is KEPT as a zero-member terminal transaction (removed, no-members) and the agent stays terminal (INVERTED: the record used to be dropped)
+  PASS  C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback with platform cleanup pending: backup ref saved and original bytes retained
+  PASS  C28c the exact native path a WorktreeRemove named (first_path) is the member, not the main checkout the start fact named -- and being clean and integrated it is reclaimed in that pass
+  PASS  C29  a failed `git ls-files` keeps the member QUARANTINED (attempt counted, error named, no index.json written) — nothing is captured, nothing deleted
+  PASS  C30  ...the retry captures the index exactly: the staged-only entry is marked needs_blob and its blob is archived; the seed entry (in HEAD) is not
+  PASS  C31  a staged blob that should exist but does not -> capture VOID ('is missing from the archive'), quarantine kept
+  PASS  C31-r ...and the re-capture from the untouched quarantine verifies and completes
+  PASS  C32  a symlink whose archived target is not the manifest target -> capture VOID ('symlink target mismatch'), quarantine kept
+  PASS  C32-r ...and the re-capture from the untouched quarantine verifies and completes
+  PASS  C33  a file whose archived mode is not the manifest mode -> capture VOID ('mode mismatch'), quarantine kept
+  PASS  C33-r ...and the re-capture from the untouched quarantine verifies and completes
+  PASS  C34  capture directories are 0700 and archives 0600 (explicit modes, not the ambient umask)
+  PASS  C35  zero retention preserves captures, backup refs and transaction records
+  PASS  C39  a sealed LIVE transaction whose native member the platform tore down (worktree + branch, no hook) is claimed with ingress NativeMemberGone: the native member closes absent with its backup ref re-created, and the hand-rolled member is captured and retained
+  PASS  C40  a sealed live transaction whose native member is present and registered is NOT claimed by the backstop (negative control)
+  PASS  C42  a transient failure (git ls-files rejected) records attempt 1 and a retry time; the next run within the backoff SKIPS the member (quarantine kept, --status not done), no operator named
+  PASS  C42b ...and once the backoff has elapsed (base 0 here) the retry runs and the member completes
+  PASS  C43  a native directory git can neither list nor read is claimed by the backstop, its RAW bytes captured and verified, the backup ref taken from head_at_seal, and it is retained; the hand-rolled member is retired too
+  PASS  C44  a quarantine whose HEAD moved after the backup ref was saved: the moved HEAD is preserved under the drift ref, the original ref is untouched, the drift is recorded and the member is retained (INVERTED: provenance-contradicts-git used to park as FAILED)
+  PASS  C45  a worktree git registers at the original path is NOT this member's: recorded, never touched (its bytes intact, still registered); the member's own quarantine is captured and retained
+  PASS  C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is retained
+  PASS  C47  a sealed transaction whose native member is present and registered is reported POSITIVELY present (there is no sealed_live key any more); status remains blocked
+  PASS  C47b ...with the native member torn down, --status (no run) reports sealed_native_missing=1, is NOT done, exits 1 — the orphan is named, not called live (INVERTED: it used to say done: true over exactly this)
+  PASS  C47c ...and after one reconciler run the backstop has retired it and status remains blocked
+  PASS  C48  own lock, quarantine and late write survive repeated reconciliation
+  PASS  C48  foreign lock, quarantine and late write survive repeated reconciliation
+  PASS  C48  unsigned lock, quarantine and late write survive repeated reconciliation
+reconcile: === run start 2026-09-11T01:17:32.382436+00:00 pid 8167 argv /Users/alex/ab/richos-wt/frank-fable-cert4/engine/scripts/reconcile-terminal-worktrees.py deadbeef-0000-4000-8000-000000000000 a00000000000lockunsigned /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/reconcile-test.XXXXXX.SAvSl1osmR/entity/.claude/worktrees/agent-a00000000000lockunsigned.richos-terminal-deadbeef-a00000000000lockunsigned ===
+reconcile: member /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/reconcile-test.XXXXXX.SAvSl1osmR/entity/.claude/worktrees/agent-a00000000000lockunsigned of deadbeef/a00000000000lockunsigned: exclusive-access-unavailable: automatic erasure is disabled; the unregistered quarantine is retained (attempt 3, BLOCKED — waiting cannot clear this; retries continue)
+reconcile: === run end 2026-09-11T01:17:32.504623+00:00 worktrees_removed=0 branches_deleted=0 members_completed=0 holds=0 reconciled=1 ===
+  PASS  C49  older unregistered quarantine is retained with blocked status
+  PASS  C64  POSITIVE PROBE: a file written into a SPARSIFIED shell — at the root and inside a skipped directory — is archived byte-for-byte
+  PASS  C65  the saving lands on the ARCHIVE too and no archive code changed: the de-materialized bytes are absent, tree.tar is 20K against 272K of tracked screenshots (live shell 12K)
+  PASS  C66  the sparsified member runs the capture lifecycle: quarantined -> captured -> verified and retained
+
+=== reconcile-terminal-worktrees tests: all 59 passed ===
