@@ -14,8 +14,8 @@
 # WHAT IS COVERED
 #   A. the resolver's five verdicts, on real git worktrees with real pids
 #   B. INDETERMINATE is a real outcome and is never collapsed
-#   C. the remover and the library AGREE on every one of those verdicts
-#      (the "do not fork the logic" requirement, asserted rather than asserted-to)
+#   C. (removed 2026-09-11: it proved remove-agent-worktree.sh agreed with the
+#      library; that remover is deleted, docs/plans/worktree-spec-2026-09-11.md)
 #   D. name -> agent id joins exactly, from a transcript, and refuses to guess
 #   E. the extractor fires on the three measured constructions and on nothing else
 #   F. the guard NOTICES a claim contradicted by a held lock
@@ -38,7 +38,6 @@ ANALYZER="$SCRIPT_DIR/guard-agent-state-claims.py"
 LIB_PY="$ENGINE_ROOT/scripts/lib/agent-liveness.py"
 LIB_SH="$ENGINE_ROOT/scripts/lib/agent-liveness.sh"
 CLI="$ENGINE_ROOT/scripts/agent-liveness.sh"
-REMOVER="$ENGINE_ROOT/scripts/remove-agent-worktree.sh"
 unset CLAUDE_PROJECT_DIR
 
 PASS=0
@@ -220,35 +219,6 @@ B_SH="$(bash -c ". '$LIB_SH'; AGENT_LIVENESS_PY=/nonexistent agent_liveness_trip
     || bad "B2 shell lib missing resolver" "got $B_SH"
 
 echo ""
-echo "--- C. the remover and the library AGREE ---"
-# THE POINT OF THIS SECTION. The brief's requirement is that there is exactly
-# ONE implementation. That is proved by running BOTH and asserting they never
-# disagree -- for every verdict, on the same fixtures, in the same repo.
-agree_case() { # <label> <agent-id> <worktree-path> <expect-remover-rc>
-    local label="$1" aid="$2" wt="$3" exp="$4" v rc
-    v="$(verdict "$aid")"
-    REMOVE_AGENT_ENTITY_REPO="$ENTITY" bash "$REMOVER" --entity-repo "$ENTITY" \
-        --owner "$aid" "$wt" --force >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" = "$exp" ]; then
-        ok "C $label — library says $v, remover exits $rc (agreed)"
-    else
-        bad "C $label — library says $v" "remover exited $rc, expected $exp"
-    fi
-}
-# ALIVE must refuse (3). Run against the live one FIRST, and it must survive.
-agree_case "ALIVE  -> remover REFUSES" "$ID_LIVE" "$WT_LIVE" 3
-[ -d "$WT_LIVE" ] && ok "C2 the live agent's worktree still exists after the refusal" \
-                  || bad "C2 live worktree survived" "it was removed"
-# INDETERMINATE must also refuse (fail closed) -- different caller, same answer.
-REMOVE_AGENT_ENTITY_REPO="$SANDBOX/not-a-repo" bash "$REMOVER" \
-    --entity-repo "$SANDBOX/not-a-repo" --owner "$ID_LIVE" "$WT_LIVE" --force >/dev/null 2>&1
-[ $? -eq 3 ] && ok "C3 INDETERMINATE -> remover REFUSES too (fail closed)" \
-             || bad "C3 indeterminate refusal" "remover did not exit 3"
-# NOT-ALIVE must proceed (0).
-agree_case "NOT-ALIVE (stale lock) -> remover proceeds" "$ID_STALE" "$WT_STALE" 0
-agree_case "NOT-ALIVE (unlocked)   -> remover proceeds" "$ID_UNLOCKED" "$WT_UNLK" 0
-
 echo ""
 echo "--- D. name -> agent id joins exactly, and refuses to guess ---"
 D_MAP="$(python3 - "$LIB_PY" "$TRANSCRIPT" <<'PY'
@@ -373,7 +343,6 @@ mkdir -p "$MIRROR/scripts/hooks" "$MIRROR/scripts/lib"
 cp "$ENGINE_ROOT/scripts/lib/"*.py "$ENGINE_ROOT/scripts/lib/"*.sh "$MIRROR/scripts/lib/" 2>/dev/null
 cp "$ENGINE_ROOT/scripts/lib/cold-open-prompt.md" "$MIRROR/scripts/lib/" 2>/dev/null
 cp "$ENGINE_ROOT/scripts/hooks/"*.sh "$ENGINE_ROOT/scripts/hooks/"*.py "$MIRROR/scripts/hooks/" 2>/dev/null
-cp "$REMOVER" "$MIRROR/scripts/"
 
 mutate_lib() { # <python-replacement-expr>
     cp "$LIB_PY" "$MIRROR/scripts/lib/agent-liveness.py"
