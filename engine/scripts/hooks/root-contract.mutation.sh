@@ -192,17 +192,18 @@ open(p, "w").write(s.replace(old, new))
 PY
 }
 
-# M5. The reaper's two roots collapse back into one variable.
+# M5. The lifecycle hook's two roots collapse back into one variable: the
+# engine's registry library is looked for in the SESSION's repository.
 m_reaper_single_root() {
     local M="$1"
     python3 - "$M" <<'PY' || return 1
 import sys
-p = sys.argv[1] + "/scripts/hooks/session-start-reap-worktrees.sh"
+p = sys.argv[1] + "/scripts/hooks/workspace-lifecycle.sh"
 s = open(p).read()
-old = '''REAPER="$ENGINE_ROOT/scripts/reap-stale-worktrees.sh"'''
+old = '''LIB="$SCRIPT_DIR/../lib/workspaces.py"'''
 if old not in s:
     raise SystemExit(1)
-new = '''REAPER="${RICHOS_ENTITY_ROOT:-$CLAUDE_PROJECT_DIR}/scripts/reap-stale-worktrees.sh"'''
+new = '''LIB="$ENTITY_ROOT/scripts/lib/workspaces.py"'''
 open(p, "w").write(s.replace(old, new))
 PY
 }
@@ -326,7 +327,7 @@ mutate "M3 not-adopted silently falls back to the engine root" \
        "scripts/lib/resolve-roots.test.sh" "4a" m_notadopted_falls_back
 mutate "M4 a declared root falls through instead of failing" \
        "scripts/lib/resolve-roots.test.sh" "1c" m_override_falls_through
-mutate "M5 reaper collapses its two roots into one" \
+mutate "M5 the lifecycle hook collapses its two roots into one" \
        "scripts/hooks/root-contract.test.sh" "6a" m_reaper_single_root
 mutate "M6 snapshotter reverts to the ambiguous 'skipped'" \
        "scripts/hooks/root-contract.test.sh" "5b" m_snapshot_says_skipped

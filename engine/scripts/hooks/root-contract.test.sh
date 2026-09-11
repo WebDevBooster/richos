@@ -41,15 +41,14 @@ unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROO
 
 # ===========================================================================
 # THE OPERATOR'S RECORD IS OUT OF REACH, AND BOTH ARMS SAY SO (round 15,
-# 2026-09-11 — Frank D2). Section 6 runs the SHIPPED SessionStart reaper, the
-# same call session-start-stdin.test.sh 9b makes; that suite, carved out of
-# this one, wrote a false `terminated` witness into the operator's real
-# ledger on 2026-09-11 for a locked, running agent, because HOME was never
-# moved. Every reviewer who ran this file before round 15 ran the real reaper
-# against the real ledger and the real registry. The real record's witness is
-# taken first, then HOME moves, then every path the reaper resolves under it
-# is named explicitly too. 6c proves the redirect is honored; 6d proves the
-# real record did not move. Full account in session-start-stdin.test.sh.
+# 2026-09-11 — Frank D2). Section 6 runs the SHIPPED SessionStart hooks; a
+# suite carved out of this one wrote a false `terminated` witness into the
+# operator's real ledger on 2026-09-11 for a locked, running agent, because
+# HOME was never moved. The real record's witness is taken first, then HOME
+# moves, then every path a hook resolves under it is named explicitly too --
+# the workspace registry included, and the registration's session identity is
+# a process of this suite's own. 6c proves the redirect is honored; 6d proves
+# the real record did not move.
 # ===========================================================================
 # shellcheck source=../lib/record-canary.sh
 . "$SRC_ENGINE/scripts/lib/record-canary.sh"
@@ -71,7 +70,10 @@ export REAP_TEAM_DIR="$HOME/.claude/teams" RICHOS_TEAMS_DIR="$HOME/.claude/teams
 export REAP_LEDGER="$HOME/.claude/state/reap-known-repos.txt"
 export REAP_PROJECTS_DIR="$HOME/.claude/projects" RICHOS_PROJECTS_DIR="$HOME/.claude/projects"
 export RICHOS_SESSIONS_DIR="$HOME/.claude/sessions"
-export RICHOS_WORKTREE_TX_DIR="$HOME/.claude/state/worktree-transactions"
+export RICHOS_WORKSPACES_DIR="$HOME/.claude/state/workspaces"
+RICHOS_SESSION_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
+export RICHOS_SESSION_PID
+trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 export RICHOS_WORKTREE_CAPTURE_DIR="$HOME/.claude/state/worktree-captures"
 
 # --- build the topology ----------------------------------------------------
@@ -199,9 +201,9 @@ fi
 # 3. guard-worktree-isolation.sh — the model-truthfulness clause, and the
 #    namespaced subagent_type that used to defeat it silently.
 # ===========================================================================
-# Clause 7 writes a spawn-intent for every allowed file-capable spawn; pin the
-# transaction store into the sandbox so this suite never touches the record.
-export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+# Clause 7 registers every allowed file-capable spawn; pin the workspace
+# registry into the sandbox so this suite never touches the record.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
 SPAWN() { # <subagent_type> <name> [model] [prompt]
     local st="$1" nm="$2" md="${3:-}" pr="${4:-}"
     printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_use_id":"toolu_root_contract","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s%s}}' \
@@ -321,38 +323,36 @@ else
 fi
 
 # ===========================================================================
-# 6. session-start-reap-worktrees.sh — the OTHER silent skip. The reaper script
-#    is an ENGINE asset; the swept tree is the ENTITY. One variable could not be
-#    both, so it reported "skipped (... not found ...)".
+# 6. workspace-lifecycle.sh on SessionStart — the OTHER silent skip. The
+#    registry library is an ENGINE asset; the session's repository is the
+#    ENTITY. One variable cannot be both. (Until 2026-09-11 this section proved
+#    the same split for the SessionStart reaper, which the workspace spec
+#    removed; docs/plans/worktree-spec-2026-09-11.md.)
 # ===========================================================================
-run session-start-reap-worktrees.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
-# The needle is "inventory", not "reap", since 2026-09-03: the wrapper removes
-# nothing and its line reads `worktree inventory [<repo>] (DRY-RUN, ...)`. What
-# this case asserts is unchanged and is the whole point of the root split — the
-# ENGINE's script is found, and the repository it names is the SESSION's.
-if printf '%s' "$OUT" | grep -q "worktree inventory \[$SESSREPO\]" \
-   && ! printf '%s' "$OUT" | grep -q 'not found or not executable'; then
-    ok "6a POSITIVE  finds the ENGINE's inventory and reads the SESSION's repo"
+WS_SESSION="$RICHOS_WORKSPACES_DIR/sessions/cafe1234-0000.json"
+run workspace-lifecycle.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
+if [ -f "$WS_SESSION" ] \
+   && python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r.get("repo")==sys.argv[2] else 1)' "$WS_SESSION" "$SESSREPO" \
+   && ! printf '%s' "$OUT" | grep -q 'is unavailable'; then
+    ok "6a POSITIVE  finds the ENGINE's registry library and records the SESSION's repo"
 else
-    bad "6a reaper root split (out=${OUT:0:400})"
+    bad "6a lifecycle root split (session record: $(cat "$WS_SESSION" 2>/dev/null | head -c 300); out=${OUT:0:400})"
 fi
 # 6b — a broken root does not quietly do nothing.
-run session-start-reap-worktrees.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO" "RICHOS_ENTITY_ROOT=$PLAINREPO"
+run workspace-lifecycle.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO" "RICHOS_ENTITY_ROOT=$PLAINREPO"
 if printf '%s' "$OUT" | grep -q 'ROOT RESOLUTION FAILURE'; then
     ok "6b POSITIVE  a broken root is reported as a failure, not as a skip"
 else
-    bad "6b broken-root reaper output (out=${OUT:0:400})"
+    bad "6b broken-root lifecycle output (out=${OUT:0:400})"
 fi
-# 6c — THE REDIRECT IS HONORED (round 15): with a hand-rolled worktree of the
-# session repository to judge, the reaper's own blind lines name the SANDBOX
-# ledger and the SANDBOX team directory, never the operator's.
-git -C "$SESSREPO" worktree add -q -b mark-opus-t1 "$SANDBOX/sessrepo-wt/mark-opus-t1" >/dev/null 2>&1
-run session-start-reap-worktrees.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
-if printf '%s' "$OUT" | grep -q "no ownership ledger exists yet at $HOME/.claude/state/worktree-ledger.jsonl" \
-   && printf '%s' "$OUT" | grep -q "no inflight-repos.txt under $HOME/.claude/teams"; then
-    ok "6c POSITIVE  the reaper resolved the ownership ledger and the team directories under the SANDBOX home — the redirect is honored, not assumed"
+# 6c — THE REDIRECT IS HONORED: with no explicit registry, the hook resolves it
+# under the SANDBOX config directory, never the operator's.
+rm -f "$WS_SESSION"
+run workspace-lifecycle.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO" "RICHOS_WORKSPACES_DIR="
+if [ -f "$HOME/.claude/state/workspaces/sessions/cafe1234-0000.json" ]; then
+    ok "6c POSITIVE  the registry resolved under the SANDBOX home's config directory — the redirect is honored, not assumed"
 else
-    bad "6c the reaper did not name the sandbox ledger and team directory (out=${OUT:0:600})"
+    bad "6c the session was not recorded under the sandbox config directory (out=${OUT:0:600})"
 fi
 
 # ===========================================================================

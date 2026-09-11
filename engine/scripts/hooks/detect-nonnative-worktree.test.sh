@@ -47,7 +47,7 @@ TEST_SID="deadbeef-0000-4000-8000-000000000000"
 # real ~/.claude/state (it did once, on 2026-09-03, and W15 of the
 # session-start suite now watches for it).
 DEFAULT_TX_SANDBOX="$(mktemp -d -t detect-tx-default.XXXXXX)"
-export RICHOS_WORKTREE_TX_DIR="$DEFAULT_TX_SANDBOX/tx"
+export RICHOS_WORKSPACES_DIR="$DEFAULT_TX_SANDBOX/ws"
 export RICHOS_WORKTREE_LEDGER="$DEFAULT_TX_SANDBOX/wt-ledger.jsonl"
 TEST_AID="deadbeefcafe0001"
 
@@ -159,7 +159,7 @@ PY
 run_case() {
     local name="$1" expected="$2" repo="$3" json="$4"
     local actual
-    printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKTREE_TX_DIR="$repo/tx" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+    printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
         RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
     actual=$?
@@ -193,7 +193,7 @@ BASH_BIN="$(command -v bash)"
 run_case_msg() {
     local name="$1" needle="$2" repo="$3" json="$4"
     local out
-    out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKTREE_TX_DIR="$repo/tx" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+    out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
         RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"
     if printf '%s' "$out" | grep -qF "$needle"; then
@@ -233,7 +233,7 @@ done
 # THE CONTROL, and without it the three above are satisfied by a hook that
 # announces on every call it ever sees.
 _CTL_OUT="$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
-    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" \
+    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKSPACES_DIR="$ROOT/ws" \
       RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" \
       "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 || true)"
 if printf '%s' "$_CTL_OUT" | grep -q "could not read this call"; then
@@ -406,7 +406,7 @@ bash -c 'exec -a "$1" sleep 30' _ "$GHOST_PATH" &
 GHOST_PID=$!
 sleep 0.4
 ZP_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')" \
-    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"; ZP_RC=$?
+    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKSPACES_DIR="$ROOT/ws" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"; ZP_RC=$?
 kill "$GHOST_PID" 2>/dev/null || true
 wait "$GHOST_PID" 2>/dev/null || true
 if [ "$ZP_RC" -eq 2 ]; then
@@ -493,7 +493,7 @@ fi
 UNWRITABLE="$(mktemp -d "${TMPDIR:-/tmp}/detect-ledger-ro.XXXXXX")"
 chmod 500 "$UNWRITABLE"
 printf '%s' "$(json_agent 'dev' 'dev-sonnet-led2' 'worktree' 'Do the thing.')" \
-    | GUARD_ISOLATION_TEAMS_DIR="$UNWRITABLE" RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKTREE_TX_DIR="$ROOT/tx" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" \
+    | GUARD_ISOLATION_TEAMS_DIR="$UNWRITABLE" RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKSPACES_DIR="$ROOT/ws" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" \
       "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
 rc=$?
 chmod 700 "$UNWRITABLE"; rm -rf "$UNWRITABLE"
