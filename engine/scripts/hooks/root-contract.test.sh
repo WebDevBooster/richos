@@ -39,6 +39,41 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 # The launching session's own project dir must not leak in as a candidate.
 unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT
 
+# ===========================================================================
+# THE OPERATOR'S RECORD IS OUT OF REACH, AND BOTH ARMS SAY SO (round 15,
+# 2026-09-11 — Frank D2). Section 6 runs the SHIPPED SessionStart reaper, the
+# same call session-start-stdin.test.sh 9b makes; that suite, carved out of
+# this one, wrote a false `terminated` witness into the operator's real
+# ledger on 2026-09-11 for a locked, running agent, because HOME was never
+# moved. Every reviewer who ran this file before round 15 ran the real reaper
+# against the real ledger and the real registry. The real record's witness is
+# taken first, then HOME moves, then every path the reaper resolves under it
+# is named explicitly too. 6c proves the redirect is honored; 6d proves the
+# real record did not move. Full account in session-start-stdin.test.sh.
+# ===========================================================================
+# shellcheck source=../lib/record-canary.sh
+. "$SRC_ENGINE/scripts/lib/record-canary.sh"
+rc_baseline "$SANDBOX/real-record-baseline.txt"
+REAL_HOME="$HOME"
+export HOME="$SANDBOX/home"
+mkdir -p "$HOME/.claude/state" "$HOME/.claude/teams" "$HOME/.claude/projects" "$HOME/.claude/sessions"
+if [ -f "$REAL_HOME/.gitconfig" ]; then
+    cp "$REAL_HOME/.gitconfig" "$HOME/.gitconfig"
+else
+    export GIT_AUTHOR_NAME="fixture" GIT_AUTHOR_EMAIL="fixture@example.invalid" \
+           GIT_COMMITTER_NAME="fixture" GIT_COMMITTER_EMAIL="fixture@example.invalid"
+fi
+export CLAUDE_CONFIG_DIR="$HOME/.claude"
+export REAP_WORKTREE_LEDGER="$HOME/.claude/state/worktree-ledger.jsonl"
+export RICHOS_WORKTREE_LEDGER="$REAP_WORKTREE_LEDGER"
+export REAP_TEAM_DIR="$HOME/.claude/teams" RICHOS_TEAMS_DIR="$HOME/.claude/teams" \
+       WORKER_EVENTS_TEAMS_DIR="$HOME/.claude/teams" RICHOS_LIVENESS_TEAMS_DIR="$HOME/.claude/teams"
+export REAP_LEDGER="$HOME/.claude/state/reap-known-repos.txt"
+export REAP_PROJECTS_DIR="$HOME/.claude/projects" RICHOS_PROJECTS_DIR="$HOME/.claude/projects"
+export RICHOS_SESSIONS_DIR="$HOME/.claude/sessions"
+export RICHOS_WORKTREE_TX_DIR="$HOME/.claude/state/worktree-transactions"
+export RICHOS_WORKTREE_CAPTURE_DIR="$HOME/.claude/state/worktree-captures"
+
 # --- build the topology ----------------------------------------------------
 mk_repo() {
     local r="$SANDBOX/$1"
@@ -308,6 +343,17 @@ if printf '%s' "$OUT" | grep -q 'ROOT RESOLUTION FAILURE'; then
 else
     bad "6b broken-root reaper output (out=${OUT:0:400})"
 fi
+# 6c — THE REDIRECT IS HONORED (round 15): with a hand-rolled worktree of the
+# session repository to judge, the reaper's own blind lines name the SANDBOX
+# ledger and the SANDBOX team directory, never the operator's.
+git -C "$SESSREPO" worktree add -q -b mark-opus-t1 "$SANDBOX/sessrepo-wt/mark-opus-t1" >/dev/null 2>&1
+run session-start-reap-worktrees.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
+if printf '%s' "$OUT" | grep -q "no ownership ledger exists yet at $HOME/.claude/state/worktree-ledger.jsonl" \
+   && printf '%s' "$OUT" | grep -q "no inflight-repos.txt under $HOME/.claude/teams"; then
+    ok "6c POSITIVE  the reaper resolved the ownership ledger and the team directories under the SANDBOX home — the redirect is honored, not assumed"
+else
+    bad "6c the reaper did not name the sandbox ledger and team directory (out=${OUT:0:600})"
+fi
 
 # ===========================================================================
 # 7. engine-status.sh — the answer to "is this defense on?"
@@ -393,6 +439,16 @@ fi
 # skipped in silence and the suite printed a full green tally in 3.7 seconds.
 # That is the exact defect this whole row is about, rebuilt inside the fix for
 # it, and only the WALL CLOCK gave it away. So the guard now says so out loud.
+
+# 6d — THE OPERATOR'S REAL RECORD DID NOT MOVE (round 15): the negative arm of
+# the redirect, checked against the real paths captured before HOME moved.
+TOUCHED="$(rc_escaped "$SANDBOX/real-record-baseline.txt")"
+if [ "$RC_HEALTHY" -eq 1 ] && [ -z "$TOUCHED" ]; then
+    ok "6d NEGATIVE  the operator's real record under $RC_CFG is untouched by this suite (ledger rows except finished, fallback event log, team directory entries)"
+else
+    bad "6d the operator's real record CHANGED during this suite (healthy=$RC_HEALTHY): $TOUCHED"
+fi
+
 if [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
     echo ""
     echo "=== running the mutation harness: root-contract.mutation.sh ==="

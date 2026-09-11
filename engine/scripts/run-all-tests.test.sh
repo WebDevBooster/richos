@@ -37,6 +37,12 @@ bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "
 
 echo "=== run-all-tests: the leak canary is wired, and it decides the verdict ==="
 
+# The runner's RECORD canary (round 15) watches ${CLAUDE_CONFIG_DIR:-$HOME/.claude}.
+# Every runner invocation below points it at a throwaway config directory, so
+# this suite neither depends on the operator's real record nor touches it.
+export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
+
 NO_HOOKS="$SANDBOX/empty-hooks"; mkdir -p "$NO_HOOKS"
 git_q() { git -C "$1" -c core.hooksPath="$NO_HOOKS" -c user.email=t@t -c user.name=t "${@:2}"; }
 
@@ -55,6 +61,7 @@ build_engine() {
     # way. The list here must track the runner's own `for lib in ...` loop.
     cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" \
        "$ENGINE_ROOT/scripts/lib/leak-canary.sh" \
+       "$ENGINE_ROOT/scripts/lib/record-canary.sh" \
        "$ENGINE_ROOT/scripts/lib/stopwatch.sh" "$d/engine/scripts/lib/"
     chmod +x "$d/engine/scripts/run-all-tests.sh"
     printf 'PROTECTED_PATHS="app"\n' > "$d/engine/orchestration.config"
@@ -201,6 +208,72 @@ case "$OUT4" in
     *leak-canary.sh*) ok "4b  and it names the file that is missing" ;;
     *)                bad "4b  the missing library is named" "got: $OUT4" ;;
 esac
+
+# ===========================================================================
+# 5. RED ON THE OPERATOR'S RECORD (round 15, 2026-09-11). A suite whose own
+#    assertions pass and which leaves the checkout clean appends a `terminated`
+#    row to the ownership ledger under the config directory — the exact shape
+#    session-start-stdin.test.sh 9b produced through the shipped reaper. The
+#    runner must fail it, name it, and print the row. Beside it, a suite that
+#    appends only a `finished` row (the platform's own per-turn row) stays
+#    green, because that is the one exclusion the library states.
+# ===========================================================================
+E5="$SANDBOX/e5"
+build_engine "$E5"
+clean_suite "$E5/engine/scripts/hooks/alpha.test.sh"
+cat > "$E5/engine/scripts/hooks/toucher.test.sh" <<EOF
+#!/usr/bin/env bash
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
+printf '{"event": "terminated", "agent_id": "ae904aac1949e5696", "teammate": "sage-fable-cert3", "witness": "platform-terminal-record", "ts": "2026-09-11T00:02:34.984941+00:00"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+echo "  PASS  every assertion passed"
+exit 0
+EOF
+cat > "$E5/engine/scripts/hooks/turn.test.sh" <<EOF
+#!/usr/bin/env bash
+printf '{"event": "finished", "agent_id": "a1", "signal": "SubagentStop", "source": "worker-ended-handoff.sh", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+echo "  PASS  every assertion passed"
+exit 0
+EOF
+chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/turn.test.sh"
+git_q "$E5" add -A; git_q "$E5" commit -q -m suites
+OUT5="$( cd "$E5/engine" && bash scripts/run-all-tests.sh 2>&1 )"; RC5=$?
+if [ "$RC5" -ne 0 ]; then
+    ok "5a  RED: a suite whose assertions pass and whose checkout stays clean still fails the run because it appended a row to the operator's ledger"
+else
+    bad "5a  a record-touching suite fails the run" "rc=0 — the suite wrote a terminated row into the watched ledger and the runner stayed green:
+$OUT5"
+fi
+TOUCHER_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'toucher\.test\.sh')"
+case "$TOUCHER_LINE" in
+    *"touched the operator"*) ok "5b  and the suite is NAMED on its own line as having touched the operator's record — not as residue, which is a different finding" ;;
+    "") bad "5b  the touching suite is named" "toucher.test.sh has no line in the output at all, so it was not run" ;;
+    *)  bad "5b  the touching suite is named" "toucher's own line does not say so: $TOUCHER_LINE" ;;
+esac
+case "$OUT5" in
+    *"event=terminated"*"witness=platform-terminal-record"*"teammate=sage-fable-cert3"*)
+        ok "5c  and the row it wrote is printed (event, witness, teammate), so a reader can tell a false witness from a fixture at a glance" ;;
+    *)  bad "5c  the row is printed" "got: $OUT5" ;;
+esac
+TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'turn\.test\.sh')"
+case "$TURN_LINE" in
+    *PASS*) ok "5d  and the suite beside it that appended only a 'finished' row is NOT blamed — the platform's own per-turn row is the stated exclusion, so a live-machine run does not cry wolf" ;;
+    "")     bad "5d  the finished-only suite is not blamed" "turn.test.sh has no line in the output" ;;
+    *)      bad "5d  the finished-only suite is not blamed" "got: $TURN_LINE" ;;
+esac
+case "$OUT5" in
+    *"record canary: watching"*) ok "5e  and the runner announces the record canary and what it watches, so a reader can tell this run from one where it was absent" ;;
+    *) bad "5e  the record canary announces itself" "got: $OUT5" ;;
+esac
+E6="$SANDBOX/e6"
+build_engine "$E6"
+clean_suite "$E6/engine/scripts/hooks/alpha.test.sh"
+rm -f "$E6/engine/scripts/lib/record-canary.sh"
+OUT6="$( cd "$E6/engine" && bash scripts/run-all-tests.sh 2>&1 )"; RC6=$?
+if [ "$RC6" -eq 2 ] && printf '%s' "$OUT6" | grep -q 'record-canary.sh'; then
+    ok "5f  the runner REFUSES (rc 2) and names the file when the record canary's library is missing — a partial install cannot report a green fraction without it"
+else
+    bad "5f  a missing record canary library is refused" "rc=$RC6: $OUT6"
+fi
 
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -973,6 +973,108 @@ class Cleanup(unittest.TestCase):
             self.assertEqual(self.assess()[0],'remove')
             self.assert_reclaimed(self.run_cleanup())
 
+    def test_a_non_UTF8_line_in_the_fallback_log_is_skipped_not_raised(self):
+        # SAGE D-C, ROUND FOUR. The fallback file is one file every session
+        # with no team directory writes. platform_lifecycle_after opened it
+        # in text mode and caught OSError only, so a single line that was not
+        # UTF-8 raised UnicodeDecodeError out of running_after_terminal --
+        # and because the lane's assess/reclaim_now catch Exception and
+        # journal a HOLD, one such byte held every candidate on the machine
+        # until a person found it. A line that does not decode is now
+        # skipped like a line that does not parse: the rows around it are
+        # still read, in both the fallback file and the session log.
+        from datetime import datetime,timezone,timedelta
+        t0=datetime.now(timezone.utc)-timedelta(minutes=5)
+        self.record['terminal']={'ingress':'SubagentStop','ts':t0.isoformat()}
+        tx.atomic_write_json(tx.tx_path(SID,AID),self.record)
+        teams=self.root/'teams';teams.mkdir()
+        fallback=self.root/'worker-events.jsonl'
+        def good(when,event):
+            return (json.dumps({'timestamp':when.isoformat(),'event':event,'agent_id':AID,'session_id':SID})+'\n').encode('utf-8')
+        # a line that is not UTF-8 -- and one that carries this agent id inside the bad bytes, so the prefilter lets it through
+        with open(fallback,'wb') as stream:
+            stream.write(b'\xff\xfe this is not utf-8 \x80\n')
+            stream.write(good(t0+timedelta(seconds=10),'WorkerStarted'))
+            stream.write(b'{"agent_id": "'+AID.encode()+b'", "event": "WorkerRunEnded", "timestamp": "\xff"}\n')
+        with patch.dict(os.environ,{'RICHOS_TEAMS_DIR':str(teams)}):
+            # no raise, and the valid start is read: the run is open
+            self.assertTrue(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual([(k,s) for _w,k,s in tx.post_terminal_events(tx.load_tx(SID,AID))],[('start','events')])
+            decision,reason=self.assess();self.assertEqual(decision,'hold');self.assertIn("platform's event log",reason)
+            # the same byte in the SESSION log: skipped there too, and the stop it sits beside closes the run
+            sdir=teams/('session-'+SID[:8]);sdir.mkdir()
+            with open(sdir/'worker-events.jsonl','wb') as stream:
+                stream.write(b'\xc3\x28 invalid continuation\n')
+                stream.write(good(t0+timedelta(seconds=20),'WorkerRunEnded'))
+            self.assertFalse(tx.running_after_terminal(tx.load_tx(SID,AID)))
+            self.assertEqual(self.assess()[0],'remove')
+            self.assert_reclaimed(self.run_cleanup())
+
+    def test_git_store_shapes_git_itself_opens_are_collapsed_S1_symlink_HEAD_and_S3_symlinked_objects(self):
+        # SAGE D-B / FRANK D6, ROUND FOUR: two shapes git opens that the
+        # round-14 store test did not recognize. S1: HEAD is a symlink under
+        # refs/ (git's own rule, core.preferSymlinkRefs) -- the store was not
+        # collapsed, its objects survived by clause (ii) and its HEAD, config
+        # and packed-refs were DROPPED: the commit bytes held, the branch
+        # names lost. S3: objects/ is a symlink to a sibling under the same
+        # worktree -- the store was collapsed with the link as a link and the
+        # real object files at the target were DROPPED by their parent's
+        # name. Both are archived whole now and restore to a repository git
+        # opens. Beside them, the control the rule requires: a symlink HEAD
+        # pointing anywhere but refs/ is not a store git opens, and is not
+        # collapsed (its objects still survive by clause (ii)).
+        (self.repo/'.git/info/exclude').write_text('node_modules/\n.cache/\n')
+        heads={}
+        def bare(rel,kind):
+            src=self.root/('src-'+kind);src.mkdir()
+            self.git(src,'init','-q','-b','main');self.git(src,'config','user.name','Fixture');self.git(src,'config','user.email','fixture@example.invalid')
+            (src/'only-here').write_text('commits nobody else holds (%s)\n'%kind);self.git(src,'add','only-here');self.git(src,'commit','-q','-m','only here')
+            heads[rel]=self.git(src,'rev-parse','HEAD').strip()
+            dest=self.work/rel;dest.parent.mkdir(parents=True,exist_ok=True)
+            self.git(self.root,'clone','-q','--bare',str(src),str(dest))
+            import shutil;shutil.rmtree(src)
+            return dest
+        # S1: HEAD replaced by a symlink to refs/heads/main
+        s1=bare('node_modules/pkg1/s1.git','s1')
+        (s1/'HEAD').unlink();os.symlink('refs/heads/main',s1/'HEAD')
+        self.assertEqual(self.git(self.root,'--git-dir',str(s1),'rev-parse','HEAD').strip(),heads['node_modules/pkg1/s1.git'])   # git opens it
+        # S3: objects/ moved to a sibling and symlinked back (relative)
+        s3=bare('.cache/s3.git','s3')
+        os.rename(s3/'objects',self.work/'.cache'/'objstore3');os.symlink('../objstore3',s3/'objects')
+        self.assertEqual(self.git(self.root,'--git-dir',str(s3),'rev-parse','HEAD').strip(),heads['.cache/s3.git'])           # git opens it
+        # the CONTROL: a symlink HEAD pointing outside refs/ -- git does not open it
+        sx=bare('node_modules/pkgx/sx.git','sx')
+        (sx/'HEAD').unlink();os.symlink('../elsewhere',sx/'HEAD')
+        r=subprocess.run(['git','--git-dir',str(sx),'rev-parse','HEAD'],capture_output=True,text=True);self.assertNotEqual(r.returncode,0)
+        listed=daily.ignored_files(str(self.work))
+        stores=[x for x in listed if x.endswith('/')]
+        self.assertEqual(stores,['.cache/objstore3/','.cache/s3.git/','node_modules/pkg1/s1.git/'])
+        self.assertNotIn('node_modules/pkgx/sx.git/',stores)
+        self.assertFalse([x for x in listed if not x.endswith('/') and x.startswith('.cache/objstore3/')])   # collapsed, not file by file
+        keep,residue=daily.partition_ignored(listed,daily.disposable_paths(str(self.repo)))
+        self.assertEqual(residue[:3],['.cache/objstore3/','.cache/s3.git/','node_modules/pkg1/s1.git/'])
+        # the control's objects still survive by clause (ii); its HEAD does not (git would not open it)
+        self.assertTrue([x for x in residue if x.startswith('node_modules/pkgx/sx.git/objects/')])
+        self.assertIn('node_modules/pkgx/sx.git/config',keep)
+        decision,reason=self.assess();self.assertEqual(decision,'remove')
+        result=self.run_cleanup();self.assert_reclaimed(result)
+        res=result['members'][0]['daily_cleanup']['ignored_residue']
+        self.assertEqual(res['nested_repositories'],['.cache/objstore3','.cache/s3.git','node_modules/pkg1/s1.git'])
+        h1=heads['node_modules/pkg1/s1.git'];h3=heads['.cache/s3.git']
+        with tarfile.open(res['archive']) as tar:
+            names=tar.getnames()
+            self.assertIn('node_modules/pkg1/s1.git/HEAD',names);self.assertTrue(tar.getmember('node_modules/pkg1/s1.git/HEAD').issym())   # S1: HEAD as the link it is
+            self.assertIn('node_modules/pkg1/s1.git/packed-refs',names)                                                                     # the branch NAMES, which were being dropped
+            self.assertIn('node_modules/pkg1/s1.git/objects/%s/%s'%(h1[:2],h1[2:]),names)
+            self.assertTrue(tar.getmember('.cache/s3.git/objects').issym())                                                                # S3: the link, and ...
+            self.assertIn('.cache/objstore3/%s/%s'%(h3[:2],h3[2:]),names)                                                                  # ... THE BYTES AT ITS TARGET
+        dest=self.root/'restore';dest.mkdir()
+        with tarfile.open(res['archive']) as tar:
+            tar.extractall(dest)
+        for rel,head in (('node_modules/pkg1/s1.git',h1),('.cache/s3.git',h3)):
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'rev-parse','HEAD').strip(),head)
+            self.assertEqual(self.git(self.root,'--git-dir',str(dest/rel),'cat-file','-p','HEAD:only-here'),'commits nobody else holds (%s)\n'%rel.split('/')[-1][:2])
+
     def test_a_post_terminal_run_cannot_outlive_its_session(self):
         # FRANK R2 (2): row 5 preceded row 10a, so `session_gone` never
         # overrode it — a session that died mid-run held the workspace on a

@@ -260,9 +260,18 @@ by its parent's name and deleted with no copy — reproduced under the lane's
 binary, `nested: (0, '') | exists after: False`. Row 16 now archives a nested
 repository whole, `.git` and all (`never_disposable`), verified, and row 17
 re-checks the ignored side before the `rm`. The claim above is true again
-without qualification, and the same falsifier stands for the next reviewer:
-**a path where a removal under `F = unknown` loses work git does not hold, or
-a write a terminal agent can make after its restart.**
+**with two stated qualifications** (round 15, 2026-09-11 — Sage D-B / Frank D6,
+round four, after the same falsifier was answered a second time by a bare
+repository, Sage D1, round three): a git object store whose `objects/` is a
+symlink to a target **outside** the worktree, and a store whose objects live
+elsewhere by `objects/info/alternates`, are not this tree's bytes — the removal
+does not touch them and this lane does not archive them. Inside the worktree,
+every shape git itself opens is collapsed and archived whole: a working tree,
+a bare store, a store whose `HEAD` is a symlink under `refs/` (S1), a store
+whose `objects/` is a symlink to a sibling under the worktree (S3, the target
+collapsed too). The same falsifier stands for the next reviewer: **a path
+where a removal under `F = unknown` loses work git does not hold, or a write a
+terminal agent can make after its restart.**
 
 ---
 
@@ -279,6 +288,11 @@ a write a terminal agent can make after its restart.**
 | The platform **re-locks** for a **restarted** run | `restart-after-terminal-measure.py --locks`, lines (b) and (c) | **UNMEASURED** — measured 2026-09-10 on a log since deleted: (b) 0 of 3 re-took it (all held throughout); (c) 4 into witnessed-unlocked trees, no admin directory. Re-run 2026-09-11: (b) 0 of 1, (c) 4 of 4 known only from the start fact, event log gone (§3) |
 | The second source (row 5) is durable | `ls ~/.claude/teams/`; `scratchpad/r14/fallback-overlap.py` (round-14 record §2) | **FALSE** — per-session, deleted by the platform at session end; 3 of 49 store sessions have one, 31 have rows only in the fallback file, which the reader opens since round 14 |
 | A **bare** repository under a disposable path is dropped as disposable | `daily-workspace-cleanup.test.py …BARE_repository…` + mutants `bare-repository-dropped-as-disposable`, `git-object-bytes-disposable` | **FALSE** since round 14 (was TRUE: reproduced, 48 of 48 entries dropped, `exists after: False` — Sage D1) |
+| A bare store whose `HEAD` is a **symlink** under `refs/` (git opens it) loses its branch names | `daily-workspace-cleanup.test.py …S1_symlink_HEAD_and_S3_symlinked_objects` + mutant `symlink-HEAD-store-not-recognized` | **FALSE** since round 15 (was TRUE: not collapsed, `HEAD`/`config`/`packed-refs` dropped, objects held by clause (ii) — Sage D-B S1, Frank D6) |
+| A store whose `objects/` is a **symlink** to a sibling under the worktree is archived as a dangling link | same test + mutant `symlinked-objects-target-dropped` | **FALSE** since round 15 for a target under the worktree (was TRUE: the link archived, the object files at the target dropped — Sage D-B S3, Frank D6). **Boundary, stated:** a target outside the worktree, and `objects/info/alternates`, are not this tree's bytes and are not archived |
+| A non-UTF-8 line in the shared fallback event log holds every candidate on the machine | `daily-workspace-cleanup.test.py …non_UTF8_line…` + mutant `non-utf8-fallback-line-raises`; `restart-after-terminal-measure.test.sh` M12 | **FALSE** since round 15 (was TRUE: `platform_lifecycle_after` raised `UnicodeDecodeError` out of `running_after_terminal`, caught as a HOLD by the lane — Sage D-C) |
+| A `terminated` row on the ledger outranks a held lock | `worktree-ledger.test.sh` L06e, L06h + mutants `lock-resolved-in-callers-entity-only`, `record-derived-witness-decides`; live: `platform-terminal-record` row for `ae904aac1949e5696` beside its LOCKED shell | **FALSE** since round 15 for a `platform-terminal-record` row (was TRUE: round 14's step 2b wrote one on the operator's ledger at 2026-09-11T00:02:34Z for a locked, running owner, and step 1 returned it ahead of the lock). A row of the ledger's own kinds still decides at step 1 and can now be **retracted** (`worktree-ledger.py retract`, L06j) |
+| The judge decides a helper-made tree while its session lives | `worktree-ledger.test.sh` L06k + mutant `prepared-row-never-joined`; live: `land-completeness.sh --repo /Users/alex/ab/richos` | **TRUE** since round 15 (was FALSE: the id-less `prepared` row every helper-made tree carries fell to step 3 and held the aggregate at INDETERMINATE — 76 of 76 on the operator's ledger, Frank D3) |
 | A restarted terminal agent can use a tool | `scripts/hooks/guard-sealed-worktree.test.sh` G15 + mutant `terminal-not-refused`; live: fix1 19:57Z / 20:27Z, sage-fable-cert2 21:01Z | **FALSE** — every tool refused, `Read` included |
 | An ignored nested repository is dropped as disposable | `daily-workspace-cleanup.test.py …nested_repository…` + mutant `nested-repository-dropped-as-disposable` | **FALSE** since round 13 (was TRUE: reproduced, `exists after: False`) |
 | A lost post-terminal stop note holds a workspace forever | `…lost_stop_note_is_closed_by_the_platforms_own_event_log…`, `…cannot_outlive_its_session`, `…stale_open_run_names_the_operator_remedy…` | **FALSE** since round 13 (was TRUE: one source, no expiry) |

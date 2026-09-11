@@ -227,6 +227,32 @@ else
     bad "M11 (c): $(printf '%s' "$L3" | grep -E '\(c\)|dddddd|cccccc|LIFETIME' | head -5)"
 fi
 
+# ===========================================================================
+# 12. A NON-UTF-8 LINE IN THE FALLBACK FILE IS SKIPPED, NOT FATAL (Sage D-C,
+# round four). The fallback is shared by every session; one bad byte must
+# not stop the measure or change what it counts. Same corpus as M10, plus
+# one line of bytes that is not UTF-8 -- the numbers are M10's numbers.
+# ===========================================================================
+printf '\xff\xfe not utf-8 at all \x80\n' >>"$SANDBOX/worker-events.jsonl"
+OUT="$(python3 "$MEASURE" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'NUMERATOR  : those with a start strictly after their terminal record : 4' \
+   && printf '%s' "$OUT" | grep -q 'plus the fallback file if present) : 2'; then
+    ok "M12 a line that is not UTF-8 in the fallback file is skipped: exit 0, the same 4 restarts, the same 2 logs scanned"
+else
+    bad "M12 rc=$RC: $(printf '%s' "$OUT" | grep -E 'NUMERATOR|scanned|Error|Traceback' | head -4)"
+fi
+# ...and a retracted ledger witness is not a witness (round 15): the (c) line
+# drops the agent whose `terminated` row a `retracted` row names.
+printf '{"event": "retracted", "agent_id": "%s", "retracts_ts": "%s", "reason": "fixture", "source": "test"}\n' \
+    "$A_LOGGONE" "$(iso "$((T2 + 50))")" >>"$RICHOS_WORKTREE_LEDGER"
+L4="$(python3 "$MEASURE" --locks 2>&1)"
+if printf '%s' "$L4" | grep -q '(c) restarts into a tree the reaper witnessed UNLOCKED : 1;' \
+   && ! printf '%s' "$L4" | grep -E "$A_LOGGONE" | grep -q 'restart from start-fact'; then
+    ok "M13 --locks (c): a witnessed-unlocked row that a 'retracted' row names is no longer counted as a witness (1 instead of M11's 2)"
+else
+    bad "M13 retraction in (c): $(printf '%s' "$L4" | grep -E '\(c\)|dddddd' | head -3)"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== restart-after-terminal-measure tests: $FAIL FAILED, $PASS passed ==="

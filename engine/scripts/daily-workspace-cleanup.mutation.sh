@@ -56,14 +56,30 @@ mutant nested-repository-dropped-as-disposable "test_a_nested_repository_under_a
     "a clone an agent made under an ignored vendor/, .cache/ or node_modules/ -- with commits nowhere else -- would be classified disposable by its PARENT's name and deleted by the non-force removal with no copy taken. Frank R1, round two: reproduced under the lane's own binary, the only loss path found in two rounds."
 
 mutant bare-repository-dropped-as-disposable "test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
-    "            roots.append(rel_dir + '/')" \
-    "            pass  # mutant: a bare repository is not recognized as a store" \
+    "        roots.append(rel_dir + '/')" \
+    "        pass  # mutant: a bare repository is not recognized as a store" \
     "a BARE repository (clone --bare, --mirror, init --bare) under an ignored .cache/ or node_modules/ has no working tree, so git lists its HEAD, config and objects one file at a time with no trailing slash and no .git component; each file matched its disposable parent and the store -- with a commit that existed nowhere else -- was deleted by the non-force removal with no copy taken. Sage D1, round three: reproduced under the lane's binary, 48 of 48 entries dropped."
 
 mutant git-object-bytes-disposable "test_a_BARE_repository_under_a_disposable_path_is_ARCHIVED_whole_never_dropped" "$D" \
     "            or looks_like_git_object(rel))" \
     "            or False)" \
     "a file laid out as a git loose object or pack under a disposable parent, with no HEAD beside it (an object store git itself would not recognize), would be dropped by its parent's name; the bytes of a commit are never a build artifact."
+
+# --- round 15 (2026-09-11): Sage D-B (S1, S3) and Sage D-C ---
+mutant symlink-HEAD-store-not-recognized "test_git_store_shapes_git_itself_opens_are_collapsed_S1_symlink_HEAD_and_S3_symlinked_objects" "$D" \
+    "            if not target.startswith('refs/'):{NL}                continue" \
+    "            if True:{NL}                continue" \
+    "a bare store whose HEAD is a symlink under refs/ (git's own accepted shape, core.preferSymlinkRefs) would not be collapsed: its objects survive by clause (ii) but its HEAD, config and packed-refs are dropped by the parent's name -- the commit bytes held, the branch NAMES lost (Sage D-B, round four, S1)."
+
+mutant symlinked-objects-target-dropped "test_git_store_shapes_git_itself_opens_are_collapsed_S1_symlink_HEAD_and_S3_symlinked_objects" "$D" \
+    "                roots.append(os.path.relpath(real, base) + '/')" \
+    "                pass  # mutant: the link's target is not collapsed" \
+    "a store whose objects/ is a symlink to a sibling under the worktree would be archived with the link AS a link and the real object files at the target -- carrying no objects/ component -- dropped by their parent's name: a store git opens, archived as a dangling link (Sage D-B / Frank D6, round four, S3)."
+
+mutant non-utf8-fallback-line-raises "test_a_non_UTF8_line_in_the_fallback_log_is_skipped_not_raised" "$X" \
+    "                    except UnicodeDecodeError:{NL}                        continue      # not UTF-8, not a row (Sage D-C)" \
+    "                    except UnicodeDecodeError:{NL}                        raise" \
+    "one byte that is not UTF-8 in the fallback event log -- one file every session with no team directory writes -- would raise out of running_after_terminal, and because the lane catches Exception and journals a HOLD, that one byte would hold every candidate on the machine until a person found it (Sage D-C, round four)."
 
 mutant residue-byte-ceiling-ignored-in-event "test_the_events_own_member_is_bounded_by_the_residue_byte_ceiling" "$D" \
     "            if measured[0] > max_residue_bytes:" \

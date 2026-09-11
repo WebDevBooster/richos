@@ -608,14 +608,27 @@ def platform_lifecycle_after(session_id, agent_id, since):
     sources = [(os.path.join(root, "session-%s" % session_id[:8], "worker-events.jsonl"), False),
                (lifecycle_fallback_log(), True)]
     seen = set()
+    agent_bytes = agent_id.encode("utf-8")
     for path, is_fallback in sources:
         if not path:
             continue
         try:
-            with open(path, encoding="utf-8") as stream:
-                for line in stream:
-                    if agent_id not in line:
+            # BYTES, DECODED LINE BY LINE (Sage D-C, round four). The fallback
+            # file is one file every session with no team directory writes,
+            # and a text-mode open raised UnicodeDecodeError out of
+            # running_after_terminal on the first line that was not UTF-8 --
+            # one such byte, from a foreign writer or a disk fault, and every
+            # candidate on the machine was held until a person found it. A
+            # line that does not decode is not a row; it is skipped like a
+            # line that does not parse.
+            with open(path, "rb") as stream:
+                for raw in stream:
+                    if agent_bytes not in raw:
                         continue
+                    try:
+                        line = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        continue      # not UTF-8, not a row (Sage D-C)
                     try:
                         row = json.loads(line)
                     except ValueError:

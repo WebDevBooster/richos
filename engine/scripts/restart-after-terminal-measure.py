@@ -125,16 +125,19 @@ def event_log_paths():
 
 
 def event_rows():
-    """Every row of every event log the platform keeps, oldest first per file."""
+    """Every row of every event log the platform keeps, oldest first per file.
+    A line that is not UTF-8 is skipped like a line that is not JSON (Sage
+    D-C, round four): the fallback file is shared by every session, and one
+    bad byte must not stop the measure."""
     for path in event_log_paths():
         try:
-            with open(path, encoding='utf-8') as stream:
-                for line in stream:
-                    if not line.strip():
+            with open(path, 'rb') as stream:
+                for raw in stream:
+                    if not raw.strip():
                         continue
                     try:
-                        yield path, json.loads(line)
-                    except ValueError:
+                        yield path, json.loads(raw.decode('utf-8'))
+                    except (ValueError, UnicodeDecodeError):
                         continue
         except OSError:
             continue
@@ -329,24 +332,33 @@ def unlocked_witness_rows():
     """{agent_id: ts} for every ownership-ledger row in which the reaper
     WITNESSED a native isolation worktree registered and unlocked."""
     out = {}
+    rows = []
+    retracted = set()   # (agent_id, ts) pairs a later `retracted` row voids (round 15)
     try:
-        with open(LEDGER, encoding='utf-8') as stream:
-            for line in stream:
+        with open(LEDGER, 'rb') as stream:
+            for raw in stream:
                 try:
-                    row = json.loads(line)
-                except ValueError:
+                    row = json.loads(raw.decode('utf-8'))
+                except (ValueError, UnicodeDecodeError):
                     continue
-                if not isinstance(row, dict) or row.get('event') != 'terminated':
+                if not isinstance(row, dict):
                     continue
-                text = ' '.join(str(row.get(k) or '') for k in ('reason', 'detail', 'evidence'))
-                if 'registered and unlocked' not in text:
-                    continue
-                when = parse_ts(row.get('ts'))
-                aid = row.get('agent_id') or ''
-                if aid and when and (aid not in out or when < out[aid]):
-                    out[aid] = when
+                if row.get('event') == 'retracted':
+                    retracted.add((row.get('agent_id') or '', row.get('retracts_ts') or ''))
+                elif row.get('event') == 'terminated':
+                    rows.append(row)
     except OSError:
         pass
+    for row in rows:
+        aid = row.get('agent_id') or ''
+        if (aid, row.get('ts') or '') in retracted:
+            continue
+        text = ' '.join(str(row.get(k) or '') for k in ('reason', 'detail', 'evidence'))
+        if 'registered and unlocked' not in text:
+            continue
+        when = parse_ts(row.get('ts'))
+        if aid and when and (aid not in out or when < out[aid]):
+            out[aid] = when
     return out
 
 

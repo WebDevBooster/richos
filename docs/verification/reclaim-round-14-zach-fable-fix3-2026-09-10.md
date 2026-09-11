@@ -307,6 +307,17 @@ never chained after its unit suite, and they are the two a reviewer should run t
 - **The Codex trees' `unowned` line in land-completeness** — §31 excludes them from every door; the report's wording is a separate change and out of this round.
 - **Adding a weight row for `session-start-stdin.test.sh`** to `ci-unit-weights.tsv` — every row there is from one CI run for comparability; the unit takes `DEFAULT_WEIGHT` (60) until the next full pass measures it, and `root-contract`'s 192.3 s row is now an overestimate (balance only).
 - **echo-opus-ci1** appeared as an INCOMPLETE LAND in the read-only run after main took Echo's branch: merged, registered, owner INDETERMINATE (native shell absent, session alive, and its transaction is sealed but carries **no terminal record** though a SubagentStop finish row exists at 23:49:01Z). Not touched: it is a live teammate's tree at the time of writing, and whether the terminal record is missing because the stop carried a per-run id is the next reviewer's to establish.
+  **CORRECTION, 2026-09-11 (round 15, Frank D5):** the sentence above is false. Echo's transaction (`~/.claude/state/worktree-transactions/b7869424-…/a2187141d264f4da9.json`) carries `terminal: {ingress: SubagentStop, ts: 2026-09-10T23:49:01.889703Z}`, and its cross-repository member is `removed`, `removed_ts 2026-09-10T23:50:26Z` — the lane took it eighty-five seconds after the stop. The question this bullet handed the next reviewer was already answered by the record it was read from. The INDETERMINATE the read-only run showed was the two-row shape (Frank D3, round four): the id-less `prepared` row every helper-made tree carries fell to step 3, and INDETERMINATE outranks NOT-ALIVE in `judge()`.
+
+### 4a. What this round's own suite wrote to the operator's ledger — added 2026-09-11 (round 15)
+
+**This record's §7 said thirty-one suite runs, each in its own sandbox, and that sentence was false for one of them.** `session-start-stdin.test.sh` case 9b ran the shipped SessionStart reaper with `CLAUDE_PROJECT_DIR` pointed at a sandbox repository and `HOME` left as the operator's. The reaper read the operator's real `~/.claude/teams/*/inflight-repos.txt`, discovered the real richos registry, judged every hand-rolled tree in it with the sandbox entity — in which no native shell can exist — and step 2b of this round's O2, write-enabled through `judge-batch`, appended:
+
+```
+2026-09-11T00:02:34.984941+00:00  terminated  ae904aac1949e5696  sage-fable-cert3  /Users/alex/ab/richos-wt/sage-fable-cert3  witness=platform-terminal-record
+```
+
+to `~/.claude/state/worktree-ledger.jsonl`, while that agent's native shell was, and still is, LOCKED by running pid 84597 (§7's `session-start-stdin` row: rc 0, 41 s, run began 00:02:28Z; the O2 commit `2392c68e` is 23:59:17Z). Both round-four reviewers found the row independently (Sage D-A, Frank D1/D2); Frank reproduced the write twice against a copy of the ledger. It is a false witness — a termination nobody witnessed, written while the platform held the shell — and step 1 of the same judge returned it ahead of the lock on every later call. Round 15 stops the judge writing from the record, resolves the lock where the shell lives, moves `HOME` in both suites that run the reaper, adds a runner-level canary over the operator's record, and gives the ledger a `retracted` event; the row itself is dealt with on the round-15 record (`reclaim-round-15-zach-fable-fix4-2026-09-11.md` §2) with the exact retraction command, which the coordinator runs after the land.
 
 ---
 

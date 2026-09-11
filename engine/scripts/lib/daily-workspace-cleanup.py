@@ -816,12 +816,38 @@ def ignored_files(path):
 
 def git_store_roots(path, listed):
     """The OUTERMOST directories under `path` that git would recognize as a
-    repository (bare or not): a regular `HEAD` file beside an `objects/` and a
-    `refs/` directory, checked on disk for every directory whose `HEAD` the
-    listing names. Returned as trailing-slash relative paths, sorted. The
-    worktree's own root is never one (its `.git` is not listed at all); a
-    symlink is never followed into (its contents are not listed either)."""
+    repository (bare or not): a `HEAD` beside an `objects/` and a `refs/`
+    directory, checked on disk for every directory whose `HEAD` the listing
+    names. Returned as trailing-slash relative paths, sorted. The worktree's
+    own root is never one (its `.git` is not listed at all); a symlinked
+    directory is never followed into (its contents are not listed either).
+
+    TWO SHAPES GIT OPENS THAT THE FIRST VERSION DID NOT (Sage D-B / Frank D6,
+    round four, 2026-09-11):
+
+      S1  `HEAD` is a SYMLINK. git's own rule (validate_headref,
+          core.preferSymlinkRefs) accepts a symlink HEAD whose target starts
+          with `refs/`, and `git rev-parse HEAD` in such a store returns the
+          commit. The first version required a regular file, so the store was
+          not collapsed: its objects survived by looks_like_git_object, and
+          its HEAD, config and packed-refs were dropped -- the commit bytes
+          held, the branch NAMES lost (recoverable by `fsck --lost-found`,
+          which is a loss of what git holds by name). Now accepted by git's
+          rule; a symlink HEAD pointing anywhere else is not a store git would
+          open and is left to clause (ii).
+      S3  `objects/` is a SYMLINK to a sibling under the same worktree
+          (hand-built; no git command produces it). The store IS collapsed and
+          the archive holds `objects` as a link (residue_manifest records
+          links by design) -- so the real object files at the target, which
+          carry no `objects/` component, were dropped by their parent's name.
+          Now the target is collapsed too when it lies under this worktree.
+          BOUNDARY, stated: a target OUTSIDE the worktree is not this tree's
+          bytes; the removal does not touch it and this lane does not archive
+          it. Likewise `objects/info/alternates`: the objects it names are
+          elsewhere by construction.
+    """
     roots = []
+    base = os.path.realpath(path)
     for rel in listed:
         if rel.endswith('/') or os.path.basename(rel) != 'HEAD':
             continue
@@ -831,9 +857,27 @@ def git_store_roots(path, listed):
         full = os.path.join(path, rel_dir)
         if os.path.islink(full) or not os.path.isdir(full):
             continue
-        if (os.path.isfile(os.path.join(full, 'HEAD')) and not os.path.islink(os.path.join(full, 'HEAD'))
-                and os.path.isdir(os.path.join(full, 'objects')) and os.path.isdir(os.path.join(full, 'refs'))):
-            roots.append(rel_dir + '/')
+        head = os.path.join(full, 'HEAD')
+        if os.path.islink(head):
+            # S1 -- git's own rule: a symlink HEAD must point under refs/
+            try:
+                target = os.readlink(head)
+            except OSError:
+                continue
+            if not target.startswith('refs/'):
+                continue
+        elif not os.path.isfile(head):
+            continue
+        objects = os.path.join(full, 'objects')
+        if not (os.path.isdir(objects) and os.path.isdir(os.path.join(full, 'refs'))):
+            continue
+        roots.append(rel_dir + '/')
+        if os.path.islink(objects):
+            # S3 -- the bytes live at the link's target; collapse it too when
+            # it is under this worktree (a target outside is the stated boundary)
+            real = os.path.realpath(objects)
+            if real.startswith(base + os.sep) and os.path.isdir(real):
+                roots.append(os.path.relpath(real, base) + '/')
     roots.sort()
     outermost = []
     for root in roots:

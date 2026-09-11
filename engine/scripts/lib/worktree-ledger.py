@@ -911,7 +911,17 @@ def bound_members(session_id, agent_id):
         return []
 
 
+_TX_MODULE = None
+
+
 def _transactions_module():
+    """The transaction library, loaded ONCE per process. It reads its store
+    root from the environment on every call, so caching the module changes
+    nothing a test that redirects RICHOS_WORKTREE_TX_DIR can observe; what it
+    saves is one exec of a 2,300-line file per registration in a batch."""
+    global _TX_MODULE
+    if _TX_MODULE is not None:
+        return _TX_MODULE
     try:
         import importlib.util as ilu
         here = os.path.dirname(os.path.abspath(__file__))
@@ -919,16 +929,51 @@ def _transactions_module():
             "worktree_transactions_for_ledger", os.path.join(here, "worktree-transactions.py"))
         mod = ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
+        _TX_MODULE = mod
         return mod
     except Exception:
         return None
 
 
+RETRACTION_EVENT = "retracted"
+
+# A witness KIND whose fact does not live in this ledger: the transaction
+# store holds it and step 2b of _judge_registration re-reads it live on every
+# judgment (round 15, 2026-09-11 — Frank D1 / Sage D-A). Round 14 persisted
+# one such row (`platform-terminal-record`) from step 2b, and step 1 then
+# returned it ahead of the platform's own lock forever. Nothing writes that
+# kind any more; a row of it already on a ledger is corroboration, never a
+# verdict, so step 1 does not return on it.
+RECORD_DERIVED_WITNESSES = ("platform-terminal-record",)
+
+
+def retractions(records, agent_id):
+    """Every `retracted` row for this agent id: the `ts` values of the
+    `terminated` rows it supersedes."""
+    if not agent_id:
+        return set()
+    return {(r.get("retracts_ts") or "") for r in records
+            if r.get("event") == RETRACTION_EVENT and (r.get("agent_id") or "") == agent_id}
+
+
 def terminations(records, agent_id):
+    """The `terminated` rows for this agent id THAT STILL STAND.
+
+    THE LEDGER IS APPEND-ONLY, SO A WRONG ROW IS SUPERSEDED, NEVER EDITED
+    (round 15, 2026-09-11 — Frank condition 2 / Sage D-A). A `retracted` row
+    for the same agent id naming the exact `ts` of a `terminated` row voids
+    that row for every reader that comes through here: the judge's step 1,
+    `record terminated --once`, adoption's T3 corroboration. A retraction
+    that names a `ts` no row carries is inert. Written only by the `retract`
+    verb, which refuses unless exactly one row matches and prints what it
+    voids, so the record says what happened and why.
+    """
     if not agent_id:
         return []
+    retracted = retractions(records, agent_id)
     return [r for r in records
-            if r.get("event") == "terminated" and (r.get("agent_id") or "") == agent_id]
+            if r.get("event") == "terminated" and (r.get("agent_id") or "") == agent_id
+            and (r.get("ts") or "") not in retracted]
 
 
 def finished_signals(records, agent_id="", worktree=""):
@@ -988,19 +1033,49 @@ def platform_terminal_record(reg):
     CEO's screen until the whole session ended, and the operator door
     (remove-agent-worktree.sh, 22:57:02Z) refused the same path the reclaim
     lane removed sixteen minutes later (23:00:31Z, "in the terminal
-    event") — two authorities, two readings of one record.
+    event") — the lane and the operator door read one record two ways.
 
     THE SIGNAL. The reclaim lane authorizes on the transaction's TERMINAL
     RECORD: the platform's own terminal ingress (SubagentStop) claimed this
     agent id, the transaction is sealed, and this exact path is one of its
     members — a fact the platform produced, not an absence. Its known
-    caveat is that a terminal agent can be run again (14 of 72 on this
+    caveat is that a terminal agent can be run again (14 of 74 on this
     machine), and row 5 of the decision table answers that from two
     sources with the session's death voiding it (post_terminal_run_open).
-    This function applies exactly that standard, so a door reading it
-    authorizes nothing the lane would not. An adopted transaction is not
-    the platform's word and never counts; a store that cannot be read
+    This function applies exactly that standard. An adopted transaction is
+    not the platform's word and never counts; a store that cannot be read
     counts for nothing.
+
+    WHAT ROUND 14 GOT WRONG WITH IT, AND WHAT ROUND 15 CHANGED (2026-09-11,
+    Frank D1 / Sage D-A, both keys independently). Step 2b of
+    _judge_registration read this function only after resolving the lock
+    in the CALLER'S entity, and with write on it APPENDED a `terminated`
+    row (witness `platform-terminal-record`) that step 1 then returned on
+    every later call, ahead of the lock and ahead of row 5. A judge asked
+    with the tree's own repository as entity — the documented, observed
+    misuse — found no shell there, fell through to the record, and wrote a
+    termination while the owner's shell was LOCKED by a running pid in the
+    session's repository. It happened once on the operator's ledger, at
+    2026-09-11T00:02:34.984941+00:00 for agent ae904aac1949e5696
+    (sage-fable-cert3), written by round 14's own session-start-stdin suite
+    running the real reaper against the real ledger with a sandbox entity.
+    Now: the lock is resolved in EVERY repository that can hold this
+    owner's shell before this function is consulted (_lock_entities), a
+    held lock returns before the record is read, and NOTHING IS WRITTEN
+    from 2b — this function is re-read live on every judgment, as the lane
+    re-reads its transaction, so a door reading it authorizes nothing the
+    lane would not and nothing outlives the fact it was read from.
+
+    THE TWO-ROW SHAPE (Frank D3). Every tree create-teammate-worktree.sh
+    makes carries a `prepared` row with NO agent id and, after the spawn, a
+    `registered` row with one. This function needs the id, so on its own it
+    decided the registered row and the id-less row fell to step 3 — and
+    INDETERMINATE outranks NOT-ALIVE in judge(), so no helper-made tree was
+    ever decided by it while the session lived (76 of 76 on the operator's
+    ledger, both keys' count). judge() now joins the id-less row to the id
+    by the exact rule the lane's owner_check and bind_late_members already
+    trust (same session, same teammate, same exact path, both rows from an
+    engine writer, exactly one id), so both rows are judged as one agent.
 
     Returns (state, reason): `terminal` (positive evidence, reason quotes it),
     `open` (the record is terminal but a post-terminal run is OPEN — the
@@ -1046,60 +1121,154 @@ def platform_terminal_record(reg):
                         % (aid, terminal.get("ingress") or "?", terminal.get("ts") or "?", path, index + 1, len(members)))
 
 
+def _lock_entities(reg, records, entity):
+    """Every repository whose native isolation-worktree LOCK can speak for
+    this registration's owner, most specific first, the caller's entity last.
+
+    THE ENTITY IS THE OWNER'S SESSION REPOSITORY, NOT THE WORKTREE'S. A
+    cross-repository worktree in `richos-wt/` is owned by an agent whose shell
+    — the one that carries the lock — lives in its SESSION's repository, and
+    the operator door, the remover and the reaper each pass ONE entity: the
+    session's resolved root, `--entity-repo`, or the repository being swept.
+    On 2026-09-10 the same path answered INDETERMINATE with `--entity richos`
+    and ALIVE with `--entity femcboost`, at the same moment; on 2026-09-11
+    round 14's step 2b turned that INDETERMINATE into a written termination
+    while the shell was LOCKED (Frank D1 / Sage D-A). So the join is here,
+    inside the judge, where no caller can get it wrong:
+
+      1. a native registration's own repository (the row names it);
+      2. every repository this agent id has a NATIVE registration in on the
+         ledger — detect-nonnative-worktree.sh writes one per spawn, in the
+         session's repository, beside the hand-rolled rows;
+      3. the transaction's own native member's repository — the manifest the
+         reclaim lane reads (owner_check), so both authorities look in the
+         same place;
+      4. the caller's entity.
+
+    ALIVE anywhere is decisive (a lock held by a running pid is positive
+    evidence of life wherever it is found); INDETERMINATE anywhere holds;
+    an OBSERVED unlocked shell anywhere is the observation it always was.
+    """
+    aid = (reg.get("agent_id") or "").strip()
+    out = []
+
+    def add(p):
+        p = (p or "").strip()
+        if p and p not in out:
+            out.append(p)
+
+    if reg.get("class") == "native":
+        add(reg.get("repo"))
+    if aid:
+        for r in records:
+            if (r.get("event") in OWNERSHIP_EVENTS and (r.get("agent_id") or "").strip() == aid
+                    and r.get("class") == "native"):
+                add(r.get("repo"))
+        sid = reg.get("session_id") or ""
+        tx = _transactions_module() if sid else None
+        if tx is not None:
+            try:
+                transaction = tx.load_tx(sid, aid)
+            except Exception:
+                transaction = None
+            if isinstance(transaction, dict):
+                for m in transaction.get("members") or []:
+                    if isinstance(m, dict) and m.get("class") == "native":
+                        repo = m.get("repo") or ""
+                        if not repo and m.get("path"):
+                            # <entity>/.claude/worktrees/agent-<id>: the entity is
+                            # three levels up, and only that shape is a native member
+                            p = norm_path(m.get("path"))
+                            if os.path.basename(os.path.dirname(p)) == "worktrees" \
+                                    and os.path.basename(os.path.dirname(os.path.dirname(p))) == ".claude":
+                                repo = os.path.dirname(os.path.dirname(os.path.dirname(p)))
+                        add(repo)
+    add(entity)
+    return out
+
+
 def _judge_registration(reg, entity, records, mod, write, ledger):
     """(verdict, reason) for ONE registration. NOT-ALIVE only on positive
-    evidence; absence lands in INDETERMINATE."""
+    evidence; absence lands in INDETERMINATE.
+
+    ORDER, and why each step sits where it does (round 15):
+      1. a witnessed termination on record — a row THIS ledger is the
+         authority for (an observed unlocked shell, an operator's removal),
+         not superseded by a `retracted` row, and not of a kind whose fact
+         lives elsewhere (RECORD_DERIVED_WITNESSES);
+      2. the native lock, live, in every repository that can hold it
+         (_lock_entities) — a held lock outranks every record below;
+      2b. the platform's terminal record in the transaction store, re-read
+          live, with row 5 applied — NEVER persisted from here;
+      3. the session's process identity; 4. exhaustion.
+    """
     aid = (reg.get("agent_id") or "").strip()
     name = reg.get("teammate") or "?"
     sid = (reg.get("session_id") or "")[:8]
+    joined = ("prepared row joined to agent %s (same session, same teammate, same exact path, "
+              "both rows from an engine writer): " % aid) if reg.get("joined_from") else ""
 
-    # 1. a witnessed termination already on record
-    term = terminations(records, aid)
+    # 1. a witnessed termination already on record — one this ledger holds
+    #    as its own fact. A retracted row does not stand (terminations());
+    #    a record-derived kind is re-read at 2b and never returns here.
+    term = [t for t in terminations(records, aid)
+            if (t.get("witness") or "") not in RECORD_DERIVED_WITNESSES]
     if term:
         t = term[-1]
-        return NOT_ALIVE, ("witnessed termination on record for agent %s (%s): %s at %s"
+        return NOT_ALIVE, (joined + "witnessed termination on record for agent %s (%s): %s at %s"
                            % (aid, name, t.get("reason") or t.get("witness") or "?", t.get("ts")))
 
-    # 2. the native lock, live, through the one resolver
-    lock_entity = reg.get("repo") if reg.get("class") == "native" and reg.get("repo") else entity
-    if aid and mod is not None and lock_entity:
-        rec = mod.resolve(lock_entity, aid)
-        v = rec.get("verdict")
-        ev = rec.get("evidence") or {}
-        if v == mod.ALIVE:
-            return ALIVE, ("its isolation worktree %s is LOCKED by running pid %s"
+    # 2. the native lock, live, through the one resolver — in EVERY repository
+    #    that can hold this owner's shell, not only the caller's entity.
+    if aid and mod is not None:
+        alive = indeterminate = observed = None
+        for lock_entity in _lock_entities(reg, records, entity):
+            try:
+                rec = mod.resolve(lock_entity, aid)
+            except Exception as error:
+                return INDETERMINATE, (joined + "the lock resolver failed for agent %s in %s: %s"
+                                       % (aid, lock_entity, error))
+            v = rec.get("verdict")
+            ev = rec.get("evidence") or {}
+            if v == mod.ALIVE and alive is None:
+                alive = rec
+            elif v == mod.INDETERMINATE and indeterminate is None:
+                indeterminate = rec
+            elif v == mod.NOT_ALIVE and ev.get("registered") and observed is None:
+                observed = rec
+        if alive is not None:
+            ev = alive.get("evidence") or {}
+            return ALIVE, (joined + "its isolation worktree %s is LOCKED by running pid %s"
                            % (ev.get("worktree_path"), ev.get("pid")))
-        if v == mod.INDETERMINATE:
-            return INDETERMINATE, rec.get("reason") or "liveness could not be resolved"
-        if v == mod.NOT_ALIVE and ev.get("registered"):
-            reason = rec.get("reason") or "isolation worktree registered and unlocked"
+        if indeterminate is not None:
+            return INDETERMINATE, joined + (indeterminate.get("reason") or "liveness could not be resolved")
+        if observed is not None:
+            ev = observed.get("evidence") or {}
+            reason = observed.get("reason") or "isolation worktree registered and unlocked"
             if write:
                 append({"event": "terminated", "agent_id": aid, "teammate": name,
                         "session_id": reg.get("session_id") or "",
                         "worktree": ev.get("worktree_path") or "",
                         "reason": reason, "witness": "reaper-observation"}, ledger)
-            return NOT_ALIVE, "OBSERVED now: " + reason
+            return NOT_ALIVE, joined + "OBSERVED now: " + reason
         # NOT-ALIVE on ABSENCE: never accepted here. Fall through to the one
         # piece of evidence that outlives the lock — the session identity.
 
     # 2b. THE PLATFORM'S TERMINAL RECORD in the transaction store — the same
     #     positive fact the reclaim lane removes on, with row 5 applied
-    #     (round 14, O2). Reached only when the native shell is absent or
-    #     unregistered: a held lock (ALIVE, or INDETERMINATE with no pid) has
-    #     already returned above, and the lock outranks the record.
+    #     (round 14, O2). Reached only when no repository that can hold this
+    #     owner's shell holds a lock for it. READ, NEVER WRITTEN (round 15):
+    #     the store is the fact and is re-read on every judgment; a ledger
+    #     copy would outrank the lock on the next call, which is exactly what
+    #     round 14's copy did.
     if aid:
         state, why_terminal = platform_terminal_record(reg)
         if state == "terminal":
-            if write:
-                append({"event": "terminated", "agent_id": aid, "teammate": name,
-                        "session_id": reg.get("session_id") or "",
-                        "worktree": reg.get("worktree") or "",
-                        "reason": why_terminal, "witness": "platform-terminal-record"}, ledger)
-            return NOT_ALIVE, "platform terminal record: " + why_terminal
+            return NOT_ALIVE, joined + "platform terminal record: " + why_terminal
         if state == "open":
             # The agent was run AGAIN after its terminal record and that run
             # is open: not dead, not provably alive through a lock either.
-            return INDETERMINATE, why_terminal
+            return INDETERMINATE, joined + why_terminal
 
     # 3. session identity — the evidence the lock carried, retained
     pid = reg.get("session_pid")
@@ -1146,6 +1315,59 @@ def _judge_registration(reg, entity, records, mod, write, ledger):
                           % (aid or "?", name))
 
 
+def _join_prepared_rows(regs):
+    """The exact-path registrations for one tree, with every id-less
+    `prepared` row JOINED to the agent id the engine's own `registered` row
+    for the same tree names — when the join is exact.
+
+    THE TWO-ROW SHAPE (round 15, Frank D3). create-teammate-worktree.sh runs
+    BEFORE the spawn and cannot know the agent id, so it writes `prepared`
+    with none; detect-nonnative-worktree.sh writes `registered` with the id
+    after. judge() judges every row and lets INDETERMINATE outrank NOT-ALIVE,
+    and an id-less row skips steps 1, 2 and 2b and lands in step 3 while the
+    session lives — so for every helper-made tree on the operator's ledger
+    (76 of 76, both round-four keys) the terminal record decided nothing
+    until the whole session ended, and the "two authorities" step 2b was
+    written to reconcile still read the same tree two ways.
+
+    THE JOIN IS THE ONE THE LANE ALREADY TRUSTS, OR IT DOES NOT HAPPEN
+    (owner_check in daily-workspace-cleanup.py; bind_late_members in
+    worktree-transactions.py): same session id, same teammate, same EXACT
+    path (regs are exact-path already), BOTH rows written by an engine
+    writer (row_may_bind_by_name — a hand-written row still reserves and
+    never binds), and exactly ONE agent id among the candidates. Two ids
+    for one name in one session is ambiguous and the row stays id-less;
+    a hand-written prepared row stays id-less; a prepared row whose spawn
+    never happened has no registered row and stays id-less. Nothing is
+    matched by prefix, basename or branch. A joined row carries
+    `joined_from: prepared` and its verdict says so.
+    """
+    out = []
+    for reg in regs:
+        if reg.get("event") != "prepared" or (reg.get("agent_id") or "").strip() \
+                or not row_may_bind_by_name(reg):
+            out.append(reg)
+            continue
+        sid = reg.get("session_id") or ""
+        teammate = reg.get("teammate") or ""
+        ids = set()
+        if sid and teammate:
+            for r in regs:
+                if (r.get("event") == "registered" and (r.get("agent_id") or "").strip()
+                        and row_may_bind_by_name(r)
+                        and (r.get("session_id") or "") == sid
+                        and (r.get("teammate") or "") == teammate):
+                    ids.add((r.get("agent_id") or "").strip())
+        if len(ids) == 1:
+            joined = dict(reg)
+            joined["agent_id"] = ids.pop()
+            joined["joined_from"] = "prepared"
+            out.append(joined)
+        else:
+            out.append(reg)
+    return out
+
+
 def judge(entity, worktree, names, records, transcript_names=None, mod=None,
           write=True, ledger=None, repo=None):
     """The owner verdict for one hand-rolled worktree — from an EXACT PATH
@@ -1162,7 +1384,7 @@ def judge(entity, worktree, names, records, transcript_names=None, mod=None,
     transcript_names = transcript_names or {}
     seen = set()
     names = [n for n in names if n and not (n in seen or seen.add(n))]
-    regs = registrations(records, worktree=worktree, repo=repo)
+    regs = _join_prepared_rows(registrations(records, worktree=worktree, repo=repo))
     source = "ledger" if regs else ""
     if not regs:
         hint = ""
@@ -1244,6 +1466,44 @@ def _cmd_record(args):
         if terminations(read_all(args.ledger), rec.get("agent_id") or ""):
             print(json.dumps({"skipped": "already on record", "agent_id": rec.get("agent_id")}))
             return 0
+    ok = append(rec, args.ledger)
+    print(json.dumps(rec, sort_keys=True))
+    return 0 if ok else 1
+
+
+def _cmd_retract(args):
+    """Void ONE `terminated` row by appending a `retracted` row that names it
+    exactly (agent id + the row's own `ts`). Refuses unless exactly one row
+    matches; prints the row it voids; `--dry-run` prints and writes nothing;
+    a second retraction of the same row is skipped, not duplicated.
+
+    THE LEDGER IS APPEND-ONLY. A wrong row is not edited out — it stays on
+    the record with the row that supersedes it beside it, carrying the
+    reason and the source, so the record says what happened (round 15,
+    Frank condition 2: the `platform-terminal-record` row round 14's own
+    suite wrote for a locked, running owner)."""
+    records = read_all(args.ledger)
+    aid = (args.agent_id or "").strip()
+    ts = (args.ts or "").strip()
+    matches = [r for r in records
+               if r.get("event") == "terminated" and (r.get("agent_id") or "").strip() == aid
+               and (r.get("ts") or "") == ts]
+    if len(matches) != 1:
+        print(json.dumps({"refused": "exactly one terminated row must match",
+                          "agent_id": aid, "ts": ts, "matches": len(matches)}, sort_keys=True))
+        return 2
+    row = matches[0]
+    if ts in retractions(records, aid):
+        print(json.dumps({"skipped": "already retracted", "agent_id": aid, "retracts_ts": ts}, sort_keys=True))
+        return 0
+    rec = {"event": RETRACTION_EVENT, "agent_id": aid, "retracts_ts": ts,
+           "retracts_witness": row.get("witness") or "", "teammate": row.get("teammate") or "",
+           "session_id": row.get("session_id") or "", "worktree": row.get("worktree") or "",
+           "reason": args.reason, "source": args.source or "operator"}
+    print(json.dumps({"retracts": row}, sort_keys=True))
+    if args.dry_run:
+        print(json.dumps({"dry_run": rec}, sort_keys=True))
+        return 0
     ok = append(rec, args.ledger)
     print(json.dumps(rec, sort_keys=True))
     return 0 if ok else 1
@@ -1443,6 +1703,13 @@ def main(argv=None):
                    help="terminated: skip if one is already on record for this agent id")
     p.add_argument("--extra", action="append", default=[], help="k=v")
 
+    p = sub.add_parser("retract", help="void one terminated row by appending a retracted row that names it")
+    p.add_argument("--agent-id", dest="agent_id", required=True)
+    p.add_argument("--ts", required=True, help="the exact `ts` of the terminated row being retracted")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--source", default="operator")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+
     p = sub.add_parser("judge")
     p.add_argument("--entity", required=True)
     p.add_argument("--worktree", default="")
@@ -1501,6 +1768,7 @@ def main(argv=None):
         return 0
     return {
         "record": _cmd_record,
+        "retract": _cmd_retract,
         "judge": _cmd_judge,
         "judge-batch": _cmd_judge_batch,
         "registrations": _cmd_registrations,

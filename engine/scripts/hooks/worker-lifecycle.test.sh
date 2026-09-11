@@ -429,6 +429,74 @@ else
     fail "8f  the \$HOME fallback wrote nothing"
 fi
 
+# ---------------------------------------------------------------------------
+# 9. THE WRITER AND THE READER AGREE ON WHERE A SESSION WITH NO TEAM DIRECTORY
+#    WRITES (round 15, 2026-09-11 — Frank D4). resolve_team_dir() used to file
+#    a KNOWN session's row into the single `session-*` directory that happened
+#    to exist — another session's log, which only that session's reader opens
+#    and this session's reader never does. Reproduced by Frank in a sandbox:
+#    one foreign directory, the row landed there, the reader returned []. Now
+#    a known session whose own directory is absent writes to the fallback file,
+#    which the reader (worktree-transactions.platform_lifecycle_after) opens
+#    keyed by the full session id. Both arms: 9a the row reaches the fallback
+#    AND the reader returns it; 9b the single-directory guess still serves the
+#    case it was written for, a payload with NO session id.
+# ---------------------------------------------------------------------------
+# The topology is the real one: the teams directory under the home's .claude,
+# so the writer's fallback ($HOME/.claude/worker-events.jsonl) and the reader's
+# (the sibling of the teams directory) are the SAME file, as they are in
+# production. A fixture that put them in different places would test the
+# fixture.
+HOME2="$SANDBOX/home2"; TEAMS2="$HOME2/.claude/teams"
+mkdir -p "$TEAMS2/session-ffffffff"                             # exactly ONE directory, and it is FOREIGN
+rc="$(printf '%s' "$STARTED" | WORKER_EVENTS_TEAMS_DIR="$TEAMS2" HOME="$HOME2" RICHOS_WORKTREE_LEDGER="$WL" "$STARTED_HOOK" >/dev/null 2>&1; echo $?)"
+if [ "$rc" = "0" ] && [ ! -e "$TEAMS2/session-ffffffff/worker-events.jsonl" ] \
+   && grep -q '"agent_id": "aTESTWORKER00001"' "$HOME2/.claude/worker-events.jsonl" 2>/dev/null; then
+    pass "9a  writer: a KNOWN session whose own directory is absent writes to the FALLBACK file, never into the one foreign directory that happens to exist"
+else
+    fail "9a  writer: foreign-dir=$([ -e "$TEAMS2/session-ffffffff/worker-events.jsonl" ] && echo written || echo untouched) fallback=$([ -e "$HOME2/.claude/worker-events.jsonl" ] && echo written || echo missing) rc=$rc"
+fi
+# ...and the READER finds that row through the same door, so the two agree.
+if RICHOS_TEAMS_DIR="$TEAMS2" python3 - "$SCRIPT_DIR/../lib/worktree-transactions.py" "$SESSION_ID" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+rows = tx.platform_lifecycle_after(sys.argv[2], "aTESTWORKER00001", "2000-01-01T00:00:00+00:00")
+assert [k for _w, k, _s in rows] == ["start"], rows
+PY
+then pass "9a' reader: platform_lifecycle_after returns that start from the fallback file, keyed by the full session id — the writer and the reader agree"
+else fail "9a' reader: the row the writer filed was not read back (writer and reader disagree)"
+fi
+# 9b CONTROL — no session id at all: the single-directory guess is the only
+# key there is, and it still applies (the pre-existing behavior, kept for the
+# case it was written for).
+rm -f "$HOME2/.claude/worker-events.jsonl"
+NOSID='{"hook_event_name":"SubagentStart","cwd":"/repo","agent_id":"aTESTWORKER00002","agent_type":"dev"}'
+rc="$(printf '%s' "$NOSID" | WORKER_EVENTS_TEAMS_DIR="$TEAMS2" HOME="$HOME2" RICHOS_WORKTREE_LEDGER="$WL" "$STARTED_HOOK" >/dev/null 2>&1; echo $?)"
+if [ "$rc" = "0" ] && grep -q '"agent_id": "aTESTWORKER00002"' "$TEAMS2/session-ffffffff/worker-events.jsonl" 2>/dev/null \
+   && [ ! -e "$HOME2/.claude/worker-events.jsonl" ]; then
+    pass "9b  control: a payload with NO session id still goes to the single directory that exists — the guess serves the case it was written for and no other"
+else
+    fail "9b  control: no-session-id row: single-dir=$(grep -c aTESTWORKER00002 "$TEAMS2/session-ffffffff/worker-events.jsonl" 2>/dev/null || echo 0) fallback=$([ -e "$HOME2/.claude/worker-events.jsonl" ] && echo written || echo missing) rc=$rc"
+fi
+# the same rule in the other three writers, by the same two files
+for hook in "$CREATED_HOOK" "$UPDATED_HOOK" "$ENDED_HOOK"; do
+    b="$(basename "$hook")"
+    rm -f "$HOME2/.claude/worker-events.jsonl" "$TEAMS2/session-ffffffff/worker-events.jsonl"
+    case "$b" in
+        worker-created-handoff.sh) P="$SPAWN_OK" ;;
+        worker-updated-handoff.sh) P='{"hook_event_name":"SubagentStop","session_id":"'"$SESSION_ID"'","agent_id":"aTESTWORKER00001","agent_type":"dev","tool_name":"TaskUpdate","tool_input":{"status":"in_progress"}}' ;;
+        *) P="$ENDED" ;;
+    esac
+    printf '%s' "$P" | WORKER_EVENTS_TEAMS_DIR="$TEAMS2" HOME="$HOME2" RICHOS_WORKTREE_LEDGER="$WL" "$hook" >/dev/null 2>&1
+    if [ -e "$TEAMS2/session-ffffffff/worker-events.jsonl" ]; then
+        fail "9c  $b: filed a known session's row into the one foreign directory"
+    elif [ "$b" = "worker-updated-handoff.sh" ] && [ ! -e "$HOME2/.claude/worker-events.jsonl" ]; then
+        pass "9c  $b: wrote nothing into the foreign directory (and nothing at all for this payload, which is its own rule)"
+    else
+        pass "9c  $b: a known session's row never lands in the one foreign directory"
+    fi
+done
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "ALL $PASS WORKER-LIFECYCLE TESTS PASSED"

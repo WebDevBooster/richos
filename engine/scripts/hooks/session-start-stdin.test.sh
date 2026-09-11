@@ -49,6 +49,54 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 # The launching session's own project dir must not leak in as a candidate.
 unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT
 
+# ===========================================================================
+# THE OPERATOR'S RECORD IS OUT OF REACH, AND BOTH ARMS SAY SO (round 15,
+# 2026-09-11 — Frank D2, Sage D-A). Case 9b runs the SHIPPED SessionStart
+# reaper, and until this block it ran it with the operator's real HOME: the
+# reaper read ~/.claude/teams/*/inflight-repos.txt, discovered the operator's
+# real richos registry, judged a REAL agent's cross-repository tree with this
+# suite's sandbox entity — in which no shell can exist — and, through round
+# 14's step 2b, appended a `terminated` row to ~/.claude/state/worktree-
+# ledger.jsonl at 2026-09-11T00:02:34.984941+00:00 for sage-fable-cert3, whose
+# shell was LOCKED by a running pid. All 11 cases passed. Both round-four
+# reviewers found the row; Frank reproduced the write twice against a copy.
+#
+# So: the real record's witness is taken FIRST (the library captures the real
+# paths at source time), then HOME moves into the sandbox, and every path the
+# reaper or the hooks resolve under HOME is named explicitly as well — belt
+# and braces, because one of them being missed is the whole class. Case 9l
+# proves the redirect is honored (the reaper names the SANDBOX paths in its
+# own output); case 9m proves the real record did not move. The runner's
+# record canary (scripts/lib/record-canary.sh) is the backstop for every
+# suite; this is the suite that earned it.
+# ===========================================================================
+# shellcheck source=../lib/record-canary.sh
+. "$SRC_ENGINE/scripts/lib/record-canary.sh"
+rc_baseline "$SANDBOX/real-record-baseline.txt"
+REAL_HOME="$HOME"
+export HOME="$SANDBOX/home"
+mkdir -p "$HOME/.claude/state" "$HOME/.claude/teams" "$HOME/.claude/projects" "$HOME/.claude/sessions"
+# Fixture commits need an identity, and a machine-wide identity guard (if the
+# operator has one in the global hooks path) requires the operator's own: the
+# global config is copied in when there is one, and a fixture identity is set
+# through the environment when there is not (CI).
+if [ -f "$REAL_HOME/.gitconfig" ]; then
+    cp "$REAL_HOME/.gitconfig" "$HOME/.gitconfig"
+else
+    export GIT_AUTHOR_NAME="fixture" GIT_AUTHOR_EMAIL="fixture@example.invalid" \
+           GIT_COMMITTER_NAME="fixture" GIT_COMMITTER_EMAIL="fixture@example.invalid"
+fi
+export CLAUDE_CONFIG_DIR="$HOME/.claude"
+export REAP_WORKTREE_LEDGER="$HOME/.claude/state/worktree-ledger.jsonl"
+export RICHOS_WORKTREE_LEDGER="$REAP_WORKTREE_LEDGER"
+export REAP_TEAM_DIR="$HOME/.claude/teams" RICHOS_TEAMS_DIR="$HOME/.claude/teams" \
+       WORKER_EVENTS_TEAMS_DIR="$HOME/.claude/teams" RICHOS_LIVENESS_TEAMS_DIR="$HOME/.claude/teams"
+export REAP_LEDGER="$HOME/.claude/state/reap-known-repos.txt"
+export REAP_PROJECTS_DIR="$HOME/.claude/projects" RICHOS_PROJECTS_DIR="$HOME/.claude/projects"
+export RICHOS_SESSIONS_DIR="$HOME/.claude/sessions"
+export RICHOS_WORKTREE_TX_DIR="$HOME/.claude/state/worktree-transactions"
+export RICHOS_WORKTREE_CAPTURE_DIR="$HOME/.claude/state/worktree-captures"
+
 # --- build the topology ----------------------------------------------------
 mk_repo() {
     local r="$SANDBOX/$1"
@@ -366,6 +414,32 @@ elif [ -z "$REGISTERED_SS" ]; then
     bad "9j could not read the SessionStart registrations from hooks.json — coverage unproven"
 else
     bad "9j SessionStart scripts registered but never hang-checked:$UNCOVERED"
+fi
+
+# ---------------------------------------------------------------------------
+# 9l / 9m — BOTH ARMS OF THE REDIRECT (round 15). 9l POSITIVE: the reaper,
+# run exactly as 9b runs it but with its output kept, names the SANDBOX
+# ledger and the SANDBOX team directory in its own blind lines — so the paths
+# it resolved are provably under the moved HOME, not the operator's. It needs
+# a hand-rolled worktree of the session repository on disk, because the
+# ledger line is only printed when there is a hand-rolled candidate to judge.
+# 9m NEGATIVE: the operator's real record — ledger rows (except the
+# platform's per-turn `finished` rows), the fallback event log, the team
+# directory entries — is exactly as it was before HOME moved.
+# ---------------------------------------------------------------------------
+git -C "$SESSREPO" worktree add -q -b mark-opus-t1 "$SANDBOX/sessrepo-wt/mark-opus-t1" >/dev/null 2>&1
+run session-start-reap-worktrees.sh '' "CLAUDE_PROJECT_DIR=$SESSREPO"
+if printf '%s' "$OUT" | grep -q "no ownership ledger exists yet at $HOME/.claude/state/worktree-ledger.jsonl" \
+   && printf '%s' "$OUT" | grep -q "no inflight-repos.txt under $HOME/.claude/teams"; then
+    ok "9l POSITIVE  the reaper resolved the ownership ledger and the team directories under the SANDBOX home ($HOME) — the redirect is honored, not assumed"
+else
+    bad "9l the reaper did not name the sandbox ledger and team directory in its blind lines (out=${OUT:0:600})"
+fi
+TOUCHED="$(rc_escaped "$SANDBOX/real-record-baseline.txt")"
+if [ "$RC_HEALTHY" -eq 1 ] && [ -z "$TOUCHED" ]; then
+    ok "9m NEGATIVE  the operator's real record under $RC_CFG is untouched by this suite (ledger rows except finished, fallback event log, team directory entries)"
+else
+    bad "9m the operator's real record CHANGED during this suite (healthy=$RC_HEALTHY): $TOUCHED"
 fi
 
 echo ""
