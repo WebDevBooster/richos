@@ -142,7 +142,13 @@ nothing).
 **The leak canary is not lost.** `run-all-tests.sh` takes a per-suite baseline so a suite that
 writes outside its sandbox is NAMED rather than bisected — the 2026-09-05 `escalations.test.sh`
 finding. `ci-shard.sh` takes the same per-unit baseline through the same
-`lib/leak-canary.sh`; case S15 proves it fires.
+`lib/leak-canary.sh`; case S15 proves it fires. Since round 15 (2026-09-11) both runners also
+baseline **the operator's record** per unit — the ownership ledger (every row except the
+platform's per-turn `finished` rows), the fallback event log and the team directory entries —
+through `lib/record-canary.sh`, after three green suites in two days wrote into `$HOME` under
+the leak canary (the last a false `terminated` witness for a running agent, written by the
+shipped reaper from inside `session-start-stdin.test.sh`). A unit that changes them is
+`RECORD-TOUCHED`, red, with the rows printed; case S15b proves it fires.
 
 **`run-all-tests.sh` was not modified.** The sharded reading is a second, independent
 implementation of the same discovery rule, and `ci-units.test.sh` case **U1** asserts by

@@ -149,6 +149,21 @@
 # answer: scripts/lib/global-state-witness.sh, which watches named paths rather
 # than trees. The two do not overlap and neither subsumes the other.
 #
+# ===========================================================================
+# THE RECORD CANARY, PER SUITE — added 2026-09-11 (round 15)
+# ===========================================================================
+# The third problem, found three times in two days after the paragraph above
+# was written: a suite writing into the OPERATOR'S RECORD under $HOME — the
+# ownership ledger, the platform's fallback event log, the team directories.
+# The last instance was the shipped SessionStart reaper, run by a green suite
+# with a sandbox entity and an unredirected HOME, appending a `terminated`
+# witness for a REAL agent whose shell was locked by a running pid. Each
+# instance was fixed in its suite with a both-arms control; this runner now
+# baselines those three paths before every suite and fails the suite that
+# changes them, so the class is closed at the runner rather than re-found per
+# suite. scripts/lib/record-canary.sh says exactly what it witnesses and the
+# one thing it cannot (the platform's own per-turn `finished` rows).
+#
 # ITS FALSE-POSITIVE VECTOR, MEASURED RATHER THAN GUESSED. 2026-09-05, 49
 # minutes of 10-second sampling with 68 agents live on the machine:
 #
@@ -278,7 +293,7 @@ trap 'rm -rf "$LOG_DIR"' EXIT
 # not there under `set -u` without `-e` prints an error and carries on, and the
 # run would then report a fraction with the canary silently absent — which is
 # the shape of every defect this runner's header is about.
-for lib in tree-witness leak-canary stopwatch; do
+for lib in tree-witness leak-canary record-canary stopwatch; do
     if [ ! -f "$ENGINE_ROOT/scripts/lib/$lib.sh" ]; then
         echo "ERROR: run-all-tests.sh: scripts/lib/$lib.sh is missing." >&2
         echo "       The leak canary cannot run, and this runner will not report a green" >&2
@@ -290,6 +305,15 @@ done
 . "$ENGINE_ROOT/scripts/lib/tree-witness.sh"
 # shellcheck source=lib/leak-canary.sh
 . "$ENGINE_ROOT/scripts/lib/leak-canary.sh"
+# THE OPERATOR'S RECORD, PER SUITE (round 15, 2026-09-11). The leak canary
+# watches checkouts and says so; three suites in two days wrote into $HOME
+# under it — the last one a false `terminated` witness for a running agent,
+# written by the shipped reaper from inside a green suite. This canary watches
+# the ownership ledger, the fallback event log and the team directories, per
+# suite, and a suite that changes them fails here whatever its own output said.
+# Its paths are captured NOW, before any suite can move HOME. See the library.
+# shellcheck source=lib/record-canary.sh
+. "$ENGINE_ROOT/scripts/lib/record-canary.sh"
 # shellcheck source=lib/stopwatch.sh
 . "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
 sw_init
@@ -307,6 +331,7 @@ fi
 printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
+printf '  record canary: watching the operator'"'"'s record under %s (ledger rows except `finished`, the fallback event log, the team directory entries)\n' "$RC_CFG"
 printf '  timing: per suite, clock=%s%s\n' \
     "$SW_METHOD" \
     "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
@@ -335,6 +360,8 @@ for t in "${SUITES[@]}"; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
+    rc_baseline "$CANARY_DIR/record.txt"
+    RECORD_BASE_HEALTHY="$RC_HEALTHY"
     # Each suite is self-contained and sandboxes its own state; none of them
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
@@ -349,15 +376,22 @@ for t in "${SUITES[@]}"; do
     SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
     TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
+    TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
     if [ "$RC" -ne 0 ]; then
         printf '%sFAIL%s (rc=%s) %s\n' "$C_RED" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
         FAILED_NAMES+=("$REL (rc=$RC)")
         TIMES_VERDICT+=("FAIL")
         sed 's/^/        /' "$LOG"
-    elif [ "$CANARY_BASE_HEALTHY" -ne 1 ]; then
+    elif [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ]; then
         printf '%sFAIL%s (canary blind) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
-        LEAKED_NAMES+=("$REL — the canary could not witness one of its roots, so it is NOT reporting a pass")
+        LEAKED_NAMES+=("$REL — a canary could not witness one of its roots (leak: $CANARY_BASE_HEALTHY, record: $RECORD_BASE_HEALTHY), so it is NOT reporting a pass")
         TIMES_VERDICT+=("CANARY-BLIND")
+    elif [ -n "$TOUCHED" ]; then
+        printf '%sFAIL%s (touched the operator'"'"'s record) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
+        LEAKED_NAMES+=("$REL — touched the operator's record under $RC_CFG")
+        TIMES_VERDICT+=("RECORD-TOUCHED")
+        printf '        TOUCHED THE OPERATOR'"'"'S RECORD — the class that wrote a false termination for a running agent on 2026-09-11:\n'
+        printf '%s\n' "$TOUCHED" | sed 's/^/          /'
     elif [ -n "$ESCAPED" ]; then
         printf '%sFAIL%s (wrote outside its sandbox) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
         LEAKED_NAMES+=("$REL")
@@ -419,7 +453,7 @@ fi
 
 echo ""
 if [ "${#FAILED_NAMES[@]}" -eq 0 ] && [ "${#LEAKED_NAMES[@]}" -eq 0 ]; then
-    printf '%s✓ %s/%s engine test suites passed, and none wrote outside its sandbox.%s\n' \
+    printf '%s✓ %s/%s engine test suites passed, and none wrote outside its sandbox or touched the operator'"'"'s record.%s\n' \
         "$C_GREEN" "$PASSED" "$TOTAL" "$C_RESET"
     exit 0
 fi
@@ -431,7 +465,7 @@ if [ "${#FAILED_NAMES[@]}" -gt 0 ]; then
     done
 fi
 if [ "${#LEAKED_NAMES[@]}" -gt 0 ]; then
-    printf '%s  %s WROTE OUTSIDE ITS SANDBOX (green tests, but the run is not trustworthy):%s\n' \
+    printf '%s  %s WROTE OUTSIDE ITS SANDBOX OR TOUCHED THE OPERATOR'"'"'S RECORD (green tests, but the run is not trustworthy):%s\n' \
         "$C_RED" "${#LEAKED_NAMES[@]}" "$C_RESET" >&2
     for n in "${LEAKED_NAMES[@]}"; do
         printf '    - %s\n' "$n" >&2

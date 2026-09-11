@@ -297,7 +297,7 @@ fi
 # ---------------------------------------------------------------------------
 # the leak canary — same library, same contract as run-all-tests.sh
 # ---------------------------------------------------------------------------
-for lib in tree-witness leak-canary; do
+for lib in tree-witness leak-canary record-canary; do
     [ -f "$ENGINE_ROOT/scripts/lib/$lib.sh" ] \
         || die "scripts/lib/$lib.sh is missing; refusing to report a pass with the sandbox check absent." 2
 done
@@ -305,6 +305,10 @@ done
 . "$ENGINE_ROOT/scripts/lib/tree-witness.sh"
 # shellcheck source=lib/leak-canary.sh
 . "$ENGINE_ROOT/scripts/lib/leak-canary.sh"
+# the operator's record (ledger, fallback event log, team directories), per
+# unit — the same library and contract as run-all-tests.sh (round 15)
+# shellcheck source=lib/record-canary.sh
+. "$ENGINE_ROOT/scripts/lib/record-canary.sh"
 
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ci-shard.XXXXXX")"
 trap 'rm -f "$ALL_UNITS" "$SELECTED"; rm -rf "$LOG_DIR"' EXIT
@@ -334,6 +338,8 @@ while IFS= read -r id; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
+    rc_baseline "$CANARY_DIR/record.txt"
+    RECORD_BASE_HEALTHY="$RC_HEALTHY"
 
     # The argv comes from ci-units.sh, so "how is a unit invoked" has exactly
     # one definition and a section's --only cannot drift from its id.
@@ -347,10 +353,13 @@ while IFS= read -r id; do
     SECS="$(python3 -c "print(round($END - $START, 1))")"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
+    TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
 
     VERDICT=""
-    if [ "$CANARY_BASE_HEALTHY" -ne 1 ]; then
+    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ]; then
         VERDICT="CANARY-BLIND"
+    elif [ -n "$TOUCHED" ]; then
+        VERDICT="RECORD-TOUCHED"
     elif [ -n "$ESCAPED" ]; then
         VERDICT="LEAKED"
     elif [ "$EXPECT_RC" = "3" ] && [ "$RC" -eq 0 ]; then
@@ -419,10 +428,17 @@ while IFS= read -r id; do
                 printf '          %s  (under %s)\n' "$centry" "$croot"
             done
             ;;
+        RECORD-TOUCHED)
+            printf '%sFAIL%s %ss — touched the operator'"'"'s record\n' "$C_RED" "$C_RESET" "$SECS"
+            FAILED=$((FAILED + 1))
+            FAIL_LINES+=("$id — touched the operator's record under $RC_CFG")
+            printf '        TOUCHED THE OPERATOR'"'"'S RECORD — the class that wrote a false termination for a running agent on 2026-09-11:\n'
+            printf '%s\n' "$TOUCHED" | sed 's/^/          /'
+            ;;
         CANARY-BLIND)
             printf '%sFAIL%s %ss — canary blind\n' "$C_RED" "$C_RESET" "$SECS"
             FAILED=$((FAILED + 1))
-            FAIL_LINES+=("$id — the leak canary could not witness one of its roots, so this is NOT reported as a pass")
+            FAIL_LINES+=("$id — a canary could not witness one of its roots (leak: $CANARY_BASE_HEALTHY, record: $RECORD_BASE_HEALTHY), so this is NOT reported as a pass")
             ;;
         *)
             printf '%sFAIL%s %ss (rc=%s, expected %s)\n' "$C_RED" "$C_RESET" "$SECS" "$RC" "$EXPECT_RC"

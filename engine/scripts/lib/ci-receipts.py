@@ -27,7 +27,7 @@ WHAT COUNTS AS GREEN, declared here once so no caller re-decides it:
   KNOWN-RED   the unit failed exactly as `lib/ci-known-red.tsv` declares it
               will, the entry has not expired. Reported, never silent.
 
-Everything else — FAIL, LEAKED, CANARY-BLIND, SCOPE-LOST,
+Everything else — FAIL, LEAKED, RECORD-TOUCHED, CANARY-BLIND, SCOPE-LOST,
 KNOWN-RED-BUT-PASSED, KNOWN-RED-EXPIRED — is red, and each name says what
 went wrong rather than only that something did.
 

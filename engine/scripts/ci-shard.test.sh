@@ -67,10 +67,14 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/tree-witness.sh; do
+for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh; do
     [ -f "$ENGINE_ROOT/scripts/$f" ] || { echo "FATAL: missing scripts/$f" >&2; exit 1; }
 done
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
+# The shard runner's RECORD canary (round 15) watches ${CLAUDE_CONFIG_DIR:-$HOME/.claude};
+# every invocation below points it at a throwaway config directory.
+export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 echo "=== ci-shard tests ==="
 
@@ -84,7 +88,7 @@ mk_engine() { # <root>
     for f in ci-shard.sh ci-units.sh; do
         cp "$ENGINE_ROOT/scripts/$f" "$r/scripts/$f"; chmod +x "$r/scripts/$f"
     done
-    for f in ci-receipts.py leak-canary.sh tree-witness.sh; do
+    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh; do
         cp "$ENGINE_ROOT/scripts/lib/$f" "$r/scripts/lib/$f"
     done
     # The sectioned suite, with two real `if _section` markers, so the section
@@ -325,6 +329,26 @@ else
     bad "S15  rc=$RC — the per-unit leak canary did not fire"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/leaky.test.sh"
+
+# --- S15b: the RECORD canary survives sharding (round 15) -----------------
+# A unit that appends a `terminated` row to the operator's ledger — the shape
+# session-start-stdin.test.sh 9b produced through the shipped reaper on
+# 2026-09-11 — is caught per unit here exactly as run-all-tests.sh catches it.
+cat > "$E/scripts/lib/toucher.test.sh" <<TOUCHER
+#!/usr/bin/env bash
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
+printf '{"event": "terminated", "agent_id": "x", "teammate": "fixture", "witness": "platform-terminal-record", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+exit 0
+TOUCHER
+chmod +x "$E/scripts/lib/toucher.test.sh"
+( cd "$LEAKDIR" && bash "$SH" --only-units scripts/lib/toucher.test.sh > "$SANDBOX/out" 2>&1 )
+RC=$?
+if [ "$RC" = "1" ] && grep -q "touched the operator" "$SANDBOX/out" && grep -q 'event=terminated' "$SANDBOX/out"; then
+    ok "S15b a unit that appends a terminated row to the operator's ledger is caught, named, and the row printed — the record canary is not lost by sharding"
+else
+    bad "S15b rc=$RC — the per-unit record canary did not fire"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/toucher.test.sh"
 
 # --- S16 / S17: the restricted plan ---------------------------------------
 SUBSET="$SANDBOX/subset.txt"
