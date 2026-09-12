@@ -100,25 +100,50 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
-mutant p03-branch-attributed-repository-wide "test_point_03_another_live_agents_branch_is_never_attributed" "$W" \
-    '    return [e["branch"] for e in wl[1:] if e["path"] in paths and e["branch"]]' \
-    '    return [e["branch"] for e in wl[1:] if e["branch"]]' \
-    "attribution would go back to every ref in the repository instead of the agent's own workspaces, so a second live agent's branch would be counted as this agent's: its land refused because the other agent's branch is not in main, and its discard deleting the other agent's work (points 3, 5, 8). Reproduced exactly that way on 2026-09-11."
+mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
+    '        write_json(_refs_path(rec["key"]), {"key": rec["key"], "at": now(), "repos": snap})' \
+    '        snap = snap' \
+    "the FIRST half of the pair would record nothing, so no ref could ever be shown to be new: creation would be unobservable and every branch an agent created would be left behind (points 3, 10)."
+
+mutant p03-created-ref-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \
+    '                    mine.append((repo, b))' \
+    '                    pass' \
+    "a branch the agent created in its own workspace would never be attributed to it, so it would be left behind when its work is landed or discarded (points 3, 10)."
+
+mutant p03-attribution-without-own-work "test_point_03_another_live_agents_branch_is_never_attributed" "$W" \
+    '    return set(t for t in tips if t and not is_ancestor(repo, t, target))' \
+    '    return set(t for t in tips if t)' \
+    "an agent that has produced nothing of its own would still count as having work, so everything that appeared during its tool call -- a second agent's whole spawn, in the normal case of two agents in one repository -- would be on its line of history and become its own (points 3, 5, 8). Reproduced exactly that way on 2026-09-11."
+
+mutant p03-unrelated-ref-attributed "test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents" "$W" \
+    '                if not any(t == tip or is_ancestor(repo, t, tip) or is_ancestor(repo, tip, t){NL}                           for t in own):' \
+    '                if False and any(t == tip or is_ancestor(repo, t, tip) or is_ancestor(repo, tip, t){NL}                           for t in own):' \
+    "co-occurrence in time would be attribution again: a ref carrying somebody else's unlanded commit, cut while the agent happened to be in a tool call, would be deleted with the agent (point 8)."
+
+mutant p03-landed-ref-attributed "test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents" "$W" \
+    '                if is_ancestor(repo, tip, target):{NL}                    continue                          # entirely landed: nothing at stake' \
+    '                if False:{NL}                    continue                          # entirely landed: nothing at stake' \
+    "a ref that is entirely in the branch this work integrates on -- the shape of every bookmark Rich cuts in the main checkout -- would be claimed and deleted by an agent that never made it (points 1, 8)."
+
+mutant p03-borrowed-branch-attributed "test_point_08_a_pre_existing_branch_the_agent_only_checked_out_survives" "$W" \
+    '            before = set(prior["repos"][repo] or [])' \
+    '            before = set()' \
+    "every ref would look new, so a PRE-EXISTING branch the agent merely checked out would become the agent's and a discard would delete it with git branch -D (point 8, in the destructive direction)."
+
+mutant p03-recorded-elsewhere-ignored "test_point_03_a_continuing_agents_branch_is_never_its_predecessors" "$W" \
+    '            elsewhere = _refs_recorded_elsewhere(rec["key"])' \
+    '            elsewhere = set()' \
+    "a ref registered to ANOTHER agent could be attributed to this one whenever it is on the same line of history -- which is exactly what a continuation is, since the new agent's workspace is cut from the old agent's branch (points 3, 7, 8)."
 
 mutant p10-one-workspace-left "test_point_10_a_cross_repository_agent_loses_both_workspaces_as_one" "$W" \
     '        for w in workspaces:{NL}            # Point 3' \
     '        for w in workspaces[:1]:{NL}            # Point 3' \
     "a cross-repository agent's second workspace would be left behind (point 10)."
 
-mutant p10-branch-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \
-    '                    mine.append((repo, b))' \
-    '                    pass' \
-    "a branch the agent created in its own workspace would never be attributed to it, so it would be left behind when its work is landed or discarded (points 3, 10)."
-
 mutant p10-observed-after-the-run-ended "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W" \
-    '    observe_branches(rec){NL}    event("end", key=rec["key"], signal=signal_name{AND}    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
-    '    pass{NL}    event("end", key=rec["key"], signal=signal_name{AND}    if fin:{NL}        observe_branches(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
-    "the last observation would move from the platform's end-of-run signal to a finished agent's restarted call, so a branch Rich checked out in the workspace afterwards to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8)."
+    '    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if finished_state(rec)[0]:{NL}        _drop_snapshot(rec["key"]){NL}        return []' \
+    '    if fin:{NL}        snapshot_refs(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if False:{NL}        _drop_snapshot(rec["key"]){NL}        return []' \
+    "a finished agent's restarted call would open a window of its own, so a branch Rich cuts in the workspace afterwards to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8, 9)."
 
 mutant p11-pause-ignored "test_point_11_a_recorded_pause_is_not_finished_and_resumes" "$W" \
     '        if pause and pause.get("at", 0) <= end.get("at", 0):' \
@@ -144,5 +169,25 @@ mutant p13-no-retry "test_point_13_a_failed_deletion_is_retried_until_it_succeed
     '        if not d or d.get("next_at", 0) > now():{NL}            continue' \
     '        if True:{NL}            continue' \
     "a deletion that failed once would never be tried again (point 13)."
+
+mutant p14-land-reads-a-moving-head "test_point_14_work_merged_onto_its_dev_branch_counts_as_landed" "$W" \
+    '    tip = branch_tip(main, branch)' \
+    '    tip = git(main, "rev-parse", "HEAD")[1].strip()' \
+    "landed would go back to meaning \"in whatever the main checkout has checked out just now\", so work merged onto its dev branch would be reported not landed and its workspaces and branches would be left behind (points 4, 14)."
+
+mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '        branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '        branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
+    "the branch a land is tested against would be INFERRED from the main checkout at land time instead of read from the record, which is the one thing point 14 forbids: \"nothing infers it and nothing guesses it\"."
+
+mutant p14-in-flight-target-moves "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    ir = integration_record(repo){NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
+    '    ir = None{NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
+    "an agent would not keep the branch recorded when it was spawned, so recording the integration branch for the NEXT body of work would silently move the target of an agent already in flight (point 14)."
+
+mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
+    '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \
+    '                if False:{AND}        if False:' \
+    "a branch that reached neither main nor its dev branch would be counted as landed, and deleted (points 4, 8, 14)."
 
 mutation_end
