@@ -107,7 +107,17 @@
 # reasoning as the second group: they were true on the day, rewriting them would
 # falsify the only thing they are for, and restoring the code to satisfy them
 # would be worse. Exact files.
-CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/ app/ORCHESTRATION-REVIEW.md app/URBAN-P5-RESPONSE.md docs/reviews/sage-fable-r4-owned-outcome-2026-09-09.md docs/reviews/sage-fable-r6-owned-outcome-2026-09-09.md docs/verification/owned-outcome/RESULTS-7.md docs/verification/owned-outcome/REVIEW.md docs/verification/owned-outcome/REVISION-3.md docs/verification/owned-outcome/evidence-r7/review-r6.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-05_21.40.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md docs/plans/worktree-spec-2026-09-11.md docs/verification/certification-frank-2026-09-10.md docs/verification/certification-sage-round2-2026-09-10.md docs/verification/reclaim-round-13-zach-fable-fix2-2026-09-10.md engine/docs/worktree-reclaim-round-10-2026-09-10.md engine/docs/worktree-reclaim-round-11-2026-09-10.md"
+CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/ app/ORCHESTRATION-REVIEW.md app/URBAN-P5-RESPONSE.md docs/reviews/sage-fable-r4-owned-outcome-2026-09-09.md docs/reviews/sage-fable-r6-owned-outcome-2026-09-09.md docs/verification/owned-outcome/RESULTS-7.md docs/verification/owned-outcome/REVIEW.md docs/verification/owned-outcome/REVISION-3.md docs/verification/owned-outcome/evidence-r7/review-r6.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-05_21.40.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md docs/plans/worktree-spec-2026-09-11.md docs/verification/certification-frank-2026-09-10.md docs/verification/certification-sage-round2-2026-09-10.md docs/verification/reclaim-round-13-zach-fable-fix2-2026-09-10.md engine/docs/worktree-reclaim-round-10-2026-09-10.md engine/docs/worktree-reclaim-round-11-2026-09-10.md docs/verification/round6-measurement-2026-09-12.md"
+# ---------------------------------------------------------------------------
+# CITATION_EXEMPT, fifth group — THE ROUND-6 MEASUREMENT (2026-09-12).
+#
+# docs/verification/round6-measurement-2026-09-12.md is the engineer's frozen
+# measurement record; its header cites the round-6 brief by its path in the
+# private richos-hq record. The brief is private by design (the CEO's spec and
+# briefs live there); the citation names richos-hq beside the path, so a reader
+# is told where it is. Rewriting a frozen measurement record to satisfy a
+# checker would falsify the one thing it is for. Added by sage-fable-c7 while
+# certifying that record; exact file.
 
 # ---------------------------------------------------------------------------
 # WHAT IS NOT IN THIS FILE, AND WHY IT LEFT
