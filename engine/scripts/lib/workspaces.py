@@ -21,6 +21,9 @@ STATE — outside every repository and session, one JSON file per agent:
       done/<key>.json              an agent whose deletion completed
       ids/<agent_id>               platform agent id -> key
       repos.json                   every repository a record has named
+      integration.json             the branch each repository's work integrates
+                                   on, RECORDED (point 14); never inferred at
+                                   land time
       events.jsonl                 append-only history of every fact
       lock                         one flock for every mutation
 
@@ -567,7 +570,8 @@ def new_record(key, **fields):
     rec = {"key": key, "name": "", "session_id": "", "agent_id": "", "workspaces": [],
            "registered_at": iso(), "end": None, "handed_in": None, "pause": None, "waiting": None,
            "disposition": None, "deletion": None, "orphan": False, "ceo_ordered": None,
-           "continues": [], "lands_pending": [], "created_branches": [], "history": []}
+           "continues": [], "lands_pending": [], "created_branches": [], "integration": {},
+           "history": []}
     rec.update(fields)
     return rec
 
@@ -581,10 +585,130 @@ def _remember_repo(repo):
     if repo not in cur["repos"]:
         cur["repos"].append(repo)
         write_json(path, cur)
+    # Point 14: the branch this work integrates on exists as a FACT from the
+    # first registration onwards, so no land ever has to read a moving HEAD.
+    _ensure_integration(_norm_repo(repo))
 
 
 def known_repos():
     return [r for r in (read_json(_p("repos.json")) or {}).get("repos", []) if os.path.isdir(r)]
+
+
+# ---------------------------------------------------------------------------
+# point 14 — the branch a body of work integrates on is RECORDED
+# ---------------------------------------------------------------------------
+#
+# "Landed doesn't always mean landed on main. Landing means merged into the
+#  branch this work integrates on. Usually that is main. When the work cannot
+#  reach main yet — not reviewed, or not ready to install — it is that work's
+#  dev branch. ... The branch a body of work integrates on is RECORDED when
+#  that work starts, before its first agent is spawned. Nothing infers it and
+#  nothing guesses it — without that record there is no fact to test a land
+#  against, and 'landed' goes back to meaning whatever main happens to have."
+#
+# WHAT THIS REPLACED, AND WHY IT WAS WRONG. land() used to resolve each
+# repository's target with `git rev-parse HEAD` in the main checkout, at the
+# moment of the land. So "landed" meant "in whatever the main checkout has
+# checked out just now" — which is not a fact about this work at all: it moves
+# when Rich checks something else out, it is empty when the main checkout is
+# detached, and it can NEVER answer yes for work that integrates on a dev
+# branch, which is the case the page's fourteenth point exists for. Work merged
+# onto its dev branch was reported "not landed yet" and its workspaces were left
+# behind, against point 4.
+#
+# THE RECORD IS A FILE, PER REPOSITORY, WRITTEN ONCE AND NOT RE-DERIVED. Two
+# ways in, and the record says which one it came from:
+#
+#   "recorded"  — `workspaces.sh integration --repo <r> --branch <b> --why ...`
+#                 Rich records it when a body of work starts. This is the form
+#                 the page asks for, and the only form that can name a dev
+#                 branch: nothing in this file can know that this work is not
+#                 allowed into main yet.
+#   "first-registration" — the main checkout's own branch, read ONCE, at the
+#                 registration of the first workspace in that repository, which
+#                 is before its first agent is spawned (register_cc runs before
+#                 the workspace is created; register_spawn before the spawn).
+#                 It is a floor, not a guess about intent: it makes the fact
+#                 EXIST for every repository the registry knows, and freezes it,
+#                 so a land can never fall back to reading a moving HEAD.
+#
+# Either way it is read at land time and never recomputed there. A repository
+# whose main checkout is detached when it is first registered gets no record at
+# all, and a land in it REFUSES, naming the command — refusing is the only
+# answer that is not a guess.
+#
+# THE AGENT KEEPS ITS OWN COPY. `_add_workspace` copies the recorded branch into
+# the agent's record, per repository, at registration. So re-recording the
+# integration branch for the NEXT body of work cannot silently move the target
+# of an agent that is already in flight; its land is tested against the branch
+# that was recorded when it was spawned.
+
+def _integration_path():
+    return _p("integration.json")
+
+
+def _norm_repo(repo):
+    return main_checkout(repo) or realpath(repo)
+
+
+def integration_record(repo):
+    """The recorded integration branch of a repository, or None. Never inferred."""
+    return (read_json(_integration_path()) or {}).get("repos", {}).get(_norm_repo(repo))
+
+
+def all_integration_records():
+    return (read_json(_integration_path()) or {}).get("repos", {})
+
+
+def _write_integration(main, branch, source, why="", by_session=""):
+    with Lock():
+        cur = read_json(_integration_path()) or {}
+        cur.setdefault("repos", {})
+        prior = cur["repos"].get(main)
+        if prior and prior.get("branch") == branch:
+            return prior
+        if prior:
+            cur.setdefault("history", []).append(prior)
+        rec = {"repo": main, "branch": branch, "recorded_at": iso(), "source": source,
+               "why": why or "", "by_session": by_session or ""}
+        cur["repos"][main] = rec
+        write_json(_integration_path(), cur)
+    event("integration-recorded", repo=main, branch=branch, source=source, why=why or None)
+    return rec
+
+
+def record_integration(repo, branch, why="", by_session=""):
+    """Point 14, the form the page asks for: Rich records the branch this body of
+    work integrates on, before its first agent is spawned."""
+    main = main_checkout(repo)
+    if not main:
+        raise SpecError("the repository %s could not be resolved from git" % repo)
+    branch = (branch or "").strip()
+    if not branch:
+        raise SpecError("name the branch this work integrates on (point 14)")
+    if branch.startswith(CC_PREFIX) or branch.startswith(NATIVE_BRANCH_PREFIX):
+        raise SpecError("%s is an agent's own workspace branch. Finished work never waits on the "
+                        "agent's own branch (point 14); an integration branch is main or this work's "
+                        "dev branch." % branch)
+    if not branch_tip(main, branch):
+        raise SpecError("there is no branch %s in %s. The branch a body of work integrates on is "
+                        "recorded before its first agent is spawned, so it exists by then (point 14)."
+                        % (branch, main))
+    return _write_integration(main, branch, "recorded", why, by_session)
+
+
+def _ensure_integration(main):
+    """The floor: at the FIRST registration in a repository, the main checkout's
+    own branch is written down once. Read once, never re-read at land time."""
+    if not main or all_integration_records().get(main):
+        return None
+    wl = worktree_list(main)
+    branch = (wl[0].get("branch") or "") if wl else ""
+    if not branch:
+        return None
+    return _write_integration(main, branch, "first-registration",
+                              "the main checkout's own branch when this repository's first workspace "
+                              "was registered")
 
 
 def _add_workspace(rec, kind, repo, path, branch, source):
@@ -598,6 +722,12 @@ def _add_workspace(rec, kind, repo, path, branch, source):
          "registered_at": iso(), "source": source, "deleted_at": None}
     rec["workspaces"].append(w)
     _remember_repo(repo)
+    # Point 14: the target is frozen per agent at its registration, so
+    # re-recording it for the next body of work cannot move the target of an
+    # agent that is already in flight.
+    ir = integration_record(repo)
+    if ir and ir.get("branch"):
+        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]
     return w
 
 
@@ -1255,7 +1385,8 @@ def gate_message(items, what, spawn=False):
         for p, b in i["workspaces"][:4]:
             lines.append("       %s  %s" % (p, b or ""))
     lines += ["  How: merge its branch, then  workspaces.sh land <name>   (it also lands on its own",
-              "       once every branch is in main and nothing is uncommitted)",
+              "       once every branch is in the branch this work integrates on and nothing is",
+              "       uncommitted — `workspaces.sh integration` says which branch that is (point 14))",
               "       or  workspaces.sh discard <name> --reason '...' (--ceo-word '...' | --not-ceo-ordered '...')",
               "       or spawn the work that lands it, naming it:  lands-pending: <name>  /  continues: <name>"]
     if not spawn:
@@ -1509,10 +1640,44 @@ def _branch_targets(chain):
 # points 4, 7, 9, 10, 13 — land, discard, delete, retry
 # ---------------------------------------------------------------------------
 
+def integration_target(chain, repo):
+    """(branch, tip, why_not) — the ref a land is proved against (point 14).
+
+    The branch comes from the RECORD and nowhere else: the copy frozen on one of
+    these agents' records at its registration first, else the repository's own
+    record. `why_not` is filled instead when there is no fact to test against,
+    and a land that cannot name its target REFUSES rather than falling back to
+    whatever the main checkout happens to have."""
+    repo = realpath(repo or "")
+    if not repo or not os.path.isdir(repo):
+        return "", "", "its repository %s cannot be read" % repo
+    branch = ""
+    for r in chain:
+        branch = (r.get("integration") or {}).get(repo) or ""
+        if branch:
+            break
+    if not branch:
+        branch = (integration_record(repo) or {}).get("branch") or ""
+    if not branch:
+        return "", "", ("no branch is recorded for %s as the one this work integrates on. The branch a "
+                        "body of work integrates on is RECORDED when that work starts (point 14); "
+                        "nothing infers it. Record it: workspaces.sh integration --repo %s --branch "
+                        "<main|dev/...> --why '<this body of work>'" % (repo, repo))
+    main = main_checkout(repo) or repo
+    tip = branch_tip(main, branch)
+    if not tip:
+        return branch, "", ("the recorded integration branch %s does not exist in %s any more. Re-record "
+                            "the branch this work integrates on (point 14): workspaces.sh integration "
+                            "--repo %s --branch <main|dev/...>" % (branch, repo, repo))
+    return branch, tip, ""
+
+
 def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     """Point 4: landed means every workspace and branch is deleted. Landed is
     proved from git: every branch tip (and every workspace HEAD) is already in
-    the main checkout's HEAD. An agent that produced nothing is landed (point 7)."""
+    the branch this work INTEGRATES ON, which is the branch recorded when the
+    work started — usually main, and its dev branch when it cannot reach main
+    yet (point 14). An agent that produced nothing is landed (point 7)."""
     rec = _resolve(ref, me)
     fin, _pz, why = finished_state(rec)
     if not fin:
@@ -1523,39 +1688,41 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     for r in chain:
         _require_clean(r, "land %s" % r["name"], ignored_ok, deadline)
     missing = []
-    heads = {}
+    targets = {}
 
-    def _head(repo):
-        if repo not in heads:
-            heads[repo] = git(repo, "rev-parse", "HEAD")[1].strip() if repo and os.path.isdir(repo) else ""
-        return heads[repo]
+    def _target(repo):
+        """The RECORDED integration ref of this repository (point 14) — resolved
+        once per land, never from a HEAD read at land time."""
+        if repo not in targets:
+            targets[repo] = integration_target(chain, repo)
+        return targets[repo]
 
     for r in chain:
         for w in r.get("workspaces") or []:
             repo = w.get("repo")
-            head = _head(repo)
-            if not head:
-                missing.append("%s: its repository %s cannot be read" % (w.get("path") or w.get("branch"), repo))
+            branch, tip, why_not = _target(repo)
+            if why_not:
+                missing.append("%s: %s" % (w.get("path") or w.get("branch"), why_not))
                 continue
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
                 rc, out, _ = git(w["path"], "rev-parse", "HEAD")
-                if rc == 0 and not is_ancestor(repo, out.strip(), head):
-                    missing.append("HEAD of %s (%s) is not in %s at %s"
-                                   % (w["path"], out.strip()[:12], repo, head[:12]))
+                if rc == 0 and not is_ancestor(repo, out.strip(), tip):
+                    missing.append("HEAD of %s (%s) is not in %s of %s at %s"
+                                   % (w["path"], out.strip()[:12], branch, repo, tip[:12]))
     for repo, b in _branch_targets(chain):
         if _past(deadline):
-            raise Deadline("the gate's budget ran out before %s's branches could be proved to be in main"
-                           % rec["name"])
-        head = _head(repo)
-        if not head:
-            missing.append("branch %s: its repository %s cannot be read" % (b, repo))
+            raise Deadline("the gate's budget ran out before %s's branches could be proved to be in the "
+                           "branch this work integrates on" % rec["name"])
+        branch, tip, why_not = _target(repo)
+        if why_not:
+            missing.append("branch %s: %s" % (b, why_not))
             continue
         t = branch_tip(repo, b)
-        if t and not is_ancestor(repo, t, head):
-            missing.append("%s (%s) is not in %s at %s" % (b, t[:12], repo, head[:12]))
+        if t and not is_ancestor(repo, t, tip):
+            missing.append("%s (%s) is not in %s of %s at %s" % (b, t[:12], branch, repo, tip[:12]))
     if missing:
-        raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
-                        % (rec["name"], "; ".join(missing)))
+        raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
+                        "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
     for r in chain:
         with Lock():
             fresh = load_agent(r["key"])
@@ -2213,6 +2380,9 @@ def current_session():
 def _print_status(me, entity):
     items = pending(me, entity, scan=True)
     print("session: %s" % (me or "(none)"))
+    for repo in sorted(all_integration_records()):
+        r = all_integration_records()[repo]
+        print("integrates on: %s  %s  (%s)" % (r.get("branch"), repo, r.get("source")))
     if not items:
         print("pending: none")
     for i in items:
@@ -2263,6 +2433,10 @@ def main(argv):
     g.add_argument("--ceo")
     x.add_argument("--todo", default="")
     sub.add_parser("retry")
+    x = sub.add_parser("integration")
+    x.add_argument("--repo", default="")
+    x.add_argument("--branch", default="")
+    x.add_argument("--why", default="")
     x = sub.add_parser("register-cc")
     for f in ("--name", "--repo", "--path", "--branch"):
         x.add_argument(f, required=True)
@@ -2347,6 +2521,21 @@ def main(argv):
             kind, on = ("started", a.started) if a.started else (("outside", a.outside) if a.outside else ("ceo-discard", a.ceo))
             wait(a.agent, kind, on, a.todo, me)
             print("recorded: %s waits (%s) on %s" % (a.agent, kind, on))
+        elif a.cmd == "integration":
+            if a.branch:
+                r = record_integration(a.repo or entity, a.branch, a.why, me)
+                print("recorded: %s integrates on %s" % (r["repo"], r["branch"]))
+            else:
+                recs = all_integration_records()
+                if a.repo:
+                    one = integration_record(a.repo)
+                    recs = {one["repo"]: one} if one else {}
+                if not recs:
+                    print("no integration branch is recorded (point 14)")
+                for repo in sorted(recs):
+                    r = recs[repo]
+                    print("%s\t%s\t%s\t%s" % (repo, r.get("branch"), r.get("source"),
+                                                r.get("recorded_at")))
         elif a.cmd == "retry":
             for k, ok in retry_due(budget=60.0):
                 print("%s %s" % ("deleted" if ok else "still failing", k))

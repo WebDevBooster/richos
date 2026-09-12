@@ -145,4 +145,24 @@ mutant p13-no-retry "test_point_13_a_failed_deletion_is_retried_until_it_succeed
     '        if True:{NL}            continue' \
     "a deletion that failed once would never be tried again (point 13)."
 
+mutant p14-land-reads-a-moving-head "test_point_14_work_merged_onto_its_dev_branch_counts_as_landed" "$W" \
+    '    tip = branch_tip(main, branch)' \
+    '    tip = git(main, "rev-parse", "HEAD")[1].strip()' \
+    "landed would go back to meaning \"in whatever the main checkout has checked out just now\", so work merged onto its dev branch would be reported not landed and its workspaces and branches would be left behind (points 4, 14)."
+
+mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '        branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '        branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
+    "the branch a land is tested against would be INFERRED from the main checkout at land time instead of read from the record, which is the one thing point 14 forbids: \"nothing infers it and nothing guesses it\"."
+
+mutant p14-in-flight-target-moves "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    ir = integration_record(repo){NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
+    '    ir = None{NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
+    "an agent would not keep the branch recorded when it was spawned, so recording the integration branch for the NEXT body of work would silently move the target of an agent already in flight (point 14)."
+
+mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
+    '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \
+    '                if False:{AND}        if False:' \
+    "a branch that reached neither main nor its dev branch would be counted as landed, and deleted (points 4, 8, 14)."
+
 mutation_end

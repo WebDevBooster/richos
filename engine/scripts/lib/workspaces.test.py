@@ -841,6 +841,117 @@ class Point13_Retry(Base):
         self.assertIsNone(ws.load_agent(ws.named_key(self.sid, "zach-opus-rt"))["deletion"])
 
 
+class Point14_IntegrationBranch(Base):
+    """14. Landed doesn't always mean landed on main."""
+
+    def dev_branch(self, repo, name="dev/work", why="the workspace-spec round"):
+        """A body of work whose dev branch is RECORDED before its first agent,
+        exactly as the page requires: the record happens first, and nothing
+        afterwards infers or re-derives it."""
+        run("git", "-C", repo, "branch", name)
+        return ws.record_integration(repo, name, why, self.sid)
+
+    def ff(self, repo, onto, branch):
+        """Merge `branch` onto `onto` without checking it out: a fast-forward,
+        which is what a merge of an agent's branch onto its dev branch is when
+        the dev branch has not moved. The main checkout stays on main throughout,
+        which is the whole point -- main never learns of this work."""
+        tip = run("git", "-C", repo, "rev-parse", branch).stdout.strip()
+        run("git", "-C", repo, "branch", "-f", onto, tip)
+
+    def test_point_14_work_merged_onto_its_dev_branch_counts_as_landed(self):
+        """"Landing means merged into the branch this work integrates on ... When
+        the work cannot reach main yet ... it is that work's dev branch. Rich
+        merges each finished agent's work onto it and deletes that agent's
+        workspaces and branches under point 4, exactly as in any other land."
+
+        Before this, land() resolved the target with `git rev-parse HEAD` in the
+        main checkout, so work merged onto a dev branch was reported NOT LANDED
+        for as long as the dev branch stayed out of main -- and its workspaces
+        and branches sat there, against point 4."""
+        self.dev_branch(self.entity)
+        self.dev_branch(self.other, "dev/other-work")
+        cc = self.make_cc("zach-opus-i1")
+        aid, npath = self.spawn("zach-opus-i1", cc=cc)
+        self.commit(npath, "native.txt")
+        self.commit(cc, "cc.txt")
+        self.finish(aid)
+        self.ff(self.entity, "dev/work", "worktree-agent-" + aid)
+        self.ff(self.other, "dev/other-work", "cc/zach-opus-i1")
+        # main has none of it, in either repository, and that is not a reason to
+        # leave anything behind
+        main_log = run("git", "-C", self.entity, "log", "--format=%s", "main").stdout
+        self.assertNotIn("work native.txt", main_log)
+        self.assertEqual(self.names(), [])                   # landed automatically (point 4)
+        self.assertTrue(os.path.exists(ws.done_path(ws.named_key(self.sid, "zach-opus-i1"))))
+        self.assertFalse(os.path.exists(npath))
+        self.assertFalse(os.path.exists(cc))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+        self.assertNotIn("cc/zach-opus-i1", branches(self.other))
+
+    def test_point_14_work_merged_nowhere_is_not_landed(self):
+        """The other half, and the reason the record is a branch rather than a
+        waiver: work that reached NEITHER main nor its dev branch is not landed,
+        it is pending (point 5), and its workspace and branch stay until Rich
+        merges or discards it (point 7)."""
+        self.dev_branch(self.entity)
+        aid, npath = self.spawn("zach-opus-i2")
+        self.commit(npath, "unmerged.txt")
+        self.finish(aid)
+        self.assertEqual(self.names(), ["zach-opus-i2"])     # not landed by itself
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-i2", self.sid)
+        self.assertIn("dev/work", str(e.exception))          # it names the recorded target
+        self.assertTrue(os.path.exists(npath))
+        self.assertIn("worktree-agent-" + aid, branches(self.entity))
+        # and merging it onto the recorded branch is what lands it
+        self.ff(self.entity, "dev/work", "worktree-agent-" + aid)
+        ws.land("zach-opus-i2", self.sid)
+        self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+
+    def test_point_14_the_integration_branch_is_recorded_never_inferred(self):
+        """"The branch a body of work integrates on is RECORDED when that work
+        starts, before its first agent is spawned. Nothing infers it and nothing
+        guesses it." So: the record exists from the first registration; a land
+        with no record at all REFUSES instead of reading a moving HEAD; and an
+        agent already in flight keeps the branch recorded when it was spawned."""
+        # the floor: recorded at the first registration, with its source named
+        self.assertEqual(ws.integration_record(self.entity)["branch"], "main")
+        self.assertEqual(ws.integration_record(self.entity)["source"], "first-registration")
+        aid, npath = self.spawn("zach-opus-i3")
+        self.assertEqual(self.rec("zach-opus-i3")["integration"][self.entity], "main")
+        # re-recording for the NEXT body of work does not move an in-flight
+        # agent's target: its own copy is the one its land is tested against
+        run("git", "-C", self.entity, "branch", "dev/next")
+        ws.record_integration(self.entity, "dev/next", "the next body of work", self.sid)
+        self.assertEqual(ws.integration_record(self.entity)["branch"], "dev/next")
+        self.commit(npath, "i3.txt")
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)      # onto main, as recorded for it
+        ws.land("zach-opus-i3", self.sid)
+        self.assertFalse(os.path.exists(npath))
+        # an agent's own workspace branch is never an integration branch
+        with self.assertRaises(ws.SpecError):
+            ws.record_integration(self.entity, "cc/zach-opus-i3", "wrong kind of branch", self.sid)
+        # no record at all: the land refuses and names the command, rather than
+        # falling back to whatever the main checkout has checked out. (Only a
+        # registration writes the floor, so this state is reached by removing the
+        # record after the spawn -- which is also what an operator wiping the
+        # registry's file would leave behind.)
+        aid2, npath2 = self.spawn("zach-opus-i4")
+        self.commit(npath2, "i4.txt")
+        self.finish(aid2)
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))
+        r = ws.load_agent(ws.named_key(self.sid, "zach-opus-i4"))
+        r["integration"] = {}
+        ws.save_agent(r)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-i4", self.sid)
+        self.assertIn("workspaces.sh integration", str(e.exception))
+        self.assertTrue(os.path.exists(npath2))
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""
