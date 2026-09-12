@@ -1,0 +1,75 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/sage-c4/workspaces-84e12d32.py
+
+=== d2-harm-ended — A. Side branch created in a second, overlapping call of the agent's own.
+    created_branches                         []
+    land                                     landed
+    its side-branch commit in main           False
+    pending after the land                   []
+    the side commit is still on tmpwork      True
+    HARM (landed + nothing pending)          True
+    EXPECTATION HELD                         False
+
+=== escalation-stray — B. A ref created while nothing is recorded, after the land succeeds.
+    created_branches while unrecorded        ['tmpwork']
+    attribution-skipped names it             False
+    land after the branch is recorded        landed
+    branches after the land                  ['main']
+    pending (the point-3 sweep)              []
+    branches after the sweep                 ['main']
+    => stray OUTSIDE the conventions left behind False
+    => and nobody will come back for it      True
+    EXPECTATION HELD                         True
+
+=== escalation-stray-cc — B2. The same, with the stray named cc/... : does the point-3 sweep find it?
+    created_branches while unrecorded        ['cc/zach-opus-e2-side']
+    attribution-skipped names it             False
+    land after the branch is recorded        landed
+    branches after the land                  ['main']
+    pending (the point-3 sweep)              []
+    branches after the sweep                 ['main']
+    => stray named cc/... left behind        False
+    => the sweep lists it as pending work    False
+    EXPECTATION HELD                         True
+
+=== ref-after-post — C. A ref created after a Post and before the next Pre, and after the last Post.
+    created_branches (between two calls)     []
+    created_branches (after the last Post)   []
+    land                                     landed
+    branches after the land                  ['bg-after-last-post', 'bg-after-post', 'main']
+    pending (the point-3 sweep)              []
+    => both refs left behind, attributed to nobody True
+    EXPECTATION HELD                         True
+
+=== rich-between-calls — D. A ref RICH cuts between the agent's two PreToolUse calls, no Post for either.
+    created_branches at the end of the run   []
+    => Rich's ref attributed to the agent    False
+    land                                     landed
+    Rich's commit reachable from any branch  rich/rescue
+    discard recorded tips                    []
+    branches after the discard               ['main', 'rich/rescue']
+    => Rich's ref deleted with the agent     False
+    EXPECTATION HELD                         True
+
+=== rich-out-of-order — D2. The same, with both Posts arriving — the earlier call simply finishes last.
+    created_branches after Post(B)           []
+    created_branches after Post(A)           []
+    => Rich's ref attributed to the agent    False
+    EXPECTATION HELD                         True
+
+=== mismatched-ids — E. The Pre carries the platform's call id and the Post does not (or vice
+    after Pre(keyed) / Post(unkeyed)         ['keyed-pre-only']
+    after Pre(unkeyed) / Post(keyed)         ['keyed-pre-only', 'unkeyed-pre-only']
+    after the end-of-run signal              ['keyed-pre-only', 'unkeyed-pre-only']
+    => nothing is lost, only deferred        True
+    EXPECTATION HELD                         True
+
+=== two-bodies-of-work — F. TWO bodies of work in ONE repository. The record is per REPOSITORY, and
+    the repository's record now says         dev/second
+    its work is in dev/first                 True
+    the superseded record is kept where nothing reads it True
+    land of the FIRST body's agent           landed
+    its workspace still on disk              False
+    pending (point 5 is blocked)             []
+    EXPECTATION HELD                         True
+
+=== held: 7/8; NOT HELD: d2-harm-ended

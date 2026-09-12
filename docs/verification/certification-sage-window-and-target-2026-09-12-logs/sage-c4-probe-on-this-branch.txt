@@ -1,0 +1,77 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/sage-opus-c4/engine/scripts/lib/workspaces.py
+
+=== d2-harm-ended — A. Side branch created in a second, overlapping call of the agent's own.
+    created_branches                         ['tmpwork']
+    land                                     REFUSED: zach-opus-h1 is not landed yet: tmpwork (0b1a2872e117) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw
+    its side-branch commit in main           False
+    pending after the land                   ['zach-opus-h1']
+    the side commit is still on tmpwork      True
+    HARM (landed + nothing pending)          False
+    land once tmpwork is merged              landed
+    branches after that land                 ['main']
+    EXPECTATION HELD                         True
+
+=== escalation-stray — B. A ref created while nothing is recorded, after the land succeeds.
+    created_branches while unrecorded        []
+    attribution-skipped names it             True
+    land after the branch is recorded        landed
+    branches after the land                  ['main', 'tmpwork']
+    pending (the point-3 sweep)              []
+    branches after the sweep                 ['main', 'tmpwork']
+    => stray OUTSIDE the conventions left behind True
+    => and nobody will come back for it      True
+    EXPECTATION HELD                         False
+
+=== escalation-stray-cc — B2. The same, with the stray named cc/... : does the point-3 sweep find it?
+    created_branches while unrecorded        []
+    attribution-skipped names it             True
+    land after the branch is recorded        landed
+    branches after the land                  ['cc/zach-opus-e2-side', 'main']
+    pending (the point-3 sweep)              []
+    branches after the sweep                 ['main']
+    => stray named cc/... left behind        False
+    => the sweep lists it as pending work    False
+    EXPECTATION HELD                         True
+
+=== ref-after-post — C. A ref created after a Post and before the next Pre, and after the last Post.
+    created_branches (between two calls)     []
+    created_branches (after the last Post)   []
+    land                                     landed
+    branches after the land                  ['bg-after-last-post', 'bg-after-post', 'main']
+    pending (the point-3 sweep)              []
+    => both refs left behind, attributed to nobody True
+    EXPECTATION HELD                         True
+
+=== rich-between-calls — D. A ref RICH cuts between the agent's two PreToolUse calls, no Post for either.
+    created_branches at the end of the run   ['rich/rescue']
+    => Rich's ref attributed to the agent    True
+    land                                     REFUSED: zach-opus-r1 is not landed yet: rich/rescue (eee7094e435a) is not in main of /private/var/folders/mx/
+    Rich's commit reachable from any branch  rich/rescue
+    discard recorded tips                    ['rich/rescue', 'worktree-agent-azachopusr10000']
+    branches after the discard               ['main']
+    => Rich's ref deleted with the agent     True
+    EXPECTATION HELD                         False
+
+=== rich-out-of-order — D2. The same, with both Posts arriving — the earlier call simply finishes last.
+    created_branches after Post(B)           []
+    created_branches after Post(A)           ['rich/rescue']
+    => Rich's ref attributed to the agent    True
+    EXPECTATION HELD                         False
+
+=== mismatched-ids — E. The Pre carries the platform's call id and the Post does not (or vice
+    after Pre(keyed) / Post(unkeyed)         []
+    after Pre(unkeyed) / Post(keyed)         []
+    after the end-of-run signal              ['keyed-pre-only', 'unkeyed-pre-only']
+    => nothing is lost, only deferred        True
+    EXPECTATION HELD                         True
+
+=== two-bodies-of-work — F. TWO bodies of work in ONE repository. The record is per REPOSITORY, and
+    the repository's record now says         dev/second
+    its work is in dev/first                 True
+    the superseded record is kept where nothing reads it True
+    land of the FIRST body's agent           REFUSED: zach-opus-b1 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-c4-50r91wmp/entity/.claude/worktrees/agent-azachopusb10000 (b88d79df9411) is not in dev/second of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw000
+    its workspace still on disk              True
+    pending (point 5 is blocked)             ['zach-opus-b1']
+    EXPECTATION HELD                         False
+
+=== held: 4/8; NOT HELD: escalation-stray, rich-between-calls, rich-out-of-order, two-bodies-of-work

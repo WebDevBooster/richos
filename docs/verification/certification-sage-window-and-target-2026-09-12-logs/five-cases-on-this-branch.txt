@@ -1,0 +1,47 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/sage-opus-c4/engine/scripts/lib/workspaces.py
+
+=== 1 concurrent-refs — 1. Two of one agent's own calls open at once: BOTH refs are attributed.
+    with the platform's call ids           ['keyed-in-call-a', 'keyed-in-call-b']
+    with no call ids at all (arrival order) ['unkeyed-in-call-a', 'unkeyed-in-call-b']
+    both windows survived, both ways       True
+    VERDICT                                HOLDS
+
+=== 2 concurrent-side — 2. Real work on a side branch created in that window: the land is REFUSED.
+    created_branches                       ['tmpwork']
+    land                                   REFUSED: zach-opus-w3 is not landed yet: tmpwork (38f76daea544) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-l
+    its side-branch commit in main         False
+    pending (point 5 holds the turn)       ['zach-opus-w3']
+    the side commit is still on tmpwork    True
+    land once tmpwork is merged            landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 3 no-record-refuses — 3. No integration branch recorded: the land REFUSES and names the command.
+    main checkout is on                    main
+    integration record                     None
+    land (its work IS in main)             REFUSED: zach-opus-w4 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-rj0j3vqw/entity/.claude/worktrees/agent-az
+    names the recording command            True
+    pending (nothing is lost)              ['zach-opus-w4']
+    workspace still there                  True
+    VERDICT                                HOLDS
+
+=== 4 late-record-heals — 4. Recorded AFTER the agent was registered: the same land then SUCCEEDS.
+    integration record at spawn time       None
+    frozen on the agent record             None
+    land before the branch is recorded     REFUSED: zach-opus-w5 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-9ld_d93s/entity/.claude/worktrees/agent-az
+    Rich records it afterwards             {'branch': 'dev/work', 'source': 'recorded'}
+    the SAME land, after the recording     landed
+    workspace gone                         True
+    branch gone                            True
+    nothing pending                        []
+    VERDICT                                HOLDS
+
+=== 5 no-floor-written — 5. A registration writes no integration record and freezes nothing.
+    record before anything happens         None
+    record after a registration            None
+    frozen on the agent record             None
+    every integration record               {}
+    none has source first-registration     True
+    VERDICT                                HOLDS
+
+=== 5/5 cases hold

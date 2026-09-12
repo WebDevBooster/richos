@@ -1,0 +1,36 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/sage-opus-c4/engine/scripts/lib/workspaces.py
+
+=== S3 parallel-calls — Two tool calls open at once: Pre(A) Pre(B) Post(A) Post(B).
+    created_branches                   ['spare']
+    land                               landed
+    branches after the land            ['main']
+    scan calls the stray unregistered work []
+    EXPECTATION HELD                   True
+
+=== S5 rich-then-commits — Rich cuts at the agent's tip inside the window, then commits on it later.
+    created_branches                   ['rich/rescue']
+    land after the agent's work is merged REFUSED: zach-opus-s5 is not landed yet: rich/rescue (a3a49943124b) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fytg365g/entity at 432cf9edbe64. Merge it onto the branch this work integra
+    branches now                       ['main', 'rich/rescue', 'worktree-agent-azachopuss50000']
+    discard recorded tips              ['/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fytg365g/entity:rich/rescue', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fytg365g/entity:worktree-agent-azachopuss50000']
+    branches after the discard         ['main']
+    Rich's commit still reachable from any ref * main
+    EXPECTATION HELD                   False
+
+=== S9 no-record-recovers — No record at registration: Rich records the dev branch after, and lands.
+    integration.json after registration None
+    frozen on the agent record         None
+    Rich records it afterwards         {'branch': 'dev/work', 'source': 'recorded'}
+    land after merging onto dev/work   landed
+    workspace gone                     True
+    EXPECTATION HELD                   True
+
+=== S10 parallel-side-branch — The same window as S3, with real work on the side branch (case 2's shape).
+    created_branches                   ['tmpwork']
+    land                               REFUSED: zach-opus-s10 is not landed yet: tmpwork (a1658460a1b0) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-crsw1p7s/entity at 35b9445d0098. Merge it onto the branch this work integrates
+    its side-branch commit in main     False
+    branches after the land            ['main', 'tmpwork', 'worktree-agent-azachopuss100000']
+    pending after the land             ['zach-opus-s10']
+    the side commit is still only on tmpwork True
+    EXPECTATION HELD                   False
+
+=== held: 2/4; NOT HELD: S5 rich-then-commits, S10 parallel-side-branch

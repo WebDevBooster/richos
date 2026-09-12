@@ -1,0 +1,36 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/sage-c4/workspaces-84e12d32.py
+
+=== S3 parallel-calls — Two tool calls open at once: Pre(A) Pre(B) Post(A) Post(B).
+    created_branches                   []
+    land                               landed
+    branches after the land            ['main', 'spare']
+    scan calls the stray unregistered work []
+    EXPECTATION HELD                   False
+
+=== S5 rich-then-commits — Rich cuts at the agent's tip inside the window, then commits on it later.
+    created_branches                   ['rich/rescue']
+    land after the agent's work is merged REFUSED: zach-opus-s5 is not landed yet: rich/rescue (f4f0d6cd4356) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-zj8lz4hx/entity at f3710ce6b6be. Merge it onto the branch this work integra
+    branches now                       ['main', 'rich/rescue', 'worktree-agent-azachopuss50000']
+    discard recorded tips              ['/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-zj8lz4hx/entity:rich/rescue', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-zj8lz4hx/entity:worktree-agent-azachopuss50000']
+    branches after the discard         ['main']
+    Rich's commit still reachable from any ref * main
+    EXPECTATION HELD                   False
+
+=== S9 no-record-recovers — No record at registration: Rich records the dev branch after, and lands.
+    integration.json after registration None
+    frozen on the agent record         {}
+    Rich records it afterwards         {'branch': 'dev/work', 'source': 'recorded'}
+    land after merging onto dev/work   landed
+    workspace gone                     True
+    EXPECTATION HELD                   True
+
+=== S10 parallel-side-branch — The same window as S3, with real work on the side branch (case 2's shape).
+    created_branches                   []
+    land                               landed
+    its side-branch commit in main     False
+    branches after the land            ['main', 'tmpwork']
+    pending after the land             []
+    the side commit is still only on tmpwork True
+    EXPECTATION HELD                   False
+
+=== held: 1/4; NOT HELD: S3 parallel-calls, S5 rich-then-commits, S10 parallel-side-branch
