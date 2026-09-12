@@ -1,0 +1,4 @@
+07ae3d7f12e894230f1eb9f7018019cad40a1923c029b627191324095c96fcf9  /Users/alex/.claude/state/workspaces (tree, 4 files)
+67a8504ac1cd16e167a5b2bf63e925f5c0147b5be3b4ec08d92b221f018118f1  /Users/alex/.claude/state/workspace-retirement (tree, 11286 files)
+bf90bde29cea0f2ca7b56edf5a94a270de6a9787a8a147362a7ae593abe8f3d5  /Users/alex/.claude/state/worktree-ledger.jsonl (19743 lines)
+taken: 2026-09-12T19:27:41Z

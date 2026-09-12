@@ -1,0 +1,5 @@
+before: 19701 lines   after: 19743 lines
+appended: 42 rows; the copy is a prefix of the live file (append-only)
+by source: {'worker-ended-handoff.sh': 42}
+by event:  {'finished': 42}
+rows naming zach-fable-m1 (this agent's own SubagentStop hooks, written by the running engine, not by any command of this round): 42

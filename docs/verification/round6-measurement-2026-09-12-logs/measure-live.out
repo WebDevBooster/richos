@@ -1,0 +1,69 @@
+== 1. the four fixture rows in the operator's live events.jsonl (spec store) ==
+events.jsonl rows: 7
+  2026-09-12T12:44:07Z repo=/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/land-completeness.rSiULs/clean/repo exists=False why='the land-completeness fixture' work=repo-001
+  2026-09-12T12:44:07Z repo=/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/land-completeness.rSiULs/mixed/repo exists=False why='the land-completeness fixture' work=repo-002
+  2026-09-12T12:44:23Z repo=/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/land-completeness.URJ6Yc/clean/repo exists=False why='the land-completeness fixture' work=repo-003
+  2026-09-12T12:44:24Z repo=/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/land-completeness.URJ6Yc/mixed/repo exists=False why='the land-completeness fixture' work=repo-004
+integration.json present: False
+
+== 2. today's ledger rows by event type (running engine's worktree-ledger.jsonl) ==
+rows today: 1049
+  finished       974
+  registered     50
+  prepared       25
+every distinct event type in the whole ledger: ['finished', 'prepared', 'registered', 'retracted', 'terminated']
+
+== 3. cc/ branches prepared today, and whether each still exists (no deletion event anywhere) ==
+prepared cc/ rows today: 25
+  cc/zach-opus-f4              richos                       GONE
+  cc/sage-opus-c1              richos                       GONE
+  cc/frank-opus-c1             richos                       GONE
+  cc/zach-opus-f5              richos                       GONE
+  cc/zach-opus-f6              richos                       GONE
+  cc/zach-opus-f7              richos                       GONE
+  cc/zach-opus-f8              richos                       GONE
+  cc/zach-opus-f9              richos                       GONE
+  cc/sage-opus-c2              richos                       GONE
+  cc/frank-opus-c2             richos                       GONE
+  cc/zach-opus-g1              richos                       GONE
+  cc/sage-opus-c3              richos                       GONE
+  cc/frank-opus-c3             richos                       GONE
+  cc/zach-opus-g2              richos                       GONE
+  cc/sage-opus-c4              richos                       GONE
+  cc/frank-opus-c4             richos                       GONE
+  cc/zach-opus-g3              richos                       GONE
+  cc/sage-opus-c5              richos                       GONE
+  cc/frank-opus-c5             richos                       GONE
+  cc/zach-opus-g4              richos                       GONE
+  cc/sage-opus-c6              richos                       GONE
+  cc/frank-opus-c6             richos                       GONE
+  cc/sage-fable-b1             richos                       present
+  cc/frank-fable-b1            richos                       present
+  cc/zach-fable-m1             richos                       present
+gone: 22  present: 3
+ledger rows (all time) whose event type names a deletion/removal/retirement/discard/land: 0
+rows of any OTHER event type mentioning one of the gone branches: 0
+
+== 4. today's finished rows: how many carry a branch, a teammate, distinct agent ids ==
+finished rows today: 974
+  carrying a non-empty 'branch': 0
+  naming a teammate: 893
+  distinct agent_id: 973
+  signals: {'SubagentStop': 974}
+  sources: {'worker-ended-handoff.sh': 974}
+registered rows today: 50 (distinct teammates 25)
+  a registered row: {"agent_id": "a788e07e3f5a0bdb8", "branch": "worktree-agent-a788e07e3f5a0bdb8", "class": "native", "event": "registered", "isolation": "worktree", "native_registered": true, "pid_start": "ps-lstart-utc-v1:Fri Sep 11 22:25:13 2026", "repo": "/Users/alex/ab/femcboost", "session_id": "16a15be1-c2c1-4d79-82eb-f09c3f533143", "session_pid": 24267, "source": "detect-nonnative-worktree.sh", "teammate": "z
+native workspaces registered today: 25; of those, whose agent id appears on ANY finished row: 20 ['frank-fable-b1', 'frank-opus-c1', 'frank-opus-c2', 'frank-opus-c3', 'frank-opus-c4', 'frank-opus-c5', 'frank-opus-c6', 'sage-fable-b1', 'sage-opus-c1', 'sage-opus-c2', 'sage-opus-c3', 'sage-opus-c4', 'sage-opus-c5', 'sage-opus-c6', 'zach-opus-f4', 'zach-opus-f9', 'zach-opus-g1', 'zach-opus-g2', 'zach-opus-g3', 'zach-opus-g4']
+  finished rows per native worktree path (top 5): [('/Users/alex/ab/femcboost/.claude/worktrees/agent-af5c34ceefd5ffd35', 96), ('/Users/alex/ab/femcboost/.claude/worktrees/agent-a008bcb88102957d7', 81), ('/Users/alex/ab/femcboost', 78), ('/Users/alex/ab/femcboost/.claude/worktrees/agent-ac1ed926cc7928ccf', 68), ('/Users/alex/ab/femcboost/.claude/worktrees/agent-ae0baff6960a09edf', 59)]
+
+== 5. the two quarantines the removal path created ==
+  worktree /Users/alex/ab/richos-wt/.richos-retired/frank-opus-c6.richos-retired-ws-e1cde08e09b169ca-20260912T161306.969904Z
+  worktree /Users/alex/ab/richos-wt/.richos-retired/sage-opus-c6.richos-retired-ws-64577978b30eb0ad-20260912T161239.771266Z
+retirements.jsonl rows naming *-opus-c6: 6
+  2026-09-12T16:12:40Z retire note None {'branch': 'cc/sage-opus-c6', 'class': 'hand-rolled', 'id': 'ws-64577978b30eb0ad', 'owners': ['a5c9432829535a06b'], 'path': '/Users/alex/ab/richos-wt/sage-opus-c6', 'record_signature': 'ae6b9c30ee005a8d', 'records': 2, 'repo': '/Users/alex/ab/richos', 'sessions': ['16a15be1-c2c1-4d79-82eb-f09c3f533143'], 'teammates': ['sage-opus-c6']}
+  2026-09-12T16:13:06Z retire in-progress None {'branch': 'cc/frank-opus-c6', 'class': 'hand-rolled', 'id': 'ws-e1cde08e09b169ca', 'owners': ['ab392b5757d9188cc'], 'path': '/Users/alex/ab/richos-wt/frank-opus-c6', 'record_signature': 'a574f3297109c5c0', 'records': 2, 'repo': '/Users/alex/ab/richos', 'sessions': ['16a15be1-c2c1-4d79-82eb-f09c3f533143'], 'teammates': ['frank-opus-c6']}
+  2026-09-12T16:13:07Z retire quarantined quarantined {'branch': 'cc/frank-opus-c6', 'class': 'hand-rolled', 'id': 'ws-e1cde08e09b169ca', 'owners': ['ab392b5757d9188cc'], 'path': '/Users/alex/ab/richos-wt/frank-opus-c6', 'record_signature': 'a574f3297109c5c0', 'records': 2, 'repo': '/Users/alex/ab/richos', 'sessions': ['16a15be1-c2c1-4d79-82eb-f09c3f533143'], 'teammates': ['frank-opus-c6']}
+  2026-09-12T16:13:07Z retire note None {'branch': 'cc/frank-opus-c6', 'class': 'hand-rolled', 'id': 'ws-e1cde08e09b169ca', 'owners': ['ab392b5757d9188cc'], 'path': '/Users/alex/ab/richos-wt/frank-opus-c6', 'record_signature': 'a574f3297109c5c0', 'records': 2, 'repo': '/Users/alex/ab/richos', 'sessions': ['16a15be1-c2c1-4d79-82eb-f09c3f533143'], 'teammates': ['frank-opus-c6']}
+  branch cc/frank-opus-c6: GONE
+  branch cc/sage-opus-c6: GONE
+  femcboost worktree-agent-* branches now: ['worktree-agent-a8350de8d312d2b0d']

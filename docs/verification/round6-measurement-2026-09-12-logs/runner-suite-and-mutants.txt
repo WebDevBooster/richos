@@ -1,0 +1,69 @@
+engine under test: cc/zach-fable-m1 @ 79d030c4f435722c73b2ded56820fb2a3a0554b6 (base dev/workspace-spec @ c5bce604); the suite builds its own repository and registry in a sandbox
+started: 2026-09-12T19:23:43Z
+$ bash engine/scripts/workspace-probes.test.sh
+=== workspace-probes tests ===
+  PASS  W1  a probe is discovered by being LISTED in the committed manifest, and the report names the recorded integration branch
+  PASS  W2  a file that is not a probe of this library is counted, not mistaken for one
+  PASS  W3  a red prior probe exits non-zero and names what may retire it
+  PASS  W5  a retirement signed by anyone but the probe's own author is REFUSED, naming both
+  PASS  W11 an UNCOMMITTED retirement retires nothing — an unstaged edit is not a reviewer's act
+  PASS  W12 a retirement that has not landed on the recorded branch is REFUSED — work cannot retire the probe it fails
+  PASS  W28b a branch cut AT the engineer's tip is no witness: the same retirement is still refused
+  PASS  W13 a retirement in the same commit as a library edit is REFUSED even when landed — the commit that breaks it may not retire it
+  PASS  W4  a retirement signed by the probe's own author and landed on the recorded branch retires it
+  PASS  W18 and the report NAMES the commit and the branch it landed on — a RETIRED with no witness is the typed name again
+  PASS  W28 the witness SURVIVES the deletion of the author's branch: still RETIRED, same witness
+  PASS  W6  a probe the runner cannot execute BLOCKS, by name — it is not a probe that passed
+  PASS  W7  a probe committed and listed on another local branch is discovered and named by its branch
+  PASS  W7b --tree-only really does skip other branches (so W7 measured something)
+  PASS  W8  --at <commit> tests THAT commit's workspaces.py: red there, green on the tree
+  PASS  W9  a declared non-probe is not run and IS NAMED; a BARE marker exempts nothing — the file is UNLISTED and blocks
+  PASS  W9b a declaration added later and LANDED stands, and the report says what landed it
+  PASS  W10 a run that selected no probe REFUSES — it does not print the all-clear
+  PASS  W14 a not-a-probe marker ADDED to somebody else's probe is REFUSED, and the probe goes on being a probe
+  PASS  W14b the annotation is gone again — the cases after this one are back on a clean fixture
+  PASS  W15a POSITIVE CONTROL: unlisted, the text rule really cannot see it (it is neither a probe nor UNLISTED)
+  PASS  W15 a probe the text rule cannot see is discovered by being LISTED
+  PASS  W16 a probe that was DELETED is MISSING and blocks — deletion is not attributable to anybody
+  PASS  W16c a file at the deleted path in the WORKING TREE does not un-delete it: MISSING is asked of git
+  PASS  W16d an UNCOMMITTED retirement line does not excuse the deletion (A1)
+  PASS  W16e a LANDED retirement signed by the wrong name does not excuse the deletion either
+  PASS  W16b SILENT TWIN: retired by its own author and landed, the same deletion no longer blocks
+  PASS  W17 --show-all NAMES the files it counts, and prints both numbers so they can be compared
+  PASS  W26 a committed probe the manifest does not list is UNLISTED, by name, and it BLOCKS a run that is otherwise green
+  PASS  W27 a manifest line in the WORKING TREE lists nothing: the manifest is read from git
+  PASS  W27b committed, the same line lists it and it runs green
+  PASS  W20 PAIRED TWIN: with no retirement the probe is RED on its one bad case
+  PASS  W19 one case retired, the probe RUNS, the retired case is NOT asked (it was asked: one two four), and the rest still decide it
+  PASS  W21 a retirement naming a case the probe does not have is REFUSED, and the real cases are named
+  PASS  W23 a per-case retirement signed by anyone but the author is REFUSED, naming the case
+  PASS  W24 a per-case retirement that has not landed on the recorded branch is REFUSED — no weaker than the whole-file path
+  PASS  W22 retiring every case retires the FILE, and the verdict says so instead of implying it
+  PASS  W25 a three-field whole-file retirement is still read, so no reviewer's committed line needs rewriting
+  PASS  W29 with no integration branch recorded, the same landed retirement is REFUSED and the refusal names the recording command — the runner never assumes main
+
+=== running the mutation harness ===
+=== the probe runner's gate: every property, proven load-bearing by removing it ===
+  PASS  typed-name-is-authority — removing it turns "W12" red  [20.6s]
+  PASS  uncommitted-retires — removing it turns "W11" red  [21.7s]
+  PASS  bundling-allowed — removing it turns "W13" red  [21.6s]
+  PASS  witness-is-any-commit — removing it turns "W28b" red  [21.2s]
+  PASS  no-record-assumes-a-branch — removing it turns "W29" red  [21.9s]
+  PASS  marker-taken-on-trust — removing it turns "W14 " red  [19.7s]
+  PASS  manifest-not-read — removing it turns "W15 " red  [19.1s]
+  PASS  unlisted-probe-does-not-block — removing it turns "W26" red  [21.8s]
+  PASS  deletion-is-free — removing it turns "W16 " red  [14.9s]
+  PASS  missing-reads-the-tree — removing it turns "W16c" red  [19.3s]
+  PASS  uncommitted-line-excuses-deletion — removing it turns "W16d" red  [16.9s]
+  PASS  wrong-name-excuses-deletion — removing it turns "W16e" red  [19.9s]
+  PASS  show-all-names-nothing — removing it turns "W17" red  [19.7s]
+  PASS  per-case-is-per-file — removing it turns "W19" red  [19.3s]
+  PASS  retired-case-still-asked — removing it turns "W19" red  [19.4s]
+  PASS  unknown-case-ignored — removing it turns "W21" red  [19.6s]
+  [16 mutant(s), 8 at a time, wall 41.9s, slowest 21.9s no-record-assumes-a-branch, 7.5x serial]
+
+=== mutation: all 16 properties proven load-bearing ===
+
+=== workspace-probes tests: all 40 passed ===
+exit: 0
+finished: 2026-09-12T19:24:37Z  (54 s)
