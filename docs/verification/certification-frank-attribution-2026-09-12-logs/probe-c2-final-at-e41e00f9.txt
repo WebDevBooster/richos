@@ -1,0 +1,94 @@
+test_b1_a_plain_git_branch_in_the_workspace_is_left_behind_forever (__main__.ProbeC2.test_b1_a_plain_git_branch_in_the_workspace_is_left_behind_forever)
+Point 10: "every workspace and branch it has is deleted, as one. None ... ok
+test_b2_a_cc_named_stray_is_handled_by_the_unregistered_scan (__main__.ProbeC2.test_b2_a_cc_named_stray_is_handled_by_the_unregistered_scan)
+Point 3, hole 6: an unregistered cc/ branch "counts as finished work ... ERROR
+test_b3_a_branch_the_agent_worked_on_and_switched_away_from_strands_its_commits (__main__.ProbeC2.test_b3_a_branch_the_agent_worked_on_and_switched_away_from_strands_its_commits)
+Point 5: "Rich lands 100% of everything after the agent is finished — ... ERROR
+test_b4_a_branch_the_agent_merely_checked_out_becomes_its_own (__main__.ProbeC2.test_b4_a_branch_the_agent_merely_checked_out_becomes_its_own)
+Point 8: "Deletion therefore never loses anything that was meant to ... FAIL
+test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage (__main__.ProbeC2.test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage)
+Point 5: "Rich lands 100% of everything after the agent is finished — ... FAIL
+test_b6_the_agents_own_branch_renamed_in_its_workspace_still_goes_with_it (__main__.ProbeC2.test_b6_the_agents_own_branch_renamed_in_its_workspace_still_goes_with_it)
+Point 10: "every workspace and branch it has is deleted, as one. None ... ok
+test_b7_the_point_5_gate_refuses_a_spawn_while_such_a_branch_is_pending (__main__.ProbeC2.test_b7_the_point_5_gate_refuses_a_spawn_while_such_a_branch_is_pending)
+THE BOUND ON B4, and it is a real one: point 5's "while any finished ... ok
+
+======================================================================
+ERROR: test_b2_a_cc_named_stray_is_handled_by_the_unregistered_scan (__main__.ProbeC2.test_b2_a_cc_named_stray_is_handled_by_the_unregistered_scan)
+Point 3, hole 6: an unregistered cc/ branch "counts as finished work
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-attribution-2026-09-12-probe.py", line 66, in test_b2_a_cc_named_stray_is_handled_by_the_unregistered_scan
+    ws.land("zach-opus-n2", self.sid)
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/engine/scripts/lib/workspaces.py", line 1538, in land
+    raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
+                    % (rec["name"], "; ".join(missing)))
+workspaces.SpecError: zach-opus-n2 is not landed yet: cc/zach-opus-n2-spare (ea12fef3c351) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-fmxsi_bj/entity at 95adba2335f8. Merge it, then land it; or discard it (point 7).
+
+======================================================================
+ERROR: test_b3_a_branch_the_agent_worked_on_and_switched_away_from_strands_its_commits (__main__.ProbeC2.test_b3_a_branch_the_agent_worked_on_and_switched_away_from_strands_its_commits)
+Point 5: "Rich lands 100% of everything after the agent is finished —
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-attribution-2026-09-12-probe.py", line 123, in test_b3_a_branch_the_agent_worked_on_and_switched_away_from_strands_its_commits
+    res = ws.land("zach-opus-n3", self.sid)
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/engine/scripts/lib/workspaces.py", line 1538, in land
+    raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
+                    % (rec["name"], "; ".join(missing)))
+workspaces.SpecError: zach-opus-n3 is not landed yet: side-work (a2acc8113da3) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-9_ea0o3m/entity at 0e6e02831c57. Merge it, then land it; or discard it (point 7).
+
+======================================================================
+FAIL: test_b4_a_branch_the_agent_merely_checked_out_becomes_its_own (__main__.ProbeC2.test_b4_a_branch_the_agent_merely_checked_out_becomes_its_own)
+Point 8: "Deletion therefore never loses anything that was meant to
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-attribution-2026-09-12-probe.py", line 166, in test_b4_a_branch_the_agent_merely_checked_out_becomes_its_own
+    self.assertIn("cc/zach-opus-gone", after,
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  "another piece of pending work was deleted because this agent looked at it")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'cc/zach-opus-gone' not found in ['main'] : another piece of pending work was deleted because this agent looked at it
+
+======================================================================
+FAIL: test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage (__main__.ProbeC2.test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage)
+Point 5: "Rich lands 100% of everything after the agent is finished —
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-attribution-2026-09-12-probe.py", line 192, in test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage
+    res = ws.land("zach-opus-n5", self.sid)
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/engine/scripts/lib/workspaces.py", line 1538, in land
+    raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
+                    % (rec["name"], "; ".join(missing)))
+workspaces.SpecError: zach-opus-n5 is not landed yet: cc/zach-opus-old (186fb3026885) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-ve47ouvg/other at 95e4816af173. Merge it, then land it; or discard it (point 7).
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-attribution-2026-09-12-probe.py", line 196, in test_b5_a_branch_the_agent_checked_out_holds_its_land_hostage
+    raise AssertionError("the agent's own work cannot be landed: %s" % e)
+AssertionError: the agent's own work cannot be landed: zach-opus-n5 is not landed yet: cc/zach-opus-old (186fb3026885) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-ve47ouvg/other at 95e4816af173. Merge it, then land it; or discard it (point 7).
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.731s
+
+FAILED (failures=2, errors=2)
+
+B1 branches after land: ['main']
+B1 pending after land  : []
+
+B3 created_branches    : [['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-9_ea0o3m/entity', 'side-work']]
+
+B4 created_branches    : [['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-qmdutl0l/other', 'cc/zach-opus-gone']]
+B4 branches after discard: ['main']
+B4 the lost tip          : 34fd1d6364a16909923f79d4b9383803b63365dd
+
+B5 land REFUSED: zach-opus-n5 is not landed yet: cc/zach-opus-old (186fb3026885) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-ve47ouvg/other at 95e4816af173. Merge it, then land it; or discard it (point 7).
+
+B6 created_branches    : [['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-6kcxbys7/entity', 'renamed-work']]
+B6 land -> {'landed': True}
+B6 branches after land : ['main']
+B6 pending after land  : []
+
+B7 pending before      : ['orphan-cc-zach-opus-earlier']
+B7 spawn refused with  : === Finished work is not landed or discarded: you cannot start new work (point 5) ===
