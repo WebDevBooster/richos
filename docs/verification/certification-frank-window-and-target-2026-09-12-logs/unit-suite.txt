@@ -1,0 +1,57 @@
+  PASS  test_point_01_every_non_native_workspace_is_named_cc
+  PASS  test_point_01_only_cc_non_native_workspaces_are_the_systems_concern
+  PASS  test_point_02_codex_is_never_touched
+  PASS  test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents
+  PASS  test_point_03_a_continuing_agents_branch_is_never_its_predecessors
+  PASS  test_point_03_another_live_agents_branch_is_never_attributed
+  PASS  test_point_03_claude_worktree_sessions_are_not_allowed
+  PASS  test_point_03_failed_registration_means_no_spawn
+  PASS  test_point_03_two_agents_in_one_repository_both_land_their_own_refs
+  PASS  test_point_03_unregistered_workspace_and_branch_are_finished_work
+  PASS  test_point_04_landed_means_workspace_and_branch_deleted_automatically
+  PASS  test_point_05_a_ceo_discard_question_blocks_nothing_else
+  PASS  test_point_05_an_agent_started_to_land_it_lets_the_turn_end
+  PASS  test_point_05_answering_the_ceo_names_the_pending_work
+  PASS  test_point_05_no_new_work_while_finished_work_is_pending
+  PASS  test_point_05_no_turn_end_while_finished_work_is_pending
+  PASS  test_point_05_the_answer_allowance_is_spent_once_per_item
+  PASS  test_point_05_the_gate_answers_inside_its_budget
+  PASS  test_point_05_the_next_session_starts_with_it
+  PASS  test_point_05_waiting_items_allow_turn_end_but_not_new_work
+  PASS  test_point_06_native_workspaces_registered_at_spawn_and_deleted_on_land
+  PASS  test_point_06_subagentstart_before_the_agent_result
+  PASS  test_point_07_an_agent_that_produced_nothing_counts_as_landed
+  PASS  test_point_07_an_agent_with_no_workspaces_at_all_is_landed_not_pending
+  PASS  test_point_07_ceo_ordered_work_needs_his_word
+  PASS  test_point_07_discard_deletes_with_the_reason_recorded
+  PASS  test_point_07_unfinished_work_is_continued_by_a_new_agent
+  PASS  test_point_08_ignored_files_it_needs
+  PASS  test_point_08_nothing_uncommitted_is_ever_landed
+  PASS  test_point_08_a_pre_existing_branch_the_agent_only_checked_out_survives
+  PASS  test_point_09_a_finished_agent_is_refused_every_tool
+  PASS  test_point_09_a_paused_agent_is_not_locked_out
+  PASS  test_point_09_a_restarted_read_only_agent_is_refused_every_tool
+  PASS  test_point_09_every_process_it_started_is_stopped_before_deletion
+  PASS  test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents
+  PASS  test_point_10_a_cross_repository_agent_loses_both_workspaces_as_one
+  PASS  test_point_10_a_side_branch_switched_away_from_blocks_the_land
+  PASS  test_point_10_branches_created_in_a_workspace_go_with_it
+  PASS  test_point_11_a_pause_with_nothing_named_is_pending
+  PASS  test_point_11_a_recorded_pause_is_not_finished_and_resumes
+  PASS  test_point_11_a_stopped_pause_is_finished
+  PASS  test_point_11_finished_means_run_ended_and_not_paused
+  PASS  test_point_11_handed_in_then_ended_is_finished_even_if_paused
+  PASS  test_point_12_a_reused_process_number_is_not_the_session
+  PASS  test_point_12_process_gone_finishes_its_agents
+  PASS  test_point_12_session_end_recorded_finishes_its_agents
+  PASS  test_point_12_two_sessions_each_handle_their_own
+  PASS  test_point_13_a_failed_deletion_is_retried_until_it_succeeds
+  PASS  test_point_14_the_integration_branch_is_recorded_never_inferred
+  PASS  test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows
+  PASS  test_point_14_work_merged_nowhere_is_not_landed
+  PASS  test_point_14_work_merged_onto_its_dev_branch_counts_as_landed
+----------------------------------------------------------------------
+Ran 52 tests in 22.362s
+
+OK
+=== workspaces spec tests: 52 run, 0 failed ===

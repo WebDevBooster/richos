@@ -1,0 +1,55 @@
+=== E1 spawn -> register -> commit -> finish -> land -> gone ===
+  PASS  E0.1 the branch this work integrates on is recorded (point 14)
+  PASS  E1.1 SessionStart recorded the session with its process identity
+  PASS  E1.2 the spawn guard registered the spawn (exit 0)
+  PASS  E1.3 the registered worker may write (lock-out passes)
+  PASS  E1.4 finished: the lock-out refuses every tool, Read included (point 9)
+  PASS  E1.5 the Stop gate refuses the end of the turn while it is pending (point 5)
+  PASS  E1.6 the spawn guard refuses new work while it is pending (point 5)
+  PASS  E1.7 merged: the Stop gate lands it on its own and lets the turn end (point 4)
+  PASS  E1.8 its workspace is gone from disk and from git
+  PASS  E1.9 its branch is gone
+  PASS  E1.10 restarted after its workspace is gone: still refused (point 9)
+=== E2 the same, discarded ===
+  PASS  E2.1 spawn registered
+  PASS  E2.2 pending: the turn cannot end
+  PASS  E2.3 discarded with its reason recorded
+  PASS  E2.4 its workspace and branch are gone
+  PASS  E2.5 the discarded commit was never merged
+  PASS  E2.6 the reason is in the record
+  PASS  E2.7 nothing pending: the turn may end
+=== E3 a cross-repository agent with two workspaces ===
+  PASS  E3.1 create-teammate-worktree.sh registered and created a cc/ workspace (point 1)
+  PASS  E3.2 the spawn naming its cc/ workspace is registered
+  PASS  E3.3 merged: landed on its own
+  PASS  E3.4 BOTH workspaces are gone (point 10)
+  PASS  E3.5 BOTH branches are gone (point 10)
+  PASS  E3.6 a spawn naming an unregistered workspace does not happen (point 3)
+  PASS  E3.7 an unregistered cc/ workspace is finished work: the turn cannot end (point 3)
+  PASS  E3.8 discarded: workspace and branch gone
+=== E4 a session that ends mid-work ===
+  PASS  E4.1 spawn registered
+  PASS  E4.2 the next session is told first (point 5)
+  PASS  E4.3 its agent cannot outlive the session: locked out (points 9, 12)
+  PASS  E4.4 new work is refused until it is handled (point 5)
+  PASS  E4.5 the turn cannot end either
+  PASS  E4.6 an uncommitted file refuses the land (point 8)
+  PASS  E4.7 committed and merged: landed by the next session
+  PASS  E4.8 its workspace and branch are gone
+  PASS  E4.9 nothing it produced was lost: both commits are in main
+  PASS  E4.10 nothing pending: the turn may end
+=== E6 the pair of events: refs created inside one tool call ===
+  PASS  E6.1 spawn registered
+  PASS  E6.2 both refs it created are recorded against it (points 3, 10)
+  PASS  E6.3 the land is held by the work it left on a side branch, by name (points 5, 8)
+  PASS  E6.4 so the turn cannot end either (point 5)
+  PASS  E6.5 merged: nothing it produced was lost, and it lands on its own
+  PASS  E6.6 the side-branch commit is in main
+  PASS  E6.7 every ref it created is gone with its workspace (point 10)
+=== every workspace and branch the agents had ===
+  PASS  E5.1 the entity repository has only its main checkout
+  PASS  E5.2 the other repository has only its main checkout
+  PASS  E5.3 no agent branch survives anywhere
+  PASS  E5.4 the lifecycle hook reported nothing unexpected
+
+workspaces-e2e: 47 passed, 0 failed

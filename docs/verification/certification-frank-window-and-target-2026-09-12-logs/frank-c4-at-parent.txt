@@ -1,0 +1,50 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/lib/workspaces.84e12d32.py
+
+=== 1 late-record-stray — A stray created before the branch is recorded survives the land that the
+    integration record at spawn              {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:39:16Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c4-gbksfjaq/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    created_branches (record missing)        ['spare']
+    attribution-skipped events               0
+    Rich records it afterwards               main
+    land after the recording                 landed
+    branches after the land                  ['main']
+    pending after the land                   []
+    the stray is on nobody's record          True
+    VERDICT                                  HOLDS
+
+=== 2 late-record-side — The same, with a side branch carrying a commit that is in NO integration
+    created_branches (record missing)        ['sidework']
+    land after the recording                 REFUSED: zach-opus-r2 is not landed yet: sidework (db0e23a3800d) is not in main of /private/var/folders/mx/w46p9btx1t17w
+    its side commit reached main             False
+    branches after the land                  ['main', 'sidework', 'worktree-agent-azachopusr20000']
+    pending after the land                   ['zach-opus-r2']
+    side commit still only on 'sidework'     db0e23a3800dedae0088fea6f62bb6a63ba0df29
+    VERDICT                                  HOLDS
+
+=== 3 record-first-control — THE CONTROL for the two above: the identical shape with the branch
+    created_branches (record present)        ['sidework']
+    land                                     REFUSED: zach-opus-r3 is not landed yet: sidework (db0e23a3800d) is not in main of /private/var/folders/mx/w46p9btx1t17w
+    pending                                  ['zach-opus-r3']
+    VERDICT                                  HOLDS
+
+=== 4 late-record-rename — The agent renames its OWN branch while no branch is recorded.
+    created_branches (record missing)        ['renamed-work']
+    land after the recording                 landed
+    branches after the land                  ['main']
+    pending after the land                   []
+    VERDICT                                  HOLDS
+
+=== 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    windows left open by the refused call    1
+    created_branches before the end of run   []
+    created_branches after the end of run    []
+    branches after the discard               ['main', 'rich/rescue']
+    rich/rescue survived                     True
+    VERDICT                                  HOLDS
+
+=== 6 leaked-window-evicts — The cap: _MAX_OPEN_CALLS windows of refused calls opened AFTER a live one
+    created_branches at the live call's Post ['spare']
+    created_branches after the end of run    ['spare']
+    attributed at the Post (not only at the end) True
+    VERDICT                                  HOLDS
+
+=== 6/6 cases hold

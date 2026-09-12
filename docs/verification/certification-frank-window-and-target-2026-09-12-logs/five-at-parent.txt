@@ -1,0 +1,47 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/lib/workspaces.84e12d32.py
+
+=== 1 concurrent-refs — 1. Two of one agent's own calls open at once: BOTH refs are attributed.
+    with the platform's call ids           ['keyed-in-call-a']
+    with no call ids at all (arrival order) ['unkeyed-in-call-a']
+    both windows survived, both ways       False
+    VERDICT                                BROKEN
+
+=== 2 concurrent-side — 2. Real work on a side branch created in that window: the land is REFUSED.
+    created_branches                       []
+    land                                   landed
+    its side-branch commit in main         False
+    pending (point 5 holds the turn)       []
+    the side commit is still on tmpwork    True
+    land once tmpwork is merged            landed
+    branches after the land                ['main', 'tmpwork']
+    VERDICT                                BROKEN
+
+=== 3 no-record-refuses — 3. No integration branch recorded: the land REFUSES and names the command.
+    main checkout is on                    main
+    integration record                     {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:35:26Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-47tetcgr/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    land (its work IS in main)             landed
+    names the recording command            False
+    pending (nothing is lost)              []
+    workspace still there                  False
+    VERDICT                                BROKEN
+
+=== 4 late-record-heals — 4. Recorded AFTER the agent was registered: the same land then SUCCEEDS.
+    integration record at spawn time       {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:35:26Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    frozen on the agent record             {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity': 'main'}
+    land before the branch is recorded     REFUSED: zach-opus-w5 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity/.claude/worktrees/
+    Rich records it afterwards             {'branch': 'dev/work', 'source': 'recorded'}
+    the SAME land, after the recording     REFUSED: zach-opus-w5 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity/.claude/worktrees/agent-azachopusw50000 (33e917ec30ac) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity at aa5972ab6b07; worktree-agent-azachopusw50000 (33e917ec30ac) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-xs_3dzf2/entity at aa5972ab6b07. Merge it onto the branch this work integrates on, then land it; or discard it (point 7).
+    workspace gone                         False
+    branch gone                            False
+    nothing pending                        ['zach-opus-w5']
+    VERDICT                                BROKEN
+
+=== 5 no-floor-written — 5. A registration writes no integration record and freezes nothing.
+    record before anything happens         {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:35:27Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-6xfg__0i/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    record after a registration            {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:35:27Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-6xfg__0i/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    frozen on the agent record             {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-6xfg__0i/entity': 'main'}
+    every integration record               {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-6xfg__0i/entity': {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T11:35:27Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-window-6xfg__0i/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}}
+    none has source first-registration     False
+    VERDICT                                BROKEN
+
+=== 0/5 cases hold; BROKEN: concurrent-refs, concurrent-side, no-record-refuses, late-record-heals, no-floor-written

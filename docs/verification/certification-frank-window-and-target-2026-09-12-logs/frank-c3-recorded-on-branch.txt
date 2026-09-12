@@ -1,0 +1,54 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/lib/workspaces.2bc413df.py
+
+=== 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    created_branches                       ['spare']
+    land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-_9gor6pk/entity/.claude/worktrees/agent-azachopusq60000 (1f20c8c92827) is not in main of /priv
+    land after                             landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    created_branches                       ['sidework']
+    land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: sidework (bdfaa31468be) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-liojrosw/entity at f847026cb76e. Merge it onto the branch th
+    VERDICT                                HOLDS
+
+=== 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    created_branches                       ['renamed-work']
+    land                                   landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 3 floor-trap — The floor freezes the WRONG branch onto an agent, and recording the real
+    floor wrote                            main (source: recorded)
+    agent's frozen copy                    {}
+    Rich recorded                          dev/workspace-spec (source: recorded)
+    merged onto dev/workspace-spec         True
+    in main                                False
+    land                                   landed
+    workspace still there                  False
+    pending (point 5 blocks on this)       []
+    VERDICT                                HOLDS
+
+=== 6 floor-timing — WHERE the floor actually reads the branch.
+    record at session start                main
+    main checkout's branch at registration main
+    record after registration              main (source: recorded)
+    agent's frozen copy                    {}
+    VERDICT                                HOLDS
+
+=== 1 outside-stray — A stray that appears outside the bracket is attributed to nobody.
+    created_branches                       []
+    land                                   landed
+    branches after the land                ['main', 'spare']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 2 outside-side — A side branch that appears outside the bracket strands its commits.
+    created_branches                       []
+    land                                   landed
+    its side commit is in main             False
+    branches after the land                ['main', 'sidework']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 5/7 cases hold; BROKEN: outside-stray, outside-side
