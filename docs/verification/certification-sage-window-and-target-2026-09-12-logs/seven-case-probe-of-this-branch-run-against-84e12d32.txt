@@ -1,0 +1,53 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/sage-c4/workspaces-84e12d32.py
+
+=== 1 stray — 1. A branch created in a workspace and never checked out goes with the agent.
+    created_branches                   ['spare']
+    land before the stray is merged    REFUSED: zach-opus-p1 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-seven-0pems56u/entity/.claude/worktrees/agent-azachopusp1000
+    land after its branch is merged    landed
+    branches after the land            ['main']
+    VERDICT                            HOLDS
+
+=== 2 side-branch — 2. A side branch committed to and switched away from blocks the land.
+    created_branches                   ['tmpwork']
+    land with the side branch out      REFUSED: zach-opus-p2 is not landed yet: tmpwork (98040d9970cd) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-seven-_r41xxi3/entity at aa
+    pending                            ['zach-opus-p2']
+    its side-branch commit in main     False
+    land once it is merged             landed
+    VERDICT                            HOLDS
+
+=== 3 borrowed — 3. A pre-existing branch the agent only checked out survives a discard.
+    created_branches                   []
+    human/keep survived the discard    True
+    its tip is unchanged               True
+    VERDICT                            HOLDS
+
+=== 4 rich — 4. A branch Rich cuts in the main checkout is never the agent's.
+    created_branches                   []
+    land                               landed
+    branches after the land            ['main', 'rich/look', 'rich/notes']
+    VERDICT                            HOLDS
+
+=== 5 two-agents — 5. Two agents in one repository both land cleanly; neither takes the other's.
+    A.created_branches                 []
+    B.created_branches                 []
+    land A                             landed
+    land B                             landed
+    entity branches after              ['main']
+    other branches after               ['main']
+    VERDICT                            HOLDS
+
+=== 6 dev-branch — 6. Work merged into the dev branch but not main counts as landed.
+    integration branch recorded        dev/work
+    in main                            False
+    land                               landed
+    workspace gone                     True
+    branch gone                        True
+    VERDICT                            HOLDS
+
+=== 7 merged-nowhere — 7. Work merged nowhere does not count as landed.
+    land                               REFUSED: zach-opus-p7 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-seven-rnccz9re/entity/.claude/worktrees/agent-azachopusp7000
+    pending                            ['zach-opus-p7']
+    workspace still there              True
+    VERDICT                            HOLDS
+
+=== 7/7 cases hold
