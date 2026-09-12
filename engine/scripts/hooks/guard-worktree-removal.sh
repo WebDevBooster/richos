@@ -185,6 +185,9 @@ if not isinstance(d, dict) or d.get("tool_name") != "Bash":
     print("PASS"); raise SystemExit
 ti = d.get("tool_input") or {}
 cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
+# AN AGENT'S CALL carries the platform's agent id; the lead's carries none. The
+# two point-14 rules below apply to an agent's call only (see rule 6).
+AGENT = str(d.get("agent_id") or "").strip()
 
 # ===========================================================================
 # WHAT WILL EXECUTE, AND WHAT IS ONLY BEING WRITTEN DOWN
@@ -430,6 +433,37 @@ def collect_git(text):
         elif deletes and any(re.search(r"(?:^|refs/heads/)(?:worktree-\S+|cc/\S+)", t) for t in rest):
             spec.append("git branch -D of an agent's branch (a land or a discard deletes it, "
                         "with every workspace it has — points 4, 7, 10)")
+        # Rule 6b: an AGENT moving, renaming or deleting a RECORDED integration
+        # branch. -f/--force (a move), -m/-M/--move, -d/-D/--delete; a plain
+        # `git branch <name>` creates a new ref and touches nothing recorded.
+        moves = deletes or any(
+            t in ("--force", "--move", "--delete") or re.fullmatch(r"-[A-Za-z]*[fmMdD][A-Za-z]*", t)
+            for t in rest)
+        if AGENT and moves:
+            for b in recorded_integration_branches():
+                if any(t == b or t == "refs/heads/" + b for t in rest):
+                    spec.append("git branch -f/-m/-D of %s, the RECORDED integration branch, from an "
+                                "agent's call (it is where every in-flight agent's work lands; only "
+                                "Rich moves it — point 14)" % b)
+
+    elif sub == "update-ref" and AGENT:
+        for b in recorded_integration_branches():
+            if any(t == "refs/heads/" + b for t in rest):
+                spec.append("git update-ref of refs/heads/%s, the RECORDED integration branch, from an "
+                            "agent's call (point 14)" % b)
+
+    elif sub == "push" and AGENT:
+        # `git push . HEAD:dev/x`, `git push . dev/x`, `git push origin x:refs/heads/dev/x`:
+        # the DESTINATION side of a refspec is the branch being written.
+        for b in recorded_integration_branches():
+            for t in rest:
+                if t.startswith("-"):
+                    continue
+                dst = t.split(":", 1)[1] if ":" in t else t
+                if dst.lstrip("+") in (b, "refs/heads/" + b):
+                    spec.append("git push into %s, the RECORDED integration branch, from an agent's "
+                                "call (point 14)" % b)
+                    break
 
 # 4) A FILESYSTEM recursive rm whose OWN argument list names a worktree.
 #
@@ -466,6 +500,58 @@ def collect_rm(text):
 # 5) Nobody starts a session in its own workspace (point 3).
 CLAUDE_WT = re.compile(r"(?:^|[;&|(\n]\s*|\s)(?:\S*/)?claude\b[^;&|\n]*\s(?:--worktree|-w)(?:\s|=|$)")
 
+# 6) WHO RECORDS THE INTEGRATION BRANCH — point 14, and the round-6 finding
+#    both reviewers made (certification-frank-round6-2026-09-12.md §4 RN2b/RN2c,
+#    certification-sage-round6-2026-09-12.md §5 A3): nothing checked WHO wrote
+#    the record, so the party under test could `git branch wip` and record `wip`
+#    in the store the runner reads, or `git branch -f dev/workspace-spec HEAD`,
+#    and every retirement was RETIRED — and the same move retargets where every
+#    other in-flight agent in that repository lands. "The branch a body of work
+#    integrates on is RECORDED when that work starts, before its first agent is
+#    spawned" — by Rich, who starts the work. So in an AGENT's call (the payload
+#    carries its agent id; the lead's carries none), the way `claude -w` is
+#    refused:
+#      6a  `workspaces.sh integration ... --branch ...` (recording or --correct)
+#      6b  `git branch -f/-m/-D`, `git update-ref`, `git push <x>:<it>` aimed at
+#          a RECORDED integration branch, read from the registry by the library
+#          itself (every body of work, superseded ones included: an agent in
+#          flight may still be bound to one).
+#    The lead's own calls are untouched, and an agent's `git branch -f side HEAD`
+#    on a branch nobody recorded is untouched: precision, as everywhere here.
+INTEGRATION_CALL = re.compile(
+    r"(?:^|[\s;&|(])(?:\S*/)?workspaces\.(?:sh|py)\b[^\n;|&]*\bintegration\b[^\n;|&]*--branch\b")
+
+_RECORDED = None
+
+
+def recorded_integration_branches():
+    """Every branch any body of work is recorded as integrating on, asked of the
+    library (the registry's own reader, the same store the hooks write). Empty
+    when nothing is recorded or the library cannot be read — which fails OPEN
+    here, exactly as an unknown classifier result does: precision."""
+    global _RECORDED
+    if _RECORDED is not None:
+        return _RECORDED
+    _RECORDED = []
+    lib = os.environ.get("WTR_WORKSPACES_LIB", "")
+    if not lib or not os.path.isfile(lib):
+        return _RECORDED
+    try:
+        import importlib.util
+        sys.dont_write_bytecode = True          # never leave __pycache__ beside the engine
+        spec_ = importlib.util.spec_from_file_location("wtr_workspaces", lib)
+        mod = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(mod)
+        seen = []
+        for w in mod.all_bodies_of_work().values():
+            b = (w or {}).get("branch") or ""
+            if b and b not in seen:
+                seen.append(b)
+        _RECORDED = seen
+    except Exception:
+        _RECORDED = []
+    return _RECORDED
+
 # THE WHOLE COMMAND, AND THEN EVERY COMMAND SUBSTITUTION INSIDE IT.
 #
 # WHY THE SECOND PASS EXISTS, and it is a hole this repair FOUND rather than one
@@ -489,6 +575,11 @@ for _sub in _SUBST.finditer(scan):
 if CLAUDE_WT.search(scan):
     spec.append("claude --worktree / -w (nobody starts a session in its own workspace in "
                 "RichOS; it is not allowed — point 3)")
+if AGENT and INTEGRATION_CALL.search(scan):
+    spec.append("workspaces.sh integration --branch from an AGENT's call (the branch a body of "
+                "work integrates on is recorded by Rich when the work starts, before its first "
+                "agent is spawned; an agent recording or correcting it retargets where every "
+                "in-flight agent's work lands — point 14)")
 
 
 # --- STRUCTURAL workspace test ---------------------------------------------
@@ -552,6 +643,9 @@ PYEOF
 
 # Payload bytes use stdin: environment strings have a much smaller per-value
 # limit on Linux. A failed classifier must never become an unevaluated pass.
+# The library path travels in the environment so rule 6b can ask the registry
+# which branches are recorded; the payload itself never does.
+export WTR_WORKSPACES_LIB="$SCRIPT_DIR/../lib/workspaces.py"
 if ! RESULT="$(python3 -c "$_WTR_CLASSIFIER" <<<"$INPUT")"; then
     echo "ERROR: guard-worktree-removal.sh: payload classifier failed; refusing unevaluated operation" >&2
     exit 2

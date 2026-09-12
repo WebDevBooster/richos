@@ -411,6 +411,38 @@ else
     printf '  FAIL  j  unadopted repository -> stand down (got exit %s)\n' "$J_RC"; FAIL=$((FAIL + 1))
 fi
 
+# --- RG1-RG10: WHO records the integration branch (point 14; round 7) --------
+# Both round-6 reviewers found nothing checked WHO wrote the record: the party
+# under test could record `wip` in the store the runner reads, or
+# `git branch -f dev/workspace-spec HEAD`, and every retirement was RETIRED —
+# and the same move retargets where every in-flight agent's work lands. In an
+# AGENT's call (the payload carries its agent id) both are refused, the way
+# `claude -w` is; the lead's own calls pass, and an agent moving a branch nobody
+# recorded passes (precision). Rule 6b asks the library which branches are
+# recorded, so the sandbox hosts the library and a store of its own.
+agent_payload() { # <command-string> — a Bash PreToolUse payload from an AGENT's call
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","agent_id":"aabc123def456789","tool_input":{"command":sys.argv[1]}}))' "$1"
+}
+cp "$SRC_DIR/../lib/workspaces.py" "$TMPROOT/entity/scripts/lib/"
+export RICHOS_WORKSPACES_DIR="$TMPROOT/ws"; mkdir -p "$RICHOS_WORKSPACES_DIR"
+if ! python3 "$TMPROOT/entity/scripts/lib/workspaces.py" integration --repo "$MAINREPO" --branch main --why "the suite's body of work" >/dev/null 2>&1; then
+    printf '  FAIL  RG0 the sandbox could not record its integration branch\n'; FAIL=$((FAIL + 1))
+fi
+run_case "RG1 agent: workspaces.sh integration --branch -> refused" 2 \
+    "$(agent_payload "scripts/workspaces.sh integration --repo $MAINREPO --branch wip --why 'a new body of work, says the engineer'")"
+run_case "RG2 agent: workspaces.py integration --correct -> refused" 2 \
+    "$(agent_payload "python3 scripts/lib/workspaces.py integration --repo $MAINREPO --branch main --correct --why 'moved by the engineer'")"
+run_case "RG3 lead: the same recording -> allow" 0 \
+    "$(bash_payload "scripts/workspaces.sh integration --repo $MAINREPO --branch main --why 're-stated by Rich'")"
+run_case "RG4 agent: workspaces.sh status (records nothing) -> allow" 0 "$(agent_payload "scripts/workspaces.sh status")"
+run_case "RG5 agent: git branch -f <recorded> HEAD -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -f main HEAD")"
+run_case "RG6 agent: git update-ref refs/heads/<recorded> -> refused" 2 "$(agent_payload "git -C $MAINREPO update-ref refs/heads/main HEAD")"
+run_case "RG7 agent: git push . HEAD:<recorded> -> refused" 2 "$(agent_payload "git -C $MAINREPO push . HEAD:main")"
+run_case "RG8 agent: git branch -f <unrecorded> HEAD -> allow (precision)" 0 "$(agent_payload "git -C $MAINREPO branch -f linked HEAD")"
+run_case "RG9 lead: git branch -f <recorded> HEAD -> allow (landing is his)" 0 "$(bash_payload "git -C $MAINREPO branch -f main HEAD")"
+run_case_msg "RG10 the refusal names point 14" "point 14" "$(agent_payload "git -C $MAINREPO branch -D main")"
+unset RICHOS_WORKSPACES_DIR
+
 # (k) a DECLARED root that carries no marker is BROKEN, not "not applicable".
 K_RC=0
 printf '%s' "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')" \
