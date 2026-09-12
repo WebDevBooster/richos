@@ -608,6 +608,37 @@ def resolve_shas(shas, roots):
 # HEAD is main; on 2026-09-01 richos-hq's HEAD was main and the gate fires.
 INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")
 
+
+def _recorded_integration_refs(root):
+    """THE ONE ANSWER FIRST, asked of scripts/lib/workspaces.py (point 14):
+    "Every part of the system that needs to know whether work has landed asks
+    the same question: is it in the branch recorded for this work? None of them
+    is allowed its own answer, and none of them assumes main."
+
+    The tuple above is this gate's own answer, and on a repository whose work
+    integrates on a dev branch it is the WRONG one in the loud direction: a
+    commit merged onto that dev branch is not in `main`, so a truthful
+    "integrated" claim was refused. The recorded branch goes first.
+
+    Where nothing is recorded this returns (), and the caller then ABSTAINS
+    into "unknown" -- this gate's own silent verdict -- rather than falling back
+    to main. Loading the library by path is a duplicated LOADER, not a
+    duplicated ANSWER."""
+    lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "lib", "workspaces.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, _tip, why_not = ws.integration_for(root)
+    except Exception:
+        return ()
+    if why_not or not branch:
+        return ()
+    remote = "origin/" + branch
+    return (branch, remote)
+
 # A wall-clock budget for the whole class. This gate runs at Stop with a 20s
 # hook timeout, and `for-each-ref --contains` over a big repository is not free.
 # When the budget is spent the remaining claims resolve to "unknown", which is
@@ -663,7 +694,16 @@ def state_verdict(kind, sha, roots, deadline):
             continue
         held_by.append(root)
         if kind == "integrated":
-            for ref in INTEGRATION_REFS:
+            recorded = _recorded_integration_refs(root)
+            if not recorded:
+                # ABSTAIN: no branch is recorded as the one this work
+                # integrates on, so "integrated" has nothing to be measured
+                # against. "unknown" is this gate's silent verdict, so the
+                # abstention costs recall and never manufactures a refusal --
+                # which is the only direction an unanswerable question may be
+                # rounded in.
+                return ("unknown",)
+            for ref in recorded:
                 if time.monotonic() > deadline:
                     return ("unknown",)
                 q = _git(root, ["merge-base", "--is-ancestor", sha, ref],
@@ -1430,7 +1470,9 @@ def main():
             out.append("  rather than from the repository.")
             out.append("")
             out.append("  Run the merge, or say where the work actually is. Confirm with:")
-            out.append("      git -C %s merge-base --is-ancestor %s main" % (repo, sha))
+            out.append("      git -C %s merge-base --is-ancestor %s "
+                       "$(engine/scripts/workspaces.sh integration-branch --repo %s | cut -f1)"
+                       % (repo, sha, repo))
         else:
             out.append("  %s is reachable from %s in %s and from no remote-tracking" % (sha, ref, repo))
             out.append("  ref, so it is committed locally and has not left this machine.")

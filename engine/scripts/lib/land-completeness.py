@@ -329,13 +329,48 @@ def main_checkout(path):
     return root if os.path.isdir(root) else path
 
 
-def analyze(repo, main="main", ledger=None):
-    """The whole answer for one repository."""
+def integration_branch(repo):
+    """(branch, why_not) — THE ONE ANSWER, asked of the library and never kept
+    here. Point 14: "Every part of the system that needs to know whether work
+    has landed asks the same question: is it in the branch recorded for this
+    work? None of them is allowed its own answer, and none of them assumes
+    main."
+
+    This used to default to the string "main", which is exactly an answer of its
+    own: on a repository whose work integrates on a dev branch it reported
+    unmerged worktrees that had landed perfectly well. Where nothing is
+    recorded, it ABSTAINS and names the recording command; it never guesses.
+
+    Loading the library by path is duplicated across the consumers. That is a
+    duplicated LOADER, not a duplicated ANSWER: there is still exactly one
+    implementation of the question, and it is workspaces.py's."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, _tip, why_not = ws.integration_for(repo)
+    except Exception as e:                       # the library itself is unreadable
+        return "", ("the branch this work integrates on could not be read from %s: %s" % (lib, e))
+    return branch, why_not
+
+
+def analyze(repo, main="", ledger=None):
+    """The whole answer for one repository.
+
+    `main` is the branch to measure against. Empty means ASK THE LIBRARY, which
+    is what every caller should do; passing one explicitly is a caller naming
+    the branch, which is different from this file keeping a default."""
     if os.path.isdir(repo):
         repo = main_checkout(repo)
+    abstain = ""
+    if not main:
+        main, abstain = integration_branch(repo)
     report = {
         "repo": repo,
         "main": main,
+        "abstained": abstain,
         "worktrees": [],
         "branches": [],
         "not_examined": [],
@@ -350,6 +385,16 @@ def analyze(repo, main="main", ledger=None):
 
     ok, head = _git(repo, "rev-parse", "--short", "HEAD")
     report["head"] = head if ok else ""
+    if abstain:
+        # ABSTAIN, never assume main (point 14). Nothing is recorded as the
+        # branch this work integrates on, so there is no fact to test a land
+        # against and "landed" would go back to meaning whatever main happens
+        # to have. Every item is reported UNEXAMINED with the command that
+        # would settle it, which is a verdict a reader can act on; a guess
+        # dressed as a merge status is not.
+        report["not_examined"].append({"what": repo, "why": abstain})
+        report["counts"] = _counts(report)
+        return report
     ok_main, _ = _git(repo, "rev-parse", "--verify", main)
     if not ok_main:
         report["not_examined"].append(
@@ -520,7 +565,10 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(prog="land-completeness.py")
     ap.add_argument("--repo", required=True)
-    ap.add_argument("--main", default="main")
+    ap.add_argument("--main", default="",
+                    help="the branch to measure against. Omit it and the branch RECORDED for "
+                         "this body of work is asked of scripts/lib/workspaces.py (point 14); "
+                         "there is no default of 'main' and never was one that was right.")
     ap.add_argument("--ledger", default=None)
     a = ap.parse_args()
     print(json.dumps(analyze(a.repo, a.main, a.ledger), indent=2))

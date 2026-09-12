@@ -213,7 +213,14 @@ RED_PROBE="$SCRIPT_DIR/../lib/ci-red.py"
 
 INPUT="$(cat)"
 
-WATCHED_BRANCH="${CI_RED_GATE_BRANCH:-main}"
+# EMPTY MEANS ASK THE LIBRARY, once the repository is known (section 2
+# below). It was `:-main`, which is this gate keeping its own answer to
+# "which branch does this work land into" -- and on a body of work whose
+# dev branch is the one it integrates on, that answer made this gate watch
+# a branch nobody was landing into and stand down on every real land.
+# CI_RED_GATE_BRANCH still wins: a CALLER naming the branch is not the
+# same thing as this file assuming one.
+WATCHED_BRANCH="${CI_RED_GATE_BRANCH:-}"
 ACK_LOG="${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}"
 MAX_AGE="${CI_RED_GATE_MAX_AGE:-1800}"
 PROBE_TIMEOUT="${CI_RED_GATE_TIMEOUT:-12}"
@@ -367,6 +374,34 @@ ANCHOR="$(printf '%s' "$_GJ" | cut -f2)"
 
 REPO_ROOT="$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$REPO_ROOT" ] || exit 0
+
+# THE ONE ANSWER (point 14): "Every part of the system that needs to know
+# whether work has landed asks the same question: is it in the branch recorded
+# for this work? None of them is allowed its own answer, and none of them
+# assumes main."
+if [ -z "$WATCHED_BRANCH" ]; then
+    _WS_LIB="$SCRIPT_DIR/../workspaces.sh"
+    if [ -x "$_WS_LIB" ] || [ -f "$_WS_LIB" ]; then
+        WATCHED_BRANCH="$(bash "$_WS_LIB" integration-branch --repo "$REPO_ROOT" 2>/dev/null \
+                          | cut -f1 || true)"
+    fi
+    if [ -z "$WATCHED_BRANCH" ]; then
+        # ABSTAIN, and SAY SO. Nothing is recorded as the branch this work
+        # integrates on, so there is no branch to watch. Exit 0 allows the
+        # land, which is this gate's own "could not look" behavior -- but a
+        # gate that cannot answer and is silent about it is indistinguishable
+        # from a green one, and that is the shape of every defect this engine
+        # is built out of. One line, on a land, which is rare.
+        {
+            echo "=== CI RED GATE: NO INTEGRATION BRANCH RECORDED — THIS LAND IS ALLOWED ==="
+            echo "  Nothing is recorded for ${REPO_ROOT} as the branch this work integrates"
+            echo "  on, so there is no branch whose CI to read. NOTHING WAS CHECKED."
+            echo "  Record it:  engine/scripts/workspaces.sh integration --repo ${REPO_ROOT} \\"
+            echo "                  --branch <main|dev/...> --why '<this body of work>'"
+        } >&2
+        exit 0
+    fi
+fi
 
 # `symbolic-ref`, NOT `rev-parse --abbrev-ref`. On an UNBORN branch — a fresh
 # checkout before its first commit — `rev-parse --abbrev-ref HEAD` exits 128

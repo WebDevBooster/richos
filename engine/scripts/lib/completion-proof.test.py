@@ -34,6 +34,11 @@ class Completion(unittest.TestCase):
         self.member=dict(path=str(self.worker),repo=str(self.repo),branch='worker',**{'class':'hand-rolled'})
         # The worker's registration (docs/plans/worktree-spec-2026-09-11.md,
         # points 3, 6): recorded at spawn, bound to its agent id, one workspace.
+        # Point 14: the branch this body of work integrates on is RECORDED
+        # before its first agent, and the proof asks the library for it rather
+        # than hard-coding refs/heads/main. The fixture records it exactly as
+        # Rich does. The `master` case below is the one that records nothing.
+        ws.record_integration(str(self.repo),'main','the completion-proof fixture',self.sid)
         self.rec=ws.new_record(ws.named_key(self.sid,self.owner),name=self.owner,session_id=self.sid,agent_id=self.aid)
         ws._add_workspace(self.rec,'cc',str(self.repo),str(self.worker),'worker','fixture')
         ws.save_agent(self.rec)
@@ -142,25 +147,36 @@ class Completion(unittest.TestCase):
         self.assertIn('unlanded work',message)
         self.assertNotIn('squash or rebase',message)
 
-    def test_a_repository_whose_trunk_is_not_main_is_HELD_and_says_why(self):
-        # SAGE D6. prove_member hard-codes integration='refs/heads/main', so on
-        # a `master` repository direct() raised 'Git proof could not complete'
-        # — fail-closed, which is right, with a reason that sends the reader
-        # looking for a broken git. It is not broken: this lane understands
-        # `main` and nothing else, and guessing the trunk is how a lane deletes
-        # work from a branch nobody integrated into.
+    def test_a_repository_whose_trunk_is_not_main_is_HELD_until_its_branch_is_recorded(self):
+        # SAGE D6, AND THE ANSWER IT WAS MISSING. prove_member hard-coded
+        # integration='refs/heads/main', so a repository that does not integrate
+        # on `main` could not produce a valid proof AT ALL — and the reason it
+        # gave sent the reader looking for a broken git.
+        #
+        # Point 14 supplies the answer the lane never had: "Every part of the
+        # system that needs to know whether work has landed asks the same
+        # question: is it in the branch recorded for this work? None of them is
+        # allowed its own answer, and none of them assumes main." So with
+        # NOTHING recorded this is still HELD — a proof about a ref nobody chose
+        # is not a weaker proof, it is a different one — and the message names
+        # the command that settles it. Record `master` and the same proof
+        # succeeds, against refs/heads/master.
         other=self.root/'master-repo';other.mkdir()
         self.git(other,'init','-b','master')
         self.git(other,'config','user.name','Fixture');self.git(other,'config','user.email','f@example.invalid')
         (other/'f').write_text('base\n');self.git(other,'add','.');self.git(other,'commit','-m','base')
         wt=self.root/'master-worker';self.git(other,'worktree','add','-b','topic',str(wt))
+        member=dict(path=str(wt),repo=str(other),branch='topic',**{'class':'hand-rolled'})
         with self.assertRaises(proof.CompletionError) as caught:
-            proof.prove_member(dict(path=str(wt),repo=str(other),branch='topic',
-                                    **{'class':'hand-rolled'}))
+            proof.prove_member(member)
         message=str(caught.exception)
-        self.assertIn('has no refs/heads/main',message)
-        self.assertIn('`master`',message)
-        self.assertIn('nothing to repair',message)
+        self.assertIn('No integration branch is recorded',message)
+        self.assertIn('workspaces.sh integration',message)
+        self.assertNotIn('refs/heads/main',message)      # it never assumes main
+        ws.record_integration(str(other),'master','the master repository body of work',self.sid)
+        built=proof.prove_member(member)
+        self.assertEqual(built['integration_ref'],'refs/heads/master')
+        proof.verify_member_proof(built)
 
     def test_actual_unfinished_merge_and_operation_markers_refuse(self):
         self.git(self.repo,'branch','side')

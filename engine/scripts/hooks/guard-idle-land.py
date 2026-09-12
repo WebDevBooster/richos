@@ -461,6 +461,24 @@ def _git(repo, *args, **kw):
     return p.stdout.strip()
 
 
+def _recorded_integration_branch(repo):
+    """The branch RECORDED as the one this body of work integrates on, or "" --
+    asked of scripts/lib/workspaces.py, which is the only implementation of the
+    question (point 14). Loading it by path is a duplicated LOADER, not a
+    duplicated ANSWER."""
+    lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "lib", "workspaces.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, _tip, why_not = ws.integration_for(repo)
+    except Exception:
+        return ""
+    return "" if why_not else (branch or "")
+
+
 def confirm_landing(repo, kind, ref):
     """Did the operation actually change this repository? Identity, not prose.
 
@@ -490,7 +508,29 @@ def confirm_landing(repo, kind, ref):
                                capture_output=True, text=True, timeout=10)
         except Exception:
             return False
-        return p.returncode == 0
+        if p.returncode != 0:
+            return False
+        # AND IT REACHED THE BRANCH THIS WORK INTEGRATES ON (point 14). HEAD
+        # alone is the literal effect of `git merge` -- it merges into the
+        # current branch and nothing else -- so it is not a guess and it stays.
+        # But "a land happened" is a claim about the branch RECORDED for this
+        # body of work, and this gate is not allowed its own answer to that.
+        # A merge into some other branch that happens to be checked out is not
+        # a land, and treating it as one is how this gate would fire on a turn
+        # that landed nothing.
+        #
+        # Where nothing is recorded, HEAD alone stands: abstaining here means
+        # "no land was confirmed", which is this gate's QUIET direction, and a
+        # gate that cannot answer must round toward quiet.
+        branch = _recorded_integration_branch(repo)
+        if not branch:
+            return True
+        try:
+            q = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ref, branch],
+                               capture_output=True, text=True, timeout=10)
+        except Exception:
+            return False
+        return q.returncode == 0
     branch = _git(repo, "symbolic-ref", "--short", "-q", "HEAD")
     if not branch:
         return False

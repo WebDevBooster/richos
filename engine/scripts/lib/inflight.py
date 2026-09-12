@@ -1002,11 +1002,50 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min, ledger_rows=())
 # --------------------------------------------------------------------------
 # the assessment
 # --------------------------------------------------------------------------
+def _recorded_integration_tip(root):
+    """(tip, how) — the tip of the branch RECORDED as the one this body of work
+    integrates on, asked of scripts/lib/workspaces.py.
+
+    Loading the library by path is a duplicated LOADER, not a duplicated
+    ANSWER: there is one implementation of the question.
+
+    This one does NOT hard-abstain, and the difference is deliberate. A land
+    notice is about a commit the caller just made and normally names; the
+    fallback exists only for a bare call with no tip, where returning nothing
+    would silence the notice entirely. So it falls back to HEAD and RECORDS
+    that it did, in a field the caller reports -- a named guess is a different
+    thing from an unnamed one."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, tip, why_not = ws.integration_for(root)
+        if not why_not and tip:
+            return tip, "the branch recorded for this body of work (%s)" % branch
+        why = why_not or "the recorded branch has no tip"
+    except Exception as exc:
+        why = "the branch this work integrates on could not be read: %s" % exc
+    return (git(root, "rev-parse", "HEAD").strip(),
+            "the main checkout's HEAD, because %s" % why)
+
+
 def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
            session_id="", transcript_path=""):
     root = main_checkout(repo)
     if not tip:
-        tip = git(root, "rev-parse", "HEAD").strip()
+        # THE ONE ANSWER, ASKED OF THE LIBRARY (point 14). Every worktree below
+        # gets `landed` from `is_ancestor(head, tip)`, so `tip` IS this file's
+        # answer to "has this work landed". It used to be the main checkout's
+        # HEAD -- "whatever main happens to have", which point 14 names as the
+        # thing that stops "landed" meaning anything. It is now the tip of the
+        # branch RECORDED for this body of work; where nothing is recorded it
+        # falls back to HEAD and SAYS SO in the assessment rather than passing
+        # the guess off as the answer.
+        tip, tip_source = _recorded_integration_tip(root)
+    else:
+        tip_source = "given by the caller"
     tip = (tip or "").lower()
 
     # The team directory is resolved HERE when the caller did not name one, so
@@ -1039,6 +1078,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         "repo": os.path.abspath(repo),
         "main_checkout": root,
         "tip": tip,
+        "tip_source": tip_source,
         "ack_ledger": ack_ledger_path(),
         "ack_ledger_error": _ledger_err,
         "ack_ledger_malformed": _ledger_bad,
@@ -1211,6 +1251,7 @@ def render_text(res):
     a = out.append
     a("in-flight sweep — %s" % res["main_checkout"])
     a("  tip            : %s" % res["tip"])
+    a("  tip is         : %s" % res.get("tip_source", "(not recorded)"))
     a("  ack timeout    : %s min" % res["ack_timeout_min"])
     a("  notice ledger  : %s" % (res["notice_ledger"] or "<no team dir resolved>"))
     a("  ack ledger     : %s (%d row(s) for this tip)"

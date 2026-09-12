@@ -69,14 +69,19 @@ if [ ! -f "$ANALYZER" ]; then
 fi
 
 REPOS=()
-MAIN_BRANCH="${LAND_COMPLETENESS_BRANCH:-main}"
+# EMPTY MEANS ASK THE LIBRARY (point 14). It was `:-main`, which is this script
+# keeping its own answer to "has this work landed" -- on a repository whose work
+# integrates on a dev branch that answer is wrong, and wrong with authority.
+# LAND_COMPLETENESS_BRANCH and --branch remain, because a CALLER naming the
+# branch is not the same thing as this file assuming one.
+MAIN_BRANCH="${LAND_COMPLETENESS_BRANCH:-}"
 FORMAT="text"
 QUIET=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo)   REPOS+=("${2:-}"); shift 2 ;;
-        --branch) MAIN_BRANCH="${2:-main}"; shift 2 ;;
+        --branch) MAIN_BRANCH="${2:-}"; shift 2 ;;
         --json)   FORMAT="json"; shift ;;
         --quiet)  QUIET=1; shift ;;
         -h|--help)
@@ -155,7 +160,10 @@ lc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lc)
 
 main = sys.argv[1]
-out = {"branch": main, "repos": []}
+# An empty `main` means each repository is measured against the branch RECORDED
+# for its body of work (point 14), which can differ per repository -- so the
+# branch belongs in each repository's own row, not in one header.
+out = {"branch": main or "(the branch recorded for each body of work)", "repos": []}
 # DEDUPLICATE BY REPOSITORY IDENTITY, NOT BY THE STRING THAT NAMED IT. A linked
 # worktree and its main checkout are one repository with one worktree list, so
 # reading both counts everything twice — which is what a run from inside an

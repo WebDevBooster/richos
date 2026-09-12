@@ -76,6 +76,38 @@ def git(path,*args, allowed=(0,)):
     return result
 
 def text(path,*args): return git(path,*args).stdout.decode('utf-8').strip()
+
+def integration_ref(repo):
+    """THE ONE ANSWER, asked of scripts/lib/workspaces.py and kept nowhere here.
+
+    Point 14: "Every part of the system that needs to know whether work has
+    landed asks the same question: is it in the branch recorded for this work?
+    None of them is allowed its own answer, and none of them assumes main."
+
+    This file hard-coded `refs/heads/main` in three places -- once where the
+    proof was built and twice where it was validated -- so a body of work whose
+    dev branch is the one it integrates on could not produce a valid proof at
+    all, and `direct()` reported that as a git problem. Where NOTHING is
+    recorded this RAISES rather than guessing: a completion proof is a claim
+    about a specific ref, and a claim about a ref nobody chose is not a weaker
+    proof, it is a different one.
+
+    Loading the library by path is a duplicated LOADER, not a duplicated
+    ANSWER."""
+    lib=Path(__file__).resolve().parent/'workspaces.py'
+    try:
+        spec=importlib.util.spec_from_file_location('workspaces_answer',lib)
+        ws=importlib.util.module_from_spec(spec);spec.loader.exec_module(ws)
+        branch,_tip,why_not=ws.integration_for(str(repo))
+    except CompletionError:raise
+    except Exception as exc:
+        raise CompletionError('The branch this work integrates on could not be read from %s: %s'%(lib,exc))
+    if why_not or not branch:
+        raise CompletionError('No integration branch is recorded for %s, so there is nothing to prove '
+                              'this against (point 14). Record it: workspaces.sh integration --repo %s '
+                              "--branch <main|dev/...> --why '<this body of work>'"%(repo,repo))
+    return 'refs/heads/'+branch
+
 def direct(path,ref):
     if git(path,'symbolic-ref','-q',ref,allowed=(0,1)).returncode==0:
         raise CompletionError('Integration and delivery branches must be direct refs')
@@ -231,7 +263,7 @@ def prove_member(member):
     # question it answers is real; it is just a different question, asked by a
     # different caller at a different time: landing (scripts/lib/workspaces.py
     # land) requires every tip to be in main; finishing a task does not.
-    integration='refs/heads/main';main=direct(repo,integration)
+    integration=integration_ref(repo);main=direct(repo,integration)
     proof={'version':1,'original_path':str(path),'repo':str(repo),'common':str(common),'admin':str(admin),
            'identities':pins,'branch':branch,'head':head,'integration_ref':integration,'integration_tip':main,
            'working_tree_sha256':clean_tree(path,head,reclaimable),'reclaimable':reclaimable}
@@ -244,7 +276,7 @@ def prove_member(member):
 
 def validate_member_schema(proof):
     required={'version','original_path','repo','common','admin','identities','branch','head','integration_ref','integration_tip','working_tree_sha256','reclaimable'}
-    if not isinstance(proof,dict) or set(proof)!=required or proof['version']!=1 or proof['integration_ref']!='refs/heads/main' or not isinstance(proof['reclaimable'],bool):
+    if not isinstance(proof,dict) or set(proof)!=required or proof['version']!=1 or not isinstance(proof.get('integration_ref'),str) or not proof['integration_ref'].startswith('refs/heads/') or not isinstance(proof['reclaimable'],bool):
         raise CompletionError('Malformed member proof schema')
     for key in ('original_path','repo','common','admin'):
         if not isinstance(proof[key],str) or not os.path.isabs(proof[key]):raise CompletionError('Malformed member proof path')
@@ -258,7 +290,7 @@ def validate_member_schema(proof):
 
 def verify_member_proof(proof,path_present=True):
     validate_member_schema(proof)
-    if proof.get('version')!=1 or proof.get('integration_ref')!='refs/heads/main':raise CompletionError('Unsupported member proof')
+    if proof.get('version')!=1 or not str(proof.get('integration_ref') or '').startswith('refs/heads/'):raise CompletionError('Unsupported member proof')
     path=Path(proof['original_path']);repo=Path(proof['repo'])
     for key in ('repo','common'):
         if identity(Path(proof[key]))!=proof['identities'][key]:raise CompletionError('Canonical identity changed')

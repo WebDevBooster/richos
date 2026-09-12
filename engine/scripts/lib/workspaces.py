@@ -3098,6 +3098,8 @@ def main(argv):
     g.add_argument("--ceo")
     x.add_argument("--todo", default="")
     sub.add_parser("retry")
+    x = sub.add_parser("integration-branch")
+    x.add_argument("--repo", default="")
     x = sub.add_parser("integration")
     x.add_argument("--repo", default="")
     x.add_argument("--branch", default="")
@@ -3201,6 +3203,19 @@ def main(argv):
             kind, on = ("started", a.started) if a.started else (("outside", a.outside) if a.outside else ("ceo-discard", a.ceo))
             wait(a.agent, kind, on, a.todo, me)
             print("recorded: %s waits (%s) on %s" % (a.agent, kind, on))
+        elif a.cmd == "integration-branch":
+            # THE ONE ANSWER, FOR A SHELL CONSUMER. "Every part of the system
+            # that needs to know whether work has landed asks the same
+            # question... None of them is allowed its own answer, and none of
+            # them assumes main" (point 14). Exit 0 and the branch on stdout, or
+            # exit 3 and the reason on stderr -- 3 means ABSTAIN, not failure:
+            # the caller must not fall back to main, it must say it cannot
+            # answer and name the command below.
+            branch, tip, why_not = integration_for(a.repo or entity)
+            if why_not:
+                print(why_not, file=sys.stderr)
+                return 3
+            print("%s\t%s" % (branch, tip))
         elif a.cmd == "integration":
             if a.branch:
                 r = record_integration(a.repo or entity, a.branch, a.why, me, a.correct)
