@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """workspaces.py — THE CEO'S WORKSPACE SPEC, AND NOTHING ELSE.
 
-The only reference is docs/plans/worktree-spec-2026-09-11.md (thirteen
+The only reference is docs/plans/worktree-spec-2026-09-11.md (fourteen
 points). Every rule in this file names the point it implements. Nothing here
 asks whether an agent is alive: an agent is FINISHED when a recorded fact says
 so (point 11, point 12), and a workspace is deleted when its work is LANDED or
@@ -701,11 +701,38 @@ def known_repos():
 #       CORRECTS the branch of the body of work that is current, keeping its id,
 #       so every agent already bound to it moves with it.
 #
-# An agent registered before anything was recorded is bound to nothing, and
-# falls back to its repository's current body of work — which is what makes the
-# refusal HEAL (point 14's "the land then succeeds"). Nothing is inferred by
-# that: the fallback reads a RECORDED branch, it just does not know which work
-# the agent belongs to.
+# ===========================================================================
+# THE SPAWN IS REFUSED, NOT THE LAND — 2026-09-12, round 7
+# ===========================================================================
+# Until round 7 an agent registered before anything was recorded was "bound to
+# nothing, heals later": `integration_target` fell back to the repository's
+# CURRENT body of work at land time. Both round-6 reviewers proved that is not
+# a heal but a guess about WHICH body of work the agent belongs to
+# (certification-sage-round6-2026-09-12.md §2, S1–S4;
+# certification-frank-round6-2026-09-12.md §5): an agent bound to nothing was
+# judged against whichever body of work happened to be current when it landed,
+# so a second, unrelated recording made in between MOVED its land verdict,
+# while a properly bound control agent was unmoved. "Nothing infers it and
+# nothing guesses it" (point 14) is the whole sentence, and "current at land
+# time" is an inference.
+#
+# So the page's own ordering is enforced where it says: "RECORDED when that
+# work starts, BEFORE ITS FIRST AGENT IS SPAWNED." `register_cc` and
+# `register_spawn` REFUSE when any repository the agent will work in has no
+# current body of work, naming the recording command — point 3's shape, "if
+# registration fails, the spawn does not happen". Every spawned agent is
+# therefore bound at its spawn, and `integration_target` has no fallback: a
+# chain bound to nothing refuses and names the command.
+#
+# The one kind of record that is never spawned through the guard — an
+# UNREGISTERED workspace the point-3 sweep found (an orphan), or a native start
+# the platform reported for a spawn no guard registered (provisional) — has no
+# spawn at which to be refused. It binds at the first sweep after a body of
+# work exists for its repository (`scan_unregistered`), and that binding is
+# recorded on it by id and never moves afterwards; until then its land refuses
+# and names the command. That is the only path left that reads "current", it
+# is written down as a recorded fact the moment it is read, and it covers no
+# agent this system spawned.
 
 def _integration_path():
     return _p("integration.json")
@@ -851,9 +878,39 @@ def _bind_body_of_work(rec, repo):
     main = _norm_repo(repo)
     wid = (_integration_file().get("current") or {}).get(main)
     if not wid:
-        return                       # nothing recorded yet: bound to nothing, heals later
+        return False                 # nothing recorded: a spawn is refused before this (point 14)
     rec.setdefault("integration_work", {})
     rec["integration_work"].setdefault(main, wid)
+    return True
+
+
+def _unrecorded_repos(repos):
+    """The repositories among `repos` with NO current body of work recorded —
+    the ones point 14 forbids spawning into. Deduplicated, in order."""
+    out, seen = [], set()
+    for r in repos:
+        r = _norm_repo(r) if r else ""
+        if not r or r in seen:
+            continue
+        seen.add(r)
+        if not integration_record(r):
+            out.append(r)
+    return out
+
+
+def _refuse_unrecorded(repos, what):
+    """Point 14, at the spawn: "RECORDED when that work starts, before its first
+    agent is spawned. Nothing infers it and nothing guesses it." Raises,
+    naming the recording command, when any repository in `repos` has no
+    current body of work."""
+    missing = _unrecorded_repos(repos)
+    if missing:
+        raise SpecError("no branch is recorded as the one this work integrates on in %s, so %s is "
+                        "refused. The branch a body of work integrates on is RECORDED when that work "
+                        "starts, before its first agent is spawned; nothing infers it and nothing "
+                        "guesses it (point 14). Record it, then spawn:\n    workspaces.sh integration "
+                        "--repo %s --branch <main|dev/...> --why '<this body of work>'"
+                        % (", ".join(missing), what, missing[0]))
 
 
 def _drop_orphans_for(path):
@@ -935,6 +992,13 @@ def register_cc(session_id, name, repo, path, branch, identity=None):
     if not ident:
         raise SpecError("the session's process identity could not be read from the operating system, "
                         "so its end could never be told (point 12); registration refused")
+    # Point 14: the workspace is the first half of the spawn (registered when it
+    # is created, points 1 and 3), so the record has to exist before it too — a
+    # registration made with nothing recorded would be a workspace bound to no
+    # body of work, and its spawn would then be refused anyway, leaving a
+    # registered, never-spawned workspace that point 5 cannot see until its
+    # session ends. Refusing here leaves nothing behind at all.
+    _refuse_unrecorded([repo], "creating %s's workspace" % name)
     key = named_key(session_id, name)
     with Lock():
         rec = load_agent(key) or new_record(key, name=name, session_id=session_id)
@@ -1045,6 +1109,19 @@ def register_spawn(payload, entity):
             _check_workspace_name(p, cur)
             if cur != w.get("branch"):
                 raise SpecError("%s is on %r, not the registered branch %r" % (p, cur, w.get("branch")))
+        # Point 14: "RECORDED when that work starts, BEFORE ITS FIRST AGENT IS
+        # SPAWNED. Nothing infers it and nothing guesses it." Every repository
+        # this agent will work in — the entity, and the repository of every
+        # cc/ workspace it names — must have a current body of work, and the
+        # agent is BOUND to it here, by id, at the spawn. With no record the
+        # spawn does not happen (point 3), and the refusal names the command.
+        # This is what leaves `integration_target` no fallback to "current".
+        work_repos = ([main_checkout(entity) or realpath(entity)] if entity else []) \
+            + [w.get("repo") for w in live_workspaces(rec) if w.get("repo")] \
+            + [main_checkout(p) or realpath(p) for p in cc_paths]
+        _refuse_unrecorded(work_repos, "the spawn of %s" % name)
+        for r_ in work_repos:
+            _bind_body_of_work(rec, r_)
         rec.update({"tool_use_id": tuid, "subagent_type": str(ti.get("subagent_type") or ""),
                     "isolation": isolation, "session_identity": ident,
                     "ceo_ordered": (ceo_ordered[0] if ceo_ordered else rec.get("ceo_ordered")),
@@ -1353,6 +1430,29 @@ def scan_unregistered(repos):
     such branch, is finished work of an ended session. codex/ and every other
     name is not the system's concern (points 1, 2) and is never listed."""
     paths, branches = set(), set()
+    # Point 14: a record that was never spawned through the guard — an orphan
+    # this sweep made, or a provisional native start no spawn registered — had
+    # no spawn at which to be refused for a missing record. It binds to its
+    # repository's body of work at the first sweep after one exists, recorded
+    # on it by id, once; until then its land refuses and names the command.
+    for r in all_agents():
+        if not (r.get("orphan") or r.get("provisional")) or r.get("disposition"):
+            continue
+        repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))
+        bound = r.get("integration_work") or {}
+        if all(_norm_repo(x) in bound for x in repos):
+            continue
+        with Lock():
+            fresh = load_agent(r["key"])
+            if not fresh or fresh.get("disposition"):
+                continue
+            changed = False
+            for x in repos:
+                if _norm_repo(x) not in (fresh.get("integration_work") or {}) and _bind_body_of_work(fresh, x):
+                    changed = True
+            if changed:
+                save_agent(fresh)
+                event("bound-at-sweep", key=fresh["key"], work=fresh.get("integration_work"))
     for r in all_agents(include_done=True):
         for w in r.get("workspaces") or []:
             if w.get("path") and not w.get("deleted_at"):
@@ -1574,7 +1674,24 @@ def uncommitted(path, deadline=None):
         if code == "!!":
             other = os.path.join(main, rel.rstrip("/")) if main else ""
             mine = os.path.join(path, rel.rstrip("/"))
-            if other and os.path.isdir(mine) and os.path.isdir(other):
+            if other and os.path.isdir(mine) and not os.path.islink(mine) and os.path.isdir(other):
+                # AN IGNORED DIRECTORY IS COMPARED BY CONTENT, NEVER SKIPPED BY
+                # NAME. `git status --ignored` reports a wholly ignored directory
+                # as ONE entry, so until round 7 a directory the main checkout
+                # also had was `continue`d here with nothing inside it looked
+                # at — and every main checkout and most cc/ workspaces on this
+                # machine carry `.claude/`, so that was the ordinary case. A
+                # nested repository with unlanded commits under an ignored
+                # `vendor/`, and a `.claude/notes/needed.txt`, were neither
+                # refused nor preserved: the land proceeded and deleted them
+                # (lifecycle-failure-record-2026-09-10.md §3b.2, the one real
+                # way to lose work; certification-frank-round6-2026-09-12.md
+                # §2.1). Point 8: "Deletion therefore never loses anything that
+                # was meant to land." So every file under it is compared, and
+                # the ones the main checkout does not have, or has differently,
+                # are named by path.
+                for sub in _ignored_dir_diff(mine, other, rel.rstrip("/"), deadline):
+                    ignored.append(sub)
                 continue
             if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other):
                 continue
@@ -1582,6 +1699,38 @@ def uncommitted(path, deadline=None):
         else:
             dirty.append(ent)
     return dirty, ignored
+
+
+def _ignored_dir_diff(mine, other, rel, deadline=None):
+    """Every entry under the ignored directory `mine` that the main checkout's
+    `other` lacks or has with different bytes, as paths relative to the
+    workspace. Symlinks are compared by target and never followed; a nested
+    repository's `.git` is walked like anything else, so a commit that exists
+    only in the workspace's copy shows up as an object file the main checkout
+    does not have. Bounded by the gate's deadline like the rest of the walk."""
+    out = []
+    n = 0
+    for root, dirs, files in os.walk(mine, followlinks=False):
+        dirs.sort()
+        for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
+            n += 1
+            if deadline is not None and (n & 63) == 0 and _past(deadline):
+                raise Deadline("the gate's budget ran out while comparing the ignored directory %s" % rel)
+            a = os.path.join(root, name)
+            b = os.path.join(other, os.path.relpath(a, mine))
+            sub = os.path.join(rel, os.path.relpath(a, mine))
+            if os.path.islink(a):
+                try:
+                    same = os.path.islink(b) and os.readlink(a) == os.readlink(b)
+                except OSError:
+                    same = False
+            else:
+                same = os.path.isfile(b) and not os.path.islink(b) and _same_file(a, b)
+            if not same:
+                out.append(sub)
+        # a symlinked directory is compared above as a link and never descended
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+    return out
 
 
 def _same_file(a, b):
@@ -2274,10 +2423,16 @@ def integration_target(chain, repo):
     branch is read live from that work, so a CORRECTION still reaches an agent
     in flight and a DIFFERENT body of work never does.
 
-    A chain bound to nothing (registered before anything was recorded) falls
-    back to the repository's current body of work. That is what makes the
-    refusal HEAL — Rich records the branch and the same land then succeeds —
-    and it infers nothing: the branch it reads is a recorded one."""
+    THERE IS NO FALLBACK TO "CURRENT" FOR A CHAIN. A spawned agent is bound at
+    its spawn or the spawn is refused (register_spawn, point 14), and an
+    unregistered or provisional record binds at the first sweep after a body
+    of work exists (scan_unregistered). A chain that is still bound to nothing
+    REFUSES and names the command — reading the repository's current body of
+    work at land time would be a guess about which work the agent belongs to,
+    and both round-6 reviewers reproduced that guess moving a land verdict.
+    Only a caller with NO chain (`integration_for`, a consumer asking about the
+    repository itself) reads the current record, because that is the question
+    it is asking."""
     repo = realpath(repo or "")
     if not repo or not os.path.isdir(repo):
         return "", "", "its repository %s cannot be read" % repo
@@ -2289,6 +2444,13 @@ def integration_target(chain, repo):
             work = _work_by_id(wid)
             if work:
                 break
+    if work is None and chain:
+        return "", "", ("%s is bound to no body of work in %s: it was registered while none was "
+                        "recorded, and nothing guesses which one it belongs to (point 14). A spawned "
+                        "agent is refused before this can happen; an unregistered workspace binds at "
+                        "the next sweep once a branch is recorded: workspaces.sh integration --repo %s "
+                        "--branch <main|dev/...> --why '<this body of work>'. Otherwise discard it "
+                        "(point 7)." % (", ".join(r.get("name") or r.get("key") for r in chain), repo, repo))
     if work is None:
         work = integration_record(repo)
     branch = (work or {}).get("branch") or ""
@@ -2446,9 +2608,26 @@ def _delete(rec, workspaces, branches, why, processes=None):
                 w["deleted_at"] = iso()
             else:
                 failures.append(err)
+    untouched = []
     if branches:
         for repo, b in _branch_targets([rec]):
             ok, err = delete_branch(repo, b)
+            if ok is None:
+                # POINT 2, AT THE DELETER: a codex/ ref on this agent's record —
+                # it can only get there by hand or by a defect, since
+                # observe_created_refs never attributes one — is aimed at and
+                # REFUSED by delete_branch, and the refusal is not a failed
+                # deletion to retry until the CEO is told: it is the page's own
+                # answer. The ref is dropped from the record with the fact
+                # written down, and the agent's own deletion completes.
+                untouched.append({"at": iso(), "fact": "codex/ untouched", "repo": repo, "branch": b, "why": err})
+                rec["created_branches"] = [p for p in (rec.get("created_branches") or [])
+                                           if (p[0], p[1]) != (repo, b)]
+                for w in rec["workspaces"]:
+                    if w.get("repo") == repo and w.get("branch") == b and not w.get("path"):
+                        w["deleted_at"] = iso()
+                event("codex-untouched", key=rec["key"], repo=repo, branch=b)
+                continue
             if ok:
                 for w in rec["workspaces"]:
                     if w.get("repo") == repo and w.get("branch") == b:
@@ -2463,6 +2642,8 @@ def _delete(rec, workspaces, branches, why, processes=None):
         fresh = load_agent(rec["key"]) or rec
         fresh["workspaces"] = rec["workspaces"]
         fresh["created_branches"] = rec.get("created_branches") or []
+        if untouched:
+            fresh.setdefault("history", []).extend(untouched)
         if failures:
             d = fresh.get("deletion") or {"attempts": 0, "first_failed_at": now()}
             d["attempts"] = d.get("attempts", 0) + 1
@@ -2576,8 +2757,11 @@ def _admin_dir_for(main, path):
 
 
 def delete_branch(repo, b):
+    """(True, "") deleted or already gone; (False, why) failed, retried later
+    (point 13); (None, why) REFUSED BY THE PAGE — a codex/ branch is never
+    touched (point 2), and that is an answer, not a failure to retry."""
     if b.startswith(CODEX_PREFIX):
-        return False, "branch %s is codex/; never touched (point 2)" % b
+        return None, "branch %s is codex/; never touched (point 2)" % b
     main = main_checkout(repo)
     wl = worktree_list(main) or []
     if not wl:

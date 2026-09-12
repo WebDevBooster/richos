@@ -1169,20 +1169,25 @@ class Point14_IntegrationBranch(Base):
         nothing read, recording the branch afterwards unblocked the land and
         never went back for them, and land() then reported success over a commit
         that had reached no integration branch."""
-        os.unlink(os.path.join(ws.state_dir(), "integration.json"))   # the no-record case
-        self.assertIsNone(ws.integration_record(self.entity))
+        # THE NO-TARGET CASE, since round 7: a spawn with no record is refused
+        # (point 14), so the way an agent's target goes missing is the recorded
+        # branch ceasing to exist after the spawn. Attribution must still happen.
+        run("git", "-C", self.entity, "branch", "dev/next")
+        ws.record_integration(self.entity, "dev/next", "this body of work", self.sid)
         aid, npath = self.spawn("zach-opus-w4")
+        run("git", "-C", self.entity, "branch", "-D", "dev/next")   # the target is gone
+        self.assertTrue(ws.integration_target([self.rec("zach-opus-w4")], self.entity)[2])
         self.pre(aid, call="tu-1")
         run("git", "-C", npath, "checkout", "-q", "-b", "sidework")
-        self.commit(npath, "side.txt")                       # real work, no record yet
+        self.commit(npath, "side.txt")                       # real work, no target
         run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
         run("git", "-C", npath, "branch", "spare")
         self.post(aid, call="tu-1")
         self.assertEqual(self.created("zach-opus-w4"), ["sidework", "spare"])
         self.commit(npath, "own.txt")
         self.finish(aid)
-        # Rich records the branch afterwards and merges the agent's own branch.
-        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        # Rich corrects the branch afterwards and merges the agent's own branch.
+        ws.record_integration(self.entity, "main", "this body of work", self.sid, correct=True)
         self.merge(self.entity, "worktree-agent-" + aid)
         with self.assertRaises(ws.SpecError) as e:
             ws.land("zach-opus-w4", self.sid)                # the stranded commit is named
@@ -1206,8 +1211,11 @@ class Point14_IntegrationBranch(Base):
         tip = run("git", "-C", self.entity, "rev-parse", "human/keep").stdout.strip()
         run("git", "-C", self.entity, "worktree", "remove", "--force",
             os.path.join(self.env.root, "human-wt"))
-        os.unlink(os.path.join(ws.state_dir(), "integration.json"))   # the no-record case
+        # the no-target case (see test_point_14_attribution_never_waits_for_the_record)
+        run("git", "-C", self.entity, "branch", "dev/next")
+        ws.record_integration(self.entity, "dev/next", "this body of work", self.sid)
         aid, npath = self.spawn("zach-opus-w5")
+        run("git", "-C", self.entity, "branch", "-D", "dev/next")
         self.pre(aid, call="tu-1")
         run("git", "-C", npath, "checkout", "-q", "human/keep")     # BORROWED, never made
         run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
@@ -1226,25 +1234,45 @@ class Point14_IntegrationBranch(Base):
         why recording it late REACHES an agent that was spawned before it."""
         self.assertEqual(ws.integration_record(self.entity)["branch"], "main")
         self.assertEqual(ws.integration_record(self.entity)["source"], "recorded")
-        # NO RECORD AT ALL: the land refuses and names the command, rather than
-        # reading whatever the main checkout has checked out.
+        # NO RECORD AT ALL: THE SPAWN IS REFUSED, naming the command — "RECORDED
+        # when that work starts, BEFORE its first agent is spawned." Round 6's
+        # reading ("the land refuses later, and heals") was ruled a guess by
+        # both reviewers: an agent bound to nothing was judged at land time
+        # against whichever body of work was current, so a second recording in
+        # between moved its verdict. Nothing is derived from what the main
+        # checkout happens to be on, and a session start infers nothing either.
         os.unlink(os.path.join(ws.state_dir(), "integration.json"))
-        aid, npath = self.spawn("zach-opus-i3")
-        self.assertIsNone(ws.integration_record(self.entity))   # registration infers nothing
-        self.assertNotIn("integration", self.rec("zach-opus-i3"))   # and freezes nothing
+        ws.record_session_start(self.sid, self.entity)          # infers nothing (the old floor fired here)
+        self.assertIsNone(ws.integration_record(self.entity))
+        with self.assertRaises(ws.SpecError) as e0:
+            self.spawn("zach-opus-i3")
+        self.assertIn("workspaces.sh integration", str(e0.exception))
+        self.assertIn("point 14", str(e0.exception))
+        self.assertIsNone(self.rec("zach-opus-i3"))             # the spawn did not happen (point 3)
+        self.assertIsNone(ws.integration_record(self.entity))   # and the refusal recorded nothing
+        with self.assertRaises(ws.SpecError) as e1:             # the workspace half is refused too
+            self.make_cc("zach-opus-i3")
+        self.assertIn("workspaces.sh integration", str(e1.exception))
+        self.assertIsNone(self.rec("zach-opus-i3"))
+        # RICH RECORDS THE BRANCH, AND THE SAME SPAWN SUCCEEDS — bound, by id, to
+        # the body of work that was current AT ITS SPAWN, and to nothing else.
         run("git", "-C", self.entity, "branch", "dev/next")
+        first = ws.record_integration(self.entity, "dev/next", "this body of work", self.sid)
+        aid, npath = self.spawn("zach-opus-i3")
+        self.assertEqual(self.rec("zach-opus-i3")["integration_work"][self.entity], first["id"])
+        self.assertNotIn("integration", self.rec("zach-opus-i3"))   # no branch frozen onto it
         self.commit(npath, "i3.txt")
         self.finish(aid)
-        self.ff(self.entity, "dev/next", "worktree-agent-" + aid)
-        with self.assertRaises(ws.SpecError) as e:
+        # A LATER, UNRELATED RECORDING DOES NOT MOVE IT (the reviewers' S1–S4):
+        # a second body of work starts in the same repository, and this agent
+        # still lands against dev/next.
+        run("git", "-C", self.entity, "branch", "dev/other")
+        ws.record_integration(self.entity, "dev/other", "an unrelated body of work", self.sid)
+        self.merge(self.entity, "worktree-agent-" + aid)         # onto main: not its branch
+        with self.assertRaises(ws.SpecError) as e2:
             ws.land("zach-opus-i3", self.sid)
-        self.assertIn("workspaces.sh integration", str(e.exception))
-        self.assertTrue(os.path.exists(npath))
-        self.assertEqual(self.names(), ["zach-opus-i3"])        # pending, not lost (point 5)
-        # THE REFUSAL HEALS. Rich records the branch this work integrates on —
-        # AFTER this agent was registered, and after it finished — and the same
-        # land succeeds. A derived or frozen answer could not be corrected.
-        ws.record_integration(self.entity, "dev/next", "this body of work", self.sid)
+        self.assertIn("dev/next", str(e2.exception))
+        self.ff(self.entity, "dev/next", "worktree-agent-" + aid)
         ws.land("zach-opus-i3", self.sid)
         self.assertFalse(os.path.exists(npath))
         self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
@@ -1271,6 +1299,43 @@ class Point14_IntegrationBranch(Base):
         self.ff(self.entity, "dev/later", "worktree-agent-" + aid2)
         ws.land("zach-opus-i4", self.sid)
         self.assertFalse(os.path.exists(npath2))
+
+    def test_point_14_a_record_bound_to_nothing_is_refused_never_guessed(self):
+        """Point 14: "Nothing infers it and nothing guesses it." The one kind of
+        record that is never spawned through the guard — a workspace the
+        point-3 sweep found unregistered — can exist while nothing is recorded.
+        Its land REFUSES and names the command; it never reads whichever body
+        of work happens to be current at land time (round 6's "heals later",
+        which both reviewers reproduced moving a land verdict). It binds at the
+        first sweep after a body of work exists, by id, once, and then lands."""
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))
+        raw = os.path.join(self.env.root, "raw-cc")
+        run("git", "-C", self.entity, "worktree", "add", "-q", raw, "-b", "cc/raw-hand")
+        self.commit(raw, "raw.txt")
+        self.assertEqual(self.names(), ["orphan-raw-cc"])            # found, unregistered
+        orphan = [r for r in ws.all_agents() if r.get("name") == "orphan-raw-cc"][0]
+        self.assertNotIn("integration_work", orphan)                 # bound to nothing
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("orphan-raw-cc", self.sid)
+        self.assertIn("bound to no body of work", str(e.exception))
+        self.assertIn("workspaces.sh integration", str(e.exception))
+        # Rich records main, and merges the branch. WITHOUT A SWEEP the record is
+        # still bound to nothing, and the land still refuses: it does not read
+        # "current" now that a current one exists — that would be the guess.
+        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        self.merge(self.entity, "cc/raw-hand")
+        with self.assertRaises(ws.SpecError) as e2:
+            ws.land("orphan-raw-cc", self.sid)
+        self.assertIn("bound to no body of work", str(e2.exception))
+        self.assertTrue(os.path.exists(raw))
+        # The next sweep binds it — recorded on it by id — and, being merged,
+        # it lands on its own (point 4).
+        self.assertEqual(self.names(), [])
+        self.assertFalse(os.path.exists(raw))
+        self.assertNotIn("cc/raw-hand", branches(self.entity))
+        done = ws.load_agent(orphan["key"])
+        self.assertEqual(done["disposition"]["kind"], "landed")
+        self.assertEqual(done["integration_work"][self.entity], ws.integration_record(self.entity)["id"])
 
     def test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents(self):
         """Point 14: "the branch THIS WORK integrates on." Point 5 permits a

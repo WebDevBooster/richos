@@ -21,8 +21,8 @@ mutant p01-non-cc-accepted "test_point_01_every_non_native_workspace_is_named_cc
     "a non-native workspace not named cc/ would be registered (points 1, 3)."
 
 mutant p02-codex-branch-deleted "test_point_02_codex_is_never_touched" "$W" \
-    '    if b.startswith(CODEX_PREFIX):{NL}        return False, "branch %s is codex/' \
-    '    if False:{NL}        return False, "branch %s is codex/' \
+    '    if b.startswith(CODEX_PREFIX):{NL}        return None, "branch %s is codex/' \
+    '    if False:{NL}        return None, "branch %s is codex/' \
     "a codex/ branch named for deletion would be deleted (point 2)."
 
 mutant p03-registration-without-identity "test_point_03_failed_registration_means_no_spawn" "$W" \
@@ -176,9 +176,19 @@ mutant p14-land-reads-a-moving-head "test_point_14_work_merged_onto_its_dev_bran
     "landed would go back to meaning \"in whatever the main checkout has checked out just now\", so work merged onto its dev branch would be reported not landed and its workspaces and branches would be left behind (points 4, 14)."
 
 mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '    if work is None:{NL}        work = integration_record(repo){NL}    branch = (work or {}).get("branch") or ""' \
-    '    branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
+    '    branch = (work or {}).get("branch") or ""{NL}    if not branch:' \
+    '    branch = ((worktree_list(repo) or [{}])[0].get("branch") or ""){NL}    if not branch:' \
     "the branch a land is tested against would be INFERRED from the main checkout at land time instead of read from the record, which is the one thing point 14 forbids: \"nothing infers it and nothing guesses it\"."
+
+mutant p14-spawn-not-refused-without-a-record "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    missing = _unrecorded_repos(repos){NL}    if missing:' \
+    '    missing = _unrecorded_repos(repos){NL}    if False:' \
+    "a spawn (and a cc/ workspace) would be registered with NO body of work recorded, bound to nothing — and a nothing-bound agent is judged at land time against whichever body of work is current, so a later unrelated recording moves its verdict: the guess both round-6 reviewers reproduced (point 14, \"before its first agent is spawned\")."
+
+mutant p14-nothing-bound-falls-back-to-current "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    if work is None and chain:{NL}        return "", "", (' \
+    '    if False:{NL}        return "", "", (' \
+    "a chain bound to no body of work would be proved against the repository's CURRENT record at land time — the \"heals later\" fallback round 7 removed, which is a guess about which work the agent belongs to (point 14)."
 
 mutant p14-floor-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
     '    if repo not in cur["repos"]:{NL}        cur["repos"].append(repo){NL}        write_json(path, cur)' \
@@ -186,8 +196,8 @@ mutant p14-floor-restored "test_point_14_the_integration_branch_is_recorded_neve
     "a registration would DERIVE the integration branch from whatever the main checkout happens to be on and write it down as though it were recorded, which point 14 forbids outright: \"nothing infers it and nothing guesses it\". The derived record is also the one that cannot be corrected -- with no record the land refuses and Rich recording the branch HEALS it; with the floor's record the land refuses forever and the workspace is left behind (points 5, 14)."
 
 mutant p14-frozen-copy-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '    _bind_body_of_work(rec, repo){NL}    return w{AND}    if work is None:{NL}        work = integration_record(repo){NL}    branch = (work or {}).get("branch") or ""' \
-    '    _ir = integration_record(repo){NL}    if _ir and _ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = _ir["branch"]{NL}    return w{AND}    if work is None:{NL}        work = integration_record(repo){NL}    branch = ""{NL}    for _r in chain:{NL}        branch = (_r.get("integration") or {}).get(realpath(repo)) or ""{NL}        if branch:{NL}            break{NL}    if not branch:{NL}        branch = (work or {}).get("branch") or ""' \
+    '    _bind_body_of_work(rec, repo){NL}    return w{AND}    branch = (work or {}).get("branch") or ""{NL}    if not branch:' \
+    '    _ir = integration_record(repo){NL}    if _ir and _ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = _ir["branch"]{NL}    return w{AND}    branch = ""{NL}    for _r in chain:{NL}        branch = (_r.get("integration") or {}).get(realpath(repo)) or ""{NL}        if branch:{NL}            break{NL}    if not branch:{NL}        branch = (work or {}).get("branch") or ""{NL}    if not branch:' \
     "the branch would be FROZEN onto each agent at its registration and preferred over the live record, so a correction could never reach an agent already in flight: its land would be proved against a branch that is no longer the one this work integrates on, it would refuse forever, its workspace would be left behind and point 5 would be blocked (point 14)."
 
 mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
