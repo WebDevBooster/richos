@@ -65,9 +65,32 @@ PROCESS_STOP_GRACE = float(os.environ.get("RICHOS_WORKSPACES_STOP_GRACE", "3"))
 # How long a spawn takes to register what it created (see _younger_than_its_spawn).
 SPAWN_WINDOW = float(os.environ.get("RICHOS_WORKSPACES_SPAWN_WINDOW", "120"))
 
+# THE POINT-5 GATE RUNS INSIDE SOMEBODY ELSE'S TIMEOUT. The Stop hook that
+# carries it is registered with 60 s and the spawn gate with 10 s
+# (hooks/hooks.json), while the work grows with the pending backlog: every
+# pending item re-walks its workspace's ignored files against the main
+# checkout. The platform CANCELS a hook that reaches its timeout and DISCARDS
+# its output, so an overrun gate lets the turn end, or the spawn through,
+# having decided NOTHING and announced NOTHING — the one outcome point 5 calls
+# impossible ("a guarantee, not a habit").
+#
+# These are not performance targets and nothing here was made faster. They buy
+# one property: the gate's ANSWER never depends on finishing an unbounded scan.
+# The direction makes that free — work that cannot be checked cannot be
+# auto-landed, so it stays pending, and the safe answer is also the cheap one.
+GATE_STOP_BUDGET = 20.0
+GATE_SPAWN_BUDGET = 4.0
+
 
 class SpecError(Exception):
     """A refusal the page requires. The message is shown to the operator."""
+
+
+class Deadline(SpecError):
+    """A gate ran out of the budget it has inside somebody else's hook timeout.
+    It is a SpecError so every `except SpecError` that means "this item cannot
+    be landed right now" already handles it: an item that could not be checked
+    is an item that stays pending, which is the answer the page wants anyway."""
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +237,11 @@ def git(repo, *args, **kw):
     try:
         r = subprocess.run(["git", "-C", repo] + list(args), capture_output=True, text=True,
                            timeout=kw.get("timeout", 60), env=_git_env())
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired as e:
+        # 124, not 127: a caller running under a budget must be able to tell
+        # "this did not finish in the time it had" from "git could not run".
+        return 124, "", str(e)
+    except OSError as e:
         return 127, "", str(e)
     return r.returncode, r.stdout, r.stderr
 
@@ -714,11 +741,18 @@ def register_spawn(payload, entity):
 
     # Point 5: new work is blocked while finished work is pending — except work
     # whose only purpose is getting that work landed (continues:/lands-pending:).
-    items = pending(sid, entity)
+    report = {}
+    items = pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), report=report)
     blocking = [i for i in items if i["blocks_new_work"]]
     helps = set(continues + lands_pending)
     if blocking and not (helps & set(i["name"] for i in blocking)):
-        raise SpecError(gate_message(blocking, "start new work", spawn=True))
+        extra = ""
+        if report.get("deferred"):
+            extra = ("\n  (The gate answered inside its budget rather than overrunning this hook's "
+                     "timeout: %s could not be checked for an automatic land, so it stays pending. "
+                     "Land it by hand — `workspaces.sh land <name>` has no budget.)"
+                     % ", ".join(sorted(set(report["deferred"]))))
+        raise SpecError(gate_message(blocking, "start new work", spawn=True) + extra)
     for c in continues:
         match = [i for i in items if i["name"] == c]
         if not match:
@@ -1093,9 +1127,14 @@ def _claimable(rec, me, cache):
     return True
 
 
-def pending(me, entity="", scan=False, auto=True):
+def pending(me, entity="", scan=False, auto=True, deadline=None, report=None):
     """The finished work this session must land or discard (point 5), after
-    landing automatically everything that already is landed (point 4)."""
+    landing automatically everything that already is landed (point 4).
+
+    With a deadline, the AUTO-LAND is what gets dropped when the budget runs
+    out — never the list. An item that could not be checked stays pending and
+    keeps blocking, which is the safe answer; the names of the items that were
+    not checked go into `report` so the gate can say so rather than go quiet."""
     cache = {}
     if scan:
         repos = set(known_repos())
@@ -1120,15 +1159,24 @@ def pending(me, entity="", scan=False, auto=True):
                     fresh["claimed_by"] = me
                     save_agent(fresh)
                     rec = fresh
-        if auto:
+        if auto and not _past(deadline):
             try:
-                res = land(rec["key"], me, auto=True)
+                res = land(rec["key"], me, auto=True, deadline=deadline)
                 if res.get("landed"):
                     continue
+            except Deadline:
+                _deferred(report, rec)
             except SpecError:
                 pass
+        elif auto:
+            _deferred(report, rec)
         items.append(_item(rec, why, cache, me))
     return items
+
+
+def _deferred(report, rec):
+    if report is not None:
+        report.setdefault("deferred", []).append(rec.get("name") or rec["key"])
 
 
 def _item(rec, why, cache, me):
@@ -1169,14 +1217,42 @@ def gate_message(items, what, spawn=False):
 # point 8 — nothing uncommitted lands
 # ---------------------------------------------------------------------------
 
-def uncommitted(path):
-    """([uncommitted entries], [ignored entries the main checkout does not have])."""
-    rc, out, err = git(path, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored")
+def _past(deadline):
+    return deadline is not None and now() >= deadline
+
+
+def _gate_deadline(default_seconds):
+    v = (os.environ.get("RICHOS_WORKSPACES_GATE_BUDGET") or "").strip()
+    try:
+        secs = float(v) if v else float(default_seconds)
+    except ValueError:
+        secs = float(default_seconds)
+    return now() + max(0.0, secs)
+
+
+def uncommitted(path, deadline=None):
+    """([uncommitted entries], [ignored entries the main checkout does not have]).
+
+    THIS IS THE UNBOUNDED PART, and it is unbounded by nature: it walks every
+    ignored entry of a workspace and compares it against the main checkout. Run
+    with a deadline it raises Deadline rather than overrunning it — including
+    inside `git status` itself, which is one subprocess that cannot be
+    interrupted, so it is given only the time that is left."""
+    if _past(deadline):
+        raise Deadline("the gate's budget ran out before %s could be checked for uncommitted work" % path)
+    kw = {}
+    if deadline is not None:
+        kw["timeout"] = max(1.0, min(60.0, deadline - now()))
+    rc, out, err = git(path, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored", **kw)
+    if rc == 124:
+        raise Deadline("`git status --ignored` in %s did not finish inside the gate's budget" % path)
     if rc != 0:
         raise SpecError("git status failed in %s: %s" % (path, err.strip()[:200]))
     dirty, ignored = [], []
     main = main_checkout(path)
-    for ent in [e for e in out.split("\0") if e]:
+    for n, ent in enumerate([e for e in out.split("\0") if e]):
+        if deadline is not None and (n & 63) == 0 and _past(deadline):
+            raise Deadline("the gate's budget ran out while walking the ignored entries of %s" % path)
         code, rel = ent[:2], ent[3:]
         if code == "!!":
             other = os.path.join(main, rel.rstrip("/")) if main else ""
@@ -1201,11 +1277,11 @@ def _same_file(a, b):
         return False
 
 
-def _require_clean(rec, doing, ignored_ok=""):
+def _require_clean(rec, doing, ignored_ok="", deadline=None):
     problems = []
     for w in live_workspaces(rec):
         if w.get("path") and os.path.isdir(w["path"]):
-            dirty, ignored = uncommitted(w["path"])
+            dirty, ignored = uncommitted(w["path"], deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -1362,7 +1438,7 @@ def _branch_targets(chain):
 # points 4, 7, 9, 10, 13 — land, discard, delete, retry
 # ---------------------------------------------------------------------------
 
-def land(ref, me="", auto=False, ignored_ok=""):
+def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     """Point 4: landed means every workspace and branch is deleted. Landed is
     proved from git: every branch tip (and every workspace HEAD) is already in
     the main checkout's HEAD. An agent that produced nothing is landed (point 7)."""
@@ -1374,7 +1450,7 @@ def land(ref, me="", auto=False, ignored_ok=""):
         return {"landed": True, "already": rec["disposition"]["kind"]}
     chain = _chain(rec)
     for r in chain:
-        _require_clean(r, "land %s" % r["name"], ignored_ok)
+        _require_clean(r, "land %s" % r["name"], ignored_ok, deadline)
     missing = []
     heads = {}
 
@@ -1396,6 +1472,9 @@ def land(ref, me="", auto=False, ignored_ok=""):
                     missing.append("HEAD of %s (%s) is not in %s at %s"
                                    % (w["path"], out.strip()[:12], repo, head[:12]))
     for repo, b in _branch_targets(chain):
+        if _past(deadline):
+            raise Deadline("the gate's budget ran out before %s's branches could be proved to be in main"
+                           % rec["name"])
         head = _head(repo)
         if not head:
             missing.append("branch %s: its repository %s cannot be read" % (b, repo))
@@ -1880,9 +1959,17 @@ def gate_stop(payload, entity):
     if not sid:
         return True, ""
     retry_due()
-    items = pending(sid, entity, scan=True)
+    report = {}
+    items = pending(sid, entity, scan=True, deadline=_gate_deadline(GATE_STOP_BUDGET), report=report)
     loud = keeps_failing()
     notes = []
+    if report.get("deferred"):
+        notes.append("NOTE: the gate answered inside its budget rather than overrunning the hook's "
+                     "timeout, which the platform would have canceled, discarding this answer. "
+                     "%d item(s) were not checked for an automatic land this turn and STAY PENDING: %s. "
+                     "That is the safe answer, not a missing one. `workspaces.sh land <name>` run by "
+                     "hand has no budget."
+                     % (len(report["deferred"]), ", ".join(sorted(set(report["deferred"])))))
     for r in loud:
         d = r["deletion"]
         notes.append("TELL THE CEO: deleting %s has failed %d times since %s: %s" % (

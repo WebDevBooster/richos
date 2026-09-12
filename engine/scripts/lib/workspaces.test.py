@@ -307,6 +307,33 @@ class Point05_Guarantee(Base):
                                "last_assistant_message": "Pending: zach-opus-p5."}, self.entity)
         self.assertFalse(ok)
 
+    def test_point_05_the_gate_answers_inside_its_budget(self):
+        """"This is a guarantee, not a habit: it holds whether or not Rich
+        remembers." The gate runs inside hook timeouts the platform enforces by
+        CANCELING the hook and DISCARDING its output, while its work grows with
+        the backlog. So it answers inside a budget: the item it could not check
+        stays pending, which is the safe answer AND the cheap one, and it says
+        which items those were rather than going quiet. No time is asserted
+        here — only that an exhausted budget still yields a decision,
+        announced, and lands nothing by guess."""
+        aid, npath = self._pending_one()
+        self.merge(self.entity, "worktree-agent-" + aid)     # it would auto-land
+        os.environ["RICHOS_WORKSPACES_GATE_BUDGET"] = "0"
+        try:
+            ok, msg = ws.gate_stop({"session_id": self.sid}, self.entity)
+            self.assertFalse(ok)                             # a decision, not a dead hook
+            self.assertIn("zach-opus-p5", msg)               # and it names the item
+            self.assertIn("budget", msg)                     # and says why it is still pending
+            self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
+            self.assertTrue(os.path.exists(npath))
+            with self.assertRaises(ws.SpecError):            # the spawn half answers too
+                self.spawn("zach-opus-nb")
+        finally:
+            os.environ.pop("RICHOS_WORKSPACES_GATE_BUDGET", None)
+        # with its budget the same call decides the other way, on the same facts
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        self.assertFalse(os.path.exists(npath))
+
     def test_point_05_the_answer_allowance_is_spent_once_per_item(self):
         """"...the reply names the pending work, WHICH IS HANDLED RIGHT AFTER."
         Naming it again is not handling it: the allowance is spent per item and

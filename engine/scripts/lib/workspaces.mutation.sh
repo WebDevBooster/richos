@@ -41,9 +41,14 @@ mutant p03-worktree-session-allowed "test_point_03_claude_worktree_sessions_are_
     "a claude --worktree session would be allowed to work (point 3)."
 
 mutant p04-no-automatic-land "test_point_04_landed_means_workspace_and_branch_deleted_automatically" "$W" \
-    '        if auto:{NL}            try:{NL}                res = land(' \
+    '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(' \
     '        if False:{NL}            try:{NL}                res = land(' \
     "merged work would stay undecided until somebody ran a command (point 4)."
+
+mutant p05-gate-has-no-budget "test_point_05_the_gate_answers_inside_its_budget" "$W" \
+    '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
+    '        if auto:{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=None)' \
+    "the gate's answer would depend on finishing an unbounded scan inside somebody else's hook timeout; the platform cancels an overrun hook and discards its output, so it would decide nothing and say nothing (point 5)."
 
 mutant p05-new-work-not-blocked "test_point_05_no_new_work_while_finished_work_is_pending" "$W" \
     '    if blocking and not (helps & set(i["name"] for i in blocking)):' \
