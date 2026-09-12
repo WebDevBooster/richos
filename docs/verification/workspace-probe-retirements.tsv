@@ -1,0 +1,15 @@
+# workspace-probe-retirements.tsv — A PROBE IS RETIRED BY ITS OWN AUTHOR, HERE.
+#
+# Read by engine/scripts/workspace-probes.py. Three tab-separated fields:
+#
+#     <probe filename>	<who retired it>	<why it is obsolete>
+#
+# The runner checks <who> against the author the probe's own file name carries
+# and REFUSES a retirement signed by anyone else. An engineer failing a probe is
+# the person least able to tell "this assertion is obsolete" from "I broke it",
+# so a retirement is never his to write.
+#
+# A retirement is the whole FILE, not a case inside it. Where a file's live
+# cases are carried forward, the replacement probe is named in the reason.
+certification-sage-attribution-2026-09-12.probe.py	sage	Obsolete: its premise is attribution by POSSESSION, which I certified at b728514b and which 84e12d32 replaced with attribution by recorded CREATION, with my agreement in certification-sage-recorded-attribution-2026-09-12.md ("The mechanism is right"). Its harness drives barrier() alone and never observe(), so under the Pre/Post pair every scenario now reports created_branches [] and the probe observes nothing. Its RED is a second obsolescence on top of that: two scenarios call land() outside a try and the fixture records no integration branch, which point 14 has required before the first spawn since 2bc413df. Recording it makes all eight scenarios exit 0 — measured, and the output is in certification-sage-runner-round-2026-09-12.md. It asserts nothing by construction (the runner calls this shape OBSERVED), so nothing is carried forward.
+certification-sage-recorded-attribution-2026-09-12.probe.py	sage	Obsolete as a FILE, and its live half is carried forward to certification-sage-runner-round-2026-09-12.probe.py, which is green 10/10. S2 and S6 are about the first-registration floor, deleted at 556d3e62 because my own D1 said point 14 forbids it; S8's question ("when is the floor written") has no subject left. S3 and S9 are fixture: S3 holds once the integration branch is recorded and S9 unlinks an integration.json that nothing writes any more. S10's predicate demanded that a branch carrying an unmerged commit be deleted at the land, which point 8 forbids; my own c4 case A states the same scenario correctly (the harm is a land that reports LANDED with nothing pending) and is green. S5 is NOT obsolete — a ref Rich cuts at the agent's own unlanded tip is declared out of this round's scope — so it is carried forward as R10, which asserts the in-scope half and prints the rest.

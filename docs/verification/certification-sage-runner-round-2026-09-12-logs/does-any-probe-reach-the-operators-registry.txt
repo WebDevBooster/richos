@@ -1,0 +1,27 @@
+--- the decoy registry, before ---
+agents
+done
+events.jsonl
+integration.json
+runner exit=1  (1 is expected: one reviewer's probe is red and only its author may retire it)
+probes discovered:        11 (6 in the working tree, 5 on other branches)
+GREEN      docs/verification/certification-frank-attribution-2026-09-12-probe.py                                    3.4s
+GREEN      docs/verification/certification-frank-four-fixes-2026-09-12-probe.py                                     1.7s
+RETIRED    docs/verification/certification-sage-attribution-2026-09-12.probe.py                                     0.0s
+GREEN      docs/verification/certification-sage-runner-round-2026-09-12.probe.py                                    4.6s
+GREEN      docs/verification/workspace-attribution-seven-cases.probe.py                                             3.8s
+GREEN      docs/verification/workspace-call-window-and-recorded-target.probe.py                                     1.9s
+RED        docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py                           3.1s   [dev/workspace-spec]
+GREEN      docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py    2.6s   [cc/frank-opus-c4]
+GREEN      docs/verification/certification-frank-window-and-target-2026-09-12-probe.py                              2.6s   [cc/frank-opus-c4]
+RETIRED    docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py                            0.0s   [dev/workspace-spec]
+GREEN      docs/verification/certification-sage-window-and-target-2026-09-12.probe.py                               3.3s   [cc/sage-opus-c4]
+RED (a prior probe now fails):
+
+--- the decoy registry, after ---
+agents
+done
+events.jsonl
+integration.json
+integration.json  PRESENT
+events.jsonl      0 bytes (0 means no library call ran against it)

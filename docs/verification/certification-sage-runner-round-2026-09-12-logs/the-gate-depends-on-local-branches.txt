@@ -1,0 +1,13 @@
+=== H. a stale local branch and a codex/ branch both carry a red probe
+probes discovered:        2 (1 in the working tree, 1 on other branches)
+GREEN      docs/verification/certification-frank-tree-probe.py    0.0s
+RED        docs/verification/certification-sage-stale-probe.py    0.0s   [stale/old-round]
+RED (a prior probe now fails):
+    exit=1
+
+=== I. the stale branch is deleted, exactly as spec point 4 says a landed
+       agent's branch is. Same commit, same tree, same library.
+probes discovered:        1 (1 in the working tree, 0 on other branches)
+GREEN      docs/verification/certification-frank-tree-probe.py    0.0s
+every discovered probe ran, and every one of them is green.
+    exit=0

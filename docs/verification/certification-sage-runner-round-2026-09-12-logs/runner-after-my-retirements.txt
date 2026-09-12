@@ -1,0 +1,74 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/sage-opus-c5/engine/scripts/lib/workspaces.py
+probes discovered:        11 (6 in the working tree, 5 on other branches)
+other files under docs/verification/ that are not probes of this library: 242  (--show-all names them)
+
+GREEN      docs/verification/certification-frank-attribution-2026-09-12-probe.py                                    3.6s
+GREEN      docs/verification/certification-frank-four-fixes-2026-09-12-probe.py                                     1.9s
+RETIRED    docs/verification/certification-sage-attribution-2026-09-12.probe.py                                     0.0s
+           sage: Obsolete: its premise is attribution by POSSESSION, which I certified at b728514b and which 84e12d32 replaced with attribution by recorded CREATION, with my agreement in certification-sage-recorded-attribution-2026-09-12.md ("The mechanism is right"). Its harness drives barrier() alone and never observe(), so under the Pre/Post pair every scenario now reports created_branches [] and the probe observes nothing. Its RED is a second obsolescence on top of that: two scenarios call land() outside a try and the fixture records no integration branch, which point 14 has required before the first spawn since 2bc413df. Recording it makes all eight scenarios exit 0 — measured, and the output is in certification-sage-runner-round-2026-09-12.md. It asserts nothing by construction (the runner calls this shape OBSERVED), so nothing is carried forward.
+GREEN      docs/verification/certification-sage-runner-round-2026-09-12.probe.py                                    5.1s
+GREEN      docs/verification/workspace-attribution-seven-cases.probe.py                                             4.0s
+GREEN      docs/verification/workspace-call-window-and-recorded-target.probe.py                                     2.0s
+RED        docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py                           3.4s   [dev/workspace-spec]
+           exit 1
+GREEN      docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py    2.7s   [cc/frank-opus-c4]
+GREEN      docs/verification/certification-frank-window-and-target-2026-09-12-probe.py                              2.7s   [cc/frank-opus-c4]
+RETIRED    docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py                            0.0s   [dev/workspace-spec]
+           sage: Obsolete as a FILE, and its live half is carried forward to certification-sage-runner-round-2026-09-12.probe.py, which is green 10/10. S2 and S6 are about the first-registration floor, deleted at 556d3e62 because my own D1 said point 14 forbids it; S8's question ("when is the floor written") has no subject left. S3 and S9 are fixture: S3 holds once the integration branch is recorded and S9 unlinks an integration.json that nothing writes any more. S10's predicate demanded that a branch carrying an unmerged commit be deleted at the land, which point 8 forbids; my own c4 case A states the same scenario correctly (the harm is a land that reports LANDED with nothing pending) and is green. S5 is NOT obsolete — a ref Rich cuts at the agent's own unlanded tip is declared out of this round's scope — so it is carried forward as R10, which asserts the in-scope half and prints the rest.
+GREEN      docs/verification/certification-sage-window-and-target-2026-09-12.probe.py                               3.4s   [cc/sage-opus-c4]
+
+=== RED — docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py  [dev/workspace-spec]
+    exit 1
+    |     branches after the discard             ['main']
+    |     the record of what was deleted         (none on the record)
+    |     the deleted tip is in the event log    True
+    |     rich/rescue survived                   False
+    |     VERDICT                                HOLDS
+    | 
+    | === 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    |     created_branches                       ['spare']
+    |     land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-wcww8llw/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    |     land after                             REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-wcww8llw/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    |     branches after the land                ['main', 'spare', 'worktree-agent-azachopusq60000']
+    |     VERDICT                                BROKEN
+    | 
+    | === 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    |     created_branches                       ['sidework']
+    |     land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-sc95c1vt/entity/.claude/worktrees/agent-azachopusq70000: no branch is recorded for /private/var/folder
+    |     VERDICT                                BROKEN
+    | 
+    | === 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    |     created_branches                       ['renamed-work']
+    |     land                                   REFUSED: zach-opus-q8 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-owodakpa/entity/.claude/worktrees/agent-azachopusq80000: no branch is recorded for /private/var/folder
+    |     branches after the land                ['main', 'renamed-work']
+    |     VERDICT                                BROKEN
+    | 
+    | === 5/10 cases hold; BROKEN: outside-stray, floor-timing, serial-stray, serial-side, serial-rename
+
+
+===========================================================================
+A PRIOR PROBE IS RED. THIS BLOCKS.
+===========================================================================
+A probe under docs/verification/ is the sentence of the CEO's page that this
+build was once held to. A red one is not a stale assertion until its AUTHOR
+says it is.
+
+THE ONLY THING THAT CAN RETIRE A PROBE IS THE REVIEWER WHO WROTE IT, AGREEING
+THAT IT IS OBSOLETE. Never the engineer who is failing it — an engineer failing
+a probe is the person with a reason to believe it is wrong and the person least
+able to tell "this assertion is obsolete" from "I just broke this".
+
+To retire one, its author adds a line to:
+
+    docs/verification/workspace-probe-retirements.tsv
+    <probe filename>	<author>	<why it is obsolete>
+
+and commits it. This runner reads that file, checks the signature against the
+probe's own author, and names any mismatch.
+
+Everything else is a regression to fix.
+===========================================================================
+
+RED (a prior probe now fails):
+    docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py   author: frank
+EXIT=1

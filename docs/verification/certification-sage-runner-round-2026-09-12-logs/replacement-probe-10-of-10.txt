@@ -1,0 +1,86 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/sage-opus-c5/engine/scripts/lib/workspaces.py
+
+=== R1 reflog-privacy — A workspace's own HEAD reflog is private to it; the branch reflog is not.
+    per-workspace logs/HEAD exists     True
+    is it the main checkout's own file? False
+    its commit is in its own HEAD reflog True
+    and in the MAIN CHECKOUT's HEAD reflog False
+    EXPECTATION HELD                   True
+
+=== R2 borrowed-tip — A ref cut at a commit the agent only BORROWED is never the agent's.
+    created_branches after borrowing   []
+    created_branches after Rich's cut  []
+    EXPECTATION HELD                   True
+
+=== R3 reflog-ab — The branch reflog message is the same wherever the ref is cut.
+    cut INSIDE the workspace           branch: Created from worktree-agent-azachopusr30000
+    cut in the MAIN CHECKOUT           branch: Created from worktree-agent-azachopusr30000
+    either names where it was cut      False
+    EXPECTATION HELD                   True
+
+=== R4 record-heals — Nothing recorded: nothing is inferred, the refusal NAMES the command, and
+    main checkout is on                main
+    record before any registration     None
+    record after the registration      None
+    frozen onto the agent record       None
+    land with nothing recorded         REFUSED: zach-opus-r4 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sa
+    the refusal names the recording command True
+    land after Rich records dev/work   landed
+    workspace gone                     True
+    its branch gone                    True
+    EXPECTATION HELD                   True
+
+=== R5 parallel-calls — Two of the agent's own calls open at once; a stray created in the second.
+    created_branches                   ['spare']
+    land                               landed
+    branches after the land            ['main']
+    the point-3 sweep still names work []
+    EXPECTATION HELD                   True
+
+=== R6 parallel-side-work — The same window with REAL WORK on the side branch. The harm is a land that
+    created_branches                   ['tmpwork']
+    land                               REFUSED: zach-opus-r6 is not landed yet: tmpwork (3cf10ccbbffd) is not in main of /private/var/folde
+    the side commit reached main       False
+    pending after the land             ['zach-opus-r6']
+    HARM (landed + nothing pending)    False
+    land once tmpwork is merged        landed
+    branches after that land           ['main']
+    EXPECTATION HELD                   True
+
+=== R7 correction-in-flight — Point 14: a CORRECTION to the current body of work's branch reaches an
+    bound to                           {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-runner-probe-qo8fvcj5/entity': 'entity-001'}
+    land while the record still says main REFUSED: zach-opus-r7 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw000
+    the record now                     dev/work
+    bodies of work                     ['entity-001', 'other-001']
+    land after the correction          landed
+    workspace gone                     True
+    EXPECTATION HELD                   True
+
+=== R8 second-body — Point 14: STARTING a second body of work in the same repository never
+    bound to                           ['entity-001']
+    the repository's current body      dev/two
+    still bound to                     ['entity-001']
+    land (its work is in main, not dev/two) landed
+    workspace gone                     True
+    EXPECTATION HELD                   True
+
+=== R9 eviction — A burst of REFUSED PreToolUse calls evicts the live call's window by the
+    open windows after 81 Pres (cap 64) 64
+    the live call's window survived    False
+    created_branches at the Post       ['spare']
+    created_branches after the run ended ['spare']
+    land                               landed
+    branches after the land            ['main']
+    EXPECTATION HELD                   True
+
+=== R10 rich-at-my-tip — A ref RICH cuts at the agent's own unlanded tip, which he then commits on
+    created_branches                   ['rich/rescue']
+    land                               REFUSED: zach-opus-r10 is not landed yet: rich/rescue (fe8fc8075874) is not in main of /private/var/
+    the discard RECORDED these tips    ['/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-runner-probe-t8edwf7m/entity:rich/rescue', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-runner-probe-t8edwf7m/entity:worktree-agent-azachopusr100000']
+    Rich's own commit is on that record True
+    [OUT OF SCOPE] rich/rescue survived False
+    pending after the discard          []
+    EXPECTATION HELD                   True
+
+=== held: 10/10
+EXIT=0
