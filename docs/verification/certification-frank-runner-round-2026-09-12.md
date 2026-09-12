@@ -527,8 +527,10 @@ token in that tuple is an in-process loader spelling. A shell-level probe of
 
 **F4b — the author check is a string anybody can type.** Baseline: one red probe,
 `certification-frank-realprobe-2026-09-12.py`, runner exits 1. Then one line
-appended to `docs/verification/workspace-probe-retirements.tsv` by a hand that is
-not mine:
+appended, in that throwaway repository, to the retirements file the runner reads
+(named by the `RETIREMENTS` constant in `engine/scripts/workspace-probes.py`; no
+such file exists in this tree, and I did not create one) — by a hand that is not
+mine:
 
     certification-frank-realprobe-2026-09-12.py<TAB>frank<TAB>obsolete, trust me
 
