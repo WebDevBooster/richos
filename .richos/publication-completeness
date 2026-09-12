@@ -88,9 +88,10 @@
 # ---------------------------------------------------------------------------
 # CITATION_EXEMPT, third group — THE CEO'S WORKSPACE SPEC, BYTE-FOR-BYTE.
 #
-# Added 2026-09-11. `docs/plans/worktree-spec-2026-09-11.md` is the CEO's own
+# Added 2026-09-11, re-synced 2026-09-12 when he added point 14.
+# `docs/plans/worktree-spec-2026-09-11.md` is the CEO's own
 # spec, copied unmodified from the private record (sha256 prefix
-# b3fd6cd33b8c1135). Its closing line names Frank's review by its private-record
+# 6d190cdde551ac30). Its closing line names Frank's review by its private-record
 # path, which is not in this tree. The spec may not be edited — its whole value
 # is that it is his words, unaltered — so the citation stands and this line says
 # why. Exact file, never its directory.
