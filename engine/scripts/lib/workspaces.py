@@ -18,6 +18,8 @@ STATE — outside every repository and session, one JSON file per agent:
     else ~/.claude/state/workspaces
       sessions/<session_id>.json   every session records itself (point 12)
       agents/<key>.json            one agent: its workspaces and its facts
+      refs/<key>.json              the refs its repositories held at the START
+                                   of the tool call it is in (point 3)
       done/<key>.json              an agent whose deletion completed
       ids/<agent_id>               platform agent id -> key
       repos.json                   every repository a record has named
@@ -30,6 +32,11 @@ STATE — outside every repository and session, one JSON file per agent:
 WHAT IS RECORDED, AND BY WHOM (never inferred):
     registration   create-teammate-worktree.sh (cc/), PreToolUse[Agent],
                    PostToolUse[Agent] and SubagentStart (native)
+    ref creation   the catch-all PreToolUse (barrier -> snapshot_refs) and the
+                   catch-all PostToolUse (observe -> observe_created_refs):
+                   a ref that appears BETWEEN the two halves of one of the
+                   agent's own tool calls, and carries that agent's own
+                   unlanded work, was created by it        (point 3, point 10)
     end of run     SubagentStop, and a successful TaskStop  (point 11)
     handed in      TaskCompleted                            (point 11, hole 7)
     pause/resume   a SendMessage carrying `pause-until: <what ends it>`, a later
@@ -129,7 +136,7 @@ def _p(*parts):
 
 
 def _ensure_dirs():
-    for sub in ("sessions", "agents", "done", "ids"):
+    for sub in ("sessions", "agents", "done", "ids", "refs"):
         os.makedirs(_p(sub), exist_ok=True)
 
 
@@ -1113,8 +1120,10 @@ def record_end(session_id, agent_id, signal_name, detail=""):
             rec["pause"] = None
         save_agent(rec)
     # The end-of-run signal carries the agent's id too, so it is the last
-    # observation: a branch it checked out in its LAST call is still its own.
-    observe_branches(rec)
+    # observation: a ref created in its LAST call is still its own, even if that
+    # call's PostToolUse never arrived. It CONSUMES the open snapshot, so nothing
+    # that happens after the run has ended is ever compared against it.
+    observe_created_refs(rec)
     event("end", key=rec["key"], signal=signal_name, detail=detail)
     return rec
 
@@ -1191,7 +1200,7 @@ def stop(ref, why, session_id=""):
         rec["end"] = {"at": now(), "signal": "stopped", "detail": why or "stopped by Rich"}
         rec["pause"] = None
         save_agent(rec)
-    observe_branches(rec)
+    observe_created_refs(rec)
     event("end", key=rec["key"], signal="stopped", detail=why)
     return rec
 
@@ -1231,6 +1240,12 @@ def scan_unregistered(repos):
                 paths.add(w["path"])
             if w.get("branch") and not w.get("branch_deleted_at"):
                 branches.add((w.get("repo"), w["branch"]))
+        # A ref already attributed to an agent (point 3) is that agent's work,
+        # not unregistered work of an ended session: it is landed or discarded
+        # with the agent that made it.
+        for pair in r.get("created_branches") or []:
+            if len(pair) >= 2:
+                branches.add((pair[0], pair[1]))
     found = []
     for repo in repos:
         repo = main_checkout(repo)
@@ -1478,97 +1493,274 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 
 
 # ---------------------------------------------------------------------------
-# branches an agent has (point 3: "any branch an agent created")
+# point 3 — "any branch an agent created": ATTRIBUTION BY RECORDED CREATION
 # ---------------------------------------------------------------------------
+#
+# A ref an agent created is the agent's, however it was made and whether or not
+# it is checked out. A ref that already existed is never the agent's, however
+# long the agent holds it. So the fact that decides is CREATION, and it is
+# recorded at the moment it happens, against the agent's id.
+#
+# THREE EARLIER ANSWERS WERE WRONG, EACH IN ITS OWN DIRECTION, AND ALL THREE ARE
+# WORTH KEEPING WRITTEN DOWN.
+#
+# THE REFLOG. git writes `branch: Created from <X>` identically whoever ran the
+# command and wherever they ran it, and writes NOTHING to a workspace's HEAD
+# reflog for a plain `git branch`. It missed the agent's own branch and handed it
+# Rich's rescue copy: wrong in both directions at once.
+#
+# A WINDOW OVER THE WHOLE REPOSITORY, BETWEEN TWO OF THE AGENT'S TOOL CALLS.
+# Every ref that appeared anywhere in the repository in that window was called
+# that agent's. TWO AGENTS IN ONE REPOSITORY IS THE NORMAL CASE, and reproduced
+# on this machine agent A's record held `cc/zach-opus-b1` and
+# `worktree-agent-azachopusb10000` — B's, both of them. A's land was refused
+# because B's branch was not in main, and `discard(A)` DELETED B's branch.
+#
+# POSSESSION: a branch git reports checked out at one of the agent's own
+# registered workspace paths, sampled at its tool calls. That fixed the window
+# and left three holes, which are one defect — it answers WHERE a ref is, and
+# the question is WHO MADE IT:
+#   the stray        `git branch spare` checks nothing out, so it was never
+#                    attributed and was left behind (against point 10, "none is
+#                    left behind").
+#   the side branch  an agent that commits on a branch and switches away leaves
+#                    work that nothing attributes: land() reported SUCCESS,
+#                    pending() listed nothing, and the work was in no
+#                    integration branch (against points 5 and 8).
+#   the borrowed     a PRE-EXISTING branch the agent merely checked out became
+#     branch         the agent's, and a discard deleted it with `git branch -D`
+#                    (against point 8, in the destructive direction).
+#
+# ===========================================================================
+# THE PAIR OF EVENTS, WHICH IS WHAT MAKES CREATION OBSERVABLE
+# ===========================================================================
+# The platform gives a tool call two halves, and both carry the agent's id:
+# PreToolUse and PostToolUse. A ref that is absent at the first and present at
+# the second appeared DURING that agent's own tool call. There is a catch-all
+# PreToolUse (the lock-out, which calls snapshot_refs); the catch-all PostToolUse
+# in hooks/hooks.json is the other half, and until 2026-09-12 it did not exist —
+# which is why creation could not be recorded and possession was the only fact
+# left to read.
+#
+# The pair is per tool call, not per agent-lifetime, and that matters: the
+# window is the duration of ONE call, so it is measured in seconds rather than
+# in the minutes between two calls.
+#
+# ===========================================================================
+# TIME ALONE IS STILL A GUESS, SO IT IS NEVER THE WHOLE TEST
+# ===========================================================================
+# Other things happen while an agent's tool call runs: Rich cuts a branch, a
+# second agent is spawned, a human commits in a worktree of his own. "It
+# appeared while this agent was working" is co-occurrence, and the closing
+# section of the page allows no guessing. So a candidate must ALSO carry THIS
+# AGENT'S OWN UNLANDED WORK, which is a fact about the agent and not about the
+# clock. Four filters, each one load-bearing and each one with its own mutant:
+#
+#   1. NEW      absent from the snapshot this agent's own PreToolUse took, and
+#               present now. codex/ is never a candidate at all (point 2).
+#   2. NOBODY   not a ref recorded on another agent's record — its workspace
+#      ELSE'S   branch or a ref it is already recorded as having created — and
+#               not the branch the main checkout itself holds.
+#   3. AT       its tip is NOT already contained in the branch this work
+#      STAKE    integrates on (point 14). A ref that is entirely landed carries
+#               nothing, so attributing it decides nothing; leaving it is a
+#               stray, and the page's own bound on the cost of that is below.
+#   4. THIS     its tip is on one line of history with a commit of this agent's
+#      AGENT'S  OWN that is itself not yet in the integration branch — equal to
+#      WORK     it, or one is an ancestor of the other. "Its own" means every
+#               commit its own workspaces have pointed at: their branch tips,
+#               their current HEADs and their own private HEAD reflogs. An agent
+#               that has produced no unlanded commit of its own in that
+#               repository is attributed NOTHING, which is what keeps a second
+#               agent's refs, and a human's, out of its record.
+#
+# WHEN, still: only at a moment the platform vouches for with this agent's id,
+# and only while the agent is not finished. A finished agent's restarted call is
+# refused before it gets here (point 9), and its open snapshot is thrown away, so
+# a branch Rich cuts in the workspace afterwards to rescue the work stays his.
+#
+# THE ONE THING THIS STILL CANNOT TELL APART, named rather than papered over: a
+# ref Rich cuts, DURING one of the agent's own tool calls, AT that agent's own
+# unlanded tip. git keeps no record of where a ref was created, so `git branch
+# spare` inside the workspace and `git branch rich/copy <the agent's tip>` in the
+# main checkout are the same event seen from outside. It is decided for the
+# agent, because the agent's stray is the case the page names ("any branch an
+# agent created") and because the cost is bounded in both directions: a land
+# refuses while such a ref carries anything not in the integration branch, so the
+# only one a land can delete is one already fully landed, and a discard records
+# every tip it deletes. Rich does not rescue a running agent's work — he rescues
+# a finished one's, which is outside every window by construction.
+#
+# Cost, per tool call: one `git for-each-ref` per repository the agent has a
+# workspace in (one or two) at each half, plus one small write. The registry lock
+# and the scan of other agents' records are touched only when a ref that is not
+# already accounted for is actually sitting there, which is rare.
 
-def _branches_in(repo, paths):
-    """Every branch git reports CHECKED OUT at one of `paths`, and nowhere else
-    in the repository. None if the repository cannot be read.
+def _refs_path(key):
+    return _p("refs", key + ".json")
 
-    git's own worktree list is the mapping, and `paths` are the workspaces this
-    agent's REGISTRATION recorded, so both halves are read rather than inferred.
-    git lists the main checkout first and it is never one of an agent's
-    workspaces; it is skipped anyway."""
-    wl = worktree_list(repo)
-    if wl is None:
+
+def _local_refs(repo):
+    """{branch: tip} for every local branch, read from git. None if unreadable."""
+    rc, out, _ = git(repo, "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads")
+    if rc != 0:
         return None
-    return [e["branch"] for e in wl[1:] if e["path"] in paths and e["branch"]]
+    refs = {}
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[1].strip():
+            refs[parts[1].strip()] = parts[0].strip()
+    return refs
 
 
-def observe_branches(rec):
-    """Point 3, "any branch an agent created" — READ FROM THIS AGENT'S OWN
-    WORKSPACE, and counted nowhere else.
+def _repos_of(rec):
+    """The repositories this agent has a live workspace in, from its record."""
+    out = []
+    for w in live_workspaces(rec):
+        repo = w.get("repo")
+        if repo and repo not in out and os.path.isdir(repo):
+            out.append(repo)
+    return out
 
-    TWO EARLIER ANSWERS WERE WRONG, EACH IN ITS OWN DIRECTION, AND BOTH ARE
-    WORTH KEEPING WRITTEN DOWN.
 
-    THE REFLOG. git writes `branch: Created from <X>` identically whoever ran
-    the command and wherever they ran it, and writes NOTHING to a workspace's
-    HEAD reflog for a plain `git branch`. So it missed the agent's own branch
-    and handed it Rich's rescue copy: wrong in both directions at once.
+def snapshot_refs(rec):
+    """THE FIRST HALF OF THE PAIR (point 3): what its repositories held when
+    this tool call STARTED. Called from barrier(), so it runs at a moment the
+    platform vouches for with this agent's id, and never for a finished one.
 
-    A WINDOW OVER THE WHOLE REPOSITORY. Then every ref that appeared anywhere
-    in the repository between two of an agent's tool calls was called that
-    agent's. TWO AGENTS IN ONE REPOSITORY IS THE NORMAL CASE, and reproduced on
-    this machine agent A's record held `cc/zach-opus-b1` and
-    `worktree-agent-azachopusb10000` — B's, both of them. A's land was refused
-    because B's branch was not in main, and `discard(A)` DELETED B's branch.
-    That is co-occurrence in time, not authorship: the window says a ref
-    appeared while this agent happened to be running, which is a guess, and the
-    closing section of the spec allows no liveness guessing of any kind.
-
-    SO THE TEST IS NOT "WHEN" BUT "WHERE": a branch git reports checked out at
-    a path THIS AGENT'S REGISTRATION RECORDED is this agent's, as a fact about
-    its own workspace. Nothing else counts. And git enforces the other half for
-    free — a branch checked out in one worktree cannot be checked out in
-    another — so another agent's branch cannot appear at this agent's path.
-
-    WHAT THIS DELIBERATELY DOES NOT COUNT, SAID OUT LOUD: `git branch spare`
-    run inside the workspace, which checks nothing out and leaves git no record
-    of where it ran. That branch is left behind. Left behind is a stray that is
-    not the system's concern (point 1); MIScounted is another agent's work
-    deleted, against point 8's "deletion therefore never loses anything that
-    was meant to land". Under-attribution loses nothing, so it is the side to
-    err on, and it is the price of having no guess in here.
-
-    AND THE ONE THING IT COUNTS WITHOUT PROVING AUTHORSHIP, named rather than
-    papered over: a branch that already existed and that the AGENT CHECKED OUT
-    in its own workspace. Possession in its own workspace is what git makes
-    readable; origin is not. The consequence is bounded at both ends — a land
-    REFUSES while such a branch carries anything that is not already in main
-    (point 8 is what refuses), so the only one a land can delete this way is a
-    branch already fully in main, and a discard records every tip it deletes.
-    Narrowing it further would need a fact about where a ref was created, and
-    git does not keep one.
-
-    WHEN, still: only at a moment the platform vouches for with this agent's
-    id — one of its own tool calls (PreToolUse -> barrier), or its end-of-run
-    signal, which is the last call's effects becoming visible. A finished
-    agent's restarted call is refused before it gets here (point 9), so a
-    branch Rich checks out in the workspace afterwards to rescue the work stays
-    his.
-
-    Cost, per tool call: one `git worktree list` per repository the agent has a
-    workspace in (one or two). The registry lock is taken only when a branch
-    that is not already recorded is actually sitting there, which is rare."""
+    A snapshot lost to a crash costs one window of attribution, and
+    under-attribution loses nothing — so this never fails a tool call."""
     try:
-        by_repo = {}
-        for w in live_workspaces(rec):
-            repo, path = w.get("repo"), w.get("path")
-            if not repo or not path or not os.path.isdir(repo):
-                continue
-            g = by_repo.setdefault(repo, {"paths": set(), "own": set()})
-            g["paths"].add(path)
+        snap = {}
+        for repo in _repos_of(rec):
+            refs = _local_refs(repo)
+            if refs is None:
+                continue                 # unreadable: no snapshot, so no candidates
+            snap[repo] = sorted(refs)
+        write_json(_refs_path(rec["key"]), {"key": rec["key"], "at": now(), "repos": snap})
+        return snap
+    except (OSError, ValueError):
+        return {}
+
+
+def _drop_snapshot(key):
+    try:
+        os.unlink(_refs_path(key))
+    except OSError:
+        pass
+
+
+def _refs_recorded_elsewhere(exclude_key):
+    """Every (repo, branch) recorded on some OTHER agent's record: its
+    workspaces' own branches and the refs it is recorded as having created.
+    Filter 2, and the hard guarantee for the shape that broke on 2026-09-11."""
+    out = set()
+    for r in all_agents(include_done=True):
+        if r.get("key") == exclude_key:
+            continue
+        for w in r.get("workspaces") or []:
             if w.get("branch"):
-                g["own"].add(w["branch"])
+                out.add((w.get("repo"), w["branch"]))
+        for pair in r.get("created_branches") or []:
+            if len(pair) >= 2:
+                out.add((pair[0], pair[1]))
+    return out
+
+
+def _own_unlanded_tips(rec, repo, refs, target):
+    """EVERY COMMIT THIS AGENT'S OWN WORKSPACES IN `repo` HAVE POINTED AT, less
+    the ones already in the branch this work integrates on. Filter 4's other
+    half: an agent with none of these has produced nothing of its own here, and
+    is attributed nothing.
+
+    Four sources, all facts about the agent's own workspaces or its own record:
+    its workspace branches' tips, its workspaces' current HEADs, its workspaces'
+    own HEAD REFLOGS, and the refs it is already recorded as having created.
+
+    THE REFLOG HERE IS THE PER-WORKSPACE ONE, AND IT IS NOT THE REFLOG THAT WAS
+    REJECTED. What was rejected is `logs/refs/heads/<name>`, the BRANCH's reflog:
+    git writes `branch: Created from <X>` into it identically whoever ran the
+    command and wherever they ran it, so it says nothing about who made the ref.
+    `$GIT_DIR/logs/HEAD` of a workspace is a different file with a different
+    property — it is PRIVATE TO THAT WORKSPACE, it is written when that
+    workspace's HEAD moves, and it is deleted with it.
+
+    IT IS WHAT CLOSES THE SIDE BRANCH INSIDE ONE TOOL CALL. An agent that runs
+    `git checkout -b sidework && <commit> && git checkout <its own branch>` in a
+    single call is back on its own empty branch by the time anything looks: its
+    branch tip and its current HEAD are both the integration tip, so without the
+    reflog it has no unlanded work of its own and the commit on `sidework` is
+    attributed to nobody — which is exactly the hole where land() reported
+    success and the work was in no integration branch (points 5, 8). Its HEAD
+    reflog still carries the commit it made, so the side branch is on one line of
+    history with something of its own, and the land is held until that branch is
+    merged or discarded."""
+    tips = set()
+    for w in live_workspaces(rec):
+        if w.get("repo") != repo:
+            continue
+        if w.get("branch") and refs.get(w["branch"]):
+            tips.add(refs[w["branch"]])
+        if not w.get("path") or not os.path.isdir(w["path"]):
+            continue
+        rc, out, _ = git(w["path"], "rev-parse", "HEAD")
+        if rc == 0 and out.strip():
+            tips.add(out.strip())
+        rc, out, _ = git(w["path"], "reflog", "show", "--format=%H", "HEAD")
+        if rc == 0:
+            for line in out.split():
+                if line.strip():
+                    tips.add(line.strip())
+    for pair in rec.get("created_branches") or []:
+        if len(pair) >= 2 and pair[0] == repo and refs.get(pair[1]):
+            tips.add(refs[pair[1]])
+    return set(t for t in tips if t and not is_ancestor(repo, t, target))
+
+
+def observe_created_refs(rec):
+    """THE SECOND HALF OF THE PAIR (point 3): the refs this agent created during
+    the tool call that is now ending, recorded against it. Returns what it added.
+
+    The snapshot is CONSUMED here, whatever the outcome: one creation is
+    attributed once, and a Post without a Pre attributes nothing."""
+    prior = read_json(_refs_path(rec["key"]))
+    _drop_snapshot(rec["key"])
+    if not prior or not isinstance(prior.get("repos"), dict):
+        return []
+    try:
         mine = []
-        for repo in sorted(by_repo):
-            bs = _branches_in(repo, by_repo[repo]["paths"])
-            if bs is None:
-                continue              # unreadable: observe nothing rather than guess
-            for b in bs:
-                if b in by_repo[repo]["own"] or b.startswith(CODEX_PREFIX):
+        repos = _repos_of(rec)
+        for repo in sorted(prior["repos"]):
+            if repo not in repos:
+                continue
+            before = set(prior["repos"][repo] or [])
+            refs = _local_refs(repo)
+            if refs is None:
+                continue                              # unreadable: observe nothing
+            fresh_refs = [b for b in sorted(refs) if b not in before
+                          and not b.startswith(CODEX_PREFIX)]
+            if not fresh_refs:
+                continue
+            _branch, target, why_not = integration_target([rec], repo)
+            if why_not:
+                continue     # no recorded ref to measure "at stake" against (point 14)
+            wl = worktree_list(repo) or []
+            held_by_main = (wl[0].get("branch") or "") if wl else ""
+            elsewhere = _refs_recorded_elsewhere(rec["key"])
+            own_branches = set(w.get("branch") for w in live_workspaces(rec)
+                               if w.get("repo") == repo)
+            own = _own_unlanded_tips(rec, repo, refs, target)
+            if not own:
+                continue     # it has produced nothing of its own here (filter 4)
+            for b in fresh_refs:
+                if b == held_by_main or b in own_branches or (repo, b) in elsewhere:
                     continue
+                tip = refs[b]
+                if is_ancestor(repo, tip, target):
+                    continue                          # entirely landed: nothing at stake
+                if not any(t == tip or is_ancestor(repo, t, tip) or is_ancestor(repo, tip, t)
+                           for t in own):
+                    continue                          # not on this agent's line of work
                 if (repo, b) not in mine:
                     mine.append((repo, b))
         if not mine:
@@ -1578,8 +1770,8 @@ def observe_branches(rec):
             if not fresh:
                 return []
             have = [tuple(x) for x in (fresh.get("created_branches") or [])]
-            own = set((w.get("repo"), w.get("branch")) for w in fresh.get("workspaces") or [])
-            add = [x for x in mine if x not in have and x not in own]
+            own_ws = set((w.get("repo"), w.get("branch")) for w in fresh.get("workspaces") or [])
+            add = [x for x in mine if x not in have and x not in own_ws]
             if not add:
                 return []
             fresh["created_branches"] = [list(x) for x in have + add]
@@ -1588,6 +1780,24 @@ def observe_branches(rec):
         return add
     except (OSError, ValueError, SpecError):
         return []
+
+
+def observe(payload):
+    """The catch-all PostToolUse's half of the pair (point 3). A payload with no
+    agent_id is the lead's own call and can never be an agent's creation; a
+    finished agent observes nothing and its open snapshot is thrown away (point
+    9), so a ref Rich cuts to rescue the work afterwards stays his."""
+    aid = str(payload.get("agent_id") or "")
+    if not aid:
+        return []
+    key = key_for_id(aid)
+    rec = load_agent(key) if key else None
+    if not rec:
+        return []
+    if finished_state(rec)[0]:
+        _drop_snapshot(rec["key"])
+        return []
+    return observe_created_refs(rec)
 
 
 def _chain(rec):
@@ -1790,7 +2000,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
     else:
         for w in workspaces:
             # Point 3: the branches the agent created are its branches too, and
-            # they are recorded (observe_branches) rather than read back out of
+            # they are recorded (observe_created_refs) rather than read back out of
             # the directory here — the record survives the directory.
             ok, err = remove_workspace(w)
             if ok:
@@ -1830,6 +2040,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
                         for w in fresh["workspaces"]):
             write_json(done_path(fresh["key"]), fresh)
             os.unlink(agent_path(fresh["key"]))
+            _drop_snapshot(fresh["key"])
     event("deleted" if not failures else "deletion-failed", key=rec["key"], why=why,
           failures=failures or None, stopped=processes.get("stopped") or None)
     return not failures
@@ -2088,11 +2299,12 @@ def barrier(payload):
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
     # This call carries the agent's id, so it is a moment the platform vouches
-    # for: whatever is checked out in this agent's OWN workspaces right now is
-    # this agent's (point 3, "any branch an agent created"). It runs only for an
-    # UNFINISHED agent — a branch Rich checks out in the workspace after the run
-    # has ended to rescue the work is his, and is never observed at all.
-    observe_branches(rec)
+    # for. Record what its repositories hold NOW; the catch-all PostToolUse
+    # compares, and a ref that appeared in between was created by this agent
+    # (point 3, "any branch an agent created"). It runs only for an UNFINISHED
+    # agent: a ref Rich cuts after the run has ended, to rescue the work, is his
+    # and is never a candidate at all.
+    snapshot_refs(rec)
     return "REGISTERED", rec.get("name") or ""
 
 
@@ -2444,7 +2656,8 @@ def main(argv):
     x.add_argument("--name", required=True)
     x.add_argument("--path", required=True)
     x.add_argument("--failed", default="")
-    for n in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier"):
+    for n in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier",
+              "observe-refs"):
         sub.add_parser(n)
     x = sub.add_parser("recipient")
     x.add_argument("--name", required=True)
@@ -2454,7 +2667,8 @@ def main(argv):
         return 2
     entity = a.entity or os.environ.get("RICHOS_ENTITY_ROOT_RESOLVED", "")
     try:
-        if a.cmd in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier"):
+        if a.cmd in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier",
+                     "observe-refs"):
             raw = sys.stdin.read()
             try:
                 payload = json.loads(raw)
@@ -2464,12 +2678,18 @@ def main(argv):
                 if a.cmd == "barrier":
                     print("ERROR\tthe payload is unparseable")
                     return 0
+                if a.cmd == "observe-refs":
+                    return 0
                 if a.cmd in ("register-spawn", "register-readonly"):
                     sys.stderr.write("the spawn payload is unparseable; it cannot be registered\n")
                     return 2
                 return 0
             if not entity and payload.get("cwd"):
                 entity = main_checkout(str(payload["cwd"]))
+            if a.cmd == "observe-refs":
+                for repo, b in observe(payload):
+                    print("CREATED\t%s\t%s" % (repo, b))
+                return 0
             if a.cmd == "barrier":
                 k, d = barrier(payload)
                 print("%s\t%s" % (k, d.replace("\t", " ").replace("\n", " ")))

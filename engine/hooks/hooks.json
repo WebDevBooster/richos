@@ -285,6 +285,15 @@
     ],
     "PostToolUse": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/observe-created-refs.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "matcher": "Agent",
         "hooks": [
           {

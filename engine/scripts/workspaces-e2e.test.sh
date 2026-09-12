@@ -18,6 +18,9 @@
 #   E3  a cross-repository agent with two workspaces, landed: both gone, as one
 #   E4  a session that ends mid-work: the next session is told first, is refused
 #       new work and the end of its turn, and lands it
+#   E6  the pair of events: a branch the agent creates inside one tool call is
+#       recorded against it by the catch-all PreToolUse + PostToolUse hooks, and
+#       is deleted with its workspace when the work lands
 #
 # Usage: workspaces-e2e.test.sh [--keep]   (--keep leaves the sandbox for inspection)
 
@@ -88,6 +91,10 @@ subagent_stop() { # <agent-id>
 barrier() { # <agent-id> <tool> -> exit code of the lock-out
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"agent_type":"zach","tool_name":sys.argv[3],"cwd":sys.argv[4],"tool_input":{}}))' "$CUR_SID" "$1" "$2" "$ENT" \
         | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
+}
+post_tool() { # <agent-id> <tool> -> the catch-all PostToolUse: the other half of the pair
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"agent_type":"zach","tool_name":sys.argv[3],"cwd":sys.argv[4],"tool_input":{},"tool_response":{}}))' "$CUR_SID" "$1" "$2" "$ENT" \
+        | bash "$HOOKS/observe-created-refs.sh" >/dev/null 2>"$T/observe.err"
 }
 stop_gate() { # -> exit code of the Stop gate; message in $T/stop.err
     payload Stop "{\"session_id\":\"$CUR_SID\",\"cwd\":\"$ENT\",\"stop_hook_active\":false,\"last_assistant_message\":\"done\"}" \
@@ -210,6 +217,40 @@ check "E4.9 nothing it produced was lost: both commits are in main" \
     "case \"\$MAINLOG\" in *'work e4.txt'*) case \"\$MAINLOG\" in *'what it left'*) true ;; *) false ;; esac ;; *) false ;; esac"
 stop_gate; rc=$?
 check "E4.10 nothing pending: the turn may end" "[ $rc -eq 0 ]" "$(cat "$T/stop.err")"
+
+echo "=== E6 the pair of events: refs created inside one tool call ==="
+spawn "zach-opus-e6" "make something"; rc=$?
+check "E6.1 spawn registered" "[ $rc -eq 0 ]" "$(cat "$T/spawn.err")"
+platform_spawn "zach-opus-e6" "ae6e6e6e6e6e6e6e6"
+NP6="$ENT/.claude/worktrees/agent-ae6e6e6e6e6e6e6e6"
+# ONE tool call: the lock-out opens it, the agent commits on a side branch,
+# switches away and leaves a plain branch behind, and the catch-all PostToolUse
+# closes it. Neither ref is checked out at the workspace when anything looks.
+barrier "ae6e6e6e6e6e6e6e6" Bash
+commit_in "$NP6" e6.txt
+git -C "$NP6" checkout -q -b e6-side
+commit_in "$NP6" e6-side.txt
+git -C "$NP6" branch e6-spare
+git -C "$NP6" checkout -q "worktree-agent-ae6e6e6e6e6e6e6e6"
+post_tool "ae6e6e6e6e6e6e6e6" Bash
+REC6="$CLAUDE_CONFIG_DIR/state/workspaces/agents/$(ls "$CLAUDE_CONFIG_DIR/state/workspaces/agents" | grep -- "-zach-opus-e6.json")"
+check "E6.2 both refs it created are recorded against it (points 3, 10)" \
+    "grep -q 'e6-side' '$REC6' && grep -q 'e6-spare' '$REC6'" "$(head -40 "$REC6" 2>/dev/null) $(cat "$T/observe.err")"
+subagent_stop "ae6e6e6e6e6e6e6e6"
+git -C "$ENT" merge -q --no-edit "worktree-agent-ae6e6e6e6e6e6e6e6"   # its OWN branch is in
+RICHOS_SESSION_ID="$CUR_SID" "$WS" land zach-opus-e6 >"$T/land6.out" 2>&1; rc=$?
+check "E6.3 the land is held by the work it left on a side branch, by name (points 5, 8)" \
+    "[ $rc -eq 2 ] && grep -q 'e6-side' '$T/land6.out'" "$(cat "$T/land6.out")"
+stop_gate; rc=$?
+check "E6.4 so the turn cannot end either (point 5)" \
+    "[ $rc -eq 2 ] && grep -q 'zach-opus-e6' '$T/stop.err'" "$(cat "$T/stop.err")"
+git -C "$ENT" merge -q --no-edit e6-side
+stop_gate; rc=$?
+check "E6.5 merged: nothing it produced was lost, and it lands on its own" "[ $rc -eq 0 ]" "$(cat "$T/stop.err")"
+MAINLOG="$(git -C "$ENT" log --format=%s)"
+check "E6.6 the side-branch commit is in main" "case \"\$MAINLOG\" in *'work e6-side.txt'*) true ;; *) false ;; esac"
+check "E6.7 every ref it created is gone with its workspace (point 10)" \
+    "! has_branch '$ENT' e6-side && ! has_branch '$ENT' e6-spare && [ ! -e '$NP6' ]"
 
 echo "=== every workspace and branch the agents had ==="
 check "E5.1 the entity repository has only its main checkout" "[ \"\$(git -C '$ENT' worktree list --porcelain | grep -c '^worktree ')\" = 1 ]"
