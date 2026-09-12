@@ -45,6 +45,7 @@ mutation_begin "unlanded work" "scripts/hooks/unlanded-branches.test.sh"
 S="scripts/lib/unlanded-branches.py"
 H="scripts/hooks/notice-unlanded-branches.sh"
 C="scripts/hooks/guard-unresolved-claims.py"
+L="scripts/unlanded-branches-lint.sh"
 
 # --- 1. LIVENESS FROM THE WORKTREE LOCK -----------------------------------
 # Without it, every running teammate's branch is a finding, and the notice
@@ -117,5 +118,26 @@ mutant no-operator-channel "C02" "$C" \
     '    sys.stdout.write(json.dumps({"suppressOutput": True,{NL}                                 "systemMessage": text}) + "\n")' \
     '    return None' \
     "the finding would go to stderr only, where stop-hook-notice.sh measured that the operator sees it nowhere -- the report exists and reaches nobody."
+
+# --- 10. THE ABSTENTION IS CARRIED AS DATA --------------------------------
+# A repository with no recorded integration branch cannot be answered for. That
+# fact used to travel ONLY as the word `partial` in STATUS, every caller read N
+# instead, and the notice printed "clear again" over an unlanded cc/ branch.
+mutant abstention-not-counted "U18" "$S" \
+    '    result["n_not_examined"] = len(result["not_examined"])' \
+    '    result["n_not_examined"] = 0' \
+    "the count every caller branches on would say nothing went unread, so an unexamined repository would be reported with the identical words as one read end to end."
+
+# --- 11. AND THE NOTICE ANNOUNCES IT --------------------------------------
+mutant abstention-is-a-no-op "U19" "$H" \
+    'if [ "${NOTEXAMINED:-0}" != "0" ] && [ -n "${NOTEXAMINED:-}" ]; then' \
+    'if false; then' \
+    "this is the shipped defect exactly: treating the abstention as a no-op and falling through to the zero-findings branch, which says the word 'clear' about a repository nothing looked in."
+
+# --- 12. THE LINT'S TWO CODES DO NOT COLLAPSE -----------------------------
+mutant lint-unread-exits-zero "L05" "$L" \
+    '[ "${NOTEX:-0}" = "0" ] || exit 2' \
+    ': # mutated' \
+    "'nothing is unlanded' and 'nothing was read' would share exit 0 again -- the collapse this script's own exit-code table forbids, and the one it was shipping."
 
 mutation_end

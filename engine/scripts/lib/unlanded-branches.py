@@ -125,13 +125,36 @@ OUTPUT
 JSON on stdout (--format json, the default), a human report (--format text),
 one operator line (--format line), or a KEY<TAB>value block for a shell caller
 (--format hook). Exit 0 for json/text/hook; --format line exits 3 when there is
-something to say and 0 when there is not, so a caller can branch on the exit
-code without parsing anything.
+something to say, 4 when it COULD NOT LOOK, and 0 when it looked and there was
+nothing, so a caller can branch on the exit code without parsing anything.
 
 `--format hook` exists so the Stop hook does not have to spawn a SECOND python3
 to read this one's JSON. Its keys are STATUS, REASON, KEY, N, NLIVE, SCOPE,
-SUMMARY, one per line, value after a tab, and no value may contain a newline --
-which is why SUMMARY is built as one line everywhere else in this file.
+SUMMARY, NOTEXAMINED, UKEY, UNEXAMINED, one per line, value after a tab, and no
+value may contain a newline -- which is why SUMMARY is built as one line
+everywhere else in this file.
+
+===========================================================================
+AN ABSTENTION IS NOT A CLEAN RESULT, AND IT HAS ITS OWN FIELDS
+===========================================================================
+A repository with no recorded integration branch (point 14) cannot be answered
+for at all: "has this landed?" has no reference to be asked against. The sweep
+ABSTAINS on it -- it never falls back to a trunk name -- and that abstention
+used to travel in ONE place, the word `partial` in STATUS. Every caller read N,
+found 0, and said "clear".
+
+Measured on the fixture in scripts/hooks/unlanded-branches.test.sh, one
+unlanded `cc/` branch, nothing recorded:
+
+    at 2bc413df   STATUS swept    N 1   the branch named
+    at 4c70bfc2   STATUS partial  N 0   SUMMARY empty
+                  -> notice-unlanded-branches.sh: "UNLANDED-BRANCH WATCH: clear again"
+
+Neither repository this engine governs has a branch recorded, so that was the
+LIVE state and not a corner. So the abstention is now carried as data --
+`not_examined`, `n_not_examined`, `unexamined_key` and a sentence of its own --
+in every format, and the word it is rendered with is `NOT EXAMINED`, which is
+what land-completeness.sh already prints for the identical abstention.
 """
 
 import argparse
@@ -421,10 +444,21 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
         # one of them live" are the two states a silence hides, and the lint
         # script's whole job is making that difference visible by hand.
         "live": [],
+        # THE REPOSITORIES THIS SWEEP COULD NOT ANSWER FOR. Kept as a LIST, not
+        # folded into `status`, for the reason land-completeness.py keeps its
+        # own: an abstention that is only a status word gets read by the next
+        # consumer as a no-op, and a no-op reads as clean. Every entry carries
+        # the command that would settle it. The sibling renders this as
+        # `NOT EXAMINED` and so does every format here; the same round produced
+        # both and they say the same words.
+        "not_examined": [],
         "n_findings": 0,
         "n_live": 0,
+        "n_not_examined": 0,
         "key": "",
+        "unexamined_key": "",
         "summary": "",
+        "unexamined": "",
     }
 
     if not repos:
@@ -432,6 +466,12 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
         result["reason"] = ("no git repository resolved from %r, so there is "
                             "nothing whose main this could compare against"
                             % entity_root)
+        result["not_examined"].append(
+            {"what": entity_root, "label": os.path.basename(entity_root) or entity_root,
+             "why": result["reason"]})
+        result["n_not_examined"] = 1
+        result["unexamined_key"] = realpath_key(entity_root)
+        result["unexamined"] = unexamined_line(result)
         return result
 
     lock_cache = {}
@@ -452,6 +492,8 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
                            "'<this body of work>'" % repo)
             result["repos"].append(row)
             result["status"] = "partial"
+            result["not_examined"].append(
+                {"what": repo, "label": row["label"], "why": row["note"]})
             continue
 
         rows = ahead_branches(repo, trunk)
@@ -459,6 +501,8 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
             row["note"] = "git refused to enumerate its branches"
             result["repos"].append(row)
             result["status"] = "partial"
+            result["not_examined"].append(
+                {"what": repo, "label": row["label"], "why": row["note"]})
             continue
 
         by_branch, _ = worktrees_of(repo)
@@ -532,8 +576,44 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
     result["n_findings"] = len(result["findings"])
     result["key"] = "|".join("%s/%s@%s" % (f["label"], f["branch"], f["tip"])
                              for f in result["findings"])
+    result["n_not_examined"] = len(result["not_examined"])
+    result["unexamined_key"] = "|".join(
+        sorted(realpath_key(ne["what"]) for ne in result["not_examined"]))
     result["summary"] = summary_line(result)
+    result["unexamined"] = unexamined_line(result)
     return result
+
+
+def realpath_key(p):
+    try:
+        return os.path.realpath(p or "")
+    except Exception:
+        return p or ""
+
+
+def unexamined_line(result):
+    """The sentence for the repositories this sweep COULD NOT ANSWER FOR.
+
+    IT IS A SEPARATE SENTENCE FROM `summary`, DELIBERATELY. An abstention that
+    shares a field with a finding is an abstention a caller drops the moment the
+    finding count is zero, and that is exactly how "STATUS partial / N 0" came
+    to be rendered as "clear again": the caller read N, read nothing, and said
+    the word this whole mechanism exists to stop.
+
+    The words are `NOT EXAMINED`, which is what land-completeness.sh prints for
+    the identical abstention. Two surfaces for one fact must not have two
+    vocabularies."""
+    ne = result["not_examined"]
+    if not ne:
+        return ""
+    named = "; ".join("%s: %s" % (x["label"], x["why"]) for x in ne[:MAX_NAMED])
+    more = ""
+    if len(ne) > MAX_NAMED:
+        more = " (+%d more)" % (len(ne) - MAX_NAMED)
+    return ("NOT EXAMINED - %d repositor%s could not be answered for, so this is "
+            "NOT a clean main; it is an unread one. %s%s "
+            "Detail: scripts/unlanded-branches-lint.sh"
+            % (len(ne), "y" if len(ne) == 1 else "ies", named, more))
 
 
 def summary_line(result):
@@ -581,7 +661,16 @@ def text_report(result):
                       ("   " + row["note"]) if row["note"] else ""))
     out.append("")
     if not result["findings"]:
-        if result["n_live"]:
+        if result["not_examined"]:
+            # NEVER the all-clear sentence while a repository went unread. The
+            # two states this file exists to keep apart are "nothing is
+            # stranded" and "nothing was looked at", and a report that says the
+            # first while the second is true is the defect, not the wording.
+            out.append("  No stranded branch was found IN THE REPOSITORIES THAT COULD BE")
+            out.append("  EXAMINED (%d of %d). The rest are listed under NOT EXAMINED below."
+                       % (len(result["repos"]) - len(result["not_examined"]),
+                          len(result["repos"])))
+        elif result["n_live"]:
             out.append("  Nothing is stranded. %d branch(es) are ahead of main and each"
                        % result["n_live"])
             out.append("  is held by a live teammate, which is what work in progress")
@@ -612,6 +701,17 @@ def text_report(result):
                        % (f["label"], f["branch"], f["commits"],
                           f["live_reason"]))
         out.append("")
+    # PRINTED EVEN WHEN EMPTY, which is R5 and is the same discipline
+    # land-completeness.sh's own NOT EXAMINED section keeps: the absence of a
+    # finding is not a finding, and a section that disappears when it is empty
+    # cannot be distinguished from one that was never computed.
+    out.append("  NOT EXAMINED (%d) — the absence of a finding is not a finding"
+               % len(result["not_examined"]))
+    for ne in result["not_examined"]:
+        out.append("      %-12s %s" % (ne["label"], ne["why"]))
+    if not result["not_examined"]:
+        out.append("      (every repository above was read)")
+    out.append("")
     return "\n".join(out)
 
 
@@ -643,12 +743,26 @@ def main(argv=None):
                      ("N", result["n_findings"]),
                      ("NLIVE", result["n_live"]),
                      ("KEY", result["key"]),
-                     ("SUMMARY", result["summary"])):
+                     ("SUMMARY", result["summary"]),
+                     # THE ABSTENTION, IN FIELDS OF ITS OWN. A caller that reads
+                     # only N cannot tell an examined-and-clean sweep from an
+                     # unread one, and every caller reads N.
+                     ("NOTEXAMINED", result["n_not_examined"]),
+                     ("UKEY", result["unexamined_key"]),
+                     ("UNEXAMINED", result["unexamined"])):
             sys.stdout.write("%s\t%s\n" % (k, one(v)))
         return 0
     if result["summary"]:
         sys.stdout.write(result["summary"] + "\n")
+        if result["unexamined"]:
+            sys.stdout.write(result["unexamined"] + "\n")
         return 3
+    if result["unexamined"]:
+        # 4, NOT 0. "Nothing is unlanded" and "nothing was read" have never been
+        # allowed to share an exit code in this mechanism; until now the second
+        # one had no code of its own and borrowed the first one's.
+        sys.stdout.write(result["unexamined"] + "\n")
+        return 4
     return 0
 
 

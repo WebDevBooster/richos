@@ -41,9 +41,13 @@
 #      teammate, or there are none
 #   1  at least one branch holds work that main does not have and nothing live
 #      is holding it (each is named)
-#   2  broken: no repository could be resolved, or the sweep is missing. NEVER
-#      the same code as 0, because "nothing is unlanded" and "nothing was read"
-#      are the two answers this whole mechanism exists to keep apart.
+#   2  broken, OR IT COULD NOT LOOK: no repository could be resolved, the sweep
+#      is missing, or a repository has no recorded integration branch (point 14)
+#      so "has this landed?" has no reference to be asked against. NEVER the
+#      same code as 0, because "nothing is unlanded" and "nothing was read" are
+#      the two answers this whole mechanism exists to keep apart -- and until
+#      the NOT EXAMINED case got this code it was returning 0, which is the
+#      same collapse in the same file.
 
 set -eo pipefail
 
@@ -66,7 +70,7 @@ while [ "$#" -gt 0 ]; do
         --session) SESSION="${2:-}"; shift 2 ;;
         --ledger)  LEDGER="${2:-}"; shift 2 ;;
         --extra-repos) EXTRA="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)        echo "ERROR: unlanded-branches-lint.sh: unrecognized argument '$1'" >&2; exit 2 ;;
         *)         [ -n "$REPO" ] && { echo "ERROR: unlanded-branches-lint.sh: more than one repository given" >&2; exit 2; }
                    REPO="$1"; shift ;;
@@ -90,6 +94,8 @@ printf '%s\n' "$OUT"
 if [ "$FORMAT" = "line" ]; then
     [ "$RC" -eq 3 ] && exit 1
     [ "$RC" -eq 0 ] && exit 0
+    # 4 is the sweep's "I could not look" -- it maps onto 2 here with every
+    # other unread outcome, and never onto 0.
     exit 2
 fi
 [ "$RC" -eq 0 ] || exit 2
@@ -98,8 +104,16 @@ TAB="$(printf '\t')"
 VERDICT="$(python3 "$SWEEP" "${BASE[@]}" --format hook 2>/dev/null || true)"
 STATUS="$(printf '%s\n' "$VERDICT" | grep "^STATUS${TAB}" | head -1 | cut -f2- || true)"
 N="$(printf '%s\n' "$VERDICT" | grep "^N${TAB}" | head -1 | cut -f2- || true)"
+NOTEX="$(printf '%s\n' "$VERDICT" | grep "^NOTEXAMINED${TAB}" | head -1 | cut -f2- || true)"
 case "$STATUS" in
     stand-down|"") exit 2 ;;
 esac
+# FINDINGS FIRST: a repository that could be read and holds stranded work is a
+# thing to go and land, and it outranks a gap elsewhere.
 [ "${N:-0}" = "0" ] || exit 1
+# NOTHING FOUND, AND SOMETHING UNREAD. Not 0. This is the exact collapse the
+# exit-code table above forbids, and it was live here: with no integration
+# branch recorded the sweep abstained, N came back 0, and this script reported
+# the same success it reports for a repository it read end to end.
+[ "${NOTEX:-0}" = "0" ] || exit 2
 exit 0

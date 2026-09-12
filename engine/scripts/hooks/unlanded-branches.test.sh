@@ -25,6 +25,15 @@
 #   U10/U12   a finding is announced       <-> the same finding, again, is not
 #   U13/U14   a NEW finding speaks again   <-> a clean repository says nothing
 #   U15..U17  the notice announces every way it can stop working
+#   U18..U21  AN ABSTENTION IS NOT A CLEAN RESULT. A repository with no recorded
+#             integration branch cannot be answered for at all; it arrived as
+#             STATUS partial / N 0 and was printed as "clear again". U19 fires
+#             over it, U20 is the same repository with the branch RECORDED (the
+#             branch is named), U21 is the same repository read end to end with
+#             nothing ahead (the word "clear" is still reachable) — so deleting
+#             the word cannot pass this triple.
+#   U22       findings AND a gap: both named, and the list called a floor
+#   L05       the lint's exit 0 / exit 2 collapse, one layer in from L04
 #   C02/C04   a completeness claim over stranded work reports <-> no claim, silent
 #   C05       the SAME sentence with nothing stranded is silent
 #   C06       a NEGATED completeness claim is silent
@@ -58,6 +67,7 @@ SWEEP="$ENGINE_ROOT/scripts/lib/unlanded-branches.py"
 NOTICE="$SCRIPT_DIR/notice-unlanded-branches.sh"
 CLAIMS="$SCRIPT_DIR/guard-unresolved-claims.sh"
 LINT="$ENGINE_ROOT/scripts/unlanded-branches-lint.sh"
+WORKSPACES="$ENGINE_ROOT/scripts/workspaces.sh"
 
 PASS=0
 FAIL=0
@@ -69,6 +79,14 @@ command -v git     >/dev/null 2>&1 || { echo "ERROR: needs git" >&2; exit 1; }
 
 SANDBOX="$(cd "$(mktemp -d -t unlanded.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
+
+# THE REGISTRY IS SANDBOXED, AND THAT IS NOT TIDINESS. This suite records an
+# integration branch per fixture repository (point 14, below), and without this
+# export every one of those recordings lands in the OPERATOR's real
+# ~/.claude/state/workspaces/integration.json, pointing at temp directories that
+# stop existing when the trap fires. That exact residue was found in the real
+# registry from a sibling suite. A test never writes to the operator's state.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 
 echo "=== unlanded work: the sweep, the notice, and the claim it contradicts ==="
 echo ""
@@ -107,6 +125,20 @@ adopt() { # <path> — an adopted engine root, so the hooks do not stand down
     printf 'orchestration.config\n.claude/\n' > "$1/.git/info/exclude"
 }
 
+# POINT 14, AND IT IS THE FIXTURE'S JOB. "The branch a body of work integrates
+# on is RECORDED when that work starts." Nothing in this sweep infers it and
+# nothing falls back to `main`, so a fixture repository that records nothing is
+# one the sweep cannot answer for AT ALL — which is a real state with cases of
+# its own below (U18..U20, L05), and must not be the accidental state of every
+# other case. Before this call existed the whole suite ran against repositories
+# the sweep abstained on: U02, U05, U07, U08, U10, U13, U17, C02, C03, L01 and
+# L02 were red, and L01 was red because the LINT REPORTED SUCCESS.
+record_work() { # <repo>
+    "$WORKSPACES" integration --repo "$1" --branch main \
+        --why "the unlanded-branches fixture" >/dev/null 2>&1 \
+        || { echo "FATAL: could not record the integration branch for $1 — every case below would test an abstention" >&2; exit 1; }
+}
+
 mk_branch() { # <repo> <branch> <file> — one commit ahead of main
     git -C "$1" checkout -q -b "$2" main
     printf '%s\n' "$3" > "$1/$3"
@@ -115,8 +147,8 @@ mk_branch() { # <repo> <branch> <file> — one commit ahead of main
     git -C "$1" checkout -q main
 }
 
-mk_repo "$SEAT"; adopt "$SEAT"
-mk_repo "$FAR";  adopt "$FAR"
+mk_repo "$SEAT"; adopt "$SEAT"; record_work "$SEAT"
+mk_repo "$FAR";  adopt "$FAR";  record_work "$FAR"
 
 # --- U1 the finding: a branch nothing is holding ---------------------------
 mk_branch "$SEAT" stranded stranded.txt
@@ -312,7 +344,7 @@ fi
 # produce nothing at all. This is the case that separates a working notice from
 # one that fires on everything.
 CLEANREPO="$SANDBOX/clean"
-mk_repo "$CLEANREPO"; adopt "$CLEANREPO"
+mk_repo "$CLEANREPO"; adopt "$CLEANREPO"; record_work "$CLEANREPO"
 mk_payload "Everything is clean and pushed." control > "$SANDBOX/payload.json"
 env RICHOS_ENTITY_ROOT="$CLEANREPO" CLAUDE_PROJECT_DIR="$CLEANREPO" \
     CLAUDE_PLUGIN_ROOT="$ENGINE_ROOT" RICHOS_WORKTREE_LEDGER="$SANDBOX/no-such-ledger" \
@@ -370,6 +402,95 @@ else
     else
         bad "U17 a hook that cannot run says so" "stdout was empty"
     fi
+fi
+
+# ===========================================================================
+# 3b. AN ABSTENTION IS NOT A CLEAN RESULT
+#
+# A repository with no recorded integration branch (point 14) cannot be
+# answered for: "has this landed?" has no reference to be asked against, so the
+# sweep abstains rather than assuming main. That arrived as STATUS partial /
+# N 0, the notice treated `partial` as a no-op, and the zero-findings branch
+# printed "UNLANDED-BRANCH WATCH: clear again" over a repository holding an
+# unlanded cc/ branch. Neither repository this engine governs has a branch
+# recorded, so that was the live state.
+#
+# THE PAIR IS THE POINT. U19 fires over the abstention; U20 is the same
+# repository with the branch RECORDED, where the branch is named instead; U21
+# is the same repository with nothing ahead of main, where the word "clear" is
+# still reachable. A fix that simply deleted the word would pass U19 alone.
+# ===========================================================================
+ABSTAIN="$SANDBOX/unrecorded"
+mk_repo "$ABSTAIN"; adopt "$ABSTAIN"          # deliberately NOT record_work
+mk_branch "$ABSTAIN" cc/unrecorded-work stranded.txt
+
+sweep_at() { # <repo> [extra-repos] -> json on stdout
+    env RICHOS_WORKTREE_LEDGER="$SANDBOX/no-such-ledger" \
+        python3 "$SWEEP" --entity-root "$1" --session "" \
+        --extra-repos "${2:-}" --format json 2>/dev/null
+}
+notice_at() { # <repo> [extra-repos] [keep] — sets RUN_OUT/RUN_RC
+    mk_payload "Everything is clean and pushed." control > "$SANDBOX/payload.json"
+    # The notice is state-change de-duplicated, so a case that wants the
+    # RECOVERY line must NOT reset the state first: "clear again" is by
+    # construction only ever printed as a transition out of an abnormal state.
+    [ -n "${3:-}" ] || rm -rf "$1/.claude/state/stop-hook-notices"
+    env RICHOS_ENTITY_ROOT="$1" CLAUDE_PROJECT_DIR="$1" \
+        CLAUDE_PLUGIN_ROOT="$ENGINE_ROOT" \
+        RICHOS_WORKTREE_LEDGER="$SANDBOX/no-such-ledger" \
+        UNLANDED_BRANCHES_EXTRA_REPOS="${2:-}" \
+        /bin/bash "$NOTICE" < "$SANDBOX/payload.json" \
+        > "$SANDBOX/out.txt" 2> "$SANDBOX/err.txt"
+    RUN_RC=$?
+    RUN_OUT="$(cat "$SANDBOX/out.txt")"
+}
+
+A_JSON="$(sweep_at "$ABSTAIN")"
+A_NOTEX="$(printf '%s' "$A_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["n_not_examined"])' 2>/dev/null || echo 0)"
+A_NAMED="$(printf '%s' "$A_JSON" | python3 -c 'import json,sys; print(" ".join(x["what"] for x in json.load(sys.stdin)["not_examined"]))' 2>/dev/null || true)"
+if [ "${A_NOTEX:-0}" -ge 1 ] && [ "$A_NAMED" = "$ABSTAIN" ]; then
+    ok "U18 the sweep carries the abstention as DATA and names the repository it could not read"
+else
+    bad "U18 an unanswerable repository is recorded as NOT EXAMINED" "n_not_examined=${A_NOTEX:-?} named='[$A_NAMED]' (expected $ABSTAIN)"
+fi
+
+notice_at "$ABSTAIN"
+if printf '%s' "$RUN_OUT" | grep -qi 'clear'; then
+    bad "U19 the notice NEVER says clear about a repository it could not read" "stdout: $RUN_OUT"
+elif printf '%s' "$RUN_OUT" | grep -q 'COULD NOT LOOK' \
+     && printf '%s' "$RUN_OUT" | grep -q 'NOT EXAMINED'; then
+    ok "U19 FIRING: over an abstention it says COULD NOT LOOK / NOT EXAMINED — the sibling's own words"
+else
+    bad "U19 an abstention is announced as unread" "stdout: ${RUN_OUT:-<empty>}"
+fi
+
+record_work "$ABSTAIN"
+notice_at "$ABSTAIN"
+if printf '%s' "$RUN_OUT" | grep -q 'cc/unrecorded-work'; then
+    ok "U20 PAIRED TWIN: the same repository, branch RECORDED, and now the branch itself is named"
+else
+    bad "U20 with the integration branch recorded the finding is named" "stdout: ${RUN_OUT:-<empty>}"
+fi
+
+git -C "$ABSTAIN" merge -q --no-edit cc/unrecorded-work >/dev/null 2>&1
+notice_at "$ABSTAIN" "" keep
+if printf '%s' "$RUN_OUT" | grep -q 'clear again'; then
+    ok "U21 PAIRED TWIN: read end to end with nothing ahead, the word 'clear' is still reachable"
+else
+    bad "U21 a genuinely clean repository still says clear again" "stdout: ${RUN_OUT:-<empty>} — deleting the word is not the fix"
+fi
+
+# U22 — findings AND a gap in one sweep. The named list is then a FLOOR, and
+# saying so is the difference between a partial answer and a total one.
+ABSTAIN2="$SANDBOX/unrecorded2"
+mk_repo "$ABSTAIN2"; adopt "$ABSTAIN2"        # again, deliberately not recorded
+mk_branch "$ABSTAIN2" cc/second-unrecorded s.txt
+notice_at "$SEAT" "$ABSTAIN2"
+if printf '%s' "$RUN_OUT" | grep -q 'stranded' \
+   && printf '%s' "$RUN_OUT" | grep -q 'FLOOR RATHER THAN A TOTAL'; then
+    ok "U22 a sweep with findings AND an unread repository names both, and calls the list a floor"
+else
+    bad "U22 a partial finding list says it is partial" "stdout: ${RUN_OUT:-<empty>}"
 fi
 
 # ===========================================================================
@@ -490,6 +611,15 @@ if [ "$L3_RC" -eq 2 ]; then
     ok "L04 and 2 when it could resolve no repository — 'nothing unlanded' and 'nothing read' never share a code"
 else
     bad "L04 lint exits 2 when it cannot read" "exit $L3_RC: $L3_OUT"
+fi
+# L05 — the same collapse, one layer in. A repository it RESOLVED but cannot
+# answer for is still a repository it did not read, and it exited 0 for it.
+L4_OUT="$(RICHOS_WORKTREE_LEDGER="$SANDBOX/no-such-ledger" /bin/bash "$LINT" "$ABSTAIN2" 2>&1)"
+L4_RC=$?
+if [ "$L4_RC" -eq 2 ] && printf '%s' "$L4_OUT" | grep -q 'NOT EXAMINED'; then
+    ok "L05 a repository with no recorded integration branch exits 2 and prints NOT EXAMINED, never 0"
+else
+    bad "L05 lint exits 2 when it could not answer for a repository" "exit $L4_RC (0 means it reported success over an unread repository): $L4_OUT"
 fi
 
 # ===========================================================================

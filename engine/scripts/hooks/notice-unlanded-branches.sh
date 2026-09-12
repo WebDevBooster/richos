@@ -49,6 +49,26 @@
 # still outside main four days later.
 #
 # ===========================================================================
+# IT NEVER SAYS "CLEAR" ABOUT SOMETHING IT DID NOT READ
+# ===========================================================================
+# A repository with no recorded integration branch (point 14) cannot be
+# answered for: "has this landed?" has no reference to be asked against, and
+# the sweep abstains rather than assuming main. That abstention arrived here as
+# `STATUS partial` with `N 0`, this file treated `partial` as a no-op, and the
+# zero-findings branch printed:
+#
+#     UNLANDED-BRANCH WATCH: clear again
+#
+# over a fixture holding one unlanded `cc/` branch. Neither repository this
+# engine governs has a branch recorded, so that was the live state.
+#
+# The sweep now carries the abstention in fields of its own (NOTEXAMINED, UKEY,
+# UNEXAMINED) and this hook announces it in the words its sibling
+# land-completeness.sh already uses for the same fact: NOT EXAMINED. Two
+# surfaces over one abstention are not allowed two vocabularies, and neither of
+# them is allowed the word "clear".
+#
+# ===========================================================================
 # ONE LINE, STATE-CHANGE DE-DUPLICATED
 # ===========================================================================
 # systemMessage via scripts/lib/stop-hook-notice.sh, the only channel measured
@@ -258,6 +278,9 @@ REASON="$(field REASON)"
 KEY="$(field KEY)"
 N="$(field N)"
 SUMMARY="$(field SUMMARY)"
+NOTEXAMINED="$(field NOTEXAMINED)"
+UKEY="$(field UKEY)"
+UNEXAMINED="$(field UNEXAMINED)"
 
 case "$STATUS" in
     stand-down)
@@ -268,8 +291,11 @@ case "$STATUS" in
             "UNLANDED-BRANCH WATCH SWEPT NOTHING: ${REASON:-no repository resolved}. This is not a clean main; it is an unread one. $HOOK_TAG"
         exit 0 ;;
     partial)
-        : ;;  # some repository could not be answered for; the findings below
-              # are still real and the lint script names the gap.
+        : ;;  # some repository could not be answered for. The findings below
+              # are still real, AND the gap is announced in its own right --
+              # see the NOTEXAMINED branch below. It used to fall straight
+              # through to the "clear again" line, which is how an abstention
+              # came to be reported as health.
     swept)
         : ;;
     *)
@@ -278,9 +304,28 @@ case "$STATUS" in
         exit 0 ;;
 esac
 
+# THE ABSTENTION IS ANNOUNCED BEFORE ANY WORD ABOUT MAIN, AND IT NEVER SAYS
+# "CLEAR". A repository with no recorded integration branch (point 14) is one
+# this sweep could not look in at all; reported as clean it is the exact defect
+# this hook was written for, wearing this hook's own sentence. Its sibling
+# land-completeness prints NOT EXAMINED for the identical abstention, and the
+# two must agree, so this one prints those words too.
+if [ "${NOTEXAMINED:-0}" != "0" ] && [ -n "${NOTEXAMINED:-}" ]; then
+    if [ "${N:-0}" = "0" ] || [ -z "$SUMMARY" ]; then
+        stop_notice_abnormal "unexamined:$UKEY" \
+            "UNLANDED-BRANCH WATCH COULD NOT LOOK — ${UNEXAMINED:-NOT EXAMINED - a repository could not be answered for and this is NOT a clean main; it is an unread one.} Nothing here is a statement that your work landed. $HOOK_TAG"
+        exit 0
+    fi
+    # There are real findings AND a gap. Both, in one line: a finding list from
+    # a partial sweep is a floor, never a total.
+    stop_notice_abnormal "unlanded:$KEY|unexamined:$UKEY" \
+        "$SUMMARY ALSO, AND THE LIST ABOVE IS THEREFORE A FLOOR RATHER THAN A TOTAL: ${UNEXAMINED} $HOOK_TAG"
+    exit 0
+fi
+
 if [ "${N:-0}" = "0" ] || [ -z "$SUMMARY" ]; then
     stop_notice_normal \
-        "UNLANDED-BRANCH WATCH: clear again — every branch ahead of main is held by a live teammate, or there are none. $HOOK_TAG"
+        "UNLANDED-BRANCH WATCH: clear again — every repository was read, and every branch ahead of main is held by a live teammate, or there are none. $HOOK_TAG"
     exit 0
 fi
 
