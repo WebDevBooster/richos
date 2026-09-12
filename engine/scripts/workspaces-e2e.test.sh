@@ -112,6 +112,17 @@ WS="$ENGINE/scripts/workspaces.sh"
 
 echo "=== E1 spawn -> register -> commit -> finish -> land -> gone ==="
 start_session "sess-e2e-one-1111"
+# Point 14: "The branch a body of work integrates on is RECORDED when that work
+# starts, before its first agent is spawned. Nothing infers it and nothing
+# guesses it." Nothing derives it any more -- no floor, no reading of whatever
+# the main checkout happens to be on -- so Rich records it, once per repository,
+# and that is the only fact a land is proved against.
+RICHOS_SESSION_ID="$CUR_SID" "$WS" integration --repo "$ENT" --branch main \
+    --why "the end-to-end run's body of work" >"$T/integration.out" 2>&1
+check "E0.1 the branch this work integrates on is recorded (point 14)" \
+    "grep -q 'main' '$T/integration.out'" "$(cat "$T/integration.out")"
+RICHOS_SESSION_ID="$CUR_SID" "$WS" integration --repo "$OTHER" --branch main \
+    --why "the end-to-end run's body of work" >>"$T/integration.out" 2>&1
 check "E1.1 SessionStart recorded the session with its process identity" \
     "grep -q '\"pid_start\"' '$CLAUDE_CONFIG_DIR/state/workspaces/sessions/sess-e2e-one-1111.json'"
 spawn "zach-opus-e1" "build it"; rc=$?

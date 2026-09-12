@@ -176,14 +176,19 @@ mutant p14-land-reads-a-moving-head "test_point_14_work_merged_onto_its_dev_bran
     "landed would go back to meaning \"in whatever the main checkout has checked out just now\", so work merged onto its dev branch would be reported not landed and its workspaces and branches would be left behind (points 4, 14)."
 
 mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '        branch = (integration_record(repo) or {}).get("branch") or ""' \
-    '        branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
+    '    branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '    branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
     "the branch a land is tested against would be INFERRED from the main checkout at land time instead of read from the record, which is the one thing point 14 forbids: \"nothing infers it and nothing guesses it\"."
 
-mutant p14-in-flight-target-moves "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '    ir = integration_record(repo){NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
-    '    ir = None{NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
-    "an agent would not keep the branch recorded when it was spawned, so recording the integration branch for the NEXT body of work would silently move the target of an agent already in flight (point 14)."
+mutant p14-floor-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    if repo not in cur["repos"]:{NL}        cur["repos"].append(repo){NL}        write_json(path, cur)' \
+    '    if repo not in cur["repos"]:{NL}        cur["repos"].append(repo){NL}        write_json(path, cur){NL}    _m = _norm_repo(repo){NL}    if _m and not all_integration_records().get(_m):{NL}        _wl = worktree_list(_m){NL}        _b = (_wl[0].get("branch") or "") if _wl else ""{NL}        if _b:{NL}            _write_integration(_m, _b, "first-registration", "the floor")' \
+    "a registration would DERIVE the integration branch from whatever the main checkout happens to be on and write it down as though it were recorded, which point 14 forbids outright: \"nothing infers it and nothing guesses it\". The derived record is also the one that cannot be corrected -- with no record the land refuses and Rich recording the branch HEALS it; with the floor's record the land refuses forever and the workspace is left behind (points 5, 14)."
+
+mutant p14-frozen-copy-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+    '    rec["workspaces"].append(w){NL}    _remember_repo(repo){AND}    branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '    rec["workspaces"].append(w){NL}    _remember_repo(repo){NL}    _ir = integration_record(repo){NL}    if _ir and _ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = _ir["branch"]{AND}    branch = ""{NL}    for _r in chain:{NL}        branch = (_r.get("integration") or {}).get(repo) or ""{NL}        if branch:{NL}            break{NL}    if not branch:{NL}        branch = (integration_record(repo) or {}).get("branch") or ""' \
+    "the branch would be FROZEN onto each agent at its registration and preferred over the live record, so a correction could never reach an agent already in flight: its land would be proved against a branch that is no longer the one this work integrates on, it would refuse forever, its workspace would be left behind and point 5 would be blocked (point 14)."
 
 mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
     '    if call:{NL}        return os.path.join(_refs_dir(key), "c." + _key_segment(call) + ".json"){NL}    return os.path.join(_refs_dir(key), "u.%020d.%s.json" % (time.time_ns(), os.urandom(4).hex()))' \

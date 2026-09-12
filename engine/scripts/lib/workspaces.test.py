@@ -112,6 +112,13 @@ class Base(unittest.TestCase):
         self.other = self.env.repo("other")
         self.sid = "sess-aaaaaaaa-1111"
         self.sess = self.env.session(self.sid, self.entity)
+        # Point 14: "The branch a body of work integrates on is RECORDED when
+        # that work starts, before its first agent is spawned. Nothing infers it
+        # and nothing guesses it." Nothing in the library derives this any more,
+        # so the fixture records it exactly as Rich does — one command, before
+        # the first spawn. A test that wants the no-record case removes it.
+        ws.record_integration(self.entity, "main", "the fixture's body of work", self.sid)
+        ws.record_integration(self.other, "main", "the fixture's body of work", self.sid)
 
     def tearDown(self):
         self.env.close()
@@ -1086,44 +1093,56 @@ class Point14_IntegrationBranch(Base):
 
     def test_point_14_the_integration_branch_is_recorded_never_inferred(self):
         """"The branch a body of work integrates on is RECORDED when that work
-        starts, before its first agent is spawned. Nothing infers it and nothing
-        guesses it." So: the record exists from the first registration; a land
-        with no record at all REFUSES instead of reading a moving HEAD; and an
-        agent already in flight keeps the branch recorded when it was spawned."""
-        # the floor: recorded at the first registration, with its source named
+        starts, before its first agent is spawned. NOTHING INFERS IT AND NOTHING
+        GUESSES IT." So: a land with no record REFUSES and names the command;
+        nothing is derived from what the main checkout happens to be on; nothing
+        is frozen onto an agent; and the live record is the only answer, which is
+        why recording it late REACHES an agent that was spawned before it."""
         self.assertEqual(ws.integration_record(self.entity)["branch"], "main")
-        self.assertEqual(ws.integration_record(self.entity)["source"], "first-registration")
+        self.assertEqual(ws.integration_record(self.entity)["source"], "recorded")
+        # NO RECORD AT ALL: the land refuses and names the command, rather than
+        # reading whatever the main checkout has checked out.
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))
         aid, npath = self.spawn("zach-opus-i3")
-        self.assertEqual(self.rec("zach-opus-i3")["integration"][self.entity], "main")
-        # re-recording for the NEXT body of work does not move an in-flight
-        # agent's target: its own copy is the one its land is tested against
+        self.assertIsNone(ws.integration_record(self.entity))   # registration infers nothing
+        self.assertNotIn("integration", self.rec("zach-opus-i3"))   # and freezes nothing
         run("git", "-C", self.entity, "branch", "dev/next")
-        ws.record_integration(self.entity, "dev/next", "the next body of work", self.sid)
-        self.assertEqual(ws.integration_record(self.entity)["branch"], "dev/next")
         self.commit(npath, "i3.txt")
         self.finish(aid)
-        self.merge(self.entity, "worktree-agent-" + aid)      # onto main, as recorded for it
+        self.ff(self.entity, "dev/next", "worktree-agent-" + aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-i3", self.sid)
+        self.assertIn("workspaces.sh integration", str(e.exception))
+        self.assertTrue(os.path.exists(npath))
+        self.assertEqual(self.names(), ["zach-opus-i3"])        # pending, not lost (point 5)
+        # THE REFUSAL HEALS. Rich records the branch this work integrates on —
+        # AFTER this agent was registered, and after it finished — and the same
+        # land succeeds. A derived or frozen answer could not be corrected.
+        ws.record_integration(self.entity, "dev/next", "this body of work", self.sid)
         ws.land("zach-opus-i3", self.sid)
         self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
         # an agent's own workspace branch is never an integration branch
         with self.assertRaises(ws.SpecError):
             ws.record_integration(self.entity, "cc/zach-opus-i3", "wrong kind of branch", self.sid)
-        # no record at all: the land refuses and names the command, rather than
-        # falling back to whatever the main checkout has checked out. (Only a
-        # registration writes the floor, so this state is reached by removing the
-        # record after the spawn -- which is also what an operator wiping the
-        # registry's file would leave behind.)
+        # THE LIVE RECORD IS THE ONLY ANSWER, at land time as well as at the
+        # first land: an agent registered while the record said one branch is
+        # tested against whatever the record says WHEN IT LANDS. Nothing is
+        # frozen onto the agent at its registration, so a correction reaches it.
+        ws.record_integration(self.entity, "main", "back to main for a moment", self.sid)
         aid2, npath2 = self.spawn("zach-opus-i4")
         self.commit(npath2, "i4.txt")
+        run("git", "-C", self.entity, "branch", "dev/later")
+        ws.record_integration(self.entity, "dev/later", "the branch it really integrates on", self.sid)
         self.finish(aid2)
-        os.unlink(os.path.join(ws.state_dir(), "integration.json"))
-        r = ws.load_agent(ws.named_key(self.sid, "zach-opus-i4"))
-        r["integration"] = {}
-        ws.save_agent(r)
-        with self.assertRaises(ws.SpecError) as e:
+        self.merge(self.entity, "worktree-agent-" + aid2)     # onto main: the OLD record
+        with self.assertRaises(ws.SpecError) as e2:
             ws.land("zach-opus-i4", self.sid)
-        self.assertIn("workspaces.sh integration", str(e.exception))
+        self.assertIn("dev/later", str(e2.exception))
         self.assertTrue(os.path.exists(npath2))
+        self.ff(self.entity, "dev/later", "worktree-agent-" + aid2)
+        ws.land("zach-opus-i4", self.sid)
+        self.assertFalse(os.path.exists(npath2))
 
 
 class _Result(unittest.TextTestResult):

@@ -34,6 +34,13 @@ EVERYTHING IS SANDBOXED. HOME, CLAUDE_CONFIG_DIR, TMPDIR, GIT_CONFIG_GLOBAL and
 RICHOS_WORKSPACES_DIR are redirected into a temporary directory that is removed
 at the end; the operator's real registry, sessions and repositories are never
 read or written. Exit 0 when every case selected holds, 1 otherwise.
+
+THE FIXTURE RECORDS THE INTEGRATION BRANCH (added 2026-09-12). Point 14 says the
+branch a body of work integrates on is recorded when the work starts and that
+nothing infers it; the "first-registration" floor that used to derive it was
+deleted, so the setup now records `main` for both repositories before the first
+spawn, which is what Rich does. It is guarded by hasattr, so running this probe
+against an older library still works and the seven cases are unchanged.
 """
 import importlib.util
 import os
@@ -82,6 +89,15 @@ class Sandbox(object):
         self.other = self.repo("other")
         self.sid = "sess-probe-11111111"
         self.session(self.sid, self.entity)
+        # Point 14: the branch this body of work integrates on is RECORDED when
+        # the work starts, before the first spawn. Nothing in the library infers
+        # it (the "first-registration" floor was deleted on 2026-09-12 because a
+        # derived record cannot be corrected), so the fixture records it exactly
+        # as Rich does. Against a library that has no record at all, this is a
+        # no-op and the cases run as they always did.
+        if hasattr(self.ws, "record_integration"):
+            for r in (self.entity, self.other):
+                self.ws.record_integration(r, "main", "the probe's body of work", self.sid)
 
     def repo(self, name):
         p = os.path.join(self.root, name)

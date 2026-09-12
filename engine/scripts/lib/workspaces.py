@@ -27,8 +27,11 @@ STATE — outside every repository and session, one JSON file per agent:
       ids/<agent_id>               platform agent id -> key
       repos.json                   every repository a record has named
       integration.json             the branch each repository's work integrates
-                                   on, RECORDED (point 14); never inferred at
-                                   land time
+                                   on, RECORDED (point 14). Never inferred,
+                                   never derived from what a checkout happens
+                                   to be on, and never frozen onto an agent:
+                                   the live record is the only answer, which is
+                                   why a wrong one can always be corrected
       events.jsonl                 append-only history of every fact
       lock                         one flock for every mutation
 
@@ -580,7 +583,7 @@ def new_record(key, **fields):
     rec = {"key": key, "name": "", "session_id": "", "agent_id": "", "workspaces": [],
            "registered_at": iso(), "end": None, "handed_in": None, "pause": None, "waiting": None,
            "disposition": None, "deletion": None, "orphan": False, "ceo_ordered": None,
-           "continues": [], "lands_pending": [], "created_branches": [], "integration": {},
+           "continues": [], "lands_pending": [], "created_branches": [],
            "history": []}
     rec.update(fields)
     return rec
@@ -595,9 +598,6 @@ def _remember_repo(repo):
     if repo not in cur["repos"]:
         cur["repos"].append(repo)
         write_json(path, cur)
-    # Point 14: the branch this work integrates on exists as a FACT from the
-    # first registration onwards, so no land ever has to read a moving HEAD.
-    _ensure_integration(_norm_repo(repo))
 
 
 def known_repos():
@@ -626,32 +626,44 @@ def known_repos():
 # onto its dev branch was reported "not landed yet" and its workspaces were left
 # behind, against point 4.
 #
-# THE RECORD IS A FILE, PER REPOSITORY, WRITTEN ONCE AND NOT RE-DERIVED. Two
-# ways in, and the record says which one it came from:
+# THE RECORD IS A FILE, PER REPOSITORY, AND THERE IS EXACTLY ONE WAY INTO IT:
 #
-#   "recorded"  — `workspaces.sh integration --repo <r> --branch <b> --why ...`
-#                 Rich records it when a body of work starts. This is the form
-#                 the page asks for, and the only form that can name a dev
-#                 branch: nothing in this file can know that this work is not
-#                 allowed into main yet.
-#   "first-registration" — the main checkout's own branch, read ONCE, at the
-#                 registration of the first workspace in that repository, which
-#                 is before its first agent is spawned (register_cc runs before
-#                 the workspace is created; register_spawn before the spawn).
-#                 It is a floor, not a guess about intent: it makes the fact
-#                 EXIST for every repository the registry knows, and freezes it,
-#                 so a land can never fall back to reading a moving HEAD.
+#   `workspaces.sh integration --repo <r> --branch <b> --why '<this work>'`
 #
-# Either way it is read at land time and never recomputed there. A repository
-# whose main checkout is detached when it is first registered gets no record at
-# all, and a land in it REFUSES, naming the command — refusing is the only
-# answer that is not a guess.
+# Rich records it when a body of work starts. It is the form the page asks for,
+# and the only form that can name a dev branch: nothing in this file can know
+# that this work is not allowed into main yet. It is read at land time, and a
+# land in a repository with NO record REFUSES and names that command — refusing
+# is the only answer that is not a guess.
 #
-# THE AGENT KEEPS ITS OWN COPY. `_add_workspace` copies the recorded branch into
-# the agent's record, per repository, at registration. So re-recording the
-# integration branch for the NEXT body of work cannot silently move the target
-# of an agent that is already in flight; its land is tested against the branch
-# that was recorded when it was spawned.
+# ===========================================================================
+# THERE IS NO FLOOR, AND DELETING IT IS THE POINT — 2026-09-12
+# ===========================================================================
+# Until 2026-09-12 a "first-registration" floor read the main checkout's own
+# current branch, wrote it down as though it were the recorded fact, and froze a
+# copy of it onto every agent registered afterwards; `integration_target`
+# preferred that frozen copy over the live record. It fired from
+# `record_session_start` — earlier even than the comment above it claimed.
+#
+# IT WAS WORSE THAN THE REFUSAL IT REPLACED, and the comparison that shows it was
+# reproduced independently by two reviewers:
+#
+#   with NO record at all      the land refuses, Rich records the branch, and
+#                              the land then SUCCEEDS. The refusal HEALS.
+#   with the floor's record    the wrong branch is frozen onto an agent already
+#                              in flight. Recording the right branch afterwards
+#                              cannot reach it, its land refuses FOREVER with
+#                              "is not in main", its workspace is left behind,
+#                              and point 5 is blocked — against point 14's own
+#                              "'it cannot go to main yet' is never a reason for
+#                              anything to be left behind".
+#
+# A derived value that cannot be corrected is not a floor; it is a wrong answer
+# with the authority of a recorded one. "Nothing infers it and nothing guesses
+# it" (point 14) is the whole sentence, so the derivation is gone, the
+# `source: first-registration` record is gone, and the frozen per-agent copy is
+# gone with them. THE LIVE RECORD IS THE ONLY ANSWER, and because it is the only
+# answer it can always be corrected.
 
 def _integration_path():
     return _p("integration.json")
@@ -707,20 +719,6 @@ def record_integration(repo, branch, why="", by_session=""):
     return _write_integration(main, branch, "recorded", why, by_session)
 
 
-def _ensure_integration(main):
-    """The floor: at the FIRST registration in a repository, the main checkout's
-    own branch is written down once. Read once, never re-read at land time."""
-    if not main or all_integration_records().get(main):
-        return None
-    wl = worktree_list(main)
-    branch = (wl[0].get("branch") or "") if wl else ""
-    if not branch:
-        return None
-    return _write_integration(main, branch, "first-registration",
-                              "the main checkout's own branch when this repository's first workspace "
-                              "was registered")
-
-
 def _add_workspace(rec, kind, repo, path, branch, source):
     path = realpath(path) if path else ""
     for w in rec["workspaces"]:
@@ -732,12 +730,6 @@ def _add_workspace(rec, kind, repo, path, branch, source):
          "registered_at": iso(), "source": source, "deleted_at": None}
     rec["workspaces"].append(w)
     _remember_repo(repo)
-    # Point 14: the target is frozen per agent at its registration, so
-    # re-recording it for the next body of work cannot move the target of an
-    # agent that is already in flight.
-    ir = integration_record(repo)
-    if ir and ir.get("branch"):
-        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]
     return w
 
 
@@ -1880,7 +1872,14 @@ def observe_created_refs(rec, call="", all_open=False):
                 continue
             _branch, target, why_not = integration_target([rec], repo)
             if why_not:
-                continue     # no recorded ref to measure "at stake" against (point 14)
+                # No recorded ref to measure "at stake" against (point 14), so
+                # this observation cannot be made at all. It is RECORDED as not
+                # made, rather than dropped silently: the refs it could not judge
+                # are the ones a later land will not know to delete, and the only
+                # cure is the command `why_not` names.
+                event("attribution-skipped", key=rec["key"], repo=repo,
+                      refs=fresh_refs, why=why_not)
+                continue
             wl = worktree_list(repo) or []
             held_by_main = (wl[0].get("branch") or "") if wl else ""
             elsewhere = _refs_recorded_elsewhere(rec["key"])
@@ -1990,21 +1989,20 @@ def _branch_targets(chain):
 def integration_target(chain, repo):
     """(branch, tip, why_not) — the ref a land is proved against (point 14).
 
-    The branch comes from the RECORD and nowhere else: the copy frozen on one of
-    these agents' records at its registration first, else the repository's own
-    record. `why_not` is filled instead when there is no fact to test against,
-    and a land that cannot name its target REFUSES rather than falling back to
-    whatever the main checkout happens to have."""
+    The branch comes from the repository's LIVE record and nowhere else. Nothing
+    is inferred, nothing is frozen onto an agent, and nothing falls back to
+    whatever the main checkout happens to have checked out: a land that cannot
+    name its target REFUSES and names the command that records it. That refusal
+    HEALS — Rich records the branch and the same land then succeeds, for an
+    agent registered long before the record existed — which a derived or frozen
+    answer could not do (point 14).
+
+    `chain` is still the caller's unit of work; it is not a source of the
+    target, and is kept so the signature says what a land is asking about."""
     repo = realpath(repo or "")
     if not repo or not os.path.isdir(repo):
         return "", "", "its repository %s cannot be read" % repo
-    branch = ""
-    for r in chain:
-        branch = (r.get("integration") or {}).get(repo) or ""
-        if branch:
-            break
-    if not branch:
-        branch = (integration_record(repo) or {}).get("branch") or ""
+    branch = (integration_record(repo) or {}).get("branch") or ""
     if not branch:
         return "", "", ("no branch is recorded for %s as the one this work integrates on. The branch a "
                         "body of work integrates on is RECORDED when that work starts (point 14); "
