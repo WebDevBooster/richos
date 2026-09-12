@@ -101,8 +101,8 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
-    '        write_json(_slot_path(rec["key"], call),{NL}                   {"key": rec["key"], "call": call or "", "at": now(), "repos": snap})' \
-    '        snap = snap' \
+    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}{NL}        write_json(_slot_path(rec["key"], call), row)' \
+    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}' \
     "the FIRST half of the pair would record nothing, so no ref could ever be shown to be new: creation would be unobservable and every branch an agent created would be left behind (points 3, 10)."
 
 mutant p03-created-ref-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \
@@ -121,13 +121,13 @@ mutant p03-unrelated-ref-attributed "test_point_03_a_branch_rich_cuts_in_the_mai
     "co-occurrence in time would be attribution again: a ref carrying somebody else's unlanded commit, cut while the agent happened to be in a tool call, would be deleted with the agent (point 8)."
 
 mutant p03-landed-ref-attributed "test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents" "$W" \
-    '                if is_ancestor(repo, tip, target):{NL}                    continue                          # entirely landed: nothing at stake' \
+    '                if target and is_ancestor(repo, tip, target):{NL}                    continue                          # entirely landed: nothing at stake' \
     '                if False:{NL}                    continue                          # entirely landed: nothing at stake' \
     "a ref that is entirely in the branch this work integrates on -- the shape of every bookmark Rich cuts in the main checkout -- would be claimed and deleted by an agent that never made it (points 1, 8)."
 
-mutant p03-borrowed-branch-attributed "test_point_08_a_pre_existing_branch_the_agent_only_checked_out_survives" "$W" \
-    '                    b = set(prior["repos"][repo] or []){NL}                    before = b if first else (before & b)' \
-    '                    b = set(){NL}                    before = b if first else (before & b)' \
+mutant p03-borrowed-branch-attributed "test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it" "$W" \
+    '        b = set(latest["repos"][repo] or []){NL}        before = b if before is None else (before | b){NL}    return before' \
+    '        b = set(latest["repos"][repo] or []){NL}        before = b if before is None else (before | b){NL}    return set()' \
     "every ref would look new, so a PRE-EXISTING branch the agent merely checked out would become the agent's and a discard would delete it with git branch -D (point 8, in the destructive direction)."
 
 mutant p03-recorded-elsewhere-ignored "test_point_03_a_continuing_agents_branch_is_never_its_predecessors" "$W" \
@@ -176,7 +176,7 @@ mutant p14-land-reads-a-moving-head "test_point_14_work_merged_onto_its_dev_bran
     "landed would go back to meaning \"in whatever the main checkout has checked out just now\", so work merged onto its dev branch would be reported not landed and its workspaces and branches would be left behind (points 4, 14)."
 
 mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '    branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '    if work is None:{NL}        work = integration_record(repo){NL}    branch = (work or {}).get("branch") or ""' \
     '    branch = ((worktree_list(repo) or [{}])[0].get("branch") or "")' \
     "the branch a land is tested against would be INFERRED from the main checkout at land time instead of read from the record, which is the one thing point 14 forbids: \"nothing infers it and nothing guesses it\"."
 
@@ -186,8 +186,8 @@ mutant p14-floor-restored "test_point_14_the_integration_branch_is_recorded_neve
     "a registration would DERIVE the integration branch from whatever the main checkout happens to be on and write it down as though it were recorded, which point 14 forbids outright: \"nothing infers it and nothing guesses it\". The derived record is also the one that cannot be corrected -- with no record the land refuses and Rich recording the branch HEALS it; with the floor's record the land refuses forever and the workspace is left behind (points 5, 14)."
 
 mutant p14-frozen-copy-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
-    '    rec["workspaces"].append(w){NL}    _remember_repo(repo){AND}    branch = (integration_record(repo) or {}).get("branch") or ""' \
-    '    rec["workspaces"].append(w){NL}    _remember_repo(repo){NL}    _ir = integration_record(repo){NL}    if _ir and _ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = _ir["branch"]{AND}    branch = ""{NL}    for _r in chain:{NL}        branch = (_r.get("integration") or {}).get(repo) or ""{NL}        if branch:{NL}            break{NL}    if not branch:{NL}        branch = (integration_record(repo) or {}).get("branch") or ""' \
+    '    _bind_body_of_work(rec, repo){NL}    return w{AND}    if work is None:{NL}        work = integration_record(repo){NL}    branch = (work or {}).get("branch") or ""' \
+    '    _ir = integration_record(repo){NL}    if _ir and _ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = _ir["branch"]{NL}    return w{AND}    if work is None:{NL}        work = integration_record(repo){NL}    branch = ""{NL}    for _r in chain:{NL}        branch = (_r.get("integration") or {}).get(realpath(repo)) or ""{NL}        if branch:{NL}            break{NL}    if not branch:{NL}        branch = (work or {}).get("branch") or ""' \
     "the branch would be FROZEN onto each agent at its registration and preferred over the live record, so a correction could never reach an agent already in flight: its land would be proved against a branch that is no longer the one this work integrates on, it would refuse forever, its workspace would be left behind and point 5 would be blocked (point 14)."
 
 mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
@@ -195,14 +195,48 @@ mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_
     '    return os.path.join(_refs_dir(key), "one-slot.json")' \
     "the creation window would go back to ONE SLOT PER AGENT, so two of the agent's own calls open at once would clobber each other's window: the second Post would find nothing to compare against, and a ref created in that call -- a side branch carrying real commits included -- would be attributed to nobody while land() still reported LANDED (points 3, 5, 8, 10)."
 
-mutant p03-end-of-run-consumes-one-window "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
+# REPLACED, AND THE REASON IS THE POINT OF THIS ROUND. This mutant used to turn
+# `all_open=True` into `all_open=False` and claimed the difference was
+# load-bearing. It is not any more: since the before-sets are UNIONED rather
+# than intersected, and the last snapshot always joins that union, WHICH open
+# windows get consumed no longer changes what is attributed -- only whether
+# they are left on disk for a finished agent, which nothing reads. Keeping it
+# would have been a dead assertion wearing the shape of a rule, which is the
+# class of defect this round exists to end. What IS still load-bearing is that
+# the end-of-run signal observes AT ALL, so that is what is mutated.
+mutant p03-no-end-of-run-observation "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
     '    observe_created_refs(rec, all_open=True){NL}    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
-    '    observe_created_refs(rec){NL}    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
-    "the end-of-run signal -- an agent's LAST observation -- would consume one open window instead of every one, so a ref created in a call whose PostToolUse never arrived because the run ended inside it would be attributed to nobody and left behind (points 3, 10)."
+    '    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
+    "the end-of-run signal would stop being an agent's LAST observation, so a ref created in a call whose PostToolUse never arrived -- because the run ended inside it -- would be attributed to nobody and left behind (points 3, 10)."
 
 mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
     '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \
     '                if False:{AND}        if False:' \
     "a branch that reached neither main nor its dev branch would be counted as landed, and deleted (points 4, 8, 14)."
+
+mutant p08-refused-call-widens-the-window "test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run" "$W" \
+    '            before = b if before is None else (before | b){NL}    if latest and repo in (latest.get("repos") or {}):' \
+    '            before = b if before is None else (before & b){NL}    if False:' \
+    "the open windows would be INTERSECTED again and the last snapshot would stop narrowing them, so one window leaked by a REFUSED PreToolUse would make the end-of-run comparison ask \"what appeared while this agent existed\" instead of \"what changed during this call\" -- and a branch Rich cut between two of the agent's calls would be attributed to the agent and destroyed by its discard (point 8)."
+
+mutant p03-unpaired-post-attributes-nothing "test_point_03_a_post_that_carries_no_call_id_still_ends_a_call" "$W" \
+    '        paths = [p] if os.path.exists(p) else _open_slots(key)[:1]' \
+    '        paths = [p] if os.path.exists(p) else []' \
+    "a PostToolUse whose own window is missing -- the platform does not always carry tool_use_id on both halves -- would find nothing at either end, so a ref created inside that call would be attributed to nobody until the end of the run and, once the run had ended, to nobody at all (point 3)."
+
+mutant p14-attribution-waits-for-the-record "test_point_14_attribution_never_waits_for_the_record" "$W" \
+    '            _branch, target, _why_not = integration_target([rec], repo){NL}            wl = worktree_list(repo) or []' \
+    '            _branch, target, _why_not = integration_target([rec], repo){NL}            if _why_not:{NL}                event("attribution-skipped", key=rec["key"], repo=repo,{NL}                      refs=fresh_refs, why=_why_not){NL}                continue{NL}            wl = worktree_list(repo) or []' \
+    "attribution would WAIT for the integration branch to be recorded. It happens once, at the end of a tool call, so \"skipped\" means attributed to NOBODY PERMANENTLY: recording the branch afterwards unblocks the land and never goes back, and land() then reports success over a commit that reached no integration branch (points 5, 8, 10 through 14). The trace it wrote had one producer and no consumer."
+
+mutant p03-borrowed-tip-counts-as-own-work "test_point_14_a_tip_the_agent_only_borrowed_is_not_its_work" "$W" \
+    '                if _made_here(subject):{NL}                    tips.add(sha)' \
+    '                if True:{NL}                    tips.add(sha)' \
+    "every commit the workspace's HEAD ever MOVED TO would count as the agent's own work, checkouts included, so a ref Rich cut at a tip the agent merely BORROWED would be on the agent's line of work and would be deleted with it (points 3, 8)."
+
+mutant p14-second-body-of-work-moves-the-first "test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents" "$W" \
+    '    for r in chain or []:{NL}        wid = (r.get("integration_work") or {}).get(main_key)' \
+    '    for r in []:{NL}        wid = (r.get("integration_work") or {}).get(main_key)' \
+    "the integration branch would go back to one slot per REPOSITORY, read live. Point 5 permits a second body of work to start in a repository while the first one's agents are still running, so recording the second body's branch -- which point 14 requires -- would move the first body's running agents onto it retroactively: their work is merged onto the branch they were spawned for, their land is measured against a branch they never heard of, it refuses forever, and their workspaces are stranded (points 5, 14)."
 
 mutation_end

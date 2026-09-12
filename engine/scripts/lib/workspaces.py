@@ -1772,16 +1772,17 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 #   behind and named by the point-3 sweep, while an over-attributed one is
 #   somebody else's work deleted.
 #
-#   THE EVICTION (fixed here). The cap used to be 64 windows, evicting the
-#   OLDEST by mtime — so a burst of refused calls while a live call was open
-#   evicted the LIVE one, and its own Post then attributed nothing. Age is the
-#   honest bound instead: no tool call is open for hours, so a window older
-#   than `_MAX_CALL_AGE` cannot be live and is dropped, while a burst of
-#   refused calls in one second evicts nothing. The count cap stays only as a
-#   backstop against unbounded growth, and it is now far above any plausible
-#   number of genuinely concurrent calls.
-_MAX_OPEN_CALLS = 4096
-_MAX_CALL_AGE = float(os.environ.get("RICHOS_WORKSPACES_CALL_AGE") or 6 * 3600)
+#   THE EVICTION, MEASURED AND LEFT ALONE. The cap evicts the OLDEST window by
+#   position, so a burst of refused calls opened while a live call is in flight
+#   evicts the LIVE one. That looks like a second bug and it was going to be
+#   fixed here. It was measured instead, and it is not one: once the
+#   before-sets are UNIONED, a window opened before the ref still decides, and
+#   after a burst of refusals there is always one of those still open. Both an
+#   age-based cap and the unpaired-Post fallback below rescue the case
+#   independently, and neither can be told from the other by any scenario --
+#   so the age-based cap was an unproven claim and is not here. What actually
+#   rescues it is the fallback, which has its own case and its own mutant.
+_MAX_OPEN_CALLS = 64
 
 
 def _refs_dir(key):
@@ -1818,30 +1819,15 @@ def _open_slots(key):
 
 
 def _evict_old_slots(key):
-    """Windows that CANNOT still be live any more, by age — never by position.
-
-    Evicting the oldest by mtime is what a burst of refused calls exploited: 70
-    refusals opened while one real call was in flight pushed the real call's own
-    window out, and its Post then had nothing to compare against. Nothing about
-    being the oldest makes a window dead; being hours old does."""
+    """A refused PreToolUse leaves a window no Post will consume. Keep the cap."""
     slots = _open_slots(key)
-    cutoff = time.time() - _MAX_CALL_AGE
-    keep = []
-    for p in slots:
-        try:
-            if os.path.getmtime(p) < cutoff:
-                os.unlink(p)
-                continue
-        except OSError:
-            pass
-        keep.append(p)
-    if len(keep) <= _MAX_OPEN_CALLS:
+    if len(slots) <= _MAX_OPEN_CALLS:
         return
     try:
-        keep.sort(key=os.path.getmtime)
+        slots.sort(key=os.path.getmtime)
     except OSError:
         pass
-    for p in keep[:len(keep) - _MAX_OPEN_CALLS]:
+    for p in slots[:len(slots) - _MAX_OPEN_CALLS]:
         try:
             os.unlink(p)
         except OSError:

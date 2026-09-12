@@ -1115,21 +1115,34 @@ class Point14_IntegrationBranch(Base):
                    not_ceo_ordered="a test of attribution", me=self.sid)
         self.assertIn("rich/rescue", branches(self.entity))
 
-    def test_point_03_a_burst_of_refused_calls_never_evicts_a_live_window(self):
-        """Point 3, "any branch an agent created". The cap on open windows used
-        to evict the OLDEST by position, so refused calls opened while a real
-        call was in flight pushed the real call's own window out and its Post
-        attributed nothing. Nothing about being oldest makes a window dead."""
-        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+    def test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it(self):
+        """Point 8, in the destructive direction: "Deletion therefore never
+        loses anything that was meant to land."
+
+        This is the case where the SNAPSHOT is the only thing standing between
+        somebody else's branch and `git branch -D`. Rich cuts a bookmark at the
+        agent's own unlanded tip BEFORE the call opens, so every other filter
+        waves it through: it is not the main checkout's branch, not on any other
+        agent's record, not the agent's own workspace branch, not already in the
+        integration branch, and it sits exactly on the agent's line of work.
+        Only "it was already there when this call started" keeps it out.
+
+        It is written down because an empty before-set was measured killing NO
+        shipped test, which made the first half of the pair an unproven claim."""
         aid, npath = self.spawn("zach-opus-w2")
         self.tool_call(aid, call="tu-warm")
         self.commit(npath, "own.txt")
-        self.pre(aid, call="tu-live")                        # the live call opens
-        for i in range(70):
-            self.pre(aid, call="tu-refused-%03d" % i)        # 70 refusals on top of it
-        run("git", "-C", npath, "branch", "spare")           # created inside the live call
-        self.post(aid, call="tu-live")
+        tip = run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip()
+        run("git", "-C", self.entity, "branch", "rich/bookmark", tip)   # BEFORE the call
+        self.pre(aid, call="tu-1")
+        run("git", "-C", npath, "branch", "spare")                      # inside the call
+        self.post(aid, call="tu-1")
         self.assertEqual(self.created("zach-opus-w2"), ["spare"])
+        self.finish(aid)
+        ws.discard("zach-opus-w2", "the reviewer rejected the approach",
+                   not_ceo_ordered="a test of attribution", me=self.sid)
+        self.assertIn("rich/bookmark", branches(self.entity))
+        self.assertNotIn("spare", branches(self.entity))
 
     def test_point_03_a_post_that_carries_no_call_id_still_ends_a_call(self):
         """Point 3. The platform does not always put `tool_use_id` on both
