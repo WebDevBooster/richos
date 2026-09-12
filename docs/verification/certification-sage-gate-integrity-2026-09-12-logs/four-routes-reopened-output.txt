@@ -1,0 +1,66 @@
+
+=========== ROUTE 2 — a retirement the engineer signs with the reviewer's name.
+    CONTROL: the probe is RED and nothing retires it
+    | probes DELETED from history and not retired: 0
+    | RED        docs/verification/certification-frank-toy-2026-09-12.probe.py    0.0s
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py     0.0s
+    | RED (a prior probe now fails):
+    exit 1
+    the engineer commits a DOCS-ONLY retirement signed 'frank', on its own branch
+    STEP A — no other branch exists yet. A3 must refuse:
+    | probes DELETED from history and not retired: 0
+    | UNRUNNABLE docs/verification/certification-frank-toy-2026-09-12.probe.py    0.0s
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py     0.0s
+    exit 1
+    STEP B — one command, and the branch name is not anybody's:  git branch wip
+    | probes DELETED from history and not retired: 0
+    | RETIRED    docs/verification/certification-frank-toy-2026-09-12.probe.py    0.0s
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py     0.0s
+    | every discovered probe ran, and every one of them is green.
+    exit 0
+    ROUTE RE-OPENED: A3 is answered by a bare second pointer at the same commit; no impersonation, no reviewer's branch name, and the witness prints as 'wip'
+
+=========== ROUTE 4 — delete the probe, then silence MISSING with an UNCOMMITTED line.
+    CONTROL: deleted, nothing retires it — MISSING must block
+    | probes DELETED from history and not retired: 1
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py    0.0s
+    | MISSING    docs/verification/certification-frank-toy-2026-09-12.probe.py
+    exit 1
+    now one line in the working tree, never committed, signed 'zach' (not frank)
+    |  M docs/verification/workspace-probe-retirements.tsv
+    | probes DELETED from history and not retired: 0
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py    0.0s
+    | every discovered probe ran, and every one of them is green.
+    exit 0
+    ROUTE RE-OPENED: MISSING is suppressed by an uncommitted line signed by the wrong name — A1, A2, A3 and the author check are all bypassed
+
+=========== ROUTE 1 — annotate the reviewer's probe, in the same commit as the engine change.
+    CONTROL: frank's probe is RED
+    | probes DELETED from history and not retired: 0
+    | RED        docs/verification/certification-frank-toy-2026-09-12.probe.py    0.0s
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py     0.0s
+    | RED (a prior probe now fails):
+    exit 1
+    ONE commit that edits the library AND annotates the probe it fails, then: git branch wip
+    | probes DELETED from history and not retired: 0
+    | DECLARED   docs/verification/certification-frank-toy-2026-09-12.probe.py
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py    0.0s
+    | every discovered probe ran, and every one of them is green.
+    exit 0
+    ROUTE RE-OPENED: the exact shape A2 exists to refuse is accepted for a marker, and the probe leaves the run
+
+=========== ROUTE 3 — a probe driven through getattr is still not discovered.
+    it exits 1 when run by hand:
+    | drove 'register_spawn'
+    | F1 FAILS -- this is the assertion that should block
+    and the runner:
+    | probes DELETED from history and not retired: 0
+    | GREEN      docs/verification/certification-sage-toy-2026-09-12.probe.py    0.0s
+    | every discovered probe ran, and every one of them is green.
+    exit 0
+    ROUTE RE-OPENED: a red probe that never spells an entry point with a parenthesis is counted under 'not probes of this library' and the run exits 0
+
+=========== did anything write outside its sandbox?
+    /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/repro/sandbox-registry was never created — nothing here drove the library's writers
+
+=========== 4 of 4 routes re-opened

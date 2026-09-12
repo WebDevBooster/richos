@@ -1,0 +1,105 @@
+=== unlanded work: the sweep, the notice, and the claim it contradicts ===
+
+  PASS  U01 the sweep discovered BOTH repositories (the seat and the one only the ledger knows)
+  FAIL  U02 a stranded branch is a finding
+        findings: []
+  PASS  U03 SILENT TWIN: the same branch, merged into main, is not a finding
+  PASS  U04 a branch held by a LOCKED worktree is not a finding — work in progress is not stranded work
+  FAIL  U05 the live branch is still counted
+        live: []
+  PASS  U06 a branch that landed upstream while local main lagged is not a finding
+  FAIL  U07 the cross-repository branch is found
+        findings: []
+  FAIL  U08 cross-repository liveness is read from the native lock
+        live: [] findings: []
+  PASS  U09 the notice exits 0 — it reports and never blocks
+  FAIL  U10 the notice fires and names the branches
+        stdout: <empty>
+  PASS  U11 and it names NEITHER the live branch nor the landed one
+  PASS  U12 SILENT TWIN: the same finding set, unchanged, says nothing on the next turn
+  FAIL  U13 a new finding speaks again
+        stdout: <empty>
+  PASS  U14 SILENT CASE: a repository with nothing ahead of main produces NO output at all
+  PASS  U15 stood down by config, and it SAYS SO — an opt-out nobody can see is a rumor
+  PASS  U16 an unreadable payload is announced — the repository set comes from it, so a degraded sweep is not a clean one
+  FAIL  U17 a hook that cannot run says so
+        stdout was empty
+  PASS  C01 the claim class NEVER blocks — exit 0 with a finding present
+  FAIL  C02 the claim class fires on the operator channel
+        stdout: <empty>
+  FAIL  C03 the detail is recorded
+        stderr: <empty>
+  PASS  C04 SILENT TWIN: the same repository, a turn that claims nothing, says nothing
+  PASS  C05 SILENT CASE: the identical sentence, with nothing stranded, is not reported
+  PASS  C06a POSITIVE CONTROL: the sentence C06 uses IS extracted as a claim, and read as negated
+  PASS  C06 a NEGATED completeness claim is silent — understating what landed is not the failure
+  PASS  C07 a QUOTED completeness claim is silent — the masking worth 13 points of precision
+  PASS  C08 with the sweep missing, the claim is reported as UNCHECKED rather than passed
+  FAIL  L01 lint exits 1 with findings
+        exit 0
+  FAIL  L02 the lint shows the live branches too
+        output did not carry the live section
+  PASS  L03 SILENT TWIN: with nothing stranded it exits 0 — a different code from the broken case, always
+  PASS  L04 and 2 when it could resolve no repository — 'nothing unlanded' and 'nothing read' never share a code
+
+=== running the mutation harness ===
+=== unlanded work: every property, proven load-bearing by removing it ===
+  FAIL  no-worktree-lock — the suite went red, but NOT at "U11" (so the red is unrelated).  [5.8s]
+            FAIL  U02 a stranded branch is a finding
+            FAIL  U05 the live branch is still counted
+            FAIL  U07 the cross-repository branch is found
+            FAIL  U08 cross-repository liveness is read from the native lock
+            FAIL  U10 the notice fires and names the branches
+            FAIL  U13 a new finding speaks again
+            FAIL  U17 a hook that cannot run says so
+            FAIL  C02 the claim class fires on the operator channel
+            FAIL  C03 the detail is recorded
+            FAIL  L01 lint exits 1 with findings
+            FAIL  L02 the lint shows the live branches too
+  PASS  no-native-lock — removing it turns "U08" red  [5.8s]
+  FAIL  no-remote-exclusion — the suite went red, but NOT at "U06" (so the red is unrelated).  [5.7s]
+            FAIL  U02 a stranded branch is a finding
+            FAIL  U05 the live branch is still counted
+            FAIL  U07 the cross-repository branch is found
+            FAIL  U08 cross-repository liveness is read from the native lock
+            FAIL  U10 the notice fires and names the branches
+            FAIL  U13 a new finding speaks again
+            FAIL  U17 a hook that cannot run says so
+            FAIL  C02 the claim class fires on the operator channel
+            FAIL  C03 the detail is recorded
+            FAIL  L01 lint exits 1 with findings
+            FAIL  L02 the lint shows the live branches too
+  PASS  no-ledger-discovery — removing it turns "U01" red  [5.5s]
+  PASS  notice-says-nothing — removing it turns "U10" red  [5.8s]
+  FAIL  claim-ignores-polarity — the suite went red, but NOT at "C06" (so the red is unrelated).  [5.9s]
+            FAIL  U02 a stranded branch is a finding
+            FAIL  U05 the live branch is still counted
+            FAIL  U07 the cross-repository branch is found
+            FAIL  U08 cross-repository liveness is read from the native lock
+            FAIL  U10 the notice fires and names the branches
+            FAIL  U13 a new finding speaks again
+            FAIL  U17 a hook that cannot run says so
+            FAIL  C02 the claim class fires on the operator channel
+            FAIL  C03 the detail is recorded
+            FAIL  L01 lint exits 1 with findings
+            FAIL  L02 the lint shows the live branches too
+  FAIL  claim-reads-quotations — the suite went red, but NOT at "C07" (so the red is unrelated).  [5.8s]
+            FAIL  U02 a stranded branch is a finding
+            FAIL  U05 the live branch is still counted
+            FAIL  U07 the cross-repository branch is found
+            FAIL  U08 cross-repository liveness is read from the native lock
+            FAIL  U10 the notice fires and names the branches
+            FAIL  U13 a new finding speaks again
+            FAIL  U17 a hook that cannot run says so
+            FAIL  C02 the claim class fires on the operator channel
+            FAIL  C03 the detail is recorded
+            FAIL  L01 lint exits 1 with findings
+            FAIL  L02 the lint shows the live branches too
+  PASS  unevaluated-is-silent — removing it turns "C08" red  [5.7s]
+  PASS  no-operator-channel — removing it turns "C02" red  [3.2s]
+  [9 mutant(s), 8 at a time, wall 8.9s, slowest 5.9s claim-ignores-polarity, 5.5x serial]
+
+=== mutation: 4 property(ies) NOT proven load-bearing, 5 proven ===
+  FAIL  M. the mutation harness found a property this suite does not actually prove
+
+  19 passed, 12 FAILED

@@ -1,0 +1,48 @@
+=== workspace-probes tests ===
+  PASS  W1  a probe is discovered by being committed — no registration anywhere
+  PASS  W2  a file that is not a probe of this library is counted, not mistaken for one
+  PASS  W3  a red prior probe exits non-zero and names what may retire it
+  PASS  W5  a retirement signed by anyone but the probe's own author is REFUSED, naming both
+  PASS  W11 an UNCOMMITTED retirement retires nothing — an unstaged edit is not a reviewer's act
+  PASS  W12 a retirement whose only witness is the branch under test is REFUSED — work cannot retire the probe it fails
+  PASS  W13 a retirement in the same commit as a library edit is REFUSED — the commit that breaks it may not retire it
+  PASS  W4  a retirement signed by the probe's own author, on the author's own branch, retires it
+  PASS  W18 and the report NAMES the commit and the witnessing branch — a RETIRED with no witness is the typed name again
+  PASS  W6  a probe the runner cannot execute BLOCKS, by name — it is not a probe that passed
+  PASS  W7  a probe committed on another local branch is discovered and named by its branch
+  PASS  W7b --tree-only really does skip other branches (so W7 measured something)
+  PASS  W8  --at <commit> tests THAT commit's workspaces.py: red there, green on the tree
+  PASS  W9  a declared non-probe is not run and IS NAMED; a BARE marker with no reason exempts nothing
+  PASS  W10 a run that selected no probe REFUSES — it does not print the all-clear
+  PASS  W14 a not-a-probe marker ADDED to somebody else's probe is REFUSED, and the probe goes on being a probe
+  PASS  W14b the annotation is gone again — the cases after this one are back on a clean fixture
+  PASS  W15a POSITIVE CONTROL: the probe really does not name the library anywhere
+  PASS  W15 a probe that drives the library through an argument is discovered without naming it
+  PASS  W16 a probe that was DELETED is MISSING and blocks — deletion is not attributable to anybody
+  PASS  W16b SILENT TWIN: retired by its own author, the same deletion no longer blocks
+  PASS  W17 --show-all NAMES the files it counts, and prints both numbers so they can be compared
+  PASS  W20 PAIRED TWIN: with no retirement the probe is RED on its one bad case
+  PASS  W19 one case retired, the probe RUNS, the retired case is NOT asked (it was asked: one two four), and the rest still decide it
+  PASS  W21 a retirement naming a case the probe does not have is REFUSED, and the real cases are named
+  PASS  W23 a per-case retirement signed by anyone but the author is REFUSED, naming the case
+  PASS  W24 a per-case retirement whose only witness is the branch under test is REFUSED — no weaker than the whole-file path
+  PASS  W22 retiring every case retires the FILE, and the verdict says so instead of implying it
+  PASS  W25 a three-field whole-file retirement is still read, so no reviewer's committed line needs rewriting
+
+=== running the mutation harness ===
+=== the probe runner's gate: every property, proven load-bearing by removing it ===
+  PASS  typed-name-is-authority — removing it turns "W12" red  [6.1s]
+  PASS  uncommitted-retires — removing it turns "W11" red  [7.1s]
+  PASS  bundling-allowed — removing it turns "W13" red  [7.0s]
+  PASS  marker-taken-on-trust — removing it turns "W14 " red  [6.7s]
+  PASS  discovery-needs-the-filename — removing it turns "W15 " red  [7.0s]
+  PASS  deletion-is-free — removing it turns "W16 " red  [6.5s]
+  PASS  show-all-names-nothing — removing it turns "W17" red  [7.0s]
+  PASS  per-case-is-per-file — removing it turns "W19" red  [6.5s]
+  PASS  retired-case-still-asked — removing it turns "W19" red  [4.3s]
+  PASS  unknown-case-ignored — removing it turns "W21" red  [4.1s]
+  [10 mutant(s), 8 at a time, wall 11.0s, slowest 7.1s uncommitted-retires, 5.7x serial]
+
+=== mutation: all 10 properties proven load-bearing ===
+
+=== workspace-probes tests: all 30 passed ===

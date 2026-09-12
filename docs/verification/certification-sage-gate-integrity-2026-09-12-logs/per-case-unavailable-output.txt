@@ -1,0 +1,13 @@
+=== what the runner reads as this probe's cases:
+           shape=argv author=sage cases=0
+
+=== the probe DOES take case arguments — its own interface:
+474:    wanted = argv or [n.split()[0] for n, _f, _r in RUNNERS]
+
+=== an honest per-case retirement of R4, signed by its own author:
+runner exit 1
+UNRUNNABLE docs/verification/certification-sage-runner-round-2026-09-12.probe.py    0.0s
+           its retirement names case 'R4', which this probe does not have. Its cases are: (none the runner can read). A retirement that matches nothing is a typo or a line copied from another probe, and either way it retires nothing.
+
+=== the TSV is back to its committed state:
+(nothing above means clean)

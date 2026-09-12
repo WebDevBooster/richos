@@ -1,0 +1,41 @@
+writer-shaped invocations OUTSIDE the corpus L21 derives:
+
+  hooks/guard-resume-isolation.test.sh   (sandboxed anyway: YES)
+      :492   python3 "$WS_PY" --session "$SESSION_ID" pause dev-held --until "the CEO's answer" >/dev/null
+
+  hooks/guard-sealed-worktree.test.sh   (sandboxed anyway: YES)
+      :92    python3 "$WS_PY" --entity "$ENTITY" --session "$SID" integration --repo "$ENTITY"      --branch main --why "the lock-out suite's body of work" >/dev/n
+      :123   python3 "$WS_PY" --session "$SID" pause dev-opus-g7 --until "the quota reset" >/dev/null
+
+  hooks/inflight-notify.test.sh   (sandboxed anyway: NO)
+      :341   bash "$ACKER" --sha "$TIP" --impact stale-record      --detail "My copy of the plan predates this land, so the count I was given is wrong."      --pat
+      :463   scope_case "7e. a push from inside a WORKTREE is not a land"  "git push origin main"           "$WT"
+      :470   scope_case "7g. a bare push from a worktree on 'master' is not a land" "git push" "$WT_MASTER"
+
+  hooks/row-currency.test.sh   (sandboxed anyway: NO)
+      :392   run_guard "$WORK" 'cat > runbook.md <<EOF\nTo land the work run:\ngit commit -m \"the subject\"\nEOF'
+
+  hooks/worker-lifecycle.test.sh   (sandboxed anyway: YES)
+      :293   [ "$(grep -c . "$WL" 2>/dev/null || echo 0)" -eq "$WL_BEFORE" ]      && pass "5c2 ended: an id-less stop writes no ledger signal either"      || fail 
+
+  lib/workspaces.mutation.sh   (sandboxed anyway: NO)
+      :28    mutant p04-no-automatic-land "test_point_04_landed_means_workspace_and_branch_deleted_automatically" "$W"      '        if auto and not _past(deadline
+      :30    mutant p05-gate-has-no-budget "test_point_05_the_gate_answers_inside_its_budget" "$W"      '        if auto and not _past(deadline):{NL}            tr
+      :62    mutant p03-borrowed-branch-attributed "test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it" "$W"      '        b = set(latest["
+      :68    mutant p10-observed-after-the-run-ended "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W"      '    if fin:{NL}        return "
+      :70    mutant p11-pause-ignored "test_point_11_a_recorded_pause_is_not_finished_and_resumes" "$W"      '        if pause and pause.get("at", 0) <= end.get("a
+      :82    mutant p14-target-inferred-not-recorded "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W"      '    if work is None:{NL}        w
+      :84    mutant p14-floor-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W"      '    if repo not in cur["repos"]:{NL}        cur
+      :86    mutant p14-frozen-copy-restored "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W"      '    _bind_body_of_work(rec, repo){NL}    
+      :88    mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W"      '    if call:{NL}        return o
+      :99    mutant p03-no-end-of-run-observation "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W"      '    observe_created_refs(re
+      :103   mutant p08-refused-call-widens-the-window "test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run" "$W"      '            before = b if
+      :107   mutant p14-attribution-waits-for-the-record "test_point_14_attribution_never_waits_for_the_record" "$W"      '            _branch, target, _why_not = 
+      :111   mutant p14-second-body-of-work-moves-the-first "test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents" "$W"      '    for r in chain o
+
+6 suite(s) outside the corpus.
+
+READ THE LINES. Some are false positives of this loose predicate -- a
+`$FIN_REPORT\n\nstop` or a prose mention of the word `land` is not a writer
+call. A `python3 "$WS_PY" ... integration --repo ...` is one, and so is a
+`python3 "$WS_PY" ... pause <agent> --until ...`.

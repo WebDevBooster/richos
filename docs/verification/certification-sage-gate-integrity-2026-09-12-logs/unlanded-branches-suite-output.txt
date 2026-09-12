@@ -1,0 +1,58 @@
+=== unlanded work: the sweep, the notice, and the claim it contradicts ===
+
+  PASS  U01 the sweep discovered BOTH repositories (the seat and the one only the ledger knows)
+  PASS  U02 a branch holding work main does not have IS a finding
+  PASS  U03 SILENT TWIN: the same branch, merged into main, is not a finding
+  PASS  U04 a branch held by a LOCKED worktree is not a finding — work in progress is not stranded work
+  PASS  U05 it is COUNTED as live rather than dropped, so a silence cannot hide it
+  PASS  U06 a branch that landed upstream while local main lagged is not a finding
+  PASS  U07 the CROSS-REPOSITORY branch is found, through the ledger and not the seat
+  PASS  U08 a hand-rolled branch is ALIVE via its owner's locked NATIVE worktree in the other repo
+  PASS  U09 the notice exits 0 — it reports and never blocks
+  PASS  U10 FIRING: it names both stranded branches on the operator channel
+  PASS  U11 and it names NEITHER the live branch nor the landed one
+  PASS  U12 SILENT TWIN: the same finding set, unchanged, says nothing on the next turn
+  PASS  U13 a NEW unlanded branch changes the set and is announced
+  PASS  U14 SILENT CASE: a repository with nothing ahead of main produces NO output at all
+  PASS  U15 stood down by config, and it SAYS SO — an opt-out nobody can see is a rumor
+  PASS  U16 an unreadable payload is announced — the repository set comes from it, so a degraded sweep is not a clean one
+  PASS  U17 with a stripped PATH it still says something — silence is the one outcome ruled out
+  PASS  U18 the sweep carries the abstention as DATA and names the repository it could not read
+  PASS  U19 FIRING: over an abstention it says COULD NOT LOOK / NOT EXAMINED — the sibling's own words
+  PASS  U20 PAIRED TWIN: the same repository, branch RECORDED, and now the branch itself is named
+  PASS  U21 PAIRED TWIN: read end to end with nothing ahead, the word 'clear' is still reachable
+  PASS  U22 a sweep with findings AND an unread repository names both, and calls the list a floor
+  PASS  C01 the claim class NEVER blocks — exit 0 with a finding present
+  PASS  C02 FIRING: a completeness claim over stranded work reaches the operator channel
+  PASS  C03 and the detail, with each branch named, is in the transcript record
+  PASS  C04 SILENT TWIN: the same repository, a turn that claims nothing, says nothing
+  PASS  C05 SILENT CASE: the identical sentence, with nothing stranded, is not reported
+  PASS  C06a POSITIVE CONTROL: the sentence C06 uses IS extracted as a claim, and read as negated
+  PASS  C06 a NEGATED completeness claim is silent — understating what landed is not the failure
+  PASS  C07 a QUOTED completeness claim is silent — the masking worth 13 points of precision
+  PASS  C08 with the sweep missing, the claim is reported as UNCHECKED rather than passed
+  PASS  L01 the lint script exits 1 and names the stranded branches
+  PASS  L02 and it SHOWS what the notice stays quiet about — 'found nothing' and 'found six, all live' are different states
+  PASS  L03 SILENT TWIN: with nothing stranded it exits 0 — a different code from the broken case, always
+  PASS  L04 and 2 when it could resolve no repository — 'nothing unlanded' and 'nothing read' never share a code
+  PASS  L05 a repository with no recorded integration branch exits 2 and prints NOT EXAMINED, never 0
+
+=== running the mutation harness ===
+=== unlanded work: every property, proven load-bearing by removing it ===
+  PASS  no-worktree-lock — removing it turns "U11" red  [10.8s]
+  PASS  no-native-lock — removing it turns "U08" red  [10.5s]
+  PASS  no-remote-exclusion — removing it turns "U06" red  [10.8s]
+  PASS  no-ledger-discovery — removing it turns "U01" red  [10.2s]
+  PASS  notice-says-nothing — removing it turns "U10" red  [11.0s]
+  PASS  claim-ignores-polarity — removing it turns "C06" red  [11.3s]
+  PASS  claim-reads-quotations — removing it turns "C07" red  [11.4s]
+  PASS  unevaluated-is-silent — removing it turns "C08" red  [11.3s]
+  PASS  no-operator-channel — removing it turns "C02" red  [7.2s]
+  PASS  abstention-not-counted — removing it turns "U18" red  [7.0s]
+  PASS  abstention-is-a-no-op — removing it turns "U19" red  [6.9s]
+  PASS  lint-unread-exits-zero — removing it turns "L05" red  [6.9s]
+  [12 mutant(s), 8 at a time, wall 18.1s, slowest 11.4s claim-reads-quotations, 6.4x serial]
+
+=== mutation: all 12 properties proven load-bearing ===
+
+  37/37 cases passed
