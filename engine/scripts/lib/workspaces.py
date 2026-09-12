@@ -1749,6 +1749,47 @@ def _turn_started_by_person(transcript):
     return False
 
 
+def _allowance_state(rec, item):
+    """WHAT THE ONE ALLOWANCE WAS SPENT ON — the item's decision-relevant state.
+
+    Point 5 allows a reply that names the pending work, and the page binds that
+    allowance in its own parenthesis: "(the reply names the pending work, WHICH
+    IS HANDLED RIGHT AFTER)". Naming it is not handling it, so the allowance is
+    spent per item and returns only when the item has MOVED. This is the
+    fingerprint of "moved": the reason it is pending, what it is recorded as
+    waiting on, the workspaces it still has, and the tip of every branch it
+    still has. Rich committing what the agent left to its branch, or merging
+    it, or recording what it waits on, all change it; a second turn that only
+    says the name again does not.
+
+    It is bounded by the ITEM's own branches — one rev-parse each — never by a
+    scan of anything (see the gate's budget)."""
+    tips = []
+    for repo, b in sorted(_branch_targets([rec])):
+        tips.append("%s\t%s\t%s" % (repo, b, branch_tip(repo, b)))
+    return hashlib.sha1(json.dumps([
+        item["why"], item["waiting"], item["waiting_on"],
+        sorted((p or "", b or "") for p, b in item["workspaces"]),
+        (rec.get("disposition") or {}).get("kind", ""),
+        sorted(rec.get("lands_pending") or []),
+        sorted(rec.get("continues") or []),
+        tips,
+    ], sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _allowance_spent_message(spent):
+    lines = ["=== That reply has already used its one allowance (point 5) ===",
+             "  Spec: %s — \"the reply names the pending work, which is HANDLED RIGHT AFTER\"." % SPEC,
+             "  Naming it a second time is not handling it. These items were named in an earlier",
+             "  reply and have not moved since — same reason, same workspaces, same branch tips:"]
+    for i, prev in spent:
+        lines.append("   - %s: named at %s; %s" % (i["name"], iso(prev.get("at")), i["why"]))
+    lines += ["  The allowance returns the moment the item MOVES: commit what it left to its branch,",
+              "  merge it, record what it waits on, start the work that lands it, or discard it.",
+              "  Handling it is the only way past this."]
+    return "\n".join(lines)
+
+
 def gate_stop(payload, entity):
     """(allowed, message). Point 5: Rich cannot end his turn while finished
     work is neither landed nor discarded, except as the page allows."""
@@ -1773,7 +1814,34 @@ def gate_stop(payload, entity):
     last = str(payload.get("last_assistant_message") or "")
     if last and _turn_started_by_person(str(payload.get("transcript_path") or "")) \
             and all(i["name"] in last for i in blocking):
-        return True, "\n".join(notes)
+        # THE ALLOWANCE IS CONSUMED. It used to be unlimited: ten consecutive
+        # turns whose reply merely contained each item's name all ended, and
+        # nothing anywhere made the work get handled afterwards. The page's own
+        # parenthesis binds it, so it is spent per item and returns only when
+        # that item's state has changed (_allowance_state).
+        spent, state = [], {}
+        for i in blocking:
+            rec = load_agent(i["key"])
+            if not rec:
+                continue
+            state[i["key"]] = _allowance_state(rec, i)
+            prev = rec.get("answer_allowance") or {}
+            if prev.get("state") == state[i["key"]]:
+                spent.append((i, prev))
+        if not spent:
+            for i in blocking:
+                if i["key"] not in state:
+                    continue
+                with Lock():
+                    rec = load_agent(i["key"])
+                    if not rec:
+                        continue
+                    rec["answer_allowance"] = {"at": now(), "state": state[i["key"]], "session": sid}
+                    save_agent(rec)
+                event("answer-allowance-used", key=i["key"])
+            return True, "\n".join(notes)
+        return False, _allowance_spent_message(spent) + "\n" + \
+            gate_message(blocking, "end your turn") + ("\n" + "\n".join(notes) if notes else "")
     return False, gate_message(blocking, "end your turn") + ("\n" + "\n".join(notes) if notes else "")
 
 

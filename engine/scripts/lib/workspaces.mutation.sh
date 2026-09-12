@@ -55,6 +55,11 @@ mutant p05-turn-end-not-blocked "test_point_05_no_turn_end_while_finished_work_i
     '    if True:{NL}        msg = ' \
     "Rich could end his turn with finished work pending (point 5)."
 
+mutant p05-allowance-never-spent "test_point_05_the_answer_allowance_is_spent_once_per_item" "$W" \
+    '        if not spent:' \
+    '        if True:' \
+    "a reply could name the pending work every turn forever without ever handling it, so nothing would make the work get handled afterwards (point 5)."
+
 mutant p06-native-not-registered "test_point_06_native_workspaces_registered_at_spawn_and_deleted_on_land" "$W" \
     '            _add_workspace(rec, "native", main, npath, NATIVE_BRANCH_PREFIX + agent_id, "PostToolUse[Agent]"){AND}            _add_workspace(rec, "native", main_checkout(native), native, branch, "SubagentStart")' \
     '            pass{AND}            pass' \

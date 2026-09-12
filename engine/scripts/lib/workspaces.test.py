@@ -302,6 +302,26 @@ class Point05_Guarantee(Base):
                                "last_assistant_message": "Pending: zach-opus-p5."}, self.entity)
         self.assertFalse(ok)
 
+    def test_point_05_the_answer_allowance_is_spent_once_per_item(self):
+        """"...the reply names the pending work, WHICH IS HANDLED RIGHT AFTER."
+        Naming it again is not handling it: the allowance is spent per item and
+        returns only when that item has moved."""
+        _aid, npath = self._pending_one()
+        tr = os.path.join(self.env.root, "allowance.jsonl")
+        with open(tr, "w") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user",
+                                                            "content": "what is the state of things?"}}) + "\n")
+        answer = {"session_id": self.sid, "transcript_path": tr,
+                  "last_assistant_message": "Answering. Pending: zach-opus-p5 — handled right after."}
+        self.assertTrue(ws.gate_stop(dict(answer), self.entity)[0])     # the one allowance
+        ok, msg = ws.gate_stop(dict(answer), self.entity)               # the same reply, nothing handled
+        self.assertFalse(ok)
+        self.assertIn("already used its one allowance", msg)
+        self.assertIn("zach-opus-p5", msg)
+        self.commit(npath, "left-behind.txt")                           # the item MOVES
+        self.assertTrue(ws.gate_stop(dict(answer), self.entity)[0])     # so it may be named again
+        self.assertFalse(ws.gate_stop(dict(answer), self.entity)[0])    # and it is spent again
+
     def test_point_05_waiting_items_allow_turn_end_but_not_new_work(self):
         self._pending_one()
         ws.wait("zach-opus-p5", "outside", "GitHub is down", "CEO-TODOs 9.9", self.sid)
