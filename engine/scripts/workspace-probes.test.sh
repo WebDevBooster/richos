@@ -52,6 +52,26 @@
 #       names the commit and the witnessing branch. Without this pair, refusing
 #       every retirement would pass W11-W13.
 #
+# RETIREMENT IS PER CASE, NOT PER FILE (W19..W25). A reviewer ruled three of his
+# cases obsolete and one still valid and then wrote NO retirement, because
+# retirement was keyed on the FILE and retiring his would have dropped five GREEN
+# assertions to buy one green exit code. He was right to refuse that trade.
+#
+#   W19 ONE CASE RETIRED, THE PROBE STILL RUNS, and its other cases still decide
+#       the verdict. The retired case is NOT asked.
+#   W20 THE PAIRED TWIN: the identical probe with no retirement is RED. Without
+#       it, W19 would pass over a probe that was green anyway.
+#   W21 A CASE THE PROBE DOES NOT HAVE IS REFUSED, naming the cases it does
+#       have. A retirement that matches nothing is a typo or a copied line.
+#   W22 EVERY CASE RETIRED IS THE WHOLE FILE, said as one verdict rather than
+#       arrived at by subtraction.
+#   W23 A PER-CASE RETIREMENT SIGNED BY THE WRONG AUTHOR is refused, and W24
+#       that one witnessed only by the branch under test is refused -- the
+#       per-case path does not get a weaker check than the whole-file one.
+#   W25 THE THREE-FIELD (whole-file) LINES STILL WORK, unrewritten. Rewriting one
+#       would make the engineer the author of its introducing commit, and A3
+#       would then refuse the reviewer's own retirement.
+#
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
@@ -485,6 +505,136 @@ if grep -q "some-other-measurement.py" <<<"$OUT" && grep -q "named; the count ab
     ok "W17 --show-all NAMES the files it counts, and prints both numbers so they can be compared"
 else
     bad "W17 --show-all counted without naming: <$OUT>"
+fi
+
+# ===========================================================================
+# RETIREMENT PER CASE — W19..W25
+# ===========================================================================
+# The probe has four cases and fails on exactly one of them. That is the shape
+# the reviewer was actually in: three rulings of obsolete, one still valid, and a
+# mechanism that offered him only all-or-nothing.
+git -C "$R" checkout -q main
+cat > "$R/docs/verification/certification-fay-cases.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Fay's probe of workspaces.py. Four cases; the third one fails.
+
+It RECORDS the cases it was asked for, in $FAY_LOG. The runner shows a green
+probe's stdout nowhere -- correctly, or every clean run would be a wall of text --
+so "the retired case was not asked" needs an artifact rather than a printed line.
+"""
+import importlib.util, os, sys
+CASES = ["one", "two", "three", "four"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("ws", argv[0])
+    ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+    wanted = argv[1:] or CASES
+    log = os.environ.get("FAY_LOG", "")
+    if log:
+        with open(log, "w") as fh:
+            fh.write(" ".join(wanted))
+    bad = 0
+    for case in wanted:
+        holds = hasattr(ws, "integration_for") and case != "three"
+        print("%s: %s" % (case, "holds" if holds else "FAILS"))
+        if not holds:
+            bad += 1
+    return 1 if bad else 0
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "fay's probe, four cases, one of them red" >/dev/null 2>&1
+export FAY_LOG="$SANDBOX/fay-was-asked.txt"
+
+# CAROL'S AND ERIN'S RETIREMENTS ARE CARRIED FORWARD through every rewrite of the
+# file below, because retire_on_author_branch WRITES it. Dropping them would
+# resurrect two deletions and put the wrong probes in this section's output.
+CARRIED='certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
+certification-erin-nameless.probe.py	erin	replaced by a probe that asserts the same rule per case
+'
+
+# --- W20 FIRST: the twin. With nothing retired it is RED. -------------------
+rm -f "$FAY_LOG"
+run --tree-only --only fay
+if [ "$RC" -ne 0 ] && grep -q "RED" <<<"$OUT" && grep -q "three: FAILS" <<<"$OUT"; then
+    ok "W20 PAIRED TWIN: with no retirement the probe is RED on its one bad case"
+else
+    bad "W20 rc=$RC — the fixture is not red, so W19 below would prove nothing: <$OUT>"
+fi
+
+# --- W19: retire THAT ONE CASE. The other three still run. -----------------
+rm -f "$FAY_LOG"
+retire_on_author_branch cc/fay-review "$CARRIED"'certification-fay-cases.probe.py	three	fay	the rule case three pinned was deleted by the CEO ruling
+'
+run --tree-only --only fay
+ASKED="$(cat "$FAY_LOG" 2>/dev/null || echo "<the probe never ran>")"
+if [ "$RC" -eq 0 ] && grep -q "ran 3 of 4 case" <<<"$OUT" \
+   && grep -q "case 'three' retired by fay" <<<"$OUT" \
+   && [ "$ASKED" = "one two four" ]; then
+    ok "W19 one case retired, the probe RUNS, the retired case is NOT asked (it was asked: one two four), and the rest still decide it"
+else
+    bad "W19 rc=$RC asked='$ASKED' — per-case retirement did not take, or it silently retired the file: <$OUT>"
+fi
+
+# --- W21: a case the probe does not have -----------------------------------
+retire_on_author_branch cc/fay-typo "$CARRIED"'certification-fay-cases.probe.py	thre	fay	a case name with a typo in it
+'
+run --tree-only --only fay
+if [ "$RC" -ne 0 ] && grep -q "which this probe does not have" <<<"$OUT" \
+   && grep -q "one, two, three, four" <<<"$OUT"; then
+    ok "W21 a retirement naming a case the probe does not have is REFUSED, and the real cases are named"
+else
+    bad "W21 rc=$RC — a retirement that matches nothing was ignored rather than refused: <$OUT>"
+fi
+
+# --- W23: per case, signed by the wrong author -----------------------------
+retire_on_author_branch cc/fay-wrongname "$CARRIED"'certification-fay-cases.probe.py	three	bob	I am not fay and I say this case is obsolete
+'
+run --tree-only --only fay
+if [ "$RC" -ne 0 ] && grep -q "signed 'bob'" <<<"$OUT" \
+   && grep -q "case 'three'" <<<"$OUT"; then
+    ok "W23 a per-case retirement signed by anyone but the author is REFUSED, naming the case"
+else
+    bad "W23 rc=$RC — the per-case path skipped the signature check: <$OUT>"
+fi
+
+# --- W24: per case, witnessed only by the branch under test ----------------
+retire_on_this_branch "$CARRIED"'certification-fay-cases.probe.py	three	fay	written by whoever is failing it, with the right name on it
+'
+run --tree-only --only fay
+if [ "$RC" -ne 0 ] && grep -q "A3:" <<<"$OUT" && grep -q "case 'three'" <<<"$OUT"; then
+    ok "W24 a per-case retirement whose only witness is the branch under test is REFUSED — no weaker than the whole-file path"
+else
+    bad "W24 rc=$RC — the per-case path skipped the attribution check: <$OUT>"
+fi
+
+# --- W22: every case retired IS the whole file -----------------------------
+retire_on_author_branch cc/fay-all "$CARRIED"'certification-fay-cases.probe.py	one	fay	obsolete
+certification-fay-cases.probe.py	two	fay	obsolete
+certification-fay-cases.probe.py	three	fay	obsolete
+certification-fay-cases.probe.py	four	fay	obsolete
+'
+run --tree-only --only fay
+if [ "$RC" -eq 0 ] && grep -q "^RETIRED" <<<"$OUT" \
+   && grep -q "every one of its 4 case(s) is retired" <<<"$OUT"; then
+    ok "W22 retiring every case retires the FILE, and the verdict says so instead of implying it"
+else
+    bad "W22 rc=$RC — all-cases-retired did not become a file verdict: <$OUT>"
+fi
+
+# --- W25: the three-field whole-file line still works, unrewritten ---------
+# Byte-identical to the shape every line committed before this change has. If the
+# parser ever required four fields, every reviewer's existing retirement would
+# have to be rewritten by an engineer -- and A3 would then refuse it, because the
+# engineer would be the author of the introducing commit.
+retire_on_author_branch cc/fay-legacy "$CARRIED"'certification-fay-cases.probe.py	fay	the whole file is obsolete, in the three-field shape
+'
+run --tree-only --only fay
+if [ "$RC" -eq 0 ] && grep -q "^RETIRED" <<<"$OUT" \
+   && grep -q "three-field shape" <<<"$OUT"; then
+    ok "W25 a three-field whole-file retirement is still read, so no reviewer's committed line needs rewriting"
+else
+    bad "W25 rc=$RC — the legacy whole-file shape stopped working: <$OUT>"
 fi
 
 # --- THE MUTATION HARNESS -------------------------------------------------

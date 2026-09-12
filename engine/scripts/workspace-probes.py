@@ -32,7 +32,31 @@
 # commits, and this runner reads it and says so by name:
 #
 #     docs/verification/workspace-probe-retirements.tsv
-#     <probe filename>\t<who retired it>\t<why>
+#     <probe filename>\t<case|*>\t<who retired it>\t<why>      per CASE
+#     <probe filename>\t<who retired it>\t<why>                whole FILE
+#
+# RETIREMENT IS PER CASE, AND THAT IS NOT A CONVENIENCE EITHER. A reviewer ruled
+# three of the cases in his own probe obsolete and one still valid, and then wrote
+# NO RETIREMENT AT ALL — because retirement was keyed on the FILE, and retiring
+# his file would have dropped five GREEN assertions to buy one green exit code.
+# He was right to refuse that trade, and the mechanism was what made it a trade.
+# An honest ruling must never cost coverage, so a retirement now names the case it
+# is about, the probe still RUNS, and the cases nobody retired still decide the
+# verdict.
+#
+# Both shapes are read, and the three-field one is not deprecated: a line a
+# reviewer already committed must never need rewriting by an engineer, because
+# rewriting it would make the ENGINEER the author of the introducing commit and
+# A3 below would then refuse it. `*` in the case field is the explicit whole-file
+# form for anything written from here on.
+#
+# HOW A CASE IS EXCLUDED, AND HOW IT FAILS WHEN IT CANNOT BE: an argv-shaped
+# probe takes `probe.py <lib> [case ...]`, so the runner passes the SURVIVING
+# cases and the retired ones are never asked. A scenario-shaped probe is one
+# process per case, so retired scenarios are simply not started. A probe that
+# IGNORES its case arguments will therefore still run the retired case and still
+# go red — which is the safe direction, and the report says exactly that rather
+# than leaving it to be guessed.
 #
 # UNTIL 2026-09-12 THE ONLY CHECK ON THAT LINE WAS THAT <who> SPELLED THE
 # PROBE'S AUTHOR — and a name is a string anybody can type. Both reviewers
@@ -226,6 +250,12 @@ class Probe(object):
         m = NOT_A_PROBE.search(text)
         self.declared = m.group(0).strip() if m else ""
         self.declared_refused = ""
+        # Per-case retirement: {case: (who, why, witness)} and the cases that
+        # survive it. `retired_cases` is never allowed to become every case
+        # silently -- that is the whole-file verdict and it is said as one.
+        self.retired_cases = {}
+        self.live_cases = list(self.cases)
+        self.case_notes = []
 
 
 def is_workspaces_probe(text):
@@ -500,7 +530,19 @@ def deleted_probes(root, mine):
 
 
 def retirements(root):
-    """{probe basename: (who, why)} — written and committed by the reviewer."""
+    """{probe basename: {"whole": (who, why, raw) | None,
+                         "cases": {case: (who, why, raw)}}}
+
+    TWO SHAPES, BOTH READ. Four fields is per-CASE; three is the whole FILE, which
+    is what every line committed before 2026-09-12 has. The three-field form is
+    NOT deprecated and must not be rewritten: the introducing commit is the
+    author's, and an engineer who reformatted the line would become the author of
+    that commit and A3 would then refuse his own edit. `*` is the explicit
+    whole-file case.
+
+    The RAW LINE travels with every record, because attribution is asked about the
+    exact text that was committed rather than about the file -- without that, a
+    line could be edited in place and inherit somebody else's commit."""
     path = os.path.join(root, RETIREMENTS)
     out = {}
     if not os.path.exists(path):
@@ -509,13 +551,17 @@ def retirements(root):
         line = line.rstrip("\n")
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        parts = line.split("\t")
+        parts = [q.strip() for q in line.split("\t")]
         if len(parts) < 3:
             continue
-        # THE RAW LINE TRAVELS WITH THE RECORD. Attribution is asked about the
-        # exact text that was committed, not about the file: without that, a line
-        # could be edited in place under somebody else's introducing commit.
-        out[os.path.basename(parts[0].strip())] = (parts[1].strip(), parts[2].strip(), line)
+        base = os.path.basename(parts[0])
+        rec = out.setdefault(base, {"whole": None, "cases": {}})
+        if len(parts) >= 4 and parts[1] and parts[1] != "*":
+            rec["cases"][parts[1]] = (parts[2], parts[3], line)
+        elif len(parts) >= 4:
+            rec["whole"] = (parts[2], parts[3], line)
+        else:
+            rec["whole"] = (parts[1], parts[2], line)
     return out
 
 
@@ -553,7 +599,9 @@ def run_probe(root, lib, probe, timeout):
             # expectation — only on blowing up — and it can never certify
             # anything either. Both halves of that are said out loud below.
             rc, out, err = 0, "", ""
-            for sc in probe.cases:
+            # RETIRED SCENARIOS ARE NEVER STARTED. One process per case is what
+            # makes per-case retirement exact for this shape.
+            for sc in probe.live_cases:
                 c, o, e = sh(sys.executable, "-B", probe.path, lib, sc,
                              timeout=timeout, env=env)
                 out += "\n--- %s (exit %d)\n%s" % (sc, c, o)
@@ -567,13 +615,18 @@ def run_probe(root, lib, probe, timeout):
                 probe.detail = ("%d scenarios ran and none blew up — but this probe ASSERTS "
                                 "NOTHING, so it can neither regress nor certify. Its verdict "
                                 "lives in its author's certification, not in the file."
-                                % len(probe.cases))
+                                % len(probe.live_cases))
             else:
                 probe.verdict = "RED"
                 probe.detail = "a scenario failed to run: exit %d" % rc
             return
         if probe.shape == "argv":
-            rc, out, err = sh(sys.executable, "-B", probe.path, lib,
+            # THE SURVIVING CASES ARE PASSED, and only when some case was retired
+            # -- an argv probe's documented interface is `probe.py <lib> [case
+            # ...]`, and passing the full list where nothing was retired would
+            # change how every existing probe is invoked for no reason.
+            argv_cases = list(probe.live_cases) if probe.retired_cases else []
+            rc, out, err = sh(sys.executable, "-B", probe.path, lib, *argv_cases,
                               timeout=timeout, env=env)
         elif probe.shape == "in-tree":
             run_at = stage_in_tree(root, lib, workdir, probe)
@@ -587,6 +640,22 @@ def run_probe(root, lib, probe, timeout):
         probe.output = (out + err).strip()
         if rc == 0:
             probe.verdict = "GREEN"
+            if probe.retired_cases:
+                probe.detail = ("ran %d of %d case(s); the rest are retired per case. %s"
+                                % (len(probe.live_cases), len(probe.cases),
+                                   " | ".join(probe.case_notes)))
+        elif rc != 0 and probe.retired_cases and probe.shape == "argv":
+            # FAIL CLOSED, AND SAY WHICH IT IS. The runner cannot make a probe
+            # honor its case arguments. If one ignores them it runs the retired
+            # case anyway and stays red, which is the safe direction -- and the
+            # two explanations are not the same thing, so neither is guessed.
+            probe.verdict = "RED"
+            probe.detail = ("exit %d with %d of %d case(s) requested (%s). Either this probe "
+                            "ignores the case arguments the runner passes, or a case nobody "
+                            "retired is genuinely red. %s"
+                            % (rc, len(probe.live_cases), len(probe.cases),
+                               ", ".join(probe.live_cases), " | ".join(probe.case_notes)))
+            return
         elif rc == 124:
             probe.verdict = "UNRUNNABLE"
             probe.detail = "timed out after %ss" % timeout
@@ -639,6 +708,15 @@ work:
 
 Every retirement that is accepted prints its commit and its witnessing branch,
 so what stood behind it is on the record rather than taken on trust.
+
+RETIREMENT IS PER CASE. A reviewer who finds three of his six cases obsolete and
+three still live retires the three, and the probe goes on running the other three:
+
+    <probe filename>\t<case>\t<author>\t<why this one case is obsolete>
+
+Keyed on the FILE, that reviewer's only options were to drop five green
+assertions to buy one green exit code, or to write nothing. He wrote nothing, and
+he was right to.
 
 A PROBE ALSO NEVER LEAVES BY BEING DELETED. A path that used to hold a probe and
 holds nothing now is MISSING, and MISSING blocks exactly like RED: deletion is
@@ -742,30 +820,78 @@ def main(argv):
             print("           %s" % pr.detail)
             print("           %s" % pr.declared)
 
+        def check_retirement(pr, who, why, raw, what):
+            """(ok, detail) — the name, then git. `what` is 'this probe' or
+            'case <x>', so a refusal says WHICH line it is about."""
+            if who.lower() != pr.author:
+                return False, ("the retirement of %s is signed '%s' but the probe's author "
+                               "is '%s'. Only a probe's own author may retire it."
+                               % (what, who, pr.author))
+            # A TYPED NAME IS NOT AUTHORITY. The name matches; now git is asked
+            # whether the party failing this probe could have written the line
+            # inside its own work.
+            okr, witness = attributable(root, "HEAD", RETIREMENTS, raw, mine)
+            if not okr:
+                return False, ("the retirement of %s names the right author ('%s') and is "
+                               "NOT attributable to that author. %s" % (what, who, witness))
+            return True, witness
+
         for p in probes:
             base = os.path.basename(p.name)
-            if base in retired:
-                who, why, raw = retired[base]
-                if who.lower() != p.author:
+            rec = retired.get(base)
+            if rec and rec["whole"]:
+                who, why, raw = rec["whole"]
+                okw, detail = check_retirement(p, who, why, raw, "this probe")
+                if not okw:
                     p.verdict = "UNRUNNABLE"
-                    p.detail = ("its retirement is signed '%s' but the probe's author is '%s'. "
-                                "Only a probe's own author may retire it." % (who, p.author))
-                    continue
-                # A TYPED NAME IS NOT AUTHORITY. The name matches; now git is
-                # asked whether the party failing this probe could have written
-                # the line inside its own work.
-                oka, witness = attributable(root, "HEAD", RETIREMENTS, raw, mine)
-                if not oka:
-                    p.verdict = "UNRUNNABLE"
-                    p.detail = ("its retirement names the right author ('%s') and is NOT "
-                                "attributable to that author. %s" % (who, witness))
+                    p.detail = detail
                     continue
                 p.verdict = "RETIRED"
-                p.detail = "%s [%s]: %s" % (who, witness, why)
+                p.detail = "%s [%s]: %s" % (who, detail, why)
                 continue
+            if rec and rec["cases"]:
+                # PER CASE. Every line is checked on its own, a line naming a
+                # case this probe does not have is REFUSED rather than ignored
+                # (it is a typo or a line copied from another probe, and both are
+                # worth seeing), and retiring every case is the whole file said
+                # out loud rather than arrived at by subtraction.
+                refusal = ""
+                for case in sorted(rec["cases"]):
+                    who, why, raw = rec["cases"][case]
+                    if case not in p.cases:
+                        refusal = ("its retirement names case '%s', which this probe does not "
+                                   "have. Its cases are: %s. A retirement that matches nothing "
+                                   "is a typo or a line copied from another probe, and either "
+                                   "way it retires nothing."
+                                   % (case, ", ".join(p.cases) or "(none the runner can read)"))
+                        break
+                    okc, detail = check_retirement(p, who, why, raw, "case '%s'" % case)
+                    if not okc:
+                        refusal = detail
+                        break
+                    p.retired_cases[case] = (who, why, detail)
+                if refusal:
+                    p.verdict = "UNRUNNABLE"
+                    p.detail = refusal
+                    p.retired_cases = {}
+                    continue
+                p.live_cases = [c for c in p.cases if c not in p.retired_cases]
+                p.case_notes = ["case '%s' retired by %s [%s]: %s"
+                                % (c, p.retired_cases[c][0], p.retired_cases[c][2],
+                                   p.retired_cases[c][1])
+                                for c in sorted(p.retired_cases)]
+                if not p.live_cases:
+                    p.verdict = "RETIRED"
+                    p.detail = ("every one of its %d case(s) is retired, so the file is retired. "
+                                "%s" % (len(p.cases), " | ".join(p.case_notes)))
+                    continue
             if args.list:
                 p.verdict = "(not run)"
-                p.detail = "shape=%s author=%s cases=%d" % (p.shape, p.author, len(p.cases))
+                p.detail = ("shape=%s author=%s cases=%d%s"
+                            % (p.shape, p.author, len(p.cases),
+                               "" if not p.retired_cases
+                               else " (%d retired per case: %s)"
+                               % (len(p.retired_cases), ", ".join(sorted(p.retired_cases)))))
                 continue
             run_probe(root, lib, p, args.timeout)
 
@@ -778,6 +904,12 @@ def main(argv):
                       % p.declared_refused)
             if p.detail:
                 print("           %s" % p.detail)
+            elif p.case_notes:
+                # PRINTED EVEN WHEN THE PROBE IS GREEN AND SAID NOTHING ELSE. A
+                # per-case retirement reduces what was asked, and a reduction
+                # nobody can see on the report is a coverage loss nobody can see.
+                for note in p.case_notes:
+                    print("           %s" % note)
 
         if args.show_all:
             # IT NAMED NOTHING, AND IT COUNTED 242. The filter was `if rel not in

@@ -34,8 +34,8 @@ P="scripts/workspace-probes.py"
 # Route 2 as both reviewers reproduced it: the party failing the probe types the
 # reviewer's name, and the name check passes because a name is a string.
 mutant typed-name-is-authority "W12" "$P" \
-    '                oka, witness = attributable(root, "HEAD", RETIREMENTS, raw, mine)' \
-    '                oka, witness = True, "a name was typed"' \
+    '            okr, witness = attributable(root, "HEAD", RETIREMENTS, raw, mine)' \
+    '            okr, witness = True, "a name was typed"' \
     "anybody could retire anybody's probe by spelling the author's name, which is the whole of what the check used to be."
 
 # --- 2. AN UNCOMMITTED RETIREMENT IS NOT A RETIREMENT (A1) ----------------
@@ -77,5 +77,25 @@ mutant show-all-names-nothing "W17" "$P" \
     '                    if rel in probe_paths:' \
     '                    if rel not in probe_paths:' \
     "the one command offered for looking at what the runner classified would name only the probes, which are the files already in the table above it."
+
+# --- 8. RETIREMENT IS PER CASE ---------------------------------------------
+# Keyed on the FILE, a reviewer with three obsolete cases and one live one had
+# only two moves: drop five green assertions, or write nothing. He wrote nothing.
+mutant per-case-is-per-file "W19" "$P" \
+    '        if rec and rec["cases"]:' \
+    '        if False:' \
+    "a per-case retirement would be silently ignored and the probe would stay red, which is the state that made a reviewer decline to rule at all."
+
+# --- 9. THE RETIRED CASE IS NOT ASKED -------------------------------------
+mutant retired-case-still-asked "W19" "$P" \
+    '            argv_cases = list(probe.live_cases) if probe.retired_cases else []' \
+    '            argv_cases = []' \
+    "the probe would be run over every case including the retired one, so a correct per-case ruling would still leave the run red -- coverage kept and the ruling wasted."
+
+# --- 10. A CASE THAT MATCHES NOTHING IS REFUSED ---------------------------
+mutant unknown-case-ignored "W21" "$P" \
+    '                    if case not in p.cases:' \
+    '                    if False:' \
+    "a retirement naming a case the probe does not have -- a typo, or a line copied from another probe -- would silently retire nothing while looking like a ruling."
 
 mutation_end
