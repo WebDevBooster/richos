@@ -1629,14 +1629,47 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 # and the scan of other agents' records are touched only when a ref that is not
 # already accounted for is actually sitting there, which is rare.
 
-# An agent that has this many tool calls open at once has something wrong with
-# it; the cap is here so that snapshots left by REFUSED calls, which no
-# PostToolUse will ever consume, cannot accumulate without bound.
-_MAX_OPEN_CALLS = 64
+# A REFUSED PreToolUse LEAKS A WINDOW, AND THAT IS THE WHOLE OF ITEM 2.
+# -------------------------------------------------------------------------
+# The barrier runs at PreToolUse and writes this call's window. If ANOTHER
+# PreToolUse hook then refuses the call, the tool never runs and no PostToolUse
+# ever arrives: the window stays open for the rest of the agent's run. Two
+# things used to go wrong with it, and they need different answers.
+#
+#   THE WIDENING (fixed in `_before_set`). The end-of-run pass consumed every
+#   open window and INTERSECTED their before-sets, so "the widest one decides".
+#   One window leaked at minute one turned the last comparison of the run into
+#   "everything that appeared during this agent's entire run" — and a branch
+#   RICH cut between two of the agent's calls was then attributed to the agent
+#   and destroyed by its discard. The answer is the opposite operation: the
+#   before-sets are UNIONED, and the most recent snapshot this agent ever took
+#   is always part of that union even when its own call already consumed it.
+#   A leaked window can then only ever NARROW what is attributed, never widen
+#   it, which is the safe direction: an unattributed stray is a branch left
+#   behind and named by the point-3 sweep, while an over-attributed one is
+#   somebody else's work deleted.
+#
+#   THE EVICTION (fixed here). The cap used to be 64 windows, evicting the
+#   OLDEST by mtime — so a burst of refused calls while a live call was open
+#   evicted the LIVE one, and its own Post then attributed nothing. Age is the
+#   honest bound instead: no tool call is open for hours, so a window older
+#   than `_MAX_CALL_AGE` cannot be live and is dropped, while a burst of
+#   refused calls in one second evicts nothing. The count cap stays only as a
+#   backstop against unbounded growth, and it is now far above any plausible
+#   number of genuinely concurrent calls.
+_MAX_OPEN_CALLS = 4096
+_MAX_CALL_AGE = float(os.environ.get("RICHOS_WORKSPACES_CALL_AGE") or 6 * 3600)
 
 
 def _refs_dir(key):
     return _p("refs", _key_segment(key))
+
+
+def _latest_path(key):
+    """The most recent snapshot this agent took, kept AFTER its own window is
+    consumed. It is never attributed from on its own; it only joins the union
+    that decides what counts as new (see `_before_set`)."""
+    return os.path.join(_refs_dir(key), "latest.json")
 
 
 def _slot_path(key, call):
@@ -1649,24 +1682,43 @@ def _slot_path(key, call):
 
 def _open_slots(key):
     """Every open window of this agent, oldest first. Unkeyed slots sort
-    chronologically by construction; keyed ones are looked up by name."""
+    chronologically by construction; keyed ones are looked up by name.
+
+    `latest.json` is NOT a window: it is the running record of the last
+    snapshot taken, and consuming it would attribute a call twice."""
     try:
-        names = sorted(n for n in os.listdir(_refs_dir(key)) if n.endswith(".json"))
+        names = sorted(n for n in os.listdir(_refs_dir(key))
+                       if n.endswith(".json") and n != "latest.json")
     except OSError:
         return []
     return [os.path.join(_refs_dir(key), n) for n in names]
 
 
 def _evict_old_slots(key):
-    """A refused PreToolUse leaves a window no Post will consume. Keep the cap."""
+    """Windows that CANNOT still be live any more, by age — never by position.
+
+    Evicting the oldest by mtime is what a burst of refused calls exploited: 70
+    refusals opened while one real call was in flight pushed the real call's own
+    window out, and its Post then had nothing to compare against. Nothing about
+    being the oldest makes a window dead; being hours old does."""
     slots = _open_slots(key)
-    if len(slots) <= _MAX_OPEN_CALLS:
+    cutoff = time.time() - _MAX_CALL_AGE
+    keep = []
+    for p in slots:
+        try:
+            if os.path.getmtime(p) < cutoff:
+                os.unlink(p)
+                continue
+        except OSError:
+            pass
+        keep.append(p)
+    if len(keep) <= _MAX_OPEN_CALLS:
         return
     try:
-        slots.sort(key=os.path.getmtime)
+        keep.sort(key=os.path.getmtime)
     except OSError:
         pass
-    for p in slots[:len(slots) - _MAX_OPEN_CALLS]:
+    for p in keep[:len(keep) - _MAX_OPEN_CALLS]:
         try:
             os.unlink(p)
         except OSError:
@@ -1714,8 +1766,12 @@ def snapshot_refs(rec, call=""):
             if refs is None:
                 continue                 # unreadable: no snapshot, so no candidates
             snap[repo] = sorted(refs)
-        write_json(_slot_path(rec["key"], call),
-                   {"key": rec["key"], "call": call or "", "at": now(), "repos": snap})
+        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}
+        write_json(_slot_path(rec["key"], call), row)
+        # The same fact, kept where consuming a window cannot remove it. It is
+        # what stops a window leaked by a refused call from widening the
+        # end-of-run comparison to the whole run (see `_before_set`).
+        write_json(_latest_path(rec["key"]), row)
         _evict_old_slots(rec["key"])
         return snap
     except (OSError, ValueError):
@@ -1730,9 +1786,18 @@ def _take_snapshots(key, call="", all_open=False):
         paths = _open_slots(key)
     elif call:
         p = _slot_path(key, call)
-        paths = [p] if os.path.exists(p) else []
+        # A POST WHOSE OWN WINDOW IS NOT THERE STILL ENDS SOME CALL OF THIS
+        # AGENT. The platform does not always carry `tool_use_id` on both
+        # halves, and a Pre keyed / Post unkeyed pair (or the reverse) used to
+        # find nothing at either end: the ref created inside that call was
+        # attributed to nobody until the end of the run, and after the run
+        # ended, to nobody at all. So an unpaired Post falls back to the OLDEST
+        # open window, which is the one least likely to have another Post
+        # coming.
+        paths = [p] if os.path.exists(p) else _open_slots(key)[:1]
     else:
-        paths = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.")][:1]
+        paths = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.")][:1] \
+            or _open_slots(key)[:1]
     priors = []
     for p in paths:
         prior = read_json(p)
@@ -1742,9 +1807,40 @@ def _take_snapshots(key, call="", all_open=False):
             pass
         if prior and isinstance(prior.get("repos"), dict):
             priors.append(prior)
-    if all_open:
-        _drop_snapshots(key)
     return priors
+
+
+def _before_set(priors, latest, repo):
+    """WHAT ALREADY EXISTED WHEN ANY OF THIS AGENT'S OPEN CALLS STARTED — the
+    UNION of their before-sets, plus the most recent snapshot it ever took.
+
+    It used to be the INTERSECTION, described as "the widest one decides". With
+    one window leaked by a refused call, the widest one was the start of the
+    run, so the end-of-run comparison asked "what appeared while this agent
+    existed" instead of "what changed during this call", and a branch Rich cut
+    between two of the agent's calls came back as the agent's.
+
+    The union is the other direction and it is the safe one. A ref that already
+    existed when ANY call of this agent started was not created by that call,
+    and with windows overlapping there is no way to say which call made it. The
+    cost is under-attribution in one narrow shape — a ref created during a call
+    that is still open when an even later call starts, and whose own Post never
+    arrives — and under-attribution leaves a branch behind for the point-3
+    sweep to name, while over-attribution deletes somebody else's work.
+
+    `latest` joins the union even after its own window was consumed, because
+    that is exactly the fact a leaked window is missing: the run got as far as
+    THAT call, so anything already present then is not the leaked call's doing.
+    It never adds attribution of its own — it only ever removes some."""
+    before = None
+    for prior in priors:
+        if repo in (prior.get("repos") or {}):
+            b = set(prior["repos"][repo] or [])
+            before = b if before is None else (before | b)
+    if latest and repo in (latest.get("repos") or {}):
+        b = set(latest["repos"][repo] or [])
+        before = b if before is None else (before | b)
+    return before
 
 
 def _drop_snapshots(key):
@@ -1754,6 +1850,10 @@ def _drop_snapshots(key):
             os.unlink(p)
         except OSError:
             pass
+    try:
+        os.unlink(_latest_path(key))
+    except OSError:
+        pass
     try:
         os.rmdir(_refs_dir(key))
     except OSError:
@@ -1779,6 +1879,21 @@ def _refs_recorded_elsewhere(exclude_key):
             if len(pair) >= 2:
                 out.add((pair[0], pair[1]))
     return out
+
+
+# A reflog subject says whether this workspace MADE the commit its HEAD moved
+# to, or merely visited one that already existed. "checkout: moving from X to Y"
+# is a visit; "commit: ...", "merge ...", "rebase ...", "cherry-pick ...",
+# "revert ...", "am ..." and "pull ..." all produce the commit they land on.
+# Counting visits is how a ref Rich cut at a commit the agent only BORROWED
+# became the agent's: the agent checked that commit out for one call and its
+# reflog then swore the commit was its own work.
+_MADE_HERE = ("commit", "merge", "rebase", "cherry-pick", "revert", "am", "pull")
+
+
+def _made_here(subject):
+    head = (subject or "").split(":")[0].strip().lower()
+    return head.split(" ")[0] in _MADE_HERE if head else False
 
 
 def _own_unlanded_tips(rec, repo, refs, target):
@@ -1810,6 +1925,7 @@ def _own_unlanded_tips(rec, repo, refs, target):
     history with something of its own, and the land is held until that branch is
     merged or discarded."""
     tips = set()
+    bases = set()
     for w in live_workspaces(rec):
         if w.get("repo") != repo:
             continue
@@ -1820,14 +1936,41 @@ def _own_unlanded_tips(rec, repo, refs, target):
         rc, out, _ = git(w["path"], "rev-parse", "HEAD")
         if rc == 0 and out.strip():
             tips.add(out.strip())
-        rc, out, _ = git(w["path"], "reflog", "show", "--format=%H", "HEAD")
+        rc, out, _ = git(w["path"], "reflog", "show", "--format=%H%x09%gs", "HEAD")
         if rc == 0:
-            for line in out.split():
-                if line.strip():
-                    tips.add(line.strip())
+            lines = [l for l in out.splitlines() if l.strip()]
+            for line in lines:
+                sha, _tab, subject = line.partition("\t")
+                sha = sha.strip()
+                if not sha:
+                    continue
+                if _made_here(subject):
+                    tips.add(sha)
+            if lines:
+                # The OLDEST entry is where this workspace started — the commit
+                # git put its HEAD on when the workspace was created. It is a
+                # fact about the agent's own workspace, recorded by git, and it
+                # is the floor used when point 14's record does not exist yet.
+                oldest = lines[-1].partition("\t")[0].strip()
+                if oldest:
+                    bases.add(oldest)
     for pair in rec.get("created_branches") or []:
         if len(pair) >= 2 and pair[0] == repo and refs.get(pair[1]):
             tips.add(refs[pair[1]])
+    if not target:
+        # NOTHING IS RECORDED FOR THIS REPOSITORY YET (point 14 not yet done),
+        # so "less the ones already in the integration branch" has no branch to
+        # subtract. The floor is then each workspace's OWN starting commit: work
+        # that was already there when the agent's workspace was created is not
+        # the agent's, whatever any record says. Without this floor the base
+        # commit itself counts as the agent's work, every ref in the repository
+        # descends from it, and every ref is "on this agent's line of work" —
+        # which is how a ref cut at a tip the agent only BORROWED became the
+        # agent's the moment attribution stopped waiting for the record.
+        if not bases:
+            return set(t for t in tips if t)
+        return set(t for t in tips
+                   if t and not any(is_ancestor(repo, t, b) for b in bases))
     return set(t for t in tips if t and not is_ancestor(repo, t, target))
 
 
@@ -1840,8 +1983,19 @@ def observe_created_refs(rec, call="", all_open=False):
     is the end of the run: every window still open is the last observation.
 
     The window is CONSUMED here, whatever the outcome: one creation is
-    attributed once, and a Post whose own Pre never ran attributes nothing."""
+    attributed once.
+
+    IT DOES NOT NEED AN INTEGRATION BRANCH TO BE RECORDED. The record is a
+    filter on what is at stake, never a gate on whether the observation happens
+    at all — attribution is made once and never again, so a missing record used
+    to mean "attributed to nobody, permanently"."""
+    # READ BEFORE CONSUMING. The last snapshot has to be in hand before the
+    # windows are thrown away, or the end-of-run pass is judged against the
+    # leaked window alone -- which is the widening this whole change ends.
+    latest = read_json(_latest_path(rec["key"]))
     priors = _take_snapshots(rec["key"], call, all_open)
+    if all_open:
+        _drop_snapshots(rec["key"])
     if not priors:
         return []
     try:
@@ -1851,17 +2005,11 @@ def observe_created_refs(rec, call="", all_open=False):
         for repo in seen_repos:
             if repo not in repos:
                 continue
-            # A ref is NEW when it was absent from the window it is judged
-            # against. With more than one window open, the widest one decides;
-            # each is a moment this agent's own call started.
-            before = set()
-            first = True
-            for prior in priors:
-                if repo in prior["repos"]:
-                    b = set(prior["repos"][repo] or [])
-                    before = b if first else (before & b)
-                    first = False
-            if first:
+            # A ref is NEW when it did not exist at the start of ANY of this
+            # agent's open calls (`_before_set` says why that is a union and not
+            # an intersection).
+            before = _before_set(priors, latest, repo)
+            if before is None:
                 continue
             refs = _local_refs(repo)
             if refs is None:
@@ -1870,16 +2018,26 @@ def observe_created_refs(rec, call="", all_open=False):
                           and not b.startswith(CODEX_PREFIX)]
             if not fresh_refs:
                 continue
-            _branch, target, why_not = integration_target([rec], repo)
-            if why_not:
-                # No recorded ref to measure "at stake" against (point 14), so
-                # this observation cannot be made at all. It is RECORDED as not
-                # made, rather than dropped silently: the refs it could not judge
-                # are the ones a later land will not know to delete, and the only
-                # cure is the command `why_not` names.
-                event("attribution-skipped", key=rec["key"], repo=repo,
-                      refs=fresh_refs, why=why_not)
-                continue
+            # ATTRIBUTION DOES NOT WAIT FOR THE RECORD, AND THIS IS ITEM 1.
+            # It used to: with no integration branch recorded, this gave up on
+            # the whole observation and wrote an `attribution-skipped` event
+            # that had one producer and NO CONSUMER. Attribution happens once,
+            # at the end of a tool call, so "skipped" meant attributed to NOBODY
+            # PERMANENTLY -- recording the branch afterwards unblocked the land
+            # and never went back for what was skipped, and `land()` then
+            # reported success over a commit that had reached no integration
+            # branch. The control that recorded the branch first held, so the
+            # cause was the ORDER, and the fix is to take the order out: the
+            # target is now only ever a FILTER here, never a precondition.
+            #
+            # With no target the judgment is deliberately wider -- the two tests
+            # it can make no longer run, so a ref that is already fully merged
+            # is attributed where it would otherwise have been skipped. That is
+            # the right way round. An over-attributed ref is still measured at
+            # land time, where a ref already in the integration branch simply
+            # passes and a ref that is not REFUSES the land by name. A ref
+            # attributed to nobody is measured nowhere, ever.
+            _branch, target, _why_not = integration_target([rec], repo)
             wl = worktree_list(repo) or []
             held_by_main = (wl[0].get("branch") or "") if wl else ""
             elsewhere = _refs_recorded_elsewhere(rec["key"])
@@ -1892,7 +2050,7 @@ def observe_created_refs(rec, call="", all_open=False):
                 if b == held_by_main or b in own_branches or (repo, b) in elsewhere:
                     continue
                 tip = refs[b]
-                if is_ancestor(repo, tip, target):
+                if target and is_ancestor(repo, tip, target):
                     continue                          # entirely landed: nothing at stake
                 if not any(t == tip or is_ancestor(repo, t, tip) or is_ancestor(repo, tip, t)
                            for t in own):

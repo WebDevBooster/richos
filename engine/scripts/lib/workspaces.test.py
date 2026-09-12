@@ -1091,6 +1091,119 @@ class Point14_IntegrationBranch(Base):
         self.assertNotIn("spare", branches(self.entity))
         self.assertNotIn("never-closed", branches(self.entity))
 
+    def test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run(self):
+        """Points 3 and 8. A PreToolUse another guard REFUSES leaves a window no
+        PostToolUse will ever consume. The end-of-run pass consumed every open
+        window and INTERSECTED them, so one leak at minute one turned the last
+        comparison of the run into "everything that appeared while this agent
+        existed" — and a branch RICH cut between two of the agent's calls came
+        back as the agent's and was destroyed by its discard, against point 8's
+        "Deletion therefore never loses anything that was meant to land." """
+        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        aid, npath = self.spawn("zach-opus-w1")
+        self.pre(aid, call="tu-refused")          # refused: no Post will ever come
+        self.tool_call(aid, call="tu-1")
+        self.commit(npath, "own.txt")
+        self.tool_call(aid, call="tu-2")
+        tip = run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip()
+        # BETWEEN tool calls, at the agent's own tip: Rich's, not the agent's.
+        run("git", "-C", self.entity, "branch", "rich/rescue", tip)
+        self.tool_call(aid, call="tu-3")
+        self.finish(aid)                          # consumes every window still open
+        self.assertEqual(self.created("zach-opus-w1"), [])
+        ws.discard("zach-opus-w1", "the reviewer rejected the approach",
+                   not_ceo_ordered="a test of attribution", me=self.sid)
+        self.assertIn("rich/rescue", branches(self.entity))
+
+    def test_point_03_a_burst_of_refused_calls_never_evicts_a_live_window(self):
+        """Point 3, "any branch an agent created". The cap on open windows used
+        to evict the OLDEST by position, so refused calls opened while a real
+        call was in flight pushed the real call's own window out and its Post
+        attributed nothing. Nothing about being oldest makes a window dead."""
+        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        aid, npath = self.spawn("zach-opus-w2")
+        self.tool_call(aid, call="tu-warm")
+        self.commit(npath, "own.txt")
+        self.pre(aid, call="tu-live")                        # the live call opens
+        for i in range(70):
+            self.pre(aid, call="tu-refused-%03d" % i)        # 70 refusals on top of it
+        run("git", "-C", npath, "branch", "spare")           # created inside the live call
+        self.post(aid, call="tu-live")
+        self.assertEqual(self.created("zach-opus-w2"), ["spare"])
+
+    def test_point_03_a_post_that_carries_no_call_id_still_ends_a_call(self):
+        """Point 3. The platform does not always put `tool_use_id` on both
+        halves. A Pre keyed / Post unkeyed pair used to find nothing at either
+        end, so the ref created inside that call was attributed to nobody until
+        the end of the run and, once the run had ended, to nobody at all."""
+        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        aid, npath = self.spawn("zach-opus-w3")
+        self.tool_call(aid, call="tu-warm")
+        self.commit(npath, "own.txt")
+        self.pre(aid, call="tu-A")                           # Pre KEYED
+        run("git", "-C", npath, "branch", "keyed-pre-only")
+        self.post(aid)                                       # Post UNKEYED
+        self.pre(aid)                                        # Pre UNKEYED
+        run("git", "-C", npath, "branch", "unkeyed-pre-only")
+        self.post(aid, call="tu-B")                          # Post KEYED
+        self.assertEqual(self.created("zach-opus-w3"),
+                         ["keyed-pre-only", "unkeyed-pre-only"])
+
+    def test_point_14_attribution_never_waits_for_the_record(self):
+        """Points 5, 8 and 10 through point 14. Attribution happens once, at the
+        end of a tool call. While no integration branch was recorded it did not
+        happen AT ALL: the refs were written to an `attribution-skipped` event
+        nothing read, recording the branch afterwards unblocked the land and
+        never went back for them, and land() then reported success over a commit
+        that had reached no integration branch."""
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))   # the no-record case
+        self.assertIsNone(ws.integration_record(self.entity))
+        aid, npath = self.spawn("zach-opus-w4")
+        self.pre(aid, call="tu-1")
+        run("git", "-C", npath, "checkout", "-q", "-b", "sidework")
+        self.commit(npath, "side.txt")                       # real work, no record yet
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        run("git", "-C", npath, "branch", "spare")
+        self.post(aid, call="tu-1")
+        self.assertEqual(self.created("zach-opus-w4"), ["sidework", "spare"])
+        self.commit(npath, "own.txt")
+        self.finish(aid)
+        # Rich records the branch afterwards and merges the agent's own branch.
+        ws.record_integration(self.entity, "main", "this body of work", self.sid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-w4", self.sid)                # the stranded commit is named
+        self.assertIn("sidework", str(e.exception))
+        self.assertEqual(self.names(), ["zach-opus-w4"])
+        self.merge(self.entity, "sidework")
+        ws.land("zach-opus-w4", self.sid)
+        self.assertNotIn("sidework", branches(self.entity))  # point 10: none left behind
+        self.assertNotIn("spare", branches(self.entity))
+
+    def test_point_14_a_tip_the_agent_only_borrowed_is_not_its_work(self):
+        """Points 3 and 8. With no record there is no integration branch to
+        subtract, so the floor is each workspace's OWN starting commit and the
+        only commits that count are the ones it MADE. Without both, the base
+        commit counts as the agent's work, every ref descends from it, and a ref
+        Rich cuts at a commit the agent merely checked out becomes the agent's
+        — and is deleted with it."""
+        run("git", "-C", self.entity, "worktree", "add", "-q",
+            os.path.join(self.env.root, "human-wt"), "-b", "human/keep")
+        self.commit(os.path.join(self.env.root, "human-wt"), "human.txt")
+        tip = run("git", "-C", self.entity, "rev-parse", "human/keep").stdout.strip()
+        run("git", "-C", self.entity, "worktree", "remove", "--force",
+            os.path.join(self.env.root, "human-wt"))
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))   # the no-record case
+        aid, npath = self.spawn("zach-opus-w5")
+        self.pre(aid, call="tu-1")
+        run("git", "-C", npath, "checkout", "-q", "human/keep")     # BORROWED, never made
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        self.post(aid, call="tu-1")
+        self.pre(aid, call="tu-2")
+        run("git", "-C", self.entity, "branch", "rich/backup", tip)  # Rich, at that tip
+        self.post(aid, call="tu-2")
+        self.assertEqual(self.created("zach-opus-w5"), [])
+
     def test_point_14_the_integration_branch_is_recorded_never_inferred(self):
         """"The branch a body of work integrates on is RECORDED when that work
         starts, before its first agent is spawned. NOTHING INFERS IT AND NOTHING
