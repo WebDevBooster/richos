@@ -99,6 +99,9 @@ against this page and nothing else.
     **The branch a body of work integrates on is RECORDED when that work starts, before its first agent
     is spawned. Nothing infers it and nothing guesses it** — without that record there is no fact to test
     a land against, and "landed" goes back to meaning whatever main happens to have.
+    **Every part of the system that needs to know whether work has landed asks the same question: is it
+    in the branch recorded for this work? None of them is allowed its own answer, and none of them
+    assumes main.**
 
 ## What is not in the spec
 
