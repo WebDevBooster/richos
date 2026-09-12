@@ -403,15 +403,11 @@ p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
 old = """for a in $READONLY_ALLOWLIST; do
   if [ "$SUBAGENT_TYPE" = "$a" ]; then
-    exit 0
-  fi
-done"""
+    RO_RC=0"""
 assert old in s, "readonly early-exit anchor not found"
 new = """for a in $READONLY_ALLOWLIST; do
   if [ "$SUBAGENT_TYPE" = "$a" ] && [ "$ISOLATION" = "worktree" ]; then
-    exit 0
-  fi
-done"""
+    RO_RC=0"""
 open(p, "w", encoding="utf-8").write(s.replace(old, new, 1))
 PY
 if applied M6 "the isolation exemption folded into the staffing gate" \

@@ -149,6 +149,17 @@ class Base(unittest.TestCase):
     def merge(self, repo, branch):
         run("git", "-C", repo, "merge", "-q", "--no-edit", branch)
 
+    def spawn_readonly(self, agent_id, subagent_type="Explore", name=""):
+        """A read-only spawn, exactly as the hooks make it: the guard registers
+        it (no workspace, no name contract) and PostToolUse binds its id."""
+        tuid = "tu-ro-" + agent_id
+        payload = {"session_id": self.sid, "tool_use_id": tuid, "tool_name": "Agent",
+                   "tool_input": {"subagent_type": subagent_type, "name": name,
+                                  "prompt": "Find where the login button is defined."}}
+        ws.register_readonly(payload, self.entity)
+        ws.bind_agent(self.sid, tuid, agent_id, self.entity)
+        return agent_id
+
     def tool_call(self, aid):
         """One of the worker's own tool calls, exactly as the PreToolUse hook
         makes it: a payload carrying the platform's agent id."""
@@ -448,6 +459,19 @@ class Point07_LandedOrDiscarded(Base):
         self.assertEqual(self.rec("zach-opus-n")["disposition"]["kind"], "landed")
         self.assertFalse(os.path.exists(cc) or os.path.exists(npath))
 
+    def test_point_07_an_agent_with_no_workspaces_at_all_is_landed_not_pending(self):
+        """The precondition registering read-only agents depends on: land()
+        returns landed for an EMPTY workspace list rather than raising. If it
+        raised, every Explore spawn would become a pending item nothing could
+        end, and point 5 would block the CEO's turn ends forever."""
+        aid = self.spawn_readonly("anoworkspaces01")
+        rec = ws.load_agent(ws.key_for_id(aid))
+        self.assertEqual(rec["workspaces"], [])
+        ws.record_end(self.sid, aid, "SubagentStop")
+        self.assertEqual(ws.land(rec["key"], self.sid), {"landed": True})
+        self.assertEqual(self.names(), [])
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+
     def test_point_07_unfinished_work_is_continued_by_a_new_agent(self):
         cc = self.make_cc("zach-opus-old")
         aid, npath = self.spawn("zach-opus-old", cc=cc)
@@ -519,6 +543,25 @@ class Point09_NeverWritesAgain(Base):
         # restarted after its workspace is gone: still refused
         self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Write"})[0],
                          "FINISHED")
+
+    def test_point_09_a_restarted_read_only_agent_is_refused_every_tool(self):
+        """A read-only type needs no workspace, so the spawn guard exempted it
+        from isolation — and, by the same early return, from registration. The
+        lock-out finds an agent through its registration, so it never fired for
+        one. Explore's allowlist is every tool except Edit/Write/NotebookEdit:
+        it carries Bash, so a restarted finished Explore could write."""
+        aid = self.spawn_readonly("aexplorero0001")
+        self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid,
+                                     "tool_name": "Bash"})[0], "REGISTERED")
+        ws.record_end(self.sid, aid, "SubagentStop")
+        for tool in ("Read", "Bash", "Grep"):
+            self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid,
+                                         "tool_name": tool})[0], "FINISHED")
+        # and it blocks nothing: it produced nothing, so it is already landed
+        self.assertEqual(self.names(), [])
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid,
+                                     "tool_name": "Bash"})[0], "FINISHED")
 
     def test_point_09_a_paused_agent_is_not_locked_out(self):
         aid, npath = self.spawn("zach-opus-pz")

@@ -549,9 +549,38 @@ if [ "$NEEDS_STAFFING_HATCH" -eq 1 ]; then
     >>"$GA_LOG_DIR/generic-agent-dispatches.log" 2>/dev/null || true
 fi
 
-# Read-only agent types are exempt from the teammate contract (frictionless).
+# Read-only agent types are exempt from the teammate contract (frictionless):
+# no isolation, no name. They are NOT exempt from the point-9 lock-out — "a
+# restarted agent is refused every tool" — and until 2026-09-12 they escaped it
+# anyway, because this early return also skipped clause 7's REGISTRATION and
+# the lock-out finds an agent through its registration. barrier() answered
+# UNREGISTERED for a read-only agent forever, so it could never be found
+# finished. `Explore` carries every tool except Edit/Write/NotebookEdit — it
+# carries BASH — so a restarted finished Explore could write anywhere a shell
+# can, including after its workspace was gone.
+#
+# So it is registered first, with no workspaces, and then exempted exactly as
+# before. Point 3 governs the failure: "If registration fails, the spawn does
+# not happen." It costs the spawn nothing afterwards: an agent that produced
+# nothing counts as landed (point 7), so it is landed the moment it finishes
+# and never becomes pending work in front of the CEO's turn ends.
 for a in $READONLY_ALLOWLIST; do
   if [ "$SUBAGENT_TYPE" = "$a" ]; then
+    RO_RC=0
+    RO_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-readonly 2>&1 >/dev/null)" || RO_RC=$?
+    if [ "$RO_RC" -ne 0 ]; then
+      {
+        echo "=== Teammate-spawn guard: BLOCKED (clause 7 — registration at spawn) ==="
+        echo "  '${SUBAGENT_TYPE}' needs no workspace, so it is exempt from isolation and from the"
+        echo "  name contract. It is NOT exempt from the lock-out that refuses a restarted"
+        echo "  finished agent every tool (point 9), and that lock-out finds an agent through"
+        echo "  its registration — a read-only agent still carries Bash. The registration could"
+        echo "  not be written, so the spawn does not happen (point 3):"
+        echo "    - ${RO_ERR:-the registration could not be written (exit $RO_RC)}"
+        echo "(hook: scripts/hooks/guard-worktree-isolation.sh)"
+      } >&2
+      exit 2
+    fi
     exit 0
   fi
 done

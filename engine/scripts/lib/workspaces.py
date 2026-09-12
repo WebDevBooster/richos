@@ -805,6 +805,58 @@ def register_spawn(payload, entity):
     return rec
 
 
+def register_readonly(payload, entity):
+    """Point 9: "The platform restarts finished agents (14 times observed). A
+    restarted agent is refused every tool, so it cannot write anywhere,
+    including after its workspace is gone."
+
+    THE LOCK-OUT FINDS AN AGENT THROUGH ITS REGISTRATION, and a read-only type
+    had none. READONLY_ALLOWLIST answers one question — does this agent need an
+    isolated workspace? — and the spawn guard returned exit 0 on it before
+    clause 7, so the type that needs no workspace also got no registration.
+    barrier() then answered UNREGISTERED for it forever: it could never be
+    found finished, so point 9 never fired for it once.
+
+    That would be harmless if a read-only agent could not write. `Explore`'s
+    allowlist is every tool EXCEPT Edit/Write/NotebookEdit, so IT CARRIES BASH:
+    a restarted finished Explore can write anywhere a shell can, including
+    after its workspace is gone. The exemption from isolation was never an
+    exemption from the lock-out; it only looked like one.
+
+    So a read-only spawn is registered here, with NO workspaces, and nothing
+    else about it changes. It carries no name contract (a read-only spawn is
+    not required to have a name, so the key is its tool_use_id), and it does
+    not pass through point 5's new-work gate — that gate has never stopped an
+    Explore spawn and widening it is not this fix. Because an agent that
+    produced nothing counts as landed (point 7) and land() returns landed for
+    an empty workspace list, it is landed the moment it finishes and never
+    becomes pending work blocking the CEO's turn ends."""
+    sid = str(payload.get("session_id") or "")
+    tuid = str(payload.get("tool_use_id") or "")
+    ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+    if not sid or not tuid:
+        raise SpecError("the spawn payload carries no session_id/tool_use_id, so it cannot be registered")
+    name = str(ti.get("name") or "")
+    if not NAME_RE.match(name):
+        name = "readonly-" + _key_segment(tuid)[:40]
+    ident = identity_for(sid)
+    if not ident:
+        raise SpecError("the session's process identity could not be read from the operating system; "
+                        "a registration that could never tell its session ended is refused (point 12)")
+    key = "%s--ro-%s" % (_key_segment(sid), _key_segment(tuid))
+    with Lock():
+        rec = load_agent(key)
+        if rec and (rec.get("agent_id") or rec.get("disposition")):
+            raise SpecError("this spawn is already registered as %s; a tool_use_id is used once" % key)
+        rec = rec or new_record(key, name=name, session_id=sid)
+        rec.update({"tool_use_id": tuid, "subagent_type": str(ti.get("subagent_type") or ""),
+                    "isolation": str(ti.get("isolation") or ""), "session_identity": ident,
+                    "readonly": True, "entity": realpath(entity), "spawned_at": iso()})
+        save_agent(rec)
+    event("registered-readonly", key=key, tool_use_id=tuid, subagent_type=rec.get("subagent_type"))
+    return rec
+
+
 def _is_key(s):
     return "--" in (s or "")
 
@@ -2204,7 +2256,7 @@ def main(argv):
     x.add_argument("--name", required=True)
     x.add_argument("--path", required=True)
     x.add_argument("--failed", default="")
-    for n in ("hook", "gate-stop", "register-spawn", "barrier"):
+    for n in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier"):
         sub.add_parser(n)
     x = sub.add_parser("recipient")
     x.add_argument("--name", required=True)
@@ -2214,7 +2266,7 @@ def main(argv):
         return 2
     entity = a.entity or os.environ.get("RICHOS_ENTITY_ROOT_RESOLVED", "")
     try:
-        if a.cmd in ("hook", "gate-stop", "register-spawn", "barrier"):
+        if a.cmd in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier"):
             raw = sys.stdin.read()
             try:
                 payload = json.loads(raw)
@@ -2224,7 +2276,7 @@ def main(argv):
                 if a.cmd == "barrier":
                     print("ERROR\tthe payload is unparseable")
                     return 0
-                if a.cmd == "register-spawn":
+                if a.cmd in ("register-spawn", "register-readonly"):
                     sys.stderr.write("the spawn payload is unparseable; it cannot be registered\n")
                     return 2
                 return 0
@@ -2236,6 +2288,10 @@ def main(argv):
                 return 0
             if a.cmd == "register-spawn":
                 rec = register_spawn(payload, entity)
+                print("REGISTERED\t%s" % rec["key"])
+                return 0
+            if a.cmd == "register-readonly":
+                rec = register_readonly(payload, entity)
                 print("REGISTERED\t%s" % rec["key"])
                 return 0
             if a.cmd == "gate-stop":

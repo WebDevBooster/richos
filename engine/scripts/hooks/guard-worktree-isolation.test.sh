@@ -778,14 +778,29 @@ import json
 print(json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "dev", "name": "dev-sonnet-notu1", "isolation": "worktree", "prompt": "Do it."}, "session_id": "deadbeef-0000-4000-8000-000000000000"}))')"
 run_case "Q15  a payload with NO tool_use_id -> BLOCKED (it cannot be registered)" 2 "$NOTU_JSON"
 
-# (q16) a read-only type never reaches clause 7: no registration, no refusal
-Q16_BEFORE="$(ls "$RICHOS_WORKSPACES_DIR/agents" 2>/dev/null | wc -l | tr -d ' ')"
-run_case "Q16  a read-only type is not registered and is not refused" 0 \
-    "$(json_agent 'Explore' '' '' "Find where the login button is defined.
-$M_GOOD_Q")"
-[ "$(ls "$RICHOS_WORKSPACES_DIR/agents" 2>/dev/null | wc -l | tr -d ' ')" = "$Q16_BEFORE" ] \
-    && { PASS=$((PASS + 1)); printf '  PASS  Q17  ...and nothing was registered for it\n'; } \
-    || { FAIL=$((FAIL + 1)); printf '  FAIL  Q17  a read-only spawn was registered\n'; }
+# (q16) A READ-ONLY TYPE IS EXEMPT FROM ISOLATION AND STILL REGISTERED.
+# It used to reach neither clause 7 nor a registration, and the point-9 lock-out
+# finds an agent THROUGH its registration — so it never fired for a read-only
+# agent once. `Explore` carries every tool except Edit/Write/NotebookEdit, i.e.
+# it carries Bash, so a restarted finished Explore could write. It is registered
+# with NO workspaces (keyed by its tool_use_id, since it needs no name), and it
+# is still allowed with no isolation and no name.
+Q16_TUID="toolu_test_ro_q16"
+Q16_JSON="$(python3 -c '
+import json
+print(json.dumps({"tool_name": "Agent",
+                  "tool_input": {"subagent_type": "Explore", "prompt": "Find where the login button is defined.\ngeneric-agent: a read-only sweep across three repositories that no roster teammate has a seat for"},
+                  "session_id": "deadbeef-0000-4000-8000-000000000000",
+                  "tool_use_id": "toolu_test_ro_q16"}))')"
+run_case "Q16  a read-only type is allowed with no isolation and no name" 0 "$Q16_JSON"
+Q16_REC="$RICHOS_WORKSPACES_DIR/agents/deadbeef-0000-4000-8000-000000000000--ro-$Q16_TUID.json"
+if [ -f "$Q16_REC" ] \
+   && [ "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["workspaces"]))' "$Q16_REC")" = "0" ] \
+   && [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["readonly"])' "$Q16_REC")" = "True" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  Q17  ...and it IS registered, with no workspaces, so the lock-out can find it\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q17  a read-only spawn was not registered: the point-9 lock-out can never find it\n'
+fi
 
 # (q18) LIFECYCLE COMPONENT MISSING -> refused, naming it (fail-closed)
 NOTX="$(cd "$(mktemp -d -t guard-isolation-notx.XXXXXX)" && pwd -P)"
@@ -940,7 +955,10 @@ run_case_msg "a roster-type refusal is the ISOLATION message, never the staffing
 M9="$(mktemp -d -t guard-isolation-clause5.XXXXXX)"
 mkdir -p "$M9/scripts/hooks" "$M9/scripts/lib" "$M9/.claude"
 cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
+# workspaces.py is in this list because a read-only spawn is now REGISTERED
+# before it is exempted (point 9's lock-out finds an agent through its
+# registration), and a guard that cannot register refuses the spawn — point 3.
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$SCRIPT_DIR/../lib/workspaces.py" "$M9/scripts/lib/" 2>/dev/null || true
 {
     printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
     printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'

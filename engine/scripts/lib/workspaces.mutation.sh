@@ -90,6 +90,11 @@ mutant p09-finished-not-locked "test_point_09_a_finished_agent_is_refused_every_
     '    if False:{NL}        return "FINISHED"' \
     "a restarted finished agent could write again (point 9)."
 
+mutant p09-readonly-not-registered "test_point_09_a_restarted_read_only_agent_is_refused_every_tool" "$W" \
+    '        save_agent(rec){NL}    event("registered-readonly"' \
+    '        pass{NL}    event("registered-readonly"' \
+    "a read-only agent would carry no registration, so the lock-out could never find it finished and a restarted Explore — which carries Bash — could write (point 9)."
+
 mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stopped_before_deletion" "$W" \
     '    pids = processes_in(paths)' \
     '    pids = []' \
