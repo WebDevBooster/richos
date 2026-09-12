@@ -25,6 +25,33 @@
 #       no probe must not print the green line and exit 0 -- that is
 #       byte-for-byte what a clean full run looks like
 #
+# AND THE FOUR ROUTES PAST THE GATE, each reproduced by a reviewer in a throwaway
+# repository before it was closed. Every one of them made the run print "every
+# discovered probe ran, and every one of them is green" and exit 0.
+#
+#   W11 AN UNCOMMITTED RETIREMENT IS NOT A RETIREMENT (A1). It was enough to
+#       write the line; nothing asked whether it had ever been committed.
+#   W12 A RETIREMENT COMMITTED ONLY ON THE BRANCH UNDER TEST IS REFUSED (A3).
+#       This is route 2: the name was checked and the name is a string anybody
+#       can type, so the party failing the probe signed the reviewer's name and
+#       the probe went RETIRED.
+#   W13 A RETIREMENT IN THE SAME COMMIT AS A LIBRARY EDIT IS REFUSED (A2). The
+#       commit that breaks a probe may not be the commit that retires it.
+#   W14 A `not-a-probe:` MARKER ADDED TO SOMEBODY ELSE'S PROBE IS REFUSED, and
+#       the probe goes on being a probe. This is route 1, and it needed no name
+#       at all -- one comment line removed the probe from discovery.
+#   W15 A PROBE THAT NEVER NAMES THE LIBRARY IS STILL DISCOVERED. Route 3: it
+#       takes the library as an argument, and UNDISCOVERED IS WORSE THAN RED.
+#   W16 A PROBE THAT WAS DELETED IS MISSING, AND MISSING BLOCKS. Route 4: the
+#       file simply disappears, and the only thing that changes is a count
+#       nothing was checking.
+#   W17 --show-all NAMES THE FILES IT COUNTS. It was offered as the answer to
+#       W15 and W2 and it named 0 of the 242 it counted.
+#   W18 THE PAIRED TWIN FOR W12: the identical line, identical author, committed
+#       on the AUTHOR'S OWN branch and landed, is accepted -- and the report
+#       names the commit and the witnessing branch. Without this pair, refusing
+#       every retirement would pass W11-W13.
+#
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
@@ -106,6 +133,29 @@ git -C "$R" commit -q -m "the fixture" >/dev/null 2>&1
 
 run() { OUT="$(python3 "$R/engine/scripts/workspace-probes.py" "$@" 2>&1)"; RC=$?; }
 
+TSV="docs/verification/workspace-probe-retirements.tsv"
+
+# A RETIREMENT IN THE SHAPE A REAL ONE HAS: written on its AUTHOR'S own branch,
+# committed there, and landed onto the branch under test. That is what gives it a
+# witness other than the branch being judged (A3), and it is the only shape the
+# runner accepts. A test that wrote the file and asserted RETIRED was testing the
+# absence of this check.
+retire_on_author_branch() { # <branch> <tsv contents>
+    git -C "$R" checkout -q -b "$1" main
+    printf '%s' "$2" > "$R/$TSV"
+    git -C "$R" add -A >/dev/null 2>&1
+    git -C "$R" commit -q -m "retirement by $1" >/dev/null 2>&1
+    git -C "$R" checkout -q main
+    git -C "$R" merge -q --ff-only "$1" >/dev/null 2>&1
+}
+
+# The same line, committed ONLY here. No witness but the branch under test.
+retire_on_this_branch() { # <tsv contents>
+    printf '%s' "$1" > "$R/$TSV"
+    git -C "$R" add -A >/dev/null 2>&1
+    git -C "$R" commit -q -m "a retirement written by whoever is failing the probe" >/dev/null 2>&1
+}
+
 # --- W1 / W2: discovery is structural --------------------------------------
 run --list --tree-only
 if grep -q "certification-alice-green.probe.py" <<<"$OUT" \
@@ -135,8 +185,12 @@ fi
 # --- W5 FIRST: a retirement signed by the wrong person is REFUSED -----------
 # Before W4, deliberately. If the signature check were absent, W4 would pass on
 # its own and the suite would look green over a runner anyone could silence.
-printf 'certification-bob-red.probe.py\talice\tI decided this one is obsolete\n' \
-    > "$R/docs/verification/workspace-probe-retirements.tsv"
+# It is committed on alice's own branch and landed, so the ONE thing wrong with
+# it is the name -- otherwise this case could pass on the attribution check and
+# prove nothing about the signature.
+retire_on_author_branch cc/alice-review \
+    'certification-bob-red.probe.py	alice	I decided this one is obsolete
+'
 run --tree-only
 if [ "$RC" -ne 0 ] && grep -q "signed 'alice'" <<<"$OUT" \
    && grep -q "author is 'bob'" <<<"$OUT"; then
@@ -145,17 +199,70 @@ else
     bad "W5  rc=$RC — the signature check did not fire: <$OUT>"
 fi
 
-# --- W4: signed by its own author, it retires ------------------------------
-printf 'certification-bob-red.probe.py\tbob\tthe rule it pinned was deleted by the CEO ruling\n' \
-    > "$R/docs/verification/workspace-probe-retirements.tsv"
+# --- W11: AN UNCOMMITTED RETIREMENT IS NOT A RETIREMENT (A1) ----------------
+# Route 2, at its cheapest. This is what the suite used to do, and it passed.
+printf 'certification-bob-red.probe.py\tbob\tan unstaged line nobody committed\n' \
+    > "$R/$TSV"
+run --tree-only
+if [ "$RC" -ne 0 ] && grep -q "A1:" <<<"$OUT" \
+   && grep -q "not in any commit" <<<"$OUT"; then
+    ok "W11 an UNCOMMITTED retirement retires nothing — an unstaged edit is not a reviewer's act"
+else
+    bad "W11 rc=$RC — a working-tree-only retirement took effect: <$OUT>"
+fi
+
+# --- W12: COMMITTED, CORRECTLY SIGNED, AND ONLY ON THIS BRANCH (A3) --------
+# ROUTE 2 AS IT WAS REPRODUCED: the party failing the probe types the reviewer's
+# name. The name is right. Nothing else about it is.
+retire_on_this_branch \
+    'certification-bob-red.probe.py	bob	I am failing this probe and I say it is obsolete
+'
+run --tree-only
+if [ "$RC" -ne 0 ] && grep -q "A3:" <<<"$OUT" \
+   && grep -q "branch under test" <<<"$OUT"; then
+    ok "W12 a retirement whose only witness is the branch under test is REFUSED — work cannot retire the probe it fails"
+else
+    bad "W12 rc=$RC — the failing party retired the probe by typing the right name: <$OUT>"
+fi
+
+# --- W13: BUNDLED WITH A LIBRARY EDIT (A2) ---------------------------------
+# On a branch of its own, correctly signed, witnessed -- and the same commit
+# edits the library. That is the commit that broke the probe retiring it.
+git -C "$R" checkout -q -b cc/bob-bundled main
+printf 'certification-bob-red.probe.py\tbob\tobsolete, says the commit that also rewrites the library\n' \
+    > "$R/$TSV"
+printf '\n# a change to the library in the very same commit\n' >> "$R/engine/scripts/lib/workspaces.py"
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "fix the library and retire the probe it fails" >/dev/null 2>&1
+git -C "$R" checkout -q main
+git -C "$R" merge -q --ff-only cc/bob-bundled >/dev/null 2>&1
+run --tree-only
+if [ "$RC" -ne 0 ] && grep -q "A2:" <<<"$OUT" \
+   && grep -q "workspaces.py" <<<"$OUT"; then
+    ok "W13 a retirement in the same commit as a library edit is REFUSED — the commit that breaks it may not retire it"
+else
+    bad "W13 rc=$RC — a retirement bundled into the fix took effect: <$OUT>"
+fi
+
+# --- W4 / W18: signed by its own author, ON ITS OWN BRANCH, it retires ------
+# THE PAIRED TWIN for W11..W13: refusing every retirement would pass all three.
+retire_on_author_branch cc/bob-review \
+    'certification-bob-red.probe.py	bob	the rule it pinned was deleted by the CEO ruling
+'
 run --tree-only
 if [ "$RC" -eq 0 ] && grep -q "RETIRED" <<<"$OUT" \
    && grep -q "deleted by the CEO ruling" <<<"$OUT"; then
-    ok "W4  a retirement signed by the probe's own author retires it, with its reason shown"
+    ok "W4  a retirement signed by the probe's own author, on the author's own branch, retires it"
 else
-    bad "W4  rc=$RC — a correctly signed retirement did not take: <$OUT>"
+    bad "W4  rc=$RC — a correctly signed and witnessed retirement did not take: <$OUT>"
 fi
-rm -f "$R/docs/verification/workspace-probe-retirements.tsv"
+if grep -q "witnessed by cc/bob-review" <<<"$OUT"; then
+    ok "W18 and the report NAMES the commit and the witnessing branch — a RETIRED with no witness is the typed name again"
+else
+    bad "W18 the witness is not on the record: <$OUT>"
+fi
+git -C "$R" rm -q "$TSV" >/dev/null 2>&1
+git -C "$R" commit -q -m "clear the retirements" >/dev/null 2>&1
 
 # --- W6: a probe that cannot be executed is not a probe that passed ---------
 cat > "$R/docs/verification/certification-carol-unrunnable.probe.py" <<'PROBE'
@@ -179,8 +286,15 @@ if [ "$RC" -ne 0 ] && grep -q "UNRUNNABLE" <<<"$OUT" \
 else
     bad "W6  rc=$RC — an unrunnable probe was let through: <$OUT>"
 fi
+# THE CLEANUP IS ITSELF THE DOCUMENTED REMEDY. Deleting a probe now makes it
+# MISSING (W16), so carol's probe leaves the way a probe is supposed to leave:
+# her own retirement, on her own branch, landed. A suite that cleaned up with a
+# bare `git rm` would be asserting that deletion is free.
 git -C "$R" rm -q "docs/verification/certification-carol-unrunnable.probe.py" >/dev/null 2>&1
 git -C "$R" commit -q -m "drop it" >/dev/null 2>&1
+retire_on_author_branch cc/carol-review \
+    'certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
+'
 
 # --- W7: a probe committed on ANOTHER LOCAL BRANCH is discovered ------------
 # This is the case the runner exists for: a reviewer commits its probe on its
@@ -255,8 +369,11 @@ TOOL
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "a declared tool and a bare marker" >/dev/null 2>&1
 run --list --tree-only
-if ! grep -q "build-some-probes" <<<"$OUT" && grep -q "bare-marker" <<<"$OUT"; then
-    ok "W9  a declared non-probe is not run; a BARE marker with no reason exempts nothing"
+if grep -q "^DECLARED   docs/verification/build-some-probes.py" <<<"$OUT" \
+   && grep -q "declared in the commit that added the file" <<<"$OUT" \
+   && grep -q "bare-marker" <<<"$OUT" \
+   && ! grep -q "(not run)  docs/verification/build-some-probes.py" <<<"$OUT"; then
+    ok "W9  a declared non-probe is not run and IS NAMED; a BARE marker with no reason exempts nothing"
 else
     bad "W9  the declaration is wrong in one direction or the other: <$OUT>"
 fi
@@ -268,6 +385,122 @@ if [ "$RC" -ne 0 ] && grep -q "NOTHING WAS RUN" <<<"$OUT" \
     ok "W10 a run that selected no probe REFUSES — it does not print the all-clear"
 else
     bad "W10 rc=$RC — an empty run read as a pass: <$OUT>"
+fi
+
+# --- W14: ROUTE 1 — SILENCE A PROBE BY ANNOTATING IT ------------------------
+# No name, no retirement, one comment line. The party failing bob's probe adds
+# `not-a-probe:` to bob's file, on its own branch, and the run reported every
+# discovered probe green and exited 0.
+git -C "$R" checkout -q main
+python3 - "$R/docs/verification/certification-bob-red.probe.py" <<'PY'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read()
+s = s.replace('"""Bob\'s probe.',
+              '"""not-a-probe: superseded elsewhere, says the party failing it.\nBob\'s probe.')
+io.open(p, "w", encoding="utf-8").write(s)
+PY
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "annotate bob's probe out of existence" >/dev/null 2>&1
+run --tree-only --only bob
+if [ "$RC" -ne 0 ] && grep -q "DECLARATION REFUSED" <<<"$OUT" \
+   && grep -q "A3:" <<<"$OUT" \
+   && ! grep -q "every one of them is green" <<<"$OUT"; then
+    ok "W14 a not-a-probe marker ADDED to somebody else's probe is REFUSED, and the probe goes on being a probe"
+else
+    bad "W14 rc=$RC — one comment line removed a red probe from the run: <$OUT>"
+fi
+# RESTORE, don't revert: `git revert` needs a clean index and an editor, and
+# when it silently failed here the annotation survived into W15 and made that
+# case read as a discovery bug.
+git -C "$R" checkout -q "HEAD~1" -- docs/verification/certification-bob-red.probe.py
+git -C "$R" commit -q -am "restore bob's probe" >/dev/null 2>&1
+if grep -q "not-a-probe" "$R/docs/verification/certification-bob-red.probe.py"; then
+    bad "W14b the fixture cleanup did not restore bob's probe, so every case after this one is unsound"
+else
+    ok "W14b the annotation is gone again — the cases after this one are back on a clean fixture"
+fi
+
+# --- W15: ROUTE 3 — A PROBE THAT NEVER NAMES THE LIBRARY -------------------
+# It takes the library as an argument and drives it. Discovery keyed on the file
+# name never saw it, and UNDISCOVERED IS WORSE THAN RED.
+cat > "$R/docs/verification/certification-erin-nameless.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Erin's probe. The library arrives as argv[1] and its name is never written."""
+import importlib.util, sys
+CASES = ["e"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("underTest", argv[0])
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    branch, tip, why = mod.integration_for("/no/such/repository")
+    return 0 if why else 1
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "erin's probe, which never spells the library's name" >/dev/null 2>&1
+if ! grep -q "workspaces.py" "$R/docs/verification/certification-erin-nameless.probe.py"; then
+    ok "W15a POSITIVE CONTROL: the probe really does not name the library anywhere"
+else
+    bad "W15a the fixture names the library, so W15 would prove nothing"
+fi
+run --list --tree-only
+if grep -q "certification-erin-nameless" <<<"$OUT"; then
+    ok "W15 a probe that drives the library through an argument is discovered without naming it"
+else
+    bad "W15 a probe that never spells the file name was invisible: <$OUT>"
+fi
+
+# --- W16: ROUTE 4 — A PROBE THAT SIMPLY DISAPPEARS -------------------------
+git -C "$R" rm -q "docs/verification/certification-erin-nameless.probe.py" >/dev/null 2>&1
+git -C "$R" commit -q -m "delete erin's probe" >/dev/null 2>&1
+run --tree-only --only erin
+if [ "$RC" -ne 0 ] && grep -q "MISSING" <<<"$OUT" \
+   && grep -q "certification-erin-nameless" <<<"$OUT" \
+   && grep -q "never by deletion" <<<"$OUT"; then
+    ok "W16 a probe that was DELETED is MISSING and blocks — deletion is not attributable to anybody"
+else
+    bad "W16 rc=$RC — a deleted probe only lowered a count: <$OUT>"
+fi
+# THE PAIRED TWIN: her own retirement, and the same deletion stops blocking.
+# CAROL'S LINE IS CARRIED FORWARD, because retire_on_author_branch WRITES the
+# file rather than appending to it. Dropping it here would resurrect carol as a
+# deletion and make this case's output about the wrong probe.
+retire_on_author_branch cc/erin-review \
+    'certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
+certification-erin-nameless.probe.py	erin	replaced by a probe that asserts the same rule per case
+'
+run --tree-only --only erin
+if ! grep -q "MISSING" <<<"$OUT"; then
+    ok "W16b SILENT TWIN: retired by its own author, the same deletion no longer blocks"
+else
+    bad "W16b a retired-and-deleted probe still blocks: <$OUT>"
+fi
+
+# --- W17: --show-all NAMES WHAT IT COUNTS ----------------------------------
+# It was offered as the answer to route 3 and to W2, and it named 0 of the 242 it
+# counted -- so it was the count again, in more words.
+run --tree-only --show-all
+if grep -q "some-other-measurement.py" <<<"$OUT" && grep -q "named; the count above was" <<<"$OUT"; then
+    ok "W17 --show-all NAMES the files it counts, and prints both numbers so they can be compared"
+else
+    bad "W17 --show-all counted without naming: <$OUT>"
+fi
+
+# --- THE MUTATION HARNESS -------------------------------------------------
+# Most of what this suite asserts is that something was REFUSED, and a runner
+# that refuses everything would pass those cases while being useless -- which is
+# why W4/W18, W9, W14b, W15a and W16b are paired twins. The harness is the other
+# half: each refusal watched going red on its own.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/workspace-probes.mutation.sh" ]; then
+    echo ""
+    echo "=== running the mutation harness ==="
+    if bash "$SCRIPT_DIR/workspace-probes.mutation.sh"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "  FAIL  M. the mutation harness found a property this suite does not actually prove"
+    fi
 fi
 
 echo ""
