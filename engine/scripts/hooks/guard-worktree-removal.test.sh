@@ -44,6 +44,12 @@
 # is deleted by a land or a discard and by nothing else, and those are proven
 # by scripts/lib/workspaces.test.sh.
 #
+# registry-write-exempt: every `workspaces.sh land|discard|status` string in this
+# file is PAYLOAD handed to the guard under test, never executed, so this suite
+# touches no workspace registry at all and needs no RICHOS_WORKSPACES_DIR. The
+# declaration exists because land-completeness.test.sh's L21 reads source and
+# cannot tell a command that runs from a command quoted as test data.
+#
 # Run directly: scripts/hooks/guard-worktree-removal.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
 

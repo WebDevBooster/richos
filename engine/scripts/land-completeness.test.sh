@@ -61,6 +61,20 @@
 #       found by running the command for real rather than by reading it, both
 #       appear only from inside a worktree — which is where every agent runs it
 #       — and one of them put the operator's own checkout in the report.
+#   L20 THIS SUITE DOES NOT WRITE TO THE OPERATOR'S REAL WORKSPACE REGISTRY,
+#       which it did: the ledger was sandboxed and the registry was not, so four
+#       `"why": "the land-completeness fixture"` records were found in the live
+#       ~/.claude/state/workspaces/integration.json, pointing at temp
+#       directories the EXIT trap had already deleted.
+#   L21 AND NEITHER DOES ANY SIBLING SUITE. Asked of the whole tree, because
+#       "I checked the others once" is not a check.
+#   L22 THE POSITIVE CONTROL ON L20, and L23 the positive control on L21. Both
+#       of those cases pass by finding NOTHING, which is also what a predicate
+#       that cannot match anything finds; each control feeds the same code a
+#       planted case whose answer is known. The ids skip L17..L19 (an L17 named
+#       in mkrepo()'s comment was never written) and carry no letter suffix,
+#       because mutation-harness.sh greps `FAIL  <id>` as a raw string and
+#       `L20` would match `L20a`.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -87,6 +101,37 @@ command -v git >/dev/null 2>&1 || { echo "FATAL: git required" >&2; exit 1; }
 export RICHOS_WORKTREE_LEDGER="$SANDBOX/ledger.jsonl"
 : > "$RICHOS_WORKTREE_LEDGER"
 ACK_LOG="$SANDBOX/acks.log"
+
+# THE OPERATOR'S REAL REGISTRY, RESOLVED BEFORE ANYTHING IS OVERRIDDEN. Captured
+# rather than re-read, for the reason scripts/lib/global-state-witness.sh gives
+# about CLAUDE_CONFIG_DIR: a suite that exports the override halfway through
+# would otherwise compare itself against its own sandbox and always pass.
+REAL_REGISTRY="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/workspaces"
+
+# ===========================================================================
+# THE LEDGER WAS SANDBOXED AND THE REGISTRY WAS NOT
+# ===========================================================================
+# mkrepo() below records each fixture repository's integration branch, which is
+# point 14's requirement of anyone starting a body of work. state_dir() in
+# scripts/lib/workspaces.py resolves RICHOS_WORKSPACES_DIR, else
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/workspaces -- and this suite set the
+# first variable for the LEDGER only. So every run wrote four records reading
+#
+#     "why": "the land-completeness fixture"
+#
+# into the operator's REAL ~/.claude/state/workspaces/integration.json, each
+# pointing at a temp directory that the EXIT trap above then deleted. Four of
+# them were found sitting there, written during one session, while the commit
+# that introduced the recording says two fixtures "gained a sandbox registry so
+# the recording can never reach the operator's real one" -- true of two of the
+# three, and this was the third.
+#
+# A test never writes to the state the operator's live sessions read. L20 proves
+# this suite does not, and L21 asks the same question of every sibling suite.
+# (L17..L19 are deliberately unused: the comment in mkrepo() below already names
+# an L17 that was never written, and reusing the id would make that reference
+# point at a case about something else.)
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 
 echo "=== land-completeness tests ==="
 
@@ -387,6 +432,199 @@ else
 fi
 
 git -C "$R" worktree unlock "$SANDBOX/mixed/live-agent" 2>/dev/null || true
+
+# --- L20: THIS SUITE DOES NOT WRITE TO THE OPERATOR'S REAL REGISTRY --------
+# Three assertions, and two of them exist because the third one asserts an
+# ABSENCE: the override really is a sandbox path, the fixture recording really
+# did happen (otherwise this passes over a suite that recorded nothing), and
+# nothing this suite created is in the registry the operator's sessions read.
+#
+# The search is a FUNCTION because L22 below runs the SAME search over a
+# planted record whose answer is known. A positive control that re-implements
+# the search proves the copy, not the check.
+names_sandbox() { # <a registry directory> -> the files in it that name $SANDBOX
+    [ -e "${1:-}" ] || return 0
+    grep -rl -- "$SANDBOX" "$1" 2>/dev/null || true
+}
+
+L20_OK=1; L20_WHY=""
+case "${RICHOS_WORKSPACES_DIR:-}" in
+    "$SANDBOX"/*) : ;;
+    *) L20_OK=0
+       L20_WHY="RICHOS_WORKSPACES_DIR is '${RICHOS_WORKSPACES_DIR:-<unset>}', which is not inside this suite's sandbox" ;;
+esac
+# POSITIVE CONTROL: the fixture's recording really did happen, and it is here.
+if [ "$L20_OK" = 1 ] && ! grep -q "the land-completeness fixture" \
+        "$RICHOS_WORKSPACES_DIR/integration.json" 2>/dev/null; then
+    L20_OK=0
+    L20_WHY="the sandbox registry holds no fixture recording, so this case would pass over a suite that recorded nothing"
+fi
+# THE FINDING ITSELF: nothing this suite created is in the operator's registry.
+L20_HITS="$(names_sandbox "$REAL_REGISTRY")"
+if [ "$L20_OK" = 1 ] && [ -n "$L20_HITS" ]; then
+    L20_OK=0
+    L20_WHY="the operator's real registry at $REAL_REGISTRY names this suite's sandbox: $(printf '%s' "$L20_HITS" | tr '\n' ' ')"
+fi
+if [ "$L20_OK" = 1 ]; then
+    ok "L20  every fixture recording went to the SANDBOX registry; the operator's real one is untouched"
+else
+    bad "L20  a test wrote to the operator's real workspace registry — $L20_WHY"
+fi
+
+# --- L22: THE POSITIVE CONTROL ON L20'S ABSENCE ----------------------------
+# L20's third assertion passes when the search finds nothing, and a search that
+# CANNOT find anything also finds nothing. So: plant exactly the residue that was
+# found in the operator's registry -- a record naming a temp directory -- in a
+# fake registry, and require the same search to name it. Then require it to say
+# nothing about an empty one.
+FAKE_REG="$SANDBOX/fake-registry"
+mkdir -p "$FAKE_REG"
+printf '{"%s": {"branch": "main", "why": "the land-completeness fixture"}}\n' \
+    "$SANDBOX/mixed" > "$FAKE_REG/integration.json"
+EMPTY_REG="$SANDBOX/empty-registry"
+mkdir -p "$EMPTY_REG"
+if [ -n "$(names_sandbox "$FAKE_REG")" ] && [ -z "$(names_sandbox "$EMPTY_REG")" ]; then
+    ok "L22  POSITIVE CONTROL: the same search names a planted fixture record and stays silent on an empty registry"
+else
+    bad "L22  L20's search can actually find residue — planted:'$(names_sandbox "$FAKE_REG")' empty:'$(names_sandbox "$EMPTY_REG")'"
+fi
+
+# --- L21: AND SO DOES EVERY SIBLING SUITE ---------------------------------
+# The hole was not unique to this file, it was unnoticed in it. A suite that
+# drives the registry's WRITING entry points and does not redirect
+# RICHOS_WORKSPACES_DIR writes into ~/.claude/state/workspaces, and every such
+# write outlives the run. This is asked of the whole tree rather than remembered,
+# because "I checked the others once" is not a check.
+# THE SCANNER IS A FILE, NOT AN INLINE HEREDOC, because L23 below runs the
+# SAME predicate over synthetic suites whose answer is known (L23). A positive control
+# that re-implements the predicate proves the copy, not the check.
+cat > "$SANDBOX/registry-write-scan.py" <<'PY'
+import os, re, sys
+
+root = sys.argv[1]
+# The subcommands of workspaces.sh that WRITE, and the library entry points that
+# write. `status`, `integration-branch` and a bare load are reads and are fine.
+#
+# THE INVOCATION IS ALMOST NEVER SPELLED `workspaces.sh`. Every suite in this
+# tree holds the path in a variable and calls `"$WORKSPACES" integration ...`,
+# so a pattern keyed on the file name matched this very file only by ACCIDENT,
+# through the words "workspaces.sh land" in a comment. L23 is the case that said
+# so: its controls use the real form and the file-name pattern saw none of them.
+INVOKE = r"(?:workspaces\.sh|\$\{?(?:WORKSPACES|WS|WORKSPACES_SH)\}?)[\"']?\s+"
+WRITERS = re.compile(
+    INVOKE + r"(?:integration|land|discard|pause|resume|stop|wait|retry)\b"
+    r"|\b(?:register_spawn|register_cc|record_start|record_end|bind_agent|record_integration)\(")
+# A DECLARED EXEMPTION, AND A BARE MARKER EXEMPTS NOTHING. This check reads
+# source, so it cannot tell a suite that RUNS `workspaces.sh land` from one that
+# hands that string to a PreToolUse guard as test DATA -- and the second is a
+# real, correct thing for a suite to do. Rather than tune the regex until it
+# guesses right (which is how a check acquires a waiver habit), a suite whose
+# match is data says so, in itself, where a reviewer sees the claim:
+#
+#     registry-write-exempt: <why this names a writer but never runs one>
+#
+# Declared files are NAMED in the passing output, never silently dropped.
+DECLARED = re.compile(r"registry-write-exempt:[ \t]*(\S+(?:[ \t]+\S+){2,})")
+# A REDIRECT, NOT A MENTION. This was `"RICHOS_WORKSPACES_DIR" in text` for one
+# draft, and the sentence explaining the exemption in a sibling suite -- which
+# named the variable and set nothing -- exempted that suite. An ASSIGNMENT is
+# what redirects the registry: RICHOS_WORKSPACES_DIR, or the CLAUDE_CONFIG_DIR /
+# HOME that state_dir() falls back to, either as a shell assignment or as a
+# python env-dict key. `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` is a READ and is
+# deliberately not matched -- this very file contains one.
+SANDBOXED = re.compile(
+    r"\b(RICHOS_WORKSPACES_DIR|CLAUDE_CONFIG_DIR|HOME)="
+    r"|['\"](RICHOS_WORKSPACES_DIR|CLAUDE_CONFIG_DIR|HOME)['\"]\s*:"
+    r"|['\"](RICHOS_WORKSPACES_DIR|CLAUDE_CONFIG_DIR|HOME)['\"]\s*\]\s*=")
+offenders, declared, corpus = [], [], []
+for dirpath, _dn, fns in os.walk(root):
+    for fn in sorted(fns):
+        if not (fn.endswith(".test.sh") or fn.endswith(".test.py")
+                or fn.endswith(".mutation.sh")):
+            continue
+        p = os.path.join(dirpath, fn)
+        try:
+            text = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if not WRITERS.search(text):
+            continue
+        rel = os.path.relpath(p, root)
+        # THE CORPUS IS REPORTED, NOT ONLY THE VERDICT. A clean answer over a
+        # corpus of nothing is the shape this engine has shipped twice; the
+        # caller refuses a run that examined no writer at all.
+        corpus.append(rel)
+        if SANDBOXED.search(text):
+            continue
+        if DECLARED.search(text):
+            declared.append(rel)
+        else:
+            offenders.append(rel)
+sys.stdout.write("%s\n%s\n%d" % (" ".join(offenders), " ".join(declared), len(corpus)))
+PY
+
+scan() { python3 "$SANDBOX/registry-write-scan.py" "$1"; }
+
+L21_OUT="$(scan "$SCRIPT_DIR")"
+L21_BAD="$(printf '%s' "$L21_OUT" | sed -n '1p')"
+L21_DECL="$(printf '%s' "$L21_OUT" | sed -n '2p')"
+L21_N="$(printf '%s' "$L21_OUT" | sed -n '3p')"
+if [ "${L21_N:-0}" -lt 3 ]; then
+    bad "L21  the scan examined only ${L21_N:-0} suite(s) that drive a registry writer — a clean answer over an empty corpus is not an answer"
+elif [ -z "$L21_BAD" ]; then
+    ok "L21  none of the $L21_N suites driving a registry WRITER leaves RICHOS_WORKSPACES_DIR un-redirected${L21_DECL:+ (declared as test data, and named rather than dropped: $L21_DECL)}"
+else
+    bad "L21  suite(s) write to the operator's real registry: $L21_BAD"
+fi
+
+# --- L23: THE POSITIVE CONTROL ON L21 -------------------------------------
+# L21 passes over a clean tree, and so does a predicate that matches nothing.
+# Four synthetic suites with known answers, and the first two are the two real
+# mistakes: a suite that RUNS a writer and only MENTIONS the variable (the shape
+# that slipped past the first draft of SANDBOXED), and a bare exemption marker
+# with no reason.
+CTRL="$SANDBOX/ctrl"
+mkdir -p "$CTRL"
+cat > "$CTRL/mentions-only.test.sh" <<'CTRL1'
+# This suite needs no RICHOS_WORKSPACES_DIR, it says, and sets nothing.
+"$WORKSPACES" integration --repo "$repo" --branch main --why "x"
+CTRL1
+cat > "$CTRL/bare-marker.test.sh" <<'CTRL2'
+# registry-write-exempt:
+"$WORKSPACES" integration --repo "$repo" --branch main --why "x"
+CTRL2
+cat > "$CTRL/declared.test.sh" <<'CTRL3'
+# registry-write-exempt: every workspaces.sh string here is payload for a guard
+"$WORKSPACES" integration --repo "$repo" --branch main --why "x"
+CTRL3
+cat > "$CTRL/sandboxed.test.sh" <<'CTRL4'
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
+"$WORKSPACES" integration --repo "$repo" --branch main --why "x"
+CTRL4
+C_OUT="$(scan "$CTRL")"
+C_BAD="$(printf '%s' "$C_OUT" | sed -n '1p')"
+C_DECL="$(printf '%s' "$C_OUT" | sed -n '2p')"
+C_N="$(printf '%s' "$C_OUT" | sed -n '3p')"
+if [ "$C_BAD" = "bare-marker.test.sh mentions-only.test.sh" ] \
+   && [ "$C_DECL" = "declared.test.sh" ] && [ "${C_N:-0}" = "4" ]; then
+    ok "L23  POSITIVE CONTROL: the scan flags a mention-only suite and a bare marker, and clears only the declared and the sandboxed"
+else
+    bad "L23  the L21 predicate can actually fire — corpus ${C_N:-0}/4, flagged '[$C_BAD]' declared '[$C_DECL]', expected '[bare-marker.test.sh mentions-only.test.sh]' and '[declared.test.sh]'"
+fi
+
+# --- THE MUTATION HARNESS -------------------------------------------------
+# Guarded so the harness, which runs this suite once per mutant, does not
+# recurse into itself.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/land-completeness.mutation.sh" ]; then
+    echo ""
+    echo "=== running the mutation harness ==="
+    if bash "$SCRIPT_DIR/land-completeness.mutation.sh"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "  FAIL  M. the mutation harness found a property this suite does not actually prove"
+    fi
+fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
