@@ -1,0 +1,22 @@
+=== frank-c3
+    outside-stray          RED BOTH WAYS  <- a real question, not the fixture
+    outside-side           green only WITHOUT a record — the case is ABOUT the no-record state
+    floor-trap             green only WITHOUT a record — the case is ABOUT the no-record state
+    floor-control          green both ways
+    no-floor-self-heals    green only WITHOUT a record — the case is ABOUT the no-record state
+    floor-timing           RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+    rich-at-my-tip         green both ways
+    serial-stray           RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+    serial-side            RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+    serial-rename          RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+=== sage-c3
+    S1                     green both ways
+    S2                     RED BOTH WAYS  <- a real question, not the fixture
+    S3                     RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+    S4                     green both ways
+    S5                     RED BOTH WAYS  <- a real question, not the fixture
+    S6                     green only WITHOUT a record — the case is ABOUT the no-record state
+    S7                     green both ways
+    S8                     green only WITHOUT a record — the case is ABOUT the no-record state
+    S9                     RED ONLY WITHOUT A RECORDED BRANCH  <- the fixture, not the build
+    S10                    RED BOTH WAYS  <- a real question, not the fixture
