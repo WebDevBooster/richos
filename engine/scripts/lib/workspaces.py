@@ -540,7 +540,7 @@ def new_record(key, **fields):
     rec = {"key": key, "name": "", "session_id": "", "agent_id": "", "workspaces": [],
            "registered_at": iso(), "end": None, "handed_in": None, "pause": None, "waiting": None,
            "disposition": None, "deletion": None, "orphan": False, "ceo_ordered": None,
-           "continues": [], "lands_pending": [], "history": []}
+           "continues": [], "lands_pending": [], "created_branches": [], "history": []}
     rec.update(fields)
     return rec
 
@@ -896,6 +896,9 @@ def record_end(session_id, agent_id, signal_name, detail=""):
         if signal_name == "stopped":
             rec["pause"] = None
         save_agent(rec)
+    # The end-of-run signal carries the agent's id too, so it closes the window
+    # its tool calls opened: a branch it made in its LAST call is still its own.
+    observe_branches(rec, close=True)
     event("end", key=rec["key"], signal=signal_name, detail=detail)
     return rec
 
@@ -972,6 +975,7 @@ def stop(ref, why, session_id=""):
         rec["end"] = {"at": now(), "signal": "stopped", "detail": why or "stopped by Rich"}
         rec["pause"] = None
         save_agent(rec)
+    observe_branches(rec, close=True)
     event("end", key=rec["key"], signal="stopped", detail=why)
     return rec
 
@@ -1218,37 +1222,95 @@ def _require_clean(rec, doing, ignored_ok=""):
 # branches an agent has (point 3: "any branch an agent created")
 # ---------------------------------------------------------------------------
 
-def _created_branches(w):
-    """Branches CREATED in this workspace, read from git: a `checkout: moving
-    from A to B` in the workspace's own HEAD reflog, at the second B's own
-    reflog says it was created. Never guessed from a name."""
-    if not w.get("path") or not os.path.isdir(w["path"]):
+def _branch_snapshot_path(key):
+    return _p("refs", _key_segment(key) + ".json")
+
+
+def _repos_of(rec):
+    out = []
+    for w in rec.get("workspaces") or []:
+        r = w.get("repo")
+        if r and r not in out and os.path.isdir(r):
+            out.append(r)
+    return out
+
+
+def observe_branches(rec, close=False):
+    """Point 3, "any branch an agent created" — ATTRIBUTED FROM A FACT THE
+    PLATFORM ACTUALLY HAS, never from git's reflog.
+
+    IT USED TO BE READ FROM THE REFLOG, AND THE REFLOG CANNOT SAY WHOSE BRANCH
+    IT IS. git writes `branch: Created from <X>` identically whoever ran the
+    command and wherever they ran it, and it writes NOTHING to a workspace's
+    HEAD reflog for a plain `git branch`. Re-derived on this machine, in one
+    sandbox, all three at once:
+
+        git -C <agent-workspace> branch spare        -> MISSED  (no checkout line)
+        git -C <main-checkout>   branch keep cc/a    -> missed  (correctly)
+        git -C <agent-workspace> checkout -b rescue  -> ATTRIBUTED TO THE AGENT
+
+    The third is Rich cutting a copy of the agent's work to rescue it, which is
+    how work gets rescued; the reflog made that copy the agent's, so a discard
+    deleted it, or — carrying a commit of its own — it held the agent's land
+    hostage forever. And the first is the agent's own branch, missed entirely,
+    so "every workspace and branch it has is deleted, as one" (point 10) was
+    not true either. Wrong in both directions, from the same reading.
+
+    The platform's own fact is the AGENT ID. Every one of a worker's tool calls
+    carries it (PreToolUse -> barrier), and so does its end-of-run signal. A
+    ref that appears between two facts bearing this agent's id is this agent's.
+    A ref that appears outside every such window belongs to whoever made it and
+    IS NOT COUNTED — the page's alternative, taken deliberately: a branch that
+    is not the system's concern (point 1) is cheaper to leave than to delete by
+    guess. Nothing here is inferred from a name.
+
+    Cost, on every one of a worker's tool calls: one `for-each-ref` per
+    repository the agent has a workspace in (one or two). The registry lock is
+    taken only when a branch actually appeared, which is rare."""
+    try:
+        repos = _repos_of(rec)
+        if not repos:
+            return []
+        seen = {}
+        for r in repos:
+            bs = local_branches(r, [""])
+            if bs is None:
+                return []                 # unreadable: observe nothing rather than guess
+            seen[r] = sorted(bs)
+        path = _branch_snapshot_path(rec["key"])
+        prior = read_json(path)
+        if close:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        else:
+            write_json(path, {"at": now(), "refs": seen})
+        if prior is None:
+            return []                     # the window opens here; nothing is attributed yet
+        made = []
+        for r, bs in seen.items():
+            before = set((prior.get("refs") or {}).get(r) or [])
+            for b in bs:
+                if b not in before and not b.startswith(CODEX_PREFIX):
+                    made.append((r, b))
+        if not made:
+            return []
+        with Lock():
+            fresh = load_agent(rec["key"])
+            if not fresh:
+                return []
+            have = [tuple(x) for x in (fresh.get("created_branches") or [])]
+            own = set((w.get("repo"), w.get("branch")) for w in fresh.get("workspaces") or [])
+            add = [x for x in made if x not in have and x not in own]
+            if not add:
+                return []
+            fresh["created_branches"] = [list(x) for x in have + add]
+            save_agent(fresh)
+        event("branch-created", key=rec["key"], branches=[list(x) for x in add])
+        return add
+    except (OSError, ValueError, SpecError):
         return []
-    rc, out, _ = git(w["path"], "reflog", "show", "--format=%gs\t%ct", "HEAD")
-    if rc != 0:
-        return []
-    moved = {}
-    for line in out.splitlines():
-        m = re.match(r"^checkout: moving from .+ to (.+)\t(\d+)$", line)
-        if m:
-            moved.setdefault(m.group(1), []).append(int(m.group(2)))
-    out_b = []
-    main_branch = ""
-    repo = w.get("repo") or main_checkout(w["path"])
-    wl = worktree_list(repo) or []
-    if wl:
-        main_branch = wl[0]["branch"]
-    for b, stamps in moved.items():
-        if b in (w.get("branch"), main_branch) or b.startswith(CODEX_PREFIX):
-            continue
-        rc, o2, _ = git(repo, "reflog", "show", "--format=%gs\t%ct", "refs/heads/" + b)
-        if rc != 0 or not o2.strip():
-            continue
-        first = o2.strip().splitlines()[-1]
-        m = re.match(r"^branch: Created from .*\t(\d+)$", first)
-        if m and any(abs(int(m.group(1)) - s) <= 2 for s in stamps):
-            out_b.append(b)
-    return out_b
 
 
 def _chain(rec):
@@ -1268,19 +1330,19 @@ def _chain(rec):
 
 
 def _workspace_branches(w):
-    """Its own branch, plus every branch created in it (recorded before the
-    directory was deleted, or read now while it exists)."""
+    """Its own branch, plus whatever was recorded against the workspace."""
     out = []
-    extra = list(w.get("extra_branches") or [])
-    if w.get("path") and os.path.isdir(w["path"]):
-        extra += _created_branches(w)
-    for b in [w.get("branch")] + extra:
+    for b in [w.get("branch")] + list(w.get("extra_branches") or []):
         if b and b not in out:
             out.append(b)
     return out
 
 
 def _branch_targets(chain):
+    """Every branch this work has: each workspace's own, plus every branch
+    OBSERVED being created inside one of the agent's own tool-call windows
+    (observe_branches). The observation is a recorded fact, so it survives the
+    workspace directory being deleted — the reflog it replaced did not."""
     out = []
     for r in chain:
         for w in r.get("workspaces") or []:
@@ -1289,6 +1351,10 @@ def _branch_targets(chain):
             for b in _workspace_branches(w):
                 if (w.get("repo"), b) not in out:
                     out.append((w.get("repo"), b))
+        for pair in r.get("created_branches") or []:
+            t = (pair[0], pair[1])
+            if t not in out:
+                out.append(t)
     return out
 
 
@@ -1311,28 +1377,32 @@ def land(ref, me="", auto=False, ignored_ok=""):
         _require_clean(r, "land %s" % r["name"], ignored_ok)
     missing = []
     heads = {}
+
+    def _head(repo):
+        if repo not in heads:
+            heads[repo] = git(repo, "rev-parse", "HEAD")[1].strip() if repo and os.path.isdir(repo) else ""
+        return heads[repo]
+
     for r in chain:
         for w in r.get("workspaces") or []:
             repo = w.get("repo")
-            if repo not in heads:
-                heads[repo] = git(repo, "rev-parse", "HEAD")[1].strip() if repo and os.path.isdir(repo) else ""
-            head = heads[repo]
+            head = _head(repo)
             if not head:
                 missing.append("%s: its repository %s cannot be read" % (w.get("path") or w.get("branch"), repo))
                 continue
-            tips = []
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
                 rc, out, _ = git(w["path"], "rev-parse", "HEAD")
-                if rc == 0:
-                    tips.append(("HEAD of " + w["path"], out.strip()))
-            if not w.get("branch_deleted_at"):
-                for rb in _workspace_branches(w):
-                    t = branch_tip(repo, rb)
-                    if t:
-                        tips.append((rb, t))
-            for label, t in tips:
-                if not is_ancestor(repo, t, head):
-                    missing.append("%s (%s) is not in %s at %s" % (label, t[:12], repo, head[:12]))
+                if rc == 0 and not is_ancestor(repo, out.strip(), head):
+                    missing.append("HEAD of %s (%s) is not in %s at %s"
+                                   % (w["path"], out.strip()[:12], repo, head[:12]))
+    for repo, b in _branch_targets(chain):
+        head = _head(repo)
+        if not head:
+            missing.append("branch %s: its repository %s cannot be read" % (b, repo))
+            continue
+        t = branch_tip(repo, b)
+        if t and not is_ancestor(repo, t, head):
+            missing.append("%s (%s) is not in %s at %s" % (b, t[:12], repo, head[:12]))
     if missing:
         raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
                         % (rec["name"], "; ".join(missing)))
@@ -1402,9 +1472,9 @@ def _delete(rec, workspaces, branches, why, processes=None):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
     else:
         for w in workspaces:
-            # Point 3: the branches created in it are its branches too. Read
-            # them while the directory still exists; they are deleted with it.
-            w["extra_branches"] = _workspace_branches(w)[1:]
+            # Point 3: the branches the agent created are its branches too, and
+            # they are recorded (observe_branches) rather than read back out of
+            # the directory here — the record survives the directory.
             ok, err = remove_workspace(w)
             if ok:
                 w["deleted_at"] = iso()
@@ -1421,11 +1491,14 @@ def _delete(rec, workspaces, branches, why, processes=None):
                             w["deleted_at"] = iso()
                     elif w.get("repo") == repo and b in (w.get("extra_branches") or []):
                         w["extra_branches"] = [x for x in w["extra_branches"] if x != b]
+                rec["created_branches"] = [p for p in (rec.get("created_branches") or [])
+                                           if (p[0], p[1]) != (repo, b)]
             else:
                 failures.append(err)
     with Lock():
         fresh = load_agent(rec["key"]) or rec
         fresh["workspaces"] = rec["workspaces"]
+        fresh["created_branches"] = rec.get("created_branches") or []
         if failures:
             d = fresh.get("deletion") or {"attempts": 0, "first_failed_at": now()}
             d["attempts"] = d.get("attempts", 0) + 1
@@ -1437,10 +1510,15 @@ def _delete(rec, workspaces, branches, why, processes=None):
             fresh["deletion"] = None
         save_agent(fresh)
         done = not failures and fresh.get("disposition") and fresh["disposition"].get("kind") != "continued"
-        if done and all(w.get("deleted_at") and (w.get("branch_deleted_at") or not w.get("branch"))
+        if done and not fresh["created_branches"] \
+                and all(w.get("deleted_at") and (w.get("branch_deleted_at") or not w.get("branch"))
                         and not w.get("extra_branches") for w in fresh["workspaces"]):
             write_json(done_path(fresh["key"]), fresh)
             os.unlink(agent_path(fresh["key"]))
+            try:
+                os.unlink(_branch_snapshot_path(fresh["key"]))
+            except OSError:
+                pass
     event("deleted" if not failures else "deletion-failed", key=rec["key"], why=why,
           failures=failures or None, stopped=processes.get("stopped") or None)
     return not failures
@@ -1698,6 +1776,11 @@ def barrier(payload):
     fin, _paused, why = finished_state(rec)
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
+    # This call carries the agent's id, so it is one end of a window in which
+    # any new ref is this agent's (point 3, "any branch an agent created").
+    # It runs only for an UNFINISHED agent: once the run has ended the window
+    # is closed, and a branch Rich cuts afterwards to rescue the work is his.
+    observe_branches(rec)
     return "REGISTERED", rec.get("name") or ""
 
 

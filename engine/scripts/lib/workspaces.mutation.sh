@@ -95,6 +95,16 @@ mutant p10-one-workspace-left "test_point_10_a_cross_repository_agent_loses_both
     '        for w in workspaces[:1]:{NL}            # Point 3' \
     "a cross-repository agent's second workspace would be left behind (point 10)."
 
+mutant p10-branch-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \
+    '                    made.append((r, b))' \
+    '                    pass' \
+    "a branch the agent created would never be attributed to it, so it would be left behind when its work is landed or discarded (points 3, 10)."
+
+mutant p10-window-not-closed-at-end "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W" \
+    '    observe_branches(rec, close=True){AND}    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
+    '    pass{AND}    if fin:{NL}        observe_branches(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
+    "the agent's window would stay open after its run ended, so a branch Rich cut to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8)."
+
 mutant p11-pause-ignored "test_point_11_a_recorded_pause_is_not_finished_and_resumes" "$W" \
     '        if pause and pause.get("at", 0) <= end.get("at", 0):' \
     '        if False:' \

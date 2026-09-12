@@ -149,6 +149,11 @@ class Base(unittest.TestCase):
     def merge(self, repo, branch):
         run("git", "-C", repo, "merge", "-q", "--no-edit", branch)
 
+    def tool_call(self, aid):
+        """One of the worker's own tool calls, exactly as the PreToolUse hook
+        makes it: a payload carrying the platform's agent id."""
+        return ws.barrier({"session_id": self.sid, "agent_id": aid})
+
     def finish(self, aid):
         ws.record_end(self.sid, aid, "SubagentStop")
 
@@ -525,12 +530,44 @@ class Point10_AllTogether(Base):
         self.assertTrue(os.path.exists(ws.done_path(ws.named_key(self.sid, "zach-opus-x"))))
 
     def test_point_10_branches_created_in_a_workspace_go_with_it(self):
+        """A branch the AGENT made goes with it — including `git branch`, which
+        writes nothing to the workspace's HEAD reflog and was missed entirely
+        while ownership was read from the reflog."""
         aid, npath = self.spawn("zach-opus-b")
+        self.tool_call(aid)                                 # its window opens
         run("git", "-C", npath, "checkout", "-q", "-b", "side-branch")
         self.commit(npath, "side.txt")
+        run("git", "-C", npath, "branch", "plain-branch")    # no checkout line anywhere
+        self.tool_call(aid)                                 # observed, from the agent id
         self.finish(aid)
+        self.assertIn("side-branch", branches(self.entity))
         ws.discard("zach-opus-b", "not wanted any more", not_ceo_ordered="a probe of branch attribution", me=self.sid)
         self.assertNotIn("side-branch", branches(self.entity))
+        self.assertNotIn("plain-branch", branches(self.entity))
+
+    def test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents(self):
+        """"Deletion therefore never loses anything that was meant to land"
+        (point 8). git writes `branch: Created from ...` whoever ran it, so a
+        copy Rich cuts to rescue the work used to be deleted with the agent —
+        or, carrying a commit of its own, used to hold its land hostage."""
+        aid, npath = self.spawn("zach-opus-r")
+        self.tool_call(aid)
+        self.commit(npath)
+        self.tool_call(aid)
+        self.finish(aid)
+        # Rich rescues the work: a copy cut inside the agent's own workspace,
+        # with a commit of his own on top, after the agent's run has ended.
+        run("git", "-C", npath, "checkout", "-q", "-b", "rescue-rich")
+        self.commit(npath, "rescued.txt")
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        # the platform restarts finished agents (point 9); a restarted agent's
+        # call is refused, and it opens no window either
+        self.assertEqual(self.tool_call(aid)[0], "FINISHED")
+        self.merge(self.entity, "worktree-agent-" + aid)
+        ws.land("zach-opus-r", self.sid)                     # not held hostage by rescue-rich
+        self.assertIn("rescue-rich", branches(self.entity))  # and not deleted with the agent
+        self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
 
 
 class Point11_Finished(Base):
