@@ -1,0 +1,30 @@
+label: m3  what: removal-guard-mut  started: 2026-09-12T21:52:02Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m3  HEAD: 3ff0cefd9267f5761f24ce3fce3f5ad38a0c9c64  dirty: 0
+outer sandbox: CLAUDE_CONFIG_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/config RICHOS_WORKSPACES_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/ws RICHOS_SESSIONS_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/sessions
+=== guard-worktree-removal mutation harness ===
+PROVEN    M0   the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's
+PROVEN    M1   rule 4 reverted to the pre-move co-occurrence form ... turns g7d g8  g8b d2  g7c red
+PROVEN    M1b  the git-rm exclusion alone is removed ... turns g7d red
+PROVEN    M2   the *-wt naming heuristic comes back ... turns g8  red
+PROVEN    M3   every rm -r target counts as a worktree ... turns g4  red
+PROVEN    M4   no rm -r target ever counts as a worktree ... turns d2  S2  red
+PROVEN    M5   the git argument run bleeds across statement separators ... turns RO2 RD3 red
+PROVEN    M6   the read-only allowlist swallows worktree and branch ... turns a   b   c   red
+PROVEN    M7   git -C's value is no longer skipped when finding the subcommand ... turns a2  red
+PROVEN    M8   prose and payloads are scanned as if they were commands ... turns PR2 PR5 red
+PROVEN    M9   substitutions inside inert text stop being classified ... turns PX3 red
+PROVEN    M10  plain and dry-run-overridden prune regain a direct bypass ... turns g2  b3  red
+PROVEN    M11  a workspaces.sh call exempts a separate raw removal ... turns b9  red
+PROVEN    M12  an agent workspace is removable with an ack ... turns S2  S3  S4  red
+PROVEN    M13  a codex/ workspace is removable with an ack ... turns S6  red
+<stdin>:4: SyntaxWarning: "\S" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\S"? A raw string is also an option.
+PROVEN    M14  a codex/ branch may be deleted ... turns S7  red
+PROVEN    M15  a raw git worktree add is allowed ... turns RO11 S9  red
+PROVEN    M16  claude --worktree is allowed ... turns S8  red
+  [17 mutant(s), 8 at a time, wall 1m20.3s, slowest 22.7s M1b, 4.6x serial]
+
+PROVEN    M99  the shipped guard was never opened for writing (contents AND mtime unchanged)
+reference sandbox guard never written to (md5 e59be0ca092e5433c7f924fc4b320813); every mutant used its own copy
+=== mutation harness: all 19 mutants proven load-bearing ===
+exit: 0
+finished: 2026-09-12T21:53:23Z

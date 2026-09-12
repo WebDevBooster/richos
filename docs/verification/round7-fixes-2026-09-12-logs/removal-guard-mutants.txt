@@ -1,0 +1,29 @@
+label: r7b  what: removal-guard-mut  started: 2026-09-12T21:29:01Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m2  HEAD: fa65987e26fb79e2e51b5dd3839063ba016141c5  dirty: 13
+=== guard-worktree-removal mutation harness ===
+PROVEN    M0   the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's
+PROVEN    M1   rule 4 reverted to the pre-move co-occurrence form ... turns g7d g8  g8b d2  g7c red
+PROVEN    M1b  the git-rm exclusion alone is removed ... turns g7d red
+PROVEN    M2   the *-wt naming heuristic comes back ... turns g8  red
+PROVEN    M3   every rm -r target counts as a worktree ... turns g4  red
+PROVEN    M4   no rm -r target ever counts as a worktree ... turns d2  S2  red
+PROVEN    M5   the git argument run bleeds across statement separators ... turns RO2 RD3 red
+PROVEN    M6   the read-only allowlist swallows worktree and branch ... turns a   b   c   red
+PROVEN    M7   git -C's value is no longer skipped when finding the subcommand ... turns a2  red
+PROVEN    M8   prose and payloads are scanned as if they were commands ... turns PR2 PR5 red
+PROVEN    M9   substitutions inside inert text stop being classified ... turns PX3 red
+PROVEN    M10  plain and dry-run-overridden prune regain a direct bypass ... turns g2  b3  red
+PROVEN    M11  a workspaces.sh call exempts a separate raw removal ... turns b9  red
+PROVEN    M12  an agent workspace is removable with an ack ... turns S2  S3  S4  red
+PROVEN    M13  a codex/ workspace is removable with an ack ... turns S6  red
+<stdin>:4: SyntaxWarning: "\S" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\S"? A raw string is also an option.
+PROVEN    M14  a codex/ branch may be deleted ... turns S7  red
+PROVEN    M15  a raw git worktree add is allowed ... turns RO11 S9  red
+PROVEN    M16  claude --worktree is allowed ... turns S8  red
+  [17 mutant(s), 8 at a time, wall 1m57.3s, slowest 37.6s M16, 4.4x serial]
+
+PROVEN    M99  the shipped guard was never opened for writing (contents AND mtime unchanged)
+reference sandbox guard never written to (md5 e59be0ca092e5433c7f924fc4b320813); every mutant used its own copy
+=== mutation harness: all 19 mutants proven load-bearing ===
+exit: 0
+finished: 2026-09-12T21:30:59Z

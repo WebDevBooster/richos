@@ -1,0 +1,9 @@
+label: r7a  what: completeness  started: 2026-09-12T21:26:47Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m2  HEAD: fa65987e26fb79e2e51b5dd3839063ba016141c5  dirty: 13
+[1m=== publication completeness: /Users/alex/ab/richos-wt/zach-fable-m2 ===[0m
+[32m✓ Every capability this tree claims is delivered: no dangling citation, no
+  declaration-gated mechanism without its declaration and its documentation,
+  no unreachable workflow, no public contract with its mechanism left behind
+  in the private tree.[0m
+exit: 0
+finished: 2026-09-12T21:26:49Z

@@ -1,0 +1,246 @@
+label: m3  what: probes-runner  started: 2026-09-12T21:44:13Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m3  HEAD: 3ff0cefd9267f5761f24ce3fce3f5ad38a0c9c64  dirty: 0
+outer sandbox: CLAUDE_CONFIG_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/config RICHOS_WORKSPACES_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/ws RICHOS_SESSIONS_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/sessions
+recorded: /Users/alex/ab/richos integrates on dev/workspace-spec (body of work richos-001)
+workspaces.py under test: /Users/alex/ab/richos-wt/zach-fable-m3/engine/scripts/lib/workspaces.py
+manifest:                 docs/verification/workspace-probes.manifest @ HEAD
+probes discovered:        11 (11 listed at HEAD, 0 on other branches)
+branch under test:        cc/zach-fable-m3
+integration branch:       dev/workspace-spec @ fa65987e26fb (recorded; the witness every retirement must have landed on)
+declared not-a-probe:     1 (each named below; a declaration is checked against git, never read)
+probes DELETED from history and not retired: 0
+committed probes NOT LISTED in the manifest: 0
+other files under docs/verification/ that are not probes of this library: 243  (--show-all names them)
+
+DECLARED   docs/verification/workspace-probe-regression-2026-09-12-logs/adapt-c3-probes-to-record-the-branch.py
+           4c70bfc296bb, landed on dev/workspace-spec @ fa65987e26fb
+           not-a-probe: this BUILDS
+GREEN      docs/verification/certification-frank-attribution-2026-09-12-probe.py                                   13.2s
+GREEN      docs/verification/certification-frank-four-fixes-2026-09-12-probe.py                                     7.7s
+RED        docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py                           3.7s
+           exit 1
+RED        docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py    5.7s
+           exit 1
+RED        docs/verification/certification-frank-window-and-target-2026-09-12-probe.py                              6.2s
+           exit 1
+RETIRED    docs/verification/certification-sage-attribution-2026-09-12.probe.py                                     0.0s
+           sage [1329ec67b86e, landed on dev/workspace-spec @ fa65987e26fb]: Obsolete: its premise is attribution by POSSESSION, which I certified at b728514b and which 84e12d32 replaced with attribution by recorded CREATION, with my agreement in certification-sage-recorded-attribution-2026-09-12.md ("The mechanism is right"). Its harness drives barrier() alone and never observe(), so under the Pre/Post pair every scenario now reports created_branches [] and the probe observes nothing. Its RED is a second obsolescence on top of that: two scenarios call land() outside a try and the fixture records no integration branch, which point 14 has required before the first spawn since 2bc413df. Recording it makes all eight scenarios exit 0 — measured, and the output is in certification-sage-runner-round-2026-09-12.md. It asserts nothing by construction (the runner calls this shape OBSERVED), so nothing is carried forward.
+RETIRED    docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py                            0.0s
+           sage [1329ec67b86e, landed on dev/workspace-spec @ fa65987e26fb]: Obsolete as a FILE, and its live half is carried forward to certification-sage-runner-round-2026-09-12.probe.py, which is green 10/10. S2 and S6 are about the first-registration floor, deleted at 556d3e62 because my own D1 said point 14 forbids it; S8's question ("when is the floor written") has no subject left. S3 and S9 are fixture: S3 holds once the integration branch is recorded and S9 unlinks an integration.json that nothing writes any more. S10's predicate demanded that a branch carrying an unmerged commit be deleted at the land, which point 8 forbids; my own c4 case A states the same scenario correctly (the harm is a land that reports LANDED with nothing pending) and is green. S5 is NOT obsolete — a ref Rich cuts at the agent's own unlanded tip is declared out of this round's scope — so it is carried forward as R10, which asserts the in-scope half and prints the rest.
+RED        docs/verification/certification-sage-runner-round-2026-09-12.probe.py                                   16.2s
+           exit 1
+RED        docs/verification/certification-sage-window-and-target-2026-09-12.probe.py                               9.1s
+           exit 1
+GREEN      docs/verification/workspace-attribution-seven-cases.probe.py                                            14.5s
+UNRUNNABLE docs/verification/workspace-call-window-and-recorded-target.probe.py                                     0.0s
+           the retirement of case 'late-record-heals' names the right author ('the engineer') and is NOT attributable to that author. A3: the commit that wrote it (a6c3ffd58830) has not landed on dev/workspace-spec, the branch recorded for this work (point 14). A reviewer commits on its own branch and Rich lands it; a commit that has not reached the recorded integration branch -- on cc/zach-fable-m3, or on any branch cut at its tip -- cannot retire anything. A branch NAME is no witness: point 4 deletes branches.
+
+=== RED — docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py
+    exit 1
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-2plzuwf8/entity, so the spawn of zach-opus-q9 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 6 floor-timing — WHERE the floor actually reads the branch.
+    |     record at session start                None
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-v1q1rjsx/entity, so the spawn of zach-opus-qa is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 7 rich-at-my-tip — A ref Rich cuts AT the agent's own unlanded tip DURING its call.
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-9imm55j9/entity, so the spawn of zach-opus-q5 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-9tkafk8r/entity, so the spawn of zach-opus-q6 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-5wzl671q/entity, so the spawn of zach-opus-q7 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    |     EXCEPTION                              SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-ht1xbc4g/entity, so the spawn of zach-opus-q8 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                BROKEN
+    | 
+    | === 1/10 cases hold; BROKEN: outside-stray, outside-side, floor-trap, no-floor-self-heals, floor-timing, rich-at-my-tip, serial-stray, serial-side, serial-rename
+
+=== RED — docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py
+    exit 1
+    | === 3 record-first-control — THE CONTROL for the two above: the identical shape with the branch
+    |     created_branches (record present)        ['sidework']
+    |     land                                     REFUSED: zach-opus-r3 is not landed yet: sidework (fd320facc420) is not in main of /private/var/folders/mx/w46p9btx1t17w
+    |     pending                                  ['zach-opus-r3']
+    |     VERDICT                                  HOLDS
+    | 
+    | === 4 late-record-rename — The agent renames its OWN branch while no branch is recorded.
+    |     EXCEPTION                                SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c4-gyjj4wsa/entity, so the spawn of zach-opus-r4 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                  BROKEN
+    | 
+    | === 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    |     windows left open by the refused call    0
+    |     created_branches before the end of run   []
+    |     created_branches after the end of run    []
+    |     branches after the discard               ['main', 'rich/rescue']
+    |     rich/rescue survived                     True
+    |     VERDICT                                  HOLDS
+    | 
+    | === 6 leaked-window-evicts — The cap: _MAX_OPEN_CALLS windows of refused calls opened AFTER a live one
+    |     created_branches at the live call's Post ['spare']
+    |     created_branches after the end of run    ['spare']
+    |     attributed at the Post (not only at the end) True
+    |     VERDICT                                  HOLDS
+    | 
+    | === 3/6 cases hold; BROKEN: late-record-stray, late-record-side, late-record-rename
+
+=== RED — docs/verification/certification-frank-window-and-target-2026-09-12-probe.py
+    exit 1
+    | === 3 record-first-control — THE CONTROL for the two above: the identical shape with the branch
+    |     created_branches (record present)        ['sidework']
+    |     land                                     REFUSED: zach-opus-r3 is not landed yet: sidework (8f76bcbd3adf) is not in main of /private/var/folders/mx/w46p9btx1t17w
+    |     pending                                  ['zach-opus-r3']
+    |     VERDICT                                  HOLDS
+    | 
+    | === 4 late-record-rename — The agent renames its OWN branch while no branch is recorded.
+    |     EXCEPTION                                SpecError: no branch is recorded as the one this work integrates on in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c4-19duwju0/entity, so the spawn of zach-opus-r4 is refused. The branch a body of work integrates on is RECORDED when that work starts, before its first agent is spawned; nothin
+    |     VERDICT                                  BROKEN
+    | 
+    | === 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    |     windows left open by the refused call    2
+    |     created_branches before the end of run   []
+    |     created_branches after the end of run    []
+    |     branches after the discard               ['main', 'rich/rescue']
+    |     rich/rescue survived                     True
+    |     VERDICT                                  HOLDS
+    | 
+    | === 6 leaked-window-evicts — The cap: _MAX_OPEN_CALLS windows of refused calls opened AFTER a live one
+    |     created_branches at the live call's Post ['spare']
+    |     created_branches after the end of run    ['spare']
+    |     attributed at the Post (not only at the end) True
+    |     VERDICT                                  HOLDS
+    | 
+    | === 3/6 cases hold; BROKEN: late-record-stray, late-record-side, late-record-rename
+
+=== RED — docs/verification/certification-sage-runner-round-2026-09-12.probe.py
+    exit 1
+    |     the repository's current body      dev/two
+    |     still bound to                     ['entity-001']
+    |     land (its work is in main, not dev/two) landed
+    |     workspace gone                     True
+    |     EXPECTATION HELD                   True
+    | 
+    | === R9 eviction — A burst of REFUSED PreToolUse calls evicts the live call's window by the
+    |     open windows after 81 Pres (cap 64) 64
+    |     the live call's window survived    False
+    |     created_branches at the Post       ['spare']
+    |     created_branches after the run ended ['spare']
+    |     land                               landed
+    |     branches after the land            ['main']
+    |     EXPECTATION HELD                   True
+    | 
+    | === R10 rich-at-my-tip — A ref RICH cuts at the agent's own unlanded tip, which he then commits on
+    |     created_branches                   ['rich/rescue']
+    |     land                               REFUSED: zach-opus-r10 is not landed yet: rich/rescue (de66a820bf4d) is not in main of /private/var/
+    |     the discard RECORDED these tips    ['/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-runner-probe-i2gstu6v/entity:rich/rescue', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-runner-probe-i2gstu6v/entity:worktree-agent-azachopusr100000']
+    |     Rich's own commit is on that record True
+    |     [OUT OF SCOPE] rich/rescue survived False
+    |     pending after the discard          []
+    |     EXPECTATION HELD                   True
+    | 
+    | === held: 9/10; NOT HELD: R4 record-heals
+
+=== RED — docs/verification/certification-sage-window-and-target-2026-09-12.probe.py
+    exit 1
+    |     EXPECTATION HELD                         True
+    | 
+    | === rich-out-of-order — D2. The same, with both Posts arriving — the earlier call simply finishes last.
+    |     created_branches after Post(B)           []
+    |     created_branches after Post(A)           []
+    |     => Rich's ref attributed to the agent    False
+    |     EXPECTATION HELD                         True
+    | 
+    | === mismatched-ids — E. The Pre carries the platform's call id and the Post does not (or vice
+    |     after Pre(keyed) / Post(unkeyed)         ['keyed-pre-only']
+    |     after Pre(unkeyed) / Post(keyed)         ['keyed-pre-only', 'unkeyed-pre-only']
+    |     after the end-of-run signal              ['keyed-pre-only', 'unkeyed-pre-only']
+    |     => nothing is lost, only deferred        True
+    |     EXPECTATION HELD                         True
+    | 
+    | === two-bodies-of-work — F. TWO bodies of work in ONE repository. The record is per REPOSITORY, and
+    |     the repository's record now says         dev/second
+    |     its work is in dev/first                 True
+    |     the superseded record is kept where nothing reads it False
+    |     land of the FIRST body's agent           landed
+    |     its workspace still on disk              False
+    |     pending (point 5 is blocked)             []
+    |     EXPECTATION HELD                         True
+    | 
+    | === held: 6/8; NOT HELD: escalation-stray, escalation-stray-cc
+
+=== UNRUNNABLE — docs/verification/workspace-call-window-and-recorded-target.probe.py
+    the retirement of case 'late-record-heals' names the right author ('the engineer') and is NOT attributable to that author. A3: the commit that wrote it (a6c3ffd58830) has not landed on dev/workspace-spec, the branch recorded for this work (point 14). A reviewer commits on its own branch and Rich lands it; a commit that has not reached the recorded integration branch -- on cc/zach-fable-m3, or on any branch cut at its tip -- cannot retire anything. A branch NAME is no witness: point 4 deletes branches.
+
+
+===========================================================================
+A PRIOR PROBE IS RED. THIS BLOCKS.
+===========================================================================
+A probe under docs/verification/ is the sentence of the CEO's page that this
+build was once held to. A red one is not a stale assertion until its AUTHOR
+says it is.
+
+THE ONLY THING THAT CAN RETIRE A PROBE IS THE REVIEWER WHO WROTE IT, AGREEING
+THAT IT IS OBSOLETE. Never the engineer who is failing it — an engineer failing
+a probe is the person with a reason to believe it is wrong and the person least
+able to tell "this assertion is obsolete" from "I just broke this".
+
+To retire one, its author adds a line to:
+
+    docs/verification/workspace-probe-retirements.tsv
+    <probe filename>	<author>	<why it is obsolete>
+
+and commits it. This runner reads that file, checks the signature against the
+probe's own author, and names any mismatch.
+
+AND A TYPED NAME IS NOT AUTHORITY. The name is checked, and then git is asked
+three questions the party failing the probe cannot answer from inside its own
+work:
+
+    A1  the line is in a COMMIT -- a working-tree edit retires nothing
+    A2  that commit touches nothing outside docs/verification/ -- the commit
+        that broke the probe may not be the commit that retires it
+    A3  that commit has LANDED on the branch recorded as the one this work
+        integrates on (point 14) -- a reviewer commits on its own branch and
+        Rich lands it; a branch name is no witness, since point 4 deletes them
+
+Every retirement that is accepted prints its commit and the landed-on branch,
+so what stood behind it is on the record rather than taken on trust.
+
+RETIREMENT IS PER CASE. A reviewer who finds three of his six cases obsolete and
+three still live retires the three, and the probe goes on running the other three:
+
+    <probe filename>	<case>	<author>	<why this one case is obsolete>
+
+Keyed on the FILE, that reviewer's only options were to drop five green
+assertions to buy one green exit code, or to write nothing. He wrote nothing, and
+he was right to.
+
+A PROBE ALSO NEVER LEAVES BY BEING DELETED. A path that used to hold a probe and
+holds nothing at HEAD is MISSING, and MISSING blocks exactly like RED: deletion
+is not attributable to anybody, which is the whole reason retirement is.
+
+A PROBE IS ASKED BECAUSE ITS AUTHOR LISTED IT. A committed file that looks like
+a probe and is not in docs/verification/workspace-probes.manifest is UNLISTED, and UNLISTED blocks: add its line, or
+declare `not-a-probe: <why>` inside it.
+
+Everything else is a regression to fix.
+===========================================================================
+
+RED (a prior probe now fails):
+    docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py   author: frank
+    docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py   author: frank
+    docs/verification/certification-frank-window-and-target-2026-09-12-probe.py   author: frank
+    docs/verification/certification-sage-runner-round-2026-09-12.probe.py   author: sage
+    docs/verification/certification-sage-window-and-target-2026-09-12.probe.py   author: sage
+DID NOT RUN — and a probe the runner cannot execute is NOT a probe
+that passed. Each of these is as blocking as a red one:
+    docs/verification/workspace-call-window-and-recorded-target.probe.py   the retirement of case 'late-record-heals' names the right author ('the engineer') and is NOT attributable to that author. A3: the commit that wrote it (a6c3ffd58830) has not landed on dev/workspace-spec, the branch recorded for this work (point 14). A reviewer commits on its own branch and Rich lands it; a commit that has not reached the recorded integration branch -- on cc/zach-fable-m3, or on any branch cut at its tip -- cannot retire anything. A branch NAME is no witness: point 4 deletes branches.
+exit: 1
+finished: 2026-09-12T21:45:39Z

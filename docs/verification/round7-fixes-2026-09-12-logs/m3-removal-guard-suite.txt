@@ -1,0 +1,119 @@
+label: m3  what: removal-guard  started: 2026-09-12T21:43:41Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m3  HEAD: 3ff0cefd9267f5761f24ce3fce3f5ad38a0c9c64  dirty: 0
+outer sandbox: CLAUDE_CONFIG_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/config RICHOS_WORKSPACES_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/ws RICHOS_SESSIONS_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/sessions
+=== guard-worktree-removal: GUARD classification tests ===
+  PASS  a  raw git worktree remove -> block
+  PASS  a2 git -C cross-repo worktree remove -> block
+  PASS  b  git worktree prune --expire -> block
+  PASS  c  git branch -D worktree-* -> block
+  PASS  c2 git branch -d worktree-* -> block
+  PASS  d  rm -rf .claude/worktrees/agent-* -> block
+  PASS  d2 rm -rf a REAL linked worktree top level -> block
+  PASS  e  workspaces.sh land -> allow
+  PASS  e2 workspaces.sh discard via bash prefix -> allow
+  PASS  f  worktree-remove-ack override -> allow
+  -- the spec's own refusals: no override (points 1, 2, 3, 4, 6, 7, 10) --
+  PASS  S1 git worktree remove of a REAL cc/ workspace -> refuse
+  PASS  S2 ...and a worktree-remove-ack does NOT exempt it
+  PASS  S3 git worktree remove of a REAL native worktree-* workspace + ack -> refuse
+  PASS  S4 rm -rf a REAL cc/ workspace + ack -> refuse
+  PASS  S5 git branch -D cc/* + ack -> refuse
+  PASS  S6 git worktree remove of a codex/ workspace + ack -> refuse (codex/ is never touched)
+  PASS  S7 git branch -D codex/* + ack -> refuse
+  PASS  S8 claude --worktree -> refuse (nobody starts a session in its own workspace)
+  PASS  S9 git worktree add + ack -> refuse (a raw workspace is registered by nothing)
+  PASS  S10 the refusal names create-teammate-worktree.sh as the way to create one
+  PASS  S11 control: a non-system linked worktree removal + ack -> allow (logged)
+  PASS  S12 control: git branch -D of an ordinary branch -> allow
+  PASS  S13 a trailing ack comment is not read as a worktree-* branch name -> allow
+  -- precision (must NOT fire) --
+  PASS  g1 git worktree list -> allow
+  PASS  g2 plain git worktree prune (no --expire) -> block
+  PASS  b2 dry-run prune is conservatively blocked
+  PASS  b3 negated dry-run override cannot bypass
+  PASS  b4 absolute Git prune cannot bypass
+  PASS  b5 quoted Git and prune cannot bypass
+  PASS  b6 relative Git prune cannot bypass
+  PASS  b8 workspaces.sh cannot authorize a later prune
+  PASS  b9 workspaces.sh cannot authorize a later raw worktree remove
+  PASS  b7 cross-repo quoted-path prune cannot bypass
+  PASS  g2b absolute read-only worktree list -> allow
+  PASS  g3 git branch -D non-worktree branch -> allow
+  PASS  g4 rm -rf node_modules -> allow
+  PASS  g5 non-Bash tool -> allow
+  PASS  g6 ordinary ls -> allow
+  PASS  g6b garbage payload -> allow (fail-open on parse)
+  PASS  g7 PIN: git rm -r inside a worktree -> allow
+  PASS  g7b PIN: git  rm (extra space) -> allow
+  PASS  g7c control: a REAL rm -r in the same command shape -> block
+  PASS  g7d REGRESSION: git rm -r of a .claude/worktrees/agent-* path -> allow
+  PASS  g7e control: a bare rm -r of the same path -> block
+  PASS  g8 REGRESSION: plain dir merely NAMED *-wt -> allow
+  PASS  g8b REGRESSION: the pre-move whole-command shape -> allow
+  PASS  g9 REGRESSION: the MAIN checkout is not a linked worktree -> allow
+  PASS  g10 rm -r of a SUBDIR of a worktree -> allow
+  -- read-only git verbs never fire (2026-09-02) --
+  PASS  RO1 REGRESSION: ls -d then git branch --list -> allow
+  PASS  RO2 REGRESSION: git branch --list then ls -d -> allow
+  PASS  RO3 REGRESSION: git merge-base --is-ancestor + ls -d -> allow
+  PASS  RO4 git for-each-ref + ls -d -> allow
+  PASS  RO5 git rev-list + sort -d -> allow
+  PASS  RO6 git log + ls -d -> allow
+  PASS  RO7 git show + ls -d -> allow
+  PASS  RO8 git status + ls -d -> allow
+  PASS  RO9 git worktree list + ls -d -> allow
+  PASS  RO10 git branch --merged + ls -d -> allow
+  PASS  RO11 a raw git worktree add is refused: registered by nothing (points 1, 3)
+  -- ...and the destructive shapes still do (the other half) --
+  PASS  RD1 ls -d THEN git branch -D worktree-* -> block
+  PASS  RD2 git branch --list THEN git branch -D worktree-* -> block
+  PASS  RD3 a read-only verb does not launder a later worktree remove -> block
+  PASS  RD4 git worktree list THEN prune --expire -> block
+  PASS  RD5 git status THEN git -C <repo> worktree remove -> block
+  PASS  RD6 long-form git branch --delete worktree-* -> block
+  PASS  RD7 short bundle git branch -fD worktree-* -> block
+  PASS  RD8 git worktree prune --expire=now (attached value) -> block
+  -- prose that DESCRIBES a removal is not a removal --
+  PASS  PR1 REGRESSION: git commit -m quoting 'git worktree remove' -> allow
+  PASS  PR2 REGRESSION: a MULTI-LINE commit message quoting it -> allow
+  PASS  PR3 a message quoting the BRANCH rule -> allow
+  PASS  PR4 a message quoting the rm rule -> allow
+  PASS  PR5 a heredoc WRITING a document that quotes the command -> allow
+  PASS  PR6 a python heredoc inserting prose that quotes it -> allow
+  PASS  PR7 a heredoc writing the rm form into a document -> allow
+  PASS  PR8 git commit -F - with the phrase in the heredoc body -> allow
+  -- ...and text that WILL run still blocks (the other half) --
+  PASS  PX1 a safe message THEN a real removal -> block
+  PASS  PX2 a heredoc fed to a SHELL is still scanned -> block
+  PASS  PX3 command substitution inside a DOUBLE-quoted message -> block
+  PASS  PX4 command substitution inside an UNQUOTED-tag heredoc -> block
+  PASS  PX5 a safe message THEN a worktree-* branch delete -> block
+  PASS  PX6 an ack INSIDE a heredoc payload does not exempt a real removal -> block
+  PASS  PX7 a real trailing ack comment still exempts -> allow
+  PASS  PX8 a real removal with no message anywhere still blocks -> block
+  -- block message content --
+  PASS  h1 block message names workspaces.sh
+  PASS  h2 a spec refusal names land and discard as the only deleters
+  PASS  h2b ...and the land command itself
+  PASS  h3 block message names the engine's workspaces.sh path
+  PASS  h4 block message names the ack override
+  PASS  f2 ack appended to the ENTITY .claude/state/worktree-remove-acks.log
+  PASS  f3 double-fire appends EXACTLY ONE new ack line (dedup)
+  PASS  f4 a DIFFERENT ack still appends (dedup is not swallowing)
+  PASS  i  missing python3 -> fail-closed (exit 2)
+  PASS  j  unadopted repository -> stand down (exit 0)
+  PASS  RG1 agent: workspaces.sh integration --branch -> refused
+  PASS  RG2 agent: workspaces.py integration --correct -> refused
+  PASS  RG3 lead: the same recording -> allow
+  PASS  RG4 agent: workspaces.sh status (records nothing) -> allow
+  PASS  RG5 agent: git branch -f <recorded> HEAD -> refused
+  PASS  RG6 agent: git update-ref refs/heads/<recorded> -> refused
+  PASS  RG7 agent: git push . HEAD:<recorded> -> refused
+  PASS  RG8 agent: git branch -f <unrecorded> HEAD -> allow (precision)
+  PASS  RG9 lead: git branch -f <recorded> HEAD -> allow (landing is his)
+  PASS  RG10 the refusal names point 14
+  PASS  k  DECLARED unadopted root -> BROKEN, blocks (exit 2)
+
+=== guard-worktree-removal tests: all 104 passed ===
+exit: 0
+finished: 2026-09-12T21:44:10Z

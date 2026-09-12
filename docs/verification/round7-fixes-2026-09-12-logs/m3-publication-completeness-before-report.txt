@@ -1,0 +1,10 @@
+label: m3  what: completeness  started: 2026-09-12T21:44:10Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m3  HEAD: 3ff0cefd9267f5761f24ce3fce3f5ad38a0c9c64  dirty: 0
+outer sandbox: CLAUDE_CONFIG_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/config RICHOS_WORKSPACES_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/ws RICHOS_SESSIONS_DIR=/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/m3/outer-sandbox/sessions
+[1m=== publication completeness: /Users/alex/ab/richos-wt/zach-fable-m3 ===[0m
+[32m✓ Every capability this tree claims is delivered: no dangling citation, no
+  declaration-gated mechanism without its declaration and its documentation,
+  no unreachable workflow, no public contract with its mechanism left behind
+  in the private tree.[0m
+exit: 0
+finished: 2026-09-12T21:44:13Z

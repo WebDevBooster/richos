@@ -1,0 +1,19 @@
+=== agent liveness — authoritative source: the isolation-worktree lock ===
+    entity: /Users/alex/ab/femcboost
+
+  ALIVE         a750e09bd3be3a395
+      why: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-a750e09bd3be3a395 is LOCKED and the locking pid 24267 is running
+      evidence: worktree=/Users/alex/ab/femcboost/.claude/worktrees/agent-a750e09bd3be3a395, registered=True, on-disk=True, locked=True, pid=24267(alive=True), pid shared with 1 other lock(s) — it is the SESSION pid, not a per-agent pid
+      roster: no session roster mentions this agent  (advisory)
+      worker-events: last=WorkerStarted at 2026-09-12T21:37:02.238530+00:00 over 1 record(s)  (advisory — WorkerRunEnded fires every turn, not at termination)
+
+  ALIVE         ad778ffcd3c8b4ea2
+      why: isolation worktree /Users/alex/ab/femcboost/.claude/worktrees/agent-ad778ffcd3c8b4ea2 is LOCKED and the locking pid 24267 is running
+      evidence: worktree=/Users/alex/ab/femcboost/.claude/worktrees/agent-ad778ffcd3c8b4ea2, registered=True, on-disk=True, locked=True, pid=24267(alive=True), pid shared with 1 other lock(s) — it is the SESSION pid, not a per-agent pid
+      roster: no session roster mentions this agent  (advisory)
+      worker-events: last=WorkerRunEnded at 2026-09-12T21:54:11.101740+00:00 over 8 record(s)  (advisory — WorkerRunEnded fires every turn, not at termination)
+      >>> SOURCES DISAGREE:
+          - worker-events last record is WorkerRunEnded (2026-09-12T21:54:11.101740+00:00) while the lock is HELD. That event fires at every turn end, so it is not a termination signal -- believe the lock.
+
+  The lock decides. The roster and the event log are advisory and are
+  both known to go stale in the direction that reads as 'finished'.
