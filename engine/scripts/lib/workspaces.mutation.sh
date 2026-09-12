@@ -100,20 +100,25 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
+mutant p03-branch-attributed-repository-wide "test_point_03_another_live_agents_branch_is_never_attributed" "$W" \
+    '    return [e["branch"] for e in wl[1:] if e["path"] in paths and e["branch"]]' \
+    '    return [e["branch"] for e in wl[1:] if e["branch"]]' \
+    "attribution would go back to every ref in the repository instead of the agent's own workspaces, so a second live agent's branch would be counted as this agent's: its land refused because the other agent's branch is not in main, and its discard deleting the other agent's work (points 3, 5, 8). Reproduced exactly that way on 2026-09-11."
+
 mutant p10-one-workspace-left "test_point_10_a_cross_repository_agent_loses_both_workspaces_as_one" "$W" \
     '        for w in workspaces:{NL}            # Point 3' \
     '        for w in workspaces[:1]:{NL}            # Point 3' \
     "a cross-repository agent's second workspace would be left behind (point 10)."
 
 mutant p10-branch-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \
-    '                    made.append((r, b))' \
+    '                    mine.append((repo, b))' \
     '                    pass' \
-    "a branch the agent created would never be attributed to it, so it would be left behind when its work is landed or discarded (points 3, 10)."
+    "a branch the agent created in its own workspace would never be attributed to it, so it would be left behind when its work is landed or discarded (points 3, 10)."
 
-mutant p10-window-not-closed-at-end "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W" \
-    '    observe_branches(rec, close=True){AND}    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
-    '    pass{AND}    if fin:{NL}        observe_branches(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
-    "the agent's window would stay open after its run ended, so a branch Rich cut to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8)."
+mutant p10-observed-after-the-run-ended "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W" \
+    '    observe_branches(rec){NL}    event("end", key=rec["key"], signal=signal_name{AND}    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
+    '    pass{NL}    event("end", key=rec["key"], signal=signal_name{AND}    if fin:{NL}        observe_branches(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
+    "the last observation would move from the platform's end-of-run signal to a finished agent's restarted call, so a branch Rich checked out in the workspace afterwards to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8)."
 
 mutant p11-pause-ignored "test_point_11_a_recorded_pause_is_not_finished_and_resumes" "$W" \
     '        if pause and pause.get("at", 0) <= end.get("at", 0):' \
