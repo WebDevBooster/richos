@@ -21,7 +21,13 @@ registered, and work is landed or discarded), and the platform's own signals, wh
 `resume`, `stop`, `wait` and `retry`. Land and discard, and their automatic retry, are the only
 code in the engine that deletes a workspace or an agent's branch.
 
-## The thirteen points
+## The fourteen points
+
+*(This heading and the table below said "thirteen" until 2026-09-12: point 14 was added to the
+page after this record was written, at richos-hq `0a915c2d` and `ecab4679`, and the table row for
+it is added here. The counts quoted in this section — 37 tests, 20 mutants, 39 end-to-end checks —
+are the counts at `febbdc3e`, when it was written; on `c5bce604` they are 58, 43 and 47, measured in
+`round6-measurement-2026-09-12.md`.)*
 
 A test exists for each point, named after it (`test_point_NN_…`). All of them run in temporary
 repositories, with HOME, CLAUDE_CONFIG_DIR and the registry redirected, and with a session
@@ -67,6 +73,7 @@ point.
 | 11. finished versus paused | `Point11_Finished` (5) | `0d37f3ef`, `4b04ca3c` |
 | 12. an agent cannot outlive its session | `Point12_Sessions` (4) | `d1495ff2` (no borrowed session identity) |
 | 13. a failed deletion is retried | `Point13_Retry` (1) | none |
+| 14. landed means merged into the recorded integration branch; every consumer asks the record | `Point14_IntegrationBranch` (10) | `f0ee9622` (every consumer asks the library; none keeps its own answer), `556d3e62` (the inferred first-registration floor deleted), `84e12d32` (attribution by recorded creation) |
 
 The integrity probe proves the same properties on the live engine, in its Layers Q, Q6 and S
 (`dbc238f5`, `e22f2937`, `44d1243b`). Its functional canary is sandboxed. It runs spawn, commit
