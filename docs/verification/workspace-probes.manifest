@@ -1,0 +1,31 @@
+# workspace-probes.manifest — EVERY PROBE OF scripts/lib/workspaces.py, LISTED.
+#
+# Read by engine/scripts/workspace-probes.py FROM GIT (HEAD:docs/verification/
+# workspace-probes.manifest), never from the working tree. One path per line,
+# relative to the repository root; `#` starts a comment.
+#
+# WHY A LIST, WHEN DISCOVERY USED TO BE STRUCTURAL (2026-09-12, round 6 §7).
+# The runner discovered a probe by reading its text: a file that named the
+# library and drove an entry point was a probe. Both reviewers showed the
+# text rule could be stepped around from inside the work under test — a probe
+# reaching the library through `getattr("register" + "_spawn")` spells no entry
+# point and was invisible, and UNDISCOVERED IS WORSE THAN RED (route 3 of the
+# certification-{sage,frank}-gate-integrity-2026-09-12 audits). A probe is now
+# asked because its author LISTED it here and committed the line; the text
+# scan is kept as a backstop in the other direction, so a committed file that
+# looks like a probe and is not listed is reported UNLISTED and blocks.
+#
+# A path listed here that does not exist at HEAD is MISSING and blocks; a probe
+# leaves by its author's retirement (workspace-probe-retirements.tsv), never by
+# deletion and never by dropping its line here.
+docs/verification/certification-frank-attribution-2026-09-12-probe.py
+docs/verification/certification-frank-four-fixes-2026-09-12-probe.py
+docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py
+docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py
+docs/verification/certification-frank-window-and-target-2026-09-12-probe.py
+docs/verification/certification-sage-attribution-2026-09-12.probe.py
+docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py
+docs/verification/certification-sage-runner-round-2026-09-12.probe.py
+docs/verification/certification-sage-window-and-target-2026-09-12.probe.py
+docs/verification/workspace-attribution-seven-cases.probe.py
+docs/verification/workspace-call-window-and-recorded-target.probe.py

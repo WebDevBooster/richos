@@ -20,6 +20,57 @@
 #
 # So: one command, every probe, a non-zero exit if any of them is red.
 #
+# ===========================================================================
+# THREE THINGS CHANGED ON 2026-09-12 (round 6, brief §7), AND WHY EACH ONE
+# ===========================================================================
+# Both reviewers refused the round-5 gate on the same finding: the runner is
+# the one command that asks all fourteen questions, so every route that
+# silences it is literally "a question not asked". Three routes decided the
+# exit code and all three ran from inside the work under test:
+#
+#   1. THE WITNESS WAS A BRANCH NAME. A3 accepted a retirement when its commit
+#      was contained in some local branch other than the one under test. Rich
+#      cuts every reviewer's workspace at the engineer's tip, so every engineer
+#      commit was "witnessed by" a reviewer branch with no forgery at all
+#      (certification-frank-gate-integrity-2026-09-12.md §3(c)); `git branch
+#      wip` did the same (certification-sage-gate-integrity route 2); and the
+#      honest land — point 4 deletes branches — destroyed the witness and made
+#      three probes UNRUNNABLE an hour after their retirements were accepted
+#      (lifecycle-failure-record-2026-09-12.md §2c). A witness that is a branch
+#      NAME cannot be the witness in a system whose first rule is that branches
+#      get deleted.
+#
+#      THE WITNESS IS NOW THE RECORDED INTEGRATION BRANCH (point 14). A
+#      retirement — or a `not-a-probe:` marker added to an existing file — is
+#      attributable when its introducing commit HAS LANDED on the branch the
+#      registry records as the one this repository's work integrates on. Only
+#      Rich writes that branch, so the party failing a probe cannot produce the
+#      witness from inside its own work; and the branch is the one thing point 4
+#      never deletes, so the witness survives every land. The runner asks the
+#      library — `integration_for(<repo>)` — and where nothing is recorded it
+#      REFUSES every retirement and names the recording command. It never falls
+#      back to `main`: that would be a second answer to point 14's one question.
+#
+#   2. MISSING READ THE WORKING TREE. A deleted probe stopped being MISSING when
+#      a file existed at its path in the tree, committed or not, and when any
+#      line in the retirements file named it, committed or not, signed by anyone
+#      (certification-frank-gate-integrity B1: "the deletion has to be committed
+#      and the concealment does not"). MISSING is now asked of git: a path is
+#      present only if it is present at HEAD, and a deletion is excused only by
+#      a whole-file retirement that passes the same name check and the same
+#      A1-A3 as a live one.
+#
+#   3. DISCOVERY WAS A TEXT RULE. A file was a probe if its text named the
+#      library and spelled an entry point; `getattr(m, "register" + "_spawn")`
+#      spelled nothing and the probe did not exist (route 3). A probe is now
+#      discovered because its author LISTED it in a committed manifest —
+#      docs/verification/workspace-probes.manifest, read from HEAD via git, never
+#      from the working tree. The text rule is kept as the backstop in the OTHER
+#      direction: a committed file that looks like a probe and is not listed is
+#      reported UNLISTED and blocks, so a probe cannot be quietly left off the
+#      list either. A branch's own manifest lists a reviewer's probe on the
+#      reviewer's branch; a branch with no manifest is scanned the old way.
+#
 # WHAT MAY RETIRE A PROBE — AND A TYPED NAME IS NOT AUTHORITY
 # ---------------------------------------------------------------------------
 # A red prior probe BLOCKS. The only thing that can retire one is the reviewer
@@ -58,13 +109,8 @@
 # go red — which is the safe direction, and the report says exactly that rather
 # than leaving it to be guessed.
 #
-# UNTIL 2026-09-12 THE ONLY CHECK ON THAT LINE WAS THAT <who> SPELLED THE
-# PROBE'S AUTHOR — and a name is a string anybody can type. Both reviewers
-# reproduced it in throwaway repositories: a retirement signed with the other
-# reviewer's name, written by the party failing the probe, turned RED into
-# RETIRED and the run exited 0. So the signature is now checked against
-# something the failing party cannot produce INSIDE ITS OWN WORK. Three
-# questions, all answered from git, none of them from the text of the line:
+# THE THREE QUESTIONS, all answered from git, none of them from the text of the
+# line:
 #
 #   A1  IS IT COMMITTED AT ALL? A line that exists only in the working tree
 #       retires nothing. An unstaged edit is not a reviewer's act.
@@ -73,23 +119,21 @@
 #       engine. A commit that changes the library AND retires the probe that the
 #       change is failing is refused by construction — which is the exact shape
 #       of the shortcut this is here to stop.
-#   A3  IS THAT COMMIT CONTAINED IN A LOCAL BRANCH OTHER THAN THE ONE UNDER
-#       TEST? A reviewer commits on the reviewer's branch and Rich lands it, so
-#       an honest retirement is reachable from at least one other branch (its
-#       author's, or the branch it landed on). A commit that exists ONLY in the
-#       lineage being judged cannot retire anything. The witnessing branch is
-#       NAMED in the report, so a retirement that is accepted always says what
-#       stood behind it.
+#   A3  HAS THAT COMMIT LANDED ON THE RECORDED INTEGRATION BRANCH? A reviewer
+#       commits on the reviewer's branch and Rich lands it, so an honest
+#       retirement is reachable from the branch the registry records for this
+#       repository's work (point 14). A commit that has not reached it — on the
+#       branch under test, on a branch cut at the engineer's tip, on a branch
+#       named anything — cannot retire anything. The witness is NAMED in the
+#       report: the commit, the branch, and the branch's tip at the time.
 #
 # WHAT THIS STILL DOES NOT DO, SAID HERE RATHER THAN DISCOVERED LATER: every
 # agent on this machine commits under one git identity, and there is no secret
 # only a reviewer holds. A1-A3 make it impossible to retire a probe from inside
-# the work that is failing it; they do not make impersonation impossible. An
-# engineer who creates a branch and commits a docs-only retirement on it will
-# pass A1-A3. What stops that is not a check — it is that the witness is printed
-# with every retirement, so the act is on the record rather than invisible.
-# Closing it properly needs a signature a reviewer alone can make, which needs a
-# key nothing in this engine has yet.
+# the work that is failing it; a retirement Rich LANDS is accepted whoever wrote
+# it, because landing is Rich's act and the land is on the record. Closing that
+# properly needs a signature a reviewer alone can make, which needs a key
+# nothing in this engine has yet.
 #
 # The same three questions govern the `not-a-probe:` declaration, for the same
 # reason: it is a statement about somebody's probe. A marker present since the
@@ -101,28 +145,18 @@
 # WHAT COUNTS AS A PROBE HERE
 # ---------------------------------------------------------------------------
 # A probe of workspaces.py is a committed .py file under docs/verification/ that
-# either
-#   (a) names workspaces.py / workspaces.test.py AND drives the library, or
-#   (b) LOADS A MODULE FROM A PATH and calls one of the library's own entry
-#       points — which is a probe that takes the library as an argument and
-#       never spells the file name anywhere.
-#
-# (b) is not a generalization for its own sake. A probe of exactly that shape
-# was invisible to this runner, and UNDISCOVERED IS WORSE THAN RED: a red probe
-# stops a commit and an invisible one does not exist. Measured over the 253 .py
-# files under docs/verification/ in this tree, (b) adds zero files that (a) did
-# not already find, so the widening costs no false positives here.
-#
-# That is a structural test, so a new probe is discovered by being committed and
-# by nothing else — no registration step, no list to keep in step.
+# is LISTED in docs/verification/workspace-probes.manifest at HEAD. The text rule
+# — it names workspaces.py / workspaces.test.py and drives the library, or it
+# loads a module from a path and calls one of the library's entry points — is
+# the backstop that finds an UNLISTED one.
 #
 # A PROBE THAT DISAPPEARS IS A PROBE THAT WAS DELETED
 # ---------------------------------------------------------------------------
 # Route 4 of four: removing the file only lowers a count nothing was checking.
 # So the runner also asks git which paths under docs/verification/ USED to hold
-# a probe and hold nothing now, and reports each as MISSING — as blocking as a
-# red one. A probe leaves by retirement, which is attributable, and never by
-# deletion, which is not.
+# a probe and hold nothing at HEAD, and which manifest entries hold nothing at
+# HEAD, and reports each as MISSING — as blocking as a red one. A probe leaves
+# by retirement, which is attributable, and never by deletion, which is not.
 #
 # Two shapes are both supported, because both are in the tree:
 #
@@ -144,14 +178,13 @@
 # Files under docs/verification/ that are NOT probes of this library are counted
 # and named under --show-all, never silently dropped.
 #
-# BRANCHES, NOT JUST THE WORKING TREE
+# BRANCHES, NOT JUST HEAD
 # ---------------------------------------------------------------------------
 # A reviewer commits its probe on ITS OWN branch, which is exactly the branch
-# the engineer has not merged. Discovering only the working tree would mean the
-# probes written to judge THIS round are the ones this runner cannot see. So it
-# also reads every local branch that carries probes the tree does not have,
-# materializes them read-only into a temporary directory, and names the branch
-# in the report. `codex/` is never read (spec point 2).
+# the engineer has not merged. Discovering only HEAD would mean the probes
+# written to judge THIS round are the ones this runner cannot see. So it also
+# reads every local branch's manifest, materializes read-only what HEAD's does
+# not list, and names the branch in the report. `codex/` is never read (point 2).
 #
 #     engine/scripts/workspace-probes.py                    # this tree's lib
 #     engine/scripts/workspace-probes.py --lib <path>       # any workspaces.py
@@ -162,6 +195,7 @@
 # Exit 0 only when every discovered probe ran and every one of them was green.
 # ===========================================================================
 import argparse
+import importlib.util
 import os
 import re
 import shutil
@@ -170,22 +204,22 @@ import sys
 import tempfile
 import time
 
+# THE RUNNER WRITES NOTHING BESIDE THE LIBRARY IT LOADS. Loading workspaces.py
+# to ask it the witness (integration_witness) is an import, and an import writes
+# __pycache__/workspaces.cpython-*.pyc next to the source unless told not to. In
+# the runner's own suite that file was then swept up by `git add -A` into a
+# reviewer's retirement commit, and A2 refused the retirement for "also
+# changing the engine" — the runner's own side effect defeating the runner's own
+# check. A tool that judges commits must not put files into them.
+sys.dont_write_bytecode = True
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# WHAT COUNTS AS DRIVING THE LIBRARY. This was a list of entry points spelled
-# with their opening parenthesis, and that was too narrow in the one direction
-# that matters: a probe reaching the library through `getattr`, or naming an
-# entry point without calling it, was SILENTLY NOT DISCOVERED. Undiscovered is
-# strictly worse than red -- a red probe stops a commit and an invisible one
-# does not exist. So loading the library at all counts, which is something every
-# probe of it must do however it then drives it.
-#
-# THE TWO HALVES ARE NOW SEPARATE, because the library's file name is not a
-# reliable part of a probe. LOADERS is "a module is loaded from a path" -- the
-# only way to drive a workspaces.py handed over as an argument. ENTRY_POINTS is
-# the set of names that belong to THIS library and to nothing else in the
-# engine. A file that does both is a probe of this library whether or not it ever
-# writes the string "workspaces.py".
+# WHAT COUNTS AS DRIVING THE LIBRARY — the BACKSTOP rule, which finds a probe
+# that was not listed. LOADERS is "a module is loaded from a path"; ENTRY_POINTS
+# is the set of names that belong to THIS library and to nothing else in the
+# engine. A file that does both, or names the library and does either, looks
+# like a probe from outside; if it is not in the manifest it is UNLISTED.
 LOADERS = ("spec_from_file_location", "exec_module", "import workspaces",
            "run_path", "SourceFileLoader", "load_source")
 ENTRY_POINTS = ("barrier", "observe_created_refs", "register_spawn", "register_cc",
@@ -195,6 +229,7 @@ ENTRY_POINTS = ("barrier", "observe_created_refs", "register_spawn", "register_c
 DRIVES = LOADERS + ENTRY_POINTS
 
 RETIREMENTS = "docs/verification/workspace-probe-retirements.tsv"
+MANIFEST = "docs/verification/workspace-probes.manifest"
 VERIFICATION_DIR = "docs/verification/"
 
 # A probe's author, from its path. Both reviewers name themselves in the file
@@ -229,21 +264,56 @@ def repo_root():
 
 
 # ---------------------------------------------------------------------------
+# THE WITNESS — the recorded integration branch, asked of the library (point 14)
+# ---------------------------------------------------------------------------
+_WITNESS = {}
+
+
+def integration_witness(root):
+    """(branch, tip, why_not) for the repository the runner stands in — THE ONE
+    ANSWER, read from scripts/lib/workspaces.py beside this file. Cached per run.
+
+    Loading the library by path is a duplicated LOADER, not a duplicated ANSWER:
+    there is one implementation of "what does this work integrate on" and it is
+    the registry's. Where nothing is recorded the answer is a `why_not` naming
+    the recording command, and this runner ABSTAINS into refusal — it never
+    substitutes `main`."""
+    if root in _WITNESS:
+        return _WITNESS[root]
+    lib = os.path.join(HERE, "lib", "workspaces.py")
+    try:
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, tip, why_not = ws.integration_for(root)
+    except Exception as e:  # noqa: BLE001 — a witness that cannot be read is no witness
+        branch, tip, why_not = "", "", "the registry could not be read from %s: %s" % (lib, e)
+    _WITNESS[root] = (branch or "", tip or "", why_not or "")
+    return _WITNESS[root]
+
+
+def is_ancestor(root, commit, tip):
+    rc, _, _ = git(root, "merge-base", "--is-ancestor", commit, tip)
+    return rc == 0
+
+
+# ---------------------------------------------------------------------------
 # discovery
 # ---------------------------------------------------------------------------
 class Probe(object):
     def __init__(self, name, path, origin, text):
         self.name = name          # docs/verification/... — the committed path
         self.path = path          # where it can be executed from, now
-        self.origin = origin      # "working tree" or a branch name
+        self.origin = origin      # "HEAD" or a branch name
         self.text = text
         self.shape = shape_of(text)
         self.author = author_of(name, text)
         self.cases = cases_of(text)
-        self.verdict = ""         # GREEN / RED / UNRUNNABLE / RETIRED / MISSING
+        self.verdict = ""         # GREEN / RED / UNRUNNABLE / RETIRED / MISSING / UNLISTED
         self.detail = ""
         self.seconds = 0.0
         self.output = ""
+        self.listed = True        # in the manifest of its origin
         # The `not-a-probe:` declaration, if any. Held rather than acted on at
         # discovery time: whether it STANDS is a question for git (A1-A3), and a
         # declaration the runner refuses must leave the file a probe.
@@ -259,10 +329,11 @@ class Probe(object):
 
 
 def is_workspaces_probe(text):
-    """Structural, so a new probe is discovered by being committed: it names the
-    library and it drives it. Both halves are needed -- the name alone matches
-    any file that mentions a path, and `exec_module` alone matches half the
-    engine.
+    """The BACKSTOP: structural, so a probe that was not listed is still seen.
+    It names the library and drives it, or it loads a module from a path and
+    calls one of the library's own entry points. Both halves are needed -- the
+    name alone matches any file that mentions a path, and `exec_module` alone
+    matches half the engine.
 
     THE ONE WAY OUT IS A DECLARATION, not a path rule. A tool that builds or
     adapts probes looks exactly like a probe from outside, and a path rule
@@ -272,19 +343,9 @@ def is_workspaces_probe(text):
 
         not-a-probe: <why this drives the library but asserts nothing>
 
-    A bare marker exempts nothing -- the same discipline the contrast floor and
-    the dialect guard use. The runner counts declared files and names them under
-    --show-all, so an exemption is visible rather than silent.
-
-    THE DECLARATION IS NOT APPLIED HERE ANY MORE. Dropping a declared file at
-    discovery meant a marker ADDED to somebody else's probe removed it from the
-    run with no check on who added it, and the run then said "every discovered
-    probe ran, and every one of them is green" and exited 0. So a declared file
-    is still discovered, and whether the declaration stands is decided against
-    git by marker_authority() -- the same three questions a retirement answers.
-
-    THE NAME OF THE LIBRARY IS NOT REQUIRED. A probe handed the library as an
-    argument need never write the string, and that probe was invisible."""
+    A bare marker exempts nothing. The runner counts declared files and names
+    them under --show-all, so an exemption is visible rather than silent. Whether
+    the declaration stands is decided against git by marker_authority()."""
     named = ("workspaces.py" in text) or ("workspaces.test.py" in text)
     loads = any(e in text for e in LOADERS)
     drives_entry = any(re.search(r"\b%s\s*\(" % e, text) for e in ENTRY_POINTS)
@@ -294,8 +355,7 @@ def is_workspaces_probe(text):
 
 
 def shape_of(text):
-    """How this probe is driven, read off the file itself — so a probe is
-    discovered by being committed, never by being registered somewhere."""
+    """How this probe is driven, read off the file itself."""
     if re.search(r"sys\.argv\[2\]", text) and re.search(r"SCENARIO\s*==", text):
         return "argv-scenario"        # one process per scenario, lib as argv[1]
     if re.search(r"main\(sys\.argv\[1:\]\)", text):
@@ -322,30 +382,87 @@ def author_of(name, text):
     return "the engineer"
 
 
-def tree_probes(root):
-    found = []
-    base = os.path.join(root, "docs", "verification")
-    others = 0
-    for dirpath, _dirnames, filenames in os.walk(base):
-        for fn in sorted(filenames):
-            if not fn.endswith(".py"):
-                continue
-            full = os.path.join(dirpath, fn)
-            rel = os.path.relpath(full, root)
-            try:
-                text = open(full, encoding="utf-8", errors="replace").read()
-            except OSError:
-                continue
-            if is_workspaces_probe(text):
-                found.append(Probe(rel, full, "working tree", text))
-            else:
-                others += 1
-    return found, others
+def file_at(root, ref, path):
+    rc, out, _ = git(root, "show", "%s:%s" % (ref, path))
+    return out if rc == 0 else None
+
+
+def exists_at(root, ref, path):
+    rc, _, _ = git(root, "cat-file", "-e", "%s:%s" % (ref, path))
+    return rc == 0
+
+
+def manifest_at(root, ref):
+    """(entries, present). The manifest AT A COMMIT, via git — never the working
+    tree, so an entry that was only typed discovers nothing and an entry that
+    was only deleted from the tree still counts."""
+    text = file_at(root, ref, MANIFEST)
+    if text is None:
+        return [], False
+    out = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line and line not in out:
+            out.append(line)
+    return out, True
+
+
+def py_files_at(root, ref):
+    rc, out, _ = git(root, "ls-tree", "-r", "--name-only", ref, VERIFICATION_DIR)
+    if rc != 0:
+        return []
+    return [l.strip() for l in out.splitlines() if l.strip().endswith(".py")]
+
+
+def materialize(root, ref, rel, stage, origin_tag):
+    text = file_at(root, ref, rel)
+    if text is None:
+        return None
+    dest = os.path.join(stage, origin_tag.replace("/", "_"), rel)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(text)
+    return Probe(rel, dest, "HEAD" if ref == "HEAD" else ref, text)
+
+
+def head_probes(root, stage):
+    """(probes, unlisted, others, manifest_present). Everything is read AT HEAD.
+
+    Listed and present -> a probe. Listed and absent -> reported by
+    deleted_probes() as MISSING. Present, not listed, and it looks like a probe
+    -> UNLISTED (blocking) unless it carries a declaration, which is judged
+    later against git like everything else."""
+    entries, present = manifest_at(root, "HEAD")
+    found, unlisted, others = [], [], 0
+    seen = set()
+    for rel in entries:
+        if not rel.endswith(".py") or not exists_at(root, "HEAD", rel):
+            continue
+        p = materialize(root, "HEAD", rel, stage, "HEAD")
+        if p is not None:
+            found.append(p)
+            seen.add(rel)
+    for rel in py_files_at(root, "HEAD"):
+        if rel in seen:
+            continue
+        text = file_at(root, "HEAD", rel)
+        if text is None:
+            continue
+        if is_workspaces_probe(text):
+            p = materialize(root, "HEAD", rel, stage, "HEAD")
+            p.listed = False
+            unlisted.append(p)
+        else:
+            others += 1
+    return found, unlisted, others, present
 
 
 def branch_probes(root, have, stage):
     """Probes committed on OTHER local branches — a reviewer's probe lives on the
-    reviewer's branch, which is precisely the branch this round has not merged."""
+    reviewer's branch, which is precisely the branch this round has not merged.
+    A branch's own manifest says what it adds; a branch with no manifest is
+    scanned by the text rule, which is the only thing it could have been judged
+    by when it was written."""
     rc, out, _ = git(root, "rev-parse", "--abbrev-ref", "HEAD")
     mine = out.strip() if rc == 0 else ""
     rc, out, _ = git(root, "for-each-ref", "--format=%(refname:short)", "refs/heads")
@@ -355,22 +472,21 @@ def branch_probes(root, have, stage):
     for br in sorted(out.split()):
         if br == mine or br.startswith("codex/"):      # point 2: never read codex/
             continue
-        rc, listing, _ = git(root, "ls-tree", "-r", "--name-only", br, "docs/verification/")
-        if rc != 0:
-            continue
-        for rel in sorted(listing.splitlines()):
+        entries, present = manifest_at(root, br)
+        candidates = entries if present else py_files_at(root, br)
+        for rel in candidates:
             rel = rel.strip()
             if not rel.endswith(".py") or rel in have:
                 continue
-            rc, text, _ = git(root, "show", "%s:%s" % (br, rel))
-            if rc != 0 or not is_workspaces_probe(text):
+            text = file_at(root, br, rel)
+            if text is None:
                 continue
-            dest = os.path.join(stage, br.replace("/", "_"), rel)
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            with open(dest, "w", encoding="utf-8") as f:
-                f.write(text)
-            found.append(Probe(rel, dest, br, text))
-            have.add(rel)
+            if not present and not is_workspaces_probe(text):
+                continue
+            p = materialize(root, br, rel, stage, br)
+            if p is not None:
+                found.append(p)
+                have.add(rel)
     return found
 
 
@@ -383,11 +499,6 @@ HISTORY_LIMIT = 400
 def head_branch(root):
     rc, out, _ = git(root, "rev-parse", "--abbrev-ref", "HEAD")
     return out.strip() if rc == 0 else ""
-
-
-def file_at(root, ref, path):
-    rc, out, _ = git(root, "show", "%s:%s" % (ref, path))
-    return out if rc == 0 else None
 
 
 def introducing_commit(root, ref, path, needle):
@@ -421,30 +532,13 @@ def commit_paths(root, commit):
     return [l.strip() for l in out.splitlines() if l.strip()]
 
 
-def witness_branches(root, commit, mine):
-    """Local branches OTHER than the one under test that contain <commit>.
-
-    `codex/` is never read (spec point 2), and a detached HEAD yields no `mine`,
-    in which case every branch counts as a witness -- the honest answer, since
-    there is then no branch under test to exclude."""
-    rc, out, _ = git(root, "branch", "--format=%(refname:short)", "--contains", commit)
-    if rc != 0:
-        return []
-    out_branches = []
-    for b in out.splitlines():
-        b = b.strip().lstrip("* ").strip()
-        if not b or b.startswith("codex/") or b == mine or b.startswith("("):
-            continue
-        out_branches.append(b)
-    return out_branches
-
-
 def attributable(root, ref, path, needle, mine, docs_only=True):
     """(ok, witness_or_reason) — A1, A2, A3 in that order.
 
     Returns the WITNESS on success, because a retirement that is accepted has to
     say what stood behind it: a verdict of RETIRED with no witness named is the
-    typed name all over again.
+    typed name all over again. The witness is the commit, the RECORDED
+    integration branch it landed on, and that branch's tip at the time.
 
     `docs_only` IS A2, AND IT IS ASKED OF A RETIREMENT AND NOT OF A MARKER. The
     two declarations are not the same act. A retirement is about a probe that is
@@ -452,11 +546,9 @@ def attributable(root, ref, path, needle, mine, docs_only=True):
     retired it". A `not-a-probe:` marker is about a file that asserts nothing, and
     the honest case for adding one is a helper committed alongside the engine
     change that needed it -- which is how the one such file in this tree got its
-    marker, at 4c70bfc2, together with the runner. Refusing that would be an
-    over-strict rule whose only effect is a waiver, and a habit of waiving is how
-    a check dies. A1 and A3 still apply to the marker, and A3 is the one that
-    refuses route 1: a marker added by the party failing the probe, on its own
-    branch, witnessed by nothing."""
+    marker, at 4c70bfc2, together with the runner. A1 and A3 still apply to the
+    marker, and A3 now asks whether Rich LANDED it — a marker added on the branch
+    under test, however many branches are cut at its tip, is refused."""
     commit = introducing_commit(root, ref, path, needle)
     if not commit:
         return False, ("A1: it is not in any commit reachable from %s. A line that "
@@ -470,14 +562,18 @@ def attributable(root, ref, path, needle, mine, docs_only=True):
                        "that changes the library AND retires the probe the change is "
                        "failing is the shortcut this refuses."
                        % (commit[:12], ", ".join(sorted(outside)[:4])))
-    witnesses = witness_branches(root, commit, mine)
-    if not witnesses:
-        return False, ("A3: the commit that wrote it (%s) exists only in %s, the branch "
-                       "under test. A reviewer commits on its own branch and Rich lands "
-                       "it, so an honest retirement is reachable from some other branch. "
-                       "Work cannot retire the probe it is failing."
-                       % (commit[:12], mine or "the current lineage"))
-    return True, "%s, witnessed by %s" % (commit[:12], ", ".join(sorted(witnesses)[:3]))
+    branch, tip, why_not = integration_witness(root)
+    if why_not:
+        return False, ("A3: no branch is recorded as the one this repository's work "
+                       "integrates on, so nothing can witness it (point 14). %s" % why_not)
+    if not is_ancestor(root, commit, tip):
+        return False, ("A3: the commit that wrote it (%s) has not landed on %s, the branch "
+                       "recorded for this work (point 14). A reviewer commits on its own "
+                       "branch and Rich lands it; a commit that has not reached the recorded "
+                       "integration branch -- on %s, or on any branch cut at its tip -- cannot "
+                       "retire anything. A branch NAME is no witness: point 4 deletes branches."
+                       % (commit[:12], branch, mine or "the current lineage"))
+    return True, "%s, landed on %s @ %s" % (commit[:12], branch, tip[:12])
 
 
 def marker_authority(root, probe, mine):
@@ -488,7 +584,7 @@ def marker_authority(root, probe, mine):
     (a tool that builds probes, committed as a tool). A marker ADDED LATER is a
     statement about a file that already existed, so it answers A1-A3 like a
     retirement does."""
-    ref = "HEAD" if probe.origin == "working tree" else probe.origin
+    ref = "HEAD" if probe.origin == "HEAD" else probe.origin
     rc, out, _ = git(root, "log", "--format=%H", "--diff-filter=A", "-n", "5",
                      ref, "--", probe.name)
     if rc == 0 and out.split():
@@ -501,31 +597,36 @@ def marker_authority(root, probe, mine):
 
 def deleted_probes(root, mine):
     """Paths under docs/verification/ that USED to hold a probe of this library
-    and hold nothing now.
+    and hold nothing AT HEAD, plus manifest entries that hold nothing at HEAD.
 
-    Route 4: a probe that simply disappears only lowers a count nothing checks.
-    Renames are not deletions -- git's own rename detection reports those as R --
-    so this names files that were removed, which is the only way a probe can
-    leave without a retirement."""
+    ASKED OF GIT, NEVER OF THE WORKING TREE (route 4, re-opened on 2026-09-12 by
+    an uncommitted file at the deleted path). Renames are not deletions -- git's
+    own rename detection reports those as R -- so this names files that were
+    removed, which is the only way a probe can leave without a retirement."""
+    gone = []
     rc, out, _ = git(root, "log", "--diff-filter=D", "--name-only",
                      "--format=C%H", "-n", str(HISTORY_LIMIT),
                      mine or "HEAD", "--", VERIFICATION_DIR + "*.py")
-    if rc != 0:
-        return []
-    gone, commit = [], ""
-    for line in out.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("C") and len(line) == 41:
-            commit = line[1:]
-            continue
-        if os.path.exists(os.path.join(root, line)):
-            continue                     # deleted once, present again now
-        text = file_at(root, commit + "^", line)
-        if text is None or not is_workspaces_probe(text):
-            continue
-        gone.append((line, commit))
+    if rc == 0:
+        commit = ""
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("C") and len(line) == 41:
+                commit = line[1:]
+                continue
+            if exists_at(root, "HEAD", line):
+                continue                     # deleted once, present again at HEAD
+            text = file_at(root, commit + "^", line)
+            if text is None or not is_workspaces_probe(text):
+                continue
+            if all(q != line for q, _c in gone):
+                gone.append((line, commit))
+    entries, _present = manifest_at(root, "HEAD")
+    for rel in entries:
+        if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):
+            gone.append((rel, "the manifest lists it and HEAD does not have it"))
     return gone
 
 
@@ -542,7 +643,10 @@ def retirements(root):
 
     The RAW LINE travels with every record, because attribution is asked about the
     exact text that was committed rather than about the file -- without that, a
-    line could be edited in place and inherit somebody else's commit."""
+    line could be edited in place and inherit somebody else's commit. The file is
+    read from the working tree so that an UNCOMMITTED line can be named in the
+    refusal (A1) rather than silently ignored; nothing below trusts it without
+    asking git."""
     path = os.path.join(root, RETIREMENTS)
     out = {}
     if not os.path.exists(path):
@@ -563,6 +667,24 @@ def retirements(root):
         else:
             rec["whole"] = (parts[1], parts[2], line)
     return out
+
+
+def deletion_excused(root, rel, retired, mine):
+    """A deleted probe is not MISSING only when a WHOLE-FILE retirement for it
+    passes the same two checks a live retirement passes: the signature matches
+    the author the file name carries, and the line is attributable (A1-A3).
+    An uncommitted line, a line signed by anyone else, or a per-case line
+    excuses nothing -- deletion is not a per-case act."""
+    rec = retired.get(os.path.basename(rel))
+    if not rec or not rec.get("whole"):
+        return False, "no whole-file retirement names it"
+    who, _why, raw = rec["whole"]
+    author = author_of(rel, "")
+    if who.lower() != author:
+        return False, ("its retirement is signed '%s' but the probe's author is '%s'"
+                       % (who, author))
+    ok, detail = attributable(root, "HEAD", RETIREMENTS, raw, mine)
+    return ok, detail
 
 
 # ---------------------------------------------------------------------------
@@ -703,10 +825,11 @@ work:
     A1  the line is in a COMMIT -- a working-tree edit retires nothing
     A2  that commit touches nothing outside docs/verification/ -- the commit
         that broke the probe may not be the commit that retires it
-    A3  that commit is contained in a local branch OTHER than the one under
-        test -- a reviewer commits on its own branch and Rich lands it
+    A3  that commit has LANDED on the branch recorded as the one this work
+        integrates on (point 14) -- a reviewer commits on its own branch and
+        Rich lands it; a branch name is no witness, since point 4 deletes them
 
-Every retirement that is accepted prints its commit and its witnessing branch,
+Every retirement that is accepted prints its commit and the landed-on branch,
 so what stood behind it is on the record rather than taken on trust.
 
 RETIREMENT IS PER CASE. A reviewer who finds three of his six cases obsolete and
@@ -719,12 +842,16 @@ assertions to buy one green exit code, or to write nothing. He wrote nothing, an
 he was right to.
 
 A PROBE ALSO NEVER LEAVES BY BEING DELETED. A path that used to hold a probe and
-holds nothing now is MISSING, and MISSING blocks exactly like RED: deletion is
-not attributable to anybody, which is the whole reason retirement is.
+holds nothing at HEAD is MISSING, and MISSING blocks exactly like RED: deletion
+is not attributable to anybody, which is the whole reason retirement is.
+
+A PROBE IS ASKED BECAUSE ITS AUTHOR LISTED IT. A committed file that looks like
+a probe and is not in %s is UNLISTED, and UNLISTED blocks: add its line, or
+declare `not-a-probe: <why>` inside it.
 
 Everything else is a regression to fix.
 ===========================================================================
-""" % RETIREMENTS
+""" % (RETIREMENTS, MANIFEST)
 
 
 def main(argv):
@@ -761,21 +888,22 @@ def main(argv):
         if not os.path.exists(lib):
             raise SystemExit("workspace-probes.py: no such workspaces.py: %s" % lib)
 
-        probes, others = tree_probes(root)
-        have = set(p.name for p in probes)
+        probes, unlisted, others, manifest_present = head_probes(root, stage)
+        have = set(p.name for p in probes) | set(p.name for p in unlisted)
         if not args.tree_only:
             probes += branch_probes(root, have, stage)
-        probes.sort(key=lambda p: (p.origin != "working tree", p.name))
+        probes.sort(key=lambda p: (p.origin != "HEAD", p.name))
         mine = head_branch(root)
+        w_branch, w_tip, w_why = integration_witness(root)
 
         # THE DECLARATION IS SETTLED BEFORE ANYTHING IS COUNTED, and it is
         # settled against git. A file whose `not-a-probe:` marker STANDS leaves
         # the run and is named; a file whose marker is REFUSED stays a probe and
-        # carries the refusal into its report line. Route 1 of four was that this
-        # decision used to be made by reading the text.
+        # carries the refusal into its report line. An UNLISTED file with a
+        # standing declaration is a declared tool, not an unlisted probe.
         declared_out = []
         kept = []
-        for pr in probes:
+        for pr in probes + unlisted:
             if not pr.declared:
                 kept.append(pr)
                 continue
@@ -786,32 +914,48 @@ def main(argv):
             else:
                 pr.declared_refused = whyd
                 kept.append(pr)
-        probes = kept
+        unlisted = [p for p in kept if not p.listed]
+        probes = [p for p in kept if p.listed]
         discovered = len(probes)
-        in_tree = sum(1 for p in probes if p.origin == "working tree")
+        at_head = sum(1 for p in probes if p.origin == "HEAD")
         if args.only:
             probes = [p for p in probes if any(o in p.name for o in args.only)]
+            unlisted = [p for p in unlisted if any(o in p.name for o in args.only)]
 
         retired = retirements(root)
 
         # ROUTE 4: a probe that is GONE. Asked of git, not of the tree, because
         # the tree is exactly where a deleted probe is invisible. A probe its
         # author retired is not missing -- it left the documented way -- so the
-        # retirement filter is applied HERE, before the count is printed. Printing
-        # the unfiltered number would report a retired probe as a deletion, which
-        # is a number that contradicts the verdict three lines below it.
-        missing = [(q, c) for q, c in deleted_probes(root, mine)
-                   if os.path.basename(q) not in retired]
+        # retirement filter is applied HERE, before the count is printed, and it
+        # asks the same questions a live retirement answers: the name, and
+        # A1-A3. An uncommitted line, or a line signed by anyone else, excuses
+        # nothing (route 4 was re-opened by exactly that on 2026-09-12).
+        missing = []
+        for q, c in deleted_probes(root, mine):
+            ok, why = deletion_excused(root, q, retired, mine)
+            if not ok:
+                missing.append((q, c, why))
         print("workspaces.py under test: %s" % lib)
-        print("probes discovered:        %d (%d in the working tree, %d on other branches)%s"
-              % (discovered, in_tree, discovered - in_tree,
+        print("manifest:                 %s @ HEAD%s"
+              % (MANIFEST, "" if manifest_present else "  — NOT COMMITTED: nothing is listed, so "
+                 "every committed file that looks like a probe is UNLISTED below"))
+        print("probes discovered:        %d (%d listed at HEAD, %d on other branches)%s"
+              % (discovered, at_head, discovered - at_head,
                  "" if not args.only else
                  "  — %d selected by --only, SO THIS RUN PROVES NOTHING ABOUT THE REST"
                  % len(probes)))
         print("branch under test:        %s" % (mine or "(detached HEAD)"))
+        if w_why:
+            print("integration branch:       NOT RECORDED — every retirement and every later-added "
+                  "declaration is refused until it is: %s" % w_why)
+        else:
+            print("integration branch:       %s @ %s (recorded; the witness every retirement must "
+                  "have landed on)" % (w_branch, w_tip[:12]))
         print("declared not-a-probe:     %d (each named below; a declaration is checked "
               "against git, never read)" % len(declared_out))
         print("probes DELETED from history and not retired: %d" % len(missing))
+        print("committed probes NOT LISTED in the manifest: %d" % len(unlisted))
         print("other files under docs/verification/ that are not probes of this library: %d%s"
               % (others, "" if args.show_all else "  (--show-all names them)"))
         print("")
@@ -895,9 +1039,15 @@ def main(argv):
                 continue
             run_probe(root, lib, p, args.timeout)
 
-        width = max([len(p.name) for p in probes] + [10])
-        for p in probes:
-            where = "" if p.origin == "working tree" else "   [%s]" % p.origin
+        for p in unlisted:
+            p.verdict = "UNLISTED"
+            p.detail = ("it is committed, it looks like a probe of this library, and %s does not "
+                        "list it. A probe is asked because its author listed it; add its line, or "
+                        "declare `not-a-probe: <why>` inside the file." % MANIFEST)
+
+        width = max([len(p.name) for p in probes + unlisted] + [10])
+        for p in probes + unlisted:
+            where = "" if p.origin == "HEAD" else "   [%s]" % p.origin
             print("%-10s %-*s %6.1fs%s" % (p.verdict, width, p.name, p.seconds, where))
             if p.declared_refused:
                 print("           DECLARATION REFUSED, so this file is still a probe: %s"
@@ -918,19 +1068,14 @@ def main(argv):
             # every one of them. An inventory that names none of what it counts is
             # the count on its own, which is the thing --show-all was offered as
             # the answer to.
-            print("\n--- files under docs/verification/ that are not probes of this library ---")
-            base = os.path.join(root, "docs", "verification")
-            probe_paths = set(pr.name for pr in probes) | set(pr.name for pr in declared_out)
+            print("\n--- files under docs/verification/ at HEAD that are not probes of this library ---")
+            probe_paths = set(pr.name for pr in probes + unlisted) | set(pr.name for pr in declared_out)
             named = 0
-            for dirpath, _dn, fns in os.walk(base):
-                for fn in sorted(fns):
-                    if not fn.endswith(".py"):
-                        continue
-                    rel = os.path.relpath(os.path.join(dirpath, fn), root)
-                    if rel in probe_paths:
-                        continue
-                    print("    %s" % rel)
-                    named += 1
+            for rel in py_files_at(root, "HEAD"):
+                if rel in probe_paths:
+                    continue
+                print("    %s" % rel)
+                named += 1
             print("    (%d named; the count above was %d — if these two disagree, believe "
                   "neither)" % (named, others))
 
@@ -939,33 +1084,37 @@ def main(argv):
         # A DELETED PROBE IS BLOCKING, and it is blocking even under --list,
         # because --list is a discovery command and a probe that is gone is
         # exactly a discovery result. It is filtered by --only like any other.
-        gone = [(q, c) for q, c in missing
+        gone = [(q, c, w) for q, c, w in missing
                 if not args.only or any(o in q for o in args.only)]
-        for q, c in gone:
+        for q, c, w in gone:
             print("%-10s %s" % ("MISSING", q))
-            print("           it held a probe of this library and was DELETED in %s. A probe "
+            print("           it held a probe of this library and is DELETED at HEAD (%s). A probe "
                   "leaves by retirement, which is attributable, and never by deletion, which "
-                  "is not. Restore it, or have its author retire it in %s."
-                  % (c[:12], RETIREMENTS))
+                  "is not (%s). Restore it, or have its author retire it in %s."
+                  % (c[:12] if len(c) == 40 else c, w, RETIREMENTS))
         if args.list:
-            return 1 if gone else 0           # --list runs nothing and claims nothing
+            return 1 if (gone or unlisted) else 0     # --list runs nothing and claims nothing
 
         print("")
         for p in red + stuck:
             print("=== %s — %s%s" % (p.verdict, p.name,
-                                     "" if p.origin == "working tree" else "  [%s]" % p.origin))
+                                     "" if p.origin == "HEAD" else "  [%s]" % p.origin))
             if p.detail:
                 print("    %s" % p.detail)
             for line in (p.output or "").splitlines()[-25:]:
                 print("    | %s" % line)
             print("")
 
-        if red or stuck or gone:
+        if red or stuck or gone or unlisted:
             print(REFUSAL)
             if gone:
                 print("DELETED (a probe that used to exist and does not):")
-                for q, c in gone:
-                    print("    %s   removed in %s" % (q, c[:12]))
+                for q, c, w in gone:
+                    print("    %s   removed in %s" % (q, c[:12] if len(c) == 40 else c))
+            if unlisted:
+                print("UNLISTED (a committed probe the manifest does not name):")
+                for p in unlisted:
+                    print("    %s" % p.name)
             if red:
                 print("RED (a prior probe now fails):")
                 for p in red:

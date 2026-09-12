@@ -7,50 +7,62 @@
 # Each case builds a throwaway repository in the shape the runner expects — a
 # git toplevel with engine/scripts/lib/workspaces.py and docs/verification/ —
 # and puts synthetic probes in it. Nothing here touches the real tree, the real
-# probes, or the operator's registry.
+# probes, or the operator's registry: the registry is redirected into the
+# sandbox (RICHOS_WORKSPACES_DIR) and the integration branch is RECORDED there,
+# exactly as point 14 requires of Rich before a body of work starts.
 #
-#   W1  a probe is DISCOVERED by being committed: it names workspaces.py and
-#       drives an entry point, and nothing registers it anywhere
+# THE FIXTURE HAS THE SHAPE THE REAL REPOSITORY HAS (2026-09-12). `main` is the
+# recorded integration branch, which only Rich writes; the branch under test is
+# `cc/engineer`, cut from main. A reviewer's retirement is committed on the
+# reviewer's own branch, LANDED on main by Rich, and merged into cc/engineer —
+# that is what gives it a witness other than the work being judged (A3). A
+# retirement the engineer commits on cc/engineer has none, however many other
+# branches are cut at its tip. Before 2026-09-12 the fixture's HEAD was main
+# itself and the witness was "any other branch", which is the shape both
+# reviewers silenced from inside the work.
+#
+#   W1  a probe is DISCOVERED by being LISTED in the committed manifest
 #   W2  a file that is not a probe of this library is NOT counted as one
 #   W3  a red probe makes the runner exit non-zero and print what may retire it
-#   W4  a retirement signed by the probe's OWN AUTHOR retires it
+#   W4  a retirement signed by the probe's OWN AUTHOR and LANDED retires it
 #   W5  a retirement signed by ANYONE ELSE is refused, naming both names --
 #       this is the whole point, and without it the refusal is a suggestion
 #   W6  a probe the runner cannot execute is NOT a probe that passed: it blocks
-#   W7  a probe on ANOTHER LOCAL BRANCH is discovered and named by its branch
+#   W7  a probe on ANOTHER LOCAL BRANCH is discovered through that branch's
+#       manifest and named by its branch
 #   W8  --at <commit> tests that commit's workspaces.py, not the tree's
-#   W9  a file that declares `not-a-probe: <reason>` is not run and not counted;
-#       a BARE marker with no reason exempts nothing
+#   W9  a file that declares `not-a-probe: <reason>` in the commit that added it
+#       is not run and is named; a BARE marker exempts nothing (UNLISTED)
 #   W10 A RUN THAT ASKED NOTHING IS NOT A RUN THAT PASSED. An --only that matches
 #       no probe must not print the green line and exit 0 -- that is
 #       byte-for-byte what a clean full run looks like
 #
-# AND THE FOUR ROUTES PAST THE GATE, each reproduced by a reviewer in a throwaway
+# AND THE ROUTES PAST THE GATE, each reproduced by a reviewer in a throwaway
 # repository before it was closed. Every one of them made the run print "every
 # discovered probe ran, and every one of them is green" and exit 0.
 #
 #   W11 AN UNCOMMITTED RETIREMENT IS NOT A RETIREMENT (A1). It was enough to
 #       write the line; nothing asked whether it had ever been committed.
-#   W12 A RETIREMENT COMMITTED ONLY ON THE BRANCH UNDER TEST IS REFUSED (A3).
-#       This is route 2: the name was checked and the name is a string anybody
-#       can type, so the party failing the probe signed the reviewer's name and
-#       the probe went RETIRED.
+#   W12 A RETIREMENT COMMITTED ONLY ON THE BRANCH UNDER TEST IS REFUSED (A3):
+#       it has not landed on the recorded integration branch.
 #   W13 A RETIREMENT IN THE SAME COMMIT AS A LIBRARY EDIT IS REFUSED (A2). The
 #       commit that breaks a probe may not be the commit that retires it.
 #   W14 A `not-a-probe:` MARKER ADDED TO SOMEBODY ELSE'S PROBE IS REFUSED, and
 #       the probe goes on being a probe. This is route 1, and it needed no name
 #       at all -- one comment line removed the probe from discovery.
-#   W15 A PROBE THAT NEVER NAMES THE LIBRARY IS STILL DISCOVERED. Route 3: it
-#       takes the library as an argument, and UNDISCOVERED IS WORSE THAN RED.
+#   W15 A PROBE THE TEXT RULE CANNOT SEE IS DISCOVERED BY BEING LISTED. Route 3:
+#       it reaches the library through getattr, spells no entry point and never
+#       names the file; UNDISCOVERED IS WORSE THAN RED.
 #   W16 A PROBE THAT WAS DELETED IS MISSING, AND MISSING BLOCKS. Route 4: the
 #       file simply disappears, and the only thing that changes is a count
-#       nothing was checking.
+#       nothing was checking. W16c: a file at that path in the WORKING TREE
+#       does not un-delete it. W16d: an UNCOMMITTED retirement line does not
+#       excuse it. W16e: a landed line signed by the WRONG NAME does not either.
 #   W17 --show-all NAMES THE FILES IT COUNTS. It was offered as the answer to
 #       W15 and W2 and it named 0 of the 242 it counted.
 #   W18 THE PAIRED TWIN FOR W12: the identical line, identical author, committed
 #       on the AUTHOR'S OWN branch and landed, is accepted -- and the report
-#       names the commit and the witnessing branch. Without this pair, refusing
-#       every retirement would pass W11-W13.
+#       names the commit and the branch it landed on.
 #
 # RETIREMENT IS PER CASE, NOT PER FILE (W19..W25). A reviewer ruled three of his
 # cases obsolete and one still valid and then wrote NO retirement, because
@@ -66,11 +78,24 @@
 #   W22 EVERY CASE RETIRED IS THE WHOLE FILE, said as one verdict rather than
 #       arrived at by subtraction.
 #   W23 A PER-CASE RETIREMENT SIGNED BY THE WRONG AUTHOR is refused, and W24
-#       that one witnessed only by the branch under test is refused -- the
-#       per-case path does not get a weaker check than the whole-file one.
+#       that one not landed on the recorded branch is refused -- the per-case
+#       path does not get a weaker check than the whole-file one.
 #   W25 THE THREE-FIELD (whole-file) LINES STILL WORK, unrewritten. Rewriting one
 #       would make the engineer the author of its introducing commit, and A3
 #       would then refuse the reviewer's own retirement.
+#
+# THE THREE ROUND-6 CHANGES (W26..W29), each the route both reviewers named:
+#
+#   W26 A COMMITTED PROBE THE MANIFEST DOES NOT LIST IS UNLISTED, AND UNLISTED
+#       BLOCKS: a probe cannot be quietly left off the list either.
+#   W27 THE MANIFEST IS READ FROM GIT: a line typed into the working tree lists
+#       nothing until it is committed.
+#   W28 THE WITNESS SURVIVES BRANCH DELETION: a landed retirement stays RETIRED
+#       after its author's branch is deleted (point 4 deletes branches). W28b:
+#       a branch cut AT the engineer's tip -- the ordinary review handoff, which
+#       defeated the old A3 with no forgery at all -- witnesses nothing.
+#   W29 WITH NO INTEGRATION BRANCH RECORDED, every retirement is refused and the
+#       refusal names the recording command; the runner never assumes main.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -108,10 +133,24 @@ git -C "$R" config commit.gpgsign false
 git -C "$R" config core.hooksPath "$SANDBOX/nohooks"
 cp "$RUNNER" "$R/engine/scripts/"
 cp "$LIB" "$R/engine/scripts/lib/"
+# Bytecode is never part of a commit here. Python writes __pycache__/ beside a
+# library it imports; the runner itself no longer does (sys.dont_write_bytecode),
+# and the fixture ignores it too, so `git add -A` in a reviewer's commit can
+# never sweep a .pyc into the commit A2 then refuses for "changing the engine".
+printf '__pycache__/\n' > "$R/.gitignore"
+export PYTHONDONTWRITEBYTECODE=1
+
+# THE REGISTRY IS THE SANDBOX'S, and the integration branch is RECORDED in it
+# before anything else, the way point 14 asks it of Rich. The runner's A3 asks
+# this record and nothing else; the operator's own registry is never read.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws" RICHOS_SESSION_ID="probes-suite"
+mkdir -p "$RICHOS_WORKSPACES_DIR"
+
+MANIFEST="docs/verification/workspace-probes.manifest"
+TSV="docs/verification/workspace-probe-retirements.tsv"
 
 # --- the synthetic probes --------------------------------------------------
-# A GREEN one, in the argv shape both reviewers use. It mentions workspaces.py
-# and calls an entry point, which is the whole of the discovery rule.
+# A GREEN one, in the argv shape both reviewers use.
 cat > "$R/docs/verification/certification-alice-green.probe.py" <<'PROBE'
 #!/usr/bin/env python3
 """Alice's probe. Takes a path-to-workspaces.py and holds the build to a rule."""
@@ -148,40 +187,57 @@ cat > "$R/docs/verification/some-other-measurement.py" <<'OTHER'
 print(0)
 OTHER
 
+printf '# the suite manifest\ndocs/verification/certification-alice-green.probe.py\ndocs/verification/certification-bob-red.probe.py\n' > "$R/$MANIFEST"
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "the fixture" >/dev/null 2>&1
 
+python3 "$R/engine/scripts/lib/workspaces.py" integration --repo "$R" --branch main --why "the suite's body of work" >/dev/null 2>&1 \
+    || { echo "FATAL: the sandbox could not record its integration branch" >&2; exit 1; }
+git -C "$R" checkout -q -b cc/engineer                # THE BRANCH UNDER TEST
+
 run() { OUT="$(python3 "$R/engine/scripts/workspace-probes.py" "$@" 2>&1)"; RC=$?; }
 
-TSV="docs/verification/workspace-probe-retirements.tsv"
-
-# A RETIREMENT IN THE SHAPE A REAL ONE HAS: written on its AUTHOR'S own branch,
-# committed there, and landed onto the branch under test. That is what gives it a
-# witness other than the branch being judged (A3), and it is the only shape the
-# runner accepts. A test that wrote the file and asserted RETIRED was testing the
-# absence of this check.
-retire_on_author_branch() { # <branch> <tsv contents>
+# A RETIREMENT IN THE SHAPE A REAL ONE HAS: written on its AUTHOR'S own branch
+# from main, committed there, LANDED on main by Rich, and merged into the branch
+# under test. That is what gives it a witness other than the work being judged
+# (A3): the recorded integration branch, which survives every land.
+land_from_author() { # <branch> <tsv contents>
     git -C "$R" checkout -q -b "$1" main
     printf '%s' "$2" > "$R/$TSV"
     git -C "$R" add -A >/dev/null 2>&1
     git -C "$R" commit -q -m "retirement by $1" >/dev/null 2>&1
     git -C "$R" checkout -q main
     git -C "$R" merge -q --ff-only "$1" >/dev/null 2>&1
+    git -C "$R" checkout -q cc/engineer
+    # The engineer's branch may carry its OWN committed line in the same file
+    # (W12, W24 put one there on purpose); on a conflicting hunk main's side
+    # wins, which is what a land does to a line the branch under test wrote.
+    # Without this the merge stopped half-way and every checkout after it
+    # failed silently, so the cases downstream measured a broken fixture.
+    git -C "$R" merge -q --no-edit -X theirs main >/dev/null 2>&1
 }
 
-# The same line, committed ONLY here. No witness but the branch under test.
+# The same line, committed ONLY on the branch under test. Not landed anywhere.
 retire_on_this_branch() { # <tsv contents>
     printf '%s' "$1" > "$R/$TSV"
     git -C "$R" add -A >/dev/null 2>&1
     git -C "$R" commit -q -m "a retirement written by whoever is failing the probe" >/dev/null 2>&1
 }
 
-# --- W1 / W2: discovery is structural --------------------------------------
+# A probe (or any file) the engineer commits on the branch under test, listed.
+commit_listed() { # <path-under-docs/verification> <message>
+    printf 'docs/verification/%s\n' "$1" >> "$R/$MANIFEST"
+    git -C "$R" add -A >/dev/null 2>&1
+    git -C "$R" commit -q -m "$2" >/dev/null 2>&1
+}
+
+# --- W1 / W2: discovery is the committed manifest ---------------------------
 run --list --tree-only
 if grep -q "certification-alice-green.probe.py" <<<"$OUT" \
    && grep -q "certification-bob-red.probe.py" <<<"$OUT" \
-   && grep -q "probes discovered:        2" <<<"$OUT"; then
-    ok "W1  a probe is discovered by being committed — no registration anywhere"
+   && grep -q "probes discovered:        2 (2 listed at HEAD" <<<"$OUT" \
+   && grep -q "integration branch:       main @" <<<"$OUT"; then
+    ok "W1  a probe is discovered by being LISTED in the committed manifest, and the report names the recorded integration branch"
 else
     bad "W1  discovery: <$OUT>"
 fi
@@ -203,12 +259,8 @@ else
 fi
 
 # --- W5 FIRST: a retirement signed by the wrong person is REFUSED -----------
-# Before W4, deliberately. If the signature check were absent, W4 would pass on
-# its own and the suite would look green over a runner anyone could silence.
-# It is committed on alice's own branch and landed, so the ONE thing wrong with
-# it is the name -- otherwise this case could pass on the attribution check and
-# prove nothing about the signature.
-retire_on_author_branch cc/alice-review \
+# Landed, so the ONE thing wrong with it is the name.
+land_from_author cc/alice-review \
     'certification-bob-red.probe.py	alice	I decided this one is obsolete
 '
 run --tree-only
@@ -220,7 +272,6 @@ else
 fi
 
 # --- W11: AN UNCOMMITTED RETIREMENT IS NOT A RETIREMENT (A1) ----------------
-# Route 2, at its cheapest. This is what the suite used to do, and it passed.
 printf 'certification-bob-red.probe.py\tbob\tan unstaged line nobody committed\n' \
     > "$R/$TSV"
 run --tree-only
@@ -231,23 +282,33 @@ else
     bad "W11 rc=$RC — a working-tree-only retirement took effect: <$OUT>"
 fi
 
-# --- W12: COMMITTED, CORRECTLY SIGNED, AND ONLY ON THIS BRANCH (A3) --------
-# ROUTE 2 AS IT WAS REPRODUCED: the party failing the probe types the reviewer's
-# name. The name is right. Nothing else about it is.
+# --- W12: COMMITTED, CORRECTLY SIGNED, ONLY ON THE BRANCH UNDER TEST (A3) ---
 retire_on_this_branch \
     'certification-bob-red.probe.py	bob	I am failing this probe and I say it is obsolete
 '
 run --tree-only
 if [ "$RC" -ne 0 ] && grep -q "A3:" <<<"$OUT" \
-   && grep -q "branch under test" <<<"$OUT"; then
-    ok "W12 a retirement whose only witness is the branch under test is REFUSED — work cannot retire the probe it fails"
+   && grep -q "has not landed on main" <<<"$OUT"; then
+    ok "W12 a retirement that has not landed on the recorded branch is REFUSED — work cannot retire the probe it fails"
 else
     bad "W12 rc=$RC — the failing party retired the probe by typing the right name: <$OUT>"
 fi
 
+# --- W28b: THE ORDINARY HANDOFF WITNESSES NOTHING ---------------------------
+# Rich cuts a reviewer's branch AT the engineer's tip. Under the old A3 that
+# branch "contained" every engineer commit, so every one was witnessed.
+git -C "$R" branch cc/frank-review HEAD
+run --tree-only
+if [ "$RC" -ne 0 ] && grep -q "A3:" <<<"$OUT" && grep -q "has not landed on main" <<<"$OUT"; then
+    ok "W28b a branch cut AT the engineer's tip is no witness: the same retirement is still refused"
+else
+    bad "W28b rc=$RC — a branch cut at the tip witnessed the engineer's own retirement: <$OUT>"
+fi
+git -C "$R" branch -D cc/frank-review >/dev/null 2>&1
+
 # --- W13: BUNDLED WITH A LIBRARY EDIT (A2) ---------------------------------
-# On a branch of its own, correctly signed, witnessed -- and the same commit
-# edits the library. That is the commit that broke the probe retiring it.
+# On a branch of its own, correctly signed, LANDED -- and the same commit edits
+# the library. That is the commit that broke the probe retiring it.
 git -C "$R" checkout -q -b cc/bob-bundled main
 printf 'certification-bob-red.probe.py\tbob\tobsolete, says the commit that also rewrites the library\n' \
     > "$R/$TSV"
@@ -256,33 +317,45 @@ git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "fix the library and retire the probe it fails" >/dev/null 2>&1
 git -C "$R" checkout -q main
 git -C "$R" merge -q --ff-only cc/bob-bundled >/dev/null 2>&1
+git -C "$R" checkout -q cc/engineer
+git -C "$R" merge -q --no-edit -X theirs main >/dev/null 2>&1     # as land_from_author does
 run --tree-only
 if [ "$RC" -ne 0 ] && grep -q "A2:" <<<"$OUT" \
    && grep -q "workspaces.py" <<<"$OUT"; then
-    ok "W13 a retirement in the same commit as a library edit is REFUSED — the commit that breaks it may not retire it"
+    ok "W13 a retirement in the same commit as a library edit is REFUSED even when landed — the commit that breaks it may not retire it"
 else
     bad "W13 rc=$RC — a retirement bundled into the fix took effect: <$OUT>"
 fi
 
-# --- W4 / W18: signed by its own author, ON ITS OWN BRANCH, it retires ------
-# THE PAIRED TWIN for W11..W13: refusing every retirement would pass all three.
-retire_on_author_branch cc/bob-review \
+# --- W4 / W18 / W28: signed by its own author, LANDED, it retires -----------
+land_from_author cc/bob-review \
     'certification-bob-red.probe.py	bob	the rule it pinned was deleted by the CEO ruling
 '
 run --tree-only
 if [ "$RC" -eq 0 ] && grep -q "RETIRED" <<<"$OUT" \
    && grep -q "deleted by the CEO ruling" <<<"$OUT"; then
-    ok "W4  a retirement signed by the probe's own author, on the author's own branch, retires it"
+    ok "W4  a retirement signed by the probe's own author and landed on the recorded branch retires it"
 else
-    bad "W4  rc=$RC — a correctly signed and witnessed retirement did not take: <$OUT>"
+    bad "W4  rc=$RC — a correctly signed and landed retirement did not take: <$OUT>"
 fi
-if grep -q "witnessed by cc/bob-review" <<<"$OUT"; then
-    ok "W18 and the report NAMES the commit and the witnessing branch — a RETIRED with no witness is the typed name again"
+if grep -q "landed on main @" <<<"$OUT"; then
+    ok "W18 and the report NAMES the commit and the branch it landed on — a RETIRED with no witness is the typed name again"
 else
     bad "W18 the witness is not on the record: <$OUT>"
 fi
-git -C "$R" rm -q "$TSV" >/dev/null 2>&1
-git -C "$R" commit -q -m "clear the retirements" >/dev/null 2>&1
+git -C "$R" branch -D cc/bob-review >/dev/null 2>&1        # point 4: the author's branch is gone after the land
+run --tree-only
+if [ "$RC" -eq 0 ] && grep -q "RETIRED" <<<"$OUT" && grep -q "landed on main @" <<<"$OUT"; then
+    ok "W28 the witness SURVIVES the deletion of the author's branch: still RETIRED, same witness"
+else
+    bad "W28 rc=$RC — deleting the landed branch un-retired the probe (the witness was a branch name): <$OUT>"
+fi
+# CLEARED BY LANDING AN EMPTY FILE, NEVER BY DELETING IT. A deletion on the
+# branch under test against a modification on main is a modify/delete conflict,
+# which no merge strategy resolves; the next land then stopped half-way and
+# W7's `git add -A` folded a reviewer's probe into that unfinished merge.
+land_from_author cc/rich-clears '# cleared: no retirement stands
+'
 
 # --- W6: a probe that cannot be executed is not a probe that passed ---------
 cat > "$R/docs/verification/certification-carol-unrunnable.probe.py" <<'PROBE'
@@ -296,8 +369,7 @@ import importlib.util, os
 spec = importlib.util.spec_from_file_location("ws", os.environ.get("WS", ""))
 print("nothing here can be driven")
 PROBE
-git -C "$R" add -A >/dev/null 2>&1
-git -C "$R" commit -q -m "an unrunnable probe" >/dev/null 2>&1
+commit_listed certification-carol-unrunnable.probe.py "an unrunnable probe, listed"
 run --tree-only --only carol
 if [ "$RC" -ne 0 ] && grep -q "UNRUNNABLE" <<<"$OUT" \
    && grep -q "DID NOT RUN" <<<"$OUT" \
@@ -308,18 +380,17 @@ else
 fi
 # THE CLEANUP IS ITSELF THE DOCUMENTED REMEDY. Deleting a probe now makes it
 # MISSING (W16), so carol's probe leaves the way a probe is supposed to leave:
-# her own retirement, on her own branch, landed. A suite that cleaned up with a
-# bare `git rm` would be asserting that deletion is free.
+# her own retirement, on her own branch, landed.
 git -C "$R" rm -q "docs/verification/certification-carol-unrunnable.probe.py" >/dev/null 2>&1
 git -C "$R" commit -q -m "drop it" >/dev/null 2>&1
-retire_on_author_branch cc/carol-review \
+land_from_author cc/carol-review \
     'certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
 '
 
 # --- W7: a probe committed on ANOTHER LOCAL BRANCH is discovered ------------
-# This is the case the runner exists for: a reviewer commits its probe on its
-# own branch, which is precisely the branch the engineer has not merged.
-git -C "$R" checkout -q -b cc/dave-review
+# A reviewer commits its probe on its own branch and LISTS it in that branch's
+# manifest, which is precisely the branch the engineer has not merged.
+git -C "$R" checkout -q -b cc/dave-review main
 cat > "$R/docs/verification/certification-dave-green.probe.py" <<'PROBE'
 #!/usr/bin/env python3
 """Dave's probe, committed on Dave's own branch. Takes a workspaces.py path."""
@@ -332,14 +403,16 @@ def main(argv):
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 PROBE
+printf 'docs/verification/certification-dave-green.probe.py\n' >> "$R/$MANIFEST"
 git -C "$R" add -A >/dev/null 2>&1
-git -C "$R" commit -q -m "dave's probe, on dave's branch" >/dev/null 2>&1
-git -C "$R" checkout -q main
+git -C "$R" commit -q -m "dave's probe, on dave's branch, listed there" >/dev/null 2>&1
+CO_ERR="$(git -C "$R" checkout -q cc/engineer 2>&1)"
+CUR_BR="$(git -C "$R" branch --show-current)"
 run --list
-if grep -q "certification-dave-green" <<<"$OUT" && grep -q "cc/dave-review" <<<"$OUT"; then
-    ok "W7  a probe committed on another local branch is discovered and named by its branch"
+if [ "$CUR_BR" = cc/engineer ] && grep -q "certification-dave-green" <<<"$OUT" && grep -q "cc/dave-review" <<<"$OUT"; then
+    ok "W7  a probe committed and listed on another local branch is discovered and named by its branch"
 else
-    bad "W7  a reviewer's unmerged probe was invisible: <$OUT>"
+    bad "W7  a reviewer's unmerged probe was invisible (fixture on '$CUR_BR', checkout said '$CO_ERR'): <$OUT>"
 fi
 run --list --tree-only
 if ! grep -q "certification-dave-green" <<<"$OUT"; then
@@ -349,8 +422,6 @@ else
 fi
 
 # --- W8: --at tests THAT COMMIT's library, not the tree's -------------------
-# The tree's workspaces.py has integration_target; a commit whose copy does not
-# must make alice's probe red. Same probe, same tree, different library.
 AT_BEFORE="$(git -C "$R" rev-parse HEAD)"
 printf 'def nothing():\n    return 0\n' > "$R/engine/scripts/lib/workspaces.py"
 git -C "$R" add -A >/dev/null 2>&1
@@ -369,11 +440,6 @@ else
 fi
 
 # --- W9: the declaration, and that a bare marker exempts nothing -----------
-# A tool that BUILDS probes looks exactly like a probe from outside, and a path
-# rule cannot tell them apart -- a reviewer's real probe lives under a -logs/
-# directory today. The way out is a declaration with a reason, visible to
-# whoever reads the file.
-git -C "$R" checkout -q main
 cat > "$R/docs/verification/build-some-probes.py" <<'TOOL'
 #!/usr/bin/env python3
 """not-a-probe: this writes derived copies of other probes and asserts nothing.
@@ -391,11 +457,27 @@ git -C "$R" commit -q -m "a declared tool and a bare marker" >/dev/null 2>&1
 run --list --tree-only
 if grep -q "^DECLARED   docs/verification/build-some-probes.py" <<<"$OUT" \
    && grep -q "declared in the commit that added the file" <<<"$OUT" \
-   && grep -q "bare-marker" <<<"$OUT" \
+   && grep -q "^UNLISTED   docs/verification/bare-marker.py" <<<"$OUT" \
+   && [ "$RC" -ne 0 ] \
    && ! grep -q "(not run)  docs/verification/build-some-probes.py" <<<"$OUT"; then
-    ok "W9  a declared non-probe is not run and IS NAMED; a BARE marker with no reason exempts nothing"
+    ok "W9  a declared non-probe is not run and IS NAMED; a BARE marker exempts nothing — the file is UNLISTED and blocks"
 else
-    bad "W9  the declaration is wrong in one direction or the other: <$OUT>"
+    bad "W9  rc=$RC the declaration is wrong in one direction or the other: <$OUT>"
+fi
+# A declaration ADDED LATER, then LANDED by Rich, stands (the twin of W14).
+python3 - "$R/docs/verification/bare-marker.py" <<'PY'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read().replace('"""not-a-probe:\n', '"""not-a-probe: a helper that only reads the version.\n')
+io.open(p, "w", encoding="utf-8").write(s)
+PY
+git -C "$R" commit -q -am "give the helper its reason" >/dev/null 2>&1
+git -C "$R" checkout -q main; git -C "$R" merge -q --no-edit cc/engineer >/dev/null 2>&1; git -C "$R" checkout -q cc/engineer
+run --list --tree-only
+if grep -q "^DECLARED   docs/verification/bare-marker.py" <<<"$OUT" && grep -q "landed on main @" <<<"$OUT"; then
+    ok "W9b a declaration added later and LANDED stands, and the report says what landed it"
+else
+    bad "W9b a landed declaration was refused: <$OUT>"
 fi
 
 # --- W10: an empty run is not a pass ---------------------------------------
@@ -409,9 +491,7 @@ fi
 
 # --- W14: ROUTE 1 — SILENCE A PROBE BY ANNOTATING IT ------------------------
 # No name, no retirement, one comment line. The party failing bob's probe adds
-# `not-a-probe:` to bob's file, on its own branch, and the run reported every
-# discovered probe green and exited 0.
-git -C "$R" checkout -q main
+# `not-a-probe:` to bob's file on the branch under test.
 python3 - "$R/docs/verification/certification-bob-red.probe.py" <<'PY'
 import io, sys
 p = sys.argv[1]
@@ -422,6 +502,7 @@ io.open(p, "w", encoding="utf-8").write(s)
 PY
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "annotate bob's probe out of existence" >/dev/null 2>&1
+git -C "$R" branch cc/reviewer-at-tip HEAD                   # and a branch cut at the tip, for good measure
 run --tree-only --only bob
 if [ "$RC" -ne 0 ] && grep -q "DECLARATION REFUSED" <<<"$OUT" \
    && grep -q "A3:" <<<"$OUT" \
@@ -430,9 +511,7 @@ if [ "$RC" -ne 0 ] && grep -q "DECLARATION REFUSED" <<<"$OUT" \
 else
     bad "W14 rc=$RC — one comment line removed a red probe from the run: <$OUT>"
 fi
-# RESTORE, don't revert: `git revert` needs a clean index and an editor, and
-# when it silently failed here the annotation survived into W15 and made that
-# case read as a discovery bug.
+git -C "$R" branch -D cc/reviewer-at-tip >/dev/null 2>&1
 git -C "$R" checkout -q "HEAD~1" -- docs/verification/certification-bob-red.probe.py
 git -C "$R" commit -q -am "restore bob's probe" >/dev/null 2>&1
 if grep -q "not-a-probe" "$R/docs/verification/certification-bob-red.probe.py"; then
@@ -441,34 +520,40 @@ else
     ok "W14b the annotation is gone again — the cases after this one are back on a clean fixture"
 fi
 
-# --- W15: ROUTE 3 — A PROBE THAT NEVER NAMES THE LIBRARY -------------------
-# It takes the library as an argument and drives it. Discovery keyed on the file
-# name never saw it, and UNDISCOVERED IS WORSE THAN RED.
+# --- W15: ROUTE 3 — A PROBE THE TEXT RULE CANNOT SEE -----------------------
+# It reaches the library through getattr, spells no entry point with a
+# parenthesis, and never writes the file's name. The text rule cannot see it;
+# its author's LISTING can.
 cat > "$R/docs/verification/certification-erin-nameless.probe.py" <<'PROBE'
 #!/usr/bin/env python3
-"""Erin's probe. The library arrives as argv[1] and its name is never written."""
+"""Erin's probe. The library arrives as argv[1]; its name is never written and
+no entry point is spelled with a parenthesis."""
 import importlib.util, sys
 CASES = ["e"]
 def main(argv):
     spec = importlib.util.spec_from_file_location("underTest", argv[0])
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-    branch, tip, why = mod.integration_for("/no/such/repository")
+    fn = getattr(mod, "integration" + "_for")
+    branch, tip, why = fn("/no/such/repository")
     return 0 if why else 1
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 PROBE
 git -C "$R" add -A >/dev/null 2>&1
-git -C "$R" commit -q -m "erin's probe, which never spells the library's name" >/dev/null 2>&1
-if ! grep -q "workspaces.py" "$R/docs/verification/certification-erin-nameless.probe.py"; then
-    ok "W15a POSITIVE CONTROL: the probe really does not name the library anywhere"
+git -C "$R" commit -q -m "erin's probe, committed but not yet listed" >/dev/null 2>&1
+run --list --tree-only
+if ! grep -q "workspaces.py" "$R/docs/verification/certification-erin-nameless.probe.py" \
+   && ! grep -q "certification-erin-nameless" <<<"$OUT"; then
+    ok "W15a POSITIVE CONTROL: unlisted, the text rule really cannot see it (it is neither a probe nor UNLISTED)"
 else
-    bad "W15a the fixture names the library, so W15 would prove nothing"
+    bad "W15a the fixture is visible to the text rule, so W15 would prove nothing: <$OUT>"
 fi
+commit_listed certification-erin-nameless.probe.py "list erin's probe"
 run --list --tree-only
 if grep -q "certification-erin-nameless" <<<"$OUT"; then
-    ok "W15 a probe that drives the library through an argument is discovered without naming it"
+    ok "W15 a probe the text rule cannot see is discovered by being LISTED"
 else
-    bad "W15 a probe that never spells the file name was invisible: <$OUT>"
+    bad "W15 a listed probe was invisible: <$OUT>"
 fi
 
 # --- W16: ROUTE 4 — A PROBE THAT SIMPLY DISAPPEARS -------------------------
@@ -482,24 +567,45 @@ if [ "$RC" -ne 0 ] && grep -q "MISSING" <<<"$OUT" \
 else
     bad "W16 rc=$RC — a deleted probe only lowered a count: <$OUT>"
 fi
-# THE PAIRED TWIN: her own retirement, and the same deletion stops blocking.
-# CAROL'S LINE IS CARRIED FORWARD, because retire_on_author_branch WRITES the
-# file rather than appending to it. Dropping it here would resurrect carol as a
-# deletion and make this case's output about the wrong probe.
-retire_on_author_branch cc/erin-review \
+printf '# a file at the deleted path, in the working tree only\n' > "$R/docs/verification/certification-erin-nameless.probe.py"
+run --tree-only --only erin
+if [ "$RC" -ne 0 ] && grep -q "MISSING" <<<"$OUT"; then
+    ok "W16c a file at the deleted path in the WORKING TREE does not un-delete it: MISSING is asked of git"
+else
+    bad "W16c rc=$RC — a working-tree file concealed a committed deletion: <$OUT>"
+fi
+rm -f "$R/docs/verification/certification-erin-nameless.probe.py"
+printf 'certification-carol-unrunnable.probe.py\tcarol\tit offered this runner no way in and I have replaced it\ncertification-erin-nameless.probe.py\terin\tan unstaged line signed with the right name\n' > "$R/$TSV"
+run --tree-only --only erin
+if [ "$RC" -ne 0 ] && grep -q "MISSING" <<<"$OUT" && grep -q "A1:" <<<"$OUT"; then
+    ok "W16d an UNCOMMITTED retirement line does not excuse the deletion (A1)"
+else
+    bad "W16d rc=$RC — an unstaged line concealed a committed deletion: <$OUT>"
+fi
+git -C "$R" checkout -q -- "$R/$TSV" 2>/dev/null || git -C "$R" checkout -q -- "$TSV"
+land_from_author cc/bob-again \
+    'certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
+certification-erin-nameless.probe.py	bob	I am not erin and I say her deleted probe is obsolete
+'
+run --tree-only --only erin
+if [ "$RC" -ne 0 ] && grep -q "MISSING" <<<"$OUT" && grep -q "signed 'bob'" <<<"$OUT"; then
+    ok "W16e a LANDED retirement signed by the wrong name does not excuse the deletion either"
+else
+    bad "W16e rc=$RC — the wrong name excused a deletion: <$OUT>"
+fi
+# THE PAIRED TWIN: her own retirement, landed, and the same deletion stops blocking.
+land_from_author cc/erin-review \
     'certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
 certification-erin-nameless.probe.py	erin	replaced by a probe that asserts the same rule per case
 '
 run --tree-only --only erin
 if ! grep -q "MISSING" <<<"$OUT"; then
-    ok "W16b SILENT TWIN: retired by its own author, the same deletion no longer blocks"
+    ok "W16b SILENT TWIN: retired by its own author and landed, the same deletion no longer blocks"
 else
     bad "W16b a retired-and-deleted probe still blocks: <$OUT>"
 fi
 
 # --- W17: --show-all NAMES WHAT IT COUNTS ----------------------------------
-# It was offered as the answer to route 3 and to W2, and it named 0 of the 242 it
-# counted -- so it was the count again, in more words.
 run --tree-only --show-all
 if grep -q "some-other-measurement.py" <<<"$OUT" && grep -q "named; the count above was" <<<"$OUT"; then
     ok "W17 --show-all NAMES the files it counts, and prints both numbers so they can be compared"
@@ -507,13 +613,52 @@ else
     bad "W17 --show-all counted without naming: <$OUT>"
 fi
 
+# --- W26 / W27: UNLISTED blocks, and the manifest is read from git ----------
+cat > "$R/docs/verification/certification-gus-unlisted.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Gus's probe of workspaces.py, committed and green, and nobody listed it."""
+import importlib.util, sys
+CASES = ["g"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("ws", argv[0])
+    ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+    return 0 if hasattr(ws, "barrier") else 1
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "gus's probe, committed, not listed" >/dev/null 2>&1
+# ALONGSIDE A GREEN LISTED PROBE, deliberately: with gus alone selected, a
+# runner that ignored UNLISTED would refuse anyway for "NOTHING WAS RUN", and
+# this case would pass for the wrong reason. With alice green beside it, the
+# only thing standing between the run and its all-clear is the unlisted probe.
+run --tree-only --only gus --only alice
+if [ "$RC" -ne 0 ] && grep -q "^UNLISTED   docs/verification/certification-gus-unlisted.probe.py" <<<"$OUT" \
+   && grep -q "^GREEN      docs/verification/certification-alice-green.probe.py" <<<"$OUT" \
+   && ! grep -q "every one of them is green" <<<"$OUT"; then
+    ok "W26 a committed probe the manifest does not list is UNLISTED, by name, and it BLOCKS a run that is otherwise green"
+else
+    bad "W26 rc=$RC — an unlisted probe was silently dropped or silently run: <$OUT>"
+fi
+printf 'docs/verification/certification-gus-unlisted.probe.py\n' >> "$R/$MANIFEST"     # typed, not committed
+run --tree-only --only gus --only alice
+if [ "$RC" -ne 0 ] && grep -q "^UNLISTED" <<<"$OUT"; then
+    ok "W27 a manifest line in the WORKING TREE lists nothing: the manifest is read from git"
+else
+    bad "W27 rc=$RC — an uncommitted manifest edit changed what was asked: <$OUT>"
+fi
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "list gus's probe" >/dev/null 2>&1
+run --tree-only --only gus --only alice
+if [ "$RC" -eq 0 ] && grep -q "^GREEN      docs/verification/certification-gus-unlisted.probe.py" <<<"$OUT"; then
+    ok "W27b committed, the same line lists it and it runs green"
+else
+    bad "W27b rc=$RC — the committed listing did not take: <$OUT>"
+fi
+
 # ===========================================================================
 # RETIREMENT PER CASE — W19..W25
 # ===========================================================================
-# The probe has four cases and fails on exactly one of them. That is the shape
-# the reviewer was actually in: three rulings of obsolete, one still valid, and a
-# mechanism that offered him only all-or-nothing.
-git -C "$R" checkout -q main
 cat > "$R/docs/verification/certification-fay-cases.probe.py" <<'PROBE'
 #!/usr/bin/env python3
 """Fay's probe of workspaces.py. Four cases; the third one fails.
@@ -542,13 +687,12 @@ def main(argv):
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 PROBE
-git -C "$R" add -A >/dev/null 2>&1
-git -C "$R" commit -q -m "fay's probe, four cases, one of them red" >/dev/null 2>&1
+commit_listed certification-fay-cases.probe.py "fay's probe, four cases, one of them red"
 export FAY_LOG="$SANDBOX/fay-was-asked.txt"
 
 # CAROL'S AND ERIN'S RETIREMENTS ARE CARRIED FORWARD through every rewrite of the
-# file below, because retire_on_author_branch WRITES it. Dropping them would
-# resurrect two deletions and put the wrong probes in this section's output.
+# file below, because land_from_author WRITES it. Dropping them would resurrect
+# two deletions and put the wrong probes in this section's output.
 CARRIED='certification-carol-unrunnable.probe.py	carol	it offered this runner no way in and I have replaced it
 certification-erin-nameless.probe.py	erin	replaced by a probe that asserts the same rule per case
 '
@@ -564,7 +708,7 @@ fi
 
 # --- W19: retire THAT ONE CASE. The other three still run. -----------------
 rm -f "$FAY_LOG"
-retire_on_author_branch cc/fay-review "$CARRIED"'certification-fay-cases.probe.py	three	fay	the rule case three pinned was deleted by the CEO ruling
+land_from_author cc/fay-review "$CARRIED"'certification-fay-cases.probe.py	three	fay	the rule case three pinned was deleted by the CEO ruling
 '
 run --tree-only --only fay
 ASKED="$(cat "$FAY_LOG" 2>/dev/null || echo "<the probe never ran>")"
@@ -577,7 +721,7 @@ else
 fi
 
 # --- W21: a case the probe does not have -----------------------------------
-retire_on_author_branch cc/fay-typo "$CARRIED"'certification-fay-cases.probe.py	thre	fay	a case name with a typo in it
+land_from_author cc/fay-typo "$CARRIED"'certification-fay-cases.probe.py	thre	fay	a case name with a typo in it
 '
 run --tree-only --only fay
 if [ "$RC" -ne 0 ] && grep -q "which this probe does not have" <<<"$OUT" \
@@ -588,7 +732,7 @@ else
 fi
 
 # --- W23: per case, signed by the wrong author -----------------------------
-retire_on_author_branch cc/fay-wrongname "$CARRIED"'certification-fay-cases.probe.py	three	bob	I am not fay and I say this case is obsolete
+land_from_author cc/fay-wrongname "$CARRIED"'certification-fay-cases.probe.py	three	bob	I am not fay and I say this case is obsolete
 '
 run --tree-only --only fay
 if [ "$RC" -ne 0 ] && grep -q "signed 'bob'" <<<"$OUT" \
@@ -598,18 +742,18 @@ else
     bad "W23 rc=$RC — the per-case path skipped the signature check: <$OUT>"
 fi
 
-# --- W24: per case, witnessed only by the branch under test ----------------
+# --- W24: per case, not landed on the recorded branch ----------------------
 retire_on_this_branch "$CARRIED"'certification-fay-cases.probe.py	three	fay	written by whoever is failing it, with the right name on it
 '
 run --tree-only --only fay
 if [ "$RC" -ne 0 ] && grep -q "A3:" <<<"$OUT" && grep -q "case 'three'" <<<"$OUT"; then
-    ok "W24 a per-case retirement whose only witness is the branch under test is REFUSED — no weaker than the whole-file path"
+    ok "W24 a per-case retirement that has not landed on the recorded branch is REFUSED — no weaker than the whole-file path"
 else
     bad "W24 rc=$RC — the per-case path skipped the attribution check: <$OUT>"
 fi
 
 # --- W22: every case retired IS the whole file -----------------------------
-retire_on_author_branch cc/fay-all "$CARRIED"'certification-fay-cases.probe.py	one	fay	obsolete
+land_from_author cc/fay-all "$CARRIED"'certification-fay-cases.probe.py	one	fay	obsolete
 certification-fay-cases.probe.py	two	fay	obsolete
 certification-fay-cases.probe.py	three	fay	obsolete
 certification-fay-cases.probe.py	four	fay	obsolete
@@ -623,11 +767,7 @@ else
 fi
 
 # --- W25: the three-field whole-file line still works, unrewritten ---------
-# Byte-identical to the shape every line committed before this change has. If the
-# parser ever required four fields, every reviewer's existing retirement would
-# have to be rewritten by an engineer -- and A3 would then refuse it, because the
-# engineer would be the author of the introducing commit.
-retire_on_author_branch cc/fay-legacy "$CARRIED"'certification-fay-cases.probe.py	fay	the whole file is obsolete, in the three-field shape
+land_from_author cc/fay-legacy "$CARRIED"'certification-fay-cases.probe.py	fay	the whole file is obsolete, in the three-field shape
 '
 run --tree-only --only fay
 if [ "$RC" -eq 0 ] && grep -q "^RETIRED" <<<"$OUT" \
@@ -637,11 +777,25 @@ else
     bad "W25 rc=$RC — the legacy whole-file shape stopped working: <$OUT>"
 fi
 
+# --- W29: NO INTEGRATION BRANCH RECORDED — refuse, name the command ---------
+SAVED_WS="$RICHOS_WORKSPACES_DIR"
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws-empty"; mkdir -p "$RICHOS_WORKSPACES_DIR"
+run --tree-only --only fay
+if [ "$RC" -ne 0 ] && grep -q "integration branch:       NOT RECORDED" <<<"$OUT" \
+   && grep -q "A3: no branch is recorded" <<<"$OUT" \
+   && grep -q "workspaces.sh integration" <<<"$OUT" \
+   && ! grep -q "^RETIRED" <<<"$OUT"; then
+    ok "W29 with no integration branch recorded, the same landed retirement is REFUSED and the refusal names the recording command — the runner never assumes main"
+else
+    bad "W29 rc=$RC — with nothing recorded the runner accepted a retirement (it assumed a branch): <$OUT>"
+fi
+export RICHOS_WORKSPACES_DIR="$SAVED_WS"
+
 # --- THE MUTATION HARNESS -------------------------------------------------
 # Most of what this suite asserts is that something was REFUSED, and a runner
 # that refuses everything would pass those cases while being useless -- which is
-# why W4/W18, W9, W14b, W15a and W16b are paired twins. The harness is the other
-# half: each refusal watched going red on its own.
+# why W4/W18/W28, W9b, W14b, W15a, W16b and W27b are paired twins. The harness
+# is the other half: each refusal watched going red on its own.
 if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/workspace-probes.mutation.sh" ]; then
     echo ""
     echo "=== running the mutation harness ==="
