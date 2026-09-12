@@ -463,6 +463,14 @@ RUNNERS = [("R1 reflog-privacy", r1_reflog_privacy, True),
            ("R8 second-body", r8_second_body, True),
            ("R9 eviction", r9_eviction, True),
            ("R10 rich-at-my-tip", r10_rich_at_my_tip, True)]
+# THE RUNNER READS A PROBE'S CASE NAMES FROM A LITERAL `CASES` LIST (engine/scripts/
+# workspace-probes.py, cases_of) and refuses a per-case retirement naming a case it cannot
+# read. RUNNERS above is what this file runs; this list is its first tokens, which is what
+# main() matches argv against, and the assertion keeps the two from drifting. Added
+# 2026-09-12 (round 7 review) so that R4 could be retired PER CASE rather than the file
+# retired whole, which would have dropped nine green assertions to buy one exit code.
+CASES = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
+assert CASES == [n.split()[0] for n, _f, _r in RUNNERS]
 
 
 def main(argv):
