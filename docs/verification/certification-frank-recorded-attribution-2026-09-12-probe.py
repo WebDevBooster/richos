@@ -314,6 +314,18 @@ def case_floor_control(s):
     return verdict == "landed"
 
 
+def _record_main(s):
+    """Run before the session is recorded: Rich records `main` as the branch
+    this body of work integrates on BEFORE the first spawn, which is what point
+    14 requires and what round 7 enforces at the spawn (register_spawn refuses
+    with nothing recorded). Added 2026-09-12 (round 7, frank): the fixture of
+    every case that is NOT about the record used to spawn with nothing recorded,
+    and after the point-14 fix they all stopped at the spawn instead of reaching
+    the behavior they assert. The case bodies are unchanged."""
+    s.ws.record_integration(s.entity, "main",
+                            "the fixture records the branch before the first spawn (point 14)", "")
+
+
 def _detach_entity(s):
     """Run before the session is recorded: a detached main checkout gives the
     floor no branch to read, which is the library's own only way of having no
@@ -475,7 +487,13 @@ RUNNERS = dict(zip(CASES, [case_outside_stray, case_outside_side, case_floor_tra
                            case_floor_control, case_no_floor_self_heals, case_floor_timing,
                            case_rich_at_my_tip, case_serial_stray, case_serial_side,
                            case_serial_rename]))
-BEFORE = {"no-floor-self-heals": _detach_entity, "floor-timing": _branch_off}
+BEFORE = {"no-floor-self-heals": _detach_entity, "floor-timing": _branch_off,
+          # point 14 at the spawn (round 7): every case that is not ABOUT the record
+          # records it first, as Rich must. floor-trap and floor-control record (or
+          # deliberately do not) inside their own bodies and are left as written.
+          "outside-stray": _record_main, "outside-side": _record_main,
+          "rich-at-my-tip": _record_main, "serial-stray": _record_main,
+          "serial-side": _record_main, "serial-rename": _record_main}
 
 
 def main(argv):
