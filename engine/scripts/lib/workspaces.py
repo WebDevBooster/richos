@@ -18,14 +18,20 @@ STATE — outside every repository and session, one JSON file per agent:
     else ~/.claude/state/workspaces
       sessions/<session_id>.json   every session records itself (point 12)
       agents/<key>.json            one agent: its workspaces and its facts
-      refs/<key>.json              the refs its repositories held at the START
-                                   of the tool call it is in (point 3)
+      refs/<key>/<call>.json       the refs its repositories held at the START
+                                   of ONE of its tool calls, keyed by that
+                                   call's own id: its calls overlap, so there
+                                   is one window per call and never one slot
+                                   per agent (point 3)
       done/<key>.json              an agent whose deletion completed
       ids/<agent_id>               platform agent id -> key
       repos.json                   every repository a record has named
       integration.json             the branch each repository's work integrates
-                                   on, RECORDED (point 14); never inferred at
-                                   land time
+                                   on, RECORDED (point 14). Never inferred,
+                                   never derived from what a checkout happens
+                                   to be on, and never frozen onto an agent:
+                                   the live record is the only answer, which is
+                                   why a wrong one can always be corrected
       events.jsonl                 append-only history of every fact
       lock                         one flock for every mutation
 
@@ -577,7 +583,7 @@ def new_record(key, **fields):
     rec = {"key": key, "name": "", "session_id": "", "agent_id": "", "workspaces": [],
            "registered_at": iso(), "end": None, "handed_in": None, "pause": None, "waiting": None,
            "disposition": None, "deletion": None, "orphan": False, "ceo_ordered": None,
-           "continues": [], "lands_pending": [], "created_branches": [], "integration": {},
+           "continues": [], "lands_pending": [], "created_branches": [],
            "history": []}
     rec.update(fields)
     return rec
@@ -592,9 +598,6 @@ def _remember_repo(repo):
     if repo not in cur["repos"]:
         cur["repos"].append(repo)
         write_json(path, cur)
-    # Point 14: the branch this work integrates on exists as a FACT from the
-    # first registration onwards, so no land ever has to read a moving HEAD.
-    _ensure_integration(_norm_repo(repo))
 
 
 def known_repos():
@@ -623,32 +626,86 @@ def known_repos():
 # onto its dev branch was reported "not landed yet" and its workspaces were left
 # behind, against point 4.
 #
-# THE RECORD IS A FILE, PER REPOSITORY, WRITTEN ONCE AND NOT RE-DERIVED. Two
-# ways in, and the record says which one it came from:
+# THE RECORD IS A FILE, PER REPOSITORY, AND THERE IS EXACTLY ONE WAY INTO IT:
 #
-#   "recorded"  — `workspaces.sh integration --repo <r> --branch <b> --why ...`
-#                 Rich records it when a body of work starts. This is the form
-#                 the page asks for, and the only form that can name a dev
-#                 branch: nothing in this file can know that this work is not
-#                 allowed into main yet.
-#   "first-registration" — the main checkout's own branch, read ONCE, at the
-#                 registration of the first workspace in that repository, which
-#                 is before its first agent is spawned (register_cc runs before
-#                 the workspace is created; register_spawn before the spawn).
-#                 It is a floor, not a guess about intent: it makes the fact
-#                 EXIST for every repository the registry knows, and freezes it,
-#                 so a land can never fall back to reading a moving HEAD.
+#   `workspaces.sh integration --repo <r> --branch <b> --why '<this work>'`
 #
-# Either way it is read at land time and never recomputed there. A repository
-# whose main checkout is detached when it is first registered gets no record at
-# all, and a land in it REFUSES, naming the command — refusing is the only
-# answer that is not a guess.
+# Rich records it when a body of work starts. It is the form the page asks for,
+# and the only form that can name a dev branch: nothing in this file can know
+# that this work is not allowed into main yet. It is read at land time, and a
+# land in a repository with NO record REFUSES and names that command — refusing
+# is the only answer that is not a guess.
 #
-# THE AGENT KEEPS ITS OWN COPY. `_add_workspace` copies the recorded branch into
-# the agent's record, per repository, at registration. So re-recording the
-# integration branch for the NEXT body of work cannot silently move the target
-# of an agent that is already in flight; its land is tested against the branch
-# that was recorded when it was spawned.
+# ===========================================================================
+# THERE IS NO FLOOR, AND DELETING IT IS THE POINT — 2026-09-12
+# ===========================================================================
+# Until 2026-09-12 a "first-registration" floor read the main checkout's own
+# current branch, wrote it down as though it were the recorded fact, and froze a
+# copy of it onto every agent registered afterwards; `integration_target`
+# preferred that frozen copy over the live record. It fired from
+# `record_session_start` — earlier even than the comment above it claimed.
+#
+# IT WAS WORSE THAN THE REFUSAL IT REPLACED, and the comparison that shows it was
+# reproduced independently by two reviewers:
+#
+#   with NO record at all      the land refuses, Rich records the branch, and
+#                              the land then SUCCEEDS. The refusal HEALS.
+#   with the floor's record    the wrong branch is frozen onto an agent already
+#                              in flight. Recording the right branch afterwards
+#                              cannot reach it, its land refuses FOREVER with
+#                              "is not in main", its workspace is left behind,
+#                              and point 5 is blocked — against point 14's own
+#                              "'it cannot go to main yet' is never a reason for
+#                              anything to be left behind".
+#
+# A derived value that cannot be corrected is not a floor; it is a wrong answer
+# with the authority of a recorded one. "Nothing infers it and nothing guesses
+# it" (point 14) is the whole sentence, so the derivation is gone, the
+# `source: first-registration` record is gone, and the frozen per-agent copy is
+# gone with them. THE LIVE RECORD IS THE ONLY ANSWER, and because it is the only
+# answer it can always be corrected.
+#
+# ===========================================================================
+# THE RECORD IS PER BODY OF WORK, NOT PER REPOSITORY — 2026-09-12
+# ===========================================================================
+# Point 14 says "the branch THIS WORK integrates on". The record had one slot
+# per repository, read live at land time, and the code's own docstring called it
+# "the branch each REPOSITORY's work integrates" — which is a different sentence
+# and the wrong one.
+#
+# Point 5 permits a second body of work to start in a repository while the first
+# one's agents are still running: it blocks new work only for FINISHED work that
+# is neither landed nor discarded. With one slot per repository, recording the
+# second body's branch — which point 14 requires Rich to do — MOVED THE FIRST
+# BODY'S RUNNING AGENTS ONTO IT, retroactively. Their work was merged onto the
+# branch they were spawned for, their land was then measured against a branch
+# they had never heard of, it refused forever, and their workspaces were
+# stranded. The superseded value went into a `history` list that nothing read.
+#
+# So a recording now names a BODY OF WORK: an id, its repository, and the branch
+# it integrates on. Each repository has a CURRENT body of work, which is what a
+# new agent binds to when it is registered, and that binding is by ID and never
+# by value.
+#
+# THE INDIRECTION IS THE WHOLE DESIGN, and it is what the deleted floor got
+# wrong. Freezing the BRANCH onto an agent gives an answer that cannot be
+# corrected. Binding the WORK ID gives one that can: the work's branch stays
+# live and correctable — correcting it corrects every agent bound to that work,
+# in flight — while starting a DIFFERENT body of work creates a different id and
+# cannot reach backwards into the first one.
+#
+#   `workspaces.sh integration --repo <r> --branch <b> --why '<this work>'`
+#       starts a body of work (or re-states the current one, if the branch is
+#       unchanged: recording the same branch twice is the same work).
+#   `workspaces.sh integration --repo <r> --branch <b> --correct --why '<...>'`
+#       CORRECTS the branch of the body of work that is current, keeping its id,
+#       so every agent already bound to it moves with it.
+#
+# An agent registered before anything was recorded is bound to nothing, and
+# falls back to its repository's current body of work — which is what makes the
+# refusal HEAL (point 14's "the land then succeeds"). Nothing is inferred by
+# that: the fallback reads a RECORDED branch, it just does not know which work
+# the agent belongs to.
 
 def _integration_path():
     return _p("integration.json")
@@ -658,35 +715,99 @@ def _norm_repo(repo):
     return main_checkout(repo) or realpath(repo)
 
 
+def _integration_file():
+    return read_json(_integration_path()) or {}
+
+
+def _work_by_id(work_id):
+    """The body of work with this id — including one that is no longer current,
+    because that is precisely the one an agent in flight is still bound to."""
+    if not work_id:
+        return None
+    return (_integration_file().get("works") or {}).get(work_id)
+
+
 def integration_record(repo):
-    """The recorded integration branch of a repository, or None. Never inferred."""
-    return (read_json(_integration_path()) or {}).get("repos", {}).get(_norm_repo(repo))
+    """The recorded integration branch of a repository's CURRENT body of work, or
+    None. Never inferred.
+
+    An agent asks `integration_target`, which asks the work IT is bound to. This
+    is the answer for a caller that has no agent — a consumer asking about the
+    repository, or Rich asking what he last recorded."""
+    return _work_by_id((_integration_file().get("current") or {}).get(_norm_repo(repo)))
 
 
 def all_integration_records():
-    return (read_json(_integration_path()) or {}).get("repos", {})
+    """{repository: its current body of work} — one row per repository, the shape
+    every reader of this already expects."""
+    cur = _integration_file().get("current") or {}
+    return dict((r, _work_by_id(w)) for r, w in cur.items() if _work_by_id(w))
 
 
-def _write_integration(main, branch, source, why="", by_session=""):
+def all_bodies_of_work():
+    """Every body of work ever recorded, current or superseded. A superseded one
+    is not history: an agent spawned for it is still bound to it and still lands
+    against it, which is the whole reason this is keyed by work and not by
+    repository."""
+    return dict(_integration_file().get("works") or {})
+
+
+def _new_work_id(cur, main):
+    n = 1
+    base = _key_segment(os.path.basename(main.rstrip("/")) or "repo")
+    while "%s-%03d" % (base, n) in (cur.get("works") or {}):
+        n += 1
+    return "%s-%03d" % (base, n)
+
+
+def _write_integration(main, branch, source, why="", by_session="", correct=False):
     with Lock():
-        cur = read_json(_integration_path()) or {}
-        cur.setdefault("repos", {})
-        prior = cur["repos"].get(main)
+        cur = _integration_file()
+        cur.setdefault("works", {})
+        cur.setdefault("current", {})
+        prior_id = cur["current"].get(main)
+        prior = cur["works"].get(prior_id) if prior_id else None
         if prior and prior.get("branch") == branch:
-            return prior
-        if prior:
-            cur.setdefault("history", []).append(prior)
-        rec = {"repo": main, "branch": branch, "recorded_at": iso(), "source": source,
-               "why": why or "", "by_session": by_session or ""}
-        cur["repos"][main] = rec
-        write_json(_integration_path(), cur)
-    event("integration-recorded", repo=main, branch=branch, source=source, why=why or None)
+            return prior                     # the same body of work, re-stated
+        if correct:
+            if not prior:
+                raise SpecError("there is no body of work recorded for %s to correct. Record one: "
+                                "workspaces.sh integration --repo %s --branch %s --why '<this work>'"
+                                % (main, main, branch))
+            prior.setdefault("corrections", []).append(
+                {"from": prior.get("branch"), "at": iso(), "why": why or "",
+                 "by_session": by_session or ""})
+            prior["branch"] = branch
+            prior["recorded_at"] = iso()
+            cur["works"][prior_id] = prior
+            write_json(_integration_path(), cur)
+            rec = prior
+        else:
+            wid = _new_work_id(cur, main)
+            rec = {"id": wid, "repo": main, "branch": branch, "recorded_at": iso(),
+                   "source": source, "why": why or "", "by_session": by_session or "",
+                   "corrections": []}
+            cur["works"][wid] = rec
+            cur["current"][main] = wid
+            write_json(_integration_path(), cur)
+    event("integration-recorded", repo=main, branch=branch, source=source,
+          work=rec.get("id"), corrected=bool(correct), why=why or None)
     return rec
 
 
-def record_integration(repo, branch, why="", by_session=""):
+def record_integration(repo, branch, why="", by_session="", correct=False):
     """Point 14, the form the page asks for: Rich records the branch this body of
-    work integrates on, before its first agent is spawned."""
+    work integrates on, before its first agent is spawned.
+
+    Without `correct`, this STARTS a body of work: a new id, which becomes the
+    repository's current one, and which every agent registered afterwards binds
+    to. Agents already bound to an earlier body of work are untouched — that is
+    the failure this shape exists to end.
+
+    With `correct`, the branch of the CURRENT body of work is changed in place,
+    keeping its id, so every agent bound to it moves with it. That is the other
+    half of point 14: a recorded fact must stay correctable, or the refusal it
+    causes can never heal."""
     main = main_checkout(repo)
     if not main:
         raise SpecError("the repository %s could not be resolved from git" % repo)
@@ -701,21 +822,7 @@ def record_integration(repo, branch, why="", by_session=""):
         raise SpecError("there is no branch %s in %s. The branch a body of work integrates on is "
                         "recorded before its first agent is spawned, so it exists by then (point 14)."
                         % (branch, main))
-    return _write_integration(main, branch, "recorded", why, by_session)
-
-
-def _ensure_integration(main):
-    """The floor: at the FIRST registration in a repository, the main checkout's
-    own branch is written down once. Read once, never re-read at land time."""
-    if not main or all_integration_records().get(main):
-        return None
-    wl = worktree_list(main)
-    branch = (wl[0].get("branch") or "") if wl else ""
-    if not branch:
-        return None
-    return _write_integration(main, branch, "first-registration",
-                              "the main checkout's own branch when this repository's first workspace "
-                              "was registered")
+    return _write_integration(main, branch, "recorded", why, by_session, correct)
 
 
 def _add_workspace(rec, kind, repo, path, branch, source):
@@ -729,13 +836,24 @@ def _add_workspace(rec, kind, repo, path, branch, source):
          "registered_at": iso(), "source": source, "deleted_at": None}
     rec["workspaces"].append(w)
     _remember_repo(repo)
-    # Point 14: the target is frozen per agent at its registration, so
-    # re-recording it for the next body of work cannot move the target of an
-    # agent that is already in flight.
-    ir = integration_record(repo)
-    if ir and ir.get("branch"):
-        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]
+    _bind_body_of_work(rec, repo)
     return w
+
+
+def _bind_body_of_work(rec, repo):
+    """WHICH BODY OF WORK THIS AGENT BELONGS TO IN THIS REPOSITORY (point 14).
+
+    The agent is bound to the work's ID, never to its branch. The id is the one
+    thing about a body of work that does not change, so binding it keeps the
+    branch live and correctable for an agent in flight while making a SECOND
+    body of work in the same repository unable to reach backwards into this one.
+    A frozen branch would do neither; that is what the deleted floor did."""
+    main = _norm_repo(repo)
+    wid = (_integration_file().get("current") or {}).get(main)
+    if not wid:
+        return                       # nothing recorded yet: bound to nothing, heals later
+    rec.setdefault("integration_work", {})
+    rec["integration_work"].setdefault(main, wid)
 
 
 def _drop_orphans_for(path):
@@ -1121,9 +1239,10 @@ def record_end(session_id, agent_id, signal_name, detail=""):
         save_agent(rec)
     # The end-of-run signal carries the agent's id too, so it is the last
     # observation: a ref created in its LAST call is still its own, even if that
-    # call's PostToolUse never arrived. It CONSUMES the open snapshot, so nothing
-    # that happens after the run has ended is ever compared against it.
-    observe_created_refs(rec)
+    # call's PostToolUse never arrived. It CONSUMES EVERY window still open —
+    # calls overlap, so there can be more than one — and nothing that happens
+    # after the run has ended is ever compared against them.
+    observe_created_refs(rec, all_open=True)
     event("end", key=rec["key"], signal=signal_name, detail=detail)
     return rec
 
@@ -1200,7 +1319,7 @@ def stop(ref, why, session_id=""):
         rec["end"] = {"at": now(), "signal": "stopped", "detail": why or "stopped by Rich"}
         rec["pause"] = None
         save_agent(rec)
-    observe_created_refs(rec)
+    observe_created_refs(rec, all_open=True)
     event("end", key=rec["key"], signal="stopped", detail=why)
     return rec
 
@@ -1547,6 +1666,43 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 # in the minutes between two calls.
 #
 # ===========================================================================
+# ONE WINDOW PER TOOL CALL, KEYED BY THE CALL — NOT ONE SLOT PER AGENT
+# ===========================================================================
+# Until 2026-09-12 the snapshot was written to ONE path per agent,
+# `refs/<key>.json`, and the first PostToolUse to arrive consumed it. AN AGENT'S
+# OWN CALLS OVERLAP: this project's own agent instructions require independent
+# calls to be issued in one block, and a backgrounded Bash call was measured
+# returning 4.0 s before its process finished. Pre(A) Pre(B) Post(A) Post(B)
+# therefore lost a whole window — B's snapshot overwrote A's, Post(A) consumed
+# what was left, and Post(B) had nothing to compare against. A ref created in
+# call B was attributed to NOBODY, and a side branch created that way took real
+# commits with it: land() reported LANDED, pending() listed nothing, and the
+# commit was in no integration branch (reproduced by two reviewers at 84e12d32,
+# against points 5, 8 and 10).
+#
+# THE PLATFORM GIVES EACH CALL ITS OWN ID and both halves carry it: `tool_use_id`
+# is the same string at PreToolUse and at PostToolUse of one call — the spawn
+# registration has relied on exactly that pairing since it was written
+# (register_spawn stores it at the Pre; bind_agent looks it up at the Post). So
+# the snapshot is keyed by the CALL, in a directory per agent, and a Post
+# consumes ITS OWN call's window and no other. Overlapping calls of one agent can
+# no longer clobber each other, and a Post whose Pre never ran (a guard refused
+# it) still attributes nothing, exactly as before.
+#
+# WHEN NO CALL ID IS PRESENT — a caller driving these entry points directly —
+# the only pairing available is arrival order, so an unkeyed snapshot is written
+# under its own name and a Post consumes the OLDEST unkeyed one. That is still
+# one window per call; it is merely paired by order rather than by name. A Pre
+# and a Post that DISAGREE about whether there is an id find nothing to consume
+# and attribute nothing, which is the safe direction: under-attribution leaves a
+# stray, and the land refuses while that stray carries anything unlanded.
+#
+# The open windows of one agent are bounded (_MAX_OPEN_CALLS): a PreToolUse that
+# a guard then REFUSES leaves a snapshot no Post will ever consume, so the oldest
+# are evicted rather than accumulating. Every open window is consumed at the
+# agent's end of run, which is the last observation (record_end, stop).
+#
+# ===========================================================================
 # TIME ALONE IS STILL A GUESS, SO IT IS NEVER THE WHOLE TEST
 # ===========================================================================
 # Other things happen while an agent's tool call runs: Rich cuts a branch, a
@@ -1596,8 +1752,86 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 # and the scan of other agents' records are touched only when a ref that is not
 # already accounted for is actually sitting there, which is rare.
 
-def _refs_path(key):
-    return _p("refs", key + ".json")
+# A REFUSED PreToolUse LEAKS A WINDOW, AND THAT IS THE WHOLE OF ITEM 2.
+# -------------------------------------------------------------------------
+# The barrier runs at PreToolUse and writes this call's window. If ANOTHER
+# PreToolUse hook then refuses the call, the tool never runs and no PostToolUse
+# ever arrives: the window stays open for the rest of the agent's run. Two
+# things used to go wrong with it, and they need different answers.
+#
+#   THE WIDENING (fixed in `_before_set`). The end-of-run pass consumed every
+#   open window and INTERSECTED their before-sets, so "the widest one decides".
+#   One window leaked at minute one turned the last comparison of the run into
+#   "everything that appeared during this agent's entire run" — and a branch
+#   RICH cut between two of the agent's calls was then attributed to the agent
+#   and destroyed by its discard. The answer is the opposite operation: the
+#   before-sets are UNIONED, and the most recent snapshot this agent ever took
+#   is always part of that union even when its own call already consumed it.
+#   A leaked window can then only ever NARROW what is attributed, never widen
+#   it, which is the safe direction: an unattributed stray is a branch left
+#   behind and named by the point-3 sweep, while an over-attributed one is
+#   somebody else's work deleted.
+#
+#   THE EVICTION, MEASURED AND LEFT ALONE. The cap evicts the OLDEST window by
+#   position, so a burst of refused calls opened while a live call is in flight
+#   evicts the LIVE one. That looks like a second bug and it was going to be
+#   fixed here. It was measured instead, and it is not one: once the
+#   before-sets are UNIONED, a window opened before the ref still decides, and
+#   after a burst of refusals there is always one of those still open. Both an
+#   age-based cap and the unpaired-Post fallback below rescue the case
+#   independently, and neither can be told from the other by any scenario --
+#   so the age-based cap was an unproven claim and is not here. What actually
+#   rescues it is the fallback, which has its own case and its own mutant.
+_MAX_OPEN_CALLS = 64
+
+
+def _refs_dir(key):
+    return _p("refs", _key_segment(key))
+
+
+def _latest_path(key):
+    """The most recent snapshot this agent took, kept AFTER its own window is
+    consumed. It is never attributed from on its own; it only joins the union
+    that decides what counts as new (see `_before_set`)."""
+    return os.path.join(_refs_dir(key), "latest.json")
+
+
+def _slot_path(key, call):
+    """The window of ONE tool call. Keyed by the platform's own call id when the
+    payload carries one; otherwise a unique, time-ordered unkeyed slot."""
+    if call:
+        return os.path.join(_refs_dir(key), "c." + _key_segment(call) + ".json")
+    return os.path.join(_refs_dir(key), "u.%020d.%s.json" % (time.time_ns(), os.urandom(4).hex()))
+
+
+def _open_slots(key):
+    """Every open window of this agent, oldest first. Unkeyed slots sort
+    chronologically by construction; keyed ones are looked up by name.
+
+    `latest.json` is NOT a window: it is the running record of the last
+    snapshot taken, and consuming it would attribute a call twice."""
+    try:
+        names = sorted(n for n in os.listdir(_refs_dir(key))
+                       if n.endswith(".json") and n != "latest.json")
+    except OSError:
+        return []
+    return [os.path.join(_refs_dir(key), n) for n in names]
+
+
+def _evict_old_slots(key):
+    """A refused PreToolUse leaves a window no Post will consume. Keep the cap."""
+    slots = _open_slots(key)
+    if len(slots) <= _MAX_OPEN_CALLS:
+        return
+    try:
+        slots.sort(key=os.path.getmtime)
+    except OSError:
+        pass
+    for p in slots[:len(slots) - _MAX_OPEN_CALLS]:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
 
 
 def _local_refs(repo):
@@ -1623,10 +1857,14 @@ def _repos_of(rec):
     return out
 
 
-def snapshot_refs(rec):
+def snapshot_refs(rec, call=""):
     """THE FIRST HALF OF THE PAIR (point 3): what its repositories held when
-    this tool call STARTED. Called from barrier(), so it runs at a moment the
+    THIS tool call started. Called from barrier(), so it runs at a moment the
     platform vouches for with this agent's id, and never for a finished one.
+
+    `call` is the platform's own id for this tool call, and it KEYS the window:
+    two of the agent's own calls open at once keep two windows, and neither can
+    clobber the other.
 
     A snapshot lost to a crash costs one window of attribution, and
     under-attribution loses nothing — so this never fails a tool call."""
@@ -1637,15 +1875,100 @@ def snapshot_refs(rec):
             if refs is None:
                 continue                 # unreadable: no snapshot, so no candidates
             snap[repo] = sorted(refs)
-        write_json(_refs_path(rec["key"]), {"key": rec["key"], "at": now(), "repos": snap})
+        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}
+        write_json(_slot_path(rec["key"], call), row)
+        # The same fact, kept where consuming a window cannot remove it. It is
+        # what stops a window leaked by a refused call from widening the
+        # end-of-run comparison to the whole run (see `_before_set`).
+        write_json(_latest_path(rec["key"]), row)
+        _evict_old_slots(rec["key"])
         return snap
     except (OSError, ValueError):
         return {}
 
 
-def _drop_snapshot(key):
+def _take_snapshots(key, call="", all_open=False):
+    """CONSUME this call's window — or, at the end of the run, every open one —
+    and return what was in it. Consumed whatever the outcome: one creation is
+    attributed once, and a Post whose own Pre never ran attributes nothing."""
+    if all_open:
+        paths = _open_slots(key)
+    elif call:
+        p = _slot_path(key, call)
+        # A POST WHOSE OWN WINDOW IS NOT THERE STILL ENDS SOME CALL OF THIS
+        # AGENT. The platform does not always carry `tool_use_id` on both
+        # halves, and a Pre keyed / Post unkeyed pair (or the reverse) used to
+        # find nothing at either end: the ref created inside that call was
+        # attributed to nobody until the end of the run, and after the run
+        # ended, to nobody at all. So an unpaired Post falls back to the OLDEST
+        # open window, which is the one least likely to have another Post
+        # coming.
+        paths = [p] if os.path.exists(p) else _open_slots(key)[:1]
+    else:
+        paths = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.")][:1] \
+            or _open_slots(key)[:1]
+    priors = []
+    for p in paths:
+        prior = read_json(p)
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+        if prior and isinstance(prior.get("repos"), dict):
+            priors.append(prior)
+    return priors
+
+
+def _before_set(priors, latest, repo):
+    """WHAT ALREADY EXISTED WHEN ANY OF THIS AGENT'S OPEN CALLS STARTED — the
+    UNION of their before-sets, plus the most recent snapshot it ever took.
+
+    It used to be the INTERSECTION, described as "the widest one decides". With
+    one window leaked by a refused call, the widest one was the start of the
+    run, so the end-of-run comparison asked "what appeared while this agent
+    existed" instead of "what changed during this call", and a branch Rich cut
+    between two of the agent's calls came back as the agent's.
+
+    The union is the other direction and it is the safe one. A ref that already
+    existed when ANY call of this agent started was not created by that call,
+    and with windows overlapping there is no way to say which call made it. The
+    cost is under-attribution in one narrow shape — a ref created during a call
+    that is still open when an even later call starts, and whose own Post never
+    arrives — and under-attribution leaves a branch behind for the point-3
+    sweep to name, while over-attribution deletes somebody else's work.
+
+    `latest` joins the union even after its own window was consumed, because
+    that is exactly the fact a leaked window is missing: the run got as far as
+    THAT call, so anything already present then is not the leaked call's doing.
+    It never adds attribution of its own — it only ever removes some."""
+    before = None
+    for prior in priors:
+        if repo in (prior.get("repos") or {}):
+            b = set(prior["repos"][repo] or [])
+            before = b if before is None else (before | b)
+    if latest and repo in (latest.get("repos") or {}):
+        b = set(latest["repos"][repo] or [])
+        before = b if before is None else (before | b)
+    return before
+
+
+def _drop_snapshots(key):
+    """Every open window of this agent, thrown away unconsumed."""
+    for p in _open_slots(key):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
     try:
-        os.unlink(_refs_path(key))
+        os.unlink(_latest_path(key))
+    except OSError:
+        pass
+    try:
+        os.rmdir(_refs_dir(key))
+    except OSError:
+        pass
+    try:
+        os.unlink(_p("refs", key + ".json"))      # the pre-2026-09-12 single slot
     except OSError:
         pass
 
@@ -1665,6 +1988,21 @@ def _refs_recorded_elsewhere(exclude_key):
             if len(pair) >= 2:
                 out.add((pair[0], pair[1]))
     return out
+
+
+# A reflog subject says whether this workspace MADE the commit its HEAD moved
+# to, or merely visited one that already existed. "checkout: moving from X to Y"
+# is a visit; "commit: ...", "merge ...", "rebase ...", "cherry-pick ...",
+# "revert ...", "am ..." and "pull ..." all produce the commit they land on.
+# Counting visits is how a ref Rich cut at a commit the agent only BORROWED
+# became the agent's: the agent checked that commit out for one call and its
+# reflog then swore the commit was its own work.
+_MADE_HERE = ("commit", "merge", "rebase", "cherry-pick", "revert", "am", "pull")
+
+
+def _made_here(subject):
+    head = (subject or "").split(":")[0].strip().lower()
+    return head.split(" ")[0] in _MADE_HERE if head else False
 
 
 def _own_unlanded_tips(rec, repo, refs, target):
@@ -1696,6 +2034,7 @@ def _own_unlanded_tips(rec, repo, refs, target):
     history with something of its own, and the land is held until that branch is
     merged or discarded."""
     tips = set()
+    bases = set()
     for w in live_workspaces(rec):
         if w.get("repo") != repo:
             continue
@@ -1706,34 +2045,81 @@ def _own_unlanded_tips(rec, repo, refs, target):
         rc, out, _ = git(w["path"], "rev-parse", "HEAD")
         if rc == 0 and out.strip():
             tips.add(out.strip())
-        rc, out, _ = git(w["path"], "reflog", "show", "--format=%H", "HEAD")
+        rc, out, _ = git(w["path"], "reflog", "show", "--format=%H%x09%gs", "HEAD")
         if rc == 0:
-            for line in out.split():
-                if line.strip():
-                    tips.add(line.strip())
+            lines = [l for l in out.splitlines() if l.strip()]
+            for line in lines:
+                sha, _tab, subject = line.partition("\t")
+                sha = sha.strip()
+                if not sha:
+                    continue
+                if _made_here(subject):
+                    tips.add(sha)
+            if lines:
+                # The OLDEST entry is where this workspace started — the commit
+                # git put its HEAD on when the workspace was created. It is a
+                # fact about the agent's own workspace, recorded by git, and it
+                # is the floor used when point 14's record does not exist yet.
+                oldest = lines[-1].partition("\t")[0].strip()
+                if oldest:
+                    bases.add(oldest)
     for pair in rec.get("created_branches") or []:
         if len(pair) >= 2 and pair[0] == repo and refs.get(pair[1]):
             tips.add(refs[pair[1]])
+    if not target:
+        # NOTHING IS RECORDED FOR THIS REPOSITORY YET (point 14 not yet done),
+        # so "less the ones already in the integration branch" has no branch to
+        # subtract. The floor is then each workspace's OWN starting commit: work
+        # that was already there when the agent's workspace was created is not
+        # the agent's, whatever any record says. Without this floor the base
+        # commit itself counts as the agent's work, every ref in the repository
+        # descends from it, and every ref is "on this agent's line of work" —
+        # which is how a ref cut at a tip the agent only BORROWED became the
+        # agent's the moment attribution stopped waiting for the record.
+        if not bases:
+            return set(t for t in tips if t)
+        return set(t for t in tips
+                   if t and not any(is_ancestor(repo, t, b) for b in bases))
     return set(t for t in tips if t and not is_ancestor(repo, t, target))
 
 
-def observe_created_refs(rec):
+def observe_created_refs(rec, call="", all_open=False):
     """THE SECOND HALF OF THE PAIR (point 3): the refs this agent created during
     the tool call that is now ending, recorded against it. Returns what it added.
 
-    The snapshot is CONSUMED here, whatever the outcome: one creation is
-    attributed once, and a Post without a Pre attributes nothing."""
-    prior = read_json(_refs_path(rec["key"]))
-    _drop_snapshot(rec["key"])
-    if not prior or not isinstance(prior.get("repos"), dict):
+    `call` names WHICH of the agent's open windows this is the far end of, so
+    two of its own calls open at once no longer clobber each other. `all_open`
+    is the end of the run: every window still open is the last observation.
+
+    The window is CONSUMED here, whatever the outcome: one creation is
+    attributed once.
+
+    IT DOES NOT NEED AN INTEGRATION BRANCH TO BE RECORDED. The record is a
+    filter on what is at stake, never a gate on whether the observation happens
+    at all — attribution is made once and never again, so a missing record used
+    to mean "attributed to nobody, permanently"."""
+    # READ BEFORE CONSUMING. The last snapshot has to be in hand before the
+    # windows are thrown away, or the end-of-run pass is judged against the
+    # leaked window alone -- which is the widening this whole change ends.
+    latest = read_json(_latest_path(rec["key"]))
+    priors = _take_snapshots(rec["key"], call, all_open)
+    if all_open:
+        _drop_snapshots(rec["key"])
+    if not priors:
         return []
     try:
         mine = []
         repos = _repos_of(rec)
-        for repo in sorted(prior["repos"]):
+        seen_repos = sorted(set(r for prior in priors for r in prior["repos"]))
+        for repo in seen_repos:
             if repo not in repos:
                 continue
-            before = set(prior["repos"][repo] or [])
+            # A ref is NEW when it did not exist at the start of ANY of this
+            # agent's open calls (`_before_set` says why that is a union and not
+            # an intersection).
+            before = _before_set(priors, latest, repo)
+            if before is None:
+                continue
             refs = _local_refs(repo)
             if refs is None:
                 continue                              # unreadable: observe nothing
@@ -1741,9 +2127,26 @@ def observe_created_refs(rec):
                           and not b.startswith(CODEX_PREFIX)]
             if not fresh_refs:
                 continue
-            _branch, target, why_not = integration_target([rec], repo)
-            if why_not:
-                continue     # no recorded ref to measure "at stake" against (point 14)
+            # ATTRIBUTION DOES NOT WAIT FOR THE RECORD, AND THIS IS ITEM 1.
+            # It used to: with no integration branch recorded, this gave up on
+            # the whole observation and wrote an `attribution-skipped` event
+            # that had one producer and NO CONSUMER. Attribution happens once,
+            # at the end of a tool call, so "skipped" meant attributed to NOBODY
+            # PERMANENTLY -- recording the branch afterwards unblocked the land
+            # and never went back for what was skipped, and `land()` then
+            # reported success over a commit that had reached no integration
+            # branch. The control that recorded the branch first held, so the
+            # cause was the ORDER, and the fix is to take the order out: the
+            # target is now only ever a FILTER here, never a precondition.
+            #
+            # With no target the judgment is deliberately wider -- the two tests
+            # it can make no longer run, so a ref that is already fully merged
+            # is attributed where it would otherwise have been skipped. That is
+            # the right way round. An over-attributed ref is still measured at
+            # land time, where a ref already in the integration branch simply
+            # passes and a ref that is not REFUSES the land by name. A ref
+            # attributed to nobody is measured nowhere, ever.
+            _branch, target, _why_not = integration_target([rec], repo)
             wl = worktree_list(repo) or []
             held_by_main = (wl[0].get("branch") or "") if wl else ""
             elsewhere = _refs_recorded_elsewhere(rec["key"])
@@ -1756,7 +2159,7 @@ def observe_created_refs(rec):
                 if b == held_by_main or b in own_branches or (repo, b) in elsewhere:
                     continue
                 tip = refs[b]
-                if is_ancestor(repo, tip, target):
+                if target and is_ancestor(repo, tip, target):
                     continue                          # entirely landed: nothing at stake
                 if not any(t == tip or is_ancestor(repo, t, tip) or is_ancestor(repo, tip, t)
                            for t in own):
@@ -1795,9 +2198,9 @@ def observe(payload):
     if not rec:
         return []
     if finished_state(rec)[0]:
-        _drop_snapshot(rec["key"])
+        _drop_snapshots(rec["key"])
         return []
-    return observe_created_refs(rec)
+    return observe_created_refs(rec, str(payload.get("tool_use_id") or ""))
 
 
 def _chain(rec):
@@ -1853,21 +2256,42 @@ def _branch_targets(chain):
 def integration_target(chain, repo):
     """(branch, tip, why_not) — the ref a land is proved against (point 14).
 
-    The branch comes from the RECORD and nowhere else: the copy frozen on one of
-    these agents' records at its registration first, else the repository's own
-    record. `why_not` is filled instead when there is no fact to test against,
-    and a land that cannot name its target REFUSES rather than falling back to
-    whatever the main checkout happens to have."""
+    THE ONE ANSWER. "Every part of the system that needs to know whether work
+    has landed asks the same question: is it in the branch recorded for this
+    work? None of them is allowed its own answer, and none of them assumes
+    main." This function is that question. A consumer with no agent in hand asks
+    `integration_for(repo)`, which is this with an empty chain.
+
+    The branch comes from the body of work THIS CHAIN IS BOUND TO, and nowhere
+    else. Nothing is inferred, no branch is frozen onto an agent, and nothing
+    falls back to whatever the main checkout happens to have checked out: a land
+    that cannot name its target REFUSES and names the command that records it.
+
+    `chain` is the unit of work, and it is now a real input rather than a
+    courtesy: a second body of work started in the same repository — which point
+    5 permits while this one's agents are still running — must not move this
+    chain's target. Each agent carries the work ID it was registered under; the
+    branch is read live from that work, so a CORRECTION still reaches an agent
+    in flight and a DIFFERENT body of work never does.
+
+    A chain bound to nothing (registered before anything was recorded) falls
+    back to the repository's current body of work. That is what makes the
+    refusal HEAL — Rich records the branch and the same land then succeeds —
+    and it infers nothing: the branch it reads is a recorded one."""
     repo = realpath(repo or "")
     if not repo or not os.path.isdir(repo):
         return "", "", "its repository %s cannot be read" % repo
-    branch = ""
-    for r in chain:
-        branch = (r.get("integration") or {}).get(repo) or ""
-        if branch:
-            break
-    if not branch:
-        branch = (integration_record(repo) or {}).get("branch") or ""
+    main_key = _norm_repo(repo)
+    work = None
+    for r in chain or []:
+        wid = (r.get("integration_work") or {}).get(main_key)
+        if wid:
+            work = _work_by_id(wid)
+            if work:
+                break
+    if work is None:
+        work = integration_record(repo)
+    branch = (work or {}).get("branch") or ""
     if not branch:
         return "", "", ("no branch is recorded for %s as the one this work integrates on. The branch a "
                         "body of work integrates on is RECORDED when that work starts (point 14); "
@@ -1876,10 +2300,25 @@ def integration_target(chain, repo):
     main = main_checkout(repo) or repo
     tip = branch_tip(main, branch)
     if not tip:
-        return branch, "", ("the recorded integration branch %s does not exist in %s any more. Re-record "
-                            "the branch this work integrates on (point 14): workspaces.sh integration "
-                            "--repo %s --branch <main|dev/...>" % (branch, repo, repo))
+        return branch, "", ("the recorded integration branch %s (body of work %s) does not exist in %s "
+                            "any more. Correct the branch this work integrates on (point 14): "
+                            "workspaces.sh integration --repo %s --branch <main|dev/...> --correct"
+                            % (branch, (work or {}).get("id") or "?", repo, repo))
     return branch, tip, ""
+
+
+def integration_for(repo):
+    """(branch, tip, why_not) for a caller that has no agent in hand — the single
+    answer every consumer asks instead of keeping its own.
+
+    A SECOND CORRECT COPY IS STILL A SECOND ANSWER. Consumers that need to know
+    whether work has landed — `completion-proof.py`, `land-completeness.py`,
+    `land-residue-gate.py`, `unlanded-branches.py`, `guard-ci-red-lands.sh`,
+    `guard-unresolved-claims.py`, `guard-idle-land.py`, `inflight.py` — call
+    this. Where nothing is recorded it returns a `why_not` that NAMES THE
+    RECORDING COMMAND, and the consumer abstains on it. None of them assumes
+    main (point 14)."""
+    return integration_target([], repo)
 
 
 def land(ref, me="", auto=False, ignored_ok="", deadline=None):
@@ -2040,7 +2479,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
                         for w in fresh["workspaces"]):
             write_json(done_path(fresh["key"]), fresh)
             os.unlink(agent_path(fresh["key"]))
-            _drop_snapshot(fresh["key"])
+            _drop_snapshots(fresh["key"])
     event("deleted" if not failures else "deletion-failed", key=rec["key"], why=why,
           failures=failures or None, stopped=processes.get("stopped") or None)
     return not failures
@@ -2304,7 +2743,7 @@ def barrier(payload):
     # (point 3, "any branch an agent created"). It runs only for an UNFINISHED
     # agent: a ref Rich cuts after the run has ended, to rescue the work, is his
     # and is never a candidate at all.
-    snapshot_refs(rec)
+    snapshot_refs(rec, str(payload.get("tool_use_id") or ""))
     return "REGISTERED", rec.get("name") or ""
 
 
@@ -2645,10 +3084,19 @@ def main(argv):
     g.add_argument("--ceo")
     x.add_argument("--todo", default="")
     sub.add_parser("retry")
+    x = sub.add_parser("integration-branch")
+    x.add_argument("--repo", default="")
     x = sub.add_parser("integration")
     x.add_argument("--repo", default="")
     x.add_argument("--branch", default="")
     x.add_argument("--why", default="")
+    x.add_argument("--correct", action="store_true",
+                   help="change the branch of the body of work that is CURRENT, keeping its "
+                        "id, so every agent already bound to it moves with it. Without this, "
+                        "a recording STARTS a new body of work and reaches no running agent.")
+    x.add_argument("--all", action="store_true",
+                   help="list every body of work, superseded ones included — a superseded "
+                        "one is what an agent spawned for it still lands against")
     x = sub.add_parser("register-cc")
     for f in ("--name", "--repo", "--path", "--branch"):
         x.add_argument(f, required=True)
@@ -2741,10 +3189,37 @@ def main(argv):
             kind, on = ("started", a.started) if a.started else (("outside", a.outside) if a.outside else ("ceo-discard", a.ceo))
             wait(a.agent, kind, on, a.todo, me)
             print("recorded: %s waits (%s) on %s" % (a.agent, kind, on))
+        elif a.cmd == "integration-branch":
+            # THE ONE ANSWER, FOR A SHELL CONSUMER. "Every part of the system
+            # that needs to know whether work has landed asks the same
+            # question... None of them is allowed its own answer, and none of
+            # them assumes main" (point 14). Exit 0 and the branch on stdout, or
+            # exit 3 and the reason on stderr -- 3 means ABSTAIN, not failure:
+            # the caller must not fall back to main, it must say it cannot
+            # answer and name the command below.
+            branch, tip, why_not = integration_for(a.repo or entity)
+            if why_not:
+                print(why_not, file=sys.stderr)
+                return 3
+            print("%s\t%s" % (branch, tip))
         elif a.cmd == "integration":
             if a.branch:
-                r = record_integration(a.repo or entity, a.branch, a.why, me)
-                print("recorded: %s integrates on %s" % (r["repo"], r["branch"]))
+                r = record_integration(a.repo or entity, a.branch, a.why, me, a.correct)
+                print("%s: %s integrates on %s (body of work %s)"
+                      % ("corrected" if a.correct else "recorded", r["repo"], r["branch"], r["id"]))
+            elif a.all:
+                works = all_bodies_of_work()
+                cur = set((_integration_file().get("current") or {}).values())
+                if not works:
+                    print("no body of work has an integration branch recorded (point 14)")
+                for wid in sorted(works):
+                    w = works[wid]
+                    print("%s\t%s\t%s\t%s\t%s\t%s"
+                          % (wid, "current" if wid in cur else "superseded", w.get("repo"),
+                             w.get("branch"), w.get("recorded_at"), w.get("why") or ""))
+                    for c in w.get("corrections") or []:
+                        print("\t  corrected from %s at %s: %s"
+                              % (c.get("from"), c.get("at"), c.get("why") or ""))
             else:
                 recs = all_integration_records()
                 if a.repo:
@@ -2754,8 +3229,8 @@ def main(argv):
                     print("no integration branch is recorded (point 14)")
                 for repo in sorted(recs):
                     r = recs[repo]
-                    print("%s\t%s\t%s\t%s" % (repo, r.get("branch"), r.get("source"),
-                                                r.get("recorded_at")))
+                    print("%s\t%s\t%s\t%s\t%s" % (repo, r.get("branch"), r.get("source"),
+                                                    r.get("recorded_at"), r.get("id") or ""))
         elif a.cmd == "retry":
             for k, ok in retry_due(budget=60.0):
                 print("%s %s" % ("deleted" if ok else "still failing", k))

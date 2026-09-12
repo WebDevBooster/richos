@@ -66,6 +66,11 @@ PASS=0
 FAIL=0
 
 SANDBOX="$(mktemp -d -t guard-unresolved-claims.XXXXXX)"
+# THE WORKSPACE REGISTRY IS A SANDBOX ONE. The gate asks
+# scripts/lib/workspaces.py which branch this work integrates on (point 14),
+# and this suite RECORDS one for its fixture repository -- which must never
+# reach the operator's real ~/.claude/state registry.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces-registry"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 SESSION_ID="feedface-0000-4000-8000-000000000000"
@@ -164,6 +169,19 @@ printf 'not pushed\n' > "$ENTITY/docs/unpushed.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
 git -C "$ENTITY" commit -qm "committed, not pushed" >/dev/null 2>&1
 UNPUSHED_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
+
+# POINT 14: THE BRANCH THIS BODY OF WORK INTEGRATES ON, RECORDED.
+# The gate used to carry its own INTEGRATION_REFS tuple -- main, master,
+# origin/main, origin/master, HEAD -- which is an answer of its own, and on a
+# repository whose work integrates on a dev branch it refused truthful
+# "integrated" claims. It now asks scripts/lib/workspaces.py, so this fixture
+# records the branch exactly as Rich does. With nothing recorded the gate
+# ABSTAINS into "unknown", which is its silent verdict, so the recording is
+# what makes every "landed" case below test the gate rather than the
+# abstention. Case z7 is the abstention itself.
+"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/workspaces.sh" integration \
+    --repo "$ENTITY" --branch "$DEFAULT_BRANCH" \
+    --why "the guard-unresolved-claims fixture" >/dev/null 2>&1 || true
 
 # A value present in TWO spellings, one of which a claim will not name.
 printf -- '--mark: #9C7C34;\n' > "$ENTITY/docs/style.css"

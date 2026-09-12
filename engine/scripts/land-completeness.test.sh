@@ -68,6 +68,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATUS="$SCRIPT_DIR/land-completeness.sh"
+WORKSPACES="$SCRIPT_DIR/workspaces.sh"
 GATE="$SCRIPT_DIR/lib/land-residue-gate.py"
 ANALYZER="$SCRIPT_DIR/lib/land-completeness.py"
 
@@ -120,6 +121,16 @@ mkrepo() {
     # identity above is that this commit passes the machine's own hooks rather
     # than stepping around them.
     git -C "$repo" commit -q -m "base"
+    # POINT 14, AND IT IS THE FIXTURE'S JOB, NOT THE CHECKER'S. "Every part of
+    # the system that needs to know whether work has landed asks the same
+    # question: is it in the branch recorded for this work?" The checker used
+    # to default to the string "main", which is an answer of its own and wrong
+    # on any repository whose work integrates on a dev branch. It now asks the
+    # library, so a fixture repository records its body of work exactly as Rich
+    # does -- one command, before anything else happens in it. L17 is the case
+    # where nothing is recorded, and it asserts the ABSTENTION.
+    "$WORKSPACES" integration --repo "$repo" --branch main \
+        --why "the land-completeness fixture" >/dev/null 2>&1 || true
 }
 
 # A linked worktree on its own branch. `merged=yes` leaves the branch at main's
@@ -317,7 +328,11 @@ fi
 # 'cannot decide', never toward 'refuse'.
 BROKEN="$SANDBOX/broken-engine"
 mkdir -p "$BROKEN/scripts/lib"
-for f in land-completeness.py worktree-ledger.py worktree-transactions.py; do
+# workspaces.py comes too: the checker asks IT for the branch this work
+# integrates on (point 14), and this case breaks the LIVENESS module on
+# purpose. Without it the checker would abstain for the wrong reason and
+# the case would pass without testing anything.
+for f in land-completeness.py worktree-ledger.py worktree-transactions.py workspaces.py; do
     cp "$SCRIPT_DIR/lib/$f" "$BROKEN/scripts/lib/"
 done
 printf 'raise ImportError("liveness deliberately unloadable")\n' \

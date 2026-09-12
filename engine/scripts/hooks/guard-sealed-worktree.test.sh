@@ -92,6 +92,12 @@ run() { OUT="$(printf '%s' "$1" | "$HOOK" 2>&1)"; RC=$?; }
 
 echo "=== guard-sealed-worktree (the lock-out) tests ==="
 new_session "$SID"
+# Point 14: the branch this body of work integrates on is RECORDED before the
+# first spawn. Nothing infers it any more, and without it nothing here can land,
+# so the point-5 gate would refuse the second spawn and the lock-out cases would
+# never be reached. One command, exactly as Rich runs it.
+python3 "$WS_PY" --entity "$ENTITY" --session "$SID" integration --repo "$ENTITY" \
+    --branch main --why "the lock-out suite's body of work" >/dev/null
 
 # G01 the lead
 run "$(payload Write "")"

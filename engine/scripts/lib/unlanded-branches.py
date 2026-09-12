@@ -148,6 +148,9 @@ import time
 DEFAULT_LEDGER = (os.environ.get("RICHOS_WORKTREE_LEDGER")
                   or os.path.join(os.path.expanduser("~"), ".claude", "state",
                                   "worktree-ledger.jsonl"))
+# KEPT ONLY AS THE NAMES A READER MAY SEE IN A MESSAGE. Nothing decides a
+# landed/unlanded verdict from this tuple any more: `trunk_of` asks
+# workspaces.py for the branch RECORDED for the body of work (point 14).
 TRUNK_NAMES = ("main", "master")
 GIT_TIMEOUT = 20
 # Six is where one line stops being readable. The rest are counted, never lost,
@@ -284,11 +287,35 @@ def worktrees_of(repo):
 
 
 def trunk_of(repo):
-    for name in TRUNK_NAMES:
-        if git(repo, ["rev-parse", "--verify", "--quiet",
-                      "refs/heads/" + name]) is not None:
-            return name
-    return None
+    """The branch a branch here is measured as UNLANDED against — asked of the
+    library, never decided here.
+
+    Point 14: "Every part of the system that needs to know whether work has
+    landed asks the same question: is it in the branch recorded for this work?
+    None of them is allowed its own answer, and none of them assumes main."
+    This used to walk TRUNK_NAMES and pick whichever of `main`/`master` existed,
+    which is a second answer: in a repository whose work integrates on a dev
+    branch, every branch already merged onto that dev branch was reported here
+    as unlanded.
+
+    None means ABSTAIN — the caller says it cannot answer and names the
+    recording command, and it never falls back to a trunk name.
+
+    Loading the library by path is a duplicated LOADER, not a duplicated
+    ANSWER: there is one implementation of the question and it is
+    workspaces.py's."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        branch, _tip, why_not = ws.integration_for(repo)
+    except Exception:
+        return None
+    if why_not or not branch:
+        return None
+    return branch
 
 
 def ahead_branches(repo, trunk):
@@ -418,8 +445,11 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
             # NOT silence. A repository with no main and no master is one this
             # check cannot answer for, and an unanswerable repository reported
             # as clean is the shape of every defect this engine is built out of.
-            row["note"] = ("no local `main` or `master`, so 'has this landed?' "
-                           "has no reference to be asked against")
+            row["note"] = ("no branch is recorded as the one this repository's work "
+                           "integrates on, so 'has this landed?' has no reference to be "
+                           "asked against (point 14). Record it: workspaces.sh "
+                           "integration --repo %s --branch <main|dev/...> --why "
+                           "'<this body of work>'" % repo)
             result["repos"].append(row)
             result["status"] = "partial"
             continue

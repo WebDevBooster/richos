@@ -5,7 +5,11 @@ Reads one repository's land-completeness report, matches any acknowledgement
 carried on the command line, and answers whether this land proceeds.
 
     --repo <path>       the repository the land is about to go into
-    --branch <name>     the branch it lands into (default: main)
+    --branch <name>     the branch it lands into. OMIT IT and the branch
+                        RECORDED for this body of work is asked of
+                        scripts/lib/workspaces.py (point 14). The old
+                        default of `main` was this gate keeping its own
+                        answer to "has this work landed".
     --command <text>    the command line, for the acknowledgement
     --ack-log <path>    where accepted acknowledgements are recorded
     --enforce 0|1       1 refuses, 0 announces and allows
@@ -122,7 +126,7 @@ def ack_history(log_path, repo):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="land-residue-gate.py")
     ap.add_argument("--repo", required=True)
-    ap.add_argument("--branch", default="main")
+    ap.add_argument("--branch", default="")
     ap.add_argument("--command", default="")
     ap.add_argument("--ack-log", default=os.path.expanduser(
         "~/.claude/state/land-residue-acks.log"))
@@ -151,6 +155,20 @@ def main(argv=None):
             "  The analysis raised %s, so nothing was checked and nothing is proven clean.\n"
             "  Answer it yourself:  engine/scripts/land-completeness.sh --repo %s\n"
             % (exc, args.repo))
+        return 0
+
+    if report.get("abstained"):
+        # ABSTAIN, NEVER ASSUME MAIN (point 14). Nothing is recorded as the
+        # branch this work integrates on, so there is no fact to test a land
+        # against. Saying so and allowing is the same shape as "could not look"
+        # above, and for the same reason: a gate that blocks on its own missing
+        # input teaches everyone to work around it. What it must never do is
+        # answer "main" and call that a measurement.
+        sys.stderr.write(
+            "=== LAND-COMPLETENESS CHECK: NO INTEGRATION BRANCH RECORDED — THE LAND IS ALLOWED ===\n"
+            "  %s\n"
+            "  Nothing was checked. This is NOT 'the last land was clean'.\n"
+            % report["abstained"])
         return 0
 
     items = lc.blocking_items(report)

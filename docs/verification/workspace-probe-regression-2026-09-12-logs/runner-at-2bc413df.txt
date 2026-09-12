@@ -1,0 +1,220 @@
+workspaces.py under test: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/wsprobes-stage-2od_y_yc/workspaces-at-2bc413df.py
+probes discovered:        10 (5 in the working tree, 5 on other branches)
+other files under docs/verification/ that are not probes of this library: 239  (--show-all names them)
+
+GREEN      docs/verification/certification-frank-attribution-2026-09-12-probe.py                                    3.2s
+GREEN      docs/verification/certification-frank-four-fixes-2026-09-12-probe.py                                     1.7s
+RED        docs/verification/certification-sage-attribution-2026-09-12.probe.py                                     4.0s
+           a scenario failed to run: exit 1
+GREEN      docs/verification/workspace-attribution-seven-cases.probe.py                                             3.9s
+GREEN      docs/verification/workspace-call-window-and-recorded-target.probe.py                                     2.0s
+RED        docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py                           3.1s   [dev/workspace-spec]
+           exit 1
+RED        docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py    2.7s   [cc/frank-opus-c4]
+           exit 1
+RED        docs/verification/certification-frank-window-and-target-2026-09-12-probe.py                              2.8s   [cc/frank-opus-c4]
+           exit 1
+RED        docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py                            2.6s   [dev/workspace-spec]
+           exit 1
+RED        docs/verification/certification-sage-window-and-target-2026-09-12.probe.py                               3.3s   [cc/sage-opus-c4]
+           exit 1
+
+=== RED — docs/verification/certification-sage-attribution-2026-09-12.probe.py
+    a scenario failed to run: exit 1
+    | B.created_branches                         []
+    | A.created_branches at end                  []
+    | land(A) RAISED                             "SpecError: zach-opus-a1 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fnbkpj6y/wt/zach-opus-a1: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fnbkpj6y/other as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh"
+    | discard(A).tips                            ["/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fnbkpj6y/entity:worktree-agent-azachopusa10000", "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-fnbkpj6y/other:cc/zach-opus-a1"]
+    | other branches after discard(A)            ["cc/mark-opus-b1", "main"]
+    | B branch tip survived                      true
+    | B native branch survived                   true
+    | B workspace still there                    true
+    | sandbox HOME registry used                 true
+    | Traceback (most recent call last):
+    |   File "/Users/alex/ab/richos-wt/zach-opus-g3/docs/verification/certification-sage-attribution-2026-09-12.probe.py", line 207, in <module>
+    |     out("land(A)", ws.land(a["name"], me=SID))
+    |                    ~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/wsprobes-stage-2od_y_yc/workspaces-at-2bc413df.py", line 2069, in land
+    |     raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
+    |                     "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
+    | workspaces.SpecError: zach-opus-a1 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/wt/zach-opus-a1: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/other as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/other --branch <main|dev/...> --why '<this body of work>'; /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/entity/.claude/worktrees/agent-azachopusa10000: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/entity as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/entity --branch <main|dev/...> --why '<this body of work>'; branch cc/zach-opus-a1: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/other as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/other --branch <main|dev/...> --why '<this body of work>'; branch worktree-agent-azachopusa10000: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/entity as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-94hah5d6/entity --branch <main|dev/...> --why '<this body of work>'. Merge it onto the branch this work integrates on, then land it; or discard it (point 7).
+    | Traceback (most recent call last):
+    |   File "/Users/alex/ab/richos-wt/zach-opus-g3/docs/verification/certification-sage-attribution-2026-09-12.probe.py", line 227, in <module>
+    |     out("land(A)", ws.land(a["name"], me=SID))
+    |                    ~~~~~~~^^^^^^^^^^^^^^^^^^^
+    |   File "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/wsprobes-stage-2od_y_yc/workspaces-at-2bc413df.py", line 2069, in land
+    |     raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
+    |                     "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
+    | workspaces.SpecError: zach-opus-a1 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/wt/zach-opus-a1: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/other as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/other --branch <main|dev/...> --why '<this body of work>'; /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/entity/.claude/worktrees/agent-azachopusa10000: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/entity as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/entity --branch <main|dev/...> --why '<this body of work>'; branch cc/zach-opus-a1: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/other as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/other --branch <main|dev/...> --why '<this body of work>'; branch worktree-agent-azachopusa10000: no branch is recorded for /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/entity as the one this work integrates on. The branch a body of work integrates on is RECORDED when that work starts (point 14); nothing infers it. Record it: workspaces.sh integration --repo /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4z3bkgam/entity --branch <main|dev/...> --why '<this body of work>'. Merge it onto the branch this work integrates on, then land it; or discard it (point 7).
+
+=== RED — docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py  [dev/workspace-spec]
+    exit 1
+    |     branches after the discard             ['main', 'rich/rescue']
+    |     the record of what was deleted         (none on the record)
+    |     the deleted tip is in the event log    True
+    |     rich/rescue survived                   True
+    |     VERDICT                                HOLDS
+    | 
+    | === 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    |     created_branches                       []
+    |     land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-jxh4z8ox/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    |     land after                             REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-jxh4z8ox/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    |     branches after the land                ['main', 'spare', 'worktree-agent-azachopusq60000']
+    |     VERDICT                                BROKEN
+    | 
+    | === 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    |     created_branches                       []
+    |     land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-6rw0l9sk/entity/.claude/worktrees/agent-azachopusq70000: no branch is recorded for /private/var/folder
+    |     VERDICT                                BROKEN
+    | 
+    | === 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    |     created_branches                       []
+    |     land                                   REFUSED: zach-opus-q8 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-_0n1sgcu/entity/.claude/worktrees/agent-azachopusq80000: no branch is recorded for /private/var/folder
+    |     branches after the land                ['main', 'renamed-work']
+    |     VERDICT                                BROKEN
+    | 
+    | === 5/10 cases hold; BROKEN: outside-stray, floor-timing, serial-stray, serial-side, serial-rename
+
+=== RED — docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py  [cc/frank-opus-c4]
+    exit 1
+    |     pending                                  ['zach-opus-r3']
+    |     VERDICT                                  HOLDS
+    | 
+    | === 4 late-record-rename — The agent renames its OWN branch while no branch is recorded.
+    |     created_branches (record missing)        []
+    |     land after the recording                 landed
+    |     branches after the land                  ['main', 'renamed-work']
+    |     pending after the land                   []
+    |     VERDICT                                  BROKEN
+    | 
+    | === 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    |     windows left open by the refused call    0
+    |     created_branches before the end of run   []
+    |     created_branches after the end of run    []
+    |     branches after the discard               ['main', 'rich/rescue']
+    |     rich/rescue survived                     True
+    |     VERDICT                                  HOLDS
+    | 
+    | === 6 leaked-window-evicts — The cap: _MAX_OPEN_CALLS windows of refused calls opened AFTER a live one
+    |     created_branches at the live call's Post []
+    |     created_branches after the end of run    ['spare']
+    |     attributed at the Post (not only at the end) False
+    |     VERDICT                                  BROKEN
+    | 
+    | === 2/6 cases hold; BROKEN: late-record-stray, late-record-side, late-record-rename, leaked-window-evicts
+
+=== RED — docs/verification/certification-frank-window-and-target-2026-09-12-probe.py  [cc/frank-opus-c4]
+    exit 1
+    |     pending                                  ['zach-opus-r3']
+    |     VERDICT                                  HOLDS
+    | 
+    | === 4 late-record-rename — The agent renames its OWN branch while no branch is recorded.
+    |     created_branches (record missing)        []
+    |     land after the recording                 landed
+    |     branches after the land                  ['main', 'renamed-work']
+    |     pending after the land                   []
+    |     VERDICT                                  BROKEN
+    | 
+    | === 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    |     windows left open by the refused call    1
+    |     created_branches before the end of run   []
+    |     created_branches after the end of run    ['rich/rescue']
+    |     branches after the discard               ['main']
+    |     rich/rescue survived                     False
+    |     VERDICT                                  BROKEN
+    | 
+    | === 6 leaked-window-evicts — The cap: _MAX_OPEN_CALLS windows of refused calls opened AFTER a live one
+    |     created_branches at the live call's Post []
+    |     created_branches after the end of run    ['spare']
+    |     attributed at the Post (not only at the end) False
+    |     VERDICT                                  BROKEN
+    | 
+    | === 1/6 cases hold; BROKEN: late-record-stray, late-record-side, late-record-rename, leaked-window-widens, leaked-window-evicts
+
+=== RED — docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py  [dev/workspace-spec]
+    exit 1
+    |     cut in the MAIN CHECKOUT           branch: Created from worktree-agent-azachopuss70000
+    |     messages identical                 True
+    |     either names where it was cut      False
+    |     EXPECTATION HELD                   True
+    | 
+    | === S8 floor-at-session-start — WHEN is the floor written — at first registration, or at session start?
+    |     integration record before any registration None
+    |     workspaces registered so far       []
+    |     event                              {"event": "session-start", "forbidden": null, "pid": 38236, "pid_start": "Sat Sep 12 12:27:06 2026", "session_id": "sess-sage-22222222", "ts": "2026-0
+    |     EXPECTATION HELD                   True
+    | 
+    | === S9 no-record-recovers — No record at registration: Rich records the dev branch after, and lands.
+    |     EXCEPTION                          FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-andj3fra/registry/integration.json'
+    |     EXPECTATION HELD                   False
+    | 
+    | === S10 parallel-side-branch — The same window as S3, with real work on the side branch (case 2's shape).
+    |     created_branches                   []
+    |     land                               REFUSED: zach-opus-s10 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-ewf6y2l1/entity/.claude/worktrees/agent-azachopuss100000: no branch is recorded for /private/var/folders/mx/w46p9btx1t1
+    |     its side-branch commit in main     False
+    |     branches after the land            ['main', 'tmpwork', 'worktree-agent-azachopuss100000']
+    |     pending after the land             ['zach-opus-s10']
+    |     the side commit is still only on tmpwork True
+    |     EXPECTATION HELD                   False
+    | 
+    | === held: 5/10; NOT HELD: S2 floor-vs-dev, S3 parallel-calls, S5 rich-then-commits, S9 no-record-recovers, S10 parallel-side-branch
+
+=== RED — docs/verification/certification-sage-window-and-target-2026-09-12.probe.py  [cc/sage-opus-c4]
+    exit 1
+    |     EXPECTATION HELD                         False
+    | 
+    | === rich-out-of-order — D2. The same, with both Posts arriving — the earlier call simply finishes last.
+    |     created_branches after Post(B)           []
+    |     created_branches after Post(A)           ['rich/rescue']
+    |     => Rich's ref attributed to the agent    True
+    |     EXPECTATION HELD                         False
+    | 
+    | === mismatched-ids — E. The Pre carries the platform's call id and the Post does not (or vice
+    |     after Pre(keyed) / Post(unkeyed)         []
+    |     after Pre(unkeyed) / Post(keyed)         []
+    |     after the end-of-run signal              ['keyed-pre-only', 'unkeyed-pre-only']
+    |     => nothing is lost, only deferred        True
+    |     EXPECTATION HELD                         True
+    | 
+    | === two-bodies-of-work — F. TWO bodies of work in ONE repository. The record is per REPOSITORY, and
+    |     the repository's record now says         dev/second
+    |     its work is in dev/first                 True
+    |     the superseded record is kept where nothing reads it True
+    |     land of the FIRST body's agent           REFUSED: zach-opus-b1 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-c4-ef__fvyo/entity/.claude/worktrees/agent-azachopusb10000 (5cea4f4df76f) is not in dev/second of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw000
+    |     its workspace still on disk              True
+    |     pending (point 5 is blocked)             ['zach-opus-b1']
+    |     EXPECTATION HELD                         False
+    | 
+    | === held: 4/8; NOT HELD: escalation-stray, rich-between-calls, rich-out-of-order, two-bodies-of-work
+
+
+===========================================================================
+A PRIOR PROBE IS RED. THIS BLOCKS.
+===========================================================================
+A probe under docs/verification/ is the sentence of the CEO's page that this
+build was once held to. A red one is not a stale assertion until its AUTHOR
+says it is.
+
+THE ONLY THING THAT CAN RETIRE A PROBE IS THE REVIEWER WHO WROTE IT, AGREEING
+THAT IT IS OBSOLETE. Never the engineer who is failing it — an engineer failing
+a probe is the person with a reason to believe it is wrong and the person least
+able to tell "this assertion is obsolete" from "I just broke this".
+
+To retire one, its author adds a line to:
+
+    docs/verification/workspace-probe-retirements.tsv
+    <probe filename>	<author>	<why it is obsolete>
+
+and commits it. This runner reads that file, checks the signature against the
+probe's own author, and names any mismatch.
+
+Everything else is a regression to fix.
+===========================================================================
+
+RED (a prior probe now fails):
+    docs/verification/certification-sage-attribution-2026-09-12.probe.py   author: sage
+    docs/verification/certification-frank-recorded-attribution-2026-09-12-probe.py   author: frank
+    docs/verification/certification-frank-window-and-target-2026-09-12-logs/c4-control-no-refused-call.py   author: frank
+    docs/verification/certification-frank-window-and-target-2026-09-12-probe.py   author: frank
+    docs/verification/certification-sage-recorded-attribution-2026-09-12.probe.py   author: sage
+    docs/verification/certification-sage-window-and-target-2026-09-12.probe.py   author: sage

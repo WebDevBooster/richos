@@ -123,11 +123,17 @@ cp "$GUARD" "$FAKE_ENGINE/scripts/hooks/"
 # than against a copy with a section quietly disabled. land-residue-gate.py
 # loads land-completeness.py, which loads worktree-ledger.py, which loads
 # agent-liveness.py and worktree-transactions.py.
+# workspaces.py and workspaces.sh come too: the guard asks THEM which branch it
+# watches (point 14, "none of them assumes main"), so a copy without them would
+# exercise the abstention on every case instead of the gate.
 for f in resolve-roots.sh git-jurisdiction.sh unevaluated-notice.sh \
          land-residue-gate.py land-completeness.py worktree-ledger.py \
-         agent-liveness.py worktree-transactions.py; do
+         agent-liveness.py worktree-transactions.py workspaces.py; do
     cp "$SCRIPT_DIR/../lib/$f" "$FAKE_ENGINE/scripts/lib/"
 done
+cp "$SCRIPT_DIR/../workspaces.sh" "$FAKE_ENGINE/scripts/"
+# AND THE REGISTRY IS A SANDBOX ONE, for the reason the ledger below is.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces-registry"
 # AND ITS LEDGER IS A SANDBOX ONE. Without this the suite would judge ownership
 # against the operator's real ~/.claude/state ledger, so its verdict would
 # depend on which agents happened to be running while it ran — the same defect
@@ -162,7 +168,15 @@ sys.exit({"clear": 0, "red": 1}.get(mode, 3))
 STUB
 
 # run <stub-mode> <cwd> <command> -> stdout+stderr in $OUT, rc in $RC
+#
+# GATE_BRANCH IS THE CALLER NAMING THE BRANCH, which point 14 allows and which
+# is a different thing from the guard assuming one: the guard's own default is
+# now empty and it asks scripts/lib/workspaces.py. Every case below is about
+# something else, and the fixture repository is deliberately UNBORN (R5), so it
+# cannot carry a recorded branch at all. R17 and R18 empty this and test the
+# resolution and the abstention directly.
 ACK_LOG="$SANDBOX/acks.log"
+GATE_BRANCH="main"
 run() {
     local mode="$1" cwd="$2" cmd="$3" payload
     payload="$(python3 -c '
@@ -170,7 +184,8 @@ import json, sys
 print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[1],
                   "tool_input": {"command": sys.argv[2]}}))' "$cwd" "$cmd")"
     OUT="$(printf '%s' "$payload" \
-        | CI_RED_STUB="$mode" CI_RED_ACK_LOG="$ACK_LOG" bash "$STUB_GUARD" 2>&1)"
+        | CI_RED_STUB="$mode" CI_RED_ACK_LOG="$ACK_LOG" \
+          CI_RED_GATE_BRANCH="$GATE_BRANCH" bash "$STUB_GUARD" 2>&1)"
     RC=$?
 }
 
@@ -313,7 +328,8 @@ UE_LIB_PRESENT=0
 
 run_raw() { # <stub-mode> <raw payload bytes>
     OUT="$(printf '%s' "$2" \
-        | CI_RED_STUB="$1" CI_RED_ACK_LOG="$ACK_LOG" bash "$STUB_GUARD" 2>&1)"
+        | CI_RED_STUB="$1" CI_RED_ACK_LOG="$ACK_LOG" \
+          CI_RED_GATE_BRANCH="$GATE_BRANCH" bash "$STUB_GUARD" 2>&1)"
     RC=$?
 }
 
@@ -373,6 +389,52 @@ if [ "$R16_REFUSED" -eq 1 ] && [ "$R16_SILENT" -eq 1 ]; then
 else
     bad "R16  refused-a-red-land=$R16_REFUSED silent-on-clear=$R16_SILENT — the notice changed a verdict, or it speaks on calls it could read"
 fi
+
+# --- R17/R18: THE BRANCH IS ASKED FOR, NOT ASSUMED -------------------------
+# Point 14: "Every part of the system that needs to know whether work has landed
+# asks the same question: is it in the branch recorded for this work? None of
+# them is allowed its own answer, and none of them assumes main." This guard
+# defaulted to `main`, so on a body of work whose dev branch is the one it
+# integrates on it watched a branch nobody was landing into and stood down on
+# every real land. Both cases run with CI_RED_GATE_BRANCH EMPTY, which is the
+# shipped configuration; every case above names the branch as a caller may.
+DEVREPO="$SANDBOX/dev-repo"
+mkdir -p "$DEVREPO"
+git -C "$DEVREPO" init -q -b main
+git -C "$DEVREPO" remote add origin "git@github.com:Example/thing.git"
+git -C "$DEVREPO" config user.email "$(git config --get user.email || echo f@example.invalid)"
+git -C "$DEVREPO" config user.name "$(git config --get user.name || echo Fixture)"
+git -C "$DEVREPO" config commit.gpgsign false
+echo base > "$DEVREPO/f.txt"
+git -C "$DEVREPO" add f.txt
+git -C "$DEVREPO" commit -q -m base
+git -C "$DEVREPO" branch dev/work
+git -C "$DEVREPO" checkout -q dev/work
+
+GATE_BRANCH=""
+
+# R18 FIRST, while nothing is recorded: the gate must ABSTAIN and SAY SO. An
+# unanswerable gate that is silent is indistinguishable from a green one.
+run red "$DEVREPO" "$G merge --no-ff worktree-agent-x"
+if [ "$RC" -eq 0 ] && grep -q "NO INTEGRATION BRANCH RECORDED" <<<"$OUT" \
+   && grep -q "workspaces.sh integration" <<<"$OUT"; then
+    ok "R18  nothing recorded -> the land is ALLOWED, nothing is claimed checked, and the recording command is named"
+else
+    bad "R18  rc=$RC — an unanswerable gate must abstain OUT LOUD, never assume main: <$OUT>"
+fi
+
+# R17: record dev/work and the same red land is REFUSED — the gate is watching
+# the branch this work integrates on, which is not main.
+bash "$FAKE_ENGINE/scripts/workspaces.sh" integration --repo "$DEVREPO" \
+    --branch dev/work --why "the ci-red gate fixture" >/dev/null 2>&1
+run red "$DEVREPO" "$G merge --no-ff worktree-agent-x"
+if [ "$RC" -eq 2 ]; then
+    ok "R17  the watched branch comes from the RECORD: a red land onto dev/work is refused, with no default of main anywhere"
+else
+    bad "R17  rc=$RC — the gate did not watch the branch recorded for this body of work: <$OUT>"
+fi
+
+GATE_BRANCH="main"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
