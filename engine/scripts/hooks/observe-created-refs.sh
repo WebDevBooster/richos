@@ -21,6 +21,13 @@
 #                              what is there now. A ref that is new AND carries
 #                              this agent's own unlanded work was created by it.
 #
+# BOTH HALVES CARRY `tool_use_id`, AND IT IS THE SAME STRING FOR ONE CALL. That
+# is what keys the window, and it is why this hook passes the WHOLE payload
+# through rather than the agent id alone: an agent's own calls overlap, so one
+# slot per agent lost a window every time two were open at once, and a ref
+# created in the second was attributed to nobody. See scripts/lib/workspaces.py,
+# "ONE WINDOW PER TOOL CALL, KEYED BY THE CALL".
+#
 # THE PRE HALF ALREADY EXISTED AND THE POST HALF DID NOT, which is the whole
 # reason attribution had to be read from POSSESSION (a ref checked out at the
 # agent's own workspace path) until 2026-09-12 — and possession left the stray

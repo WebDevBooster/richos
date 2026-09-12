@@ -18,8 +18,11 @@ STATE — outside every repository and session, one JSON file per agent:
     else ~/.claude/state/workspaces
       sessions/<session_id>.json   every session records itself (point 12)
       agents/<key>.json            one agent: its workspaces and its facts
-      refs/<key>.json              the refs its repositories held at the START
-                                   of the tool call it is in (point 3)
+      refs/<key>/<call>.json       the refs its repositories held at the START
+                                   of ONE of its tool calls, keyed by that
+                                   call's own id: its calls overlap, so there
+                                   is one window per call and never one slot
+                                   per agent (point 3)
       done/<key>.json              an agent whose deletion completed
       ids/<agent_id>               platform agent id -> key
       repos.json                   every repository a record has named
@@ -1121,9 +1124,10 @@ def record_end(session_id, agent_id, signal_name, detail=""):
         save_agent(rec)
     # The end-of-run signal carries the agent's id too, so it is the last
     # observation: a ref created in its LAST call is still its own, even if that
-    # call's PostToolUse never arrived. It CONSUMES the open snapshot, so nothing
-    # that happens after the run has ended is ever compared against it.
-    observe_created_refs(rec)
+    # call's PostToolUse never arrived. It CONSUMES EVERY window still open —
+    # calls overlap, so there can be more than one — and nothing that happens
+    # after the run has ended is ever compared against them.
+    observe_created_refs(rec, all_open=True)
     event("end", key=rec["key"], signal=signal_name, detail=detail)
     return rec
 
@@ -1200,7 +1204,7 @@ def stop(ref, why, session_id=""):
         rec["end"] = {"at": now(), "signal": "stopped", "detail": why or "stopped by Rich"}
         rec["pause"] = None
         save_agent(rec)
-    observe_created_refs(rec)
+    observe_created_refs(rec, all_open=True)
     event("end", key=rec["key"], signal="stopped", detail=why)
     return rec
 
@@ -1547,6 +1551,43 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 # in the minutes between two calls.
 #
 # ===========================================================================
+# ONE WINDOW PER TOOL CALL, KEYED BY THE CALL — NOT ONE SLOT PER AGENT
+# ===========================================================================
+# Until 2026-09-12 the snapshot was written to ONE path per agent,
+# `refs/<key>.json`, and the first PostToolUse to arrive consumed it. AN AGENT'S
+# OWN CALLS OVERLAP: this project's own agent instructions require independent
+# calls to be issued in one block, and a backgrounded Bash call was measured
+# returning 4.0 s before its process finished. Pre(A) Pre(B) Post(A) Post(B)
+# therefore lost a whole window — B's snapshot overwrote A's, Post(A) consumed
+# what was left, and Post(B) had nothing to compare against. A ref created in
+# call B was attributed to NOBODY, and a side branch created that way took real
+# commits with it: land() reported LANDED, pending() listed nothing, and the
+# commit was in no integration branch (reproduced by two reviewers at 84e12d32,
+# against points 5, 8 and 10).
+#
+# THE PLATFORM GIVES EACH CALL ITS OWN ID and both halves carry it: `tool_use_id`
+# is the same string at PreToolUse and at PostToolUse of one call — the spawn
+# registration has relied on exactly that pairing since it was written
+# (register_spawn stores it at the Pre; bind_agent looks it up at the Post). So
+# the snapshot is keyed by the CALL, in a directory per agent, and a Post
+# consumes ITS OWN call's window and no other. Overlapping calls of one agent can
+# no longer clobber each other, and a Post whose Pre never ran (a guard refused
+# it) still attributes nothing, exactly as before.
+#
+# WHEN NO CALL ID IS PRESENT — a caller driving these entry points directly —
+# the only pairing available is arrival order, so an unkeyed snapshot is written
+# under its own name and a Post consumes the OLDEST unkeyed one. That is still
+# one window per call; it is merely paired by order rather than by name. A Pre
+# and a Post that DISAGREE about whether there is an id find nothing to consume
+# and attribute nothing, which is the safe direction: under-attribution leaves a
+# stray, and the land refuses while that stray carries anything unlanded.
+#
+# The open windows of one agent are bounded (_MAX_OPEN_CALLS): a PreToolUse that
+# a guard then REFUSES leaves a snapshot no Post will ever consume, so the oldest
+# are evicted rather than accumulating. Every open window is consumed at the
+# agent's end of run, which is the last observation (record_end, stop).
+#
+# ===========================================================================
 # TIME ALONE IS STILL A GUESS, SO IT IS NEVER THE WHOLE TEST
 # ===========================================================================
 # Other things happen while an agent's tool call runs: Rich cuts a branch, a
@@ -1596,8 +1637,48 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 # and the scan of other agents' records are touched only when a ref that is not
 # already accounted for is actually sitting there, which is rare.
 
-def _refs_path(key):
-    return _p("refs", key + ".json")
+# An agent that has this many tool calls open at once has something wrong with
+# it; the cap is here so that snapshots left by REFUSED calls, which no
+# PostToolUse will ever consume, cannot accumulate without bound.
+_MAX_OPEN_CALLS = 64
+
+
+def _refs_dir(key):
+    return _p("refs", _key_segment(key))
+
+
+def _slot_path(key, call):
+    """The window of ONE tool call. Keyed by the platform's own call id when the
+    payload carries one; otherwise a unique, time-ordered unkeyed slot."""
+    if call:
+        return os.path.join(_refs_dir(key), "c." + _key_segment(call) + ".json")
+    return os.path.join(_refs_dir(key), "u.%020d.%s.json" % (time.time_ns(), os.urandom(4).hex()))
+
+
+def _open_slots(key):
+    """Every open window of this agent, oldest first. Unkeyed slots sort
+    chronologically by construction; keyed ones are looked up by name."""
+    try:
+        names = sorted(n for n in os.listdir(_refs_dir(key)) if n.endswith(".json"))
+    except OSError:
+        return []
+    return [os.path.join(_refs_dir(key), n) for n in names]
+
+
+def _evict_old_slots(key):
+    """A refused PreToolUse leaves a window no Post will consume. Keep the cap."""
+    slots = _open_slots(key)
+    if len(slots) <= _MAX_OPEN_CALLS:
+        return
+    try:
+        slots.sort(key=os.path.getmtime)
+    except OSError:
+        pass
+    for p in slots[:len(slots) - _MAX_OPEN_CALLS]:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
 
 
 def _local_refs(repo):
@@ -1623,10 +1704,14 @@ def _repos_of(rec):
     return out
 
 
-def snapshot_refs(rec):
+def snapshot_refs(rec, call=""):
     """THE FIRST HALF OF THE PAIR (point 3): what its repositories held when
-    this tool call STARTED. Called from barrier(), so it runs at a moment the
+    THIS tool call started. Called from barrier(), so it runs at a moment the
     platform vouches for with this agent's id, and never for a finished one.
+
+    `call` is the platform's own id for this tool call, and it KEYS the window:
+    two of the agent's own calls open at once keep two windows, and neither can
+    clobber the other.
 
     A snapshot lost to a crash costs one window of attribution, and
     under-attribution loses nothing — so this never fails a tool call."""
@@ -1637,15 +1722,52 @@ def snapshot_refs(rec):
             if refs is None:
                 continue                 # unreadable: no snapshot, so no candidates
             snap[repo] = sorted(refs)
-        write_json(_refs_path(rec["key"]), {"key": rec["key"], "at": now(), "repos": snap})
+        write_json(_slot_path(rec["key"], call),
+                   {"key": rec["key"], "call": call or "", "at": now(), "repos": snap})
+        _evict_old_slots(rec["key"])
         return snap
     except (OSError, ValueError):
         return {}
 
 
-def _drop_snapshot(key):
+def _take_snapshots(key, call="", all_open=False):
+    """CONSUME this call's window — or, at the end of the run, every open one —
+    and return what was in it. Consumed whatever the outcome: one creation is
+    attributed once, and a Post whose own Pre never ran attributes nothing."""
+    if all_open:
+        paths = _open_slots(key)
+    elif call:
+        p = _slot_path(key, call)
+        paths = [p] if os.path.exists(p) else []
+    else:
+        paths = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.")][:1]
+    priors = []
+    for p in paths:
+        prior = read_json(p)
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+        if prior and isinstance(prior.get("repos"), dict):
+            priors.append(prior)
+    if all_open:
+        _drop_snapshots(key)
+    return priors
+
+
+def _drop_snapshots(key):
+    """Every open window of this agent, thrown away unconsumed."""
+    for p in _open_slots(key):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
     try:
-        os.unlink(_refs_path(key))
+        os.rmdir(_refs_dir(key))
+    except OSError:
+        pass
+    try:
+        os.unlink(_p("refs", key + ".json"))      # the pre-2026-09-12 single slot
     except OSError:
         pass
 
@@ -1717,23 +1839,38 @@ def _own_unlanded_tips(rec, repo, refs, target):
     return set(t for t in tips if t and not is_ancestor(repo, t, target))
 
 
-def observe_created_refs(rec):
+def observe_created_refs(rec, call="", all_open=False):
     """THE SECOND HALF OF THE PAIR (point 3): the refs this agent created during
     the tool call that is now ending, recorded against it. Returns what it added.
 
-    The snapshot is CONSUMED here, whatever the outcome: one creation is
-    attributed once, and a Post without a Pre attributes nothing."""
-    prior = read_json(_refs_path(rec["key"]))
-    _drop_snapshot(rec["key"])
-    if not prior or not isinstance(prior.get("repos"), dict):
+    `call` names WHICH of the agent's open windows this is the far end of, so
+    two of its own calls open at once no longer clobber each other. `all_open`
+    is the end of the run: every window still open is the last observation.
+
+    The window is CONSUMED here, whatever the outcome: one creation is
+    attributed once, and a Post whose own Pre never ran attributes nothing."""
+    priors = _take_snapshots(rec["key"], call, all_open)
+    if not priors:
         return []
     try:
         mine = []
         repos = _repos_of(rec)
-        for repo in sorted(prior["repos"]):
+        seen_repos = sorted(set(r for prior in priors for r in prior["repos"]))
+        for repo in seen_repos:
             if repo not in repos:
                 continue
-            before = set(prior["repos"][repo] or [])
+            # A ref is NEW when it was absent from the window it is judged
+            # against. With more than one window open, the widest one decides;
+            # each is a moment this agent's own call started.
+            before = set()
+            first = True
+            for prior in priors:
+                if repo in prior["repos"]:
+                    b = set(prior["repos"][repo] or [])
+                    before = b if first else (before & b)
+                    first = False
+            if first:
+                continue
             refs = _local_refs(repo)
             if refs is None:
                 continue                              # unreadable: observe nothing
@@ -1795,9 +1932,9 @@ def observe(payload):
     if not rec:
         return []
     if finished_state(rec)[0]:
-        _drop_snapshot(rec["key"])
+        _drop_snapshots(rec["key"])
         return []
-    return observe_created_refs(rec)
+    return observe_created_refs(rec, str(payload.get("tool_use_id") or ""))
 
 
 def _chain(rec):
@@ -2040,7 +2177,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
                         for w in fresh["workspaces"]):
             write_json(done_path(fresh["key"]), fresh)
             os.unlink(agent_path(fresh["key"]))
-            _drop_snapshot(fresh["key"])
+            _drop_snapshots(fresh["key"])
     event("deleted" if not failures else "deletion-failed", key=rec["key"], why=why,
           failures=failures or None, stopped=processes.get("stopped") or None)
     return not failures
@@ -2304,7 +2441,7 @@ def barrier(payload):
     # (point 3, "any branch an agent created"). It runs only for an UNFINISHED
     # agent: a ref Rich cuts after the run has ended, to rescue the work, is his
     # and is never a candidate at all.
-    snapshot_refs(rec)
+    snapshot_refs(rec, str(payload.get("tool_use_id") or ""))
     return "REGISTERED", rec.get("name") or ""
 
 

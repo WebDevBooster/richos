@@ -101,7 +101,7 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
-    '        write_json(_refs_path(rec["key"]), {"key": rec["key"], "at": now(), "repos": snap})' \
+    '        write_json(_slot_path(rec["key"], call),{NL}                   {"key": rec["key"], "call": call or "", "at": now(), "repos": snap})' \
     '        snap = snap' \
     "the FIRST half of the pair would record nothing, so no ref could ever be shown to be new: creation would be unobservable and every branch an agent created would be left behind (points 3, 10)."
 
@@ -126,8 +126,8 @@ mutant p03-landed-ref-attributed "test_point_03_a_branch_rich_cuts_in_the_main_c
     "a ref that is entirely in the branch this work integrates on -- the shape of every bookmark Rich cuts in the main checkout -- would be claimed and deleted by an agent that never made it (points 1, 8)."
 
 mutant p03-borrowed-branch-attributed "test_point_08_a_pre_existing_branch_the_agent_only_checked_out_survives" "$W" \
-    '            before = set(prior["repos"][repo] or [])' \
-    '            before = set()' \
+    '                    b = set(prior["repos"][repo] or []){NL}                    before = b if first else (before & b)' \
+    '                    b = set(){NL}                    before = b if first else (before & b)' \
     "every ref would look new, so a PRE-EXISTING branch the agent merely checked out would become the agent's and a discard would delete it with git branch -D (point 8, in the destructive direction)."
 
 mutant p03-recorded-elsewhere-ignored "test_point_03_a_continuing_agents_branch_is_never_its_predecessors" "$W" \
@@ -141,8 +141,8 @@ mutant p10-one-workspace-left "test_point_10_a_cross_repository_agent_loses_both
     "a cross-repository agent's second workspace would be left behind (point 10)."
 
 mutant p10-observed-after-the-run-ended "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" "$W" \
-    '    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if finished_state(rec)[0]:{NL}        _drop_snapshot(rec["key"]){NL}        return []' \
-    '    if fin:{NL}        snapshot_refs(rec){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if False:{NL}        _drop_snapshot(rec["key"]){NL}        return []' \
+    '    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if finished_state(rec)[0]:{NL}        _drop_snapshots(rec["key"]){NL}        return []' \
+    '    if fin:{NL}        snapshot_refs(rec, str(payload.get("tool_use_id") or "")){NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why){AND}    if False:{NL}        _drop_snapshots(rec["key"]){NL}        return []' \
     "a finished agent's restarted call would open a window of its own, so a branch Rich cuts in the workspace afterwards to rescue the work would be attributed to the agent and deleted with it, or would hold its land hostage (points 7, 8, 9)."
 
 mutant p11-pause-ignored "test_point_11_a_recorded_pause_is_not_finished_and_resumes" "$W" \
@@ -184,6 +184,16 @@ mutant p14-in-flight-target-moves "test_point_14_the_integration_branch_is_recor
     '    ir = integration_record(repo){NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
     '    ir = None{NL}    if ir and ir.get("branch"):{NL}        rec.setdefault("integration", {})[realpath(repo)] = ir["branch"]' \
     "an agent would not keep the branch recorded when it was spawned, so recording the integration branch for the NEXT body of work would silently move the target of an agent already in flight (point 14)."
+
+mutant p03-one-window-per-agent "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
+    '    if call:{NL}        return os.path.join(_refs_dir(key), "c." + _key_segment(call) + ".json"){NL}    return os.path.join(_refs_dir(key), "u.%020d.%s.json" % (time.time_ns(), os.urandom(4).hex()))' \
+    '    return os.path.join(_refs_dir(key), "one-slot.json")' \
+    "the creation window would go back to ONE SLOT PER AGENT, so two of the agent's own calls open at once would clobber each other's window: the second Post would find nothing to compare against, and a ref created in that call -- a side branch carrying real commits included -- would be attributed to nobody while land() still reported LANDED (points 3, 5, 8, 10)."
+
+mutant p03-end-of-run-consumes-one-window "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" "$W" \
+    '    observe_created_refs(rec, all_open=True){NL}    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
+    '    observe_created_refs(rec){NL}    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
+    "the end-of-run signal -- an agent's LAST observation -- would consume one open window instead of every one, so a ref created in a call whose PostToolUse never arrived because the run ended inside it would be attributed to nobody and left behind (points 3, 10)."
 
 mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
     '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \

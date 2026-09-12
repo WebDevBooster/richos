@@ -160,23 +160,31 @@ class Base(unittest.TestCase):
         ws.bind_agent(self.sid, tuid, agent_id, self.entity)
         return agent_id
 
-    def pre(self, aid):
+    def pre(self, aid, call=""):
         """The FIRST half of one of the worker's own tool calls, exactly as the
         catch-all PreToolUse hook makes it: a payload carrying the platform's
-        agent id. It takes the snapshot creation is measured against (point 3)."""
-        return ws.barrier({"session_id": self.sid, "agent_id": aid})
+        agent id and this call's own `tool_use_id`. It takes the snapshot
+        creation is measured against (point 3)."""
+        payload = {"session_id": self.sid, "agent_id": aid}
+        if call:
+            payload["tool_use_id"] = call
+        return ws.barrier(payload)
 
-    def post(self, aid, tool="Bash"):
+    def post(self, aid, tool="Bash", call=""):
         """The SECOND half, exactly as the catch-all PostToolUse hook makes it.
         Together the two are one tool call, and a ref that appeared in between
-        was created by this agent."""
-        return ws.observe({"session_id": self.sid, "agent_id": aid, "tool_name": tool,
-                           "hook_event_name": "PostToolUse"})
+        was created by this agent. The call id is the SAME string at both halves,
+        which is what lets two of one agent's calls be open at once."""
+        payload = {"session_id": self.sid, "agent_id": aid, "tool_name": tool,
+                   "hook_event_name": "PostToolUse"}
+        if call:
+            payload["tool_use_id"] = call
+        return ws.observe(payload)
 
-    def tool_call(self, aid):
+    def tool_call(self, aid, call=""):
         """A whole tool call: both halves, with nothing in between."""
-        verdict = self.pre(aid)
-        self.post(aid)
+        verdict = self.pre(aid, call)
+        self.post(aid, call=call)
         return verdict
 
     def created(self, name, sid=None):
@@ -1035,6 +1043,46 @@ class Point14_IntegrationBranch(Base):
         ws.land("zach-opus-i2", self.sid)
         self.assertFalse(os.path.exists(npath))
         self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+
+    def test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows(self):
+        """Points 3 and 10 through point 14's target: "any branch an agent
+        created" ... "None is left behind." An agent's own calls OVERLAP. With
+        one snapshot slot per agent the second window was lost, and a side branch
+        created in it took real commits out of every integration branch while
+        land() still reported LANDED. The window is keyed by the CALL, so
+        Pre(A) Pre(B) Post(A) Post(B) attributes both."""
+        aid, npath = self.spawn("zach-opus-i5")
+        self.tool_call(aid, call="tu-warm")
+        self.commit(npath, "own.txt")
+        self.pre(aid, call="tu-A")                       # call A opens
+        self.pre(aid, call="tu-B")                       # call B opens alongside it
+        run("git", "-C", npath, "branch", "spare")       # created inside call A
+        self.post(aid, call="tu-A")                      # A closes: its own window
+        run("git", "-C", npath, "checkout", "-q", "-b", "tmpwork")
+        self.commit(npath, "side.txt")                   # real work, inside call B
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        self.post(aid, call="tu-B")                      # B closes: its own window
+        self.assertEqual(self.created("zach-opus-i5"), ["spare", "tmpwork"])
+        # A call whose PostToolUse never arrives (the agent's run ends inside it)
+        # still has its window: the end-of-run signal is the LAST observation and
+        # it consumes every window still open, not one of them.
+        self.pre(aid, call="tu-C")
+        run("git", "-C", npath, "branch", "never-closed")
+        self.finish(aid)
+        self.assertEqual(self.created("zach-opus-i5"), ["never-closed", "spare", "tmpwork"])
+        self.merge(self.entity, "worktree-agent-" + aid)
+        # tmpwork carries a commit that reached no integration branch, so the
+        # land is REFUSED and the work is pending rather than silently lost.
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-i5", self.sid)
+        self.assertIn("tmpwork", str(e.exception))
+        self.assertEqual(self.names(), ["zach-opus-i5"])
+        self.assertIn("tmpwork", branches(self.entity))
+        self.merge(self.entity, "tmpwork")
+        ws.land("zach-opus-i5", self.sid)
+        self.assertNotIn("tmpwork", branches(self.entity))   # point 10: none left behind
+        self.assertNotIn("spare", branches(self.entity))
+        self.assertNotIn("never-closed", branches(self.entity))
 
     def test_point_14_the_integration_branch_is_recorded_never_inferred(self):
         """"The branch a body of work integrates on is RECORDED when that work
