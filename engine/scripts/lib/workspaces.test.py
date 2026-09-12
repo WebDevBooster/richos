@@ -1238,17 +1238,19 @@ class Point14_IntegrationBranch(Base):
         # an agent's own workspace branch is never an integration branch
         with self.assertRaises(ws.SpecError):
             ws.record_integration(self.entity, "cc/zach-opus-i3", "wrong kind of branch", self.sid)
-        # THE LIVE RECORD IS THE ONLY ANSWER, at land time as well as at the
-        # first land: an agent registered while the record said one branch is
-        # tested against whatever the record says WHEN IT LANDS. Nothing is
-        # frozen onto the agent at its registration, so a correction reaches it.
+        # A CORRECTION REACHES AN AGENT IN FLIGHT. Nothing is frozen onto the
+        # agent at its registration: it is bound to the BODY OF WORK by id, and
+        # that work's branch is read live, so correcting the branch corrects
+        # every agent bound to it. That is what a derived or frozen answer could
+        # never do, and it is why the binding is an id and not a branch name.
         ws.record_integration(self.entity, "main", "back to main for a moment", self.sid)
         aid2, npath2 = self.spawn("zach-opus-i4")
         self.commit(npath2, "i4.txt")
         run("git", "-C", self.entity, "branch", "dev/later")
-        ws.record_integration(self.entity, "dev/later", "the branch it really integrates on", self.sid)
+        ws.record_integration(self.entity, "dev/later", "it was the wrong branch",
+                              self.sid, correct=True)
         self.finish(aid2)
-        self.merge(self.entity, "worktree-agent-" + aid2)     # onto main: the OLD record
+        self.merge(self.entity, "worktree-agent-" + aid2)     # onto main: the OLD value
         with self.assertRaises(ws.SpecError) as e2:
             ws.land("zach-opus-i4", self.sid)
         self.assertIn("dev/later", str(e2.exception))
@@ -1256,6 +1258,44 @@ class Point14_IntegrationBranch(Base):
         self.ff(self.entity, "dev/later", "worktree-agent-" + aid2)
         ws.land("zach-opus-i4", self.sid)
         self.assertFalse(os.path.exists(npath2))
+
+    def test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents(self):
+        """Point 14: "the branch THIS WORK integrates on." Point 5 permits a
+        second body of work to start in a repository while the first one's
+        agents are still running. The record used to have one slot per
+        REPOSITORY, so recording the second body's branch moved the first
+        body's running agents onto it retroactively: their work was merged onto
+        the branch they were spawned for, their land was measured against a
+        branch they had never heard of, it refused forever, and their
+        workspaces were stranded — against point 14's own "'it cannot go to
+        main yet' is never a reason for anything to be left behind"."""
+        run("git", "-C", self.entity, "branch", "dev/first")
+        first = ws.record_integration(self.entity, "dev/first", "body of work ONE", self.sid)
+        aid, npath = self.spawn("zach-opus-b1")
+        self.commit(npath, "one.txt")
+        # A SECOND body of work starts in the same repository while that agent
+        # is still running, and Rich records its branch as point 14 requires.
+        run("git", "-C", self.entity, "branch", "dev/second")
+        second = ws.record_integration(self.entity, "dev/second", "body of work TWO", self.sid)
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(ws.integration_record(self.entity)["branch"], "dev/second")
+        # The first body's agent is still bound to the FIRST body of work.
+        self.finish(aid)
+        self.ff(self.entity, "dev/first", "worktree-agent-" + aid)
+        ws.land("zach-opus-b1", self.sid)
+        self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+        self.assertEqual(self.names(), [])
+        # And an agent of the SECOND body lands against the second branch.
+        aid2, npath2 = self.spawn("zach-opus-b2")
+        self.commit(npath2, "two.txt")
+        self.finish(aid2)
+        self.ff(self.entity, "dev/second", "worktree-agent-" + aid2)
+        ws.land("zach-opus-b2", self.sid)
+        self.assertFalse(os.path.exists(npath2))
+        # The superseded body of work is still readable — an agent spawned for
+        # it lands against it, so it is not history.
+        self.assertIn(first["id"], ws.all_bodies_of_work())
 
 
 class _Result(unittest.TextTestResult):

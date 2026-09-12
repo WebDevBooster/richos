@@ -664,6 +664,48 @@ def known_repos():
 # `source: first-registration` record is gone, and the frozen per-agent copy is
 # gone with them. THE LIVE RECORD IS THE ONLY ANSWER, and because it is the only
 # answer it can always be corrected.
+#
+# ===========================================================================
+# THE RECORD IS PER BODY OF WORK, NOT PER REPOSITORY — 2026-09-12
+# ===========================================================================
+# Point 14 says "the branch THIS WORK integrates on". The record had one slot
+# per repository, read live at land time, and the code's own docstring called it
+# "the branch each REPOSITORY's work integrates" — which is a different sentence
+# and the wrong one.
+#
+# Point 5 permits a second body of work to start in a repository while the first
+# one's agents are still running: it blocks new work only for FINISHED work that
+# is neither landed nor discarded. With one slot per repository, recording the
+# second body's branch — which point 14 requires Rich to do — MOVED THE FIRST
+# BODY'S RUNNING AGENTS ONTO IT, retroactively. Their work was merged onto the
+# branch they were spawned for, their land was then measured against a branch
+# they had never heard of, it refused forever, and their workspaces were
+# stranded. The superseded value went into a `history` list that nothing read.
+#
+# So a recording now names a BODY OF WORK: an id, its repository, and the branch
+# it integrates on. Each repository has a CURRENT body of work, which is what a
+# new agent binds to when it is registered, and that binding is by ID and never
+# by value.
+#
+# THE INDIRECTION IS THE WHOLE DESIGN, and it is what the deleted floor got
+# wrong. Freezing the BRANCH onto an agent gives an answer that cannot be
+# corrected. Binding the WORK ID gives one that can: the work's branch stays
+# live and correctable — correcting it corrects every agent bound to that work,
+# in flight — while starting a DIFFERENT body of work creates a different id and
+# cannot reach backwards into the first one.
+#
+#   `workspaces.sh integration --repo <r> --branch <b> --why '<this work>'`
+#       starts a body of work (or re-states the current one, if the branch is
+#       unchanged: recording the same branch twice is the same work).
+#   `workspaces.sh integration --repo <r> --branch <b> --correct --why '<...>'`
+#       CORRECTS the branch of the body of work that is current, keeping its id,
+#       so every agent already bound to it moves with it.
+#
+# An agent registered before anything was recorded is bound to nothing, and
+# falls back to its repository's current body of work — which is what makes the
+# refusal HEAL (point 14's "the land then succeeds"). Nothing is inferred by
+# that: the fallback reads a RECORDED branch, it just does not know which work
+# the agent belongs to.
 
 def _integration_path():
     return _p("integration.json")
@@ -673,35 +715,99 @@ def _norm_repo(repo):
     return main_checkout(repo) or realpath(repo)
 
 
+def _integration_file():
+    return read_json(_integration_path()) or {}
+
+
+def _work_by_id(work_id):
+    """The body of work with this id — including one that is no longer current,
+    because that is precisely the one an agent in flight is still bound to."""
+    if not work_id:
+        return None
+    return (_integration_file().get("works") or {}).get(work_id)
+
+
 def integration_record(repo):
-    """The recorded integration branch of a repository, or None. Never inferred."""
-    return (read_json(_integration_path()) or {}).get("repos", {}).get(_norm_repo(repo))
+    """The recorded integration branch of a repository's CURRENT body of work, or
+    None. Never inferred.
+
+    An agent asks `integration_target`, which asks the work IT is bound to. This
+    is the answer for a caller that has no agent — a consumer asking about the
+    repository, or Rich asking what he last recorded."""
+    return _work_by_id((_integration_file().get("current") or {}).get(_norm_repo(repo)))
 
 
 def all_integration_records():
-    return (read_json(_integration_path()) or {}).get("repos", {})
+    """{repository: its current body of work} — one row per repository, the shape
+    every reader of this already expects."""
+    cur = _integration_file().get("current") or {}
+    return dict((r, _work_by_id(w)) for r, w in cur.items() if _work_by_id(w))
 
 
-def _write_integration(main, branch, source, why="", by_session=""):
+def all_bodies_of_work():
+    """Every body of work ever recorded, current or superseded. A superseded one
+    is not history: an agent spawned for it is still bound to it and still lands
+    against it, which is the whole reason this is keyed by work and not by
+    repository."""
+    return dict(_integration_file().get("works") or {})
+
+
+def _new_work_id(cur, main):
+    n = 1
+    base = _key_segment(os.path.basename(main.rstrip("/")) or "repo")
+    while "%s-%03d" % (base, n) in (cur.get("works") or {}):
+        n += 1
+    return "%s-%03d" % (base, n)
+
+
+def _write_integration(main, branch, source, why="", by_session="", correct=False):
     with Lock():
-        cur = read_json(_integration_path()) or {}
-        cur.setdefault("repos", {})
-        prior = cur["repos"].get(main)
+        cur = _integration_file()
+        cur.setdefault("works", {})
+        cur.setdefault("current", {})
+        prior_id = cur["current"].get(main)
+        prior = cur["works"].get(prior_id) if prior_id else None
         if prior and prior.get("branch") == branch:
-            return prior
-        if prior:
-            cur.setdefault("history", []).append(prior)
-        rec = {"repo": main, "branch": branch, "recorded_at": iso(), "source": source,
-               "why": why or "", "by_session": by_session or ""}
-        cur["repos"][main] = rec
-        write_json(_integration_path(), cur)
-    event("integration-recorded", repo=main, branch=branch, source=source, why=why or None)
+            return prior                     # the same body of work, re-stated
+        if correct:
+            if not prior:
+                raise SpecError("there is no body of work recorded for %s to correct. Record one: "
+                                "workspaces.sh integration --repo %s --branch %s --why '<this work>'"
+                                % (main, main, branch))
+            prior.setdefault("corrections", []).append(
+                {"from": prior.get("branch"), "at": iso(), "why": why or "",
+                 "by_session": by_session or ""})
+            prior["branch"] = branch
+            prior["recorded_at"] = iso()
+            cur["works"][prior_id] = prior
+            write_json(_integration_path(), cur)
+            rec = prior
+        else:
+            wid = _new_work_id(cur, main)
+            rec = {"id": wid, "repo": main, "branch": branch, "recorded_at": iso(),
+                   "source": source, "why": why or "", "by_session": by_session or "",
+                   "corrections": []}
+            cur["works"][wid] = rec
+            cur["current"][main] = wid
+            write_json(_integration_path(), cur)
+    event("integration-recorded", repo=main, branch=branch, source=source,
+          work=rec.get("id"), corrected=bool(correct), why=why or None)
     return rec
 
 
-def record_integration(repo, branch, why="", by_session=""):
+def record_integration(repo, branch, why="", by_session="", correct=False):
     """Point 14, the form the page asks for: Rich records the branch this body of
-    work integrates on, before its first agent is spawned."""
+    work integrates on, before its first agent is spawned.
+
+    Without `correct`, this STARTS a body of work: a new id, which becomes the
+    repository's current one, and which every agent registered afterwards binds
+    to. Agents already bound to an earlier body of work are untouched — that is
+    the failure this shape exists to end.
+
+    With `correct`, the branch of the CURRENT body of work is changed in place,
+    keeping its id, so every agent bound to it moves with it. That is the other
+    half of point 14: a recorded fact must stay correctable, or the refusal it
+    causes can never heal."""
     main = main_checkout(repo)
     if not main:
         raise SpecError("the repository %s could not be resolved from git" % repo)
@@ -716,7 +822,7 @@ def record_integration(repo, branch, why="", by_session=""):
         raise SpecError("there is no branch %s in %s. The branch a body of work integrates on is "
                         "recorded before its first agent is spawned, so it exists by then (point 14)."
                         % (branch, main))
-    return _write_integration(main, branch, "recorded", why, by_session)
+    return _write_integration(main, branch, "recorded", why, by_session, correct)
 
 
 def _add_workspace(rec, kind, repo, path, branch, source):
@@ -730,7 +836,24 @@ def _add_workspace(rec, kind, repo, path, branch, source):
          "registered_at": iso(), "source": source, "deleted_at": None}
     rec["workspaces"].append(w)
     _remember_repo(repo)
+    _bind_body_of_work(rec, repo)
     return w
+
+
+def _bind_body_of_work(rec, repo):
+    """WHICH BODY OF WORK THIS AGENT BELONGS TO IN THIS REPOSITORY (point 14).
+
+    The agent is bound to the work's ID, never to its branch. The id is the one
+    thing about a body of work that does not change, so binding it keeps the
+    branch live and correctable for an agent in flight while making a SECOND
+    body of work in the same repository unable to reach backwards into this one.
+    A frozen branch would do neither; that is what the deleted floor did."""
+    main = _norm_repo(repo)
+    wid = (_integration_file().get("current") or {}).get(main)
+    if not wid:
+        return                       # nothing recorded yet: bound to nothing, heals later
+    rec.setdefault("integration_work", {})
+    rec["integration_work"].setdefault(main, wid)
 
 
 def _drop_orphans_for(path):
@@ -2147,20 +2270,42 @@ def _branch_targets(chain):
 def integration_target(chain, repo):
     """(branch, tip, why_not) — the ref a land is proved against (point 14).
 
-    The branch comes from the repository's LIVE record and nowhere else. Nothing
-    is inferred, nothing is frozen onto an agent, and nothing falls back to
-    whatever the main checkout happens to have checked out: a land that cannot
-    name its target REFUSES and names the command that records it. That refusal
-    HEALS — Rich records the branch and the same land then succeeds, for an
-    agent registered long before the record existed — which a derived or frozen
-    answer could not do (point 14).
+    THE ONE ANSWER. "Every part of the system that needs to know whether work
+    has landed asks the same question: is it in the branch recorded for this
+    work? None of them is allowed its own answer, and none of them assumes
+    main." This function is that question. A consumer with no agent in hand asks
+    `integration_for(repo)`, which is this with an empty chain.
 
-    `chain` is still the caller's unit of work; it is not a source of the
-    target, and is kept so the signature says what a land is asking about."""
+    The branch comes from the body of work THIS CHAIN IS BOUND TO, and nowhere
+    else. Nothing is inferred, no branch is frozen onto an agent, and nothing
+    falls back to whatever the main checkout happens to have checked out: a land
+    that cannot name its target REFUSES and names the command that records it.
+
+    `chain` is the unit of work, and it is now a real input rather than a
+    courtesy: a second body of work started in the same repository — which point
+    5 permits while this one's agents are still running — must not move this
+    chain's target. Each agent carries the work ID it was registered under; the
+    branch is read live from that work, so a CORRECTION still reaches an agent
+    in flight and a DIFFERENT body of work never does.
+
+    A chain bound to nothing (registered before anything was recorded) falls
+    back to the repository's current body of work. That is what makes the
+    refusal HEAL — Rich records the branch and the same land then succeeds —
+    and it infers nothing: the branch it reads is a recorded one."""
     repo = realpath(repo or "")
     if not repo or not os.path.isdir(repo):
         return "", "", "its repository %s cannot be read" % repo
-    branch = (integration_record(repo) or {}).get("branch") or ""
+    main_key = _norm_repo(repo)
+    work = None
+    for r in chain or []:
+        wid = (r.get("integration_work") or {}).get(main_key)
+        if wid:
+            work = _work_by_id(wid)
+            if work:
+                break
+    if work is None:
+        work = integration_record(repo)
+    branch = (work or {}).get("branch") or ""
     if not branch:
         return "", "", ("no branch is recorded for %s as the one this work integrates on. The branch a "
                         "body of work integrates on is RECORDED when that work starts (point 14); "
@@ -2169,10 +2314,25 @@ def integration_target(chain, repo):
     main = main_checkout(repo) or repo
     tip = branch_tip(main, branch)
     if not tip:
-        return branch, "", ("the recorded integration branch %s does not exist in %s any more. Re-record "
-                            "the branch this work integrates on (point 14): workspaces.sh integration "
-                            "--repo %s --branch <main|dev/...>" % (branch, repo, repo))
+        return branch, "", ("the recorded integration branch %s (body of work %s) does not exist in %s "
+                            "any more. Correct the branch this work integrates on (point 14): "
+                            "workspaces.sh integration --repo %s --branch <main|dev/...> --correct"
+                            % (branch, (work or {}).get("id") or "?", repo, repo))
     return branch, tip, ""
+
+
+def integration_for(repo):
+    """(branch, tip, why_not) for a caller that has no agent in hand — the single
+    answer every consumer asks instead of keeping its own.
+
+    A SECOND CORRECT COPY IS STILL A SECOND ANSWER. Consumers that need to know
+    whether work has landed — `completion-proof.py`, `land-completeness.py`,
+    `land-residue-gate.py`, `unlanded-branches.py`, `guard-ci-red-lands.sh`,
+    `guard-unresolved-claims.py`, `guard-idle-land.py`, `inflight.py` — call
+    this. Where nothing is recorded it returns a `why_not` that NAMES THE
+    RECORDING COMMAND, and the consumer abstains on it. None of them assumes
+    main (point 14)."""
+    return integration_target([], repo)
 
 
 def land(ref, me="", auto=False, ignored_ok="", deadline=None):
@@ -2942,6 +3102,13 @@ def main(argv):
     x.add_argument("--repo", default="")
     x.add_argument("--branch", default="")
     x.add_argument("--why", default="")
+    x.add_argument("--correct", action="store_true",
+                   help="change the branch of the body of work that is CURRENT, keeping its "
+                        "id, so every agent already bound to it moves with it. Without this, "
+                        "a recording STARTS a new body of work and reaches no running agent.")
+    x.add_argument("--all", action="store_true",
+                   help="list every body of work, superseded ones included — a superseded "
+                        "one is what an agent spawned for it still lands against")
     x = sub.add_parser("register-cc")
     for f in ("--name", "--repo", "--path", "--branch"):
         x.add_argument(f, required=True)
@@ -3036,8 +3203,22 @@ def main(argv):
             print("recorded: %s waits (%s) on %s" % (a.agent, kind, on))
         elif a.cmd == "integration":
             if a.branch:
-                r = record_integration(a.repo or entity, a.branch, a.why, me)
-                print("recorded: %s integrates on %s" % (r["repo"], r["branch"]))
+                r = record_integration(a.repo or entity, a.branch, a.why, me, a.correct)
+                print("%s: %s integrates on %s (body of work %s)"
+                      % ("corrected" if a.correct else "recorded", r["repo"], r["branch"], r["id"]))
+            elif a.all:
+                works = all_bodies_of_work()
+                cur = set((_integration_file().get("current") or {}).values())
+                if not works:
+                    print("no body of work has an integration branch recorded (point 14)")
+                for wid in sorted(works):
+                    w = works[wid]
+                    print("%s\t%s\t%s\t%s\t%s\t%s"
+                          % (wid, "current" if wid in cur else "superseded", w.get("repo"),
+                             w.get("branch"), w.get("recorded_at"), w.get("why") or ""))
+                    for c in w.get("corrections") or []:
+                        print("\t  corrected from %s at %s: %s"
+                              % (c.get("from"), c.get("at"), c.get("why") or ""))
             else:
                 recs = all_integration_records()
                 if a.repo:
@@ -3047,8 +3228,8 @@ def main(argv):
                     print("no integration branch is recorded (point 14)")
                 for repo in sorted(recs):
                     r = recs[repo]
-                    print("%s\t%s\t%s\t%s" % (repo, r.get("branch"), r.get("source"),
-                                                r.get("recorded_at")))
+                    print("%s\t%s\t%s\t%s\t%s" % (repo, r.get("branch"), r.get("source"),
+                                                    r.get("recorded_at"), r.get("id") or ""))
         elif a.cmd == "retry":
             for k, ok in retry_due(budget=60.0):
                 print("%s %s" % ("deleted" if ok else "still failing", k))
