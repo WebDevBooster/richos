@@ -627,6 +627,22 @@ def deleted_probes(root, mine):
     for rel in entries:
         if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):
             gone.append((rel, "the manifest lists it and HEAD does not have it"))
+    # THE MANIFEST'S OWN HISTORY, NOT ONLY ITS HEAD. A probe the text rule
+    # cannot see, deleted TOGETHER WITH ITS MANIFEST LINE in one commit, left no
+    # trace: the deletion scan above judges the file's text and the manifest
+    # scan above reads HEAD, and both were satisfied (RN2d,
+    # certification-frank-round6-2026-09-12.md §4). So every manifest that was
+    # ever committed on this lineage is read, and an entry that was listed at
+    # ANY commit and holds nothing at HEAD is MISSING unless its author retired
+    # it — the closure the working-tree read was replaced for, closed at the
+    # commit that introduced each entry rather than at the tip.
+    rc, out, _ = git(root, "log", "--format=%H", "-n", str(HISTORY_LIMIT),
+                     mine or "HEAD", "--", MANIFEST)
+    if rc == 0:
+        for c in out.split():                       # newest first
+            for rel in manifest_at(root, c)[0]:
+                if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):
+                    gone.append((rel, "listed in the manifest at %s and absent at HEAD" % c[:12]))
     return gone
 
 

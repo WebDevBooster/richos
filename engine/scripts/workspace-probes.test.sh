@@ -656,6 +656,52 @@ else
     bad "W27b rc=$RC — the committed listing did not take: <$OUT>"
 fi
 
+# --- W30: A PROBE DELETED TOGETHER WITH ITS MANIFEST LINE, IN ONE COMMIT ---
+# Round 6's closure (RN2d, certification-frank-round6 §4): a listed probe the
+# text rule cannot see (it reaches the library through getattr and never
+# spells its name), deleted in the same commit that drops its manifest line,
+# left NO trace — the deletion scan judged the file's text, the manifest scan
+# read HEAD, and both were satisfied. The manifest is now read at every
+# commit that touched it, so an entry ever listed and absent at HEAD is
+# MISSING unless its author retired it.
+cat > "$R/docs/verification/certification-hank-invisible.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Hank's probe. It never spells the library's name or an entry point: the text rule cannot see it."""
+import importlib.util, sys
+CASES = ["h"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("ws", argv[0])
+    ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+    return 0 if getattr(ws, "integration" + "_target", None) else 1
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+commit_listed certification-hank-invisible.probe.py "hank's probe, listed"
+run --tree-only --only hank --only alice
+if [ "$RC" -eq 0 ] && grep -q "^GREEN      docs/verification/certification-hank-invisible.probe.py" <<<"$OUT"; then
+    ok "W30a POSITIVE CONTROL: the text-invisible probe is discovered by its manifest line and runs green"
+else
+    bad "W30a rc=$RC — the listed invisible probe did not run: <$OUT>"
+fi
+git -C "$R" rm -q docs/verification/certification-hank-invisible.probe.py >/dev/null 2>&1
+grep -v 'certification-hank-invisible' "$R/$MANIFEST" > "$R/$MANIFEST.new" && mv "$R/$MANIFEST.new" "$R/$MANIFEST"
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "the probe and its manifest line, gone in one commit" >/dev/null 2>&1
+run --tree-only --only hank --only alice
+if [ "$RC" -ne 0 ] && grep -q "^MISSING    docs/verification/certification-hank-invisible.probe.py" <<<"$OUT" \
+   && grep -q "listed in the manifest at" <<<"$OUT"; then
+    ok "W30 a probe deleted TOGETHER WITH ITS MANIFEST LINE in one commit is still MISSING: the manifest is read at the commit that listed it, not at HEAD"
+else
+    bad "W30 rc=$RC — a probe and its manifest line deleted in one commit left no trace: <$OUT>"
+fi
+land_from_author hank "$(printf 'certification-hank-invisible.probe.py\t*\thank\tsuperseded by the fixture, says hank\n')"
+run --tree-only --only hank --only alice
+if [ "$RC" -eq 0 ] && ! grep -q "MISSING" <<<"$OUT"; then
+    ok "W30b SILENT TWIN: retired by its own author and landed, the same manifest-history deletion no longer blocks"
+else
+    bad "W30b rc=$RC — a retired-and-deleted probe found through the manifest's history still blocks: <$OUT>"
+fi
+
 # ===========================================================================
 # RETIREMENT PER CASE — W19..W25
 # ===========================================================================

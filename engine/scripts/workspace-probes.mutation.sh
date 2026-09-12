@@ -94,10 +94,22 @@ mutant deletion-is-free "W16 " "$P" \
 # --- 10. MISSING IS ASKED OF GIT, NOT OF THE TREE --------------------------
 # Route 4 re-opened on 2026-09-12: a file at the deleted path in the working
 # tree, committed or not, un-deleted the probe.
+# Three parts since round 7: the manifest-history scan (10b) is a third detector
+# of a deleted probe, and a mutant that blinds two of three would be caught by
+# the third and read as proven for the wrong reason.
 mutant missing-reads-the-tree "W16c" "$P" \
-    '            if exists_at(root, "HEAD", line):{NL}                continue{AND}        if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):' \
-    '            if os.path.exists(os.path.join(root, line)):{NL}                continue{AND}        if rel.endswith(".py") and not os.path.exists(os.path.join(root, rel)) and all(q != rel for q, _c in gone):' \
+    '            if exists_at(root, "HEAD", line):{NL}                continue{AND}        if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):{AND}                if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):' \
+    '            if os.path.exists(os.path.join(root, line)):{NL}                continue{AND}        if rel.endswith(".py") and not os.path.exists(os.path.join(root, rel)) and all(q != rel for q, _c in gone):{AND}                if rel.endswith(".py") and not os.path.exists(os.path.join(root, rel)) and all(q != rel for q, _c in gone):' \
     "an uncommitted file at the deleted path would conceal a committed deletion."
+
+# --- 10b. THE MANIFEST IS READ AT EVERY COMMIT THAT TOUCHED IT ---------------
+# RN2d (certification-frank-round6-2026-09-12.md §4): a text-invisible probe
+# deleted together with its manifest line in ONE commit left no trace, because
+# the manifest was read at HEAD only.
+mutant manifest-history-not-read "W30 " "$P" \
+    '        for c in out.split():                       # newest first{NL}            for rel in manifest_at(root, c)[0]:' \
+    '        for c in []:                                # newest first{NL}            for rel in manifest_at(root, c)[0]:' \
+    "a probe deleted in the same commit as its manifest line would leave no trace: the deletion scan judges the file's text and the HEAD manifest no longer names it, so both are satisfied and the run prints its all-clear."
 
 # --- 11. AN UNCOMMITTED LINE EXCUSES NO DELETION ---------------------------
 mutant uncommitted-line-excuses-deletion "W16d" "$P" \
