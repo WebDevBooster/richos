@@ -1,0 +1,14 @@
+=== workspace-probes tests ===
+  PASS  W1  a probe is discovered by being committed — no registration anywhere
+  PASS  W2  a file that is not a probe of this library is counted, not mistaken for one
+  PASS  W3  a red prior probe exits non-zero and names what may retire it
+  PASS  W5  a retirement signed by anyone but the probe's own author is REFUSED, naming both
+  PASS  W4  a retirement signed by the probe's own author retires it, with its reason shown
+  PASS  W6  a probe the runner cannot execute BLOCKS, by name — it is not a probe that passed
+  PASS  W7  a probe committed on another local branch is discovered and named by its branch
+  PASS  W7b --tree-only really does skip other branches (so W7 measured something)
+  PASS  W8  --at <commit> tests THAT commit's workspaces.py: red there, green on the tree
+  PASS  W9  a declared non-probe is not run; a BARE marker with no reason exempts nothing
+  PASS  W10 a run that selected no probe REFUSES — it does not print the all-clear
+
+=== workspace-probes tests: all 11 passed ===

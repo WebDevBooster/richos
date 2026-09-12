@@ -95,16 +95,27 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-ENTRY_POINTS = ("barrier(", "observe(", "observe_created_refs", "register_spawn",
-                "register_cc", "record_start", "record_end", "bind_agent",
-                "integration_target", "record_integration", "load_agent",
-                "snapshot_refs", "land(", "discard(", "pending(")
+# WHAT COUNTS AS DRIVING THE LIBRARY. This was a list of entry points spelled
+# with their opening parenthesis, and that was too narrow in the one direction
+# that matters: a probe reaching the library through `getattr`, or naming an
+# entry point without calling it, was SILENTLY NOT DISCOVERED. Undiscovered is
+# strictly worse than red -- a red probe stops a commit and an invisible one
+# does not exist. So loading the library at all counts, which is something every
+# probe of it must do however it then drives it.
+DRIVES = ("spec_from_file_location", "exec_module", "import workspaces",
+          "barrier", "observe_created_refs", "register_spawn", "register_cc",
+          "record_start", "record_end", "bind_agent", "integration_target",
+          "integration_for", "record_integration", "load_agent", "snapshot_refs",
+          "named_key", "all_integration_records")
 
 RETIREMENTS = "docs/verification/workspace-probe-retirements.tsv"
 
 # A probe's author, from its path. Both reviewers name themselves in the file
 # name they commit, which is the convention this repository already follows.
 AUTHOR_PAT = re.compile(r"certification-([a-z]+)-", re.I)
+
+# A declared non-probe, with a reason of its own. A bare marker exempts nothing.
+NOT_A_PROBE = re.compile(r"not-a-probe:[ \t]*\S+[ \t]+\S+", re.I)
 
 
 def sh(*args, **kw):
@@ -149,10 +160,27 @@ class Probe(object):
 
 
 def is_workspaces_probe(text):
-    """Structural, so a new probe is discovered by being committed."""
+    """Structural, so a new probe is discovered by being committed: it names the
+    library and it drives it. Both halves are needed -- the name alone matches
+    any file that mentions a path, and `exec_module` alone matches half the
+    engine.
+
+    THE ONE WAY OUT IS A DECLARATION, not a path rule. A tool that builds or
+    adapts probes looks exactly like a probe from outside, and a path rule
+    cannot tell them apart: a reviewer's real probe lives under a `-logs/`
+    directory today. So a file that is NOT a probe says so, in itself, where a
+    reviewer reading it will see the claim:
+
+        not-a-probe: <why this drives the library but asserts nothing>
+
+    A bare marker exempts nothing -- the same discipline the contrast floor and
+    the dialect guard use. The runner counts declared files and names them under
+    --show-all, so an exemption is visible rather than silent."""
+    if NOT_A_PROBE.search(text):
+        return False
     if "workspaces.py" not in text and "workspaces.test.py" not in text:
         return False
-    return any(e in text for e in ENTRY_POINTS)
+    return any(e in text for e in DRIVES)
 
 
 def shape_of(text):
@@ -463,7 +491,7 @@ def main(argv):
         red = [p for p in probes if p.verdict == "RED"]
         stuck = [p for p in probes if p.verdict == "UNRUNNABLE"]
         if args.list:
-            return 0
+            return 0                          # --list runs nothing and claims nothing
 
         print("")
         for p in red + stuck:
@@ -488,6 +516,18 @@ def main(argv):
                     print("    %s   %s" % (p.name, p.detail))
             return 1
 
+        if not probes:
+            # A RUN THAT ASKED NOTHING IS NOT A RUN THAT PASSED. With no probe
+            # selected this used to print the green line and exit 0, which is
+            # byte-for-byte what a clean full run looks like -- a --only that
+            # matches nothing, a discovery rule that quietly stopped matching,
+            # or an empty docs/verification/ would all have read as "all clear".
+            print("NOTHING WAS RUN. %d probe(s) were discovered and %s."
+                  % (discovered,
+                     "none was selected by --only %s" % ", ".join(args.only) if args.only
+                     else "not one of them is a probe of this library"))
+            print("A run that asked nothing is not a run that passed.")
+            return 1
         print("every discovered probe ran, and every one of them is green.")
         return 0
     finally:

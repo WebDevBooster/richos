@@ -1,4 +1,7 @@
-"""THE COMMITTED PROBES ARE NOT MODIFIED. These are derived copies in /tmp with
+"""not-a-probe: this BUILDS probes, it asserts nothing of its own, and the
+runner would otherwise report it UNRUNNABLE and block on it forever.
+
+THE COMMITTED PROBES ARE NOT MODIFIED. These are derived copies in /tmp with
 ONE line added to the fixture -- the `workspaces.sh integration` recording that
 point 14 requires before the first spawn -- so the question "is every remaining
 red case caused by the fixture recording nothing?" can be answered by running
