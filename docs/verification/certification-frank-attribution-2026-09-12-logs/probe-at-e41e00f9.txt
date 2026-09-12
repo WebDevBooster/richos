@@ -1,0 +1,67 @@
+test_a1_another_agents_branch_is_attributed_to_this_one (__main__.ProbeA.test_a1_another_agents_branch_is_attributed_to_this_one) ... FAIL
+test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch (__main__.ProbeA.test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch) ... FAIL
+test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents (__main__.ProbeA.test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents) ... FAIL
+test_a4_discard_of_A_deletes_the_other_agents_branch (__main__.ProbeA.test_a4_discard_of_A_deletes_the_other_agents_branch) ... FAIL
+
+======================================================================
+FAIL: test_a1_another_agents_branch_is_attributed_to_this_one (__main__.ProbeA.test_a1_another_agents_branch_is_attributed_to_this_one)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-four-fixes-2026-09-12-probe.py", line 39, in test_a1_another_agents_branch_is_attributed_to_this_one
+    self.assertEqual(got, set(), "B's branches were attributed to A: %s" % sorted(got))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'cc/zach-opus-b1'
+'worktree-agent-azachopusb10000' : B's branches were attributed to A: ['cc/zach-opus-b1', 'worktree-agent-azachopusb10000']
+
+======================================================================
+FAIL: test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch (__main__.ProbeA.test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-four-fixes-2026-09-12-probe.py", line 56, in test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch
+    res = ws.land("zach-opus-a2", self.sid)
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/engine/scripts/lib/workspaces.py", line 1538, in land
+    raise SpecError("%s is not landed yet: %s. Merge it, then land it; or discard it (point 7)."
+                    % (rec["name"], "; ".join(missing)))
+workspaces.SpecError: zach-opus-a2 is not landed yet: worktree-agent-azachopusb20000 (4a9cea2a8dd1) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-lixgasv1/entity at db96a8c0d37a. Merge it, then land it; or discard it (point 7).
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-four-fixes-2026-09-12-probe.py", line 60, in test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch
+    raise AssertionError("A's land is blocked by another agent's branch: %s" % e)
+AssertionError: A's land is blocked by another agent's branch: zach-opus-a2 is not landed yet: worktree-agent-azachopusb20000 (4a9cea2a8dd1) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-lixgasv1/entity at db96a8c0d37a. Merge it, then land it; or discard it (point 7).
+
+======================================================================
+FAIL: test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents (__main__.ProbeA.test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-four-fixes-2026-09-12-probe.py", line 71, in test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents
+    self.assertNotIn("keep-cc-a3", got,
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+                     "the lead's rescue branch cut in the MAIN CHECKOUT was attributed to the agent")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'keep-cc-a3' unexpectedly found in {'keep-cc-a3'} : the lead's rescue branch cut in the MAIN CHECKOUT was attributed to the agent
+
+======================================================================
+FAIL: test_a4_discard_of_A_deletes_the_other_agents_branch (__main__.ProbeA.test_a4_discard_of_A_deletes_the_other_agents_branch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/parent/docs/verification/certification-frank-four-fixes-2026-09-12-probe.py", line 84, in test_a4_discard_of_A_deletes_the_other_agents_branch
+    self.assertIn("cc/zach-opus-b4", after, "a branch that was never A's was deleted with A")
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'cc/zach-opus-b4' not found in ['main'] : a branch that was never A's was deleted with A
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.566s
+
+FAILED (failures=4)
+
+A.created_branches = [['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-qur7lwr5/other', 'cc/zach-opus-b1'], ['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-qur7lwr5/entity', 'worktree-agent-azachopusb10000']]
+B's own branches    = ['cc/zach-opus-b1', 'worktree-agent-azachopusb10000']
+
+land(A) REFUSED: zach-opus-a2 is not landed yet: worktree-agent-azachopusb20000 (4a9cea2a8dd1) is not in /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-lixgasv1/entity at db96a8c0d37a. Merge it, then land it; or discard it (point 7).
+
+A.created_branches = [['/private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/frank-c2/tmp/ws-spec-ku82fngm/other', 'keep-cc-a3']]
+
+branches after discard(A): ['main']

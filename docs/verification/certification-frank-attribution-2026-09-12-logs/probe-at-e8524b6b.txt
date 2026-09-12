@@ -1,0 +1,18 @@
+test_a1_another_agents_branch_is_attributed_to_this_one (__main__.ProbeA.test_a1_another_agents_branch_is_attributed_to_this_one) ... ok
+test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch (__main__.ProbeA.test_a2_land_of_A_is_held_hostage_by_the_other_agents_branch) ... ok
+test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents (__main__.ProbeA.test_a3_a_branch_the_lead_cuts_in_the_main_checkout_is_the_agents) ... ok
+test_a4_discard_of_A_deletes_the_other_agents_branch (__main__.ProbeA.test_a4_discard_of_A_deletes_the_other_agents_branch) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.907s
+
+OK
+
+A.created_branches = []
+B's own branches    = ['cc/zach-opus-b1', 'worktree-agent-azachopusb10000']
+
+land(A) -> {'landed': True}
+
+A.created_branches = []
+
+branches after discard(A): ['cc/zach-opus-b4', 'main']
