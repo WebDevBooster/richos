@@ -20,18 +20,31 @@
 # `      FAIL  C4.2 ...` — one verdict line per check — `  PASS  C4  ...` /
 # `  FAIL  C4  ...`, TWO spaces after the id so a harness grepping `FAIL  C1 `
 # cannot match C10..C14 and `FAIL  C4 ` cannot match `FAIL  C4.2` — and the
-# last line is the round's own headline:
+# last two lines are the round's own headline, the CEO's fourteen and the
+# harness's added self-check (C0) counted APART, since C0 tests no sentence
+# of his page (round 7, brief §7):
 #
 #     CHECKS RUN: <N>  RED: <K>
+#     FOURTEEN: <N> green, <K> red · self-check: <green|red>
 #
 # A check is RED when any of its sub-assertions is red. Exit 0 only when K = 0.
 #
-# THE MUTATION HARNESS NAMES SUB-ASSERTIONS, NEVER CHECKS. One check (C14) is
-# red on the base this was written against, so a mutant wanting `FAIL  C14 `
-# would be "proven" by a suite that was red before the mutant touched anything
-# — absence reading as success, which is failure type A of the 2026-09-10
-# record. workspace-spec-fourteen.mutation.sh therefore wants `FAIL  C14.3 `,
-# a line that is green until the mutation makes it red.
+# THE MUTATION HARNESS NAMES SUB-ASSERTIONS, NEVER CHECKS. One check (C14) was
+# red on the base round 6 was written against, so a mutant wanting `FAIL  C14 `
+# would have been "proven" by a suite that was red before the mutant touched
+# anything — absence reading as success, which is failure type A of the
+# 2026-09-10 record. workspace-spec-fourteen.mutation.sh therefore wants
+# `FAIL  C14.3 `, a line that is green until the mutation makes it red.
+#
+# ROUND 7 (2026-09-12) ADDED SUB-ASSERTIONS UNDER THE FROZEN HEADINGS — none
+# removed, none reworded — for every clause both round-6 reviewers found the
+# fourteen did not ask, and for what a census of every sentence then found:
+# C2.8, C3.8–C3.9, C4.4 (asks git's registry and ref list, not two directory
+# names), C5.10–C5.13, C7.6–C7.9, C8.6–C8.7, C10.5–C10.6, C11.7, C12.7–C12.11,
+# C14.8–C14.12. Each has its mutant in the harness. One clause is deliberately
+# NOT asserted either way — whether a discard waiting on the CEO's word blocks
+# NEW work ("blocks nothing else" vs "New work stays blocked either way") —
+# because the page says both and only he can settle it (C5.13's comment).
 #
 # Usage: workspace-spec-fourteen.test.sh [--keep]   (--keep leaves the sandbox)
 
@@ -43,6 +56,7 @@ KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
 # --- the tally --------------------------------------------------------------
 CHECKS_RUN=0; CHECKS_RED=0
+FOURTEEN_RUN=0; FOURTEEN_RED=0; SELF_RED=0      # the CEO's fourteen, and C0, apart
 CUR=""; CUR_RED=0; CUR_TITLE=""
 begin() { # <id> <title>
     CUR="$1"; CUR_TITLE="$2"; CUR_RED=0
@@ -59,11 +73,13 @@ sub() { # <label> <cond> [detail]   — one sub-assertion of the current check
 }
 verdict() {
     CHECKS_RUN=$((CHECKS_RUN + 1))
+    [ "$CUR" != C0 ] && FOURTEEN_RUN=$((FOURTEEN_RUN + 1))
     if [ "$CUR_RED" -eq 0 ]; then
         printf '  PASS  %s  %s\n' "$CUR" "$CUR_TITLE"
     else
         printf '  FAIL  %s  %s  (%d sub-assertion(s) red)\n' "$CUR" "$CUR_TITLE" "$CUR_RED"
         CHECKS_RED=$((CHECKS_RED + 1))
+        if [ "$CUR" = C0 ]; then SELF_RED=$((SELF_RED + 1)); else FOURTEEN_RED=$((FOURTEEN_RED + 1)); fi
     fi
     echo ""
 }
@@ -145,6 +161,33 @@ bash_guard() { # <command> -> rc of the Bash worktree guard; stderr in $T/bash.e
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"tool_name":"Bash","cwd":sys.argv[3],"tool_input":{"command":sys.argv[2]}}))' "$CUR_SID" "$1" "$ENT" \
         | bash "$HOOKS/guard-worktree-removal.sh" >/dev/null 2>"$T/bash.err"
 }
+agent_bash_guard() { # <agent-id> <command> -> the same guard, in an AGENT's call (the payload carries its id)
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_name":"Bash","cwd":sys.argv[4],"tool_input":{"command":sys.argv[3]}}))' "$CUR_SID" "$1" "$2" "$ENT" \
+        | bash "$HOOKS/guard-worktree-removal.sh" >/dev/null 2>"$T/bash.err"
+}
+agent_call_pre() { # <agent-id> <tool_use_id> [tool] -> the catch-all PreToolUse (the lock-out) carrying this call's id: it opens the creation window (point 3)
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":sys.argv[4],"cwd":sys.argv[5],"tool_input":{}}))' "$CUR_SID" "$1" "$2" "${3:-Bash}" "$ENT" \
+        | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
+}
+agent_call_post() { # <agent-id> <tool_use_id> [tool] -> the catch-all PostToolUse (observe-created-refs.sh): the other half of the pair
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":sys.argv[4],"cwd":sys.argv[5],"tool_input":{},"tool_response":{}}))' "$CUR_SID" "$1" "$2" "${3:-Bash}" "$ENT" \
+        | bash "$HOOKS/observe-created-refs.sh" >/dev/null 2>>"$T/observe.err"
+}
+task_completed() { # <agent-id> <name>  — TaskCompleted through the lifecycle hook: the agent handed in its work (point 11)
+    payload TaskCompleted "{\"session_id\":\"$CUR_SID\",\"agent_id\":\"$1\",\"teammate_name\":\"$2\",\"cwd\":\"$ENT\"}" \
+        | bash "$HOOKS/workspace-lifecycle.sh" >/dev/null 2>>"$T/hooks.err"
+}
+session_end() { # <session-id>  — SessionEnd through the lifecycle hook: the session records its end (point 12)
+    payload SessionEnd "{\"session_id\":\"$1\",\"reason\":\"exit\",\"cwd\":\"$ENT\"}" \
+        | bash "$HOOKS/workspace-lifecycle.sh" >/dev/null 2>>"$T/hooks.err"
+}
+refs_and_worktrees() { # <repo> -> one line per ref NAME and per registered worktree path: what git itself lists
+    git -C "$1" for-each-ref --format='ref %(refname)'
+    git -C "$1" worktree list --porcelain | grep '^worktree '
+}
+new_lines() { # <before> <after> -> the lines in <after> that were not in <before>
+    comm -13 <(printf '%s\n' "$1" | sort) <(printf '%s\n' "$2" | sort)
+}
 stop_gate() { # [last_assistant_message] [transcript_path] -> rc; message in $T/stop.err, stdout in $T/stop.out
     python3 -c 'import json,sys; d={"hook_event_name":"Stop","session_id":sys.argv[1],"cwd":sys.argv[2],"stop_hook_active":False,"last_assistant_message":sys.argv[3] or "done"}
 if sys.argv[4]: d["transcript_path"]=sys.argv[4]
@@ -225,6 +268,31 @@ MAINREFS="$(grep -c 'INTEGRATION_REFS\b' "$HOOKS/guard-unresolved-claims.py")"
 MAINUSE="$(grep -n 'INTEGRATION_REFS' "$HOOKS/guard-unresolved-claims.py" | grep -v -E '^[0-9]+:INTEGRATION_REFS =|^[0-9]+:#' | wc -l | tr -d ' ')"
 sub "C14.7 guard-unresolved-claims.py keeps no live fallback to main: its INTEGRATION_REFS tuple is referenced by no code" \
     "[ \"$MAINUSE\" = 0 ]" "INTEGRATION_REFS mentions=$MAINREFS, code uses=$MAINUSE: $(grep -n 'INTEGRATION_REFS' "$HOOKS/guard-unresolved-claims.py" | tr '\n' ' ')"
+# "Finished work never waits on the agent's own branch": an agent's branch is never the target.
+ws integration --repo "$DEV" --branch cc/zach-opus-d1 --why "an agent's own branch as the target" >"$T/integration2.out" 2>&1; rc=$?
+sub "C14.8 an agent's own workspace branch (cc/) is refused as an integration branch (exit $rc), and the record still names dev/work" \
+    "[ $rc -eq 2 ] && grep -q 'own workspace branch' '$T/integration2.out' && [ \"\$(ws integration --repo '$DEV' 2>/dev/null | cut -f2)\" = dev/work ]" "$(cat "$T/integration2.out")"
+# WHO RECORDS IT (both round-6 reviewers): nothing checked, so the party under test could
+# record `wip` in the store the runner reads, or `git branch -f dev/work HEAD` — and either
+# move retargets where every in-flight agent in that repository lands. In an AGENT's call
+# (the payload carries its id) the Bash guard refuses both, the way it refuses `claude -w`.
+AGENT_ANY="ad1d1d1d1d1d1d1d1"
+agent_bash_guard "$AGENT_ANY" "$WS integration --repo $DEV --branch wip --why 'a new body of work, says the engineer'"; r1=$?
+agent_bash_guard "$AGENT_ANY" "python3 $ENGINE/scripts/lib/workspaces.py integration --repo $DEV --branch dev/work --correct --why 'moved by the engineer'"; r2=$?
+sub "C14.9 an AGENT's call recording or correcting the integration branch is refused by the Bash guard (exits $r1 $r2), naming point 14" \
+    "[ $r1 -eq 2 ] && [ $r2 -eq 2 ] && grep -q 'point 14' '$T/bash.err'" "$(cat "$T/bash.err")"
+bash_guard "$WS integration --repo $DEV --branch dev/work --why 're-stated by Rich'"; r3=$?
+sub "C14.10 POSITIVE CONTROL: the lead's own call recording it passes the guard ($r3)" "[ $r3 -eq 0 ]" "$(cat "$T/bash.err")"
+agent_bash_guard "$AGENT_ANY" "git branch -f dev/work HEAD"; r4=$?
+agent_bash_guard "$AGENT_ANY" "git update-ref refs/heads/dev/work HEAD"; r5=$?
+agent_bash_guard "$AGENT_ANY" "git push . HEAD:dev/work"; r6=$?
+agent_bash_guard "$AGENT_ANY" "git branch -D dev/work"; r7=$?
+sub "C14.11 an AGENT's call moving, pushing into or deleting a RECORDED integration branch is refused (exits $r4 $r5 $r6 $r7)" \
+    "[ $r4 -eq 2 ] && [ $r5 -eq 2 ] && [ $r6 -eq 2 ] && [ $r7 -eq 2 ] && grep -q 'RECORDED integration branch' '$T/bash.err'" "$(cat "$T/bash.err")"
+agent_bash_guard "$AGENT_ANY" "git branch -f side/scratch HEAD"; r8=$?
+bash_guard "git branch -f dev/work HEAD"; r9=$?
+sub "C14.12 PRECISION: an agent moving a branch nobody recorded passes ($r8), and the lead moving the recorded one passes ($r9) — landing is his" \
+    "[ $r8 -eq 0 ] && [ $r9 -eq 0 ]" "$(cat "$T/bash.err")"
 verdict
 
 # ===========================================================================
@@ -295,6 +363,24 @@ sub "C2.5 an agent briefed against codex/ work gets a cc/ COPY: cc/zach-opus-cc 
     "[ $rc -eq 0 ] && [ \"\$(git -C '$CCC' rev-parse HEAD)\" = \"\$(git -C '$OTHER' rev-parse codex/fix)\" ] && [ \"\$(git -C '$CCC' rev-parse --abbrev-ref HEAD)\" = cc/zach-opus-cc ]" "$(cat "$T/create.out")"
 ws stop zach-opus-cc --why "the codex/ copy fixture is done with" >/dev/null 2>&1        # never spawned into: no end signal of its own
 ws discard zach-opus-cc --reason "the codex/ copy fixture is done with" --not-ceo-ordered "a fixture of this suite" >/dev/null 2>&1
+# A DELETER AIMED AT A codex/ REF ON AN AGENT'S RECORD (round 6, Frank §2.3: byte-identity was
+# proved by never being asked). The only way a codex/ ref reaches a record is by hand or by a
+# defect — observe_created_refs never attributes one — so the fixture writes it there, and the
+# discard's branch deleter is then pointed straight at it.
+spawn "zach-opus-cz" "a record that will carry a codex/ ref"
+platform_spawn "zach-opus-cz" "aczczczczczczczcz"
+commit_in "$ENT/.claude/worktrees/agent-aczczczczczczczcz" cz.txt
+subagent_stop "aczczczczczczczcz"
+RECZ="$(agent_rec zach-opus-cz)"
+python3 - "$RECZ" "$OTHER" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["created_branches"] = [[sys.argv[2], "codex/other"]]; json.dump(d, open(p, "w"))
+PY
+CODEX_OTHER_TIP="$(git -C "$OTHER" rev-parse codex/other)"
+ws discard zach-opus-cz --reason "check 2: a deleter aimed at a codex/ ref on a record" --not-ceo-ordered "a fixture of this suite" >"$T/dz.out" 2>&1; rcz=$?
+DZR="$(done_rec zach-opus-cz)"
+sub "C2.8 a deleter AIMED at a codex/ ref on an agent's record refuses it: the discard completes ($rcz), codex/other is untouched, and the record and the store say so" \
+    "[ $rcz -eq 0 ] && [ \"\$(git -C '$OTHER' rev-parse codex/other 2>/dev/null)\" = '$CODEX_OTHER_TIP' ] && [ -n \"$DZR\" ] && grep -q 'codex/ untouched' '$DZR' && grep -q '\"event\": \"codex-untouched\"' '$STORE/events.jsonl'" "$(cat "$T/dz.out") done=$DZR"
 AFTER="$(codex_state)"
 sub "C2.6 codex/ is byte-identical after every deleter ran: refs, worktree listing and every file" \
     "[ \"$BEFORE\" = \"$AFTER\" ] && [ -d '$CX' ] && has_branch '$OTHER' codex/fix && has_branch '$OTHER' codex/other" "before=$BEFORE after=$AFTER"
@@ -341,6 +427,15 @@ ws discard orphan-rogue-cc --reason "made by hand, never registered" --not-ceo-o
 ws discard orphan-agent-deadbeefdeadbeef0 --reason "made by hand, never registered" --not-ceo-ordered "a fixture of this suite" >"$T/d2.out" 2>&1; r2=$?
 sub "C3.7 both are handled under point 5 (discarded: $r1 $r2) and gone" \
     "[ $r1 -eq 0 ] && [ $r2 -eq 0 ] && [ ! -e '$T/rogue-cc' ] && ! has_branch '$OTHER' cc/rogue-hand && [ ! -e '$ENT/.claude/worktrees/agent-deadbeefdeadbeef0' ] && ! has_branch '$ENT' worktree-agent-deadbeefdeadbeef0" "$(cat "$T/d1.out" "$T/d2.out")"
+# "...and any branch an agent created, counts as finished work of an ended session": a cc/
+# BRANCH with no workspace at all, carrying a commit that is on no integration branch.
+STRAY_TIP="$(git -C "$OTHER" commit-tree "$(git -C "$OTHER" rev-parse 'main^{tree}')" -p "$(git -C "$OTHER" rev-parse main)" -m "a stray commit")"
+git -C "$OTHER" branch cc/stray-hand "$STRAY_TIP"
+stop_gate; rc=$?
+sub "C3.8 an unregistered cc/ BRANCH with no workspace is in point 5's list too, by name" \
+    "[ $rc -eq 2 ] && grep -q 'orphan-cc-stray-hand' '$T/stop.err'" "$(cat "$T/stop.err")"
+ws discard orphan-cc-stray-hand --reason "made by hand, never registered" --not-ceo-ordered "a fixture of this suite" >"$T/d3.out" 2>&1; r3=$?
+sub "C3.9 and it is handled under point 5 (discarded: $r3) and gone" "[ $r3 -eq 0 ] && ! has_branch '$OTHER' cc/stray-hand" "$(cat "$T/d3.out")"
 verdict
 
 # ===========================================================================
@@ -366,6 +461,10 @@ verdict
 
 # ===========================================================================
 begin C4 "After a land: workspace absent, branch absent, no prompt, no quarantine directory, no registry entry"
+# What git itself lists BEFORE the spawn: after the land it must list nothing more. A workspace
+# moved to `.parked-<name>` on a `parked/` branch passed the old C4.4, which grepped two directory
+# names (round 6, Frank §2.2); the registry and the ref list cannot be fooled by a name.
+BEFORE_OTHER="$(refs_and_worktrees "$OTHER")"; BEFORE_ENT="$(refs_and_worktrees "$ENT")"
 RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-l1 >/dev/null 2>&1
 CCL="$T/other-wt/zach-opus-l1"
 spawn "zach-opus-l1" "$(printf 'x\ncross-repo-worktree: %s\n' "$CCL")"
@@ -380,8 +479,10 @@ sub "C4.1 no prompt: the merged work is landed by the Stop gate itself, with no 
 sub "C4.2 workspace absent — from disk and from git's list (both workspaces)" \
     "[ ! -e '$CCL' ] && ! listed '$OTHER' '$CCL' && [ ! -e '$NPL' ] && ! listed '$ENT' '$NPL'"
 sub "C4.3 branch absent (both)" "! has_branch '$OTHER' cc/zach-opus-l1 && ! has_branch '$ENT' worktree-agent-al1l1l1l1l1l1l1l1"
-sub "C4.4 no quarantine directory anywhere in the sandbox, and no detached leftover in either repository's worktree list" \
-    "[ -z \"\$(quarantine_dirs)\" ] && ! git -C '$OTHER' worktree list --porcelain | grep -q '^detached' && ! git -C '$ENT' worktree list --porcelain | grep -q '^detached'" "$(quarantine_dirs; git -C "$OTHER" worktree list)"
+NEW_OTHER="$(new_lines "$BEFORE_OTHER" "$(refs_and_worktrees "$OTHER")")"
+NEW_ENT="$(new_lines "$BEFORE_ENT" "$(refs_and_worktrees "$ENT")")"
+sub "C4.4 no quarantine anywhere: git's worktree registry and ref list of BOTH repositories hold nothing they did not hold before the spawn (a workspace moved under any name, or a parked/ branch, would be listed), no quarantine directory, no detached leftover" \
+    "[ -z \"$NEW_OTHER\" ] && [ -z \"$NEW_ENT\" ] && [ -z \"\$(quarantine_dirs)\" ] && ! git -C '$OTHER' worktree list --porcelain | grep -q '^detached' && ! git -C '$ENT' worktree list --porcelain | grep -q '^detached'" "new in other: [$NEW_OTHER] new in entity: [$NEW_ENT] $(quarantine_dirs; git -C "$OTHER" worktree list)"
 sub "C4.5 no registry entry: nothing in agents/ names it, status lists nothing for it; its ending is in done/" \
     "[ -z \"\$(agent_rec zach-opus-l1)\" ] && [ -n \"\$(done_rec zach-opus-l1)\" ] && ! ws status 2>/dev/null | grep -q 'zach-opus-l1'"
 verdict
@@ -411,6 +512,44 @@ ws discard zach-opus-ceo --reason "a reviewer rejected the approach" --ceo-word 
 DC="$(done_rec zach-opus-ceo)"
 sub "C7.5 with his word it is discarded and the word is RECORDED (exit $r2)" \
     "[ $r2 -eq 0 ] && [ \"\$(jget '$DC' disposition.ceo_word)\" = 'drop it, he said 2026-09-12' ]" "$(cat "$T/d.out") $(jget "$DC" disposition)"
+# "with the reason recorded" is asked of a discard that GIVES none (round 6, Frank F1/F2:
+# C7.2 asserted the reason the harness gave was stored, never that one is required).
+spawn "zach-opus-nr" "work to be discarded without a reason"
+platform_spawn "zach-opus-nr" "anrnrnrnrnrnrnrnr"
+NPNR="$ENT/.claude/worktrees/agent-anrnrnrnrnrnrnrnr"
+commit_in "$NPNR" nr.txt
+subagent_stop "anrnrnrnrnrnrnrnr"
+ws discard zach-opus-nr --reason "" --not-ceo-ordered "a fixture of this suite" >"$T/d.out" 2>&1; r1=$?
+sub "C7.6 a discard with NO reason is refused (exit $r1) and deletes nothing" \
+    "[ $r1 -eq 2 ] && grep -q -i 'reason' '$T/d.out' && [ -e '$NPNR' ]" "$(cat "$T/d.out")"
+ws discard zach-opus-nr --reason "the reviewer rejected it, check 7 fixture" >"$T/d.out" 2>&1; r2=$?
+sub "C7.7 a discard that says NEITHER --ceo-word nor --not-ceo-ordered is refused (exit $r2): the attestation is how 'never discarded without his word' is asked of work the prompt did not mark" \
+    "[ $r2 -eq 2 ] && grep -q 'not-ceo-ordered' '$T/d.out' && [ -e '$NPNR' ]" "$(cat "$T/d.out")"
+ws discard zach-opus-nr --reason "the reviewer rejected it, check 7 fixture" --not-ceo-ordered "a fixture of this suite" >/dev/null 2>&1
+# THE CONTINUATION CLAUSE: "a new agent continues from its branch, the old workspaces are
+# deleted when the new agent starts, and its work counts as landed when the new agent's does."
+# No check asked it in round 6; one reviewer reported no code path for it. The path is the
+# `continues:` prompt line (register_spawn), `_on_start` at the new agent's start, and the
+# chain a land walks (`_chain`). Measured here through the hooks.
+spawn "zach-opus-old" "work that will be continued"
+platform_spawn "zach-opus-old" "aoldoldoldoldold1"
+NPOLD="$ENT/.claude/worktrees/agent-aoldoldoldoldold1"
+commit_in "$NPOLD" old.txt
+subagent_stop "aoldoldoldoldold1"                        # finished, unlanded: pending
+spawn "zach-opus-new" "$(printf 'continue it\ncontinues: zach-opus-old\n')"; rcn=$?
+platform_spawn "zach-opus-new" "anewnewnewnewnew1"
+NPNEW="$ENT/.claude/worktrees/agent-anewnewnewnewnew1"
+RECOLD="$(agent_rec zach-opus-old)"
+sub "C7.8 CONTINUATION: the new agent's spawn is allowed while the old one is pending ($rcn); at its start the OLD workspace is deleted, the old branch is kept, and the old record reads 'continued'" \
+    "[ $rcn -eq 0 ] && [ ! -e '$NPOLD' ] && has_branch '$ENT' worktree-agent-aoldoldoldoldold1 && [ \"\$(jget '$RECOLD' disposition.kind)\" = continued ]" "$(cat "$T/spawn.err") $(jget "$RECOLD" disposition)"
+commit_in "$NPNEW" new.txt
+subagent_stop "anewnewnewnewnew1"
+git -C "$ENT" merge -q --no-edit worktree-agent-aoldoldoldoldold1
+git -C "$ENT" merge -q --no-edit worktree-agent-anewnewnewnewnew1
+stop_gate; rcl=$?
+DOLD="$(done_rec zach-opus-old)"
+sub "C7.9 and the old work counts as landed when the new agent's does ($rcl): both branches gone, both workspaces gone, the old ending reads 'landed'" \
+    "[ $rcl -eq 0 ] && ! has_branch '$ENT' worktree-agent-aoldoldoldoldold1 && ! has_branch '$ENT' worktree-agent-anewnewnewnewnew1 && [ ! -e '$NPNEW' ] && [ -n \"$DOLD\" ] && [ \"\$(jget '$DOLD' disposition.kind)\" = landed ]" "$(cat "$T/stop.err") old=$DOLD"
 verdict
 
 # ===========================================================================
@@ -434,6 +573,20 @@ ws land zach-opus-u1 >"$T/land.out" 2>&1; r3=$?
 sub "C8.3 committed and merged, the land is still refused for the ignored .env the main checkout lacks (exit $r3)" \
     "[ $r3 -eq 2 ] && grep -q 'ignored' '$T/land.out' && [ -e '$NPU/.env' ]" "$(cat "$T/land.out")"
 cp "$NPU/.env" "$ENT/.env"                                  # Rich keeps what it needs
+# THE RECORDED INCIDENT'S SHAPE (09-10 §3b.2; round 6, Frank §2.1): an ignored DIRECTORY the main
+# checkout also has — `.claude/`, which every main checkout on this machine carries — used to be
+# skipped by name with nothing inside it compared. A needed file and a nested repository with a
+# commit nobody else has, both under it, must hold the land and be named.
+mkdir -p "$NPU/.claude/notes" && printf 'needed\n' > "$NPU/.claude/notes/needed.txt"
+mkdir -p "$NPU/.claude/vendor/lib" && git init -q -b main "$NPU/.claude/vendor/lib" \
+    && printf 'lib\n' > "$NPU/.claude/vendor/lib/lib.txt" && git -C "$NPU/.claude/vendor/lib" add -A \
+    && git -C "$NPU/.claude/vendor/lib" commit -q -m "a commit nobody else has"
+NESTED_TIP="$(git -C "$NPU/.claude/vendor/lib" rev-parse HEAD)"
+ws land zach-opus-u1 >"$T/land.out" 2>&1; r5=$?
+sub "C8.6 an ignored DIRECTORY the main checkout also has (.claude/) is compared by content, not skipped by name: a needed file and a nested repository's commit inside it hold the land (exit $r5), named by path" \
+    "[ $r5 -eq 2 ] && grep -q '\\.claude/notes/needed.txt' '$T/land.out' && grep -q '\\.claude/vendor/lib/' '$T/land.out' && [ -e '$NPU/.claude/notes/needed.txt' ] && [ -d '$NPU/.claude/vendor/lib/.git' ]" "$(cat "$T/land.out")"
+mkdir -p "$ENT/.claude/notes" && cp "$NPU/.claude/notes/needed.txt" "$ENT/.claude/notes/needed.txt"
+cp -R "$NPU/.claude/vendor" "$ENT/.claude/vendor"          # Rich keeps what it needs, the nested repository included
 TIP="$(git -C "$NPU" rev-parse HEAD)"
 ws land zach-opus-u1 >"$T/land.out" 2>&1; r4=$?
 sub "C8.4 with the needed file kept, the land proceeds (exit $r4) and the workspace and branch are gone" \
@@ -441,6 +594,8 @@ sub "C8.4 with the needed file kept, the land proceeds (exit $r4) and the worksp
 MISSING_FILES="$(git -C "$ENT" ls-tree -r --name-only "$TIP" | while read -r f; do [ -e "$ENT/$f" ] || echo "$f"; done)"
 sub "C8.5 nothing under the tree is lost: every file of the agent's tip is in the main checkout, and so is .env" \
     "[ -z \"$MISSING_FILES\" ] && grep -q 'SECRET=needed' '$ENT/.env' && git -C '$ENT' merge-base --is-ancestor $TIP main" "missing: $MISSING_FILES"
+sub "C8.7 and nothing under the ignored directory is lost either: the needed file and the nested repository's commit ($NESTED_TIP) are in the main checkout" \
+    "[ -e '$ENT/.claude/notes/needed.txt' ] && git -C '$ENT/.claude/vendor/lib' cat-file -e '$NESTED_TIP^{commit}' && [ ! -e '$NPU' ]"
 verdict
 
 # ===========================================================================
@@ -490,6 +645,26 @@ sub "C10.3 and both branches gone" "! has_branch '$OTHER' cc/zach-opus-t1 && ! h
 NEW_LANDED="$(tail -n +"$((BEFORE_EVENTS + 1))" "$STORE/events.jsonl" | grep -c '"event": "landed"')"
 NEW_DELETED="$(tail -n +"$((BEFORE_EVENTS + 1))" "$STORE/events.jsonl" | grep -c '"event": "deleted"')"
 sub "C10.4 the store records one land and one deletion covering both (landed=$NEW_LANDED deleted=$NEW_DELETED)" "[ $NEW_LANDED -eq 1 ] && [ $NEW_DELETED -eq 1 ]"
+# "...and ANY BRANCH AN AGENT CREATED" (point 3) "...none is left behind" (point 10): a side
+# branch made during ONE of the agent's own tool calls — the pair of hooks the platform gives
+# every call — is recorded against it and goes with its work. No agent in the round-6 fourteen
+# created a side branch (Frank F19); a reviewer's probe found one left behind with the pending
+# list empty (certification-frank-attribution-2026-09-12.md §3 B1).
+spawn "zach-opus-t2" "create a side branch"
+platform_spawn "zach-opus-t2" "at2t2t2t2t2t2t2t2"
+NPT2="$ENT/.claude/worktrees/agent-at2t2t2t2t2t2t2t2"
+commit_in "$NPT2" t2.txt
+agent_call_pre "at2t2t2t2t2t2t2t2" "tu-t2-call-1"; rp=$?
+git -C "$NPT2" branch side/t2                              # created INSIDE its own tool call, at its own unlanded tip
+agent_call_post "at2t2t2t2t2t2t2t2" "tu-t2-call-1"
+RECT2="$(agent_rec zach-opus-t2)"
+sub "C10.5 a branch the agent created during one of its own tool calls (PreToolUse $rp, then PostToolUse) is RECORDED against it" \
+    "[ $rp -eq 0 ] && grep -q 'side/t2' '$RECT2'" "$(cat "$T/observe.err" 2>/dev/null) $(jget "$RECT2" created_branches)"
+subagent_stop "at2t2t2t2t2t2t2t2"
+git -C "$ENT" merge -q --no-edit worktree-agent-at2t2t2t2t2t2t2t2
+stop_gate; rt=$?
+sub "C10.6 and it goes with the work: after the land ($rt) the side branch is gone too — none is left behind" \
+    "[ $rt -eq 0 ] && ! has_branch '$ENT' side/t2 && ! has_branch '$ENT' worktree-agent-at2t2t2t2t2t2t2t2 && [ ! -e '$NPT2' ]" "$(cat "$T/stop.err") $(git -C "$ENT" for-each-ref refs/heads/side)"
 verdict
 
 # ===========================================================================
@@ -526,6 +701,20 @@ git -C "$ENT" merge -q --no-edit "worktree-agent-as1s1s1s1s1s1s1s1"
 stop_gate; r8=$?
 sub "C11.6 stopped: it is finished ($r7 = refused), and its own SubagentStop carrying ITS id is the end-of-run signal; landed once merged ($r8)" \
     "[ $r7 -eq 2 ] && [ $r8 -eq 0 ] && [ ! -e '$NPS' ]" "$(cat "$T/stop.err")"
+# "An agent that ends after handing in its work is finished even if a pause was sent."
+spawn "zach-opus-h2" "hand in, get paused, then end"
+platform_spawn "zach-opus-h2" "ah2h2h2h2h2h2h2h2"
+NPH2="$ENT/.claude/worktrees/agent-ah2h2h2h2h2h2h2h2"
+commit_in "$NPH2" h2.txt
+task_completed "ah2h2h2h2h2h2h2h2" "zach-opus-h2"          # TaskCompleted: it handed in its work
+send_message "zach-opus-h2" "$(printf 'commit and hold\npause-until: the CEO'"'"'s answer\n')"
+subagent_stop "ah2h2h2h2h2h2h2h2"                          # its own run ends after the hand-in, pause and all
+barrier "ah2h2h2h2h2h2h2h2" Edit; rh1=$?
+stop_gate; rh2=$?
+sub "C11.7 an agent that ends AFTER HANDING IN its work is finished even though a pause was sent: locked out ($rh1) and pending ($rh2), by name" \
+    "[ $rh1 -eq 2 ] && [ $rh2 -eq 2 ] && grep -q 'zach-opus-h2' '$T/stop.err'" "$(cat "$T/barrier.err" "$T/stop.err")"
+git -C "$ENT" merge -q --no-edit worktree-agent-ah2h2h2h2h2h2h2h2
+stop_gate >/dev/null 2>&1
 verdict
 
 # ===========================================================================
@@ -566,6 +755,43 @@ git -C "$ENT" merge -q --no-edit "worktree-agent-aa1a1a1a1a1a1a1a1"
 subagent_stop "ah1h1h1h1h1h1h1h1"
 stop_gate; r10=$?
 sub "C5.9 merged: both are landed on their own and the turn may end ($r10)" "[ $r10 -eq 0 ] && [ ! -e '$NPA' ] && [ -n \"\$(done_rec zach-opus-a1)\" ] && [ -n \"\$(done_rec zach-opus-h1)\" ]" "$(cat "$T/stop.err")"
+# THE OTHER HALF OF ALLOWANCE 1 — "answering the CEO OR OBEYING HIS STOP ORDER" — which round 6
+# left out (Sage's round-6 finding, dropped from the first brief and restored).
+spawn "zach-opus-a2" "finish without being merged, again"
+platform_spawn "zach-opus-a2" "aa2a2a2a2a2a2a2a2"
+NPA2="$ENT/.claude/worktrees/agent-aa2a2a2a2a2a2a2a2"
+commit_in "$NPA2" a2.txt
+subagent_stop "aa2a2a2a2a2a2a2a2"
+TRS="$T/transcript-stop.jsonl"
+printf '%s\n' '{"type":"user","message":{"role":"user","content":"Stop everything. (the CEO)"}}' > "$TRS"
+stop_gate "Stopping. Pending and not yet handled: zach-opus-a2 finished and is not merged; it is handled right after." "$TRS"; rs=$?
+sub "C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn ($rs)" "[ $rs -eq 0 ]" "$(cat "$T/stop.err")"
+# "...or waiting on something outside his reach (the CEO's word, a service that is down); the
+# latter goes on the CEO's TODO list. New work stays blocked either way."
+ws wait zach-opus-a2 --outside "GitHub is down, the merge cannot be pushed" >"$T/wait.out" 2>&1; rw1=$?
+sub "C5.11 an item waiting on something OUTSIDE his reach with no CEO-TODO reference is refused ($rw1): 'the latter goes on the CEO's TODO list'" \
+    "[ $rw1 -eq 2 ] && grep -q 'TODO' '$T/wait.out'" "$(cat "$T/wait.out")"
+ws wait zach-opus-a2 --outside "GitHub is down, the merge cannot be pushed" --todo "CEO-TODOs 7.1" >"$T/wait.out" 2>&1; rw2=$?
+stop_gate; rw3=$?
+spawn "zach-opus-b3" "unrelated new work"; rw4=$?
+sub "C5.12 recorded with its TODO reference ($rw2): the turn may end ($rw3), and new work stays blocked either way ($rw4)" \
+    "[ $rw2 -eq 0 ] && [ $rw3 -eq 0 ] && [ $rw4 -eq 2 ]" "$(cat "$T/wait.out" "$T/stop.err" "$T/spawn.err")"
+git -C "$ENT" merge -q --no-edit worktree-agent-aa2a2a2a2a2a2a2a2
+stop_gate >/dev/null 2>&1
+# A discard that needs HIS WORD: "Rich asks him in that same turn; that one item then waits on
+# him, is on his TODO list" — and the turn may end (both of his sentences allow that). Whether
+# it also blocks NEW work — "blocks nothing else" vs "New work stays blocked either way" — the
+# page says both ways; it is the CEO's to settle and is deliberately NOT asserted here either way.
+spawn "zach-opus-cw" "$(printf 'work he ordered\nceo-ordered: build it, his words 2026-09-12\n')"
+platform_spawn "zach-opus-cw" "acwcwcwcwcwcwcwcw"
+NPCW="$ENT/.claude/worktrees/agent-acwcwcwcwcwcwcwcw"
+commit_in "$NPCW" cw.txt
+subagent_stop "acwcwcwcwcwcwcwcw"
+ws wait zach-opus-cw --ceo "May I discard it? A reviewer rejected it." --todo "CEO-TODOs 7.2" >"$T/wait.out" 2>&1; rc1=$?
+stop_gate; rc2=$?
+sub "C5.13 a discard that needs his word, asked and recorded with its TODO reference ($rc1): that item waits on him and the turn may end ($rc2), the item named as waiting" \
+    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && grep -q 'zach-opus-cw' '$T/stop.out'" "$(cat "$T/wait.out" "$T/stop.err" "$T/stop.out")"
+ws discard zach-opus-cw --reason "he said drop it, check 5 fixture" --ceo-word "drop it, he said 2026-09-12" >/dev/null 2>&1
 verdict
 
 # ===========================================================================
@@ -638,6 +864,45 @@ ws land zach-opus-w1 >"$T/land.out" 2>&1; r4=$?
 spawn "zach-opus-x2" "new work in the new session"; r5=$?
 platform_spawn "zach-opus-x2" "ax2x2x2x2x2x2x2x2"; subagent_stop "ax2x2x2x2x2x2x2x2"; stop_gate >/dev/null 2>&1
 sub "C12.6 landed by the next session ($r4): its workspace is gone and new work may start ($r5)" "[ $r4 -eq 0 ] && [ ! -e '$NPW' ] && [ $r5 -eq 0 ]" "$(cat "$T/land.out" "$T/spawn.err")"
+# "While two sessions run at once, each handles only the agents it started." Round 6's check 12
+# never had two live sessions (Frank F10).
+PID_2222="$RICHOS_SESSION_PID"
+start_session "sess-fourteen-3333"                        # a THIRD session, live at the same time as the second
+PID_3333="$RICHOS_SESSION_PID"
+spawn "zach-opus-y1" "work in the third session"
+platform_spawn "zach-opus-y1" "ay1y1y1y1y1y1y1y1"
+NPY1="$ENT/.claude/worktrees/agent-ay1y1y1y1y1y1y1y1"
+commit_in "$NPY1" y1.txt
+subagent_stop "ay1y1y1y1y1y1y1y1"                          # finished, unlanded, in the third session
+CUR_SID="sess-fourteen-2222"; export RICHOS_SESSION_PID="$PID_2222"
+stop_gate; ry1=$?
+spawn "zach-opus-x3" "new work in the second session"; ry2=$?
+sub "C12.7 TWO LIVE SESSIONS: the second neither lists nor lands the third's finished agent — its turn may end ($ry1) and it may start new work ($ry2); the workspace is untouched" \
+    "[ $ry1 -eq 0 ] && ! grep -q 'zach-opus-y1' '$T/stop.err' && [ $ry2 -eq 0 ] && [ -e '$NPY1' ]" "$(cat "$T/stop.err" "$T/spawn.err")"
+platform_spawn "zach-opus-x3" "ax3x3x3x3x3x3x3x3"; subagent_stop "ax3x3x3x3x3x3x3x3"; stop_gate >/dev/null 2>&1
+CUR_SID="sess-fourteen-3333"; export RICHOS_SESSION_PID="$PID_3333"
+stop_gate; ry3=$?
+sub "C12.8 POSITIVE CONTROL: the third session, which started it, cannot end its turn while it is pending ($ry3)" \
+    "[ $ry3 -eq 2 ] && grep -q 'zach-opus-y1' '$T/stop.err'" "$(cat "$T/stop.err")"
+git -C "$ENT" merge -q --no-edit worktree-agent-ay1y1y1y1y1y1y1y1
+stop_gate >/dev/null 2>&1
+# "A session has ended when it RECORDED ITS END or when its process no longer exists." Round 6
+# exercised only the process path (C12.4); the recorded end, with the process still alive:
+spawn "zach-opus-y2" "work in a session that will record its end"
+platform_spawn "zach-opus-y2" "ay2y2y2y2y2y2y2y2"
+NPY2="$ENT/.claude/worktrees/agent-ay2y2y2y2y2y2y2y2"
+commit_in "$NPY2" y2.txt
+session_end "sess-fourteen-3333"                           # recorded; its sleeper is still alive
+barrier "ay2y2y2y2y2y2y2y2" Edit; ry4=$?
+ALIVE_3333=0; kill -0 "$PID_3333" 2>/dev/null && ALIVE_3333=1
+sub "C12.9 a session that RECORDED its end has ended even though its process still exists (pid $PID_3333 alive=$ALIVE_3333): its agent is finished and locked out ($ry4)" \
+    "[ $ry4 -eq 2 ] && [ $ALIVE_3333 -eq 1 ] && grep -q -i 'session' '$T/barrier.err'" "$(cat "$T/barrier.err")"
+CUR_SID="sess-fourteen-2222"; export RICHOS_SESSION_PID="$PID_2222"
+stop_gate; ry5=$?
+sub "C12.10 and the running session takes its finished work over: pending by name ($ry5)" "[ $ry5 -eq 2 ] && grep -q 'zach-opus-y2' '$T/stop.err'" "$(cat "$T/stop.err")"
+git -C "$ENT" merge -q --no-edit worktree-agent-ay2y2y2y2y2y2y2y2
+ws land zach-opus-y2 >"$T/land.out" 2>&1; ry6=$?
+sub "C12.11 landed by the running session ($ry6): workspace gone" "[ $ry6 -eq 0 ] && [ ! -e '$NPY2' ]" "$(cat "$T/land.out")"
 verdict
 
 # ===========================================================================
@@ -672,4 +937,8 @@ fi
 
 echo "CHECKS RUN: $CHECKS_RUN  RED: $CHECKS_RED"
 [ -n "$MUT_RC" ] && echo "MUTATION HARNESS: exit $MUT_RC ($([ "$MUT_RC" -eq 0 ] && echo 'every property proven load-bearing' || echo 'a property is NOT proven — see above'))"
+# The CEO-facing number and the harness's own self-check (C0), apart: C0 is real — it caught a
+# quarantine C4 missed in round 6 — but it tests no sentence of his page and is not one of his
+# fourteen (round 7, brief §7).
+echo "FOURTEEN: $((FOURTEEN_RUN - FOURTEEN_RED)) green, $FOURTEEN_RED red · self-check: $([ "$SELF_RED" -eq 0 ] && echo green || echo red)"
 [ "$CHECKS_RED" -eq 0 ] && [ "${MUT_RC:-0}" -eq 0 ]

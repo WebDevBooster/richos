@@ -25,11 +25,17 @@
 # touched — so both carry S- mutants only. The count per point is printed by
 # the measurement report from the PASS lines below.
 #
-# EVERY WANT NAMES A SUB-ASSERTION (`C4.3 `), NEVER A CHECK (`C4 `). Check C14 is
-# red on the base this was written against (its C14.1: the first spawn with no
-# integration branch recorded is not refused), so any mutant wanting `FAIL  C14 `
-# would be "proven" by a suite that was red before the mutation was applied.
-# The trailing space in each want keeps `C1.1 ` from matching `C1.10`.
+# EVERY WANT NAMES A SUB-ASSERTION (`C4.3 `), NEVER A CHECK (`C4 `). Check C14
+# was red on the base round 6 was written against (its C14.1: the first spawn
+# with no integration branch recorded was not refused), so any mutant wanting
+# `FAIL  C14 ` would have been "proven" by a suite that was red before the
+# mutation was applied. The trailing space in each want keeps `C1.1 ` from
+# matching `C1.10`.
+#
+# ROUND 7 (2026-09-12) ADDED A MUTANT FOR EVERY SUB-ASSERTION IT ADDED: C14.1
+# (green since the spawn refusal), the clauses both round-6 reviewers found the
+# fourteen did not ask, and what the census of every sentence then found. Each
+# carries its R-/S- label like the rest; the report counts them per point.
 #
 # Run directly: scripts/workspace-spec-fourteen.mutation.sh
 # Exit 0 = every property is proven load-bearing.
@@ -66,6 +72,10 @@ mutant S-p02-cc-copy-not-required "C2.4 " "$C" \
     '    codex/*|refs/heads/codex/*)' \
     '    never-a-real-base/*)' \
     "SPEC-DERIVED (point 2 negated; no recorded incident): a cc/ workspace could be cut FROM a codex/ branch, so an agent would work on codex/ work without the copy the page requires."
+mutant S-p02-library-codex-guard-removed "C2.8 " "$W" \
+    '    if b.startswith(CODEX_PREFIX):{NL}        return None, "branch %s is codex/; never touched (point 2)" % b' \
+    '    if False:{NL}        return None, "branch %s is codex/; never touched (point 2)" % b' \
+    "SPEC-DERIVED (point 2 negated, 'Landing never deletes anything codex/'; constructed by frank-fable-c7 as F20, certification-frank-round6-2026-09-12.md §2.3, which showed round 6's byte-identity was proved by never aiming a deleter at codex/): the library's own branch deleter, aimed at a codex/ ref on an agent's record, would delete it."
 
 # --- point 3 ---------------------------------------------------------------
 mutant R-p03-registration-without-identity "C3.1 " "$W" \
@@ -84,6 +94,10 @@ mutant S-p03-claude-w-allowed "C3.2 " "$G" \
     'if CLAUDE_WT.search(scan):' \
     'if False:' \
     "SPEC-DERIVED (point 3 negated): 'claude --worktree' / 'claude -w' in Bash would not be refused."
+mutant R-p03-unregistered-branch-never-listed "C3.8 " "$W" \
+    '        for b in local_branches(repo, ["cc/", NATIVE_BRANCH_PREFIX + "*"]) or []:' \
+    '        for b in []:' \
+    "RECORDED [lifecycle-failure-record-2026-09-10.md §1 and §2.11, 2026-09-10: eight leftover branches across three repositories found by the CEO in his own IDE, five of them unlanded work; lifecycle-failure-record-2026-09-12.md addendum §A2: 22 cc/ branches gone with no record]: a cc/ or native BRANCH with no workspace and no registration would never be listed as finished work of an ended session."
 
 # --- point 4 ---------------------------------------------------------------
 mutant R-p04-branch-left-after-land "C4.3 " "$W" \
@@ -98,6 +112,10 @@ mutant S-p04-no-automatic-land "C4.1 " "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
     '        if False:{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
     "SPEC-DERIVED (point 4 negated, 'automatically, with nothing left undecided'): merged work would stay undecided until somebody ran a command."
+mutant S-p04-quarantine-under-another-name "C4.4 " "$W" \
+    '            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=300)' \
+    '            rc, _o, err = git(main, "worktree", "move", path, os.path.join(os.path.dirname(path), ".parked-" + os.path.basename(path)), timeout=300); (entry and entry.get("branch") and git(main, "branch", "-m", entry["branch"], "parked/" + os.path.basename(path)))' \
+    "SPEC-DERIVED (point 4 negated, 'the workspace AND the branch are deleted'; constructed by frank-fable-c7 as F4, certification-frank-round6-2026-09-12.md §2.2, against which every round-6 sub-assertion of check 4 stayed green): a land would park the workspace under a name the old directory grep could not see, on a parked/ branch, and report it deleted."
 
 # --- point 5 ---------------------------------------------------------------
 mutant R-p05-turn-end-not-blocked "C5.1b" "$W" \
@@ -116,6 +134,22 @@ mutant S-p05-notification-counts-as-the-ceo "C5.4 " "$W" \
     '                or "<task-notification>" in text:{NL}            return False{NL}        return True' \
     '                or "<task-notification>" in text:{NL}            return True{NL}        return True' \
     "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO'): a turn that began with a platform notification would count as answering him."
+mutant S-p05-his-word-does-not-end-the-turn "C5.10" "$W" \
+    '                or "<task-notification>" in text:{NL}            return False{NL}        return True{NL}    return False' \
+    '                or "<task-notification>" in text:{NL}            return False{NL}        return False{NL}    return False' \
+    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO or obeying his stop order'): a turn that began with his stop order, whose reply names the pending work, could not end. (C5.2 goes red under it too; the stop-order half is the one round 6 never asked.)"
+mutant S-p05-outside-reach-needs-no-todo "C5.11" "$W" \
+    '    if kind in ("outside", "ceo-discard") and not (todo or "").strip():' \
+    '    if False:' \
+    "SPEC-DERIVED (point 5 negated, 'the latter goes on the CEO's TODO list'): an item waiting on something outside Rich's reach would be recorded with no CEO-TODO reference, and nothing would ever put it in front of him."
+mutant S-p05-outside-reach-blocks-the-turn "C5.12" "$W" \
+    '            "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),' \
+    '            "blocks_turn_end": kind not in ("ceo-discard", "started"),' \
+    "SPEC-DERIVED (point 5 negated, 'Rich may end his turn when every pending item is ... waiting on something outside his reach'): a recorded outside-reach wait would still block the turn."
+mutant S-p05-his-word-blocks-the-turn "C5.13" "$W" \
+    '            "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),' \
+    '            "blocks_turn_end": kind not in ("started", "outside"),' \
+    "SPEC-DERIVED (point 5 negated, 'that one item then waits on him, is on his TODO list'): a discard waiting on the CEO's word, asked and recorded, would still block the turn."
 
 # --- point 6 ---------------------------------------------------------------
 mutant R-p06-native-workspace-not-registered "C6.1 " "$W" \
@@ -140,6 +174,22 @@ mutant S-p07-ceo-order-discardable "C7.4 " "$W" \
     '    if ordered and not (ceo_word or "").strip():' \
     '    if False:' \
     "SPEC-DERIVED (point 7 negated, 'Work the CEO ordered is never discarded without his word'): CEO-ordered work would be discarded on a --not-ceo-ordered claim."
+mutant R-p07-discard-without-any-reason "C7.6 " "$W" \
+    '    if len((reason or "").strip()) < 10:{NL}        raise SpecError("a discard records its reason (point 7): give one")' \
+    '    if False:{NL}        raise SpecError("a discard records its reason (point 7): give one")' \
+    "RECORDED [lifecycle-failure-record-2026-09-12.md addendum §A2, 2026-09-12: 22 cc/ branches deleted with no reason recorded anywhere; certification-frank-round6-2026-09-12.md §3 F1: round 6's C7.2 asserted the reason the harness gave was stored, never that one is required]: a discard giving NO reason would be accepted."
+mutant S-p07-attestation-not-required "C7.7 " "$W" \
+    '    if not ordered and not (ceo_word or "").strip() and len((not_ceo_ordered or "").strip()) < 10:' \
+    '    if False:' \
+    "SPEC-DERIVED (point 7 negated, 'never discarded without his word' — its mechanism for work the prompt did not mark; constructed by frank-fable-c7 as F2): a discard saying neither --ceo-word nor --not-ceo-ordered would be accepted."
+mutant S-p07-continuing-start-deletes-nothing "C7.8 " "$W" \
+    '    for old_key in rec.get("continues") or []:{NL}        old = load_agent(old_key)' \
+    '    for old_key in []:{NL}        old = load_agent(old_key)' \
+    "SPEC-DERIVED (point 7 negated, 'the old workspaces are deleted when the new agent starts'; constructed by frank-fable-b2 as F30): a continuing agent's start would delete nothing of the agent it continues."
+mutant S-p07-continued-work-not-landed-with-the-new "C7.9 " "$W" \
+    '        for k in r.get("continues") or []:{NL}            o = load_agent(k)' \
+    '        for k in []:{NL}            o = load_agent(k)' \
+    "SPEC-DERIVED (point 7 negated, 'its work counts as landed when the new agent's does'): the new agent's land would not walk its chain, so the old agent's branch would be neither proved landed nor deleted, and its ending would never read landed."
 
 # --- point 8 ---------------------------------------------------------------
 mutant R-p08-ignored-needed-files-landed "C8.3 " "$W" \
@@ -150,6 +200,10 @@ mutant S-p08-uncommitted-landed "C8.1 " "$W" \
     '            if dirty:{NL}                problems.append("%s has %d uncommitted entr%s (%s)" % (' \
     '            if False:{NL}                problems.append("%s has %d uncommitted entr%s (%s)" % (' \
     "SPEC-DERIVED (point 8 negated, 'Nothing uncommitted is ever landed'): an uncommitted file would not hold the land."
+mutant R-p08-ignored-directory-skipped-by-name "C8.6 " "$W" \
+    '                for sub in _ignored_dir_diff(mine, other, rel.rstrip("/"), deadline):{NL}                    ignored.append(sub){NL}                continue' \
+    '                continue' \
+    "RECORDED [lifecycle-failure-record-2026-09-10.md §3b.2, 2026-09-10: an ignored nested repository under a folder the policy treated as disposable deleted with no copy taken; certification-frank-round6-2026-09-12.md §2.1, 2026-09-12: workspaces.py:1577–1578 skipped an ignored directory the main checkout also had by NAME, so .claude/notes/needed.txt and a nested repository with unlanded commits were neither refused nor preserved]: the round-6 code, restored — the land proceeds and deletes them."
 
 # --- point 9 ---------------------------------------------------------------
 mutant R-p09-finished-agent-not-locked-out "C9.1 " "$W" \
@@ -170,6 +224,10 @@ mutant S-p10-cc-branch-kept "C10.3 " "$W" \
     '            if w.get("branch_deleted_at") or not w.get("branch"):{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     '            if w.get("branch_deleted_at") or not w.get("branch") or w.get("kind") == "cc":{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     "SPEC-DERIVED (point 10 negated, 'every workspace and branch it has is deleted, as one'): the cc/ branch of a two-workspace agent would survive the land."
+mutant R-p10-created-branch-left-behind "C10.6 " "$W" \
+    '        for pair in r.get("created_branches") or []:{NL}            t = (pair[0], pair[1])' \
+    '        for pair in []:{NL}            t = (pair[0], pair[1])' \
+    "RECORDED [certification-frank-attribution-2026-09-12.md §3 B1, 2026-09-12: 'git branch spare-work' inside the workspace, never checked out, then a land — left behind, and the pending list was []; certification-frank-round6-2026-09-12.md §3 F19: no agent in the round-6 fourteen created a side branch]: a branch the agent is recorded as having created would be neither proved landed nor deleted with its work."
 
 # --- point 11 --------------------------------------------------------------
 mutant R-p11-sub-run-end-finishes-the-teammate "C11.1 " "$W" \
@@ -184,6 +242,10 @@ mutant S-p11-nameless-pause-not-pending "C11.5 " "$W" \
     '            if paused_ and rec.get("session_id") == me and not (rec.get("pause") or {}).get("until"):' \
     '            if False:' \
     "SPEC-DERIVED (point 11 negated, 'a pause with nothing named counts as pending work under point 5'): a pause naming nothing would block nothing and stay paused forever."
+mutant S-p11-handed-in-then-ended-not-finished "C11.7 " "$W" \
+    '        if rec.get("handed_in"):{NL}            return True, False, "it ended after handing in its work (point 11)"' \
+    '        if False:{NL}            return True, False, "it ended after handing in its work (point 11)"' \
+    "SPEC-DERIVED (point 11 negated, 'An agent that ends after handing in its work is finished even if a pause was sent'; constructed by frank-fable-c7 as F26): an agent that handed in, was paused, and then ended would read paused, keep its tools and never be pending."
 
 # --- point 12 --------------------------------------------------------------
 mutant R-p12-ended-session-agents-not-finished "C12.4 " "$W" \
@@ -198,6 +260,14 @@ mutant S-p12-next-session-does-not-take-over "C12.5 " "$W" \
     '        st, _ = session_state(owner, rec.get("session_identity"), cache){NL}        if st != "ended":{NL}            return False' \
     '        st, _ = session_state(owner, rec.get("session_identity"), cache){NL}        if True:{NL}            return False' \
     "SPEC-DERIVED (point 12 negated, 'the next session lands or discards their work before anything else'): the next session would never handle an ended session's agents."
+mutant S-p12-live-sessions-agents-claimed "C12.7 " "$W" \
+    '    if owner and not rec.get("orphan"):' \
+    '    if False:' \
+    "SPEC-DERIVED (point 12 negated, 'While two sessions run at once, each handles only the agents it started'; constructed by frank-fable-c7 as F10): a running session would claim, list and try to land another RUNNING session's finished agents."
+mutant S-p12-recorded-end-ignored "C12.9 " "$W" \
+    '    if rec and rec.get("ended_at"):' \
+    '    if False:' \
+    "SPEC-DERIVED (point 12 negated, 'A session has ended when it recorded its end'; constructed by frank-fable-b2): a session that recorded its end would count as running for as long as its process number stayed alive, and its agents would never be finished."
 
 # --- point 13 --------------------------------------------------------------
 mutant R-p13-failed-deletion-not-retried "C13.3 " "$W" \
@@ -210,6 +280,30 @@ mutant S-p13-ceo-told-at-the-first-failure "C13.2 " "$W" \
     "SPEC-DERIVED (point 13 negated, 'The CEO hears about it only if it keeps failing'): the CEO would be told at the first failed attempt."
 
 # --- point 14 --------------------------------------------------------------
+mutant R-p14-spawn-not-refused-without-a-record "C14.1 " "$W" \
+    '    missing = _unrecorded_repos(repos){NL}    if missing:' \
+    '    missing = _unrecorded_repos(repos){NL}    if False:' \
+    "RECORDED [certification-sage-round6-2026-09-12.md §2 S1–S4 and certification-frank-round6-2026-09-12.md §5, 2026-09-12: an agent spawned with no record was bound to nothing and proved at land time against whichever body of work was current — a second, unrelated recording moved its land verdict while a properly bound control agent was unmoved]: the spawn would proceed with nothing recorded, and 'before its first agent is spawned' would be a habit."
+mutant S-p14-cc-branch-as-integration-target "C14.8 " "$W" \
+    '    if branch.startswith(CC_PREFIX) or branch.startswith(NATIVE_BRANCH_PREFIX):' \
+    '    if False:' \
+    "SPEC-DERIVED (point 14 negated, 'Finished work never waits on the agent's own branch'): an agent's own cc/ or worktree-agent- branch could be recorded as the branch its work integrates on, and its land would be proved against itself."
+mutant S-p14-agent-may-record-the-branch "C14.9 " "$G" \
+    'if AGENT and INTEGRATION_CALL.search(scan):' \
+    'if False:' \
+    "SPEC-DERIVED (point 14 negated, 'RECORDED when that work starts, before its first agent is spawned' — by Rich, who starts it; both round-6 reviewers: certification-sage-round6 §5 A3, certification-frank-round6 §4 RN2b): an agent's own Bash call could record or correct the integration branch, retargeting every in-flight agent's land and the runner's witness."
+mutant S-p14-agent-may-move-the-recorded-branch "C14.11" "$G" \
+    '        if AGENT and moves:' \
+    '        if False:' \
+    "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4 RN2c, 'git branch -f dev/workspace-spec HEAD' → 0): an agent's call could force-move or delete the recorded integration branch."
+mutant S-p14-agent-may-update-ref-the-recorded-branch "C14.11" "$G" \
+    '    elif sub == "update-ref" and AGENT:' \
+    '    elif False:' \
+    "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git update-ref refs/heads/dev/workspace-spec HEAD' → 0): an agent's call could rewrite the recorded integration branch through update-ref."
+mutant S-p14-agent-may-push-into-the-recorded-branch "C14.11" "$G" \
+    '    elif sub == "push" and AGENT:' \
+    '    elif False:' \
+    "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git push . HEAD:dev/workspace-spec' → 0): an agent's call could push its own tip into the recorded integration branch."
 mutant R-p14-land-assumes-main "C14.3 " "$W" \
     '    branch = (work or {}).get("branch") or ""{NL}    if not branch:' \
     '    branch = "main"{NL}    if not branch:' \
