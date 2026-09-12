@@ -1,0 +1,11 @@
+workspaces.py under test: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/lib/workspaces.2bc413df.py
+
+=== 5 leaked-window-widens — ONE refused tool call early in the run makes the END-OF-RUN comparison
+    windows left open by the refused call    0
+    created_branches before the end of run   []
+    created_branches after the end of run    []
+    branches after the discard               ['main', 'rich/rescue']
+    rich/rescue survived                     True
+    VERDICT                                  HOLDS
+
+=== 1/1 cases hold
