@@ -1428,7 +1428,8 @@ def observe_branches(rec):
                 continue
             g = by_repo.setdefault(repo, {"paths": set(), "own": set()})
             g["paths"].add(path)
-            g["own"].update(_workspace_branches(w))
+            if w.get("branch"):
+                g["own"].add(w["branch"])
         mine = []
         for repo in sorted(by_repo):
             bs = _branches_in(repo, by_repo[repo]["paths"])
@@ -1474,28 +1475,29 @@ def _chain(rec):
     return out
 
 
-def _workspace_branches(w):
-    """Its own branch, plus whatever was recorded against the workspace."""
-    out = []
-    for b in [w.get("branch")] + list(w.get("extra_branches") or []):
-        if b and b not in out:
-            out.append(b)
-    return out
-
-
 def _branch_targets(chain):
-    """Every branch this work has: each workspace's own, plus every branch
-    OBSERVED checked out in one of the agent's own workspaces (observe_branches).
-    The observation is a recorded fact, so it survives the workspace directory
-    being deleted — the reflog it replaced did not."""
+    """Every branch this work has: each workspace's own, plus every branch this
+    agent is RECORDED as having created (created_branches). The record is what
+    survives the workspace directory being deleted.
+
+    A WORKSPACE CONTRIBUTES EXACTLY ONE BRANCH — ITS OWN — AND `branch_deleted_at`
+    IS WHY THAT MATTERS. Until 2026-09-12 a workspace record could also carry an
+    `extra_branches` list, which `_workspace_branches` folded in here. NOTHING
+    EVER WROTE THAT FIELD: every reader (this function, the prune in `_delete`,
+    the done-check) read a list that was always empty, so all three were dead
+    code wearing the shape of a rule. It was also the one path in the file where
+    a failed deletion could never be retried (point 13): the `branch_deleted_at`
+    skip is per WORKSPACE, so the moment the workspace's own branch was deleted
+    its extras dropped out of the target list — a retry could not name what it
+    had failed to delete. Deleting the field deleted that path with it; nothing
+    is skipped here now except a branch whose deletion has already succeeded."""
     out = []
     for r in chain:
         for w in r.get("workspaces") or []:
-            if w.get("branch_deleted_at"):
+            if w.get("branch_deleted_at") or not w.get("branch"):
                 continue
-            for b in _workspace_branches(w):
-                if (w.get("repo"), b) not in out:
-                    out.append((w.get("repo"), b))
+            if (w.get("repo"), w["branch"]) not in out:
+                out.append((w.get("repo"), w["branch"]))
         for pair in r.get("created_branches") or []:
             t = (pair[0], pair[1])
             if t not in out:
@@ -1633,12 +1635,10 @@ def _delete(rec, workspaces, branches, why, processes=None):
             ok, err = delete_branch(repo, b)
             if ok:
                 for w in rec["workspaces"]:
-                    if w.get("repo") == repo and b in _workspace_branches(w) and w.get("branch") == b:
+                    if w.get("repo") == repo and w.get("branch") == b:
                         w["branch_deleted_at"] = iso()
                         if not w.get("path"):
                             w["deleted_at"] = iso()
-                    elif w.get("repo") == repo and b in (w.get("extra_branches") or []):
-                        w["extra_branches"] = [x for x in w["extra_branches"] if x != b]
                 rec["created_branches"] = [p for p in (rec.get("created_branches") or [])
                                            if (p[0], p[1]) != (repo, b)]
             else:
@@ -1660,7 +1660,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
         done = not failures and fresh.get("disposition") and fresh["disposition"].get("kind") != "continued"
         if done and not fresh["created_branches"] \
                 and all(w.get("deleted_at") and (w.get("branch_deleted_at") or not w.get("branch"))
-                        and not w.get("extra_branches") for w in fresh["workspaces"]):
+                        for w in fresh["workspaces"]):
             write_json(done_path(fresh["key"]), fresh)
             os.unlink(agent_path(fresh["key"]))
     event("deleted" if not failures else "deletion-failed", key=rec["key"], why=why,
