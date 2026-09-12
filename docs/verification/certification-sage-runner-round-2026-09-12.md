@@ -8,7 +8,7 @@ NOT CERTIFIED
 | **Yardstick** | `/Users/alex/ab/richos-hq/docs/plans/worktree-spec-2026-09-11.md`, sha256 `957d21a4e76262c28bb8b69cd37249cc87eea326e12c927c2997ad9887b10978`. The copy inside this repository was not read as the spec, not edited, and not touched — and it is not the same document; see Beyond the page, B4. |
 | **Reviewer** | Sage, from `/Users/alex/ab/richos-wt/sage-opus-c5` on branch `cc/sage-opus-c5`, cut from the SHA under review. Frank reviews the same SHA independently; I did not read his work. |
 | **Installed / merged / pushed / deployed** | Nothing. No `install.sh`. Nothing written into `/Users/alex/ab/richos/engine`. The main checkout was read-only throughout: `git -C /Users/alex/ab/richos status --porcelain` → 0 lines, HEAD `dcabcbd99056928a9872cd94c1f3a385f8b21069` on `main`, unchanged from my previous round. |
-| **Sandboxing** | Every probe and suite ran with `HOME`, `CLAUDE_CONFIG_DIR`, `TMPDIR`, `GIT_CONFIG_GLOBAL` and `RICHOS_WORKSPACES_DIR` redirected into scratch, and the runner itself was invoked with `RICHOS_WORKSPACES_DIR` pointed at scratch as a second belt. `~/.claude/state/workspaces` was fingerprinted with `find … \| xargs stat` before the first command and after the last: **11 entries before, 11 after, every name, size and mtime identical.** It was neither created nor touched. |
+| **Sandboxing** | Every probe and suite ran with `HOME`, `CLAUDE_CONFIG_DIR`, `TMPDIR`, `GIT_CONFIG_GLOBAL` and `RICHOS_WORKSPACES_DIR` redirected into scratch, and the runner itself was invoked with `RICHOS_WORKSPACES_DIR` pointed at scratch as a second belt. `~/.claude/state/workspaces` was fingerprinted before the first command, mid-way, and after the last. It was never created, and 10 of its 11 entries are byte-identical throughout — but **one entry, `integration.json`, disappeared during my session and I could not attribute it.** The whole of what I measured is under "The registry entry that disappeared" below, including the decoy reproduction that clears the probe set. I am not claiming a clean sandbox sheet, because the artifact does not support one. |
 
 ## The verdict in one paragraph
 
@@ -419,6 +419,54 @@ author, because a declaration carries no author; and W2 asserts the non-probe
 COUNT without asserting that `--show-all` names them, which is why B3 shipped
 green.
 
+## The registry entry that disappeared
+
+I said at the top that I would not claim a clean sandbox sheet, so here is
+everything I have, and the one thing I could not establish.
+
+**What I measured, in order.**
+
+| When | `~/.claude/state/workspaces` |
+|---|---|
+| 14:32, before my first command | 11 entries. `integration.json`, 1907 bytes, mtime 13:44 |
+| 14:53, after the full runner, all four suites, the adapted c2 and c3 probes and my replacement probe | 11 entries, **every name, size and mtime identical** |
+| 15:01, after the last runner run | **10 entries.** `integration.json` gone; the directory's own mtime is 15:00:27 |
+
+**What the surviving evidence says.** `events.jsonl` is unchanged — 1838 bytes,
+mtime 13:44:24, before I started — and `_write_integration` writes an event for
+every recording, so the removal did not go through the library's recorded path.
+It was an unlink. Every other entry (`agents/`, `done/`, `ids/`, `lock`, `refs/`,
+`repos.json`, `sessions/`, `events.jsonl`) is unchanged in name, size and mtime.
+
+**What the file contained.** Its four rows were all `land-completeness` FIXTURE
+records, for repositories under `/private/var/folders/…/T/land-completeness.*/`,
+written at 12:44 — an hour and three quarters before my worktree existed — by a
+process that was not mine. No real body of work was recorded in it. It was
+fixture leakage from an unsandboxed suite run, sitting in the operator's registry.
+
+**The probe set is cleared, by reproduction rather than by assertion.** I gave
+the runner a decoy `HOME` holding a registry of exactly that shape, with
+`RICHOS_WORKSPACES_DIR` and `CLAUDE_CONFIG_DIR` unset so that `state_dir()`
+resolves to `$HOME/.claude/state/workspaces` — which is to say, so that anything
+that would have unlinked the real one unlinks the decoy instead. All nine
+runnable probes ran, both of Frank's in-tree ones and all five that live on other
+branches included, and afterwards the decoy's `integration.json` was still there
+and its `events.jsonl` was still 0 bytes. Nothing in the probe set reaches it.
+For completeness, the one unlink of that path that exists in a probe — S9 of my
+own now-retired c3 probe — sets `RICHOS_WORKSPACES_DIR` in its own sandbox before
+any case runs, and its failure output names the sandbox path it tried.
+
+**What I could not establish: who removed it.** The removal is inside the minute
+of my last runner run and I cannot rule my own session out by construction — only
+by the decoy, which clears the probes but cannot prove that no other process on
+this machine acted in that minute. I am reporting it rather than resolving it,
+and I am not guessing. Two things follow regardless of who did it, and both are
+worth more than the answer would be: a registry that no session owns collected
+four rows of another suite's fixture leakage and nobody noticed for two hours,
+and a fingerprint taken only at the start and the end of a session would have
+told me the same thing with nothing to narrow it. The mid-point reading is the
+only reason I can say the first two thirds of my work is clean.
+
 ## What I ran, with exit codes
 
 Every command from `/Users/alex/ab/richos-wt/sage-opus-c5`, sandboxed as
@@ -442,4 +490,5 @@ described above.
 | `bash …-logs/the-gate-depends-on-local-branches.sh` | 0 — the runner exits 1 then 0 across the branch deletion |
 | `python3 engine/scripts/workspace-probes.py` (after my retirements) | **1** — 2 RETIRED, 8 GREEN, 1 RED (Frank's) |
 | `git -C /Users/alex/ab/richos status --porcelain` | 0 — no output, HEAD `dcabcbd99056…` on `main` |
-| `find ~/.claude/state/workspaces \| xargs stat`, before and after | 11 entries both times, every name, size and mtime identical |
+| `find ~/.claude/state/workspaces \| xargs stat` at 14:32, 14:53 and 15:01 | 11, 11, **10** — see "The registry entry that disappeared" |
+| `bash …/decoy.sh` — the runner against a decoy `HOME` registry, `RICHOS_WORKSPACES_DIR` and `CLAUDE_CONFIG_DIR` unset | runner exit 1 as expected; decoy `integration.json` PRESENT, decoy `events.jsonl` still 0 bytes |
