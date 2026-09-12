@@ -2,7 +2,7 @@ CHECKS RUN: 15  RED: 1
 
 # Round 6 — the fourteen checks, measured. Fixing is round 7.
 
-**Brief:** richos-hq `docs/plans/round6-brief-fourteen-points-2026-09-12.md` @ `75316840`. **The spec:** richos-hq `docs/plans/worktree-spec-2026-09-11.md` (read there; the mirror here was not read as the spec and was not touched).
+**Brief:** the round-6 brief in the private richos-hq repository (its plans directory, file round6-brief-fourteen-points-2026-09-12.md, at richos-hq commit `75316840`); it is not in this repository. **The spec:** the CEO's page in that same private repository, worktree-spec-2026-09-11.md in its plans directory (read there; the mirror here, `docs/plans/worktree-spec-2026-09-11.md`, was not read as the spec and was not touched).
 **Engineer:** zach-fable-m1 · worktree `/Users/alex/ab/richos-wt/zach-fable-m1` · branch `cc/zach-fable-m1`, cut from `dev/workspace-spec` @ `c5bce604`.
 **Nothing merged, nothing pushed, no `install.sh`, nothing written into `/Users/alex/ab/richos/engine` or any main checkout, nothing `codex/` touched.** `main` is `dcabcbd9` (`git rev-parse main` → `dcabcbd99056928a9872cd94c1f3a385f8b21069`).
 
