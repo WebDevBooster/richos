@@ -1,0 +1,36 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/zach-opus-g2/engine/scripts/lib/workspaces.py
+
+=== 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    created_branches                       ['spare']
+    land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-vk0meyc3/entity/.claude/worktrees/agent-azachopusq60000 (058ddb88c827) is not in main of /priv
+    land after                             landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    created_branches                       ['sidework']
+    land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: sidework (7b6df971979f) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-5zeosucs/entity at 058ddb88c827. Merge it onto the branch th
+    VERDICT                                HOLDS
+
+=== 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    created_branches                       ['renamed-work']
+    land                                   landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 1 outside-stray — A stray that appears outside the bracket is attributed to nobody.
+    created_branches                       []
+    land                                   landed
+    branches after the land                ['main', 'spare']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 2 outside-side — A side branch that appears outside the bracket strands its commits.
+    created_branches                       []
+    land                                   landed
+    its side commit is in main             False
+    branches after the land                ['main', 'sidework']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 3/5 cases hold; BROKEN: outside-stray, outside-side

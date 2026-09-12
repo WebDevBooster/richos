@@ -1,0 +1,87 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/zach-opus-g2/engine/scripts/lib/workspaces.py
+
+=== S1 reflog-privacy — Is the per-workspace HEAD reflog private, and is the branch reflog not?
+    per-workspace logs/HEAD            .git/worktrees/agent-azachopuss10000/logs/HEAD exists=True
+    main checkout's own logs/HEAD      exists=True
+    are they the same file?            False
+    commit made in the workspace       81cb18077999
+    in the workspace's own HEAD reflog True
+    in the MAIN CHECKOUT's HEAD reflog False
+    branch reflog of the stray         > 1789209833 +0100	branch: Created from worktree-agent-azachopuss10000
+    branch reflog of a Rich-cut ref    33 +0100	branch: Created from 81cb1807799943b06d9e3a9d808fedfc750cdff7
+    EXPECTATION HELD                   True
+
+=== S2 floor-vs-dev — The floor writes `main`; the work integrates on a dev branch recorded after.
+    main checkout branch at first registration main
+    integration.json after registration {'branch': 'main', 'source': 'first-registration'}
+    frozen on the agent record         {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-da6zts2i/entity': 'main'}
+    Rich records it afterwards         {'branch': 'dev/work', 'source': 'recorded'}
+    still frozen on the agent record   {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-da6zts2i/entity': 'main'}
+    land after merging onto dev/work   REFUSED: zach-opus-s2 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-da6zts2i/entity/.claude/worktrees/agent-azachopuss20000 (2f1ce23da9b3) is not in main of /private/var/folders/mx
+    pending (point 5 gate)             ['zach-opus-s2']
+    workspace still on disk            True
+    EXPECTATION HELD                   False
+
+=== S3 parallel-calls — Two tool calls open at once: Pre(A) Pre(B) Post(A) Post(B).
+    created_branches                   []
+    land                               landed
+    branches after the land            ['main', 'spare']
+    scan calls the stray unregistered work []
+    EXPECTATION HELD                   False
+
+=== S4 borrowed-tip — A ref cut at a commit the agent only BORROWED (never made).
+    created_branches after borrowing   []
+    created_branches after Rich's cut  ['rich/backup']
+    the agent made no commit of its own True
+    EXPECTATION HELD                   False
+
+=== S5 rich-then-commits — Rich cuts at the agent's tip inside the window, then commits on it later.
+    created_branches                   ['rich/rescue']
+    land after the agent's work is merged REFUSED: zach-opus-s5 is not landed yet: rich/rescue (eccc89530b3c) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-i7bu_f4d/entity at d95d080bc920. Merge it onto the branch this work integra
+    branches now                       ['main', 'rich/rescue', 'worktree-agent-azachopuss50000']
+    discard recorded tips              ['/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-i7bu_f4d/entity:rich/rescue', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-i7bu_f4d/entity:worktree-agent-azachopuss50000']
+    branches after the discard         ['main']
+    Rich's commit still reachable from any ref * main
+    EXPECTATION HELD                   False
+
+=== S6 no-floor-recovers — The same sequence as S2 with no floor written: does it recover?
+    main checkout branch at first registration HEAD
+    integration.json after registration {'branch': 'main', 'by_session': '', 'recorded_at': '2026-09-12T10:43:55Z', 'repo': '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4wo0z2t7/entity', 'source': 'first-registration', 'why': "the main checkout's own branch when this repository's first workspace was registered"}
+    frozen on the agent record         {'/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4wo0z2t7/entity': 'main'}
+    Rich records it afterwards         {'branch': 'dev/work', 'source': 'recorded'}
+    land after merging onto dev/work   REFUSED: zach-opus-s6 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-4wo0z2t7/entity/.claude/worktrees/agent-azachopuss60000 (f21ec7228a69) is not in main of /private/var/folders/mx
+    workspace gone                     False
+    EXPECTATION HELD                   False
+
+=== S7 reflog-ab — Is the branch reflog message the same wherever the ref is cut?
+    cut INSIDE the workspace           branch: Created from worktree-agent-azachopuss70000
+    cut in the MAIN CHECKOUT           branch: Created from worktree-agent-azachopuss70000
+    messages identical                 True
+    either names where it was cut      False
+    EXPECTATION HELD                   True
+
+=== S8 floor-at-session-start — WHEN is the floor written — at first registration, or at session start?
+    integration record before any registration {'branch': 'main', 'source': 'first-registration'}
+    workspaces registered so far       []
+    event                              {"branch": "main", "event": "integration-recorded", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-eewgk9nk/entity", "so
+    event                              {"event": "session-start", "forbidden": null, "pid": 12063, "pid_start": "Sat Sep 12 10:43:55 2026", "session_id": "sess-sage-22222222", "ts": "2026-0
+    EXPECTATION HELD                   False
+
+=== S9 no-record-recovers — No record at registration: Rich records the dev branch after, and lands.
+    integration.json after registration None
+    frozen on the agent record         {}
+    Rich records it afterwards         {'branch': 'dev/work', 'source': 'recorded'}
+    land after merging onto dev/work   landed
+    workspace gone                     True
+    EXPECTATION HELD                   True
+
+=== S10 parallel-side-branch — The same window as S3, with real work on the side branch (case 2's shape).
+    created_branches                   []
+    land                               landed
+    its side-branch commit in main     False
+    branches after the land            ['main', 'tmpwork']
+    pending after the land             []
+    the side commit is still only on tmpwork True
+    EXPECTATION HELD                   False
+
+=== held: 3/10; NOT HELD: S2 floor-vs-dev, S3 parallel-calls, S4 borrowed-tip, S5 rich-then-commits, S6 no-floor-recovers, S8 floor-at-session-start, S10 parallel-side-branch

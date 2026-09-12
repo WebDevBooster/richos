@@ -1,0 +1,79 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/zach-opus-g2/engine/scripts/lib/workspaces.py
+
+=== 1 outside-stray — A stray that appears outside the bracket is attributed to nobody.
+    created_branches                       []
+    land                                   REFUSED: zach-opus-q1 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-fr6jzg6a/entity/.claude/worktrees/agent-azachopusq10000: no branch is recorded for /private/var/folder
+    branches after the land                ['main', 'spare', 'worktree-agent-azachopusq10000']
+    pending after the land                 ['zach-opus-q1']
+    VERDICT                                BROKEN
+
+=== 2 outside-side — A side branch that appears outside the bracket strands its commits.
+    created_branches                       []
+    land                                   REFUSED: zach-opus-q2 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-ba996te7/entity/.claude/worktrees/agent-azachopusq20000: no branch is recorded for /private/var/folder
+    its side commit is in main             False
+    branches after the land                ['main', 'sidework', 'worktree-agent-azachopusq20000']
+    pending after the land                 ['zach-opus-q2']
+    VERDICT                                HOLDS
+
+=== 3 floor-trap — The floor freezes the WRONG branch onto an agent, and recording the real
+    floor wrote                            None (source: None)
+    agent's frozen copy                    {}
+    Rich recorded                          dev/workspace-spec (source: recorded)
+    merged onto dev/workspace-spec         True
+    in main                                False
+    land                                   landed
+    workspace still there                  False
+    pending (point 5 blocks on this)       []
+    VERDICT                                HOLDS
+
+=== 4 floor-control — The control: the same work, recorded BEFORE the first registration.
+    record                                 dev/workspace-spec (source: recorded)
+    agent's frozen copy                    {}
+    land                                   landed
+    workspace gone                         True
+    VERDICT                                HOLDS
+
+=== 5 no-floor-self-heals — With NO record at all, a late recording DOES reach the land.
+    record at session start                (none)
+    record after registration              (none)
+    agent's frozen copy                    (none)
+    land with no record at all             REFUSED: zach-opus-q9 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-1xhyjyud/entity/.claude/worktrees/agent-azachopusq90000: no branch is recorded for /private/var/folder
+    land after Rich records the dev branch landed
+    workspace gone                         True
+    VERDICT                                HOLDS
+
+=== 6 floor-timing — WHERE the floor actually reads the branch.
+    record at session start                None
+    main checkout's branch at registration main
+    record after registration              None (source: None)
+    agent's frozen copy                    {}
+    VERDICT                                BROKEN
+
+=== 7 rich-at-my-tip — A ref Rich cuts AT the agent's own unlanded tip DURING its call.
+    created_branches                       []
+    land while rich/rescue is unmerged     REFUSED: zach-opus-q5 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-o77i0ni4/entity/.claude/worktrees/agent-azachopusq50000: no branch is recorded for /private/var/folder
+    branches after the discard             ['main', 'rich/rescue']
+    the record of what was deleted         (none on the record)
+    the deleted tip is in the event log    True
+    rich/rescue survived                   True
+    VERDICT                                HOLDS
+
+=== 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    created_branches                       []
+    land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-mtnawhs6/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    land after                             REFUSED: zach-opus-q6 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-mtnawhs6/entity/.claude/worktrees/agent-azachopusq60000: no branch is recorded for /private/var/folder
+    branches after the land                ['main', 'spare', 'worktree-agent-azachopusq60000']
+    VERDICT                                BROKEN
+
+=== 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    created_branches                       []
+    land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-4gnbdqi0/entity/.claude/worktrees/agent-azachopusq70000: no branch is recorded for /private/var/folder
+    VERDICT                                BROKEN
+
+=== 10 serial-rename — The agent renames its OWN branch inside one call. EXPECTED: the new name
+    created_branches                       []
+    land                                   REFUSED: zach-opus-q8 is not landed yet: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-vt5wdu8_/entity/.claude/worktrees/agent-azachopusq80000: no branch is recorded for /private/var/folder
+    branches after the land                ['main', 'renamed-work']
+    VERDICT                                BROKEN
+
+=== 5/10 cases hold; BROKEN: outside-stray, floor-timing, serial-stray, serial-side, serial-rename

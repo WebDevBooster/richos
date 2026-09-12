@@ -1,0 +1,19 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/zach-opus-g2/engine/scripts/lib/workspaces.py
+
+=== S3 parallel-calls — Two tool calls open at once: Pre(A) Pre(B) Post(A) Post(B).
+    created_branches                   ['spare']
+    land                               landed
+    branches after the land            ['main']
+    scan calls the stray unregistered work []
+    EXPECTATION HELD                   True
+
+=== S10 parallel-side-branch — The same window as S3, with real work on the side branch (case 2's shape).
+    created_branches                   ['tmpwork']
+    land                               REFUSED: zach-opus-s10 is not landed yet: tmpwork (6aaf5e25eb33) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/sage-probe-8we37o2_/entity at 2288ccb7509f. Merge it onto the branch this work integrates
+    its side-branch commit in main     False
+    branches after the land            ['main', 'tmpwork', 'worktree-agent-azachopuss100000']
+    pending after the land             ['zach-opus-s10']
+    the side commit is still only on tmpwork True
+    EXPECTATION HELD                   False
+
+=== held: 1/2; NOT HELD: S10 parallel-side-branch
