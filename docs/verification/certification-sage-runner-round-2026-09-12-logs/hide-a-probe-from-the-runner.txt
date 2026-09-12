@@ -1,0 +1,31 @@
+=== A. CONTROL — the red probe is discovered and blocks
+probes discovered:        2 (2 in the working tree, 0 on other branches)
+GREEN      docs/verification/certification-frank-other-probe.py    0.0s
+RED        docs/verification/certification-sage-red-probe.py       0.0s
+RED (a prior probe now fails):
+    exit=1
+
+=== B. ATTACK 1 — one line, added by the person failing it, no author check
+probes discovered:        1 (1 in the working tree, 0 on other branches)
+other files under docs/verification/ that are not probes of this library: 1  (--show-all names them)
+GREEN      docs/verification/certification-frank-other-probe.py    0.0s
+every discovered probe ran, and every one of them is green.
+    exit=0
+
+=== C. --show-all, offered by the runner's own header as the way to see it
+--- files under docs/verification/ that are not probes of this library ---
+
+every discovered probe ran, and every one of them is green.
+
+=== D. ATTACK 2 — a probe that never spells the literal "workspaces.py"
+probes discovered:        1 (1 in the working tree, 0 on other branches)
+GREEN      docs/verification/certification-frank-other-probe.py    0.0s
+every discovered probe ran, and every one of them is green.
+    exit=0
+
+=== D-control — the SAME file with the name spelled out
+probes discovered:        2 (2 in the working tree, 0 on other branches)
+GREEN      docs/verification/certification-frank-other-probe.py      0.0s
+RED        docs/verification/certification-sage-indirect-probe.py    0.0s
+RED (a prior probe now fails):
+    exit=1
