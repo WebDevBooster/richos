@@ -452,6 +452,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ci-turn-gate.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-ceo-unasked.sh",
             "timeout": 25
           },

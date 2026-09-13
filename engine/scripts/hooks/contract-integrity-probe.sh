@@ -384,7 +384,7 @@ run_layer_R() {
     guard-vendoring-commits \
     guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
-    workspace-lifecycle guard-workspace-gate snapshot-agent-definitions guard-unresolved-claims \
+    workspace-lifecycle guard-workspace-gate guard-ci-turn-gate snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     notice-mechanical-findings \
@@ -1067,6 +1067,7 @@ turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-unlanded-branches.sh|Stop
 guard-workspace-gate.sh|Stop
+guard-ci-turn-gate.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
@@ -2741,6 +2742,11 @@ CANON = [
     # work. workspace-lifecycle.sh is registered once on EACH of six events by
     # design, so BR2 counts it per event and this list does not name it.
     "guard-workspace-gate.sh",
+    # The CI turn gate. BLOCKING, and registered twice it would print the same
+    # red-CI refusal twice at one turn-end — which reads as two separate broken
+    # repositories, and would double the one cost this gate is careful to keep
+    # small: its 2-second network budget, spent twice per turn.
+    "guard-ci-turn-gate.sh",
     # The worker-lifecycle emitters. They are append-only loggers, which is
     # exactly the class that MAKES a double-registration visible (byte-identical
     # duplicate lines) — and exactly the class a consumer would then read as two

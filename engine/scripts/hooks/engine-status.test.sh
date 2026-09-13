@@ -578,8 +578,27 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # REAL GAP, not paperwork: the pair's PRE half was wired in
 # .claude/settings.local.json and the POST half was not, so in this repository's
 # own sessions the snapshot was taken and never read.
+# guard-ci-turn-gate.sh, added 2026-09-13: the THIRD leg of the CI surface, and
+# the only one that costs anything at the moment somebody is about to walk away.
+# The gate (guard-ci-red-lands.sh) makes red cost something at a land; the
+# notice (session-start-ci-surface.sh) reports it at session start; between
+# them a richos-hq workflow was red for SIXTEEN DAYS, named in every session
+# banner, and nobody moved. This one refuses to end the orchestrator's TURN
+# while a commit THIS SESSION PUSHED is failing CI — derived from the
+# transcript's own `git push` calls, judged per commit rather than per
+# repository, with a 2-second wall-clock budget that ALLOWS on expiry and a
+# logged `ci-red-ack:` hatch that refuses a bare marker. The other inventories
+# were derived the way the note above prescribes rather than guessed:
+# `grep -rln guard-workspace-gate engine/` named hooks/hooks.json,
+# .claude/settings.local.json, this set, and in contract-integrity-probe.sh the
+# BR_EXPECTED table, Layer R's R_ROOTED_HOOKS and the double-registration list.
+# README.md's table carries it too. It sits immediately after
+# guard-workspace-gate.sh in the Stop chain on both surfaces: the workspace
+# spec's structural hold is settled first, and only then is the turn asked
+# about the state of what it pushed.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
+guard-ci-turn-gate.sh
 detect-nonnative-worktree.sh
 engine-status.sh
 guard-agent-state-claims.sh

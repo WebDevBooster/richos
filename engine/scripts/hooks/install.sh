@@ -502,6 +502,17 @@ HOOK_FILES+=(
     # protects a decision. This one also protects a write.
     "$REPO_ROOT/scripts/hooks/commit-ceo-inputs.py"
     "$REPO_ROOT/scripts/hooks/shell-evidence.py"
+    # The CI turn gate's analyzer. Same argument as guard-idle-land.py above,
+    # and it lands in the same place: guard-ci-turn-gate.sh resolves roots and
+    # then hands the ENTIRE verdict to this file — which repositories this
+    # session pushed to, which commit went, what GitHub said about it, the
+    # 2-second budget, and whether a `ci-red-ack:` is real. A trimmed copy would
+    # leave the guard wired, hashed, executable, announced in the banner and
+    # refusing nothing, and the symptom of that is indistinguishable from an
+    # evening on which CI happened to be green. It also WRITES: the ack log is
+    # the only record that a red workflow was waved past, and a copy that
+    # dropped the reason floor would turn a decision into a keystroke.
+    "$REPO_ROOT/scripts/hooks/guard-ci-turn-gate.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue
