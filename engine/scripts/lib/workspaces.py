@@ -1253,6 +1253,58 @@ def register_spawn(payload, entity, dry=False):
     return rec
 
 
+def withdraw_cc(session_id, name, why=""):
+    """THE INVERSE OF `register_cc`, for a workspace whose spawn never happened.
+
+    Point 3 is "if registration fails, the spawn does not happen", and its other
+    half has never had a command: a workspace registered and created for a spawn
+    that then could not be made is a registration for work that will not happen.
+    Leaving it costs the name (names are used once) and leaves a directory and a
+    branch behind for a land to puzzle over.
+
+    IT REFUSES ANYTHING THAT EVER RAN. No agent_id, no tool_use_id, no
+    spawned_at, no disposition - if any of those is set this is not an
+    un-happened spawn, and `workspaces.sh land` or `discard` is the answer, not
+    this. The record is then deleted rather than dispositioned: there is no work
+    to account for, and the event log keeps the trace."""
+    key = named_key(session_id, name)
+    rec = load_agent(key)
+    if not rec:
+        raise SpecError("there is no registration for %s in this session to withdraw" % name)
+    for field, what in (("agent_id", "it ran"),
+                        ("tool_use_id", "its spawn was registered"),
+                        ("spawned_at", "its spawn was registered"),
+                        ("disposition", "its work was already decided")):
+        if rec.get(field):
+            raise SpecError("%s is not an un-happened spawn (%s). Use `workspaces.sh land %s` or "
+                            "`workspaces.sh discard %s` - this command withdraws only a registration "
+                            "whose spawn never happened." % (name, what, name, name))
+    ws = [w for w in live_workspaces(rec) if w.get("path")]
+    failures = []
+    for w in ws:
+        ok, err = remove_workspace(w)
+        if not ok:
+            failures.append(err)
+            continue
+        w["deleted_at"] = now()
+        if w.get("branch"):
+            bok, berr = delete_branch(w.get("repo"), w["branch"])
+            if bok is False:
+                failures.append(berr)
+    if failures:
+        with Lock():
+            save_agent(rec)
+        raise SpecError("%s could not be fully withdrawn: %s" % (name, "; ".join(failures)))
+    with Lock():
+        try:
+            os.remove(agent_path(key))
+        except OSError:
+            pass
+    event("withdrawn-cc", key=key, why=why, paths=[w.get("path") for w in ws])
+    return {"withdrawn": [w.get("path") for w in ws]}
+
+
+
 def register_readonly(payload, entity):
     """Point 9: "The platform restarts finished agents (14 times observed). A
     restarted agent is refused every tool, so it cannot write anywhere,
@@ -3701,6 +3753,12 @@ def main(argv):
     x.add_argument("--name", required=True)
     x.add_argument("--path", required=True)
     x.add_argument("--failed", default="")
+    x = sub.add_parser("withdraw-cc",
+                       help="withdraw a registration whose spawn NEVER HAPPENED: delete its cc/ "
+                            "workspaces and branches and remove the record, so the name is free "
+                            "again. Refuses anything that ran (point 3's other half).")
+    x.add_argument("--name", required=True)
+    x.add_argument("--why", default="")
     for n in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier",
               "observe-refs", "check-spawn"):
         sub.add_parser(n)
@@ -3852,6 +3910,9 @@ def main(argv):
         elif a.cmd == "register-cc":
             register_cc(me, a.name, a.repo, a.path, a.branch)
             print("registered")
+        elif a.cmd == "withdraw-cc":
+            r = withdraw_cc(me, a.name, a.why)
+            print("withdrawn: %s - %s" % (a.name, ", ".join(r["withdrawn"]) or "nothing was created"))
         elif a.cmd == "confirm-cc":
             confirm_cc(me, a.name, a.path, not a.failed, a.failed)
             print("confirmed" if not a.failed else "recorded failure")
