@@ -123,6 +123,35 @@ SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX")" && 
 # Claude session happens to be running on the machine.
 export RICHOS_WORKSPACES_DIR="$SAMPLE_ROOT/.demo-state/workspaces"
 export RICHOS_SESSION_PID="$$"
+# AND THE CONFIG DIR IS PINNED WITH IT, for the same reason and one this script
+# was already asserting without doing. The comment above says "CLAUDE_CONFIG_DIR
+# is redirected below" — it was, but only for the two commands that name it
+# inline (install.sh and Beat 7's probe). Everything else the beats run resolved
+# `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` and wrote the operator's own record: on a
+# machine with no ledger yet, a sixty-second demo CREATED
+# ~/.claude/state/worktree-ledger.jsonl, plus teammate-idle-events.jsonl and
+# teammate-task-events.jsonl beside it. `scripts/lib/record-canary.sh` caught it
+# ("ledger: was ABSENT and now EXISTS"), which is precisely the class that wrote
+# a false termination for a running agent on 2026-09-11. A demo a buyer runs
+# sight-unseen must leave nothing behind anywhere, so the redirection is an
+# EXPORT and the two inline uses are now belt and braces.
+export CLAUDE_CONFIG_DIR="$SAMPLE_ROOT/.claude-config"
+# AND THE THREE RECORDS THAT DO NOT READ CLAUDE_CONFIG_DIR AT ALL are pinned by
+# their own knobs, because that is where the leak actually was. Measured with
+# HOME and CLAUDE_CONFIG_DIR pointed at two DIFFERENT empty directories: every
+# file landed under HOME/.claude and nothing under CLAUDE_CONFIG_DIR.
+#   scripts/lib/worktree-ledger.py   ~/.claude/state/worktree-ledger.jsonl
+#                                        (RICHOS_WORKTREE_LEDGER)
+#   teammate-idle-handoff.sh         ~/.claude/teams/... or the flat fallback
+#                                        (TEAMMATE_IDLE_TEAMS_DIR)
+#   task-completed-handoff.sh        the same shape (TASK_COMPLETED_TEAMS_DIR)
+# The two handoffs fall back to a HOME-anchored flat file when they can resolve
+# no team directory, so a pinned-but-empty teams directory would still leak: the
+# session directory is created here so they resolve INSIDE the sample repo.
+export RICHOS_WORKTREE_LEDGER="$SAMPLE_ROOT/.demo-state/worktree-ledger.jsonl"
+export TEAMMATE_IDLE_TEAMS_DIR="$SAMPLE_ROOT/.demo-state/teams"
+export TASK_COMPLETED_TEAMS_DIR="$SAMPLE_ROOT/.demo-state/teams"
+mkdir -p "$SAMPLE_ROOT/.demo-state/teams/session-demo0000"
 
 cleanup() {
     rm -rf "$SAMPLE_ROOT" 2>/dev/null || true
@@ -566,6 +595,17 @@ git -C "$SAMPLE_ROOT" add -A
 # any machine (with or without that global rule).
 git -C "$SAMPLE_ROOT" add -f .claude/settings.local.json
 git -C "$SAMPLE_ROOT" commit -q -m "Initial sample product"
+# POINT 14, AND BEAT 3 DOES NOT RUN WITHOUT IT. "The branch a body of work
+# integrates on is RECORDED when that work starts, before its first agent is
+# spawned. Nothing infers it and nothing guesses it." Since eedfbc7d clause 7
+# refuses to register a spawn into a repository with no such record — so the
+# COMPLIANT spawn Beat 3 exists to wave through was being refused, the demo
+# exited 2, and a buyer running it sight-unseen saw "6/7 beats passed — the
+# enforcement machinery has a problem". This is the lead's own one command,
+# run where he runs it: before the first spawn.
+python3 "$SAMPLE_ROOT/scripts/lib/workspaces.py" --entity "$SAMPLE_ROOT" \
+    --session demo0000-0000-4000-8000-000000000000 integration \
+    --repo "$SAMPLE_ROOT" --branch main --why "the demo's body of work" >/dev/null
 
 # The label used to read "generating .claude/settings.json + hook integrity
 # sidecars". install.sh stopped generating settings.json when the double-fire

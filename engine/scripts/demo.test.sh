@@ -51,6 +51,22 @@ if [ -f "$REPO_ROOT/scripts/lib/global-state-witness.sh" ]; then
     STATE_BEFORE="$(richos_global_snapshot)"
 fi
 
+# Snapshot the OPERATOR'S RECORD too — the ownership ledger, the fallback event
+# log, the team directories and the workspace registry. The global-state witness
+# above watches the engine POINTER and nothing else, so when the demo created
+# ~/.claude/state/worktree-ledger.jsonl on a machine that had none, every
+# assertion in this file stayed green and only the CI runner's own canary said
+# so ("touched the operator's record ... ledger: was ABSENT and now EXISTS").
+# A suite that cannot see its own leak leaves the runner to find it, and the
+# runner reports it one shard at a time with no diagnosis attached.
+RECORD_BASELINE="$(mktemp -t demo-record-baseline.XXXXXX)"
+RC_HEALTHY=0
+if [ -f "$REPO_ROOT/scripts/lib/record-canary.sh" ]; then
+    # shellcheck source=./lib/record-canary.sh
+    . "$REPO_ROOT/scripts/lib/record-canary.sh"
+    rc_baseline "$RECORD_BASELINE"
+fi
+
 # --- a real, unattended invocation ---
 DEMO_OUT="$("$DEMO" 2>&1)"
 DEMO_RC=$?
@@ -106,6 +122,21 @@ elif [ -z "$STATE_BEFORE" ]; then
 else
     bad "demo.sh: THE DEMO MUTATED THE OPERATOR'S GLOBAL STATE — $(richos_global_verify "$STATE_BEFORE" 2>&1 | tr '\n' ' ')"
 fi
+
+# --- the operator's RECORD is untouched ---
+# A missing harness is a FAILURE, not a skip: a silently absent canary is the
+# same green-for-nothing this case exists to end.
+if [ ! -f "$REPO_ROOT/scripts/lib/record-canary.sh" ]; then
+    bad "demo.sh: the record canary is missing (scripts/lib/record-canary.sh) — the leak check did NOT run"
+else
+    RECORD_TOUCHED="$(rc_escaped "$RECORD_BASELINE")"
+    if [ "$RC_HEALTHY" -eq 1 ] && [ -z "$RECORD_TOUCHED" ]; then
+        ok "demo.sh: the operator's record under $RC_CFG is untouched by the run (ledger, fallback event log, team directories, workspace registry)"
+    else
+        bad "demo.sh: THE DEMO TOUCHED THE OPERATOR'S RECORD (healthy=$RC_HEALTHY): $(printf '%s' "$RECORD_TOUCHED" | tr '\n' ' ')"
+    fi
+fi
+rm -f "$RECORD_BASELINE"
 
 # --- no leftover temp dirs from this run ---
 LEFTOVER="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'richos-engine-demo.*' 2>/dev/null || true)"
