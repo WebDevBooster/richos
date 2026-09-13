@@ -221,6 +221,32 @@ cases. It is discovered and run by `scripts/run-all-tests.sh`, so it runs in CI
 like everything else. A suite that silently no-ops on CI is worse than one that
 is honestly excluded, because it reports green over nothing.
 
+### Two cases in `scripts/spawn.test.sh` — the same shape, declared 2026-09-14
+
+`spawn.test.sh` ends with three deliberately non-hermetic cases, and two of them
+read a **governed repository's** files: `<project>/.claude/settings.local.json`,
+and the brief-scope guard that the governed repository registers under its own
+hooks directory (femcboost's, named in that private checkout's record — it is
+not a file in this repository and no path here resolves to it). Neither file
+is in this repository and neither can be on a runner; synthesizing one proves
+nothing the suite's hermetic fixture cases have not already proved. The third
+reads the engine's own `hooks/hooks.json`, ships here, and **runs in CI** — it
+is the one that keeps closed the matcherless-group hole that cost two refusals
+on 2026-09-13.
+
+Until 2026-09-14 all three shared one `if`, so on a runner the block printed a
+single `FAIL REAL-SURFACES could not run` — the whole of shard 5/12's failure in
+run `34787626046` at `082ef5cd` (ubuntu-24.04, `29 passed, 1 failed`), while the
+same commit was `32 passed, 0 failed` on the operator's machine. Environmental,
+not a defect in `spawn.sh`, and reproducible here with
+`RICHOS_SPAWN_TEST_REAL_PROJECT=/tmp/definitely-not-here scripts/spawn.test.sh`.
+
+Each case now judges its own surface and prints `SKIP` with its reason when that
+surface is absent; skips are counted and re-listed under **"NOT RUN HERE — these
+are SKIPS, not passes"**, so the summary reads `30 passed, 0 failed, 2 skipped`
+on a runner and `32 passed, 0 failed, 0 skipped` on a workstation. Point
+`RICHOS_SPAWN_TEST_REAL_PROJECT` at any governed checkout to run them elsewhere.
+
 ## What the audit checked (and found clean) — still true
 
 Grepped every shipped script (`scripts/`, `reference/`) for the classic
