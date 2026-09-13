@@ -699,9 +699,19 @@ if [ "$FAIL" -eq 1 ]; then
   for reason in "${FAIL_REASONS[@]}"; do
     echo "  - $reason" >&2
   done
-  echo "  For a NEW isolated spawn, prepare the complete task-specific Agent JSON with:" >&2
+  # WHAT TO RUN NEXT. This is read at exactly the moment the one-command path
+  # is worth most — a brief has just been refused, and spawn.sh would have
+  # reported THIS failure together with every other one before anything was
+  # created. Until 2026-09-13 this named only the four-step path, which is how
+  # spawn.sh went unused the night after it landed. Naming it here changes
+  # nothing about what this guard accepts: the old path is still allowed, and
+  # is still named, second.
+  echo "  For a NEW isolated spawn, start the teammate with ONE command:" >&2
+  echo "    $ENGINE_ROOT/scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file> [--model <alias>]" >&2
+  echo "  It creates and registers the workspace, assembles the payload with native isolation and the acknowledgement contract, and evaluates EVERY PreToolUse[Agent] guard from EVERY surface against it BEFORE anything is created — reporting ALL failures together, including the one above. On refusal it exits 1 and leaves nothing behind." >&2
+  echo "  FALLBACK ONLY (still accepted, four steps, guards evaluated only at the tool call):" >&2
   echo "    python3 \"$ENGINE_ROOT/scripts/prepare-agent-spawn.py\" --file <input.json>" >&2
-  echo "  It supplies both native isolation and the acknowledgement contract. It grants no exemptions and is not a resume helper." >&2
+  echo "  It supplies both native isolation and the acknowledgement contract. Neither grants any exemption, and neither is a resume helper." >&2
   echo "(hook: scripts/hooks/verify-agent-prompt.sh)" >&2
   exit 2
 fi
