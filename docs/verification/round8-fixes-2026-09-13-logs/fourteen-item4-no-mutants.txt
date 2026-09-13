@@ -1,0 +1,180 @@
+label: item4-no-mutants  started: 2026-09-13T07:44:53Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: f06849af8d2d2a649aa3db32feabdbf6d7843b18  dirty: 7
+engine: /Users/alex/ab/richos-wt/zach-fable-m5/engine  workspaces.py sha256: 11b97f5e3c8dc09f  guard sha256: e1d2c7774496710e
+=== C14  The integration branch is recorded before the first spawn, or the spawn is refused naming what to record; every consumer asks the recorded branch and none asks main ===
+      ok   C14.1 with NO branch recorded, the first spawn is refused, naming the recording command
+      ok   C14.2 Rich records the branch, once per repository, and the record names it
+      ok   C14.3 work merged onto its recorded dev branch (not main) is landed on its own: workspace and branch gone
+      ok   C14.4 unlanded-branches.py compares against the RECORDED branch dev/work (a branch merged onto dev/work but not main is not ahead; one ahead of dev/work is)
+      ok   C14.5 with no branch recorded, unlanded-branches.py ABSTAINS (exit 2) rather than assuming main
+      ok   C14.6 guard-unresolved-claims.py: a commit on the recorded dev branch (not main) is 'integrated'; with no record it abstains ('unknown')
+      ok   C14.7 guard-unresolved-claims.py keeps no live fallback to main: its INTEGRATION_REFS tuple is referenced by no code
+      ok   C14.8 an agent's own workspace branch (cc/) is refused as an integration branch (exit 2), and the record still names dev/work
+      ok   C14.9 an AGENT's call recording or correcting the integration branch is refused by the Bash guard (exits 2 2), naming point 14
+      ok   C14.10 POSITIVE CONTROL: the lead's own call recording it passes the guard (0)
+      ok   C14.11 an AGENT's call moving, pushing into or deleting a RECORDED integration branch is refused (exits 2 2 2 2)
+      ok   C14.12 PRECISION: an agent moving a branch nobody recorded passes (0), and the lead moving the recorded one passes (0) — landing is his
+  PASS  C14  The integration branch is recorded before the first spawn, or the spawn is refused naming what to record; every consumer asks the recorded branch and none asks main
+
+=== C1  Creating a non-native workspace not named cc/ is refused — non-zero exit, nothing created ===
+      ok   C1.1 the registry refuses a non-native workspace on a branch not named cc/ (exit 2)
+      ok   C1.2 a raw 'git worktree add' in Bash is refused by the worktree guard (exit 2), and nothing is created
+      ok   C1.3 even a raw add NAMED cc/ is refused: a workspace is created by create-teammate-worktree.sh, which registers it first (point 3)
+      ok   C1.4 POSITIVE CONTROL: the sanctioned path creates a cc/ workspace, registered (exit 0)
+      ok   C1.5 the control workspace, registered but never spawned into, is not finished until stopped (discard: 2, then stop, then discard: 0) and is then deleted by the page's own discard
+  PASS  C1  Creating a non-native workspace not named cc/ is refused — non-zero exit, nothing created
+
+=== C2  No deletion path reaches a codex/ path or ref: with codex/ present in the fixture, every deleter runs and codex/ is byte-identical after; an agent briefed against codex/ work gets a cc/ copy ===
+      ok   C2.1 a land (exit 0) and a discard (exit 0) in the repository ran, the retry ran, the SessionStart scan ran
+      ok   C2.2 direct deletion of the codex/ branch or workspace is refused in Bash, with no override (exits 2 2 2 2)
+      ok   C2.3 a spawn aimed INSIDE the codex/ workspace is refused (exit 2)
+      ok   C2.4 a cc/ workspace based ON the codex/ branch is refused, and the refusal names the copy to take instead (exit 3)
+      ok   C2.5 an agent briefed against codex/ work gets a cc/ COPY: cc/zach-opus-cc at the codex/fix commit (exit 0)
+      ok   C2.8 a deleter AIMED at a codex/ ref on an agent's record refuses it: the discard completes (0), codex/other is untouched, and the record and the store say so
+      ok   C2.6 codex/ is byte-identical after every deleter ran: refs, worktree listing and every file
+      ok   C2.7 nothing pending after check 2 (the codex/ workspace is not the system's concern)
+  PASS  C2  No deletion path reaches a codex/ path or ref: with codex/ present in the fixture, every deleter runs and codex/ is byte-identical after; an agent briefed against codex/ work gets a cc/ copy
+
+=== C3  A registration failure means the spawn does not happen; claude -w is refused; an unregistered cc/ or native workspace appears in point 5's pending list ===
+      ok   C3.1 a registration that fails (no session identity) refuses the spawn (exit 2) and leaves no record
+      ok   C3.2 'claude --worktree' and 'claude -w' are refused in Bash (exits 2 2 2)
+      ok   C3.3 a session started inside its own workspace is recorded as not allowed; its lead is refused Edit (2) and allowed Read (0)
+      ok   C3.4 an unregistered cc/ workspace is in point 5's list: the turn cannot end and it is named
+      ok   C3.5 an unregistered NATIVE workspace is in point 5's list too, by name
+      ok   C3.6 and new work is refused while they are pending
+      ok   C3.7 both are handled under point 5 (discarded: 0 0) and gone
+      ok   C3.8 an unregistered cc/ BRANCH with no workspace is in point 5's list too, by name
+      ok   C3.9 and it is handled under point 5 (discarded: 0) and gone
+  PASS  C3  A registration failure means the spawn does not happen; claude -w is refused; an unregistered cc/ or native workspace appears in point 5's pending list
+
+=== C6  Points 3 and 4 again, against a native agent-<id> / worktree-agent-<id> pair ===
+      ok   C6.1 the spawn is registered (exit 0) and the native workspace joins its record by path and branch
+      ok   C6.2 a native agent whose spawn was never registered gets no record and is refused every writing tool (exit 2): the spawn did not happen
+      ok   C6.3 after the land (automatic, exit 0): workspace absent, branch absent, no prompt, no quarantine directory, no registry entry
+  PASS  C6  Points 3 and 4 again, against a native agent-<id> / worktree-agent-<id> pair
+
+=== C4  After a land: workspace absent, branch absent, no prompt, no quarantine directory, no registry entry ===
+      ok   C4.1 no prompt: the merged work is landed by the Stop gate itself, with no command (exit 0)
+      ok   C4.2 workspace absent — from disk and from git's list (both workspaces)
+      ok   C4.3 branch absent (both)
+      ok   C4.4 no quarantine anywhere: git's worktree registry and ref list of BOTH repositories hold nothing they did not hold before the spawn (a workspace moved under any name, or a parked/ branch, would be listed), no quarantine directory, no detached leftover
+      ok   C4.5 no registry entry: nothing in agents/ names it, status lists nothing for it; its ending is in done/
+  PASS  C4  After a land: workspace absent, branch absent, no prompt, no quarantine directory, no registry entry
+
+=== C7  Every ending reads landed or discarded in the store; a discard carries its reason; an agent that produced nothing reads landed; CEO-ordered work cannot be discarded without a recorded word ===
+      ok   C7.1 the landed agent's ending reads 'landed' in the store
+      ok   C7.2 the discarded agent's ending reads 'discarded' with its reason and the tips it deleted
+      ok   C7.3 an agent that produced nothing counts as landed: deleted on its own (exit 0) and its ending reads 'landed'
+      ok   C7.4 work recorded as CEO-ordered cannot be discarded without his word (exit 2), even with a --not-ceo-ordered claim
+      ok   C7.5 with his word it is discarded and the word is RECORDED (exit 0)
+      ok   C7.6 a discard with NO reason is refused (exit 2) and deletes nothing
+      ok   C7.7 a discard that says NEITHER --ceo-word nor --not-ceo-ordered is refused (exit 2): the attestation is how 'never discarded without his word' is asked of work the prompt did not mark
+      ok   C7.8 CONTINUATION: the new agent's spawn is allowed while the old one is pending (0); at its start the OLD workspace is deleted, the old branch is kept, and the old record reads 'continued'
+      ok   C7.9 and the old work counts as landed when the new agent's does (0): both branches gone, both workspaces gone, the old ending reads 'landed'
+  PASS  C7  Every ending reads landed or discarded in the store; a discard carries its reason; an agent that produced nothing reads landed; CEO-ordered work cannot be discarded without a recorded word
+
+=== C8  A land of a tree with uncommitted or needed-ignored files is refused; after the commit it proceeds; nothing under the tree is lost by the deletion ===
+      ok   C8.1 the land is refused while draft.txt is uncommitted (exit 2), naming the uncommitted entry, and the tree is untouched
+      ok   C8.2 the Stop gate does not land it either: it is pending, by name
+      ok   C8.3 committed and merged, the land is still refused for the ignored .env the main checkout lacks (exit 2)
+      ok   C8.8 an ignored file the main checkout has under the SAME NAME and SAME SIZE with DIFFERENT BYTES still holds the land (exit 2), named by path — compared by content, not by name or size
+      ok   C8.6 an ignored DIRECTORY the main checkout also has (.claude/) is compared by content, not skipped by name: a needed file and a nested repository's commit inside it hold the land (exit 2), named by path
+      ok   C8.4 with the needed file kept, the land proceeds (exit 0) and the workspace and branch are gone
+      ok   C8.5 nothing under the tree is lost: every file of the agent's tip is in the main checkout, and so is .env
+      ok   C8.7 and nothing under the ignored directory is lost either: the needed file and the nested repository's commit (245c693ce15b88cd8217dd720ef9bf715f0c8158) are in the main checkout
+  PASS  C8  A land of a tree with uncommitted or needed-ignored files is refused; after the commit it proceeds; nothing under the tree is lost by the deletion
+
+=== C9  A restarted finished agent gets no tool; a process started inside the workspace is dead before deletion (fixture: a sleeper holding an open file) ===
+      ok   C9.1 finished: the restarted agent is refused every tool, Read (2) and Bash (2) alike
+      ok   C9.2 POSITIVE CONTROL: the sleeper is alive in the workspace before the land (pid 85273)
+      ok   C9.3 landed (exit 0): the process is dead and the workspace is gone
+      ok   C9.4 and it was stopped BEFORE the deletion: the store's history reads 'processes-stopped' then 'deleted'
+      ok   C9.5 restarted after its workspace is gone: still refused (2)
+      ok   C9.6a POSITIVE CONTROL: the holder is alive (pid 85793, alive=1) and IGNORES TERM (still alive after SIGTERM: 1)
+      ok   C9.6 a process that ignores TERM is dead after the land (exit 0, alive=0): the SIGKILL escalation, and the store records no survivor (survivors: null)
+  PASS  C9  A restarted finished agent gets no tool; a process started inside the workspace is dead before deletion (fixture: a sleeper holding an open file)
+
+=== C10  Landing a two-workspace agent removes both workspaces and both branches in one operation ===
+      ok   C10.1 POSITIVE CONTROL: before the land the agent has both workspaces registered and both exist
+      ok   C10.2 ONE operation (exit 0): both workspaces gone
+      ok   C10.3 and both branches gone
+      ok   C10.4 the store records one land and one deletion covering both (landed=1 deleted=1)
+      ok   C10.5 a branch the agent created during one of its own tool calls (PreToolUse 0, then PostToolUse) is RECORDED against it
+      ok   C10.6 and it goes with the work: after the land (0) the side branch is gone too — none is left behind
+      ok   C10.7 a branch created AFTER the agent's last PostToolUse (call 0 opened and closed; nothing recorded then: [[]]) is attributed to it at its end-of-run signal
+      ok   C10.8 and it goes with the work: after the land (0) that branch is gone too — none is left behind
+      ok   C10.7b a branch created by a BACKGROUNDED call's process after that call's PostToolUse (nothing recorded at the next Pre: [[]]) is attributed at the next observation (0), judged against the background window's own before-set
+      ok   C10.7c PRECISION: with a call still in flight, a ref cut at the agent's tip between two PreToolUse calls is NOT attributed (it may be Rich's)
+      ok   C10.7d PRECISION: between two CLOSED foreground calls, a ref Rich cuts at the agent's tip is NOT attributed — nothing the platform stamped says a process of the agent's was still running
+  PASS  C10  Landing a two-workspace agent removes both workspaces and both branches in one operation
+
+=== C11  A SubagentStop for a sub-run does not finish the teammate; a pause is recorded with what ends it; a pause naming nothing appears in point 5's list ===
+      ok   C11.1 two SubagentStops carrying sub-run ids do not finish the teammate: it may still write (0) and nothing is pending (0)
+      ok   C11.2 a pause sent to it is RECORDED with what ends it
+      ok   C11.3 its own end of run while PAUSED is not finished: not locked out (0), not pending (0)
+      ok   C11.4 a later message resumes it (0)
+      ok   C11.5 a pause naming NOTHING is pending work under point 5: the turn cannot end and it is named
+      ok   C11.6 stopped: it is finished (2 = refused), and its own SubagentStop carrying ITS id is the end-of-run signal; landed once merged (0)
+      ok   C11.7 an agent that ends AFTER HANDING IN its work is finished even though a pause was sent: locked out (2) and pending (2), by name
+      ok   C11.8 handed in and STILL RUNNING: not finished — it may still write (0) and nothing is pending (0); only its own end of run finishes it
+      ok   C11.8b and after its own end of run it is finished (2 = refused), as C11.7
+  PASS  C11  A SubagentStop for a sub-run does not finish the teammate; a pause is recorded with what ends it; a pause naming nothing appears in point 5's list
+
+=== C5  With one finished-and-unlanded agent, a spawn and a turn end are both refused; the two allowances his sentence names are allowed; nothing else is ===
+      ok   C5.1 a spawn is refused (2), naming the agent
+      ok   C5.1b and a turn end is refused (2), naming the agent
+      ok   C5.4 NOTHING ELSE: a turn that began with a platform notification, not the CEO, is refused even when it names the work (2)
+      ok   C5.5 NOTHING ELSE: a reply to the CEO that does not name the pending work is refused (2)
+      ok   C5.15 EVERY SHAPE OF HIS COUNTS: typed, through the RichOS app with no origin key (670 real rows), a pasted-image turn beginning '[Image #5]', queued, and typed-then-hook-feedback [p1=True p2=True p3=True p4=True p5=True ]
+      ok   C5.15b NO SHAPE THAT IS NOT HIS COUNTS: a task notification, a peer message after his row, the 68 real old-shape peer rows with no stamps, a constructed <cross-session-message>, a constructed non-meta [SYSTEM NOTIFICATION …], a /exit row, a notification-then-compaction-summary [n1=False n2=False n3=False n4=False n5=False n6=False n7=False ]
+      ok   C5.16 THROUGH THE GATE: a turn begun by the real old-shape peer row (no origin, no promptSource — the deny-list read it as a person) is refused even though it names the work (2)
+      ok   C5.16b THROUGH THE GATE: a turn begun by a peer's stamped meta row after his own row is refused (2) — the row before it does not lend it his allowance
+      ok   C5.2 ALLOWANCE 1: answering the CEO, naming the pending work, may end the turn (0)
+      ok   C5.3 NOTHING ELSE: naming it a second time without handling it is refused (2) — the allowance is spent
+      ok   C5.6 ALLOWANCE 2: work whose only purpose is landing it may start (0)
+      ok   C5.7 and with that work started, the turn may end (0) while the item waits on it
+      ok   C5.8 NOTHING ELSE: unrelated new work is still refused (2)
+      ok   C5.9 merged: both are landed on their own and the turn may end (0)
+      ok   C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn (0) — given through the RichOS app, the row shape that carries no origin key
+      ok   C5.11 an item waiting on something OUTSIDE his reach with no CEO-TODO reference is refused (2): 'the latter goes on the CEO's TODO list'
+      ok   C5.12 recorded with its TODO reference (0): the turn may end (0), and new work stays blocked either way (2)
+      ok   C5.13 a discard that needs his word, asked and recorded with its TODO reference (0): that item waits on him and the turn may end (0), the item named as waiting — AND new work stays blocked either way: an unrelated spawn is refused (2), naming it
+      ok   C5.14 'blocks nothing else': the second finished item lands on its own (0) while the first still waits on him — its workspace gone, its ending 'landed', the first still pending by name
+  PASS  C5  With one finished-and-unlanded agent, a spawn and a turn end are both refused; the two allowances his sentence names are allowed; nothing else is
+
+=== C13  A deletion blocked by a held file is retried without involvement and succeeds when the hold clears; the CEO hears only after a stated number of failures ===
+      ok   C13.1 the land is recorded (0, landed) and the deletion FAILED on the held file: attempt 1, workspace still there, retry scheduled
+      ok   C13.2 the CEO does NOT hear of it yet (no 'TELL THE CEO' at attempt 1)
+      ok   C13.3 retried WITHOUT involvement: two unrelated hook events later the attempt count is 3 (no command was run)
+      ok   C13.4 still below the stated number (5): the CEO is not told at attempt 4
+      ok   C13.5 at the stated number of failures (5, now 6) the turn-end gate tells the CEO, by name, and still lets the turn end (0)
+      ok   C13.6 when the hold clears, the next retry succeeds on its own: workspace and branch gone, nothing left retrying
+  PASS  C13  A deletion blocked by a held file is retried without involvement and succeeds when the hold clears; the CEO hears only after a stated number of failures
+
+=== C12  The session is recorded at start; its end is read from the process start-time, never a pid alone; the next session lands or discards the previous session's agents before any spawn ===
+      ok   C12.1 SessionStart recorded the session with its process number AND its process start time
+      ok   C12.2 NEVER A PID ALONE: the same live pid with a different recorded start time is a different process — the session counts as ended and its agent is locked out (2)
+      ok   C12.3 POSITIVE CONTROL: with the true start time restored the agent is live again (0)
+      ok   C12.4 the process is gone, read from the OS: the NEXT session is told first, by name
+      ok   C12.5 before any spawn: new work is refused until the previous session's agent is landed or discarded (2)
+      ok   C12.6 landed by the next session (0): its workspace is gone and new work may start (0)
+      ok   C12.7 TWO LIVE SESSIONS: the second neither lists nor lands the third's finished agent — its turn may end (0) and it may start new work (0); the workspace is untouched
+      ok   C12.8 POSITIVE CONTROL: the third session, which started it, cannot end its turn while it is pending (2)
+      ok   C12.9 a session that RECORDED its end has ended even though its process still exists (pid 94470 alive=1): its agent is finished and locked out (2)
+      ok   C12.10 and the running session takes its finished work over: pending by name (2)
+      ok   C12.11 landed by the running session (0): workspace gone
+  PASS  C12  The session is recorded at start; its end is read from the process start-time, never a pid alone; the next session lands or discards the previous session's agents before any spawn
+
+=== C0  ADDED: the sandbox ends clean — every ending in the store reads landed or discarded, no agent workspace or branch survives in any repository, the hooks reported nothing unexpected ===
+      ok   C0.1 every record in done/ ends 'landed' or 'discarded' (kinds: ['discarded', 'landed'])
+      ok   C0.2 no agent still holds a workspace in agents/ (live: [])
+      ok   C0.3 the entity repository has only its main checkout
+      ok   C0.4 the other repository has only its main checkout and the untouched codex/ workspace
+      ok   C0.5 no agent branch survives anywhere (codex/ excepted)
+      ok   C0.6 the lifecycle hook reported nothing unexpected
+  PASS  C0  ADDED: the sandbox ends clean — every ending in the store reads landed or discarded, no agent workspace or branch survives in any repository, the hooks reported nothing unexpected
+
+CHECKS RUN: 15  RED: 0
+FOURTEEN: 14 green, 0 red · self-check: green
+exit: 0
+finished: 2026-09-13T07:45:50Z

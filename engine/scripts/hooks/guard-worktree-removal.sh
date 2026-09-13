@@ -509,9 +509,9 @@ def collect_git(text):
         deletes = any(
             t == "--delete" or re.fullmatch(r"-[A-Za-z]*[dD][A-Za-z]*", t)
             for t in rest)
-        if deletes and any(re.search(r"(?:^|refs/heads/)codex/\S+", t) for t in rest):
-            spec.append("git branch -D of a codex/ branch (codex/ is never touched — point 2)")
-        elif deletes and any(re.search(r"(?:^|refs/heads/)(?:worktree-\S+|cc/\S+)", t) for t in rest):
+        # (a codex/ branch delete is refused below, with every other deleter of a
+        # codex/ ref — one rule since round 8, so that removing it is observable)
+        if deletes and any(re.search(r"(?:^|refs/heads/)(?:worktree-\S+|cc/\S+)", t) for t in rest):
             spec.append("git branch -D of an agent's branch (a land or a discard deletes it, "
                         "with every workspace it has — points 4, 7, 10)")
         # A LISTING never writes: --list, -a/-r, --contains, --merged, -v, ...

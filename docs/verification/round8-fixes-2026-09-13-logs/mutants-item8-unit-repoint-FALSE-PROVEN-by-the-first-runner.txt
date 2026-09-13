@@ -1,0 +1,7 @@
+label: item8-unit-repoint  started: 2026-09-13T07:41:48Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: fc9cfd42ed9a8da82b2a0dd0b6d07cf83331ab01  dirty: 23
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item8-unit-repoint/engine-base  workspaces.py sha256: 9e81fb1432a58a74
+declarations read from the harness: 48
+  PROVEN    p03-unpaired-post-attributes-nothing — removing it turns "test_point_03_a_post_that_carries_no_call_id_still_ends_a_call" red  [0s]
+=== targeted unit mutants: 1 proven, 0 unproven ===
+finished: 2026-09-13T07:41:48Z

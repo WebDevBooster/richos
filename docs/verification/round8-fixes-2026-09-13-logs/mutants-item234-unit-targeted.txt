@@ -1,0 +1,10 @@
+label: item234-unit-mutants  started: 2026-09-13T08:03:15Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: f06849af8d2d2a649aa3db32feabdbf6d7843b18  dirty: 13
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item234-unit-mutants/engine-base  workspaces.py sha256: 80687932e2ab49a5
+declarations read from the harness: 52
+  PROVEN    p14-moved-recorded-branch-not-restored — removing it turns "Point14_IntegrationBranch.test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" red  [1s]
+  PROVEN    p14-the-leads-move-restored-too — removing it turns "Point14_IntegrationBranch.test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" red  [0s]
+  PROVEN    p02-agent-write-inside-codex-passes-the-lock-out — removing it turns "Point14_IntegrationBranch.test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored" red  [0s]
+  PROVEN    p05-a-notification-counts-as-the-ceo — removing it turns "Point05_Guarantee.test_point_05_answering_the_ceo_names_the_pending_work" red  [0s]
+=== targeted unit mutants: 4 proven, 0 unproven ===
+finished: 2026-09-13T08:03:17Z

@@ -1,0 +1,36 @@
+label: item23-guard-mutants  suite: engine/scripts/hooks/guard-worktree-removal.mutation.sh  started: 2026-09-13T07:51:01Z  args: 
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: f06849af8d2d2a649aa3db32feabdbf6d7843b18  dirty: 9
+=== guard-worktree-removal mutation harness ===
+PROVEN    M0   the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's
+PROVEN    M1   rule 4 reverted to the pre-move co-occurrence form ... turns g7d g8  g8b d2  g7c red
+PROVEN    M1b  the git-rm exclusion alone is removed ... turns g7d red
+PROVEN    M2   the *-wt naming heuristic comes back ... turns g8  red
+PROVEN    M3   every rm -r target counts as a worktree ... turns g4  red
+PROVEN    M4   no rm -r target ever counts as a worktree ... turns d2  S2  red
+PROVEN    M5   the git argument run bleeds across statement separators ... turns RO2 RD3 red
+PROVEN    M6   the read-only allowlist swallows worktree and branch ... turns a   b   c   red
+PROVEN    M7   git -C's value is no longer skipped when finding the subcommand ... turns a2  red
+PROVEN    M8   prose and payloads are scanned as if they were commands ... turns PR2 PR5 red
+PROVEN    M9   substitutions inside inert text stop being classified ... turns PX3 red
+PROVEN    M10  plain and dry-run-overridden prune regain a direct bypass ... turns g2  b3  red
+PROVEN    M11  a workspaces.sh call exempts a separate raw removal ... turns b9  red
+PROVEN    M12  an agent workspace is removable with an ack ... turns S2  S3  S4  red
+PROVEN    M13  a codex/ workspace is removable with an ack ... turns S6  red
+<stdin>:4: SyntaxWarning: "\S" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\S"? A raw string is also an option.
+UNPROVEN  M14  a codex/ branch may be deleted  <- suite still GREEN
+PROVEN    M15  a raw git worktree add is allowed ... turns RO11 S9  red
+PROVEN    M16  claude --worktree is allowed ... turns S8  red
+PROVEN    M17  codex/ deleters through update-ref -d / push are allowed ... turns CX1  CX1b  CX2  CX3  CX4  red
+PROVEN    M18  an agent may move, create or force-move a codex/ ref ... turns CX6  CX7  CX7b  CX8  CX9  CX9b  CX9c  CX9d  CX10  CX10b  CX12  red
+PROVEN    M19  an agent may check out a protected branch (the doorway) ... turns CX10c  CX10d  RG15  RG15b  red
+PROVEN    M20  an agent may work inside a codex/ workspace ... turns CX13  CX13b  CX13c  red
+PROVEN    M21  symbolic-ref may rewrite a protected branch or HEAD ... turns CX11  CX11b  RG16  RG16b  red
+PROVEN    M22  an agent may fetch or pull into a protected branch ... turns CX9c  CX9d  RG13  RG13b  RG13c  red
+PROVEN    M23  an agent may write the recorded branch by any verb that names it ... turns RG5  RG6  RG7  RG11  RG12  RG14  RG14b  RG17  RG18  red
+  [24 mutant(s), 8 at a time, wall 1m49.3s, slowest 35.3s M1, 6.7x serial]
+
+PROVEN    M99  the shipped guard was never opened for writing (contents AND mtime unchanged)
+reference sandbox guard never written to (md5 0b4c4ebd873b5068ef175b22a77768c4); every mutant used its own copy
+=== mutation harness: 1 UNPROVEN, 25 proven ===
+exit: 1
+finished: 2026-09-13T07:52:51Z

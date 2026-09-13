@@ -55,11 +55,19 @@ OUT="$D/mutants.txt"
     if ! python3 "$D/mutate.py" "$E/$REL" "$OLD" "$NEW" 2>"$D/$NAME/mutate.err"; then
       echo "  UNPROVEN  $NAME — the mutation did not apply: $(cat "$D/$NAME/mutate.err")"; UNPROVEN=$((UNPROVEN+1)); continue
     fi
-    python3 -B -W ignore "$E/scripts/lib/workspaces.test.py" "$WANT" > "$D/$NAME/out.txt" 2>&1; RC=$?
+    # THE WITNESS IS RESOLVED AS Class.method. The first version of this wrapper
+    # passed the bare method name; unittest raised _FailedTest ("module has no
+    # attribute"), printed `FAIL  <name> (error)` and exited 1, and the grep
+    # below read that as PROVEN in 0 s — a negative passing for the wrong
+    # reason. Caught by the 0 s; now the run must have RUN exactly one test.
+    CLS="$(awk -v m="$WANT" '/^class /{c=$2; sub(/\(.*/,"",c)} $0 ~ ("def " m "\\(") {print c; exit}' "$E/scripts/lib/workspaces.test.py")"
+    python3 -B -W ignore "$E/scripts/lib/workspaces.test.py" "$CLS.$WANT" > "$D/$NAME/out.txt" 2>&1; RC=$?
     EL=$(( $(date +%s) - T0 ))
-    if [ "$RC" -eq 0 ]; then echo "  UNPROVEN  $NAME — \"$WANT\" still PASSED without this property  [${EL}s]"; UNPROVEN=$((UNPROVEN+1))
+    if grep -q "_FailedTest" "$D/$NAME/out.txt" || ! grep -q "^Ran 1 test" "$D/$NAME/out.txt"; then
+      echo "  UNPROVEN  $NAME — the witness \"$CLS.$WANT\" did not run (resolution error), so nothing was proven  [${EL}s]"; UNPROVEN=$((UNPROVEN+1))
+    elif [ "$RC" -eq 0 ]; then echo "  UNPROVEN  $NAME — \"$WANT\" still PASSED without this property  [${EL}s]"; UNPROVEN=$((UNPROVEN+1))
     elif ! grep -q "FAIL  $WANT" "$D/$NAME/out.txt"; then echo "  UNPROVEN  $NAME — red, but NOT at \"$WANT\"  [${EL}s]"; UNPROVEN=$((UNPROVEN+1))
-    else echo "  PROVEN    $NAME — removing it turns \"$WANT\" red  [${EL}s]"; PROVEN=$((PROVEN+1)); fi
+    else echo "  PROVEN    $NAME — removing it turns \"$CLS.$WANT\" red  [${EL}s]"; PROVEN=$((PROVEN+1)); fi
     rm -rf "$E"
   done
   echo "=== targeted unit mutants: $PROVEN proven, $UNPROVEN unproven ==="

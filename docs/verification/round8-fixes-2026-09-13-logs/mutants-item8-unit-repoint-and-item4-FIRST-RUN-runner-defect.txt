@@ -1,0 +1,8 @@
+label: item4-unit-mutants  started: 2026-09-13T07:46:32Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: f06849af8d2d2a649aa3db32feabdbf6d7843b18  dirty: 7
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item4-unit-mutants/engine-base  workspaces.py sha256: 11b97f5e3c8dc09f
+declarations read from the harness: 49
+  PROVEN    p03-unpaired-post-attributes-nothing — removing it turns "Point14_IntegrationBranch.test_point_03_a_post_that_carries_no_call_id_still_ends_a_call" red  [1s]
+  UNPROVEN  p05-a-notification-counts-as-the-ceo — "test_point_05_answering_the_ceo_names_the_pending_work" still PASSED without this property  [0s]
+=== targeted unit mutants: 1 proven, 1 unproven ===
+finished: 2026-09-13T07:46:33Z

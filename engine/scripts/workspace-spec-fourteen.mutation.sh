@@ -65,8 +65,8 @@ mutant S-p01-raw-worktree-add-allowed "C1.2 " "$G" \
 
 # --- point 2: no recorded mechanical incident; SPEC-DERIVED only --------------
 mutant S-p02-bash-guard-lets-codex-branch-go "C2.2 " "$G" \
-    '        if deletes and any(re.search(r"(?:^|refs/heads/)codex/\S+", t) for t in rest):{NL}            spec.append("git branch -D of a codex/ branch (codex/ is never touched — point 2)")' \
-    '        if False:{NL}            spec.append("git branch -D of a codex/ branch (codex/ is never touched — point 2)")' \
+    '                if deletes:{NL}                    _refuse_delete(kind, "git branch -d/-D", t)' \
+    '                if False:{NL}                    _refuse_delete(kind, "git branch -d/-D", t)' \
     "SPEC-DERIVED (point 2 negated; no recorded incident): 'git branch -D codex/x' in Bash would delete a codex/ branch with no refusal."
 mutant S-p02-cc-copy-not-required "C2.4 " "$C" \
     '    codex/*|refs/heads/codex/*)' \

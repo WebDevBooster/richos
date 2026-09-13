@@ -435,9 +435,11 @@ python3 - "$GUARD" <<'PY_MUTANT'
 from pathlib import Path
 import sys
 path=Path(sys.argv[1]);source=path.read_text()
-old='''        if deletes and any(re.search(r"(?:^|refs/heads/)codex/\S+", t) for t in rest):'''
+old='''                if deletes:
+                    _refuse_delete(kind, "git branch -d/-D", t)'''
 assert source.count(old)==1
-path.write_text(source.replace(old,'''        if False:'''))
+path.write_text(source.replace(old,'''                if False:
+                    _refuse_delete(kind, "git branch -d/-D", t)'''))
 PY_MUTANT
 if applied M14 "a codex/ branch may be deleted"; then
     check M14 "a codex/ branch may be deleted" "S7 "
