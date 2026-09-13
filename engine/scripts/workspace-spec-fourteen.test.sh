@@ -583,6 +583,15 @@ git -C "$ENT" merge -q --no-edit "worktree-agent-au1u1u1u1u1u1u1u1"
 ws land zach-opus-u1 >"$T/land.out" 2>&1; r3=$?
 sub "C8.3 committed and merged, the land is still refused for the ignored .env the main checkout lacks (exit $r3)" \
     "[ $r3 -eq 2 ] && grep -q 'ignored' '$T/land.out' && [ -e '$NPU/.env' ]" "$(cat "$T/land.out")"
+# SAME NAME, SAME SIZE, DIFFERENT BYTES (round 8, item 5; brief-audit-frank-round8 §5 F-A and F-H).
+# Until this sub-assertion the .env reached the main checkout only by `cp`, so the two files
+# compared were always identical bytes: a `_same_file` that always said True, or one that
+# stopped at the size test, survived every check. A rotated key of equal length is the
+# realistic case, and it is the one that makes both mutants red at once.
+printf 'SECRET=nEEded\n' > "$ENT/.env"                      # 14 bytes, like the workspace's, other bytes
+ws land zach-opus-u1 >"$T/land.out" 2>&1; r8=$?
+sub "C8.8 an ignored file the main checkout has under the SAME NAME and SAME SIZE with DIFFERENT BYTES still holds the land (exit $r8), named by path — compared by content, not by name or size" \
+    "[ $r8 -eq 2 ] && grep -q '\\.env' '$T/land.out' && [ -e '$NPU/.env' ] && [ \"\$(wc -c < '$ENT/.env')\" = \"\$(wc -c < '$NPU/.env')\" ]" "$(cat "$T/land.out")"
 cp "$NPU/.env" "$ENT/.env"                                  # Rich keeps what it needs
 # THE RECORDED INCIDENT'S SHAPE (09-10 §3b.2; round 6, Frank §2.1): an ignored DIRECTORY the main
 # checkout also has — `.claude/`, which every main checkout on this machine carries — used to be
@@ -633,6 +642,28 @@ sub "C9.4 and it was stopped BEFORE the deletion: the store's history reads 'pro
     "[ \"$ORDER\" = 'processes-stopped deleted ' ]" "order=[$ORDER]"
 barrier "ap1p1p1p1p1p1p1p1" Write; r3=$?
 sub "C9.5 restarted after its workspace is gone: still refused ($r3)" "[ $r3 -eq 2 ]"
+# A PROCESS THAT IGNORES TERM (round 8, item 5; brief-audit-frank-round8 §5 F-G). C9.2–C9.4
+# use a `sleep` that dies on SIGTERM, so removing the SIGKILL escalation survived them. "When
+# an agent is finished, every process it started is stopped before its workspaces are deleted."
+spawn "zach-opus-p2" "start a process that ignores TERM"
+platform_spawn "zach-opus-p2" "ap2p2p2p2p2p2p2p2"
+NPP2="$ENT/.claude/worktrees/agent-ap2p2p2p2p2p2p2p2"
+commit_in "$NPP2" p2.txt
+HOLD2_PID="$(cd "$NPP2" && sh -c 'python3 -c "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(3600)" >/dev/null 2>&1 & echo $!')"
+subagent_stop "ap2p2p2p2p2p2p2p2"
+kill -0 "$HOLD2_PID" 2>/dev/null && H2_BEFORE=1 || H2_BEFORE=0
+kill -TERM "$HOLD2_PID" 2>/dev/null; sleep 0.3
+kill -0 "$HOLD2_PID" 2>/dev/null && H2_IGNORES=1 || H2_IGNORES=0
+sub "C9.6a POSITIVE CONTROL: the holder is alive (pid $HOLD2_PID, alive=$H2_BEFORE) and IGNORES TERM (still alive after SIGTERM: $H2_IGNORES)" "[ $H2_BEFORE -eq 1 ] && [ $H2_IGNORES -eq 1 ]"
+git -C "$ENT" merge -q --no-edit "worktree-agent-ap2p2p2p2p2p2p2p2"
+stop_gate; rc6=$?
+sleep 0.3
+H2_ALIVE=0; kill -0 "$HOLD2_PID" 2>/dev/null && H2_ALIVE=1
+KEY2="$(basename "$(done_rec zach-opus-p2 2>/dev/null)" .json)"
+SURV="$(grep '"event": "processes-stopped"' "$STORE/events.jsonl" | grep "$HOLD2_PID" | grep -o '"survivors": [^,}]*' | tail -1 | tr -d '"')"
+sub "C9.6 a process that ignores TERM is dead after the land (exit $rc6, alive=$H2_ALIVE): the SIGKILL escalation, and the store records no survivor ($SURV)" \
+    "[ $rc6 -eq 0 ] && [ $H2_ALIVE -eq 0 ] && [ ! -e '$NPP2' ] && [ -n '$KEY2' ] && [ '$SURV' = 'survivors: null' ]" "alive=$H2_ALIVE survivors=[$SURV] $(cat "$T/stop.err")"
+HOLD_PID="$HOLD2_PID"   # cleanup kills it if the land did not
 verdict
 
 # ===========================================================================
@@ -725,6 +756,25 @@ stop_gate; rh2=$?
 sub "C11.7 an agent that ends AFTER HANDING IN its work is finished even though a pause was sent: locked out ($rh1) and pending ($rh2), by name" \
     "[ $rh1 -eq 2 ] && [ $rh2 -eq 2 ] && grep -q 'zach-opus-h2' '$T/stop.err'" "$(cat "$T/barrier.err" "$T/stop.err")"
 git -C "$ENT" merge -q --no-edit worktree-agent-ah2h2h2h2h2h2h2h2
+stop_gate >/dev/null 2>&1
+# HANDED IN AND STILL RUNNING (round 8, item 5; brief-audit-frank-round8 §5 F-F). "'Finished'
+# means the agent's run has ended": between TaskCompleted and its own SubagentStop the agent
+# is not finished — it may still write and nothing is pending. C11.7 called task_completed
+# and subagent_stop back to back, so a finished_state that read handed_in BEFORE the end
+# signal survived it.
+spawn "zach-opus-h3" "hand in, then keep running"
+platform_spawn "zach-opus-h3" "ah3h3h3h3h3h3h3h3"
+NPH3="$ENT/.claude/worktrees/agent-ah3h3h3h3h3h3h3h3"
+commit_in "$NPH3" h3.txt
+task_completed "ah3h3h3h3h3h3h3h3" "zach-opus-h3"          # handed in; its run has NOT ended
+barrier "ah3h3h3h3h3h3h3h3" Edit; rh3=$?
+stop_gate; rh4=$?
+sub "C11.8 handed in and STILL RUNNING: not finished — it may still write ($rh3) and nothing is pending ($rh4); only its own end of run finishes it" \
+    "[ $rh3 -eq 0 ] && [ $rh4 -eq 0 ] && ! grep -q 'zach-opus-h3' '$T/stop.err'" "$(cat "$T/barrier.err" "$T/stop.err")"
+subagent_stop "ah3h3h3h3h3h3h3h3"
+barrier "ah3h3h3h3h3h3h3h3" Edit; rh5=$?
+sub "C11.8b and after its own end of run it is finished ($rh5 = refused), as C11.7" "[ $rh5 -eq 2 ]" "$(cat "$T/barrier.err")"
+git -C "$ENT" merge -q --no-edit worktree-agent-ah3h3h3h3h3h3h3h3
 stop_gate >/dev/null 2>&1
 verdict
 

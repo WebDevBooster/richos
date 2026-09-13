@@ -204,6 +204,14 @@ mutant R-p08-ignored-needed-files-landed "C8.3 " "$W" \
     '            if ignored and not ignored_ok:' \
     '            if False:' \
     "RECORDED [lifecycle-failure-record-2026-09-10.md §3b.2, 2026-09-10: an ignored nested repository under a 'disposable' path deleted with no copy taken; scripts/inflight-ack.sh header, 2026-09-05: echo-opus-529's three gitignored acks deleted with its unchanged worktree]: a workspace with ignored files it needs would be landed and the files lost."
+mutant S-p08-same-name-is-same-file "C8.8 " "$W" \
+    'def _same_file(a, b):{NL}    try:' \
+    'def _same_file(a, b):{NL}    return True{NL}    try:' \
+    "SPEC-DERIVED (point 8 negated, 'Deletion therefore never loses anything that was meant to land'; constructed by frank-fable-b3 as F-A, brief-audit-frank-round8 §5, which survived the round-7 fourteen): an ignored file the main checkout has under the same NAME with different bytes would be deleted by a land that reports success."
+mutant S-p08-same-size-is-same-file "C8.8 " "$W" \
+    '        with open(a, "rb") as fa, open(b, "rb") as fb:{NL}            return hashlib.sha1(fa.read()).digest() == hashlib.sha1(fb.read()).digest()' \
+    '        return True' \
+    "SPEC-DERIVED (point 8 negated; constructed by frank-fable-b3 as F-H, brief-audit-frank-round8 §5, and the reason C8.8's two files are the same SIZE): same size would mean identical, so a rotated key of equal length would be deleted by a land that reports success."
 mutant S-p08-uncommitted-landed "C8.1 " "$W" \
     '            if dirty:{NL}                problems.append("%s has %d uncommitted entr%s (%s)" % (' \
     '            if False:{NL}                problems.append("%s has %d uncommitted entr%s (%s)" % (' \
@@ -218,6 +226,10 @@ mutant R-p09-finished-agent-not-locked-out "C9.1 " "$W" \
     '    if fin:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
     '    if False:{NL}        return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)' \
     "RECORDED [lifecycle-failure-record-2026-09-10.md §3b.1 and §3b.5, 2026-09-10: thirteen agents restarted after their terminal record, 0.3 s to 8 h later, three deliverables lost to it; lifecycle-failure-record-2026-09-11.md §2 S4: the fourteenth]: a restarted finished agent would be given its tools back."
+mutant S-p09-sigkill-escalation-removed "C9.6 " "$W" \
+    '    for p in alive:{NL}        try:{NL}            os.kill(p, signal.SIGKILL)' \
+    '    for p in []:{NL}        try:{NL}            os.kill(p, signal.SIGKILL)' \
+    "SPEC-DERIVED (point 9 negated, 'every process it started is stopped before its workspaces are deleted'; constructed by frank-fable-b3 as F-G, brief-audit-frank-round8 §5, which survived the round-7 fourteen because C9's holder dies on TERM): a process that ignores SIGTERM would outlive the deletion of its workspace."
 mutant R-p09-processes-not-stopped "C9.3 " "$W" \
     '    stopped = stop_processes([w["path"] for _r, w in allw])' \
     '    stopped = {"stopped": [], "survivors": []}' \
@@ -250,6 +262,10 @@ mutant S-p11-nameless-pause-not-pending "C11.5 " "$W" \
     '            if paused_ and rec.get("session_id") == me and not (rec.get("pause") or {}).get("until"):' \
     '            if False:' \
     "SPEC-DERIVED (point 11 negated, 'a pause with nothing named counts as pending work under point 5'): a pause naming nothing would block nothing and stay paused forever."
+mutant S-p11-handed-in-finishes-before-the-run-ends "C11.8 " "$W" \
+    '    end = rec.get("end"){NL}    if end:{NL}        if end.get("signal") == "stopped":' \
+    '    if rec.get("handed_in"):{NL}        return True, False, "handed in"{NL}    end = rec.get("end"){NL}    if end:{NL}        if end.get("signal") == "stopped":' \
+    "SPEC-DERIVED (point 11 negated, \"'Finished' means the agent's run has ended\"; constructed by frank-fable-b3 as F-F, brief-audit-frank-round8 §5, which survived the round-7 fourteen because C11.7 handed in and ended back to back): an agent that handed in its work would be locked out and landable while its run is still going."
 mutant S-p11-handed-in-then-ended-not-finished "C11.7 " "$W" \
     '        if rec.get("handed_in"):{NL}            return True, False, "it ended after handing in its work (point 11)"' \
     '        if False:{NL}            return True, False, "it ended after handing in its work (point 11)"' \
