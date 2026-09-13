@@ -1,8 +1,34 @@
 # How many more times: the measured exposure to failure type V, and the mechanism that ends it
 
 **Date:** 2026-09-14
-**Base:** `richos` main at `082ef5cd`, `femcboost` main at `53fae74c1`
+**Measured at:** `richos` main `082ef5cd`, `femcboost` main `53fae74c1`
+**Re-measured at:** `richos` main `953b0369` (see §0.1 — main moved mid-task and one of
+these findings was fixed under me)
 **Scope:** `/Users/alex/ab/richos` and `/Users/alex/ab/femcboost`, the 14 days ending 2026-09-14
+
+---
+
+## 0.1 Main moved under this work, and it changed one of the answers
+
+This brief was measured against `082ef5cd`. While it was being written, `richos` main moved
+to `953b0369`, and `engine/scripts/hooks/engine-status.sh` was corrected there: it now names
+`spawn.sh` five times, ahead of the commands it supersedes.
+
+**So the engine half of the finding in §1.3 is FIXED, by someone else, while this was being
+written.** The measurement is kept exactly as it was taken, because a record that quietly
+rewrites itself to match the present is worth nothing — and because the fix does not change
+what the measurement was for. Every fact below was true at `082ef5cd`. What changed:
+
+| | at `082ef5cd` (as measured) | at `953b0369` (re-run) |
+|---|---|---|
+| `engine-status.sh:229` | stale — 2 findings | **fixed** — 0 findings |
+| `femcboost/CLAUDE.md:203` | stale — 1 finding | **still stale** — 1 finding |
+| Layer EP on the engine | FAIL (exit 2) | **PASS (exit 0)** |
+
+**This is the argument for the mechanism, not against it.** The instruction was corrected by
+hand, once, by a teammate who happened to be looking at that file — which is exactly how the
+six clean rows in §1.3 got clean, and exactly what failed on 2026-09-13. The check is what
+makes the next one not depend on somebody happening to look.
 
 ---
 
@@ -255,7 +281,7 @@ lands.
 
 ### 3.4 The suite
 
-`engine/scripts/entrypoint-currency-lint.test.sh` — **23 cases, 23 green**, discovered
+`engine/scripts/entrypoint-currency-lint.test.sh` — **25 cases, 25 green**, discovered
 automatically by `run-all-tests.sh`. The paired case is the one that matters: it refuses
 the real defect AND passes the corrected string, because a negative test alone is
 satisfied by a lint that refuses everything.
@@ -298,12 +324,37 @@ the parts that are not mechanized are named here rather than implied away.
 
 ---
 
-## 5. Sequencing, because this layer is RED on main today
+## 5. Landing state
 
-Layer EP fails on `main` right now, and that is the proof it works — `engine-status.sh:229`
-still names the superseded spawn path, and another teammate owns that file this session.
+**Superseded by §0.1.** Escalation `esc-20260913T235025Z-65a24aec` said this branch had to
+land with or after the `engine-status.sh` fix, because Layer EP was red on `main`. That fix
+landed at `953b0369`. **The branch is rebased onto it and Layer EP is GREEN on the engine
+(exit 0).** There is no longer a landing-order constraint, and the escalation should be
+closed as overtaken rather than acted on.
 
-**Land this with or after that fix.** Landed before it, the integrity probe carries a
-26th red layer that is true and actionable but blocks nothing anyone can fix from this
-branch. The femcboost `CLAUDE.md:203` site is a separate one-clause correction in a
-separate repository, and until it lands the lint reports it there.
+What remains open is in the other repository: `femcboost/CLAUDE.md:203` still tells Rich to
+create every cross-repository worktree with `create-teammate-worktree.sh` and never names
+`spawn.sh`. That is a one-clause correction in femcboost, not in this branch, and until it
+lands the lint reports it — which is the check doing its job rather than a defect in it.
+
+---
+
+## 6. One more gap, found by the suite and fixed here
+
+The first version of Layer EP scanned **one** root. In an engine-development session the
+governed repository and the engine are the same directory, so it looked right and passed.
+In the normal by-reference deployment they are not — `REPO_ROOT` is the product repository
+and the engine is somewhere else entirely — and `scripts/hooks/engine-status.sh`, **the file
+type V was made of**, lives in the engine. A single-root scan would have checked everything
+except the announcement, in every session that matters.
+
+It was caught by the integrity suite's own sandbox, where the entity is a fixture with no
+instruction surfaces at all: **Layer EP passed there by having nothing to look at.** A layer
+that passes because it found nothing to check is the same shape as the defect it is for.
+
+Both roots are now scanned, pinned by a case that fails without the fix. Two smaller
+corrections of the same kind came with it, each a thing that was right only because two
+values happened to be equal: where the CODE is versus which roots to SCAN (both were
+answered with `ENGINE_ROOT`), and executed-versus-sourced (inferred from "is `emit_fail`
+defined", which also decided whether to parse arguments, so sourcing the layer into any
+shell carrying positional parameters made it refuse them as its own).
