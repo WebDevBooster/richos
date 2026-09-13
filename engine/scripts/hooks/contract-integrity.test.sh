@@ -2186,8 +2186,19 @@ rm -rf "$ROOT"
 
 # Case 52 — registration at spawn broken (sidecar refreshed): no spawn can be
 # registered, so none may happen (point 3), and the canary's spawn is refused.
+#
+# THE ANCHOR CARRIES THE LINE ABOVE IT, AND THAT IS NOT DECORATION. The bare
+# `if not sid or not tuid:` was unique to register_spawn until e41e00f9
+# (2026-09-12) gave the native-start registration the same two lines; from then
+# on q_mutate_registry's uniqueness assertion fired and this case died with
+# "registry anchor drifted" — a mutation that stopped mutating, reported as a
+# suite failure rather than silently passing, which is the assertion working.
+# `isolation = ...` belongs to register_spawn alone, so the pair names the
+# function this case is about.
 ROOT="$(make_sandbox)"
-q_mutate_registry "$ROOT" '    if not sid or not tuid:' '    if True:'
+q_mutate_registry "$ROOT" '    isolation = str(ti.get("isolation") or "")
+    if not sid or not tuid:' '    isolation = str(ti.get("isolation") or "")
+    if True:'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "52.registration-at-spawn-broken-fails-layerQ-canary" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'a well-formed spawn was not registered'; then
