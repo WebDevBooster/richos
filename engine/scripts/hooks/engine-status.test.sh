@@ -563,6 +563,21 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # Stop). The other inventories were derived the way the note above says:
 # hooks.json, .claude/settings.local.json, the probe's BR_EXPECTED, Layer R and
 # Layer M lists, and Layer Q, all of which carry the change.
+# observe-created-refs.sh, added 2026-09-13 for a registration landed at
+# 84e12d32 (2026-09-12): the POST half of the created-refs pair, matcherless on
+# PostToolUse. guard-sealed-worktree.sh snapshots every repository's refs when
+# an agent's tool call starts; this one reads them again when it ends, so a ref
+# that is new AND carries that agent's unlanded work was CREATED by it (the
+# workspace spec's points 3 and 10). It landed in hooks/hooks.json and in NO
+# other inventory, and four suites said so — this case, hook-staleness case 11,
+# session-evidence's registration test and the probe's BR2 — which is the case
+# working, not four failures. The other inventories were derived the way this
+# note prescribes rather than guessed: `grep -rln guard-sealed-worktree engine/`
+# (its own PRE half) named hooks/hooks.json, .claude/settings.local.json, this
+# set, the probe's BR_EXPECTED and README.md's table. THE SEATED SURFACE WAS A
+# REAL GAP, not paperwork: the pair's PRE half was wired in
+# .claude/settings.local.json and the POST half was not, so in this repository's
+# own sessions the snapshot was taken and never read.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
 detect-nonnative-worktree.sh
@@ -611,6 +626,7 @@ notice-unasked-deferral.sh
 notice-unlanded-branches.sh
 notice-unstarted-rows.sh
 notice-waiver-repetition.sh
+observe-created-refs.sh
 reader-teammate-hint.sh
 scan-secrets.sh
 session-start-ceo-ask.sh

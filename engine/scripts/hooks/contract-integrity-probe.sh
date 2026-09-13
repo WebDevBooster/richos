@@ -1048,6 +1048,7 @@ guard-vendoring-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 guard-ci-red-lands.sh|PreToolUse
 guard-stop-live-work.sh|PreToolUse
+observe-created-refs.sh|PostToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
