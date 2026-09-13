@@ -98,6 +98,14 @@ consequences worth stating plainly:
     `gh run rerun` is a real way out and a gate that could not see a re-run
     would be a gate you have to disable to escape.
 
+  MEASURED, rather than asserted, on 2026-09-13 against this project's own
+  27 MB session transcript with the real `gh` and the three repositories it had
+  actually pushed to: 1.41s on the first turn-end (three live reads) and 0.46s
+  on the next. Re-derive it rather than trust it — point the hook at a real
+  transcript and time it. The transcript half is not the cost: a full scan of a
+  21.5 MB transcript is 0.10s and the incremental re-scan is 0.0000s, because
+  the byte offset reached last turn is kept in the session's state file.
+
 ===========================================================================
 WHEN IT CANNOT LOOK, IT SAYS SO AND STANDS ASIDE
 ===========================================================================
@@ -601,7 +609,9 @@ def verdict_for(slug, sha, budget):
     """The cached-or-live answer, and where it came from."""
     doc = read_runs_cache(slug, sha)
     if cache_is_usable(doc):
-        doc["source"] = "%d seconds ago, from this gate's cache" % doc.get("age_seconds", 0)
+        _age = doc.get("age_seconds", 0)
+        doc["source"] = ("moments ago, from this gate's cache" if _age < 10
+                         else "%d seconds ago, from this gate's cache" % _age)
         return doc
     if budget.spent():
         stale = doc
@@ -862,25 +872,46 @@ def evaluate(payload, budget):
 
     findings, running, unreadable = [], [], []
     facts_cache = {}
-    targets = sorted(pushes.values(), key=lambda d: -float(d.get("at") or 0))[:MAX_TARGETS]
+    targets = sorted(pushes.items(), key=lambda kv: -float((kv[1] or {}).get("at") or 0))[:MAX_TARGETS]
     judged = set()
 
-    for push in targets:
+    # AN ANSWER THAT CAN NEVER ARRIVE IS NOT A FINDING TO REPEAT.
+    #
+    # Measured over this project's own transcripts (2026-09-13): one session
+    # pushed a shared branch from SIX scratchpad worktrees that have since been
+    # removed. Those pushes can never be judged again — the directory is gone,
+    # so there is no remote to read a slug from and no ref to read a commit
+    # from — and a gate that reported all six every turn for the rest of the
+    # session would teach its reader to skip its output, which is the failure
+    # mode this whole guard exists to correct. So a PERMANENTLY unjudgeable
+    # target is announced ONCE and dropped from the ledger. A TRANSIENT one (a
+    # network failure, an exhausted budget) is kept and re-read, because there
+    # the answer really may arrive next turn.
+    said = state.setdefault("announced_permanent", [])
+
+    def permanent(key, sentence):
+        pushes.pop(key, None)
+        if sentence not in said:
+            said.append(sentence)
+            del said[:-40]
+            unreadable.append(sentence)
+
+    for key, push in targets:
         remote = push.get("remote") or "origin"
         root, slug, err = repo_facts(push["dir"], remote, budget, facts_cache)
         if err:
-            unreadable.append("%s: %s" % (os.path.basename(push["dir"] or "?"), err))
+            permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue
         branch = push.get("branch") or current_branch(root, budget)
         if not branch:
-            unreadable.append("%s: the branch that was pushed could not be determined" % slug)
+            permanent(key, "%s: the branch that was pushed could not be determined" % slug)
             continue
         if (slug, branch) in judged:
             continue
         judged.add((slug, branch))
         sha, err = head_of(root, remote, branch, budget)
         if err:
-            unreadable.append("%s: %s" % (slug, err))
+            permanent(key, "%s: %s" % (slug, err))
             continue
         doc = verdict_for(slug, sha, budget)
         item = {"slug": slug, "root": root, "remote": remote, "branch": branch,

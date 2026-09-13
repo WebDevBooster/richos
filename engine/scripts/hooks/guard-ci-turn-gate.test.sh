@@ -481,6 +481,46 @@ else
     bad "7b. the push parser" "$PARSED"
 fi
 
+# ===========================================================================
+# 8. AN ANSWER THAT CAN NEVER ARRIVE IS SAID ONCE, NOT EVERY TURN
+# ===========================================================================
+# This case is here because the real transcripts had it: one session pushed a
+# shared branch from SIX scratchpad worktrees that were later removed. A gate
+# that reported all six at every turn-end for the rest of the session teaches
+# its reader to skip its output — which is the exact failure it exists to
+# correct, rebuilt one level up.
+GONE="$SANDBOX/gone-worktree"
+mkdir -p "$GONE"
+python3 - "$SANDBOX/gone.jsonl" "$GONE" "$SANDBOX" <<'PY'
+import json, sys, time
+print(json.dumps({"type": "assistant", "cwd": sys.argv[3],
+                  "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "message": {"role": "assistant", "content": [
+                      {"type": "tool_use", "id": "t1", "name": "Bash",
+                       "input": {"command": "cd %s && git push -q origin dev/x" % sys.argv[2]}}]}}),
+      file=open(sys.argv[1], "w"))
+PY
+rm -rf "$GONE"          # the worktree is landed and removed, as they always are
+gone_fire() {
+    python3 - s-gone "$SANDBOX/gone.jsonl" "$REPO" <<'PY' | PATH="$BIN:$PATH" RICHOS_ENTITY_ROOT="$REPO" CI_TURN_GATE_STATE_DIR="$SANDBOX/state-gone" CI_TURN_GATE_ACK_LOG="$SANDBOX/acks.log" bash "$HOOK" 2>/dev/null
+import json, sys
+print(json.dumps({"hook_event_name": "Stop", "session_id": sys.argv[1],
+                  "transcript_path": sys.argv[2], "cwd": sys.argv[3],
+                  "stop_hook_active": False, "last_assistant_message": "Done."}))
+PY
+}
+GONE1="$(gone_fire)"
+GONE2="$(gone_fire)"
+case "$GONE1" in
+    *"no longer exists"*) ok "8a. a push from a worktree that has since been removed is announced once" ;;
+    *) bad "8a. announced once" "first turn-end said nothing about it: $(printf '%s' "$GONE1" | head -c 200)" ;;
+esac
+if [ -z "$GONE2" ]; then
+    ok "8b. and NOT again at the next turn-end — an answer that can never arrive is not repeated"
+else
+    bad "8b. not repeated" "it said it again: $(printf '%s' "$GONE2" | head -c 200)"
+fi
+
 echo ""
 printf 'passed %d, failed %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
