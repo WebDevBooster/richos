@@ -589,6 +589,27 @@ MT_Q_EOF
                 >"$MT_SB/entity/orchestration.config"
             printf -- '---\nname: mtjudge\nmodel: opus\n---\nA sandbox judgment role that exists only for this canary.\n' \
                 >"$MT_SB/entity/.claude/agents/mtjudge.md"
+            # THE ALLOWED LEG HAS TO REACH THE END OF THE GUARD, AND SINCE ROUND 7
+            # (eedfbc7d) the end of the guard is clause 7: a spawn is REGISTERED or
+            # it does not happen, and registration refuses a repository with no
+            # recorded body of work (point 14). A bare directory therefore fails
+            # this canary with exit 2 for a reason that has nothing to do with
+            # model tiers — which is exactly how it read on main at a6a9e888. So
+            # the sandbox is a real repository on `main` with the recording point
+            # 14 requires, and the only thing left that can refuse the fable leg is
+            # clause 6, which is what MT is the canary for.
+            MT_SB_OK=1
+            git -C "$MT_SB/entity" init -q -b main >/dev/null 2>&1 || MT_SB_OK=0
+            printf '.claude/\n' >"$MT_SB/entity/.gitignore"
+            git -C "$MT_SB/entity" add -A >/dev/null 2>&1 || MT_SB_OK=0
+            GIT_CONFIG_GLOBAL=/dev/null git -C "$MT_SB/entity" \
+                -c user.name=probe -c user.email=probe@example.invalid \
+                commit -q -m seed >/dev/null 2>&1 || MT_SB_OK=0
+            env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" \
+                GIT_CONFIG_GLOBAL=/dev/null \
+                python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$MT_SB/entity" \
+                --session mt-canary-0000 integration --repo "$MT_SB/entity" --branch main \
+                --why "the model-tier canary's body of work" >/dev/null 2>&1 || MT_SB_OK=0
             mt_spawn() { # <name> <model>
                 printf '{"tool_name":"Agent","cwd":"%s","session_id":"mt-canary-0000","tool_use_id":"mt-canary-tu","tool_input":{"subagent_type":"mtjudge","name":"%s","isolation":"worktree","model":"%s","prompt":"canary"}}' \
                     "$MT_SB/entity" "$1" "$2"
@@ -600,7 +621,12 @@ MT_Q_EOF
             MT_UP_RC=$?
             set -e
             rm -rf "$MT_SB"
-            if [ "$MT_DOWN_RC" -ne 2 ]; then
+            if [ "$MT_SB_OK" -ne 1 ]; then
+                # A FAILURE, not a warning, for Layer Q's reason: a canary whose
+                # sandbox never got built proves nothing, and a warning here would
+                # read as "MT was checked" on a run where it was not.
+                emit_fail "MT. CANARY DID NOT RUN — the sandbox repository (init, seed commit, or the point-14 recording) failed to build, so the two-sided tier check never executed. The declaration and the parser hash are verified; BEHAVIOR IS NOT."
+            elif [ "$MT_DOWN_RC" -ne 2 ]; then
                 emit_fail "MT. the spawn guard did NOT refuse an override to a LOWER tier (opus-default teammate on sonnet: exit=$MT_DOWN_RC, expected 2). Clause 6 is not enforcing the declared order."
             elif ! printf '%s' "$MT_DOWN_ERR" | grep -qF 'model-downgrade-ack:'; then
                 emit_fail "MT. the spawn guard refused a lower-tier override but did NOT name the remedy line (model-downgrade-ack:) — a refusal that says only \"no\" gets routed around instead of obeyed."
@@ -3323,6 +3349,17 @@ if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/de
         Q_NP="$Q_ENT/.claude/worktrees/agent-$Q_AID"
         if [ "$Q_SB" -eq 1 ]; then
             q_hook workspace-lifecycle.sh "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"probe-ws-0001\",\"cwd\":\"$Q_ENT\"}"
+            # POINT 14, AT ITS OWN ORDERING: "the branch a body of work integrates
+            # on is RECORDED when that work starts, BEFORE ITS FIRST AGENT IS
+            # SPAWNED. Nothing infers it and nothing guesses it." Since round 7
+            # (eedfbc7d) the spawn itself REFUSES without that record, so a canary
+            # that spawns without recording is not testing the spec — it is
+            # testing the operator step it skipped. One command, exactly as Rich
+            # runs it, and it is part of what this canary proves: the recording
+            # has to work for the spawn to be registered at all.
+            q_env python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$Q_ENT" \
+                --session probe-ws-0001 integration --repo "$Q_ENT" --branch main \
+                --why "the integrity probe's workspace canary" >/dev/null 2>&1 || Q_SB=0
             q_hook guard-worktree-isolation.sh "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"probe-ws-0001\",\"tool_use_id\":\"tu-probe\",\"tool_name\":\"Agent\",\"cwd\":\"$Q_ENT\",\"tool_input\":{\"name\":\"zach-opus-probe\",\"subagent_type\":\"zach\",\"isolation\":\"worktree\",\"prompt\":\"probe\"}}"
             [ "$Q_RC" -eq 0 ] || Q_PROBLEMS="$Q_PROBLEMS [a well-formed spawn was not registered: exit $Q_RC: $(head -c 300 "$Q_DIR/err" | tr '\n' ' ')]"
             git -C "$Q_ENT" worktree add -q "$Q_NP" -b "worktree-agent-$Q_AID" >/dev/null 2>&1 || Q_SB=0
