@@ -2193,12 +2193,21 @@ rm -rf "$ROOT"
 # on q_mutate_registry's uniqueness assertion fired and this case died with
 # "registry anchor drifted" — a mutation that stopped mutating, reported as a
 # suite failure rather than silently passing, which is the assertion working.
-# `isolation = ...` belongs to register_spawn alone, so the pair names the
+# `isolation = ...` belonged to register_spawn alone, so the pair named the
 # function this case is about.
+#
+# IT DRIFTED AGAIN on 2026-09-13, and the second time says something the first
+# one did not. register_spawn learned a DRY mode — every refusal evaluated by
+# the same code with the write removed, so a spawn can be checked before it is
+# made instead of costing one refusal per dispatch — and the condition became
+# `if not sid or (not tuid and not dry):`. That spelling is now unique in the
+# file on its own (register_readonly still carries the bare two-condition
+# form), so the anchor is one line again and no longer needs a neighbor to
+# disambiguate it. Both drifts are the uniqueness assertion doing its job: the
+# mutation stopped mutating and SAID SO, rather than passing over code it no
+# longer touched.
 ROOT="$(make_sandbox)"
-q_mutate_registry "$ROOT" '    isolation = str(ti.get("isolation") or "")
-    if not sid or not tuid:' '    isolation = str(ti.get("isolation") or "")
-    if True:'
+q_mutate_registry "$ROOT" '    if not sid or (not tuid and not dry):' '    if True:'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "52.registration-at-spawn-broken-fails-layerQ-canary" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'a well-formed spawn was not registered'; then
