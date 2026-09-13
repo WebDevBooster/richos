@@ -202,8 +202,14 @@ fi
 #    namespaced subagent_type that used to defeat it silently.
 # ===========================================================================
 # Clause 7 registers every allowed file-capable spawn; pin the workspace
-# registry into the sandbox so this suite never touches the record.
+# registry into the sandbox so this suite never touches the record. Point 14:
+# since eedfbc7d (2026-09-12) that registration REFUSES a repository with no
+# recorded body of work, so the recording comes first — otherwise 3a, 3d and 3f
+# read clause 7's refusal and report it as the model clause blocking a truthful
+# spawn.
 export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
+python3 "$SRC_ENGINE/scripts/lib/workspaces.py" --entity "$SESSREPO" --session deadbeef-0000 \
+    integration --repo "$SESSREPO" --branch main --why "the root-contract suite's body of work" >/dev/null
 SPAWN() { # <subagent_type> <name> [model] [prompt]
     local st="$1" nm="$2" md="${3:-}" pr="${4:-}"
     printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_use_id":"toolu_root_contract","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s%s}}' \

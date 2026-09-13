@@ -153,6 +153,19 @@ class PayloadTransport(unittest.TestCase):
                      ('add', 'orchestration.config'), ('commit', '-qm', 'fixture')):
             subprocess.run(['git', '-C', str(self.entity), *args], env=self.env,
                            capture_output=True, check=True)
+        # Point 14: the branch this body of work integrates on is RECORDED before
+        # the first spawn. Since eedfbc7d (2026-09-12) register-spawn REFUSES a
+        # repository without it, which surfaced here as a bare
+        # CalledProcessError(2) out of the line below. The branch is read back
+        # from the fixture rather than typed, because `git init` takes its
+        # default branch name from whatever git is configured with.
+        branch = subprocess.run(['git', '-C', str(self.entity), 'symbolic-ref', '--short', 'HEAD'],
+                                env=self.env, capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run([shutil.which('python3'), str(ENGINE / 'scripts/lib/workspaces.py'),
+                        '--entity', str(self.entity), '--session', SID, 'integration',
+                        '--repo', str(self.entity), '--branch', branch,
+                        '--why', "the transport fixture's body of work"],
+                       env=self.env, capture_output=True, check=True, timeout=30)
         native = self.entity / '.claude/worktrees/agent-agent0large0001'
         spawn = {'hook_event_name': 'PreToolUse', 'session_id': SID, 'tool_use_id': 'tool-large', 'tool_name': 'Agent',
                  'cwd': str(self.entity), 'tool_input': {'name': 'dev-opus-large', 'subagent_type': 'dev',

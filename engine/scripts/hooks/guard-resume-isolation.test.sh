@@ -514,6 +514,12 @@ export RICHOS_SESSION_PID
 TX_ENTITY="$SANDBOX/tx-entity"
 mkdir -p "$TX_ENTITY/.claude/worktrees"
 git -C "$TX_ENTITY" init -q -b main; printf 'seed\n' >"$TX_ENTITY/seed.txt"; git -C "$TX_ENTITY" add -A; git -C "$TX_ENTITY" commit -q -m seed
+# Point 14: the branch this body of work integrates on is RECORDED before the
+# first spawn — since eedfbc7d (2026-09-12) register_spawn refuses without it,
+# and ws_spawn below would then register nothing, leaving every case from T01
+# down judging a recipient that was never there.
+python3 "$WS_PY" --entity "$TX_ENTITY" --session "$SESSION_ID" integration \
+    --repo "$TX_ENTITY" --branch main --why "the resume-guard suite's body of work" >/dev/null
 ws_spawn() { # <name> <agent-id>
     python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[1],"tool_use_id":"tu-"+sys.argv[2],"tool_name":"Agent","tool_input":{"name":sys.argv[2],"subagent_type":"dev","isolation":"worktree","prompt":"x"}}))' "$SESSION_ID" "$1" \
         | python3 "$WS_PY" --entity "$TX_ENTITY" register-spawn >/dev/null

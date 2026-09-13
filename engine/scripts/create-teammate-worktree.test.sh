@@ -51,6 +51,14 @@ printf 'export X=1\n' >"$REPO/.envrc"
 printf 'A=1\n' >"$REPO/app/.env.local"
 printf 'B=2\n' >"$REPO/app/deep/.env.local"
 printf 'not-seeded\n' >"$REPO/app/other.local"
+# Point 14: "The branch a body of work integrates on is RECORDED when that work
+# starts, before its first agent is spawned. Nothing infers it and nothing
+# guesses it." Since eedfbc7d (2026-09-12) register_cc REFUSES a repository with
+# no current body of work, and this helper registers BEFORE it creates — so
+# without this line every creation below is refused and the suite tests the
+# operator step it skipped, not the helper. One command, exactly as Rich runs it.
+python3 "$WS_PY" --entity "$REPO" --session "$RICHOS_SESSION_ID" integration \
+    --repo "$REPO" --branch main --why "the create-teammate-worktree suite's body of work" >/dev/null
 
 echo "=== create-teammate-worktree tests ==="
 
