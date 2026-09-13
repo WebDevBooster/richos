@@ -84,8 +84,43 @@ export RICHOS_SESSION_PID
 trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true' EXIT
 TEST_SID="deadbeef-0000-4000-8000-000000000000"
 
+# POINT 14, AT THE SPAWN. Since eedfbc7d (2026-09-12) registration REFUSES a
+# repository with no current body of work, so a positive-control spawn into a
+# real repository is exit 2 until the recording exists — "RECORDED when that
+# work starts, before its first agent is spawned. Nothing infers it and nothing
+# guesses it." Every case below that expects exit 0 needs it, so the suite does
+# what Rich does, once, here, into its OWN pinned registry.
+#
+# The branch is DERIVED FROM THE REPOSITORY rather than typed, because this
+# suite's subject is the engine's own checkout and that is a different branch on
+# a runner, in a worktree and on a contributor's clone. An agent's own workspace
+# branch (cc/, worktree-) is refused by record_integration by name, so those are
+# never candidates.
+WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+ws_record_integration() { # <repo> <why>
+    local repo="$1" why="$2" main b picked=""
+    main="$(git -C "$repo" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+    [ -n "$main" ] || return 0                  # not a repository: nothing to record
+    for b in main master "$(git -C "$main" symbolic-ref --quiet --short HEAD 2>/dev/null)" \
+             $(git -C "$main" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
+        case "$b" in ""|cc/*|worktree-*) continue ;; esac
+        git -C "$main" rev-parse --verify --quiet "refs/heads/$b" >/dev/null 2>&1 || continue
+        picked="$b"; break
+    done
+    if [ -z "$picked" ]; then
+        printf '  FAIL  point-14 setup: no integration branch exists in %s\n' "$main"
+        FAIL=$((FAIL + 1)); return 1
+    fi
+    python3 "$WS_PY" --entity "$repo" --session "$TEST_SID" integration \
+        --repo "$repo" --branch "$picked" --why "$why" >/dev/null || {
+        printf '  FAIL  point-14 setup: could not record %s on %s\n' "$repo" "$picked"
+        FAIL=$((FAIL + 1)); return 1
+    }
+}
+
 PASS=0
 FAIL=0
+ws_record_integration "$RICHOS_ENTITY_ROOT" "the spawn guard suite's body of work"
 
 # run_case <name> <expected-exit> <json>
 run_case() {
@@ -643,6 +678,10 @@ git -C "$CR_REPO" init -q -b main
 printf 'seed\n' >"$CR_REPO/seed.txt"
 git -C "$CR_REPO" add -A
 git -C "$CR_REPO" commit -q -m seed
+# Point 14 again, for the second repository: register_cc refuses an unrecorded
+# one exactly as register_spawn does, so the cc/ workspaces below cannot even be
+# created until this body of work is recorded.
+ws_record_integration "$CR_REPO" "the cross-repo cases' body of work"
 register_cc() { # <session> <teammate> <path> <branch>
     python3 "$WS_PY" --session "$1" register-cc --name "$2" --repo "$CR_REPO" --path "$3" --branch "$4" >/dev/null \
         && git -C "$CR_REPO" worktree add -q -b "$4" "$3" \
