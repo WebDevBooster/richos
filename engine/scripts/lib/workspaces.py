@@ -1266,7 +1266,19 @@ def withdraw_cc(session_id, name, why=""):
     spawned_at, no disposition - if any of those is set this is not an
     un-happened spawn, and `workspaces.sh land` or `discard` is the answer, not
     this. The record is then deleted rather than dispositioned: there is no work
-    to account for, and the event log keeps the trace."""
+    to account for, and the event log keeps the trace.
+
+    THE DELETION IS `_delete`'s, NOT ITS OWN, and that is the whole design of
+    this function rather than a detail. This first hand-rolled the sequence -
+    remove_workspace, then delete_branch, in a loop - and it was correct on the
+    day it was written. Hours later the container reaper landed, adding
+    `stop_containers` inside `_delete` because an agent's container had outlived
+    its agent and its worktree by six weeks. A hand-rolled copy would have
+    quietly kept leaving those containers behind, and nothing would have said
+    so. "Land, discard and the retry are the only code in the engine that
+    deletes a workspace" is an invariant that holds only while every deleter
+    goes through the same one; a fourth copy is how that stops being true.
+    """
     key = named_key(session_id, name)
     rec = load_agent(key)
     if not rec:
@@ -1280,29 +1292,19 @@ def withdraw_cc(session_id, name, why=""):
                             "`workspaces.sh discard %s` - this command withdraws only a registration "
                             "whose spawn never happened." % (name, what, name, name))
     ws = [w for w in live_workspaces(rec) if w.get("path")]
-    failures = []
-    for w in ws:
-        ok, err = remove_workspace(w)
-        if not ok:
-            failures.append(err)
-            continue
-        w["deleted_at"] = now()
-        if w.get("branch"):
-            bok, berr = delete_branch(w.get("repo"), w["branch"])
-            if bok is False:
-                failures.append(berr)
-    if failures:
-        with Lock():
-            save_agent(rec)
-        raise SpecError("%s could not be fully withdrawn: %s" % (name, "; ".join(failures)))
+    paths = [w.get("path") for w in ws]
+    _delete(rec, ws, branches=True, why="withdrawn: " + (why or "its spawn never happened"))
+    fresh = load_agent(key) or rec
+    if [w for w in live_workspaces(fresh) if w.get("path")] or fresh.get("deletion"):
+        raise SpecError("%s could not be fully withdrawn: %s"
+                        % (name, (fresh.get("deletion") or {}).get("last_error", "unknown")))
     with Lock():
         try:
             os.remove(agent_path(key))
         except OSError:
             pass
-    event("withdrawn-cc", key=key, why=why, paths=[w.get("path") for w in ws])
-    return {"withdrawn": [w.get("path") for w in ws]}
-
+    event("withdrawn-cc", key=key, why=why, paths=paths)
+    return {"withdrawn": paths}
 
 
 def register_readonly(payload, entity):
