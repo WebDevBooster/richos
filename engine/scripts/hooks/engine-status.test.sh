@@ -851,6 +851,106 @@ else
     bad "6   python3-absent sandbox" "could not build a python3-free PATH; the fallback went untested"
 fi
 
+# ===========================================================================
+# 7. THE SPAWN INSTRUCTION NAMES THE ONE COMMAND — AND NAMES IT FIRST.
+#
+# This banner is the first instruction every session reads, and on 2026-09-13
+# it was the reason `scripts/spawn.sh` went unused the night after it landed:
+# the string named the four-step path and had never heard of the one-command
+# one. A tool nobody is told to use is a tool that does not exist, and the cost
+# was measured in front of the CEO — 130 s and two guard refusals that spawn.sh
+# would have reported together, before a workspace existed.
+#
+# So this section asserts PRIMACY, not mere presence. "prepare-agent-spawn.py
+# ... or, if you like, spawn.sh" would satisfy a naive grep and would reproduce
+# the exact defect, so the old path must appear AFTER the new one and be marked
+# as the fallback it is. The facts the old string carried and that are still
+# true are asserted too — dropping one while rewriting is the quiet way this
+# announcement gets worse.
+#
+# It asserts nothing about what any guard ACCEPTS. The four-step path still
+# works; this is a check on what we TELL people.
+# ===========================================================================
+
+# spawn_instruction_problems — reads the MODEL channel of the current $OUT and
+# echoes every problem it finds, one per line; silence means correct. A verdict
+# function rather than inline asserts, so case 7z can prove it can fail.
+spawn_instruction_problems() {
+    local model="${OUT#*\"hookSpecificOutput\"}"
+    local i_new i_old
+    case "$model" in
+        *"scripts/spawn.sh"*) : ;;
+        *) echo "the announcement never names scripts/spawn.sh" ;;
+    esac
+    # Length arithmetic on the prefixes, on purpose: presence is not primacy.
+    i_new="${model%%scripts/spawn.sh*}"
+    i_old="${model%%prepare-agent-spawn.py*}"
+    case "$model" in
+        *"scripts/spawn.sh"*"prepare-agent-spawn.py"*) : ;;
+        *"prepare-agent-spawn.py"*)
+            echo "prepare-agent-spawn.py is named ahead of scripts/spawn.sh (${#i_old} < ${#i_new}) — the old path reads as the instruction" ;;
+    esac
+    case "$model" in
+        *FALLBACK*) : ;;
+        *"prepare-agent-spawn.py"*) echo "the four-step path is named without being marked FALLBACK" ;;
+    esac
+    local fact
+    for fact in \
+        "--repo <repo> --type <subagent-type> --brief <file>" \
+        "EVERY PreToolUse[Agent] guard from EVERY surface" \
+        "reports ALL failures together" \
+        "leaves nothing behind" \
+        "isolation:worktree" \
+        "a cwd-only spawn is refused" \
+        "inflight acknowledgement contract" \
+        "grants any guard exemption" \
+        "engine paths, not scripts inside the governed repository"
+    do
+        case "$model" in
+            *"$fact"*) : ;;
+            *) echo "dropped a fact the instruction must carry: \"$fact\"" ;;
+        esac
+    done
+}
+
+banner
+PROBLEMS="$(spawn_instruction_problems)"
+if [ -z "$PROBLEMS" ]; then
+    ok "7a  the spawn instruction names scripts/spawn.sh FIRST, marks the four-step path as the fallback, and keeps every fact the old string carried"
+else
+    bad "7a  spawn instruction" "$(printf '%s' "$PROBLEMS" | tr '\n' ';')"
+fi
+
+# 7z — NEGATIVE CONTROL. Reconstruct the 2026-09-13 defect in the sandbox
+# engine (an announcement naming only the old path) and prove 7a's verdict
+# function goes red. Without this, 7a is a green tick over a check that might
+# be incapable of failing — the wall-of-green problem cases 3 and 4 exist to
+# kill.
+cp "$ENGINE/scripts/hooks/engine-status.sh" "$SANDBOX/engine-status.sh.pristine"
+python3 - "$ENGINE/scripts/hooks/engine-status.sh" <<'MUT'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read()
+i = s.index("    governed)")
+head, tail = s[:i], s[i:]
+tail = tail.replace("STARTING ONE TEAMMATE IS ONE COMMAND:",
+                    "Before each new Agent call, prepare its task-specific JSON with python3", 1)
+tail = tail.replace("'${ENGINE_ROOT}/scripts/spawn.sh'",
+                    "'${ENGINE_ROOT}/scripts/prepare-agent-spawn.py'", 1)
+tail = tail.replace("FALLBACK ONLY", "Also", 1)
+io.open(p, "w", encoding="utf-8").write(head + tail)
+MUT
+banner
+PROBLEMS="$(spawn_instruction_problems)"
+case "$PROBLEMS" in
+    *"never names scripts/spawn.sh"*|*"named ahead of"*|*"without being marked FALLBACK"*)
+        ok "7z  NEGATIVE CONTROL: an announcement naming only the old path is caught (these assertions can fail)" ;;
+    *)
+        bad "7z  negative control" "the historical defect was reported as: '${PROBLEMS:-no problems at all}'" ;;
+esac
+cp "$SANDBOX/engine-status.sh.pristine" "$ENGINE/scripts/hooks/engine-status.sh"
+restore
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf 'engine-status: %d/%d cases pass\n' "$PASS" "$PASS"
