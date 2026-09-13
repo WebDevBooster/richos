@@ -364,8 +364,17 @@ bash_guard "git -C $DEV checkout dev/work"; v11=$?
 agent_bash_guard "$AG_D2" "git -C $DEV checkout -B side/scratch"; v12=$?
 sub "C14.16 the Bash guard refuses the eight verbs that NAME the recorded branch from an agent's call (branch -C, push HEAD:heads/, fetch, pull, checkout -B, switch -C, symbolic-ref, send-pack: exits $v1 $v2 $v3 $v4 $v5 $v6 $v7 $v8) and the plain checkout/switch doorway ($v9 $v10), naming point 14; the lead's checkout passes ($v11) and an agent's -B of an unrecorded branch passes ($v12)" \
     "[ $v1 -eq 2 ] && [ $v2 -eq 2 ] && [ $v3 -eq 2 ] && [ $v4 -eq 2 ] && [ $v5 -eq 2 ] && [ $v6 -eq 2 ] && [ $v7 -eq 2 ] && [ $v8 -eq 2 ] && [ $v9 -eq 2 ] && [ $v10 -eq 2 ] && [ $v11 -eq 0 ] && [ $v12 -eq 0 ] && grep -q 'point 14' '$T/bash-doorway.err'" "$(cat "$T/bash-doorway.err")"
-subagent_stop "ad2d2d2d2d2d2d2d2"
-ws discard zach-opus-d2 --reason "the item-2 fixture is done with, check 14" --not-ceo-ordered "a fixture of this suite" >/dev/null 2>&1
+# THE BOUND OUTSIDE A WINDOW (measured on Sage's runner-round case R8 on 2026-09-13, which my
+# first restore rule broke): with NO call open, the lead merges the agent's OWN branch onto the
+# recorded branch — after the agent's last call, before its end signal. The end-of-run
+# observation compares against a snapshot that may be minutes old; a descendant carrying the
+# agent's own work is its doorway only INSIDE a window, so here it is the lead's land and stays.
+MERGE="$(git -C "$DEV" commit-tree "$(git -C "$CCD2" rev-parse 'HEAD^{tree}')" -p "$(git -C "$DEV" rev-parse dev/work)" -p "$(git -C "$CCD2" rev-parse HEAD)" -m "the lead merges the agent's branch onto dev/work")"
+git -C "$DEV" branch -f dev/work "$MERGE"
+subagent_stop "ad2d2d2d2d2d2d2d2"                                 # the end signal: the last observation, no window open
+ws land zach-opus-d2 >"$T/land-d2.out" 2>&1; rl=$?
+sub "C14.15b PRECISION, outside a window: the lead's merge of the agent's OWN branch onto the recorded branch after its last call and before its end signal is NOT undone at the end signal, and the land proceeds ($rl)" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$MERGE' ] && [ $rl -eq 0 ] && [ ! -e '$CCD2' ] && ! has_branch '$DEV' cc/zach-opus-d2" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$MERGE $(cat "$T/land-d2.out")"
 verdict
 
 # ===========================================================================

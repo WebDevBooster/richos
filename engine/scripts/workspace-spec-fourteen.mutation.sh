@@ -390,6 +390,10 @@ mutant S-p14-the-leads-move-restored-too "C14.15" "$W" \
     '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
     '                    else:{NL}                        why = "moved"' \
     "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it' — landing is his): the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse."
+mutant S-p14-end-of-run-undoes-the-leads-land "C14.15b" "$W" \
+    '                elif b not in windowed:{NL}                    continue' \
+    '                elif False:{NL}                    continue' \
+    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it'; RECORDED shape: certification-sage-runner-round case R8 went RED under this round's first restore rule on 2026-09-13 — the lead's fast-forward of the agent's own branch, made after its last call and before its end signal, was undone at the end signal and the land refused): the own-work rule would apply with no call open."
 mutant S-p14-checkout-doorway-open "C14.16" "$G" \
     '                for t in positional[:1]:        # the branch being checked out' \
     '                for t in []:' \

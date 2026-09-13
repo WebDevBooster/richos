@@ -277,6 +277,11 @@ mutant p14-the-leads-move-restored-too "test_point_14_a_recorded_branch_moved_in
     '                    else:{NL}                        why = "moved"' \
     "the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse (point 14: landing is his)."
 
+mutant p14-end-of-run-undoes-the-leads-land "test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" "$W" \
+    '                elif b not in windowed:{NL}                    continue' \
+    '                elif False:{NL}                    continue' \
+    "the own-work rule would apply with no call open, so the lead's fast-forward of the agent's OWN branch onto the recorded one — made after its last call, before its end signal — would be undone at the end signal and the land would refuse (measured on certification-sage-runner-round case R8, 2026-09-13)."
+
 mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored" "$W" \
     '        cx = _codex_workspace_of(fp){NL}        if cx:' \
     '        cx = _codex_workspace_of(fp){NL}        if False:' \

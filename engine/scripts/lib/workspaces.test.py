@@ -1442,6 +1442,25 @@ class Point14_IntegrationBranch(Base):
         self.post(aid, call="tu-3")
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), lead)
 
+    def test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone(self):
+        """Round 8, item 2 — the bound measured on Sage's runner-round case R8:
+        with NO call open, Rich fast-forwards the recorded branch to the agent's
+        OWN tip (his land of its work, made after its last call and before its
+        end signal). The end-of-run observation compares against the last
+        snapshot, which is minutes old; "a descendant carrying the agent's own
+        work" is the agent's doorway only INSIDE a window, so outside one it is
+        left alone and the land proceeds."""
+        aid, npath = self.spawn("zach-opus-ff")
+        self.tool_call(aid, "tu-1")
+        self.commit(npath, "ff.txt")
+        self.tool_call(aid, "tu-2")                            # the last call closes
+        self.merge(self.entity, "worktree-agent-" + aid)       # the lead's fast-forward of main to the agent's tip
+        tip = run("git", "-C", self.entity, "rev-parse", "main").stdout.strip()
+        self.finish(aid)                                       # the end signal: no window open
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), tip)
+        ws.land("zach-opus-ff", self.sid)
+        self.assertFalse(os.path.exists(npath))
+
     def test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored(self):
         """Round 8, item 3: a codex/ ref moved by any means, or deleted, during
         an agent's call is restored at its PostToolUse; and a registered

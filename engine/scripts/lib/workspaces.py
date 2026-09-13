@@ -2090,16 +2090,30 @@ def _restore_protected_refs(rec, priors, latest):
     The restore is `git update-ref --no-deref refs/heads/<b> <snapshot tip>`:
     it re-creates a deleted ref (its objects survive), overwrites a symref, and
     moves a checked-out branch under its worktree. Returns
-    [(repo, branch, snapshot_tip, found_tip_or_"", why)]."""
+    [(repo, branch, snapshot_tip, found_tip_or_"", why)].
+
+    THE OWN-WORK RULE APPLIES ONLY INSIDE A WINDOW. A descendant that carries
+    the agent's own unlanded commits is evidence of the AGENT's move only while
+    one of its calls is open — the doorway commit happens inside a call. With no
+    window open (the end of the run, compared against the last snapshot, which
+    may be minutes old) the same shape is what Rich's fast-forward of the
+    agent's OWN branch onto the recorded one looks like, made after the agent's
+    last call and before its end signal; measured undoing exactly that in
+    certification-sage-runner-round case R8 on 2026-09-13, and the land then
+    refused. So outside a window only a deletion or a non-descendant move is
+    restored."""
     restored = []
     try:
         ordered = sorted([p for p in priors if isinstance(p.get("tips"), dict)], key=lambda p: p.get("at", 0))
-        if latest and isinstance(latest.get("tips"), dict):
-            ordered.append(latest)
         for repo in _repos_of(rec):
             before = {}
+            windowed = set()
             for prior in ordered:                       # oldest first: the earliest tip is the reference
                 for b, sha in (prior["tips"].get(repo) or {}).items():
+                    before.setdefault(b, sha)
+                    windowed.add(b)
+            if latest and isinstance(latest.get("tips"), dict):
+                for b, sha in (latest["tips"].get(repo) or {}).items():
                     before.setdefault(b, sha)
             if not before:
                 continue
@@ -2115,6 +2129,8 @@ def _restore_protected_refs(rec, priors, latest):
                     why = "deleted"
                 elif not is_ancestor(repo, old, cur):
                     why = "moved to %s, which does not descend from %s (a rewind, a force-move or a symref)" % (cur[:12], old[:12])
+                elif b not in windowed:
+                    continue                            # no call open: a descendant is the lead's land, whatever it carries
                 else:
                     if own is None:
                         # The agent's own unlanded tips are measured against the
