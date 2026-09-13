@@ -484,6 +484,151 @@ fi
 }
 mut_pool_submit M16 _mutant_M16
 
+# === ROUND 8 (items 2, 3): every deleter and mover of a codex/ ref, the verbs
+# that name the recorded branch, the doorway, and work inside a codex/ workspace.
+# Each mutant takes one rule away and names the cases that notice.
+
+# --- M17: a DELETER of a codex/ ref through update-ref/push is no longer refused (point 2).
+_mutant_M17() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    if kind == "codex":
+        spec.append("%s deleting the codex/ ref %s'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''    if False:
+        spec.append("%s deleting the codex/ ref %s'''))
+PY_MUTANT
+if applied M17 "codex/ deleters through update-ref -d / push are allowed"; then
+    check M17 "codex/ deleters through update-ref -d / push are allowed" "CX1 " "CX1b " "CX2 " "CX3 " "CX4 "
+fi
+    _mut_score
+}
+mut_pool_submit M17 _mutant_M17
+
+# --- M18: a WRITER or MOVER of a codex/ ref from an agent is no longer refused (point 2).
+_mutant_M18() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    if kind == "codex":
+        spec.append("%s writing the codex/ ref %s'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''    if False:
+        spec.append("%s writing the codex/ ref %s'''))
+PY_MUTANT
+if applied M18 "an agent may move, create or force-move a codex/ ref"; then
+    check M18 "an agent may move, create or force-move a codex/ ref" "CX6 " "CX7 " "CX7b " "CX8 " "CX9 " "CX9b " "CX9c " "CX9d " "CX10 " "CX10b " "CX12 "
+fi
+    _mut_score
+}
+mut_pool_submit M18 _mutant_M18
+
+# --- M19: the checkout doorway is open again (items 2, 3).
+_mutant_M19() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''                for t in positional[:1]:        # the branch being checked out'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''                for t in []:'''))
+PY_MUTANT
+if applied M19 "an agent may check out a protected branch (the doorway)"; then
+    check M19 "an agent may check out a protected branch (the doorway)" "CX10c " "CX10d " "RG15 " "RG15b "
+fi
+    _mut_score
+}
+mut_pool_submit M19 _mutant_M19
+
+# --- M20: work inside a codex/ workspace from an agent is no longer refused (point 2).
+_mutant_M20() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''if AGENT:
+    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''if False:
+    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):'''))
+PY_MUTANT
+if applied M20 "an agent may work inside a codex/ workspace"; then
+    check M20 "an agent may work inside a codex/ workspace" "CX13 " "CX13b " "CX13c "
+fi
+    _mut_score
+}
+mut_pool_submit M20 _mutant_M20
+
+# --- M21: symbolic-ref is a read again (its two-positional form writes).
+_mutant_M21() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    elif sub == "symbolic-ref":'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''    elif sub == "symbolic-ref" and False:'''))
+PY_MUTANT
+if applied M21 "symbolic-ref may rewrite a protected branch or HEAD"; then
+    check M21 "symbolic-ref may rewrite a protected branch or HEAD" "CX11 " "CX11b " "RG16 " "RG16b "
+fi
+    _mut_score
+}
+mut_pool_submit M21 _mutant_M21
+
+# --- M22: fetch/pull refspecs no longer write (they do).
+_mutant_M22() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    elif sub in ("fetch", "pull"):'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''    elif sub in ("fetch", "pull") and False:'''))
+PY_MUTANT
+if applied M22 "an agent may fetch or pull into a protected branch"; then
+    check M22 "an agent may fetch or pull into a protected branch" "CX9c " "CX9d " "RG13 " "RG13b " "RG13c "
+fi
+    _mut_score
+}
+mut_pool_submit M22 _mutant_M22
+
+# --- M23: a WRITER of the RECORDED branch from an agent is no longer refused (point 14).
+_mutant_M23() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY_MUTANT'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]);source=path.read_text()
+old='''    elif kind == "recorded":
+        spec.append("%s writing %s, the RECORDED integration branch'''
+assert source.count(old)==1
+path.write_text(source.replace(old,'''    elif False:
+        spec.append("%s writing %s, the RECORDED integration branch'''))
+PY_MUTANT
+if applied M23 "an agent may write the recorded branch by any verb that names it"; then
+    check M23 "an agent may write the recorded branch by any verb that names it" "RG5 " "RG6 " "RG7 " "RG11 " "RG12 " "RG14 " "RG14b " "RG17 " "RG18 "
+fi
+    _mut_score
+}
+mut_pool_submit M23 _mutant_M23
+
 # (the `restore` that used to sit here reset the SHARED sandbox before M99.
 #  There is no shared mutated state any more: each mutant had its own copy.)
 # --- the mutant verdicts, drained ------------------------------------------

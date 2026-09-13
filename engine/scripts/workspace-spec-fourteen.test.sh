@@ -176,6 +176,12 @@ agent_bash_guard() { # <agent-id> <command> -> the same guard, in an AGENT's cal
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_name":"Bash","cwd":sys.argv[4],"tool_input":{"command":sys.argv[3]}}))' "$CUR_SID" "$1" "$2" "$ENT" \
         | bash "$HOOKS/guard-worktree-removal.sh" >/dev/null 2>"$T/bash.err"
 }
+barrier_path() { # <agent-id|""> <tool> <file_path> -> the lock-out on a writing tool aimed at a path (an empty agent id = the lead)
+    python3 -c 'import json,sys; d={"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_type":"zach","tool_name":sys.argv[3],"cwd":sys.argv[5],"tool_use_id":"tu-path-"+sys.argv[3],"tool_input":{"file_path":sys.argv[4],"old_string":"x","new_string":"y"}}
+if sys.argv[2]: d["agent_id"]=sys.argv[2]
+print(json.dumps(d))' "$CUR_SID" "$1" "$2" "$3" "$ENT" \
+        | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
+}
 agent_call_pre() { # <agent-id> <tool_use_id> [tool] -> the catch-all PreToolUse (the lock-out) carrying this call's id: it opens the creation window (point 3)
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":sys.argv[4],"cwd":sys.argv[5],"tool_input":{}}))' "$CUR_SID" "$1" "$2" "${3:-Bash}" "$ENT" \
         | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
@@ -308,6 +314,58 @@ agent_bash_guard "$AGENT_ANY" "git branch -f side/scratch HEAD"; r8=$?
 bash_guard "git branch -f dev/work HEAD"; r9=$?
 sub "C14.12 PRECISION: an agent moving a branch nobody recorded passes ($r8), and the lead moving the recorded one passes ($r9) — landing is his" \
     "[ $r8 -eq 0 ] && [ $r9 -eq 0 ]" "$(cat "$T/bash.err")"
+# ROUND 8, ITEM 2 — a RECORDED branch moved by an agent by ANY means. Both reviewers measured
+# eight verbs that name the branch passing the guard and moving it (branch -C, push
+# HEAD:heads/<it>, fetch, pull, checkout -B, switch -C, symbolic-ref, send-pack), and the
+# DOORWAY: a plain `checkout <it>`, after which commit/reset/merge/rebase move it naming
+# nothing, from the agent's worktree or the main checkout. "A longer verb list cannot close
+# this" — so the snapshot/observe pair records the recorded refs' TIPS at an agent's
+# PreToolUse and RESTORES and REPORTS a move at its PostToolUse (C14.13, C14.14); the lead's
+# legitimate move — a descendant carrying none of the agent's work, his land of a FINISHED
+# agent — is not restored (C14.15); and the guard refuses the eight verbs and the doorway by
+# name (C14.16). The agent below has a cc/ workspace in the dev repository.
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$DEV" zach-opus-d2 >/dev/null 2>&1
+CCD2="$T/devrepo-wt/zach-opus-d2"
+spawn "zach-opus-d2" "$(printf 'edit the dev repository\ncross-repo-worktree: %s\n' "$CCD2")"
+platform_spawn "zach-opus-d2" "ad2d2d2d2d2d2d2d2"
+commit_in "$CCD2" d2.txt
+DW_TIP="$(git -C "$DEV" rev-parse dev/work)"
+EV_BEFORE="$(wc -l < "$STORE/events.jsonl")"
+agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-1"
+git -C "$CCD2" checkout -q dev/work && git -C "$CCD2" commit -q --allow-empty -m "moved unnamed"    # THE DOORWAY, from the agent's own worktree
+agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-1"
+git -C "$CCD2" checkout -q cc/zach-opus-d2
+sub "C14.13 the RECORDED branch moved by the UNNAMED doorway (checkout dev/work, then commit — no verb names it) from the agent's own worktree is RESTORED at the call's PostToolUse and reported (event log + the hook's notice)" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-restored\"' | grep -q '\"branch\": \"dev/work\"' && grep -q 'PROTECTED REF RESTORED: dev/work' '$T/observe.err'" "tip=$(git -C "$DEV" rev-parse dev/work) $(tail -2 "$T/observe.err")"
+agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-2"
+git -C "$DEV" update-ref -d refs/heads/dev/work                   # DELETED, from the main checkout, in the agent's call
+agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-2"
+sub "C14.14 the RECORDED branch DELETED from the main checkout during an agent's call is re-created at the call's PostToolUse at the snapshot tip" \
+    "has_branch '$DEV' dev/work && [ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_TIP' ]" "$(git -C "$DEV" for-each-ref refs/heads/dev)"
+agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-3"
+LEAD_LAND="$(git -C "$DEV" commit-tree "$(git -C "$DEV" rev-parse "$DW_TIP^{tree}")" -p "$DW_TIP" -m "the lead lands a FINISHED agent's work onto dev/work")"
+git -C "$DEV" branch -f dev/work "$LEAD_LAND"                     # the lead's land: a descendant carrying none of THIS agent's work
+agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-3"
+sub "C14.15 PRECISION: the lead's own move of the recorded branch during the agent's call — a descendant of the snapshot tip carrying none of this agent's work (his land of a finished agent) — is NOT restored" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$LEAD_LAND' ]" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$LEAD_LAND $(tail -2 "$T/observe.err")"
+AG_D2="ad2d2d2d2d2d2d2d2"
+agent_bash_guard "$AG_D2" "git -C $DEV branch -C side dev/work"; v1=$?
+agent_bash_guard "$AG_D2" "git -C $DEV push . HEAD:heads/dev/work"; v2=$?
+agent_bash_guard "$AG_D2" "git -C $DEV fetch . +HEAD:dev/work"; v3=$?
+agent_bash_guard "$AG_D2" "git -C $DEV pull . +side:dev/work"; v4=$?
+agent_bash_guard "$AG_D2" "git -C $DEV checkout -B dev/work"; v5=$?
+agent_bash_guard "$AG_D2" "git -C $DEV switch -C dev/work"; v6=$?
+agent_bash_guard "$AG_D2" "git -C $DEV symbolic-ref refs/heads/dev/work refs/heads/main"; v7=$?
+agent_bash_guard "$AG_D2" "git -C $DEV send-pack . HEAD:refs/heads/dev/work"; v8=$?
+agent_bash_guard "$AG_D2" "git -C $DEV checkout dev/work"; v9=$?
+cp "$T/bash.err" "$T/bash-doorway.err"
+agent_bash_guard "$AG_D2" "git -C $CCD2 switch dev/work"; v10=$?
+bash_guard "git -C $DEV checkout dev/work"; v11=$?
+agent_bash_guard "$AG_D2" "git -C $DEV checkout -B side/scratch"; v12=$?
+sub "C14.16 the Bash guard refuses the eight verbs that NAME the recorded branch from an agent's call (branch -C, push HEAD:heads/, fetch, pull, checkout -B, switch -C, symbolic-ref, send-pack: exits $v1 $v2 $v3 $v4 $v5 $v6 $v7 $v8) and the plain checkout/switch doorway ($v9 $v10), naming point 14; the lead's checkout passes ($v11) and an agent's -B of an unrecorded branch passes ($v12)" \
+    "[ $v1 -eq 2 ] && [ $v2 -eq 2 ] && [ $v3 -eq 2 ] && [ $v4 -eq 2 ] && [ $v5 -eq 2 ] && [ $v6 -eq 2 ] && [ $v7 -eq 2 ] && [ $v8 -eq 2 ] && [ $v9 -eq 2 ] && [ $v10 -eq 2 ] && [ $v11 -eq 0 ] && [ $v12 -eq 0 ] && grep -q 'point 14' '$T/bash-doorway.err'" "$(cat "$T/bash-doorway.err")"
+subagent_stop "ad2d2d2d2d2d2d2d2"
+ws discard zach-opus-d2 --reason "the item-2 fixture is done with, check 14" --not-ceo-ordered "a fixture of this suite" >/dev/null 2>&1
 verdict
 
 # ===========================================================================
@@ -396,6 +454,71 @@ ws discard zach-opus-cz --reason "check 2: a deleter aimed at a codex/ ref on a 
 DZR="$(done_rec zach-opus-cz)"
 sub "C2.8 a deleter AIMED at a codex/ ref on an agent's record refuses it: the discard completes ($rcz), codex/other is untouched, and the record and the store say so" \
     "[ $rcz -eq 0 ] && [ \"\$(git -C '$OTHER' rev-parse codex/other 2>/dev/null)\" = '$CODEX_OTHER_TIP' ] && [ -n \"$DZR\" ] && grep -q 'codex/ untouched' '$DZR' && grep -q '\"event\": \"codex-untouched\"' '$STORE/events.jsonl'" "$(cat "$T/dz.out") done=$DZR"
+# ROUND 8, ITEM 3 — "A codex/ workspace or branch is never deleted without the CEO's express
+# word. An agent never works inside a codex/ workspace." Measured on the base by both
+# reviewers (brief-audit-frank-round8 §3, executed; brief-audit-sage-round8 §4): five deleters
+# passed the Bash guard and DELETED a codex/ branch at rc=0, nine movers rewrote one, a commit
+# inside a codex/ workspace landed on its branch, and a registered agent's Edit inside one
+# passed the lock-out. Two mechanisms, both asked here: the Bash guard refuses every deleter
+# and mover BY NAME (C2.13, C2.14), and the snapshot/observe pair RESTORES a codex/ ref that an
+# agent's call moved or deleted by ANY means — a verb the guard missed, the unnamed doorway, a
+# non-git write — and reports it (C2.9–C2.11). The lock-out refuses a writing tool aimed
+# inside a codex/ workspace (C2.12). The agent below has a cc/ workspace in this repository.
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-cd >/dev/null 2>&1
+CCD_="$T/other-wt/zach-opus-cd"
+spawn "zach-opus-cd" "$(printf 'x\ncross-repo-worktree: %s\n' "$CCD_")"
+platform_spawn "zach-opus-cd" "acdcdcdcdcdcdcdcd"
+commit_in "$CCD_" cd.txt
+CD_TIP="$(git -C "$CCD_" rev-parse HEAD)"
+EV_BEFORE="$(wc -l < "$STORE/events.jsonl")"
+agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-1"
+git -C "$OTHER" branch -f codex/other "$CD_TIP"                 # a MOVER, executed in the agent's call (as if the guard had missed it)
+agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-1"
+sub "C2.9 a codex/ ref MOVED during an agent's call (branch -f to the agent's tip) is RESTORED at the call's PostToolUse to the snapshot tip, and reported: the store's event log and the hook's notice say so" \
+    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-restored\"' | grep -q '\"branch\": \"codex/other\"' && grep -q 'PROTECTED REF RESTORED: codex/other' '$T/observe.err'" "tip=$(git -C "$OTHER" rev-parse codex/other) $(tail -3 "$T/observe.err")"
+agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-2"
+git -C "$OTHER" update-ref -d refs/heads/codex/other              # a DELETER, executed in the agent's call
+agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-2"
+sub "C2.10 a codex/ ref DELETED during an agent's call (update-ref -d) is re-created at the call's PostToolUse at the snapshot tip" \
+    "has_branch '$OTHER' codex/other && [ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ]" "$(git -C "$OTHER" for-each-ref refs/heads/codex)"
+agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-3"
+git -C "$CCD_" checkout -q codex/other && git -C "$CCD_" commit -q --allow-empty -m "moved unnamed"   # THE DOORWAY: checkout, then a commit that names nothing
+agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-3"
+git -C "$CCD_" checkout -q cc/zach-opus-cd
+sub "C2.11 a codex/ ref moved by the UNNAMED doorway (checkout it, then commit — no verb names it) from the agent's own worktree is restored at the call's PostToolUse" \
+    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ]" "tip=$(git -C "$OTHER" rev-parse codex/other) $(tail -2 "$T/observe.err")"
+barrier_path "acdcdcdcdcdcdcdcd" Edit "$CX/codex-work.txt"; re1=$?
+cp "$T/barrier.err" "$T/barrier-codex.err"
+barrier_path "acdcdcdcdcdcdcdcd" Write "$CX/new-file.txt"; re2=$?
+barrier_path "acdcdcdcdcdcdcdcd" Edit "$CCD_/cd.txt"; re3=$?
+barrier_path "" Edit "$CX/codex-work.txt"; re4=$?
+sub "C2.12 the lock-out refuses a registered agent's Edit ($re1) and Write ($re2) aimed INSIDE the codex/ workspace, naming point 2; the same agent's Edit in its own cc/ workspace passes ($re3); the lead's Edit inside codex/ passes ($re4)" \
+    "[ $re1 -eq 2 ] && [ $re2 -eq 2 ] && [ $re3 -eq 0 ] && [ $re4 -eq 0 ] && grep -q 'point 2' '$T/barrier-codex.err'" "$(cat "$T/barrier-codex.err")"
+AG_CD="acdcdcdcdcdcdcdcd"
+agent_bash_guard "$AG_CD" "git -C $OTHER update-ref -d refs/heads/codex/other"; g1=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER push --delete . codex/other"; g2=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER push . :codex/other"; g3=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER push . :refs/heads/codex/other"; g4=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER branch -M codex/other not-codex"; g5=$?
+sub "C2.13 the Bash guard refuses every DELETER of a codex/ ref from an agent's call by name (exits $g1 $g2 $g3 $g4 $g5): update-ref -d, push --delete, push :codex/x, push :refs/heads/codex/x, branch -M away" \
+    "[ $g1 -eq 2 ] && [ $g2 -eq 2 ] && [ $g3 -eq 2 ] && [ $g4 -eq 2 ] && [ $g5 -eq 2 ] && grep -q 'point 2' '$T/bash.err'" "$(cat "$T/bash.err")"
+agent_bash_guard "$AG_CD" "git -C $OTHER branch -f codex/other HEAD"; m1=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER branch -C side codex/other"; m2=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER update-ref refs/heads/codex/other HEAD"; m3=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER push . +HEAD:codex/other"; m4=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER fetch . +HEAD:codex/other"; m5=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER checkout -B codex/other"; m6=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER switch -C codex/other"; m7=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER symbolic-ref refs/heads/codex/other refs/heads/main"; m8=$?
+agent_bash_guard "$AG_CD" "git -C $OTHER checkout codex/other"; m9=$?
+agent_bash_guard "$AG_CD" "git -C $CX commit --allow-empty -m x"; m10=$?
+agent_bash_guard "$AG_CD" "cd $CX && printf x >> README"; m11=$?
+bash_guard "git -C $OTHER branch -f codex/other HEAD"; l1=$?
+bash_guard "git -C $OTHER update-ref -d refs/heads/codex/other"; l2=$?
+sub "C2.14 ...and every MOVER (branch -f, branch -C onto, update-ref, push +, fetch +, checkout -B, switch -C, symbolic-ref, the plain checkout doorway: exits $m1 $m2 $m3 $m4 $m5 $m6 $m7 $m8 $m9) and every command INSIDE the codex/ workspace ($m10 $m11); the lead's mover passes ($l1) and the lead's deleter is refused too ($l2)" \
+    "[ $m1 -eq 2 ] && [ $m2 -eq 2 ] && [ $m3 -eq 2 ] && [ $m4 -eq 2 ] && [ $m5 -eq 2 ] && [ $m6 -eq 2 ] && [ $m7 -eq 2 ] && [ $m8 -eq 2 ] && [ $m9 -eq 2 ] && [ $m10 -eq 2 ] && [ $m11 -eq 2 ] && [ $l1 -eq 0 ] && [ $l2 -eq 2 ]" "$(cat "$T/bash.err")"
+subagent_stop "acdcdcdcdcdcdcdcd"
+ws discard zach-opus-cd --reason "the item-3 fixture is done with, check 2" --not-ceo-ordered "a fixture of this suite" >/dev/null 2>&1
 AFTER="$(codex_state)"
 sub "C2.6 codex/ is byte-identical after every deleter ran: refs, worktree listing and every file" \
     "[ \"$BEFORE\" = \"$AFTER\" ] && [ -d '$CX' ] && has_branch '$OTHER' codex/fix && has_branch '$OTHER' codex/other" "before=$BEFORE after=$AFTER"
@@ -858,16 +981,59 @@ sub "C5.1 a spawn is refused ($r1), naming the agent" \
     "[ $r1 -eq 2 ] && grep -q 'zach-opus-a1' '$T/spawn.err'" "$(cat "$T/spawn.err")"
 sub "C5.1b and a turn end is refused ($r2), naming the agent" \
     "[ $r2 -eq 2 ] && grep -q 'zach-opus-a1' '$T/stop.err'" "$(cat "$T/stop.err")"
+# THE TRANSCRIPT ROWS CARRY THE FIELDS THE PLATFORM STAMPS (round 8, item 4): a person's
+# typed turn is `origin.kind == "human"`, `promptSource: typed`; a task notification is
+# `origin.kind == "task-notification"`, `promptSource: system`, `queueSkipAttachments`. The
+# field sets are lifted from real rows of this machine's transcripts (the census is in the
+# round-8 log directory); the text is not the CEO's.
 TR="$T/transcript-ceo.jsonl"
-printf '%s\n' '{"type":"user","message":{"role":"user","content":"Where is it? (the CEO)"}}' > "$TR"
+printf '%s\n' '{"type":"user","entrypoint":"cli","userType":"external","version":"2.1.267","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"Where is it? (the CEO)"}}' > "$TR"
 TRN="$T/transcript-notification.jsonl"
-printf '%s\n' '{"type":"user","message":{"role":"user","content":"<task-notification>agent done</task-notification>"}}' > "$TRN"
+printf '%s\n' '{"type":"user","entrypoint":"cli","userType":"external","version":"2.1.267","origin":{"kind":"task-notification"},"promptSource":"system","queueSkipAttachments":true,"message":{"role":"user","content":"<task-notification>agent done</task-notification>"}}' > "$TRN"
 # The two "nothing else" cases come FIRST: the one allowance is spent by the
 # reply that uses it, and a refusal after that would be for the wrong reason.
 stop_gate "zach-opus-a1 is pending" "$TRN"; r5=$?
 sub "C5.4 NOTHING ELSE: a turn that began with a platform notification, not the CEO, is refused even when it names the work ($r5)" "[ $r5 -eq 2 ]" "$(cat "$T/stop.err")"
 stop_gate "all good" "$TR"; r6=$?
 sub "C5.5 NOTHING ELSE: a reply to the CEO that does not name the pending work is refused ($r6)" "[ $r6 -eq 2 ]" "$(cat "$T/stop.err")"
+# WHO STARTED THE TURN IS DECIDED ON STAMPED FIELDS, BOTH SIDES MEASURED (round 8, item 4).
+# Every fixture below is the field set of a REAL row of this machine's transcripts (file,
+# uuid in the comment; text replaced), except the two marked CONSTRUCTED, which are the
+# shapes the brief named and no transcript holds. The function is asked directly for each
+# shape — the gate itself is asked in C5.2, C5.4, C5.10 and C5.16 — because the one
+# allowance is spent by every positive answer and twelve shapes cannot each spend it.
+person() { # <jsonl-file> -> True/False from _turn_started_by_person
+    python3 - "$ENGINE/scripts/lib/workspaces.py" "$1" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1]); ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+print(ws._turn_started_by_person(sys.argv[2]))
+PY
+}
+row() { printf '%s\n' "$2" > "$T/row-$1.jsonl"; }
+# HIS — must count (real field sets):
+row p1 '{"type":"user","entrypoint":"cli","origin":{"kind":"human"},"promptSource":"typed","version":"2.1.267","message":{"role":"user","content":"words (the CEO typed)"}}'                              # d1380a3f…/6af45a43…
+row p2 '{"type":"user","entrypoint":"sdk-cli","promptSource":"sdk","version":"2.1.267","message":{"role":"user","content":"words (the CEO, through the RichOS app: no origin key at all)"}}'          # c8b27f16…/9a43a451… — 670 rows, the 128/512 shape
+row p3 '{"type":"user","entrypoint":"cli","origin":{"kind":"human"},"promptSource":"typed","version":"2.1.267","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}},{"type":"text","text":"[Image #5] words after a pasted screenshot"}]}}'   # d0eef867…/d9f42251…
+row p4 '{"type":"user","entrypoint":"cli","origin":{"kind":"human"},"promptSource":"queued","version":"2.1.267","message":{"role":"user","content":"words (the CEO, queued while a turn ran)"}}'   # d1380a3f…/7362f19c…
+row p5 "$(printf '%s\n%s' '{"type":"user","entrypoint":"cli","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"words (the CEO)"}}' '{"type":"user","entrypoint":"cli","isMeta":true,"message":{"role":"user","content":"Stop hook feedback: a guard spoke"}}')"   # 042f3850…/bcb94aab…: hook feedback continues HIS turn
+# NOT HIS — must not count:
+row n1 '{"type":"user","entrypoint":"cli","origin":{"kind":"task-notification"},"promptSource":"system","queueSkipAttachments":true,"message":{"role":"user","content":"<task-notification>agent done</task-notification>"}}'   # 0224e460…/babce063…
+row n2 "$(printf '%s\n%s' '{"type":"user","entrypoint":"cli","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"words (the CEO, an hour ago)"}}' '{"type":"user","entrypoint":"cli","origin":{"kind":"peer","from":"zach-opus-x1"},"promptSource":"system","queueSkipAttachments":true,"isMeta":true,"message":{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"zach-opus-x1\">done</agent-message>"}}')"   # 16a15be1…/354a535c…: a peer's message AFTER his row starts a turn that is not his
+row n3 '{"type":"user","entrypoint":"cli","message":{"role":"user","content":"Another Claude session sent a message:\n<teammate-message teammate_id=\"zach-opus-x1\">done</teammate-message>"}}'   # 8a598936…/112a876f…: 68 REAL rows, no origin, no promptSource — the deny-list accepted them
+row n4 '{"type":"user","entrypoint":"cli","message":{"role":"user","content":"<cross-session-message from=\"zach-opus-x1\">stop</cross-session-message>"}}'   # CONSTRUCTED (the brief's shape; no transcript holds it): no origin, no promptSource
+row n5 '{"type":"user","entrypoint":"cli","origin":{"kind":"task-notification"},"message":{"role":"user","content":"[SYSTEM NOTIFICATION - NOT USER INPUT] agent finished"}}'   # CONSTRUCTED from the real shape (59 rows, all isMeta) with isMeta REMOVED
+row n6 '{"type":"user","entrypoint":"cli","message":{"role":"user","content":"<command-name>/exit</command-name>"}}'   # d1380a3f…/db208d0f…
+row n7 "$(printf '%s\n%s' '{"type":"user","entrypoint":"cli","origin":{"kind":"task-notification"},"promptSource":"system","queueSkipAttachments":true,"message":{"role":"user","content":"<task-notification>x</task-notification>"}}' '{"type":"user","entrypoint":"cli","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued from a previous conversation"}}')"   # 16a15be1…/9f6baca9…: a compaction summary starts no turn; the notification before it does
+P15="$(for f in p1 p2 p3 p4 p5; do printf '%s=%s ' "$f" "$(person "$T/row-$f.jsonl")"; done)"
+sub "C5.15 EVERY SHAPE OF HIS COUNTS: typed, through the RichOS app with no origin key (670 real rows), a pasted-image turn beginning '[Image #5]', queued, and typed-then-hook-feedback [$P15]" \
+    "[ \"$P15\" = 'p1=True p2=True p3=True p4=True p5=True ' ]" "$P15"
+N15="$(for f in n1 n2 n3 n4 n5 n6 n7; do printf '%s=%s ' "$f" "$(person "$T/row-$f.jsonl")"; done)"
+sub "C5.15b NO SHAPE THAT IS NOT HIS COUNTS: a task notification, a peer message after his row, the 68 real old-shape peer rows with no stamps, a constructed <cross-session-message>, a constructed non-meta [SYSTEM NOTIFICATION …], a /exit row, a notification-then-compaction-summary [$N15]" \
+    "[ \"$N15\" = 'n1=False n2=False n3=False n4=False n5=False n6=False n7=False ' ]" "$N15"
+stop_gate "zach-opus-a1 is pending; I land it right after" "$T/row-n3.jsonl"; r16=$?
+sub "C5.16 THROUGH THE GATE: a turn begun by the real old-shape peer row (no origin, no promptSource — the deny-list read it as a person) is refused even though it names the work ($r16)" "[ $r16 -eq 2 ]" "$(cat "$T/stop.err")"
+stop_gate "zach-opus-a1 is pending; I land it right after" "$T/row-n2.jsonl"; r16b=$?
+sub "C5.16b THROUGH THE GATE: a turn begun by a peer's stamped meta row after his own row is refused ($r16b) — the row before it does not lend it his allowance" "[ $r16b -eq 2 ]" "$(cat "$T/stop.err")"
 stop_gate "It is pending: zach-opus-a1 finished and is not merged yet; I land it right after this." "$TR"; r3=$?
 sub "C5.2 ALLOWANCE 1: answering the CEO, naming the pending work, may end the turn ($r3)" "[ $r3 -eq 0 ]" "$(cat "$T/stop.err")"
 stop_gate "It is pending: zach-opus-a1 finished and is not merged yet; I land it right after this." "$TR"; r4=$?
@@ -891,9 +1057,11 @@ NPA2="$ENT/.claude/worktrees/agent-aa2a2a2a2a2a2a2a2"
 commit_in "$NPA2" a2.txt
 subagent_stop "aa2a2a2a2a2a2a2a2"
 TRS="$T/transcript-stop.jsonl"
-printf '%s\n' '{"type":"user","message":{"role":"user","content":"Stop everything. (the CEO)"}}' > "$TRS"
+# His stop order, given through the RichOS app: the `sdk-cli` entrypoint writes NO origin
+# key and `promptSource: sdk` (670 real rows; the shape an origin-only rule rejects).
+printf '%s\n' '{"type":"user","entrypoint":"sdk-cli","promptSource":"sdk","version":"2.1.267","message":{"role":"user","content":"Stop everything. (the CEO)"}}' > "$TRS"
 stop_gate "Stopping. Pending and not yet handled: zach-opus-a2 finished and is not merged; it is handled right after." "$TRS"; rs=$?
-sub "C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn ($rs)" "[ $rs -eq 0 ]" "$(cat "$T/stop.err")"
+sub "C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn ($rs) — given through the RichOS app, the row shape that carries no origin key" "[ $rs -eq 0 ]" "$(cat "$T/stop.err")"
 # "...or waiting on something outside his reach (the CEO's word, a service that is down); the
 # latter goes on the CEO's TODO list. New work stays blocked either way."
 ws wait zach-opus-a2 --outside "GitHub is down, the merge cannot be pushed" >"$T/wait.out" 2>&1; rw1=$?

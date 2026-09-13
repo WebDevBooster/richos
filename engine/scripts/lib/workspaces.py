@@ -1940,6 +1940,10 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 #   so the age-based cap was an unproven claim and is not here. What actually
 #   rescues it is the fallback, which has its own case and its own mutant.
 _MAX_OPEN_CALLS = 64
+# What the last observation of this process restored (see
+# _restore_protected_refs): the CLI prints it after the CREATED rows so the
+# observe hook can announce it.
+RESTORED_THIS_CALL = []
 
 
 def _refs_dir(key):
@@ -2027,12 +2031,19 @@ def snapshot_refs(rec, call=""):
     under-attribution loses nothing — so this never fails a tool call."""
     try:
         snap = {}
+        tips = {}
         for repo in _repos_of(rec):
             refs = _local_refs(repo)
             if refs is None:
                 continue                 # unreadable: no snapshot, so no candidates
             snap[repo] = sorted(refs)
-        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}
+            # THE PROTECTED REFS' TIPS (round 8, items 2 and 3): a RECORDED
+            # integration branch and every codex/ ref. What is compared at the
+            # other half of the pair is not only which refs EXIST but where
+            # these point, so a move by any verb — named or not, from the
+            # agent's own worktree or the main checkout — can be restored.
+            tips[repo] = _protected_tips(refs)
+        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}
         write_json(_slot_path(rec["key"], call), row)
         # The same fact, kept where consuming a window cannot remove it. It is
         # what stops a window leaked by a refused call from widening the
@@ -2042,6 +2053,100 @@ def snapshot_refs(rec, call=""):
         return snap
     except (OSError, ValueError):
         return {}
+
+
+def _protected_tips(refs):
+    """{branch: tip} for every ref of `refs` that is a RECORDED integration
+    branch (any body of work, superseded ones included) or a codex/ ref."""
+    recorded = set()
+    try:
+        for w in all_bodies_of_work().values():
+            if (w or {}).get("branch"):
+                recorded.add(w["branch"])
+    except (OSError, ValueError):
+        pass
+    return {b: sha for b, sha in refs.items() if b.startswith(CODEX_PREFIX) or b in recorded}
+
+
+def _restore_protected_refs(rec, priors, latest):
+    """ITEMS 2 AND 3 OF ROUND 8, THE EFFECTS CHECK. A protected ref — a RECORDED
+    integration branch, or any codex/ ref — that is gone or has moved since
+    the snapshot this agent's call started with is RESTORED from that snapshot
+    and REPORTED, whatever verb moved it: a named one the Bash guard missed, an
+    unnamed one (`checkout <it>` then `commit`/`reset`/`merge`/`rebase`, the
+    doorway class no verb list can close — brief-audit-frank-round8 §2), from
+    the agent's own worktree or from the main checkout, or a non-git write.
+
+    THE LEAD'S LEGITIMATE MOVE IS NOT RESTORED. Rich lands FINISHED agents'
+    work onto the recorded branch while other agents run, so a move that lands
+    a DESCENDANT of the snapshot tip carrying none of THIS agent's own unlanded
+    work is his and stays. Restored: the ref is DELETED; or it moved to a tip
+    that is not a descendant (a rewind, a force-move, a symref); or it moved to
+    a descendant that carries this agent's own unlanded commits (the agent
+    committed or merged onto it). The one shape this cannot tell apart is
+    Rich rewinding the recorded branch during an agent's call — restored and
+    reported, loudly, and he redoes it; the reflog keeps his tip.
+
+    The restore is `git update-ref --no-deref refs/heads/<b> <snapshot tip>`:
+    it re-creates a deleted ref (its objects survive), overwrites a symref, and
+    moves a checked-out branch under its worktree. Returns
+    [(repo, branch, snapshot_tip, found_tip_or_"", why)]."""
+    restored = []
+    try:
+        ordered = sorted([p for p in priors if isinstance(p.get("tips"), dict)], key=lambda p: p.get("at", 0))
+        if latest and isinstance(latest.get("tips"), dict):
+            ordered.append(latest)
+        for repo in _repos_of(rec):
+            before = {}
+            for prior in ordered:                       # oldest first: the earliest tip is the reference
+                for b, sha in (prior["tips"].get(repo) or {}).items():
+                    before.setdefault(b, sha)
+            if not before:
+                continue
+            refs = _local_refs(repo)
+            if refs is None:
+                continue
+            own = None
+            for b, old in sorted(before.items()):
+                cur = refs.get(b)
+                if cur == old:
+                    continue
+                if cur is None:
+                    why = "deleted"
+                elif not is_ancestor(repo, old, cur):
+                    why = "moved to %s, which does not descend from %s (a rewind, a force-move or a symref)" % (cur[:12], old[:12])
+                else:
+                    if own is None:
+                        # The agent's own unlanded tips are measured against the
+                        # recorded branch's SNAPSHOT tip, never the tip read now:
+                        # after a doorway commit the branch's current tip IS the
+                        # agent's commit, and subtracting it would call the move
+                        # the lead's.
+                        _branch, target, _why_not = integration_target([rec], repo)
+                        base = before.get(_branch, target) if _branch else target
+                        own = _own_unlanded_tips(rec, repo, refs, base)
+                    if any(t == cur or is_ancestor(repo, t, cur) for t in own):
+                        why = "moved to %s, which carries this agent's own unlanded work (it committed or merged onto it)" % cur[:12]
+                    else:
+                        continue                        # a descendant carrying none of the agent's work: the lead's land
+                rc, _o, err = git(repo, "update-ref", "--no-deref", "refs/heads/" + b, old)
+                if rc != 0:
+                    event("protected-ref-restore-failed", key=rec["key"], repo=repo, branch=b, tip=old, err=err.strip()[:300])
+                    continue
+                restored.append((repo, b, old, cur or "", why))
+                RESTORED_THIS_CALL.append((repo, b, old, cur or "", why))
+                event("protected-ref-restored", key=rec["key"], repo=repo, branch=b, tip=old, found=cur, why=why)
+        if restored:
+            with Lock():
+                fresh = load_agent(rec["key"])
+                if fresh:
+                    fresh.setdefault("history", []).extend(
+                        {"at": iso(), "fact": "protected ref restored", "repo": r, "branch": b, "tip": o,
+                         "found": c, "why": w} for r, b, o, c, w in restored)
+                    save_agent(fresh)
+    except (OSError, ValueError, SpecError):
+        pass
+    return restored
 
 
 def _take_snapshots(key, call="", all_open=False, background=False):
@@ -2305,6 +2410,9 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background)
     if all_open:
         _drop_snapshots(rec["key"])
+    # The effects check runs FIRST, on the snapshots as taken: a protected ref
+    # the call moved or deleted is put back before anything is attributed.
+    _restore_protected_refs(rec, priors + bg_priors, latest)
     added = []
     if bg_priors:
         # THE BACKGROUND WINDOWS, JUDGED APART: against their own before-sets,
@@ -3007,6 +3115,21 @@ def barrier(payload):
     fin, _paused, why = finished_state(rec)
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
+    # POINT 2, AT THE TOOL: "An agent never works inside a codex/ workspace."
+    # The Bash guard refuses a command run there; the only hook that sees a
+    # Write, Edit, MultiEdit or NotebookEdit is this one, and until round 8 an
+    # agent's Edit with a file_path inside a codex/ workspace passed
+    # (brief-audit-sage-round8 §4, measured with a registered agent). Whether
+    # the path IS inside a codex/ workspace is read from git on disk — the
+    # branch its worktree has checked out — never from the path's spelling.
+    tool = str(payload.get("tool_name") or "")
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+        fp = str(ti.get("file_path") or ti.get("notebook_path") or "")
+        cx = _codex_workspace_of(fp)
+        if cx:
+            return "CODEX", "agent %s (%s) is writing %s inside the codex/ workspace %s" % (
+                aid, rec.get("name"), fp, cx)
     # This call carries the agent's id, so it is a moment the platform vouches
     # for. Record what its repositories hold NOW; the catch-all PostToolUse
     # compares, and a ref that appeared in between was created by this agent
@@ -3015,6 +3138,28 @@ def barrier(payload):
     # and is never a candidate at all.
     snapshot_refs(rec, str(payload.get("tool_use_id") or ""))
     return "REGISTERED", rec.get("name") or ""
+
+
+def _codex_workspace_of(path):
+    """The top level of the codex/ workspace `path` lies in, or "". Read from
+    git: the nearest existing ancestor's toplevel, and the branch git lists
+    for that worktree."""
+    p = realpath(path)
+    if not p:
+        return ""
+    d = p if os.path.isdir(p) else os.path.dirname(p)
+    while d and not os.path.isdir(d):
+        d = os.path.dirname(d)
+    if not d or d == os.sep:
+        return ""
+    rc, out, _ = git(d, "rev-parse", "--show-toplevel")
+    if rc != 0:
+        return ""
+    top = realpath(out.strip())
+    for e in worktree_list(top) or []:
+        if e["path"] == top and (e.get("branch") or "").startswith(CODEX_PREFIX):
+            return top
+    return ""
 
 
 def recipient_state(session_id, name):
@@ -3044,25 +3189,75 @@ def _turn_started_by_person(transcript):
             d = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(d, dict) or d.get("type") != "user" or d.get("isMeta"):
+        if not isinstance(d, dict) or d.get("type") != "user":
             continue
-        msg = d.get("message") or {}
-        content = msg.get("content")
-        texts = []
-        if isinstance(content, str):
-            texts = [content]
-        elif isinstance(content, list):
-            if any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
-                continue
-            texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
-        text = "\n".join(texts).strip()
-        if not text:
-            continue
-        if re.match(r"^<(task-notification|teammate-message|system-reminder|local-command|command-name)", text) \
-                or "<task-notification>" in text:
-            return False
-        return True
+        verdict = _row_is_a_persons(d)
+        if verdict is None:
+            continue                     # this row starts no turn: the row before it does
+        return verdict
     return False
+
+
+def _row_is_a_persons(d):
+    """None — this row starts no turn (a tool result, hook feedback, a
+    compaction summary, image metadata: skip to the row before it);
+    True — a person's turn, the CEO's; False — the platform's, a peer's, a
+    notification's.
+
+    DECIDED ON THE FIELDS THE PLATFORM STAMPS, NEVER ON THE SHAPE OF THE TEXT
+    (round 8, item 4). Until round 8 this was a deny-list of five tag names over
+    the text (`<task-notification`, `<teammate-message`, ...), so any shape the
+    platform had not been listed for read as a person — and the transcripts on
+    this machine already held one: 68 non-meta peer-message rows beginning
+    `Another Claude session sent a message:` (v2.1.229–2.1.267, origin absent)
+    passed the deny-list and spent the CEO's allowance. A textual ALLOW-list is
+    wrong the other way: the CEO's own `[Image #5] …` turns (11 rows, origin
+    human, promptSource typed/queued) begin with a bracket.
+
+    Measured over every persisted transcript on this machine on 2026-09-13
+    (2,591 files; 4,675 main-session user text rows; the census script and its
+    output are in docs/verification/round8-fixes-2026-09-13-logs/): a row a
+    person typed carries `origin.kind == "human"` (1,861 typed + 52 queued + 24
+    suggestion_accepted + 92 through the SDK, all versions 2.1.217–2.1.269); the
+    RichOS app's prompts through the `sdk-cli` entrypoint carry NO origin and
+    `promptSource: sdk` (670 rows, v2.1.250–2.1.267 — an origin-only rule
+    rejects every one of them); a notification carries `origin.kind ==
+    "task-notification"` and `promptSource: system` (1,320 rows); a peer's
+    message carries `origin.kind == "peer"` with `isMeta` (53 rows); hook
+    feedback, image metadata and local-command caveats are `isMeta` with no
+    origin (283 rows, none starts a turn); a compaction summary is
+    `isCompactSummary` (8 rows, none starts a turn); and every main-session row
+    with NO origin and NO promptSource is the platform's — `<command-name>`,
+    `<local-command-stdout>`, `[Request interrupted by user]`, the 68 old-shape
+    peer rows — 212 rows, not one of them a person's words. Both sides are
+    asserted from those shapes in the fourteen (C5.15, C5.16)."""
+    msg = d.get("message") or {}
+    content = msg.get("content")
+    texts = []
+    if isinstance(content, str):
+        texts = [content]
+    elif isinstance(content, list):
+        if any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
+            return None
+        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
+    text = "\n".join(texts).strip()
+    origin = d.get("origin")
+    kind = origin.get("kind") if isinstance(origin, dict) else None
+    if d.get("isMeta") or d.get("isCompactSummary"):
+        # A meta row with a stamped non-human origin (a peer's message, the
+        # coordinator's) starts a turn that is not his. A meta row with no
+        # origin (hook feedback, image metadata, a caveat, a summary) is part of
+        # another row's turn: the row before it decides.
+        if kind and kind != "human":
+            return False
+        return None
+    if not text and not isinstance(origin, dict):
+        return None
+    if d.get("queueSkipAttachments") or d.get("promptSource") == "system":
+        return False
+    if isinstance(origin, dict):
+        return kind == "human"
+    return d.get("promptSource") in ("typed", "queued", "sdk", "suggestion_accepted")
 
 
 def _allowance_state(rec, item):
@@ -3407,6 +3602,8 @@ def main(argv):
             if a.cmd == "observe-refs":
                 for repo, b in observe(payload):
                     print("CREATED\t%s\t%s" % (repo, b))
+                for r in RESTORED_THIS_CALL:
+                    print("RESTORED\t%s\t%s\t%s\t%s\t%s" % r)
                 return 0
             if a.cmd == "barrier":
                 k, d = barrier(payload)

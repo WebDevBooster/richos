@@ -441,6 +441,80 @@ run_case "RG7 agent: git push . HEAD:<recorded> -> refused" 2 "$(agent_payload "
 run_case "RG8 agent: git branch -f <unrecorded> HEAD -> allow (precision)" 0 "$(agent_payload "git -C $MAINREPO branch -f linked HEAD")"
 run_case "RG9 lead: git branch -f <recorded> HEAD -> allow (landing is his)" 0 "$(bash_payload "git -C $MAINREPO branch -f main HEAD")"
 run_case_msg "RG10 the refusal names point 14" "point 14" "$(agent_payload "git -C $MAINREPO branch -D main")"
+
+# --- ROUND 8, items 2 and 3: every DELETER and every MOVER of a codex/ ref, every
+# verb that NAMES the recorded branch, and the checkout doorway ------------------
+# brief-audit-frank-round8 §2–§3, executed in a fixture: five deleters passed the
+# guard and deleted a codex/ branch at rc=0 (update-ref -d, push --delete, push
+# :codex/x, push :refs/heads/codex/x, branch -M away); nine movers rewrote one;
+# eight verbs that name the recorded branch moved it (branch -C, push HEAD:heads/<it>,
+# fetch, pull, checkout -B, switch -C, symbolic-ref, send-pack); and a plain
+# `checkout <it>` opened a class where commit/reset/merge/rebase move it unnamed.
+# A DELETER of a codex/ ref is refused from ANYONE's call (S7's rule, widened);
+# a WRITER or MOVER, and any work inside a codex/ workspace, is refused from an
+# AGENT's call; the lead's writes pass; reads and copies cut FROM codex/ pass.
+agent_payload_cwd() { # <cwd> <command-string> — an AGENT's Bash call run with that cwd
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","agent_id":"aabc123def456789","cwd":sys.argv[1],"tool_input":{"command":sys.argv[2]}}))' "$1" "$2"
+}
+echo "  -- round 8: every deleter of a codex/ ref (anyone), every mover (an agent), the doorway --"
+run_case "CX1 agent: git update-ref -d refs/heads/codex/<x> -> refused (a deleter)" 2 "$(agent_payload "git -C $MAINREPO update-ref -d refs/heads/codex/some-task")"
+run_case "CX1b lead: the same deleter -> refused too (no override, like branch -D)" 2 "$(bash_payload "git -C $MAINREPO update-ref -d refs/heads/codex/some-task")"
+run_case "CX2 agent: git push --delete . codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO push --delete . codex/some-task")"
+run_case "CX3 agent: git push . :codex/<x> (an empty source deletes) -> refused" 2 "$(agent_payload "git -C $MAINREPO push . :codex/some-task")"
+run_case "CX4 agent: git push . :refs/heads/codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO push . :refs/heads/codex/some-task")"
+run_case "CX5 agent: git branch -M codex/<x> not-codex (renamed away: the ref is gone) -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -M codex/some-task not-codex-any-more")"
+run_case "CX6 agent: git branch -f codex/<x> HEAD (a mover) -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -f codex/some-task HEAD")"
+run_case "CX6b lead: git branch -f codex/<x> HEAD -> allow (the lead's writes pass)" 0 "$(bash_payload "git -C $MAINREPO branch -f codex/some-task HEAD")"
+run_case "CX7 agent: git branch -C side codex/<x> (a copy ONTO it) -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -C linked codex/some-task")"
+run_case "CX7b agent: git branch codex/new HEAD (creating a codex/ ref) -> refused" 2 "$(agent_payload "git -C $MAINREPO branch codex/new HEAD")"
+run_case "CX8 agent: git update-ref refs/heads/codex/<x> HEAD -> refused" 2 "$(agent_payload "git -C $MAINREPO update-ref refs/heads/codex/some-task HEAD")"
+run_case "CX9 agent: git push . HEAD:codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO push . HEAD:codex/some-task")"
+run_case "CX9b agent: git push . +HEAD:refs/heads/codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO push . +HEAD:refs/heads/codex/some-task")"
+run_case "CX9c agent: git fetch . +HEAD:codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO fetch . +HEAD:codex/some-task")"
+run_case "CX9d agent: git pull . +linked:codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO pull . +linked:codex/some-task")"
+run_case "CX10 agent: git checkout -B codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO checkout -B codex/some-task")"
+run_case "CX10b agent: git switch -C codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO switch -C codex/some-task")"
+run_case "CX10c agent: git checkout codex/<x> (the doorway) -> refused" 2 "$(agent_payload "git -C $MAINREPO checkout codex/some-task")"
+run_case "CX10d agent: git switch codex/<x> -> refused" 2 "$(agent_payload "git -C $MAINREPO switch codex/some-task")"
+run_case "CX11 agent: git symbolic-ref refs/heads/codex/<x> refs/heads/main (the branch becomes a symref) -> refused" 2 "$(agent_payload "git -C $MAINREPO symbolic-ref refs/heads/codex/some-task refs/heads/main")"
+run_case "CX11b agent: git symbolic-ref HEAD refs/heads/codex/<x> (the doorway by another name) -> refused" 2 "$(agent_payload "git -C $MAINREPO symbolic-ref HEAD refs/heads/codex/some-task")"
+run_case "CX11c agent: git symbolic-ref HEAD (a read) -> allow" 0 "$(agent_payload "git -C $MAINREPO symbolic-ref HEAD")"
+run_case "CX11d agent: git symbolic-ref --short HEAD -> allow" 0 "$(agent_payload "git -C $MAINREPO symbolic-ref --short HEAD")"
+run_case "CX12 agent: git send-pack . HEAD:refs/heads/codex/<x> (the plumbing under push) -> refused" 2 "$(agent_payload "git -C $MAINREPO send-pack . HEAD:refs/heads/codex/some-task")"
+run_case "CX13 agent: git -C <codex workspace> commit (working INSIDE it) -> refused" 2 "$(agent_payload "git -C $CODEX_WT commit --allow-empty -m x")"
+run_case "CX13b agent: cd <codex workspace> && a shell redirect -> refused" 2 "$(agent_payload "cd $CODEX_WT && printf x >> README")"
+run_case "CX13c agent: a call whose cwd IS the codex workspace -> refused" 2 "$(agent_payload_cwd "$CODEX_WT" "git commit -am x")"
+run_case "CX13d lead: git -C <codex workspace> commit -> allow (the lead's calls pass)" 0 "$(bash_payload "git -C $CODEX_WT commit --allow-empty -m x")"
+run_case "CX14 precision, agent: git log codex/<x> -> allow" 0 "$(agent_payload "git -C $MAINREPO log --oneline codex/some-task")"
+run_case "CX14b agent: git branch --contains codex/<x> -> allow" 0 "$(agent_payload "git -C $MAINREPO branch --contains codex/some-task")"
+run_case "CX14c agent: git branch --list 'codex/*' -> allow" 0 "$(agent_payload "git -C $MAINREPO branch --list 'codex/*'")"
+run_case "CX14d agent: git checkout -b cc/copy codex/<x> (a COPY cut from the codex/ tip) -> allow" 0 "$(agent_payload "git -C $MAINREPO checkout -b cc/copy codex/some-task")"
+run_case "CX14e agent: git diff codex/<x> -> allow" 0 "$(agent_payload "git -C $MAINREPO diff codex/some-task")"
+run_case "CX14f agent: git checkout codex/<x> -- README (a file restored, HEAD untouched) -> allow" 0 "$(agent_payload "git -C $MAINREPO checkout codex/some-task -- README")"
+run_case "CX14g agent: cd <its own cc/ workspace> && git commit -> allow" 0 "$(agent_payload "cd $AGENT_WT && git commit --allow-empty -m x")"
+run_case_msg "CX15 the refusal names point 2" "point 2" "$(agent_payload "git -C $MAINREPO push . :codex/some-task")"
+echo "  -- round 8: the recorded branch — every verb that names it, and the doorway --"
+run_case "RG11 agent: git branch -C linked main (a copy ONTO the recorded branch) -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -C linked main")"
+run_case "RG11b agent: git branch -c main scratch (a copy FROM it) -> allow" 0 "$(agent_payload "git -C $MAINREPO branch -c main scratch")"
+run_case "RG12 agent: git push . HEAD:heads/main (another destination spelling) -> refused" 2 "$(agent_payload "git -C $MAINREPO push . HEAD:heads/main")"
+run_case "RG13 agent: git fetch . HEAD:main -> refused" 2 "$(agent_payload "git -C $MAINREPO fetch . HEAD:main")"
+run_case "RG13b agent: git fetch . +HEAD:refs/heads/main -> refused" 2 "$(agent_payload "git -C $MAINREPO fetch . +HEAD:refs/heads/main")"
+run_case "RG13c agent: git pull . +linked:main -> refused" 2 "$(agent_payload "git -C $MAINREPO pull . +linked:main")"
+run_case "RG14 agent: git checkout -B main -> refused" 2 "$(agent_payload "git -C $MAINREPO checkout -B main")"
+run_case "RG14b agent: git switch -C main -> refused" 2 "$(agent_payload "git -C $MAINREPO switch -C main")"
+run_case "RG15 agent: git checkout main (the doorway: commit/reset/merge/rebase then move it unnamed) -> refused" 2 "$(agent_payload "git -C $MAINREPO checkout main")"
+run_case "RG15b agent: git switch main -> refused" 2 "$(agent_payload "git -C $MAINREPO switch main")"
+run_case "RG16 agent: git symbolic-ref refs/heads/main refs/heads/linked -> refused" 2 "$(agent_payload "git -C $MAINREPO symbolic-ref refs/heads/main refs/heads/linked")"
+run_case "RG16b agent: git symbolic-ref HEAD refs/heads/main -> refused" 2 "$(agent_payload "git -C $MAINREPO symbolic-ref HEAD refs/heads/main")"
+run_case "RG17 agent: git send-pack . HEAD:refs/heads/main -> refused" 2 "$(agent_payload "git -C $MAINREPO send-pack . HEAD:refs/heads/main")"
+run_case "RG18 agent: git update-ref --stdin with 'update refs/heads/main HEAD' in the call -> refused" 2 "$(agent_payload "printf 'update refs/heads/main HEAD\n' | git -C $MAINREPO update-ref --stdin")"
+run_case "RG19 agent: git push --delete . main -> refused" 2 "$(agent_payload "git -C $MAINREPO push --delete . main")"
+run_case "RG20 lead: git checkout main -> allow (landing is his)" 0 "$(bash_payload "git -C $MAINREPO checkout main")"
+run_case "RG21 precision, agent: git checkout linked (nobody recorded it) -> allow" 0 "$(agent_payload "git -C $MAINREPO checkout linked")"
+run_case "RG21b agent: git checkout -B side/x -> allow" 0 "$(agent_payload "git -C $MAINREPO checkout -B side/x")"
+run_case "RG21c agent: git fetch origin main (no destination named: FETCH_HEAD only) -> allow" 0 "$(agent_payload "git -C $MAINREPO fetch origin main")"
+run_case "RG21d agent: a bare git pull -> allow" 0 "$(agent_payload "git -C $MAINREPO pull")"
+run_case "RG21e agent: git merge main (reads it) -> allow" 0 "$(agent_payload "git -C $MAINREPO merge main")"
 unset RICHOS_WORKSPACES_DIR
 
 # (k) a DECLARED root that carries no marker is BROKEN, not "not applicable".

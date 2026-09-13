@@ -105,8 +105,20 @@ fi
 # joining an agent's record decides what a land deletes.
 OUT="$(printf '%s' "$INPUT" | python3 "$LIB" --entity "$ENTITY_ROOT" observe-refs 2>/dev/null)" || true
 if [ -n "$OUT" ]; then
-    printf '%s' "$OUT" | while IFS=$'\t' read -r _tag repo branch; do
-        [ -n "$branch" ] && echo "NOTICE: $branch in $repo was created by this agent and is recorded against it: it is deleted with its workspaces when its work is landed or discarded (docs/plans/worktree-spec-2026-09-11.md, points 3, 10)." >&2
+    # A trailing newline, or `read` fails on the LAST line and its notice is
+    # never printed: `$(...)` strips it, and until round 8 the notice for the
+    # last row of every observation was silently lost.
+    printf '%s\n' "$OUT" | while IFS=$'\t' read -r tag repo branch tip found why; do
+        case "$tag" in
+            CREATED)
+                [ -n "$branch" ] && echo "NOTICE: $branch in $repo was created by this agent and is recorded against it: it is deleted with its workspaces when its work is landed or discarded (docs/plans/worktree-spec-2026-09-11.md, points 3, 10)." >&2 ;;
+            RESTORED)
+                # ITEMS 2 AND 3 OF ROUND 8: a RECORDED integration branch or a codex/ ref
+                # that this agent's call moved or deleted — by any verb, named or unnamed,
+                # from either checkout — has been put back from the snapshot the call
+                # started with, and this is the report the page asks for.
+                [ -n "$branch" ] && echo "=== PROTECTED REF RESTORED: $branch in $repo was $why during this agent's tool call and has been restored to $tip (found: ${found:-deleted}). A RECORDED integration branch is moved only by Rich (point 14) and a codex/ ref is never touched (point 2) — docs/plans/worktree-spec-2026-09-11.md. Recorded on the agent's record and in the store's event log (protected-ref-restored). ===" >&2 ;;
+        esac
     done
 fi
 exit 0

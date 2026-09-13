@@ -230,6 +230,16 @@ case "$KIND" in
       echo "$HOOK_TAG"
     } >&2
     exit 2 ;;
+  CODEX)
+    {
+      echo "=== A codex/ workspace: REFUSED ==="
+      echo "  $DETAIL."
+      echo "  An agent never works inside a codex/ workspace; it works from a copy in its"
+      echo "  own cc/ workspace (docs/plans/worktree-spec-2026-09-11.md, point 2). Every"
+      echo "  writing tool aimed inside one is refused; the lead's own calls are not."
+      echo "$HOOK_TAG"
+    } >&2
+    exit 2 ;;
   FORBIDDEN)
     is_readonly_tool "$TOOL_NAME" "$SEAL_READONLY_TOOLS" && exit 0
     {

@@ -77,6 +77,28 @@ mutant S-p02-library-codex-guard-removed "C2.8 " "$W" \
     '    if False:{NL}        return None, "branch %s is codex/; never touched (point 2)" % b' \
     "SPEC-DERIVED (point 2 negated, 'Landing never deletes anything codex/'; constructed by frank-fable-c7 as F20, certification-frank-round6-2026-09-12.md §2.3, which showed round 6's byte-identity was proved by never aiming a deleter at codex/): the library's own branch deleter, aimed at a codex/ ref on an agent's record, would delete it."
 
+# --- point 2, round 8 (item 3): the record now holds a mechanical incident for this point.
+mutant R-p02-codex-deleter-passes-the-guard "C2.13" "$G" \
+    '    if kind == "codex":{NL}        spec.append("%s deleting the codex/ ref %s' \
+    '    if False:{NL}        spec.append("%s deleting the codex/ ref %s' \
+    "RECORDED [richos-hq lifecycle-failure-record-2026-09-13.md §5, 2026-09-13: 'Point 2 of the CEO's page is violable today — an agent can delete a codex/ branch'; brief-audit-frank-round8-2026-09-13.md §3, executed in a fixture on the base: git update-ref -d refs/heads/codex/bare, push --delete . codex/bare, push . :codex/bare, push . :refs/heads/codex/bare and branch -M codex/bare not-codex all passed the guard at rc=0 and the branch was GONE; the CEO's ruling ceo-decisions.md §31 and RICH-TODOs.md:175 (5fb3e5b9, 2026-09-12): 'codex/ is closed as a topic'. No real codex/ ref has been lost on this machine (lifecycle-failure-record-2026-09-12.md: eight codex/ workspaces measured clean) — the incident is the measured violability]: the five deleters would pass the guard again."
+mutant S-p02-codex-ref-not-restored "C2.9 " "$W" \
+    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    pass' \
+    "SPEC-DERIVED (point 2 negated, 'a codex/ workspace or branch is never deleted'; constructed after both round-8 reviewers showed a verb list cannot close the unnamed doorway): a codex/ ref moved or deleted during an agent's call by a verb the guard missed, by the doorway or by a non-git write would stay moved. (C2.10, C2.11 and C14.13 go red under it too.)"
+mutant S-p02-codex-tips-not-snapshotted "C2.11" "$W" \
+    '            tips[repo] = _protected_tips(refs)' \
+    '            tips[repo] = {}' \
+    "SPEC-DERIVED (point 2 negated): the snapshot would record which refs exist and not where the protected ones point, so a move could never be seen — only a deletion."
+mutant S-p02-agent-writes-inside-codex-pass-the-lock-out "C2.12" "$W" \
+    '        cx = _codex_workspace_of(fp){NL}        if cx:' \
+    '        cx = _codex_workspace_of(fp){NL}        if False:' \
+    "SPEC-DERIVED (point 2 negated, 'An agent never works inside a codex/ workspace'; measured passing on the base by sage-fable-b3, brief-audit-sage-round8 §4 with a registered agent): a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it."
+mutant S-p02-agent-commands-inside-codex-pass-the-guard "C2.14" "$G" \
+    'if AGENT:{NL}    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):' \
+    'if False:{NL}    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):' \
+    "SPEC-DERIVED (point 2 negated, 'An agent never works inside a codex/ workspace'): a commit or a shell redirect run with the call's cwd inside a codex/ workspace, or aimed there by git -C / cd, would pass the Bash guard."
+
 # --- point 3 ---------------------------------------------------------------
 mutant R-p03-registration-without-identity "C3.1 " "$W" \
     '    ident = identity_for(sid){NL}    if not ident:{NL}        raise SpecError("the session'"'"'s process identity could not be read from the operating system; "' \
@@ -131,13 +153,29 @@ mutant S-p05-answer-allowance-unlimited "C5.3 " "$W" \
     '            if False:{NL}                spent.append((i, prev))' \
     "SPEC-DERIVED (point 5's parenthesis negated, 'the reply names the pending work, which is handled right after'): naming the work again and again would end every turn."
 mutant S-p05-notification-counts-as-the-ceo "C5.4 " "$W" \
-    '                or "<task-notification>" in text:{NL}            return False{NL}        return True' \
-    '                or "<task-notification>" in text:{NL}            return True{NL}        return True' \
-    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO'): a turn that began with a platform notification would count as answering him."
+    '    if d.get("queueSkipAttachments") or d.get("promptSource") == "system":{NL}        return False{AND}    if isinstance(origin, dict):{NL}        return kind == "human"' \
+    '    if False:{NL}        return False{AND}    if isinstance(origin, dict):{NL}        return True' \
+    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO'): a real notification row carries three stamps (origin task-notification, promptSource system, queueSkipAttachments) and any one of them refuses it, so all three are removed here — a turn that began with a platform notification would count as answering him."
+mutant S-p05-origin-kind-not-read "C5.15b" "$W" \
+    '    if isinstance(origin, dict):{NL}        return kind == "human"' \
+    '    if isinstance(origin, dict):{NL}        return True' \
+    "SPEC-DERIVED (point 5's first allowance negated): a stamped origin that is not a person's — the constructed non-meta [SYSTEM NOTIFICATION …] row, whose only stamp is origin.kind — would count as his."
 mutant S-p05-his-word-does-not-end-the-turn "C5.10" "$W" \
-    '                or "<task-notification>" in text:{NL}            return False{NL}        return True{NL}    return False' \
-    '                or "<task-notification>" in text:{NL}            return False{NL}        return False{NL}    return False' \
-    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO or obeying his stop order'): a turn that began with his stop order, whose reply names the pending work, could not end. (C5.2 goes red under it too; the stop-order half is the one round 6 never asked.)"
+    '    return d.get("promptSource") in ("typed", "queued", "sdk", "suggestion_accepted")' \
+    '    return d.get("promptSource") in ("typed", "queued", "suggestion_accepted")' \
+    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO or obeying his stop order'; RECORDED shape: brief-audit-frank-round8 §4.3 measured 128 of 512 of his turns carrying no origin key — the RichOS app's sdk-cli entrypoint): his stop order given through the app could not end the turn, and an origin-only rule would reject every one of those turns. (C5.15 goes red under it too.)"
+mutant S-p05-unstamped-rows-count-as-the-ceo "C5.15b" "$W" \
+    '    return d.get("promptSource") in ("typed", "queued", "sdk", "suggestion_accepted")' \
+    '    return True' \
+    "SPEC-DERIVED (point 5's first allowance negated); RECORDED shape [this machine's transcripts, census in the round-8 logs, 2026-09-13: 68 non-meta peer-message rows with no origin and no promptSource, v2.1.229–2.1.267, which the base's deny-list read as a person]: a row the platform stamped with nothing would count as his, so a peer's message or a constructed <cross-session-message> would spend his allowance."
+mutant S-p05-peer-meta-row-lends-his-allowance "C5.15b" "$W" \
+    '        if kind and kind != "human":{NL}            return False{NL}        return None' \
+    '        return None' \
+    "SPEC-DERIVED (point 5's first allowance negated): a peer's stamped meta row would be skipped like hook feedback, so the turn it started would be judged by the CEO's row before it and spend his allowance."
+mutant S-p05-textual-allow-list-rejects-his-image-turn "C5.15 " "$W" \
+    '    if isinstance(origin, dict):{NL}        return kind == "human"' \
+    '    if isinstance(origin, dict):{NL}        return kind == "human" and text[:1].isalpha()' \
+    "SPEC-DERIVED (point 5's first allowance negated, 'answering the CEO'); RECORDED shape [brief-audit-frank-round8 §4.3 and this round's census: 11 of his turns begin '[Image #N]', origin human]: a textual allow-list ('a person's text starts with a letter') would reject the CEO's own pasted-screenshot turns, and he could not end his turn by answering."
 mutant S-p05-outside-reach-needs-no-todo "C5.11" "$W" \
     '    if kind in ("outside", "ceo-discard") and not (todo or "").strip():' \
     '    if False:' \
@@ -344,6 +382,22 @@ mutant S-p14-agent-may-push-into-the-recorded-branch "C14.11" "$G" \
     '    elif sub == "push" and AGENT:' \
     '    elif False:' \
     "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git push . HEAD:dev/workspace-spec' → 0): an agent's call could push its own tip into the recorded integration branch."
+mutant S-p14-recorded-branch-not-restored "C14.13" "$W" \
+    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    pass' \
+    "SPEC-DERIVED (point 14 negated, 'The branch a body of work integrates on is RECORDED ... Nothing infers it and nothing guesses it' — and both round-8 reviewers measured that no verb list closes the doorway: checkout <it>, then commit/reset/merge/rebase move it naming nothing, from either checkout): a recorded branch moved by an unnamed verb in an agent's call would stay moved, and every in-flight agent's land would be measured against a tip an agent chose."
+mutant S-p14-the-leads-move-restored-too "C14.15" "$W" \
+    '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
+    '                    else:{NL}                        why = "moved"' \
+    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it' — landing is his): the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse."
+mutant S-p14-checkout-doorway-open "C14.16" "$G" \
+    '                for t in positional[:1]:        # the branch being checked out' \
+    '                for t in []:' \
+    "SPEC-DERIVED (point 14 negated; brief-audit-frank-round8 §2 and brief-audit-sage-round8 §4, both measured on the base: an agent's plain checkout/switch of the recorded branch passed, after which commit, reset --hard, merge, rebase and --amend moved it unnamed, from the agent's worktree or the main checkout): the doorway would be open again."
+mutant S-p14-named-movers-pass-the-guard "C14.16" "$G" \
+    '    elif kind == "recorded":{NL}        spec.append("%s writing %s, the RECORDED integration branch' \
+    '    elif False:{NL}        spec.append("%s writing %s, the RECORDED integration branch' \
+    "SPEC-DERIVED (point 14 negated; brief-audit-frank-round8 §2, executed: branch -C, push HEAD:heads/<it>, fetch, pull, checkout -B, switch -C, symbolic-ref and send-pack each moved the recorded branch at rc=0 on the base): every verb that names the recorded branch would pass the guard from an agent's call again."
 mutant R-p14-land-assumes-main "C14.3 " "$W" \
     '    branch = (work or {}).get("branch") or ""{NL}    if not branch:' \
     '    branch = "main"{NL}    if not branch:' \

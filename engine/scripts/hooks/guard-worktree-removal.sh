@@ -355,9 +355,90 @@ GIT_READ_ONLY_SUBCOMMANDS = {
     "describe", "diff", "for-each-ref", "grep", "help", "log", "ls-files",
     "ls-remote", "ls-tree", "merge-base", "name-rev", "range-diff", "reflog",
     "rev-list", "rev-parse", "shortlog", "show", "show-ref", "status",
-    "symbolic-ref", "var", "verify-commit", "verify-tag", "version",
+    "var", "verify-commit", "verify-tag", "version",
     "whatchanged",
 }
+# `symbolic-ref` left the read-only set in round 8: with ONE positional it reads
+# (`git symbolic-ref HEAD`), with TWO it WRITES a symref — `git symbolic-ref
+# refs/heads/<it> refs/heads/side` turns a recorded or codex/ branch into a
+# pointer at something else, and `git symbolic-ref HEAD refs/heads/<it>` is the
+# checkout doorway by another name (brief-audit-frank-round8 §2). Rule 7 below.
+
+# THE PROTECTED REFS (rounds 7 and 8): a RECORDED integration branch — where
+# every in-flight agent's work lands; only Rich moves it (point 14) — and every
+# `codex/` ref, which is never deleted and which an agent never works on except
+# from a copy in its own cc/ workspace (point 2). A DELETER of a codex/ ref is
+# refused from anyone's call, with no override, like `git branch -D codex/x`
+# always was. A WRITER or MOVER of a protected ref is refused from an AGENT's
+# call; the lead's own writes pass. Every destination spelling that resolves to
+# the branch counts: `<it>`, `heads/<it>`, `refs/heads/<it>`, with or without a
+# leading `+`.
+def _refname(t):
+    """A destination token, normalized to a short branch name."""
+    t = (t or "").lstrip("+")
+    for pre in ("refs/heads/", "heads/"):
+        if t.startswith(pre):
+            return t[len(pre):]
+    return t
+
+
+def _is_codex(t):
+    return _refname(t).startswith("codex/")
+
+
+def _is_recorded(t):
+    return _refname(t) in recorded_integration_branches()
+
+
+def _protected(t):
+    """'codex' / 'recorded' / '' for a destination token."""
+    if _is_codex(t):
+        return "codex"
+    if AGENT and _is_recorded(t):
+        return "recorded"
+    return ""
+
+
+def _refuse_write(kind, verb, t):
+    """A WRITE to a protected ref from an agent's call (movers, creators,
+    force-moves, pushes into, fetches into, checkouts of)."""
+    if not AGENT:
+        return
+    if kind == "codex":
+        spec.append("%s writing the codex/ ref %s from an agent's call (codex/ is never touched; an "
+                    "agent never works on codex/ except from a copy in its own cc/ workspace — point 2)"
+                    % (verb, _refname(t)))
+    elif kind == "recorded":
+        spec.append("%s writing %s, the RECORDED integration branch, from an agent's call (it is "
+                    "where every in-flight agent's work lands; only Rich moves it — point 14)"
+                    % (verb, _refname(t)))
+
+
+def _refuse_delete(kind, verb, t):
+    """A DELETER of a codex/ ref, from anyone's call, with no override; of a
+    recorded branch, from an agent's call."""
+    if kind == "codex":
+        spec.append("%s deleting the codex/ ref %s (a codex/ workspace or branch is never deleted "
+                    "without the CEO's express word — point 2)" % (verb, _refname(t)))
+    elif kind == "recorded" and AGENT:
+        spec.append("%s deleting %s, the RECORDED integration branch, from an agent's call (point 14)"
+                    % (verb, _refname(t)))
+
+
+def _refspecs(tokens):
+    """(src, dst, explicit) for every refspec-shaped positional after the
+    remote; `explicit` says the token carried a colon, so the destination is
+    named rather than implied (`git fetch . main` writes only FETCH_HEAD;
+    `git fetch . main:main` writes main)."""
+    out = []
+    positional = [t for t in tokens if not t.startswith("-")]
+    for t in positional[1:]:            # positional[0] is the remote (`.`, `origin`)
+        if ":" in t:
+            src, dst = t.split(":", 1)
+            out.append((src.lstrip("+"), dst, True))
+        else:
+            out.append((t.lstrip("+"), t, False))
+    return out
 
 # A git invocation and ITS OWN arguments. The leading class admits a statement
 # separator, whitespace or a quote (so `bash -c "git worktree remove x"` is
@@ -433,37 +514,126 @@ def collect_git(text):
         elif deletes and any(re.search(r"(?:^|refs/heads/)(?:worktree-\S+|cc/\S+)", t) for t in rest):
             spec.append("git branch -D of an agent's branch (a land or a discard deletes it, "
                         "with every workspace it has — points 4, 7, 10)")
-        # Rule 6b: an AGENT moving, renaming or deleting a RECORDED integration
-        # branch. -f/--force (a move), -m/-M/--move, -d/-D/--delete; a plain
-        # `git branch <name>` creates a new ref and touches nothing recorded.
-        moves = deletes or any(
-            t in ("--force", "--move", "--delete") or re.fullmatch(r"-[A-Za-z]*[fmMdD][A-Za-z]*", t)
+        # A LISTING never writes: --list, -a/-r, --contains, --merged, -v, ...
+        listing = any(
+            t in ("--list", "--all", "--remotes", "--contains", "--no-contains", "--merged",
+                  "--no-merged", "--points-at", "--show-current", "--verbose")
+            or re.fullmatch(r"-[alrv]+", t)
             for t in rest)
-        if AGENT and moves:
-            for b in recorded_integration_branches():
-                if any(t == b or t == "refs/heads/" + b for t in rest):
-                    spec.append("git branch -f/-m/-D of %s, the RECORDED integration branch, from an "
-                                "agent's call (it is where every in-flight agent's work lands; only "
-                                "Rich moves it — point 14)" % b)
-
-    elif sub == "update-ref" and AGENT:
-        for b in recorded_integration_branches():
-            if any(t == "refs/heads/" + b for t in rest):
-                spec.append("git update-ref of refs/heads/%s, the RECORDED integration branch, from an "
-                            "agent's call (point 14)" % b)
-
-    elif sub == "push" and AGENT:
-        # `git push . HEAD:dev/x`, `git push . dev/x`, `git push origin x:refs/heads/dev/x`:
-        # the DESTINATION side of a refspec is the branch being written.
-        for b in recorded_integration_branches():
-            for t in rest:
-                if t.startswith("-"):
+        positional = [t for t in rest if not t.startswith("-")]
+        # Rule 6b, widened in round 8: an AGENT moving, renaming, COPYING ONTO,
+        # force-moving, CREATING or deleting a protected ref. -f/--force (a
+        # move), -m/-M/--move, -c/-C/--copy (the destination is the last
+        # positional), -d/-D/--delete; and a plain `git branch codex/new` CREATES
+        # a codex/ ref. `git branch -C side <it>` was measured moving the
+        # recorded branch past the old [fmMdD] set (brief-audit-frank-round8 §2);
+        # `git branch -M codex/x other` renames a codex/ ref AWAY, which deletes it.
+        renames = any(t in ("--move", "--copy") or re.fullmatch(r"-[A-Za-z]*[mMcC][A-Za-z]*", t)
+                      for t in rest)
+        forces = any(t == "--force" or re.fullmatch(r"-[A-Za-z]*[f][A-Za-z]*", t) for t in rest)
+        if not listing:
+            for t in positional:
+                kind = _protected(t)
+                if not kind:
                     continue
-                dst = t.split(":", 1)[1] if ":" in t else t
-                if dst.lstrip("+") in (b, "refs/heads/" + b):
-                    spec.append("git push into %s, the RECORDED integration branch, from an agent's "
-                                "call (point 14)" % b)
+                if deletes:
+                    _refuse_delete(kind, "git branch -d/-D", t)
+                elif renames and kind == "codex" and t == positional[0]:
+                    _refuse_delete(kind, "git branch -m/-M (renaming it away)", t)
+                elif renames and t != positional[-1]:
+                    continue                    # the SOURCE of a copy/rename is only read
+                elif renames or forces or (kind == "codex" and len(positional) >= 1):
+                    _refuse_write(kind, "git branch", t)
+
+    elif sub == "update-ref":
+        deletes = any(t in ("-d", "--delete") for t in rest)
+        refs = [t for t in rest if t.startswith("refs/")]
+        for t in refs:
+            kind = _protected(t)
+            if not kind:
+                continue
+            if deletes:
+                _refuse_delete(kind, "git update-ref -d", t)
+            else:
+                _refuse_write(kind, "git update-ref", t)
+        # `--stdin` reads its updates from a pipe the classifier cannot see; from
+        # an AGENT's call it is refused whenever the command text mentions a
+        # protected ref at all (`printf 'update refs/heads/<it> HEAD' | git update-ref --stdin`).
+        if AGENT and "--stdin" in rest:
+            for m2 in re.finditer(r"refs/heads/(\S+)", scan):
+                kind = _protected(m2.group(0))
+                if kind:
+                    _refuse_write(kind, "git update-ref --stdin naming", m2.group(0))
                     break
+
+    elif sub in ("push", "send-pack"):
+        # `git push . HEAD:dev/x`, `git push . dev/x`, `git push origin x:refs/heads/dev/x`,
+        # `git push . :codex/x` (an EMPTY source deletes the destination), `git push
+        # --delete . codex/x`, and the plumbing under push, `send-pack . HEAD:refs/heads/<it>`:
+        # the DESTINATION side of a refspec is the branch being written.
+        pdelete = any(t in ("--delete", "-d") for t in rest)
+        for src, dst, _explicit in _refspecs(rest):
+            kind = _protected(dst)
+            if not kind:
+                continue
+            if pdelete or src == "":
+                _refuse_delete(kind, "git %s" % sub, dst)
+            else:
+                _refuse_write(kind, "git %s into" % sub, dst)
+
+    elif sub in ("fetch", "pull"):
+        # `git fetch . HEAD:<it>`, `git fetch . +side:refs/heads/<it>`, `git pull . +side:<it>`:
+        # a fetch refspec writes its destination like a push does (measured moving the
+        # recorded branch, brief-audit-frank-round8 §2). A bare `git pull`, or `git fetch
+        # origin main` with no destination named, writes only FETCH_HEAD.
+        for _src, dst, explicit in _refspecs(rest):
+            if not explicit:
+                continue
+            kind = _protected(dst)
+            if kind:
+                _refuse_write(kind, "git %s into" % sub, dst)
+
+    elif sub in ("checkout", "switch"):
+        # THE DOORWAY (brief-audit-frank-round8 §2): a plain `git checkout <it>` /
+        # `git switch <it>` of a protected branch passes every named-verb rule, and
+        # `commit`, `reset --hard`, `merge`, `rebase` and `--amend` then move the
+        # branch without ever naming it — from the agent's own worktree or from the
+        # main checkout (which also takes the main checkout off its branch). So an
+        # AGENT's checkout or switch OF a protected branch is refused, as are
+        # `checkout -B <it>` / `switch -C <it>` / `--force-create <it>` (force-moves)
+        # and `checkout -b codex/new` (a creation). `git checkout -b cc/x codex/fix`
+        # (a COPY cut from the codex/ tip) and `git checkout <it> -- <path>` (a file
+        # restored from it, HEAD untouched) both pass: precision.
+        if AGENT and "--" not in rest:
+            creating = [rest[i + 1] for i, t in enumerate(rest[:-1])
+                        if t in ("-b", "-B", "-c", "-C", "--force-create", "--create", "--orphan")]
+            positional = [t for t in rest if not t.startswith("-") and t not in creating]
+            if creating:
+                # `-b <new> [<start>]`: the new name is written; the start point
+                # (`codex/fix`, the tip a cc/ copy is cut from) is only read.
+                for t in creating:
+                    kind = _protected(t)
+                    if kind:
+                        _refuse_write(kind, "git %s -b/-B/-c/-C" % sub, t)
+            else:
+                for t in positional[:1]:        # the branch being checked out
+                    kind = _protected(t)
+                    if kind:
+                        _refuse_write(kind, "git %s of (the checkout doorway: commit/reset/merge/rebase then move it unnamed)" % sub, t)
+
+    elif sub == "symbolic-ref":
+        # Rule 7: one positional reads; two write a symref. `symbolic-ref
+        # refs/heads/<it> refs/heads/x` makes the protected branch a pointer at
+        # something else (the branch becomes a symref — it has moved); `symbolic-ref
+        # HEAD refs/heads/<it>` is the checkout doorway by another name.
+        positional = [t for t in rest if not t.startswith("-")]
+        if len(positional) >= 2:
+            kind = _protected(positional[0])
+            if kind:
+                _refuse_write(kind, "git symbolic-ref rewriting", positional[0])
+            kind = _protected(positional[1])
+            if kind and positional[0] == "HEAD":
+                _refuse_write(kind, "git symbolic-ref HEAD -> (the checkout doorway by another name)", positional[1])
 
 # 4) A FILESYSTEM recursive rm whose OWN argument list names a worktree.
 #
@@ -575,6 +745,28 @@ for _sub in _SUBST.finditer(scan):
 if CLAUDE_WT.search(scan):
     spec.append("claude --worktree / -w (nobody starts a session in its own workspace in "
                 "RichOS; it is not allowed — point 3)")
+
+# 8) AN AGENT NEVER WORKS INSIDE A codex/ WORKSPACE (point 2's second sentence,
+#    round 8 item 3). A commit, a shell redirect, anything at all, run with the
+#    call's cwd inside a codex/ workspace, or aimed there by `git -C <path>`,
+#    `--work-tree=<path>` or `cd <path>`, is refused from an AGENT's call by
+#    name. Whether a path IS a codex/ workspace is read from git on disk
+#    (workspace_kind), never from the path's spelling. The lead's calls pass.
+def _codex_workspace_paths(text, cwd):
+    hits = []
+    cands = []
+    if cwd:
+        cands.append(("the call's cwd", cwd))
+    for m3 in re.finditer(r"(?:^|[;&|(]\s*|\s)cd\s+([^\s;&|)]+)", text):
+        cands.append(("cd", m3.group(1).strip("\"'")))
+    for m3 in re.finditer(r"(?:^|\s)-C\s+([^\s;&|)]+)", text):
+        cands.append(("git -C", m3.group(1).strip("\"'")))
+    for m3 in re.finditer(r"--work-tree[= ]([^\s;&|)]+)", text):
+        cands.append(("--work-tree", m3.group(1).strip("\"'")))
+    for how, p in cands:
+        if workspace_kind(p) == "codex":
+            hits.append((how, p))
+    return hits
 if AGENT and INTEGRATION_CALL.search(scan):
     spec.append("workspaces.sh integration --branch from an AGENT's call (the branch a body of "
                 "work integrates on is recorded by Rich when the work starts, before its first "
@@ -622,6 +814,13 @@ for tok in paths + rm_paths:
                     "workspace and branch it has (points 4, 7, 10)" % tok)
     elif k == "other" and tok in rm_paths:
         reasons.append("rm -r of a linked git worktree (%s)" % tok)
+
+if AGENT:
+    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):
+        spec.append("a command run inside the codex/ workspace %s (%s) from an agent's call — an "
+                    "agent never works inside a codex/ workspace; it works from a copy in its own "
+                    "cc/ workspace (point 2)" % (p, how))
+        break
 
 
 # The sanctioned command: scripts/workspaces.sh (land / discard) is the only

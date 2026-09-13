@@ -65,6 +65,11 @@ mutant p05-ceo-wait-unblocks-new-work "test_point_05_a_ceo_discard_question_bloc
     '            "blocks_new_work": kind != "ceo-discard",' \
     "the round-7 mis-build restored: an item waiting on the CEO's word would be the one kind of pending item that lets new work start, against \"New work stays blocked either way\" (point 5)."
 
+mutant p05-a-notification-counts-as-the-ceo "test_point_05_answering_the_ceo_names_the_pending_work" "$W" \
+    '    if d.get("queueSkipAttachments") or d.get("promptSource") == "system":{NL}        return False{AND}    if isinstance(origin, dict):{NL}        return kind == "human"' \
+    '    if False:{NL}        return False{AND}    if isinstance(origin, dict):{NL}        return True' \
+    "a turn begun by a platform notification (a stamped origin that is not a person's) would count as answering the CEO, and the one allowance would be spent by something he never sent (point 5)."
+
 mutant p05-allowance-never-spent "test_point_05_the_answer_allowance_is_spent_once_per_item" "$W" \
     '        if not spent:' \
     '        if True:' \
@@ -261,6 +266,21 @@ mutant p03-borrowed-tip-counts-as-own-work "test_point_14_a_tip_the_agent_only_b
     '                if _made_here(subject):{NL}                    tips.add(sha)' \
     '                if True:{NL}                    tips.add(sha)' \
     "every commit the workspace's HEAD ever MOVED TO would count as the agent's own work, checkouts included, so a ref Rich cut at a tip the agent merely BORROWED would be on the agent's line of work and would be deleted with it (points 3, 8)."
+
+mutant p14-moved-recorded-branch-not-restored "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" "$W" \
+    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    pass' \
+    "a recorded branch (or a codex/ ref) moved or deleted during an agent's call by an unnamed verb, a verb the guard missed or a non-git write would stay moved: the doorway class no verb list can close (points 2, 14)."
+
+mutant p14-the-leads-move-restored-too "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" "$W" \
+    '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
+    '                    else:{NL}                        why = "moved"' \
+    "the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse (point 14: landing is his)."
+
+mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored" "$W" \
+    '        cx = _codex_workspace_of(fp){NL}        if cx:' \
+    '        cx = _codex_workspace_of(fp){NL}        if False:' \
+    "a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it (point 2: an agent never works inside a codex/ workspace)."
 
 mutant p14-second-body-of-work-moves-the-first "test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents" "$W" \
     '    for r in chain or []:{NL}        wid = (r.get("integration_work") or {}).get(main_key)' \

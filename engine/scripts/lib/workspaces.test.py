@@ -456,20 +456,27 @@ class Point05_Guarantee(Base):
         self.assertIn("zach-opus-p5", msg)
 
     def test_point_05_answering_the_ceo_names_the_pending_work(self):
+        """The NEGATIVE case comes FIRST: the one allowance is spent by the
+        reply that uses it, and a refusal after that would be for the wrong
+        reason (round 8: a mutant that let a notification count as the CEO
+        survived the old order, because the second gate call was refused for
+        the spent allowance, not for the notification)."""
         self._pending_one()
         tr = os.path.join(self.env.root, "t.jsonl")
+        # a notification is not the CEO — stamped as the platform stamps it
         with open(tr, "w") as f:
-            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "stop everything"}}) + "\n")
-        ok, _m = ws.gate_stop({"session_id": self.sid, "transcript_path": tr,
-                               "last_assistant_message": "Stopping. Pending: zach-opus-p5."}, self.entity)
-        self.assertTrue(ok)
-        # a notification is not the CEO
-        with open(tr, "w") as f:
-            f.write(json.dumps({"type": "user", "message": {"role": "user",
-                                                            "content": "<task-notification>x</task-notification>"}}) + "\n")
+            f.write(json.dumps({"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system",
+                                "queueSkipAttachments": True,
+                                "message": {"role": "user", "content": "<task-notification>x</task-notification>"}}) + "\n")
         ok, _m = ws.gate_stop({"session_id": self.sid, "transcript_path": tr,
                                "last_assistant_message": "Pending: zach-opus-p5."}, self.entity)
         self.assertFalse(ok)
+        with open(tr, "w") as f:
+            f.write(json.dumps({"type": "user", "origin": {"kind": "human"}, "promptSource": "typed",
+                                "message": {"role": "user", "content": "stop everything"}}) + "\n")
+        ok, _m = ws.gate_stop({"session_id": self.sid, "transcript_path": tr,
+                               "last_assistant_message": "Stopping. Pending: zach-opus-p5."}, self.entity)
+        self.assertTrue(ok)
 
     def test_point_05_the_gate_answers_inside_its_budget(self):
         """"This is a guarantee, not a habit: it holds whether or not Rich
@@ -505,8 +512,8 @@ class Point05_Guarantee(Base):
         _aid, npath = self._pending_one()
         tr = os.path.join(self.env.root, "allowance.jsonl")
         with open(tr, "w") as f:
-            f.write(json.dumps({"type": "user", "message": {"role": "user",
-                                                            "content": "what is the state of things?"}}) + "\n")
+            f.write(json.dumps({"type": "user", "origin": {"kind": "human"}, "promptSource": "typed",
+                                "message": {"role": "user", "content": "what is the state of things?"}}) + "\n")
         answer = {"session_id": self.sid, "transcript_path": tr,
                   "last_assistant_message": "Answering. Pending: zach-opus-p5 — handled right after."}
         self.assertTrue(ws.gate_stop(dict(answer), self.entity)[0])     # the one allowance
@@ -1403,6 +1410,66 @@ class Point14_IntegrationBranch(Base):
         done = ws.load_agent(orphan["key"])
         self.assertEqual(done["disposition"]["kind"], "landed")
         self.assertEqual(done["integration_work"][self.entity], ws.integration_record(self.entity)["id"])
+
+    def test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored(self):
+        """Round 8, item 2. The recorded branch moved by an UNNAMED verb — the
+        checkout doorway, then a commit — or deleted, during an agent's call,
+        is restored at the call's PostToolUse from the snapshot the call
+        started with, and reported; the lead's legitimate move (a descendant
+        carrying none of the agent's work: his land of a finished agent) is
+        not restored."""
+        run("git", "-C", self.entity, "branch", "dev/rec")
+        ws.record_integration(self.entity, "dev/rec", "body of work on a dev branch", self.sid)
+        tip = run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip()
+        aid, npath = self.spawn("zach-opus-mv")
+        self.commit(npath, "mv.txt")
+        self.pre(aid, "tu-1")
+        run("git", "-C", npath, "checkout", "-q", "dev/rec")                  # the doorway
+        run("git", "-C", npath, "commit", "-q", "--allow-empty", "-m", "moved unnamed")
+        self.post(aid, call="tu-1")
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), tip)
+        hist = [h for h in self.rec("zach-opus-mv").get("history") or [] if h.get("fact") == "protected ref restored"]
+        self.assertEqual([h["branch"] for h in hist], ["dev/rec"])
+        self.pre(aid, "tu-2")
+        run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/dev/rec")   # deleted, from the main checkout
+        self.post(aid, call="tu-2")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), tip)
+        self.pre(aid, "tu-3")
+        lead = run("git", "-C", self.entity, "commit-tree", tip + "^{tree}", "-p", tip, "-m",
+                   "the lead lands a finished agent's work").stdout.strip()
+        run("git", "-C", self.entity, "branch", "-f", "dev/rec", lead)              # the lead's move: a descendant, not this agent's work
+        self.post(aid, call="tu-3")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), lead)
+
+    def test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored(self):
+        """Round 8, item 3: a codex/ ref moved by any means, or deleted, during
+        an agent's call is restored at its PostToolUse; and a registered
+        agent's Write/Edit aimed inside a codex/ workspace is refused by the
+        lock-out (the only hook that sees it), while the lead's passes."""
+        run("git", "-C", self.entity, "branch", "codex/keep")
+        cx = os.path.join(self.env.root, "codex-wt")
+        run("git", "-C", self.entity, "worktree", "add", "-q", cx, "-b", "codex/live")
+        tip = run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip()
+        aid, npath = self.spawn("zach-opus-cx")
+        self.commit(npath, "cx.txt")
+        mine = run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip()
+        self.pre(aid, "tu-1")
+        run("git", "-C", self.entity, "branch", "-f", "codex/keep", mine)          # a mover the guard did not see
+        self.post(aid, call="tu-1")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip(), tip)
+        self.pre(aid, "tu-2")
+        run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/codex/keep")
+        self.post(aid, call="tu-2")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip(), tip)
+        self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit",
+                                     "tool_input": {"file_path": os.path.join(cx, "README")}})[0], "CODEX")
+        self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Write",
+                                     "tool_input": {"file_path": os.path.join(cx, "sub", "new.txt")}})[0], "CODEX")
+        self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit",
+                                     "tool_input": {"file_path": os.path.join(npath, "README")}})[0], "REGISTERED")
+        self.assertEqual(ws.barrier({"session_id": self.sid, "tool_name": "Edit",
+                                     "tool_input": {"file_path": os.path.join(cx, "README")}})[0], "LEAD")
 
     def test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents(self):
         """Point 14: "the branch THIS WORK integrates on." Point 5 permits a

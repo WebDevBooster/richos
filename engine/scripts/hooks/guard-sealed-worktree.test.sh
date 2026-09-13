@@ -108,6 +108,33 @@ spawn_agent "a00000000000reg1" dev-opus-g2
 run "$(payload Write a00000000000reg1)"
 [ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "G02  a REGISTERED worker's Write passes silently" || bad "G02  registered rc=$RC: $OUT"
 
+# G02b/G02c — ROUND 8, ITEM 3: "An agent never works inside a codex/ workspace."
+# This is the only hook that sees a Write/Edit; until round 8 a registered
+# agent's Edit with a file_path inside a codex/ workspace passed it
+# (brief-audit-sage-round8 §4). Whether the path is inside one is read from
+# git — the branch its worktree has checked out — never from the path's name.
+CODEX_WT="$SANDBOX/codex-wt"
+git -C "$ENTITY" worktree add -q "$CODEX_WT" -b codex/some-task
+payload_path() { # <tool_name> <agent_id|""> <file_path>
+    python3 -c '
+import json, sys
+tool, aid, fp, sid = sys.argv[1:5]
+d = {"session_id": sid, "hook_event_name": "PreToolUse", "tool_name": tool,
+     "tool_input": {"file_path": fp, "old_string": "a", "new_string": "b"}, "tool_use_id": "toolu_p"}
+if aid:
+    d["agent_id"] = aid
+    d["agent_type"] = "dev"
+print(json.dumps(d))' "$1" "$2" "$3" "$SID"
+}
+run "$(payload_path Edit a00000000000reg1 "$CODEX_WT/seed.txt")"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "codex/" && ok "G02b a REGISTERED worker's Edit aimed INSIDE a codex/ workspace is refused, naming point 2" || bad "G02b codex Edit rc=$RC: $OUT"
+run "$(payload_path Write a00000000000reg1 "$CODEX_WT/sub/new.txt")"
+[ "$RC" -eq 2 ] && ok "G02c ...and its Write of a new file there too" || bad "G02c codex Write rc=$RC: $OUT"
+run "$(payload_path Edit "" "$CODEX_WT/seed.txt")"
+[ "$RC" -eq 0 ] && ok "G02d the lead's Edit inside the codex/ workspace passes (the lead's calls are unaffected)" || bad "G02d lead codex Edit rc=$RC: $OUT"
+run "$(payload_path Edit a00000000000reg1 "$ENTITY/.claude/worktrees/agent-a00000000000reg1/seed.txt")"
+[ "$RC" -eq 0 ] && ok "G02e CONTROL: the same worker's Edit inside its OWN workspace passes" || bad "G02e own workspace Edit rc=$RC: $OUT"
+
 # G03-G05 a finished worker: every tool refused, Read included
 stop_agent "a00000000000reg1"
 for t in Write Bash Read; do

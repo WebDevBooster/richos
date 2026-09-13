@@ -27,6 +27,11 @@ mutant finished-refusal-exits-zero "G03" "$G" \
     '      echo "  is over, and the orchestrator lands or discards it."{NL}      echo "$HOOK_TAG"{NL}    } >&2{NL}    exit 0 ;;' \
     "the lock-out would print its refusal and let the call through — a warning wearing a guard's clothes."
 
+mutant codex-workspace-writes-pass "G02b" "$G" \
+    '  CODEX){NL}    {' \
+    '  CODEX){NL}    exit 0; {' \
+    "a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it (point 2: an agent never works inside a codex/ workspace)."
+
 mutant unregistered-passes "G08" "$G" \
     '  UNREGISTERED){NL}    is_readonly_tool "$TOOL_NAME" "$SEAL_READONLY_TOOLS" && exit 0' \
     '  UNREGISTERED){NL}    exit 0' \
