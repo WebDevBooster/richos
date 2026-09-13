@@ -375,6 +375,45 @@ else
 fi
 rm -rf "$FAKEBIN"
 
+# --- what the refusal tells you to run next ---------------------------------
+#
+# A refusal is read at exactly the moment the one-command path is worth most:
+# spawn.sh would have reported THIS failure together with every other one,
+# before anything was created. Until 2026-09-13 this guard's advice named only
+# the four-step path, and that — plus the same omission in the session banner —
+# is why spawn.sh went unused the night after it landed.
+#
+# PRIMACY, not presence: advice that named the old path first would pass a
+# naive grep and reproduce the defect. The exit codes this guard returns are
+# asserted by every case above and are untouched here; this is a check on what
+# the refusal SAYS.
+ADVICE_OUT="$(printf '%s' "$(json_agent 'Use the Agent tool to spawn agents for each module.')" \
+  | V8_TEAMS_DIR_OVERRIDE="$SANDBOX/teams" \
+    VERIFY_REPO_ROOT_OVERRIDE="$REPO" \
+    "$BASH_BIN" "$HOOK" 2>&1 1>/dev/null)" || true
+ADVICE_PROBLEMS=""
+case "$ADVICE_OUT" in
+    *"scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>"*) : ;;
+    *) ADVICE_PROBLEMS="$ADVICE_PROBLEMS [does not name scripts/spawn.sh with its command shape]" ;;
+esac
+case "$ADVICE_OUT" in
+    *"scripts/spawn.sh"*"prepare-agent-spawn.py"*) : ;;
+    *) ADVICE_PROBLEMS="$ADVICE_PROBLEMS [prepare-agent-spawn.py is named ahead of spawn.sh, or spawn.sh is missing — the old path reads as the instruction]" ;;
+esac
+case "$ADVICE_OUT" in
+    *"FALLBACK ONLY"*) : ;;
+    *) ADVICE_PROBLEMS="$ADVICE_PROBLEMS [the four-step path is offered without being marked FALLBACK ONLY]" ;;
+esac
+case "$ADVICE_OUT" in
+    *"prepare-agent-spawn.py"*) : ;;
+    *) ADVICE_PROBLEMS="$ADVICE_PROBLEMS [the four-step path is no longer named at all — it is still accepted, so it must still be findable]" ;;
+esac
+if [ -z "$ADVICE_PROBLEMS" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  a refusal names spawn.sh FIRST, with its shape, and keeps the four-step path as a marked fallback\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  refusal advice:%s\n' "$ADVICE_PROBLEMS"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== verify-agent-prompt tests: $FAIL FAILED, $PASS passed ==="

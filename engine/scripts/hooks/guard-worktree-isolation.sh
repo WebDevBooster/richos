@@ -625,7 +625,13 @@ registered_teammate_worktree() {
   esac
   return 0
 }
-HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness). Or let scripts/spawn.sh do all of it in one command."
+# The hint every clause-4 refusal ends with. It named the four-step path
+# first and spawn.sh as an afterthought until 2026-09-13 — the same ordering
+# defect as the session banner, and the same cost: the reader of a refusal
+# does the thing that produced the refusal. ONE command first; the manual
+# route is still named because it is still accepted, and nothing about what
+# this guard blocks changed with the wording.
+HELPER_HINT="do all of it in ONE command —  <engine>/scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>  creates and REGISTERS the tree, assembles the payload, and evaluates every PreToolUse[Agent] guard from every surface BEFORE anything exists, reporting all failures together. By hand it is  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
 
 # A DRY EVALUATION'S *PLANNED* WORKSPACES (see clause 7g). scripts/spawn.sh
 # evaluates this guard BEFORE it creates anything, precisely so that a brief

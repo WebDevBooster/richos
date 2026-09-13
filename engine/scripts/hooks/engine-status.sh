@@ -223,10 +223,32 @@ GUARD_NOTE="${GUARD_NOTE} Engine HEAD ${ENGINE_HEAD} (this is the path that RUNS
 resolve_entity_root ""
 RC=$?
 
+# ===========================================================================
+# THE SPAWN INSTRUCTION — ONE COMMAND, NOT FOUR
+# ===========================================================================
+# 2026-09-13. `scripts/spawn.sh` landed the night before and does the whole
+# thing in one command, evaluating every PreToolUse[Agent] guard from every
+# surface and reporting ALL failures together before anything is created. It
+# was not used. The reason was here: this string — the first instruction every
+# session reads — still named the four-step path and had never heard of
+# spawn.sh. Following it that night cost 130 s and two guard refusals that
+# spawn.sh would have reported together, before a workspace existed. The CEO,
+# for the fourth time: "Spinning up the first agent in a new session still
+# takes over 3 minutes! I thought that fuckshit was supposed to have been fixed
+# at the end of the last session?"
+#
+# A tool nobody is told to use is a tool that does not exist. So the one
+# command is the INSTRUCTION and the old path is named only as a fallback.
+#
+# WHAT DELIBERATELY DID NOT CHANGE: what any guard ACCEPTS. The four-step path
+# still works and is still allowed — this is a change to what we TELL people,
+# never to what is permitted. engine-status.test.sh case 7 fails if this string
+# stops naming spawn.sh, or names prepare-agent-spawn.py ahead of it.
+# ===========================================================================
 case "$RICHOS_ROOT_STATUS" in
     governed)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards). Enforcement is ON for this repository.${GUARD_NOTE} Before each new Agent call, prepare its task-specific JSON with python3 '${ENGINE_ROOT}/scripts/prepare-agent-spawn.py' --file <input.json>. This supplies native isolation and the required durable inflight acknowledgement contract, including for readers in worktrees. Cross-repository work ALSO requires '${ENGINE_ROOT}/scripts/create-teammate-worktree.sh' <repo> <teammate-name> and a cross-repo-worktree: <registered-path> prompt line. Keep isolation:worktree; a cwd-only spawn is refused. These are engine paths, not scripts inside the governed repository. The helper grants no guard exemptions; review its JSON before dispatch." \
+            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards). Enforcement is ON for this repository.${GUARD_NOTE} STARTING ONE TEAMMATE IS ONE COMMAND: '${ENGINE_ROOT}/scripts/spawn.sh' <teammate-name> --repo <repo> --type <subagent-type> --brief <file> [--model <alias>] (--repo takes an absolute path OR an unambiguous bare repository name). It resolves the repository and the branch this work integrates on, creates and REGISTERS the isolated workspace — including a cross-repository one, with its cross-repo-worktree: <registered-path> prompt line — and assembles the complete Agent payload, supplying native isolation and the required durable inflight acknowledgement contract, including for readers in worktrees. It then evaluates EVERY PreToolUse[Agent] guard from EVERY surface — this engine's hooks/hooks.json AND the governed repository's .claude/settings*.json — against that payload and reports ALL failures together, BEFORE anything is created; on refusal it exits 1 and leaves nothing behind. The finished payload goes to stdout: review it, then make the Agent call with it. Keep isolation:worktree; a cwd-only spawn is refused. FALLBACK ONLY, for something spawn.sh cannot do (it is still accepted and no guard has changed): python3 '${ENGINE_ROOT}/scripts/prepare-agent-spawn.py' --file <input.json>, plus '${ENGINE_ROOT}/scripts/create-teammate-worktree.sh' <repo> <teammate-name> and a cross-repo-worktree: <registered-path> prompt line for cross-repository work — four steps instead of one, with every guard evaluated only at the tool call, one refusal per attempt. These are engine paths, not scripts inside the governed repository. Neither helper grants any guard exemption; review the payload before dispatch." \
             "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE}).${GUARD_NOTE}"
         ;;
     engine-self)
