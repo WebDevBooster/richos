@@ -598,16 +598,37 @@ MT_Q_EOF
             # the sandbox is a real repository on `main` with the recording point
             # 14 requires, and the only thing left that can refuse the fable leg is
             # clause 6, which is what MT is the canary for.
+            #
+            # AND THE SANDBOX SESSION NEEDS A PROCESS IT CAN POINT AT. Clause 7
+            # registers through workspaces.py, which refuses a registration whose
+            # session identity it cannot read from the operating system (point
+            # 12: a registration that could never tell its session ended). That
+            # identity is resolved by walking the process ancestry for a process
+            # named `claude` — so on a workstation, where the probe is always a
+            # descendant of the live session, it resolves by accident of where
+            # the probe was run, and on a RUNNER, where nothing in the ancestry
+            # is `claude`, it resolves to nothing and the fable leg is refused by
+            # clause 7 for a reason that has nothing to do with model tiers.
+            # That is exactly the shape the comment above describes, one clause
+            # later, and it made this layer red on every GitHub run while passing
+            # on every Mac. `mt-canary-0000` is a synthetic session, so it gets a
+            # synthetic process to be: a live `sleep` whose pid is handed to
+            # every leg through RICHOS_SESSION_PID — the same stand-in Layer Q
+            # mints for the same reason, and the same one every sandboxed suite
+            # in this engine uses. Nothing about tier enforcement changes; the
+            # canary stops depending on its own ancestry.
             MT_SB_OK=1
+            MT_SESS_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
             git -C "$MT_SB/entity" init -q -b main >/dev/null 2>&1 || MT_SB_OK=0
             printf '.claude/\n' >"$MT_SB/entity/.gitignore"
             git -C "$MT_SB/entity" add -A >/dev/null 2>&1 || MT_SB_OK=0
             GIT_CONFIG_GLOBAL=/dev/null git -C "$MT_SB/entity" \
                 -c user.name=probe -c user.email=probe@example.invalid \
                 commit -q -m seed >/dev/null 2>&1 || MT_SB_OK=0
-            env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" \
-                GIT_CONFIG_GLOBAL=/dev/null \
-                python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$MT_SB/entity" \
+            mt_env() { env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" \
+                           RICHOS_WORKSPACES_DIR="$MT_SB/ws" RICHOS_SESSION_PID="$MT_SESS_PID" \
+                           GIT_CONFIG_GLOBAL=/dev/null "$@"; }
+            mt_env python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$MT_SB/entity" \
                 --session mt-canary-0000 integration --repo "$MT_SB/entity" --branch main \
                 --why "the model-tier canary's body of work" >/dev/null 2>&1 || MT_SB_OK=0
             mt_spawn() { # <name> <model>
@@ -615,11 +636,12 @@ MT_Q_EOF
                     "$MT_SB/entity" "$1" "$2"
             }
             set +e
-            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" bash "$MT_GUARD" 2>&1 >/dev/null)"
+            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | mt_env bash "$MT_GUARD" 2>&1 >/dev/null)"
             MT_DOWN_RC=$?
-            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKSPACES_DIR="$MT_SB/ws" bash "$MT_GUARD" 2>&1)"
+            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | mt_env bash "$MT_GUARD" 2>&1)"
             MT_UP_RC=$?
             set -e
+            kill "$MT_SESS_PID" 2>/dev/null || true
             rm -rf "$MT_SB"
             if [ "$MT_SB_OK" -ne 1 ]; then
                 # A FAILURE, not a warning, for Layer Q's reason: a canary whose
