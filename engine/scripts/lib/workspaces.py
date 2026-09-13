@@ -3137,7 +3137,10 @@ def stop_containers(paths):
         if here not in sys.path:
             sys.path.insert(0, here)
         import containers
-        res = containers.reap_for_workspaces(paths)
+        # ending=True: these workspaces are being deleted right now, so their
+        # own liveness must not protect them from their own deletion. Every
+        # other live workspace keeps its protection. See reap_for_workspaces.
+        res = containers.reap_for_workspaces(paths, ending=True)
     except Exception as e:
         # Tidying up must never be able to break the deleter it is attached to.
         event("containers-unreaped", why=str(e)[:200], paths=paths or None)

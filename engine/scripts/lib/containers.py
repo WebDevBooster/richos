@@ -345,14 +345,30 @@ def classify(containers=None, live=None, live_ok=True):
             "protected": protected, "orphaned": orphaned, "unowned": unowned}
 
 
-def reap_for_workspaces(paths, dry_run=False):
+def reap_for_workspaces(paths, dry_run=False, ending=False):
     """POINT 9, FOR CONTAINERS. Called from the workspace deleter.
 
     Removes every container that DECLARES one of these workspaces as its owner.
-    `paths` are workspaces that have just ended, so their containers are not
-    protected by being live — but a path that is still live is refused anyway,
-    belt and braces, because this is the only function here that destroys
-    anything.
+    A container owned by any OTHER workspace is never a candidate at all: the
+    named paths bound the whole operation.
+
+    `ending` IS THE CALLER SAYING WHICH IT IS, AND IT IS NOT A FORMALITY.
+
+      ending=True  — the deleter, mid-deletion. The workspace is still marked
+        live in the record, because `deleted_at` is only set once removal
+        succeeds, so its own liveness must not protect it from its own
+        deletion. An earlier draft checked liveness unconditionally "belt and
+        braces" and thereby refused the one case this exists for: D1 and D2
+        failed with the container still on the machine after a real land.
+      ending=False — anybody else, including `containers.sh reap` typed by
+        hand. A live workspace's containers are then REFUSED and the reason is
+        said out loud. Without this split the safe-looking default would be
+        the dangerous one: a mistyped path would destroy a running agent's
+        containers, and the mutation harness is what showed the check was not
+        doing this job.
+
+    Never raises. Returns a result dict; on a machine without Docker it is
+    {"available": False, ...} and the land proceeds exactly as before.
 
     Never raises. Returns a result dict; on a machine without Docker it is
     {"available": False, ...} and the land proceeds exactly as before.
@@ -370,13 +386,20 @@ def reap_for_workspaces(paths, dry_run=False):
             return result
         result["available"] = True
         live, _ok, _why = live_workspace_paths()
+        if ending:
+            # The deleter's own workspaces are exempt from their own liveness:
+            # the record still calls them live until the directory is gone.
+            # Every OTHER workspace in the set keeps its full protection.
+            live = {w for w in live if not any(_within(w, p) for p in paths)}
         for c in inv["containers"]:
             owner, kind = declared_owner(c)
             if not owner or not any(_within(owner, p) for p in paths):
                 continue
             result["considered"] += 1
-            # It is being deleted, so it should not be live. If it is, the
-            # caller and the record disagree and nothing gets destroyed.
+            # Owned by a workspace that is still live: never touched. With
+            # ending=True that can only be a DIFFERENT workspace nested in the
+            # one being deleted; with ending=False it is the hand-typed reap
+            # aimed at a workspace somebody is still working in.
             if any(_within(owner, w) for w in live):
                 result["kept"].append({"name": c["name"], "owner": owner,
                                        "why": "its workspace is still registered as live"})
@@ -516,9 +539,13 @@ def main(argv):
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("status", help="every container, who owns it, what it costs")
     sub.add_parser("label-args", help="the label a container for this workspace must carry")
-    r = sub.add_parser("reap", help="remove the containers a ROUND workspace declared")
+    r = sub.add_parser("reap", help="remove the containers an ENDED workspace declared")
     r.add_argument("--workspace", action="append", default=[], required=True)
     r.add_argument("--dry-run", action="store_true")
+    # Deliberately not offered on the command line. `ending` says "this
+    # workspace is being deleted by me, right now", which is true of the
+    # deleter and of nothing a person types. A hand-run reap aimed at a live
+    # workspace removes nothing and says why.
     la = ap.parse_args(argv)
     if la.cmd == "reap":
         res = reap_for_workspaces(la.workspace, dry_run=la.dry_run)
