@@ -12,14 +12,21 @@
 # CEO-todo state happens to produce today. The REAL guard-worktree-isolation.sh
 # is in the pinned set, because clauses 4c and 7 are half of what is under test.
 #
-# One case is deliberately NOT hermetic (REAL-SURFACES): it asserts that the
-# collector finds a guard from the engine's matcherless group AND one from a
-# governed repository's settings.local.json. Reading only the engine's Agent
-# group is the exact hole that cost two refusals on 2026-09-13, and a hermetic
-# fixture cannot prove it is closed on this machine.
+# Three cases are deliberately NOT hermetic (REAL SURFACES): they assert that
+# the collector finds a guard from the engine's matcherless group AND one from a
+# governed repository's settings.local.json, and that femcboost's brief-scope
+# guard reports both of its rules at once. Reading only the engine's Agent group
+# is the exact hole that cost two refusals on 2026-09-13, and a hermetic fixture
+# cannot prove it is closed on this machine.
+#
+# TWO OF THOSE THREE NEED A WORKSTATION THAT NO CI RUNNER CAN BE, so each judges
+# its OWN surface and SKIPS with its reason printed when that surface is absent
+# — see the block itself for what that cost before it did. The engine-side one
+# needs nothing but this repository and runs everywhere.
 #
 # Run directly: scripts/spawn.test.sh
-# Exit 0 = all cases pass; exit 1 = at least one failure.
+# Exit 0 = every case that could run passed; exit 1 = at least one failure.
+# A SKIP is neither: it is counted and listed separately, and never as a pass.
 
 set -uo pipefail
 
@@ -29,6 +36,8 @@ WS_PY="$SCRIPT_DIR/lib/workspaces.py"
 
 PASS=0
 FAIL=0
+SKIP=0
+SKIP_LINES=()
 SANDBOX="$(cd "$(mktemp -d -t spawn-test.XXXXXX)" && pwd -P)"
 SESS_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
 # RICHOS_SPAWN_TEST_KEEP=1 leaves the sandbox on disk for a post-mortem.
@@ -39,6 +48,11 @@ else
 fi
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); shift; [ "$#" -gt 0 ] && printf '        %s\n' "$*"; }
+# A CASE THAT CANNOT RUN HERE SAYS SO AND IS COUNTED SEPARATELY. It is never a
+# PASS — a skip that reads as a pass is how a suite stops meaning anything —
+# and the reason travels with it, on the line below and again in the summary.
+skip() { printf '  SKIP  %s\n' "$1"; printf '        NOT RUN HERE: %s\n' "${2:-no reason given}"; \
+         SKIP=$((SKIP + 1)); SKIP_LINES+=("$1 — ${2:-no reason given}"); return 0; }
 
 [ -x "$SPAWN" ] || { echo "FATAL: $SPAWN missing or not executable" >&2; exit 1; }
 
@@ -374,56 +388,132 @@ fi
 # ---------------------------------------------------------------------------
 echo "  REAL SURFACES (not hermetic, on purpose)"
 # ---------------------------------------------------------------------------
+# THREE ASSERTIONS, THREE DIFFERENT SURFACES, AND EACH ONE ANSWERS FOR ITSELF.
+#
+# Until 2026-09-14 all three sat inside ONE `if` on
+# $REAL_PROJECT/.claude/settings.local.json, so on a GitHub runner — where that
+# governed checkout cannot exist — the whole block collapsed to a single line,
+# "FAIL REAL-SURFACES could not run" (run 34787626046, shard 5/12, ubuntu-24.04,
+# 29 passed 1 failed; the same commit is 32/32 on the operator's machine, and
+# `RICHOS_SPAWN_TEST_REAL_PROJECT=/tmp/definitely-not-here` reproduces the
+# runner's output here byte for byte). Nothing about spawn.sh was wrong. A red
+# that only means "this runner is not that workstation" is a red nobody can act
+# on, and it teaches everyone to read past the next one.
+#
+# The fix is NOT to drop the assertions. One of the three needs no workstation
+# at all, and the two that do are exactly the ones that must print WHY they did
+# not run:
+#
+#   1. the engine's own hooks/hooks.json — ships IN this repository, so it runs
+#      everywhere, runner included, and stays load-bearing in CI. Reading only
+#      the Agent-matched group and missing the matcherless one is the hole that
+#      cost two refusals on 2026-09-13; this is the case that keeps it closed.
+#   2. a governed repository's .claude/settings.local.json — a property of a
+#      workstation. Synthesizing one proves nothing the hermetic refuse-b.sh
+#      case above has not already proved against a fixture.
+#   3. femcboost's guard-brief-verification-scope.sh — the same.
+#
+# A case that cannot run here SKIPs, with its reason on the line under it and
+# repeated in the summary, and is never counted as a pass. Same discipline as
+# the workflow's `ci-skip:` declaration and the probe's BY-REFERENCE layers:
+# an undeclared skip is a finding.
 REAL_PROJECT="${RICHOS_SPAWN_TEST_REAL_PROJECT:-/Users/alex/ab/femcboost}"
-if [ -f "$REAL_PROJECT/.claude/settings.local.json" ] && [ -f "$SCRIPT_DIR/../hooks/hooks.json" ]; then
-    FOUND="$(env -u RICHOS_SPAWN_HOOK_SOURCES python3 - "$SCRIPT_DIR/lib/spawn.py" "$REAL_PROJECT" <<'PY'
+ENGINE_HOOKS="$SCRIPT_DIR/../hooks/hooks.json"
+
+collected() {   # <project-dir> -> "<label>\t<guard-file>" per collected guard
+    env -u RICHOS_SPAWN_HOOK_SOURCES python3 - "$SCRIPT_DIR/lib/spawn.py" "$1" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("spawnlib", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 for label, _src, cmd in m.collect_guards(sys.argv[2]):
     print("%s\t%s" % (label, m.guard_name(cmd)))
 PY
-)"
+}
+
+# 1. THE ENGINE'S MATCHERLESS GROUP, from the real hooks.json that ships here.
+#    The project directory is irrelevant to this one — the engine source does
+#    not depend on it — so any real directory will do, and the engine's own is
+#    the one that always exists.
+PROBE_PROJECT="$REAL_PROJECT"
+[ -d "$PROBE_PROJECT" ] || PROBE_PROJECT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+if [ -f "$ENGINE_HOOKS" ]; then
+    FOUND="$(collected "$PROBE_PROJECT")"
     if printf '%s' "$FOUND" | grep -q '^engine.*guard-sealed-worktree.sh$'; then
         ok "the engine's MATCHERLESS guard is collected from the real hooks.json"
     else
         bad "the engine's matcherless guard is collected" "$FOUND"
     fi
-    if printf '%s' "$FOUND" | grep -q '^local'; then
+else
+    # NOT a skip: hooks.json is part of this repository, so its absence is a
+    # broken engine, not a machine that lacks a surface.
+    bad "the engine's matcherless guard is collected" "no $ENGINE_HOOKS — the engine is incomplete"
+fi
+
+# 2. A GOVERNED REPOSITORY'S OWN settings.local.json (femcboost's surface).
+#    The precondition is read STRAIGHT OUT OF THE FILE, never through
+#    collect_guards — asking the code under test whether there is anything to
+#    find would make the assertion vacuous.
+LOCAL_SETTINGS="$REAL_PROJECT/.claude/settings.local.json"
+if [ -f "$LOCAL_SETTINGS" ] && python3 - "$LOCAL_SETTINGS" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+pre = (d.get("hooks") or {}).get("PreToolUse")
+if not isinstance(pre, list):
+    pre = d.get("PreToolUse") if isinstance(d.get("PreToolUse"), list) else []
+def agentish(g):
+    m = g.get("matcher")
+    if m is None:
+        return True
+    m = str(m).strip()
+    return m in ("", "*") or "Agent" in m
+sys.exit(0 if any(isinstance(g, dict) and agentish(g) and (g.get("hooks") or []) for g in pre) else 1)
+PY
+then
+    FOUND_LOCAL="$(collected "$REAL_PROJECT")"
+    if printf '%s' "$FOUND_LOCAL" | grep -q '^local'; then
         ok "a guard registered only in the repository's settings.local.json is collected (the hole that cost two refusals)"
     else
-        bad "the repository's own guard is collected" "$FOUND"
+        bad "the repository's own guard is collected" "$FOUND_LOCAL"
     fi
+else
+    skip "a guard registered only in the repository's settings.local.json is collected" \
+         "no governed repository at $REAL_PROJECT registering a PreToolUse[Agent] hook in .claude/settings.local.json — that file is a workstation's, and no runner has one. Point RICHOS_SPAWN_TEST_REAL_PROJECT at one to run it. The fixture case above proves the same collector hermetically; this is the one that proves it against a real surface, and it DID NOT RUN."
+fi
 
-    # A PREMISE THAT TURNED OUT TO BE FALSE, pinned so it stops being repeated.
-    # The brief for this work said guard-brief-verification-scope.sh "names only
-    # one of the two rules it enforces", offered as the reason one brief cost two
-    # refusals on 2026-09-13. It does not: it accumulates every finding and
-    # prints them as a list. The real cost was that it only ran at dispatch
-    # time, so every refusal from any guard arrived one per round trip.
-    # Escalation esc-20260913T221928Z-42f5cb1d.
-    SCOPE_GUARD="$REAL_PROJECT/scripts/hooks/guard-brief-verification-scope.sh"
-    if [ -f "$SCOPE_GUARD" ]; then
-        TWO_RULE_MSG="$(python3 - <<'PY' | (cd "$REAL_PROJECT" && bash "$SCOPE_GUARD" 2>&1 >/dev/null)
+# 3. A PREMISE THAT TURNED OUT TO BE FALSE, pinned so it stops being repeated.
+# The brief for this work said guard-brief-verification-scope.sh "names only
+# one of the two rules it enforces", offered as the reason one brief cost two
+# refusals on 2026-09-13. It does not: it accumulates every finding and
+# prints them as a list. The real cost was that it only ran at dispatch
+# time, so every refusal from any guard arrived one per round trip.
+# Escalation esc-20260913T221928Z-42f5cb1d.
+SCOPE_GUARD="$REAL_PROJECT/scripts/hooks/guard-brief-verification-scope.sh"
+if [ -f "$SCOPE_GUARD" ]; then
+    TWO_RULE_MSG="$(python3 - <<'PY' | (cd "$REAL_PROJECT" && bash "$SCOPE_GUARD" 2>&1 >/dev/null)
 import json
 print(json.dumps({"tool_name": "Agent", "tool_input": {
     "name": "zach-sonnet-two1", "subagent_type": "zach", "isolation": "worktree",
     "prompt": "Verify with scripts/run-all-tests.sh and confirm a complete verification pass is green."}}))
 PY
 )"
-        if printf '%s' "$TWO_RULE_MSG" | grep -q 'run-all-tests.sh' \
-           && printf '%s' "$TWO_RULE_MSG" | grep -q 'full suite/pass in prose'; then
-            ok "the brief-scope guard names BOTH broken rules in ONE message (the brief's premise that it names one was false)"
-        else
-            bad "the brief-scope guard names both rules at once" "$TWO_RULE_MSG"
-        fi
+    if printf '%s' "$TWO_RULE_MSG" | grep -q 'run-all-tests.sh' \
+       && printf '%s' "$TWO_RULE_MSG" | grep -q 'full suite/pass in prose'; then
+        ok "the brief-scope guard names BOTH broken rules in ONE message (the brief's premise that it names one was false)"
     else
-        bad "the two-rule case could not run" "no $SCOPE_GUARD on this machine"
+        bad "the brief-scope guard names both rules at once" "$TWO_RULE_MSG"
     fi
 else
-    bad "REAL-SURFACES could not run" "no $REAL_PROJECT/.claude/settings.local.json on this machine"
+    skip "the brief-scope guard names BOTH broken rules in ONE message" \
+         "no $SCOPE_GUARD on this machine — that guard lives in the governed repository, not in this one, so no runner can execute it. It DID NOT RUN."
 fi
 
 echo ""
-echo "  $PASS passed, $FAIL failed"
+if [ "$SKIP" -gt 0 ]; then
+    echo "  NOT RUN HERE — these are SKIPS, not passes:"
+    for line in "${SKIP_LINES[@]}"; do printf '    - %s\n' "$line"; done
+fi
+echo "  $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ] || exit 1
