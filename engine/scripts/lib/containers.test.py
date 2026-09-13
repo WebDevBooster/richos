@@ -16,9 +16,12 @@ it in tearDown even when the assertion fails. A test for a reaper that leaks
 containers would be its own best counter-example.
 """
 
+import atexit
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -26,6 +29,32 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
+
+# THE REGISTRY THIS FILE TALKS TO IS A SANDBOX, SAID HERE, IN THIS FILE.
+#
+# The D cases were already hermetic -- they inherit workspaces.test.py's Env,
+# which redirects HOME and CLAUDE_CONFIG_DIR into a mkdtemp -- and a full local
+# run with Docker up left zero fixture rows in the operator's real registry.
+# But that sandbox lives in a SIBLING FILE's base class, so nothing in THIS
+# file says it, and two things follow from that. land-completeness L21 reads
+# source text and cannot see an inherited sandbox, so it read this suite as one
+# that writes to the operator's real registry. More importantly, the C cases
+# and this module's own import run under the REAL environment with no Env at
+# all, so the guarantee today rests on every future case being added to the
+# right class. Inherited hermeticity is not a property of a file; this is.
+#
+# ONLY RICHOS_WORKSPACES_DIR, AND DELIBERATELY NOT HOME. state_dir() reads this
+# variable first, so it redirects the whole registry on its own. Redirecting
+# HOME here would also move ~/.docker, and docker_usable() runs at import: the
+# D cases would stop finding the daemon and SKIP, which is this suite quietly
+# losing the only cases that prove a container is really removed. A sandbox
+# that disables the tests it protects is worse than no sandbox.
+#
+# Env pops RICHOS_WORKSPACES_DIR and saves/restores it, so the D cases keep
+# their own sandbox and this one is back in place when they close.
+_REGISTRY_SANDBOX = tempfile.mkdtemp(prefix="containers-test-registry-")
+atexit.register(shutil.rmtree, _REGISTRY_SANDBOX, ignore_errors=True)
+os.environ["RICHOS_WORKSPACES_DIR"] = _REGISTRY_SANDBOX
 
 import containers as ct           # noqa: E402
 import workspaces as ws           # noqa: E402
