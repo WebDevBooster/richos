@@ -301,6 +301,45 @@ else
 fi
 
 echo
+
+# ---------------------------------------------------------------------------
+echo "the engine's OWN announcement is checked even when the governed repo is elsewhere"
+# ---------------------------------------------------------------------------
+# THE BUG THIS PINS, and it was live for an hour: Layer EP scanned one root. In
+# an engine-development session the governed repository and the engine are the
+# same directory, so it looked right. In the normal by-reference deployment they
+# are not -- and scripts/hooks/engine-status.sh, the file type V was MADE of,
+# lives in the engine. A single-root scan would have checked everything except
+# the announcement, in every session that matters. It was caught by the integrity
+# suite's own sandbox, where the entity is a fixture with no instruction surfaces
+# and the layer passed by having nothing to look at.
+EP_LAYER="$SCRIPT_DIR/hooks/contract-integrity-layer-ep.sh"
+if [ -x "$EP_LAYER" ]; then
+    SBENG="$(sandbox)"
+    declare_config "$SBENG" "$SPEC_REAL" "$SURFACES_REAL"
+    cat >"$SBENG/scripts/hooks/engine-status.sh" <<'ENGBAD'
+emit_context "prepare its task-specific JSON with prepare-agent-spawn.py"
+ENGBAD
+    SBGOV="$(sandbox)"
+    printf 'PROTECTED_PATHS="src"\n' >"$SBGOV/orchestration.config"
+    cat >"$SBGOV/CLAUDE.md" <<'GOVCLEAN'
+Start a teammate with spawn.sh. Nothing stale here.
+GOVCLEAN
+    OUT="$(REPO_ROOT="$SBGOV" ENGINE_ROOT="$SBENG" bash -c '. "$1"; run_layer_EP; exit $FAIL' _ "$EP_LAYER" 2>&1)"; RC=$?
+    if [ "$RC" -ne 0 ]; then
+        ok "a CLEAN governed repository does not hide a stale announcement in the engine — both roots are scanned"
+    else
+        no "the engine root is scanned too" "exit=$RC output: $OUT"
+    fi
+    case "$OUT" in
+        *"engine-status.sh"*) ok "the refusal names the ENGINE's file, not the governed repository's" ;;
+        *) no "the refusal names the engine file" "got: $OUT" ;;
+    esac
+else
+    no "the layer file is present and executable" "missing: $EP_LAYER"
+fi
+
+echo
 echo "----------------------------------------"
 printf 'entrypoint-currency-lint: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

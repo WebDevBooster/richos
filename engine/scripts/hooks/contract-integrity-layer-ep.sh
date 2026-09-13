@@ -36,8 +36,17 @@
 #   3. ENTRYPOINTS is declared and WELL-FORMED — a declaration that does not
 #      parse leaves the lint refusing to decide, which is correct behavior and
 #      is not a check;
-#   4. no standing instruction in this repository names a superseded entrypoint
-#      without naming its replacement (the live run, against REPO_ROOT);
+#   4. no standing instruction names a superseded entrypoint without naming its
+#      replacement — IN BOTH ROOTS, the governed repository AND the engine,
+#      because the file that caused type V is an ENGINE file
+#      (scripts/hooks/engine-status.sh) and the normal deployment is
+#      by-reference, where REPO_ROOT is the governed product repository and the
+#      engine is somewhere else entirely. A single-root scan looked correct in an
+#      engine-development session, where the two roots are the same directory,
+#      and would have checked everything EXCEPT the announcement in every session
+#      that matters. Caught by the integrity suite's own sandbox, where the
+#      entity is a fixture with no instruction surfaces at all and the layer
+#      passed by having nothing to look at;
 #   5. THE LINT STILL WORKS, two-sided, in a sandbox that is nobody's repository:
 #      a known-bad instruction is REFUSED naming the file, and the corrected
 #      string is ALLOWED. A gutted lint passes half of that; a lint that refuses
@@ -53,9 +62,17 @@
 # the canary proves the behavior is intact, and only one of those is the thing
 # being relied on. The omission is stated rather than hidden.
 
-_ep_layer_standalone=0
+# EXECUTED or SOURCED, decided the only way that cannot be wrong: is this file
+# the thing bash was asked to run? Guessing from "is emit_fail defined" also
+# decided whether to PARSE ARGUMENTS, so sourcing this into any shell that
+# happened to carry positional parameters made it refuse them as its own — which
+# is how its first regression test failed.
+_ep_layer_executed=0
+case "${BASH_SOURCE[0]}" in
+    "$0") _ep_layer_executed=1 ;;
+esac
+
 if ! command -v emit_fail >/dev/null 2>&1; then
-    _ep_layer_standalone=1
     FAIL=0
     emit_pass() { printf '  [pass] %s\n' "$1" >&2; }
     emit_fail() { printf '  [FAIL] %s\n' "$1" >&2; FAIL=$((FAIL + 1)); }
@@ -63,10 +80,16 @@ if ! command -v emit_fail >/dev/null 2>&1; then
 fi
 
 run_layer_EP() {
-    EP_ENGINE="${ENGINE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+    # WHERE THE CODE IS and WHICH ROOTS TO SCAN are two different questions, and
+    # answering both with ENGINE_ROOT is a bug waiting for the first caller that
+    # points that variable somewhere else. The parser and the lint are found from
+    # this file's own location, which cannot be wrong; ENGINE_ROOT is used only
+    # as a root to READ (its declaration) and to SCAN (its announcement).
+    EP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    EP_ENGINE="${ENGINE_ROOT:-$(cd "$EP_HOME/.." && pwd)}"
     EP_REPO="${REPO_ROOT:-$EP_ENGINE}"
-    EP_LIB="$EP_ENGINE/scripts/lib/entrypoints.sh"
-    EP_LINT="$EP_ENGINE/scripts/entrypoint-currency-lint.sh"
+    EP_LIB="$EP_HOME/lib/entrypoints.sh"
+    EP_LINT="$EP_HOME/entrypoint-currency-lint.sh"
     EP_OK=1
 
     if [ ! -f "$EP_LIB" ]; then
@@ -104,22 +127,33 @@ run_layer_EP() {
         fi
     fi
 
-    # --- the live run against this repository -------------------------------
-    if [ "$EP_OK" -eq 1 ]; then
+    # --- the live run, against BOTH roots ------------------------------------
+    # The governed repository AND the engine. They are the same directory only
+    # when the engine governs itself; in every by-reference session they are not,
+    # and the engine's own SessionStart announcement — the file type V was made
+    # of — lives in the second one.
+    EP_ROOTS="$EP_REPO"
+    if [ "$EP_ENGINE" != "$EP_REPO" ]; then
+        EP_ROOTS="$EP_REPO $EP_ENGINE"
+    fi
+    EP_SCANNED_ROOTS=0
+    for EP_R in $EP_ROOTS; do
+        [ "$EP_OK" -eq 1 ] || break
+        EP_SCANNED_ROOTS=$((EP_SCANNED_ROOTS + 1))
         set +e
-        EP_OUT="$("$EP_LINT" --root "$EP_REPO" --engine "$EP_ENGINE" 2>&1)"
+        EP_OUT="$("$EP_LINT" --root "$EP_R" --engine "$EP_ENGINE" 2>&1)"
         EP_RC=$?
         set -e
         if [ "$EP_RC" -eq 1 ]; then
             EP_SITES="$(printf '%s' "$EP_OUT" | grep -c 'STANDING INSTRUCTION NAMES' 2>/dev/null || true)"
-            emit_fail "EP. A STANDING INSTRUCTION IN $EP_REPO STILL NAMES A SUPERSEDED ENTRYPOINT. ${EP_SITES:-0} site(s). Nothing is broken and both paths work, which is why nothing else goes red: the capability ships and the instruction keeps directing traffic to the thing it replaced, so the new path goes unused and every session reports success. Full report: $EP_LINT --root $EP_REPO"
+            emit_fail "EP. A STANDING INSTRUCTION IN $EP_R STILL NAMES A SUPERSEDED ENTRYPOINT. ${EP_SITES:-0} site(s). Nothing is broken and both paths work, which is why nothing else goes red: the capability ships and the instruction keeps directing traffic to the thing it replaced, so the new path goes unused and every session reports success. Full report: $EP_LINT --root $EP_R"
             printf '%s\n' "$EP_OUT" >&2
             EP_OK=0
         elif [ "$EP_RC" -eq 2 ]; then
-            emit_fail "EP. the entrypoint currency lint could not run (exit 2): $EP_OUT"
+            emit_fail "EP. the entrypoint currency lint could not run against $EP_R (exit 2): $EP_OUT"
             EP_OK=0
         fi
-    fi
+    done
 
     # --- the two-sided canary ------------------------------------------------
     # In a sandbox that is nobody's repository, so the layer proves the
@@ -161,11 +195,11 @@ run_layer_EP() {
     fi
 
     if [ "$EP_OK" -eq 1 ]; then
-        emit_pass "EP. supersession declared as data (ENTRYPOINTS in $EP_SPEC_SRC, $(entrypoints_superseded_names "$EP_SPEC" | wc -w | tr -d ' ') superseded entrypoint(s)), every standing instruction in $EP_REPO names the current command, and the lint REFUSES a known-bad instruction naming file:line while ALLOWING the corrected one (two-sided canary)"
+        emit_pass "EP. supersession declared as data (ENTRYPOINTS in $EP_SPEC_SRC, $(entrypoints_superseded_names "$EP_SPEC" | wc -w | tr -d ' ') superseded entrypoint(s)), every standing instruction in $EP_SCANNED_ROOTS root(s) — $EP_ROOTS — names the current command, and the lint REFUSES a known-bad instruction naming file:line while ALLOWING the corrected one (two-sided canary)"
     fi
 }
 
-if [ "$_ep_layer_standalone" -eq 1 ]; then
+if [ "$_ep_layer_executed" -eq 1 ]; then
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --root)   REPO_ROOT="$2"; shift 2 ;;
