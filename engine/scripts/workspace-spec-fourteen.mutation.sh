@@ -370,17 +370,19 @@ mutant S-p14-agent-may-record-the-branch "C14.9 " "$G" \
     'if AGENT and INTEGRATION_CALL.search(scan):' \
     'if False:' \
     "SPEC-DERIVED (point 14 negated, 'RECORDED when that work starts, before its first agent is spawned' — by Rich, who starts it; both round-6 reviewers: certification-sage-round6 §5 A3, certification-frank-round6 §4 RN2b): an agent's own Bash call could record or correct the integration branch, retargeting every in-flight agent's land and the runner's witness."
+# The three below were re-aimed in round 8: items 2 and 3 folded the point-14 verb
+# rules into one protected-ref rule, and the lines they named no longer exist.
 mutant S-p14-agent-may-move-the-recorded-branch "C14.11" "$G" \
-    '        if AGENT and moves:' \
-    '        if False:' \
-    "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4 RN2c, 'git branch -f dev/workspace-spec HEAD' → 0): an agent's call could force-move or delete the recorded integration branch."
+    '                elif renames or forces or (kind == "codex" and len(positional) >= 1):{NL}                    _refuse_write(kind, "git branch", t)' \
+    '                elif False:{NL}                    _refuse_write(kind, "git branch", t)' \
+    "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4 RN2c, 'git branch -f dev/workspace-spec HEAD' → 0): an agent's call could force-move the recorded integration branch with git branch -f."
 mutant S-p14-agent-may-update-ref-the-recorded-branch "C14.11" "$G" \
-    '    elif sub == "update-ref" and AGENT:' \
-    '    elif False:' \
+    '            if deletes:{NL}                _refuse_delete(kind, "git update-ref -d", t){NL}            else:{NL}                _refuse_write(kind, "git update-ref", t)' \
+    '            if deletes:{NL}                _refuse_delete(kind, "git update-ref -d", t){NL}            else:{NL}                pass' \
     "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git update-ref refs/heads/dev/workspace-spec HEAD' → 0): an agent's call could rewrite the recorded integration branch through update-ref."
 mutant S-p14-agent-may-push-into-the-recorded-branch "C14.11" "$G" \
-    '    elif sub == "push" and AGENT:' \
-    '    elif False:' \
+    '            if pdelete or src == "":{NL}                _refuse_delete(kind, "git %s" % sub, dst){NL}            else:{NL}                _refuse_write(kind, "git %s into" % sub, dst)' \
+    '            if pdelete or src == "":{NL}                _refuse_delete(kind, "git %s" % sub, dst){NL}            else:{NL}                pass' \
     "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git push . HEAD:dev/workspace-spec' → 0): an agent's call could push its own tip into the recorded integration branch."
 mutant S-p14-recorded-branch-not-restored "C14.13" "$W" \
     '    _restore_protected_refs(rec, priors + bg_priors, latest)' \

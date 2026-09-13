@@ -1,0 +1,9 @@
+label: item23-p14-reaim  started: 2026-09-13T09:06:44Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: a8ce30fe3ea296fc33977ea171f9650544ac1415  dirty: 1
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item23-p14-reaim/engine-base  workspaces.py sha256: c6c82863551973a8  guard sha256: e70e4673e78325fd
+declarations read from the harness: 83
+  PROVEN    S-p14-agent-may-move-the-recorded-branch — removing it turns "C14.11" red:       FAIL  C14.11 an AGENT's call moving, pushing into or deleting a RECORDED integration branch is refused (exits 0 2 2 2)  [66s]
+  PROVEN    S-p14-agent-may-update-ref-the-recorded-branch — removing it turns "C14.11" red:       FAIL  C14.11 an AGENT's call moving, pushing into or deleting a RECORDED integration branch is refused (exits 2 0 2 2)  [66s]
+  PROVEN    S-p14-agent-may-push-into-the-recorded-branch — removing it turns "C14.11" red:       FAIL  C14.11 an AGENT's call moving, pushing into or deleting a RECORDED integration branch is refused (exits 2 2 0 2)  [66s]
+=== targeted mutants: 3 proven, 0 unproven ===
+finished: 2026-09-13T09:10:02Z
