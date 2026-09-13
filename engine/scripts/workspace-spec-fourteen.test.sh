@@ -184,6 +184,10 @@ agent_call_post() { # <agent-id> <tool_use_id> [tool] -> the catch-all PostToolU
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":sys.argv[4],"cwd":sys.argv[5],"tool_input":{},"tool_response":{}}))' "$CUR_SID" "$1" "$2" "${3:-Bash}" "$ENT" \
         | bash "$HOOKS/observe-created-refs.sh" >/dev/null 2>>"$T/observe.err"
 }
+agent_call_post_bg() { # <agent-id> <tool_use_id> -> the PostToolUse of a Bash call the platform stamped run_in_background: its process outlives the call
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[4],"tool_input":{"command":"sleep 3 && git branch side/bg","run_in_background":True},"tool_response":{"status":"running"}}))' "$CUR_SID" "$1" "$2" "$ENT" \
+        | bash "$HOOKS/observe-created-refs.sh" >/dev/null 2>>"$T/observe.err"
+}
 task_completed() { # <agent-id> <name>  — TaskCompleted through the lifecycle hook: the agent handed in its work (point 11)
     payload TaskCompleted "{\"session_id\":\"$CUR_SID\",\"agent_id\":\"$1\",\"teammate_name\":\"$2\",\"cwd\":\"$ENT\"}" \
         | bash "$HOOKS/workspace-lifecycle.sh" >/dev/null 2>>"$T/hooks.err"
@@ -707,6 +711,69 @@ git -C "$ENT" merge -q --no-edit worktree-agent-at2t2t2t2t2t2t2t2
 stop_gate; rt=$?
 sub "C10.6 and it goes with the work: after the land ($rt) the side branch is gone too — none is left behind" \
     "[ $rt -eq 0 ] && ! has_branch '$ENT' side/t2 && ! has_branch '$ENT' worktree-agent-at2t2t2t2t2t2t2t2 && [ ! -e '$NPT2' ]" "$(cat "$T/stop.err") $(git -C "$ENT" for-each-ref refs/heads/side)"
+# A REF CREATED AFTER THE AGENT'S LAST PostToolUse (round 8, item 8). A backgrounded process
+# outlives its tool call, so a ref it creates appears after the call's window was consumed;
+# the end-of-run signal is the last observation and compares once more against the last
+# snapshot the agent took. Until round 8 it observed only windows still OPEN, so this ref
+# was attributed to nobody and left behind by a land that reported success — the one RED
+# probe on the real manifest (certification-frank-recorded-attribution, outside-stray /
+# outside-side; esc-20260912T225456Z-d34bf4e6). Points 3 and 9.
+spawn "zach-opus-t3" "create a side branch from a process that outlives its call"
+platform_spawn "zach-opus-t3" "at3t3t3t3t3t3t3t3"
+NPT3="$ENT/.claude/worktrees/agent-at3t3t3t3t3t3t3t3"
+commit_in "$NPT3" t3.txt
+agent_call_pre "at3t3t3t3t3t3t3t3" "tu-t3-call-1"; rp3=$?
+agent_call_post "at3t3t3t3t3t3t3t3" "tu-t3-call-1"             # the call ends; its window is consumed
+git -C "$NPT3" branch side/t3                                # created AFTER the last PostToolUse, at its own unlanded tip
+RECT3="$(agent_rec zach-opus-t3)"
+T3_BEFORE_END="$(jget "$RECT3" created_branches)"
+subagent_stop "at3t3t3t3t3t3t3t3"                            # the end signal: the last observation
+sub "C10.7 a branch created AFTER the agent's last PostToolUse (call $rp3 opened and closed; nothing recorded then: [$T3_BEFORE_END]) is attributed to it at its end-of-run signal" \
+    "[ $rp3 -eq 0 ] && [ \"$T3_BEFORE_END\" = '[]' ] && grep -q 'side/t3' '$RECT3'" "$(jget "$RECT3" created_branches) $(cat "$T/hooks.err" 2>/dev/null | tail -3)"
+git -C "$ENT" merge -q --no-edit worktree-agent-at3t3t3t3t3t3t3t3
+stop_gate; rt3=$?
+sub "C10.8 and it goes with the work: after the land ($rt3) that branch is gone too — none is left behind" \
+    "[ $rt3 -eq 0 ] && ! has_branch '$ENT' side/t3 && ! has_branch '$ENT' worktree-agent-at3t3t3t3t3t3t3t3 && [ ! -e '$NPT3' ]" "$(cat "$T/stop.err") $(git -C "$ENT" for-each-ref refs/heads/side)"
+# A BACKGROUNDED CALL WHOSE PROCESS OUTLIVES IT — the shape of the RED probe's own cases: the
+# platform stamps the call `run_in_background`, its PostToolUse arrives while the process
+# still runs, the process then creates the ref, and the agent's NEXT call opens with the ref
+# already there. The background window stays open and is judged, against its OWN before-set,
+# at the next observation. The stamped field decides, never the text of the command.
+spawn "zach-opus-t4" "create a side branch from a backgrounded call"
+platform_spawn "zach-opus-t4" "at4t4t4t4t4t4t4t4"
+NPT4="$ENT/.claude/worktrees/agent-at4t4t4t4t4t4t4t4"
+commit_in "$NPT4" t4.txt
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-bg"; agent_call_post_bg "at4t4t4t4t4t4t4t4" "tu-t4-bg"   # a backgrounded call: Pre, then its Post while the process runs
+git -C "$NPT4" branch side/t4                                # created by that process, after its call's Post
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-2"; rp4=$?   # the next call: its snapshot already holds side/t4
+RECT4="$(agent_rec zach-opus-t4)"
+T4_AT_PRE="$(jget "$RECT4" created_branches)"
+agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-2"            # the next observation consumes the background window
+sub "C10.7b a branch created by a BACKGROUNDED call's process after that call's PostToolUse (nothing recorded at the next Pre: [$T4_AT_PRE]) is attributed at the next observation ($rp4), judged against the background window's own before-set" \
+    "[ $rp4 -eq 0 ] && grep -q 'side/t4' '$RECT4'" "$(jget "$RECT4" created_branches) $(tail -3 "$T/observe.err" 2>/dev/null)"
+# PRECISION, the other direction (certification-sage-window-and-target case D): with a call
+# still OPEN, a ref cut at the agent's tip between two PreToolUse calls is NOT the agent's —
+# it may be Rich's, and the union rule under-attributes inside an overlap on purpose.
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-3"                 # call 3 opens and never closes
+git -C "$ENT" branch rich/rescue-t4 "$(git -C "$NPT4" rev-parse HEAD)"   # Rich, in the main checkout, at the agent's tip
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-4"                 # call 4 opens while 3 is still in flight
+agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-4"
+sub "C10.7c PRECISION: with a call still in flight, a ref cut at the agent's tip between two PreToolUse calls is NOT attributed (it may be Rich's)" \
+    "! grep -q 'rich/rescue-t4' '$RECT4' && grep -q 'side/t4' '$RECT4'" "$(jget "$RECT4" created_branches)"
+git -C "$ENT" branch -D rich/rescue-t4 >/dev/null                 # Rich's own; out of the fixture
+# PRECISION, the bound this round keeps (the engine's own point-8 test and the reviewer's
+# control probe): between two ordinary, CLOSED calls with nothing backgrounded, a ref Rich cuts
+# at the agent's tip stays Rich's. git cannot tell it from the agent's stray; the platform's
+# `run_in_background` stamp is the fact that separates the two, and its absence decides for Rich.
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-5"; agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-5"
+git -C "$ENT" branch rich/bookmark-t4 "$(git -C "$NPT4" rev-parse HEAD)"  # Rich, between two closed foreground calls
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-6"; agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-6"
+subagent_stop "at4t4t4t4t4t4t4t4"
+sub "C10.7d PRECISION: between two CLOSED foreground calls, a ref Rich cuts at the agent's tip is NOT attributed — nothing the platform stamped says a process of the agent's was still running" \
+    "! grep -q 'rich/bookmark-t4' '$RECT4' && grep -q 'side/t4' '$RECT4'" "$(jget "$RECT4" created_branches)"
+git -C "$ENT" branch -D rich/bookmark-t4 >/dev/null
+git -C "$ENT" merge -q --no-edit worktree-agent-at4t4t4t4t4t4t4t4
+stop_gate >/dev/null 2>&1
 verdict
 
 # ===========================================================================

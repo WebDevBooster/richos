@@ -2044,12 +2044,28 @@ def snapshot_refs(rec, call=""):
         return {}
 
 
-def _take_snapshots(key, call="", all_open=False):
+def _take_snapshots(key, call="", all_open=False, background=False):
     """CONSUME this call's window — or, at the end of the run, every open one —
     and return what was in it. Consumed whatever the outcome: one creation is
-    attributed once, and a Post whose own Pre never ran attributes nothing."""
+    attributed once, and a Post whose own Pre never ran attributes nothing.
+
+    A BACKGROUNDED CALL'S WINDOW STAYS OPEN (round 8, item 8). When the Post
+    says the call was issued with `run_in_background` — the platform's own
+    stamped field, never the text of the command — the call's process is, by
+    the platform's own word, still running after this Post. Its window is
+    read and compared now, then written BACK marked `background`, and every
+    later observation of this agent (the next call's Post, an unkeyed Post,
+    the end of the run) consumes the background windows as well as its own.
+    That is what lets a ref the backgrounded process creates AFTER its call's
+    Post — measured on this machine: a Bash call returned 3 s before its
+    process finished (certification-frank-recorded-attribution-2026-09-12-
+    probe.py) — be judged against the window the process actually belongs to.
+    Returns (priors, background_priors): the two are judged apart, because a
+    background window must NOT be unioned with a later snapshot that already
+    contains what its process created (see `observe_created_refs`)."""
+    own = []
     if all_open:
-        paths = _open_slots(key)
+        own = _open_slots(key)
     elif call:
         p = _slot_path(key, call)
         # A POST WHOSE OWN WINDOW IS NOT THERE STILL ENDS SOME CALL OF THIS
@@ -2060,20 +2076,41 @@ def _take_snapshots(key, call="", all_open=False):
         # ended, to nobody at all. So an unpaired Post falls back to the OLDEST
         # open window, which is the one least likely to have another Post
         # coming.
-        paths = [p] if os.path.exists(p) else _open_slots(key)[:1]
+        own = [p] if os.path.exists(p) else [q for q in _open_slots(key) if not _is_background(q)][:1]
     else:
-        paths = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.")][:1] \
-            or _open_slots(key)[:1]
-    priors = []
-    for p in paths:
+        own = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.") and not _is_background(p)][:1] \
+            or [q for q in _open_slots(key) if not _is_background(q)][:1]
+    bg = [q for q in _open_slots(key) if _is_background(q) and q not in own]
+    priors, bg_priors = [], []
+    for p in own:
+        prior = read_json(p)
+        if prior and isinstance(prior.get("repos"), dict):
+            if prior.get("background"):
+                bg_priors.append(prior)
+            else:
+                priors.append(prior)
+        if background and not all_open and prior and isinstance(prior.get("repos"), dict):
+            prior["background"] = True                  # the process outlives the call: keep the window
+            write_json(p, prior)
+            continue
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+    for p in bg:
         prior = read_json(p)
         try:
             os.unlink(p)
         except OSError:
             pass
         if prior and isinstance(prior.get("repos"), dict):
-            priors.append(prior)
-    return priors
+            bg_priors.append(prior)
+    return priors, bg_priors
+
+
+def _is_background(slot_path):
+    prior = read_json(slot_path)
+    return bool(prior and prior.get("background"))
 
 
 def _before_set(priors, latest, repo):
@@ -2240,16 +2277,22 @@ def _own_unlanded_tips(rec, repo, refs, target):
     return set(t for t in tips if t and not is_ancestor(repo, t, target))
 
 
-def observe_created_refs(rec, call="", all_open=False):
+def observe_created_refs(rec, call="", all_open=False, background=False):
     """THE SECOND HALF OF THE PAIR (point 3): the refs this agent created during
     the tool call that is now ending, recorded against it. Returns what it added.
 
     `call` names WHICH of the agent's open windows this is the far end of, so
     two of its own calls open at once no longer clobber each other. `all_open`
     is the end of the run: every window still open is the last observation.
+    `background` says the platform stamped this call `run_in_background`: its
+    window is compared now and kept open for the process that outlives it
+    (`_take_snapshots`).
 
     The window is CONSUMED here, whatever the outcome: one creation is
-    attributed once.
+    attributed once. A background window is the one exception, and it is
+    consumed by the next observation of this agent, judged against ITS OWN
+    before-set: a later snapshot already holds what its process created, so
+    the union rule would call that ref old, and it is not.
 
     IT DOES NOT NEED AN INTEGRATION BRANCH TO BE RECORDED. The record is a
     filter on what is at stake, never a gate on whether the observation happens
@@ -2259,11 +2302,44 @@ def observe_created_refs(rec, call="", all_open=False):
     # windows are thrown away, or the end-of-run pass is judged against the
     # leaked window alone -- which is the widening this whole change ends.
     latest = read_json(_latest_path(rec["key"]))
-    priors = _take_snapshots(rec["key"], call, all_open)
+    priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background)
     if all_open:
         _drop_snapshots(rec["key"])
+    added = []
+    if bg_priors:
+        # THE BACKGROUND WINDOWS, JUDGED APART: against their own before-sets,
+        # never unioned with `latest` — the next call's snapshot was taken
+        # while the backgrounded process was still running, so it already
+        # holds what that process created, and the union would call it old.
+        # The four filters still apply (own unlanded work, not somebody
+        # else's, at stake), which is what keeps a second agent's refs out.
+        added += _attribute_new_refs(rec, bg_priors, None)
+    # THE END OF THE RUN COMPARES ONCE MORE AGAINST THE LAST SNAPSHOT, WHETHER
+    # OR NOT A WINDOW IS STILL OPEN (round 8, item 8). A backgrounded process
+    # outlives its tool call — measured on this machine: a Bash call returned
+    # 3 s before its process finished (certification-frank-recorded-attribution
+    # -2026-09-12-probe.py, cases outside-stray / outside-side) — so a ref it
+    # creates appears AFTER that call's PostToolUse consumed the window. The
+    # end signal used to observe only windows still open, so with the last
+    # window consumed `priors` was empty and the ref was compared against
+    # nothing: attributed to nobody, land() reported success, the ref was left
+    # behind (esc-20260912T225456Z-d34bf4e6, the one RED probe of round 7).
+    # `latest` is the snapshot the run got as far as; anything present in it
+    # was not created after it, and the four filters below still apply, so
+    # this widens nothing but the moment of the last comparison. Points 3, 9.
+    if all_open and latest and isinstance(latest.get("repos"), dict):
+        priors.append(latest)
     if not priors:
-        return []
+        return added
+    return added + _attribute_new_refs(rec, priors, latest)
+
+
+def _attribute_new_refs(rec, priors, latest):
+    """THE FOUR FILTERS, over the union of the before-sets in `priors` (plus
+    `latest`, see `_before_set`): what is new, not somebody else's, at stake,
+    and on this agent's own line of work is recorded against it. Returns what
+    it added. Shared by the end of a call (observe_created_refs), the end of
+    the run, and the start of a call with nothing in flight (snapshot_refs)."""
     try:
         mine = []
         repos = _repos_of(rec)
@@ -2357,7 +2433,9 @@ def observe(payload):
     if finished_state(rec)[0]:
         _drop_snapshots(rec["key"])
         return []
-    return observe_created_refs(rec, str(payload.get("tool_use_id") or ""))
+    ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+    background = str(payload.get("tool_name") or "") == "Bash" and bool(ti.get("run_in_background"))
+    return observe_created_refs(rec, str(payload.get("tool_use_id") or ""), background=background)
 
 
 def _chain(rec):

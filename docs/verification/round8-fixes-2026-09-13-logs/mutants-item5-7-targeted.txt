@@ -1,0 +1,12 @@
+label: item5-7-mutants  started: 2026-09-13T07:10:08Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: 9d9be6c9f72321bef2d1146ec00c67b050b0602e  dirty: 10
+engine: /Users/alex/ab/richos-wt/zach-fable-m5/engine  workspaces.py sha256: 385b37aa1dd25d9c  guard sha256: ca339e4568f638fc
+declarations read from the harness: 65
+  PROVEN    S-p05-ceo-wait-unblocks-new-work — removing it turns "C5.13" red:       FAIL  C5.13 a discard that needs his word, asked and recorded with its TODO reference (0): that item waits on him and the turn may end (0), the item named  [54s]
+  PROVEN    S-p05-his-word-blocks-the-other-items — removing it turns "C5.14" red:       FAIL  C5.14 'blocks nothing else': the second finished item lands on its own (2) while the first still waits on him — its workspace gone, its ending 'land  [54s]
+  PROVEN    S-p08-same-name-is-same-file — removing it turns "C8.8 " red:       FAIL  C8.8 an ignored file the main checkout has under the SAME NAME and SAME SIZE with DIFFERENT BYTES still holds the land (exit 0), named by path — com  [53s]
+  PROVEN    S-p08-same-size-is-same-file — removing it turns "C8.8 " red:       FAIL  C8.8 an ignored file the main checkout has under the SAME NAME and SAME SIZE with DIFFERENT BYTES still holds the land (exit 0), named by path — com  [54s]
+  PROVEN    S-p09-sigkill-escalation-removed — removing it turns "C9.6 " red:       FAIL  C9.6 a process that ignores TERM is dead after the land (exit 0, alive=1): the SIGKILL escalation, and the store records no survivor (survivors: [20  [180s]
+  PROVEN    S-p11-handed-in-finishes-before-the-run-ends — removing it turns "C11.8 " red:       FAIL  C11.8 handed in and STILL RUNNING: not finished — it may still write (2) and nothing is pending (2); only its own end of run finishes it  [53s]
+=== targeted mutants: 6 proven, 0 unproven ===
+finished: 2026-09-13T07:17:36Z

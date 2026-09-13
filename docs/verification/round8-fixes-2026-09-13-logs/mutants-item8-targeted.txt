@@ -1,0 +1,10 @@
+label: item8-mutants  started: 2026-09-13T07:33:38Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: fc9cfd42ed9a8da82b2a0dd0b6d07cf83331ab01  dirty: 7
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item8-mutants/engine-base  workspaces.py sha256: 9e81fb1432a58a74  guard sha256: ca339e4568f638fc
+declarations read from the harness: 69
+  PROVEN    R-p03-ref-after-the-last-post-left-behind — removing it turns "C10.7 " red:       FAIL  C10.7 a branch created AFTER the agent's last PostToolUse (call 0 opened and closed; nothing recorded then: [[]]) is attributed to it at its end-of-  [84s]
+  PROVEN    R-p03-backgrounded-call-window-consumed-at-its-post — removing it turns "C10.7b" red:       FAIL  C10.7b a branch created by a BACKGROUNDED call's process after that call's PostToolUse (nothing recorded at the next Pre: [[]]) is attributed at the  [112s]
+  PROVEN    S-p03-background-window-unioned-with-the-next-snapshot — removing it turns "C10.7b" red:       FAIL  C10.7b a branch created by a BACKGROUNDED call's process after that call's PostToolUse (nothing recorded at the next Pre: [[]]) is attributed at the  [109s]
+  PROVEN    S-p03-every-call-treated-as-backgrounded — removing it turns "C10.7d" red:       FAIL  C10.7d PRECISION: between two CLOSED foreground calls, a ref Rich cuts at the agent's tip is NOT attributed — nothing the platform stamped says a pr  [109s]
+=== targeted mutants: 4 proven, 0 unproven ===
+finished: 2026-09-13T07:40:32Z

@@ -244,6 +244,22 @@ mutant S-p10-cc-branch-kept "C10.3 " "$W" \
     '            if w.get("branch_deleted_at") or not w.get("branch"):{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     '            if w.get("branch_deleted_at") or not w.get("branch") or w.get("kind") == "cc":{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     "SPEC-DERIVED (point 10 negated, 'every workspace and branch it has is deleted, as one'): the cc/ branch of a two-workspace agent would survive the land."
+mutant R-p03-ref-after-the-last-post-left-behind "C10.7 " "$W" \
+    '    if all_open and latest and isinstance(latest.get("repos"), dict):{NL}        priors.append(latest)' \
+    '    if False:{NL}        priors.append(latest)' \
+    "RECORDED [certification-frank-round7-2026-09-12.md §4 and certification-frank-recorded-attribution-2026-09-12-probe.py cases outside-stray / outside-side, 2026-09-12: a Bash call returned 3 s before its process finished, and a ref that process created after the call's PostToolUse was attributed to nobody, the land reported success and the ref was left behind; round7-fixes-2026-09-12.md §6 and round8's base run: RED on the real manifest; escalation esc-20260912T225456Z-d34bf4e6]: the end-of-run signal would observe only windows still open, so a ref created after the last PostToolUse would be compared against nothing and left behind (points 3, 9, 10)."
+mutant R-p03-backgrounded-call-window-consumed-at-its-post "C10.7b" "$W" \
+    '    background = str(payload.get("tool_name") or "") == "Bash" and bool(ti.get("run_in_background"))' \
+    '    background = False' \
+    "RECORDED [certification-frank-recorded-attribution-2026-09-12-probe.py cases outside-stray / outside-side, 2026-09-12 — a Bash call issued with run_in_background returned 3 s before its process finished; RED on the real manifest through round 7 and round 8's base (round7-fixes §6; this round's runner-base log); escalation esc-20260912T225456Z-d34bf4e6]: the platform's run_in_background stamp would be ignored, the backgrounded call's window consumed at its Post, and the ref its process then creates would be judged by nobody — left behind by a land that reports success (points 3, 9, 10)."
+mutant S-p03-background-window-unioned-with-the-next-snapshot "C10.7b" "$W" \
+    '        added += _attribute_new_refs(rec, bg_priors, None)' \
+    '        added += _attribute_new_refs(rec, bg_priors, latest)' \
+    "SPEC-DERIVED (point 3 negated, 'any branch an agent created'): a background window would be unioned with the next call's snapshot, which was taken while the backgrounded process was still running and already holds what it created — so the ref would read as old and be attributed to nobody."
+mutant S-p03-every-call-treated-as-backgrounded "C10.7d" "$W" \
+    '    background = str(payload.get("tool_name") or "") == "Bash" and bool(ti.get("run_in_background"))' \
+    '    background = str(payload.get("tool_name") or "") == "Bash"' \
+    "SPEC-DERIVED (point 8 negated, 'Deletion therefore never loses anything that was meant to land'; the shape of the engine's own test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it and of certification-frank c4-control case leaked-window-widens): every foreground call's window would stay open too, so a ref Rich cuts at the agent's tip between two ordinary calls would be attributed to the agent and deleted by its discard."
 mutant R-p10-created-branch-left-behind "C10.6 " "$W" \
     '        for pair in r.get("created_branches") or []:{NL}            t = (pair[0], pair[1])' \
     '        for pair in []:{NL}            t = (pair[0], pair[1])' \

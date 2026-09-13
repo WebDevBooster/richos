@@ -227,6 +227,16 @@ mutant p03-no-end-of-run-observation "test_point_14_two_of_one_agents_own_calls_
     '    event("end", key=rec["key"], signal=signal_name, detail=detail)' \
     "the end-of-run signal would stop being an agent's LAST observation, so a ref created in a call whose PostToolUse never arrived -- because the run ended inside it -- would be attributed to nobody and left behind (points 3, 10)."
 
+mutant p03-end-of-run-ignores-the-last-snapshot "test_point_03_a_ref_created_after_the_last_post_is_still_the_agents" "$W" \
+    '    if all_open and latest and isinstance(latest.get("repos"), dict):{NL}        priors.append(latest)' \
+    '    if False:{NL}        priors.append(latest)' \
+    "the end-of-run signal would observe only windows still OPEN, so a ref created by the agent's own backgrounded process after its last PostToolUse consumed the window would be compared against nothing, attributed to nobody, and left behind by a land that reports success (points 3, 9, 10)."
+
+mutant p03-backgrounded-window-consumed-at-its-post "test_point_03_a_backgrounded_calls_ref_after_its_post_is_still_the_agents" "$W" \
+    '    background = str(payload.get("tool_name") or "") == "Bash" and bool(ti.get("run_in_background"))' \
+    '    background = False' \
+    "the platform's run_in_background stamp would be ignored, so a backgrounded call's window would be consumed at its Post and the ref its process creates afterwards -- which the next call's snapshot already holds -- would be attributed to nobody and left behind (points 3, 9, 10)."
+
 mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
     '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \
     '                if False:{AND}        if False:' \
@@ -238,8 +248,8 @@ mutant p08-refused-call-widens-the-window "test_point_03_a_refused_call_never_wi
     "the open windows would be INTERSECTED again and the last snapshot would stop narrowing them, so one window leaked by a REFUSED PreToolUse would make the end-of-run comparison ask \"what appeared while this agent existed\" instead of \"what changed during this call\" -- and a branch Rich cut between two of the agent's calls would be attributed to the agent and destroyed by its discard (point 8)."
 
 mutant p03-unpaired-post-attributes-nothing "test_point_03_a_post_that_carries_no_call_id_still_ends_a_call" "$W" \
-    '        paths = [p] if os.path.exists(p) else _open_slots(key)[:1]' \
-    '        paths = [p] if os.path.exists(p) else []' \
+    '        own = [p] if os.path.exists(p) else [q for q in _open_slots(key) if not _is_background(q)][:1]' \
+    '        own = [p] if os.path.exists(p) else []' \
     "a PostToolUse whose own window is missing -- the platform does not always carry tool_use_id on both halves -- would find nothing at either end, so a ref created inside that call would be attributed to nobody until the end of the run and, once the run had ended, to nobody at all (point 3)."
 
 mutant p14-attribution-waits-for-the-record "test_point_14_attribution_never_waits_for_the_record" "$W" \

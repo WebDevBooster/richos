@@ -821,6 +821,57 @@ class Point10_AllTogether(Base):
         self.assertNotIn("plain-branch", branches(self.entity))
         self.assertFalse(os.path.exists(npath))
 
+    def test_point_03_a_ref_created_after_the_last_post_is_still_the_agents(self):
+        """Point 3 ("any branch an agent created") with point 9 ("every process
+        it started is stopped before its workspaces are deleted"): a
+        backgrounded process outlives its tool call, so a ref it creates
+        appears AFTER that call's PostToolUse consumed the window. The end-of-run
+        signal compares once more against the LAST snapshot the agent took, so
+        the ref is the agent's and goes with its work (round 8, item 8; the one
+        red probe of round 7, esc-20260912T225456Z-d34bf4e6)."""
+        aid, npath = self.spawn("zach-opus-late")
+        self.commit(npath, "late.txt")
+        self.tool_call(aid, "tu-late-1")                      # a whole call: its window is consumed
+        self.assertEqual(self.created("zach-opus-late"), [])
+        run("git", "-C", npath, "branch", "late/side")        # created after the last PostToolUse
+        self.finish(aid)                                      # the end signal is the last observation
+        self.assertEqual(self.created("zach-opus-late"), ["late/side"])
+        with self.assertRaises(ws.SpecError) as e:            # it holds the land while unmerged
+            ws.land("zach-opus-late", self.sid)
+        self.assertIn("late/side", str(e.exception))
+        self.merge(self.entity, "worktree-agent-" + aid)
+        ws.land("zach-opus-late", self.sid)
+        self.assertNotIn("late/side", branches(self.entity))
+        self.assertFalse(os.path.exists(npath))
+
+    def test_point_03_a_backgrounded_calls_ref_after_its_post_is_still_the_agents(self):
+        """Point 3 with point 9. A Bash call the platform stamped
+        `run_in_background` has, by the platform's own word, a process still
+        running after its PostToolUse. Its window is kept open and judged —
+        against its OWN before-set — at the agent's next observation, so the
+        ref that process creates after the Post, which the next call's snapshot
+        already holds, is still the agent's (round 8, item 8: the RED probe's
+        two cases). The same ref cut by Rich between two ordinary CLOSED calls
+        stays Rich's (test_point_08_a_branch_that_existed_before_the_call_is_
+        never_created_in_it): git cannot tell the two apart, and the stamped
+        field is what separates them."""
+        aid, npath = self.spawn("zach-opus-bg")
+        self.commit(npath, "bg.txt")
+        self.pre(aid, "tu-bg")
+        ws.observe({"session_id": self.sid, "agent_id": aid, "tool_name": "Bash",
+                    "hook_event_name": "PostToolUse", "tool_use_id": "tu-bg",
+                    "tool_input": {"command": "sleep 3 && git branch bg/side", "run_in_background": True}})
+        run("git", "-C", npath, "branch", "bg/side")          # the process, after its call's Post
+        self.tool_call(aid, "tu-next")                        # the next call: snapshot holds it; its Post judges the background window
+        self.assertEqual(self.created("zach-opus-bg"), ["bg/side"])
+        self.finish(aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-bg", self.sid)
+        self.assertIn("bg/side", str(e.exception))
+        self.merge(self.entity, "worktree-agent-" + aid)
+        ws.land("zach-opus-bg", self.sid)
+        self.assertNotIn("bg/side", branches(self.entity))
+
     def test_point_10_a_side_branch_switched_away_from_blocks_the_land(self):
         """Work committed on a branch the agent then switched away from. Nothing
         attributed it, so `land()` reported SUCCESS, `pending()` listed nothing,

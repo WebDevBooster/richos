@@ -1,0 +1,4 @@
+167c167
+<                                 "hook_event_name": "PostToolUse", "tool_name": "Bash"})
+---
+>                                 "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"run_in_background": True}})

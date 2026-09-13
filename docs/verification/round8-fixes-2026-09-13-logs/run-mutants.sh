@@ -49,11 +49,20 @@ for o, n in zip(olds, news):
 open(path, "w", encoding="utf-8").write(src)
 PYEOF
 
+# THE ENGINE IS SNAPSHOTTED ONCE, HERE, and every mutant copies from the snapshot:
+# an edit to the worktree's engine while a batch runs cannot leak into a later
+# mutant of the same batch, and the sha256 in the header is the sha256 every
+# mutant of this run was built from.
+BASE="$D/engine-base"; rm -rf "$BASE"; mkdir -p "$BASE/.claude"
+cp -R "$W/engine/scripts" "$BASE/scripts"; cp -R "$W/engine/hooks" "$BASE/hooks"; cp "$W/engine/orchestration.config" "$BASE/orchestration.config"
+cp "$W/engine/VERSION" "$BASE/VERSION" 2>/dev/null || printf '0.0.0-mutant\n' > "$BASE/VERSION"
+find "$BASE" -name '*.sha256' -delete 2>/dev/null || true
+
 OUT="$D/mutants.txt"
 {
   echo "label: $LABEL  started: $(date -u +%FT%TZ)"
   echo "worktree: $W  HEAD: $(git -C "$W" rev-parse HEAD)  dirty: $(git -C "$W" status --short | wc -l | tr -d ' ')"
-  echo "engine: $W/engine  workspaces.py sha256: $(shasum -a 256 "$W/engine/scripts/lib/workspaces.py" | cut -c1-16)  guard sha256: $(shasum -a 256 "$W/engine/scripts/hooks/guard-worktree-removal.sh" | cut -c1-16)"
+  echo "engine snapshot: $BASE  workspaces.py sha256: $(shasum -a 256 "$BASE/scripts/lib/workspaces.py" | cut -c1-16)  guard sha256: $(shasum -a 256 "$BASE/scripts/hooks/guard-worktree-removal.sh" | cut -c1-16)"
   echo "declarations read from the harness: $DECLARED"
   PROVEN=0; UNPROVEN=0
   for NAME in "$@"; do
@@ -63,10 +72,8 @@ OUT="$D/mutants.txt"
     REL="$(printf '%s' "$LINE" | cut -d $'\x1f' -f3)"
     OLD="$(printf '%s' "$LINE" | cut -d $'\x1f' -f4)"
     NEW="$(printf '%s' "$LINE" | cut -d $'\x1f' -f5)"
-    E="$D/$NAME/engine"; rm -rf "$D/$NAME"; mkdir -p "$E/.claude"
-    cp -R "$W/engine/scripts" "$E/scripts"; cp -R "$W/engine/hooks" "$E/hooks"; cp "$W/engine/orchestration.config" "$E/orchestration.config"
-    cp "$W/engine/VERSION" "$E/VERSION" 2>/dev/null || printf '0.0.0-mutant\n' > "$E/VERSION"
-    find "$E" -name '*.sha256' -delete 2>/dev/null || true
+    E="$D/$NAME/engine"; rm -rf "$D/$NAME"; mkdir -p "$D/$NAME"
+    cp -R "$BASE" "$E"
     T0=$(date +%s)
     if ! python3 "$D/mutate.py" "$E/$REL" "$OLD" "$NEW" 2>"$D/$NAME/mutate.err"; then
       echo "  UNPROVEN  $NAME — the mutation did not apply: $(cat "$D/$NAME/mutate.err")"; UNPROVEN=$((UNPROVEN+1)); continue
