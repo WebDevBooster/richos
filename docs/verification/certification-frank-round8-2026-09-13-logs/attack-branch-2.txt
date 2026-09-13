@@ -1,0 +1,22 @@
+engine under test: /Users/alex/ab/richos-wt/frank-fable-c9/engine
+workspaces.py sha256: c6c82863551973a8
+guard sha256: e70e4673e78325fd
+
+=== main-checkout-commit — The main checkout is ON the recorded branch. Inside its call the agent
+    guard on the agent's commit in the main checkout exit 0 
+    main: snapshot / moved / after Post          b3eb4f48 / a04c0694 / a04c0694
+    protected-ref-restored events                0
+    VERDICT                                      BROKEN
+
+=== main-checkout-cherry-pick — Same, by cherry-pick of the agent's own commit onto the recorded branch from
+    guard on the agent's cherry-pick in the main checkout exit 0 
+    main: snapshot / moved / after Post          0f6b448e / 585292d1 / 0f6b448e
+    own.txt now in main                          False
+    VERDICT                                      HOLDS
+
+=== two-agents-ping-pong — TWO agents run at once (the normal case). A moves the recorded branch (merging its
+    main: snapshot / A moved / after A Post / after B Post 564783ed / bae80600 / 564783ed / bae80600
+    protected-ref-restored events                2
+    VERDICT                                      BROKEN
+
+=== 1/3 cases hold; BROKEN: main-checkout-commit, two-agents-ping-pong

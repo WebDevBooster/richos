@@ -1,0 +1,46 @@
+label: sealed  suite: engine/scripts/hooks/guard-sealed-worktree.test.sh  started: 2026-09-13T10:04:56Z
+worktree: /Users/alex/ab/richos-wt/frank-fable-c9  HEAD: 151fa53f0026c14405bf19a91399fef16d8f2daf
+load: 11:04  up 5 days, 15:08, 8 users, load averages: 54.99 37.87 23.24
+=== guard-sealed-worktree (the lock-out) tests ===
+  PASS  G01  the lead's own call (no agent_id) passes silently
+  PASS  G02  a REGISTERED worker's Write passes silently
+  PASS  G02b a REGISTERED worker's Edit aimed INSIDE a codex/ workspace is refused, naming point 2
+  PASS  G02c ...and its Write of a new file there too
+  PASS  G02d the lead's Edit inside the codex/ workspace passes (the lead's calls are unaffected)
+  PASS  G02e CONTROL: the same worker's Edit inside its OWN workspace passes
+  PASS  G03  a FINISHED worker's Write is refused (point 9)
+  PASS  G04  a FINISHED worker's Bash is refused (point 9)
+  PASS  G05  a FINISHED worker's Read is refused (point 9)
+  PASS  G06  a finished Explore-typed agent is refused (a type exemption is not permission to return)
+  PASS  G07  a PAUSED worker (pause recorded before its run ended) is not locked out (point 11)
+  PASS  G08  an UNREGISTERED worker's Write is refused (point 3)
+  PASS  G09  an unregistered worker may Read (so it can report why it stopped)
+  PASS  G10  an unregistered read-only TYPE (Explore) is exempt
+  PASS  G11  a plugin-namespaced read-only type is the same type
+  PASS  G12  an agent of a session that RECORDED ITS END is refused (point 12)
+  PASS  G13  an agent whose session's PROCESS no longer exists is refused — read from the operating system (point 12)
+  PASS  G14  a finished agent whose workspace is already deleted is still refused (point 9)
+  PASS  G15  the lead of a claude --worktree session is refused Bash, allowed Read (point 3)
+  PASS  G16  the registry library MISSING: a worker's Write is refused
+  PASS  G17  registry missing: a worker's Read passes under the read-only policy
+  PASS  G18  registry missing: the lead's Write passes
+  PASS  G19  an UNPARSEABLE payload is refused (it cannot be proven the lead's)
+
+=== guard-sealed-worktree tests: 0 FAILED, 23 passed ===
+=== guard-sealed-worktree (the lock-out): every property, proven load-bearing by removing it ===
+  PASS  finished-passes — removing it turns "G03" red  [40.0s]
+  PASS  finished-refusal-exits-zero — removing it turns "G03" red  [39.3s]
+  PASS  codex-workspace-writes-pass — removing it turns "G02b" red  [39.0s]
+  PASS  unregistered-passes — removing it turns "G08" red  [40.1s]
+  PASS  unregistered-cannot-read — removing it turns "G09" red  [38.2s]
+  PASS  lead-is-a-worker — removing it turns "G18" red  [39.1s]
+  PASS  readonly-types-not-exempt — removing it turns "G10" red  [39.5s]
+  PASS  namespace-not-stripped — removing it turns "G11" red  [39.0s]
+  PASS  worktree-session-allowed — removing it turns "G15" red  [31.3s]
+  PASS  fail-open-without-registry — removing it turns "G16" red  [30.0s]
+  PASS  fail-open-on-unparseable — removing it turns "G19" red  [29.8s]
+  [11 mutant(s), 8 at a time, wall 1m10.2s, slowest 40.1s unregistered-passes, 5.7x serial]
+
+=== mutation: all 11 properties proven load-bearing ===
+exit: 0
+finished: 2026-09-13T10:06:32Z
