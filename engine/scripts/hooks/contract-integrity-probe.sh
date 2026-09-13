@@ -1764,12 +1764,26 @@ PY
     # produce these verdicts. It proves the shipped guard, driven from the real
     # engine root with an entity root that is not it, still resolves an entity,
     # reads its roster, and decides. BR8 covers the live root resolution.
+    #
+    # AND THE SANDBOX SESSION GETS A PROCESS TO BE, for the reason Layer MT's
+    # canary does. The ALLOWED arm has to reach the end of the guard, and the
+    # end of the guard is clause 7: a spawn is REGISTERED or it does not happen.
+    # Registration refuses a session whose process identity cannot be read from
+    # the operating system (point 12), and that identity is resolved by walking
+    # the process ancestry for a process named `claude`. On a workstation the
+    # probe is always a descendant of the live session, so the arm passed by
+    # accident of where it was run; on a runner nothing in the ancestry is
+    # `claude`, the arm was refused with rc=2, and BR9 read that as "a guard
+    # that blocks everything". Measured at 2ed41109, same script, same commit:
+    # macOS arm 1 rc=0 silent, ubuntu:24.04 arm 1 rc=2 naming point 12.
+    # br9-canary-0000 is a synthetic session, so it gets a synthetic process.
     BR9_SB="$(mktemp -d -t br9-canary.XXXXXX)"
     mkdir -p "$BR9_SB/entity/.claude/agents" "$BR9_SB/home"
     printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\nALLOWED_MODELS="opus sonnet haiku"\n' \
         >"$BR9_SB/entity/orchestration.config"
     printf -- '---\nname: probeteammate\nmodel: opus\n---\nA sandbox role that exists only for this canary.\n' \
         >"$BR9_SB/entity/.claude/agents/probeteammate.md"
+    BR9_SESS_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
 
     br9_spawn() { # <name> <isolation-json-or-empty>
         printf '{"tool_name":"Agent","cwd":"%s","session_id":"br9-canary-0000","tool_use_id":"br9-canary-tu","tool_input":{"subagent_type":"probeteammate","name":"%s","prompt":"canary"%s}}' \
@@ -1778,6 +1792,7 @@ PY
     br9_run() { # <payload> -> sets BR9_RC
         set +e
         printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" RICHOS_WORKSPACES_DIR="$BR9_SB/ws" \
+            RICHOS_SESSION_PID="$BR9_SESS_PID" \
             bash "$ENGINE_ROOT/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
         BR9_RC=$?
         set -e
@@ -1808,6 +1823,7 @@ PY
     br9_run "$(br9_spawn 'probeteammate-sonnet-canary3' ',"isolation":"worktree"')"
     [ "$BR9_RC" -eq 2 ] || BR9_PROBLEMS="$BR9_PROBLEMS [an UNTRUTHFUL model token was ALLOWED (rc=$BR9_RC) — the guard did not read the entity's roster, so it is not governing this repository]"
 
+    kill "$BR9_SESS_PID" 2>/dev/null || true
     rm -rf "$BR9_SB"
     if [ -n "$BR9_PROBLEMS" ]; then
         emit_fail "BR9. by-reference guard canary FAILED:$BR9_PROBLEMS"
