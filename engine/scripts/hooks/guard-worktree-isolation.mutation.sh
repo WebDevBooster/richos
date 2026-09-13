@@ -785,7 +785,7 @@ python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = 'C7_ERR="$(printf ' + "'%s'" + ' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-spawn 2>&1 >/dev/null)" || C7_RC=$?'
+old = 'C7_ERR="$(printf ' + "'%s'" + ' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?'
 assert old in s, "clause 7 registration anchor not found"
 open(p, "w", encoding="utf-8").write(s.replace(old, 'C7_ERR=""', 1))
 PY
@@ -820,6 +820,64 @@ fi
     _mut_score
 }
 mut_pool_submit M21 _mutant_M21
+
+# --- CLAUSE 7g: A DRY EVALUATION IS NOT A LIVE ONE ---------------------------
+# scripts/spawn.sh evaluates this guard against a payload it has not sent yet,
+# so a brief with three problems costs one run instead of three dispatches. The
+# claim that makes that safe is "the marker cannot turn a live spawn into an
+# unregistered one", and a claim in a header is not a property. These two
+# mutants are the property, one for each direction it can fail.
+
+# --- M22: the marker alone decides — the tool_use_id half of the test dropped,
+# so a LIVE Agent call that happened to carry richos_spawn_check would be
+# evaluated and NEVER REGISTERED. This is the exact hole the design exists to
+# not have, and under-blocking of the worst kind: point 3 says the spawn does
+# not happen without a registration, and here it happens without one.
+_mutant_M22() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'sys.exit(0 if (isinstance(d.get("richos_spawn_check"), dict)\n               and not str(d.get("tool_use_id") or "")) else 1)'
+assert old in s, "clause 7g dry-detection anchor not found"
+new = 'sys.exit(0 if isinstance(d.get("richos_spawn_check"), dict) else 1)'
+open(p, "w", encoding="utf-8").write(s.replace(old, new, 1))
+PY
+if applied M22 "a live call carrying the marker is dry-evaluated (clause 7g)" \
+   && alive M22 "a live call carrying the marker is dry-evaluated (clause 7g)"; then
+    check M22 "a live call carrying the marker is dry-evaluated (clause 7g)" \
+        "Q7G1"
+fi
+    _mut_score
+}
+mut_pool_submit M22 _mutant_M22
+
+# --- M23: the dry path removed — every payload goes to register-spawn, which is
+# where this started: the pre-flight's permanent false positive. Over-blocking,
+# and the reason it matters is that the cheapest way to "fix" a marker you do
+# not trust is to ignore it, which silently puts the four-command sequence back.
+_mutant_M23() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = '  C7_VERB="check-spawn"'
+assert old in s, "clause 7g verb anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, '  C7_VERB="register-spawn"', 1))
+PY
+if applied M23 "the dry evaluation removed (clause 7g)" \
+   && alive M23 "the dry evaluation removed (clause 7g)"; then
+    check M23 "the dry evaluation removed (clause 7g)" \
+        "Q7G2"
+fi
+    _mut_score
+}
+mut_pool_submit M23 _mutant_M23
+
 
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
 # hold under every mutation above because they assert that the NORMAL path is

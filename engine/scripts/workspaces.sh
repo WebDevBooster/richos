@@ -21,6 +21,12 @@
 #       point 5's allowances for ending a turn while an item waits
 #   workspaces.sh retry
 #       run every due deletion retry now (point 13 retries on its own anyway)
+#   workspaces.sh withdraw-cc --name <agent> [--why '<why>']
+#       point 3's other half: a workspace registered and created for a spawn
+#       that then COULD NOT BE MADE is a registration for work that will not
+#       happen. Its workspaces, branches and record go, and the name is free
+#       again. It REFUSES anything that ever ran - that is what land and
+#       discard are for. scripts/spawn.sh calls it to roll itself back.
 #
 # THESE ARE THE ONLY THINGS IN THE ENGINE THAT DELETE A WORKSPACE.
 

@@ -625,7 +625,41 @@ registered_teammate_worktree() {
   esac
   return 0
 }
-HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
+HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness). Or let scripts/spawn.sh do all of it in one command."
+
+# A DRY EVALUATION'S *PLANNED* WORKSPACES (see clause 7g). scripts/spawn.sh
+# evaluates this guard BEFORE it creates anything, precisely so that a brief
+# with three problems costs one run instead of three dispatches. Its workspace
+# therefore does not exist yet, and "does it exist and is it on a cc/ branch?"
+# has no answer for it — the same shape as clause 7a, and the same resolution:
+# the answerable question one step earlier (does its repository resolve, is its
+# branch free, is its path absent and creatable?) is asked instead, by
+# `check-spawn` in scripts/lib/workspaces.py, so there is ONE answer in ONE
+# place. Nothing here is skipped for a workspace that is NOT planned, and a
+# live call can never be dry (it carries a tool_use_id).
+DRY_PLANNED="$(printf '%s' "$INPUT" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not (isinstance(d.get("richos_spawn_check"), dict) and not str(d.get("tool_use_id") or "")):
+    sys.exit(0)
+for p in (d["richos_spawn_check"].get("planned") or []):
+    if isinstance(p, dict) and p.get("path"):
+        print(str(p["path"]).rstrip("/"))
+' 2>/dev/null || true)"
+
+is_planned_path() {   # <path> -> 0 when this dry evaluation is about to create it
+  local _q="${1%/}" _p
+  [ -n "$DRY_PLANNED" ] || return 1
+  while IFS= read -r _p; do
+    [ -n "$_p" ] && [ "$_p" = "$_q" ] && return 0
+  done <<PLANNED_EOF
+$DRY_PLANNED
+PLANNED_EOF
+  return 1
+}
 
 case "$ISOLATION" in
   worktree|remote)
@@ -660,6 +694,7 @@ esac
 # CLAUSE 4c — every cross-repo-worktree: line names a REGISTERED worktree.
 while IFS= read -r _marker_path; do
   [ -n "$_marker_path" ] || continue
+  if is_planned_path "$_marker_path"; then continue; fi
   MK_WHY="$(registered_teammate_worktree "$_marker_path")" || \
     PROBLEMS+=("cross-repo-worktree: line refused — ${MK_WHY}. ${HELPER_HINT}")
 done <<MARKERS_EOF
@@ -928,6 +963,9 @@ fi
 #   7f. a cwd-only spawn is refused: the platform creates no workspace of its
 #       own for it, and the registration names the native workspace every
 #       file-capable spawn is given.
+#   7g. a DRY EVALUATION (scripts/spawn.sh, before the call is made) runs every
+#       check above through `check-spawn` and writes nothing. See the block at
+#       C7_VERB for why it cannot be used to skip a registration.
 # ---------------------------------------------------------------------------
 C7_PROBLEMS=()
 for _c in "scripts/lib/workspaces.py" "scripts/hooks/workspace-lifecycle.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
@@ -946,10 +984,40 @@ if [ -n "$SPAWN_CWD" ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "r
   C7_PROBLEMS+=("cwd-only spawn refused — spawn it with isolation:\"worktree\" and put the registered cc/ workspace on a 'cross-repo-worktree: ${SPAWN_CWD}' prompt line instead, so both of its workspaces are registered and go together (points 6, 10).")
 fi
 
+# 7g. A DRY EVALUATION IS NOT A LIVE ONE, AND THE DIFFERENCE IS THE WRITE.
+#     `scripts/spawn.sh` evaluates this guard against a payload it has not sent
+#     yet, so that a brief with three problems is fixed once instead of costing
+#     three dispatches. Such a payload has no tool_use_id — only the platform
+#     mints one — so `register-spawn` refused it every time, which is why the
+#     pre-flight this replaces carried a KNOWN FALSE POSITIVE on the one check
+#     that matters most. A check that always fails protects nothing and teaches
+#     the reader to skip it.
+#
+#     So the dry evaluation runs the SAME code with the write removed:
+#     `check-spawn` performs every refusal `register-spawn` performs and writes
+#     no record, no binding and no event. It is reached only when the payload
+#     carries `richos_spawn_check` AND carries NO `tool_use_id`; a live call
+#     always carries one (this guard has refused every payload without one
+#     since it was written, and spawns happen), so the marker can never turn a
+#     live spawn into an unregistered one. `check-spawn` itself refuses a
+#     payload that does carry a tool_use_id rather than evaluating it.
+C7_VERB="register-spawn"
+if printf '%s' "$INPUT" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if (isinstance(d.get("richos_spawn_check"), dict)
+               and not str(d.get("tool_use_id") or "")) else 1)
+' 2>/dev/null; then
+  C7_VERB="check-spawn"
+fi
+
 if [ "${#C7_PROBLEMS[@]}" -eq 0 ]; then
   # `set -e` is on: the failing substitution must not end the script silently.
   C7_RC=0
-  C7_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-spawn 2>&1 >/dev/null)" || C7_RC=$?
+  C7_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?
   if [ "$C7_RC" -ne 0 ]; then
     C7_PROBLEMS+=("${C7_ERR:-the registration could not be written (exit $C7_RC)}")
   fi

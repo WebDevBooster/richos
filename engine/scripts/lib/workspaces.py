@@ -1058,16 +1058,97 @@ def prompt_lines(prompt, marker):
     return out
 
 
-def register_spawn(payload, entity):
+def _planned_workspaces(payload):
+    """The cc/ workspaces a DRY evaluation's caller is ABOUT to create, read from
+    `richos_spawn_check.planned`. Never read for a live call."""
+    chk = payload.get("richos_spawn_check")
+    if not isinstance(chk, dict):
+        return []
+    out = []
+    for p in chk.get("planned") or []:
+        if isinstance(p, dict) and p.get("path"):
+            out.append({"path": realpath(str(p["path"])), "repo": str(p.get("repo") or ""),
+                        "branch": str(p.get("branch") or "")})
+    return out
+
+
+def is_spawn_check(payload):
+    """Is this a DRY evaluation? Only under BOTH halves, and the second half is
+    what makes it structural rather than a promise:
+
+      1. the caller asked for one (`richos_spawn_check` is present), and
+      2. the platform minted NO `tool_use_id`.
+
+    A live PreToolUse[Agent] call always carries a tool_use_id: `register_spawn`
+    has refused every payload without one since it was written, and spawns
+    happen, so a payload that lacks one was never going to be registered anyway.
+    The marker therefore cannot turn a live spawn into an unregistered one - it
+    can only describe a call that has not been made yet."""
+    return bool(isinstance(payload.get("richos_spawn_check"), dict)
+                and not str(payload.get("tool_use_id") or ""))
+
+
+def _check_planned_workspace(p, name):
+    """The dry equivalent of clause 7a for a workspace that does not exist yet.
+
+    "Is it registered, created, and on its registered branch?" has no answer
+    before it is created, and a check with no answer must not be waved through.
+    So the question that IS answerable now is asked instead, and it is the same
+    question one step earlier: does its repository resolve, is its name the
+    teammate's cc/ name, is its path absent, is its branch free, and can it be
+    created? Every one of those is what create-teammate-worktree.sh refuses on,
+    evaluated before it has made anything."""
+    path, repo, branch = p["path"], p["repo"], p["branch"]
+    main = main_checkout(repo) if repo else ""
+    if not main:
+        raise SpecError("the repository of the planned workspace %s could not be resolved from git "
+                        "(repo %r)" % (path, repo))
+    if branch != CC_PREFIX + name:
+        raise SpecError("the planned workspace %s would be on %r; a teammate's workspace is named %s%s "
+                        "(point 1)" % (path, branch, CC_PREFIX, name))
+    if os.path.lexists(path):
+        raise SpecError("%s already exists, so it cannot be created for %s. Pick a fresh identifier, or "
+                        "land/discard whatever owns it." % (path, name))
+    if branch_tip(main, branch):
+        raise SpecError("branch %s already exists in %s - a teammate name is used once; pick a fresh "
+                        "identifier" % (branch, main))
+    probe = os.path.dirname(path)
+    while probe and probe != os.path.dirname(probe) and not os.path.isdir(probe):
+        probe = os.path.dirname(probe)
+    if not probe or not os.access(probe, os.W_OK):
+        raise SpecError("%s cannot be created: %s is not writable" % (path, probe or "/"))
+    return main
+
+
+def register_spawn(payload, entity, dry=False):
     """PreToolUse[Agent], point 3: the registration a spawn needs. Raises
-    SpecError -> the spawn does not happen. Returns the record."""
+    SpecError -> the spawn does not happen. Returns the record.
+
+    A DRY EVALUATION (`dry=True`, reached through the `check-spawn` verb) asks
+    the same question about a payload that HAS NOT BEEN SENT YET. Every refusal
+    below is evaluated by the same code; the only difference is that nothing is
+    written - no record, no binding to a body of work, no event.
+
+    WHY IT EXISTS. Until 2026-09-13 the only way to find out whether a spawn
+    would be refused was to make it: the guards run at PreToolUse, so a brief
+    with two problems cost two dispatches, and each cost a round trip in front
+    of the CEO. A pre-flight that could not run this function had to fake a
+    session_id and a tool_use_id, which this function correctly refuses - so the
+    pre-flight carried a known false positive on its most important check,
+    which is a defense that reports "on" while protecting nothing.
+
+    IT CANNOT BE USED TO SKIP A REGISTRATION. See `is_spawn_check`: the dry path
+    is reached only when the platform minted no tool_use_id, and a live call
+    always has one."""
     sid = str(payload.get("session_id") or "")
     tuid = str(payload.get("tool_use_id") or "")
     ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
     name = str(ti.get("name") or "")
     prompt = str(ti.get("prompt") or "")
     isolation = str(ti.get("isolation") or "")
-    if not sid or not tuid:
+    planned = _planned_workspaces(payload) if dry else []
+    planned_by_path = dict((p["path"], p) for p in planned)
+    if not sid or (not tuid and not dry):
         raise SpecError("the spawn payload carries no session_id/tool_use_id, so it cannot be registered")
     if not NAME_RE.match(name):
         raise SpecError("the spawn has no usable name, so it cannot be registered")
@@ -1077,8 +1158,12 @@ def register_spawn(payload, entity):
     continues = [p.split()[0] for p in prompt_lines(prompt, "continues") if p.split()]
     lands_pending = [p.split()[0] for p in prompt_lines(prompt, "lands-pending") if p.split()]
     ceo_ordered = prompt_lines(prompt, "ceo-ordered")
+    stray = [p["path"] for p in planned if p["path"] not in cc_paths]
+    if stray:
+        raise SpecError("the planned workspace %s is on no 'cross-repo-worktree:' line of the prompt, so "
+                        "the spawn would never name it" % stray[0])
 
-    # Point 5: new work is blocked while finished work is pending — except work
+    # Point 5: new work is blocked while finished work is pending - except work
     # whose only purpose is getting that work landed (continues:/lands-pending:).
     report = {}
     items = pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), report=report)
@@ -1089,13 +1174,13 @@ def register_spawn(payload, entity):
         if report.get("deferred"):
             extra = ("\n  (The gate answered inside its budget rather than overrunning this hook's "
                      "timeout: %s could not be checked for an automatic land, so it stays pending. "
-                     "Land it by hand — `workspaces.sh land <name>` has no budget.)"
+                     "Land it by hand - `workspaces.sh land <name>` has no budget.)"
                      % ", ".join(sorted(set(report["deferred"]))))
         raise SpecError(gate_message(blocking, "start new work", spawn=True) + extra)
     for c in continues:
         match = [i for i in items if i["name"] == c]
         if not match:
-            raise SpecError("continues: %s — there is no pending finished agent of that name to continue "
+            raise SpecError("continues: %s - there is no pending finished agent of that name to continue "
                             "(point 7)" % c)
         _require_clean(load_agent(match[0]["key"]), "continue it (its workspaces are deleted when the new "
                        "agent starts, point 7)")
@@ -1107,7 +1192,7 @@ def register_spawn(payload, entity):
     key = named_key(sid, name)
     with Lock():
         rec = load_agent(key)
-        if cc_paths:
+        if [p for p in cc_paths if p not in planned_by_path]:
             if not rec:
                 raise SpecError("no registration exists for %s in this session. A cc/ workspace is "
                                 "registered when it is created: use create-teammate-worktree.sh <repo> %s "
@@ -1116,7 +1201,11 @@ def register_spawn(payload, entity):
         if rec.get("agent_id") or rec.get("disposition"):
             raise SpecError("agent %s already ran in this session; names are used once" % name)
         known = dict((w.get("path"), w) for w in live_workspaces(rec) if w.get("kind") == "cc")
+        planned_repos = []
         for p in cc_paths:
+            if p in planned_by_path:
+                planned_repos.append(_check_planned_workspace(planned_by_path[p], name))
+                continue
             w = known.get(p)
             if not w:
                 raise SpecError("%s was not registered for %s in this session (points 1, 3)" % (p, name))
@@ -1131,15 +1220,22 @@ def register_spawn(payload, entity):
                 raise SpecError("%s is on %r, not the registered branch %r" % (p, cur, w.get("branch")))
         # Point 14: "RECORDED when that work starts, BEFORE ITS FIRST AGENT IS
         # SPAWNED. Nothing infers it and nothing guesses it." Every repository
-        # this agent will work in — the entity, and the repository of every
-        # cc/ workspace it names — must have a current body of work, and the
+        # this agent will work in - the entity, and the repository of every
+        # cc/ workspace it names - must have a current body of work, and the
         # agent is BOUND to it here, by id, at the spawn. With no record the
         # spawn does not happen (point 3), and the refusal names the command.
         # This is what leaves `integration_target` no fallback to "current".
+        # A PLANNED workspace's repository counts the same: its record has to
+        # exist before the workspace is created (register_cc refuses without
+        # one), so a dry evaluation that skipped it would report a pass for a
+        # spawn whose very next step is refused.
         work_repos = ([main_checkout(entity) or realpath(entity)] if entity else []) \
             + [w.get("repo") for w in live_workspaces(rec) if w.get("repo")] \
-            + [main_checkout(p) or realpath(p) for p in cc_paths]
+            + [main_checkout(p) or realpath(p) for p in cc_paths if p not in planned_by_path] \
+            + planned_repos
         _refuse_unrecorded(work_repos, "the spawn of %s" % name)
+        if dry:
+            return rec
         for r_ in work_repos:
             _bind_body_of_work(rec, r_)
         rec.update({"tool_use_id": tuid, "subagent_type": str(ti.get("subagent_type") or ""),
@@ -1155,6 +1251,60 @@ def register_spawn(payload, entity):
     event("registered-spawn", key=key, tool_use_id=tuid, cc=cc_paths, isolation=isolation,
           continues=continues, lands_pending=lands_pending)
     return rec
+
+
+def withdraw_cc(session_id, name, why=""):
+    """THE INVERSE OF `register_cc`, for a workspace whose spawn never happened.
+
+    Point 3 is "if registration fails, the spawn does not happen", and its other
+    half has never had a command: a workspace registered and created for a spawn
+    that then could not be made is a registration for work that will not happen.
+    Leaving it costs the name (names are used once) and leaves a directory and a
+    branch behind for a land to puzzle over.
+
+    IT REFUSES ANYTHING THAT EVER RAN. No agent_id, no tool_use_id, no
+    spawned_at, no disposition - if any of those is set this is not an
+    un-happened spawn, and `workspaces.sh land` or `discard` is the answer, not
+    this. The record is then deleted rather than dispositioned: there is no work
+    to account for, and the event log keeps the trace.
+
+    THE DELETION IS `_delete`'s, NOT ITS OWN, and that is the whole design of
+    this function rather than a detail. This first hand-rolled the sequence -
+    remove_workspace, then delete_branch, in a loop - and it was correct on the
+    day it was written. Hours later the container reaper landed, adding
+    `stop_containers` inside `_delete` because an agent's container had outlived
+    its agent and its worktree by six weeks. A hand-rolled copy would have
+    quietly kept leaving those containers behind, and nothing would have said
+    so. "Land, discard and the retry are the only code in the engine that
+    deletes a workspace" is an invariant that holds only while every deleter
+    goes through the same one; a fourth copy is how that stops being true.
+    """
+    key = named_key(session_id, name)
+    rec = load_agent(key)
+    if not rec:
+        raise SpecError("there is no registration for %s in this session to withdraw" % name)
+    for field, what in (("agent_id", "it ran"),
+                        ("tool_use_id", "its spawn was registered"),
+                        ("spawned_at", "its spawn was registered"),
+                        ("disposition", "its work was already decided")):
+        if rec.get(field):
+            raise SpecError("%s is not an un-happened spawn (%s). Use `workspaces.sh land %s` or "
+                            "`workspaces.sh discard %s` - this command withdraws only a registration "
+                            "whose spawn never happened." % (name, what, name, name))
+    ws = [w for w in live_workspaces(rec) if w.get("path")]
+    paths = [w.get("path") for w in ws]
+    _delete(rec, ws, branches=True, why="withdrawn: " + (why or "its spawn never happened"))
+    fresh = load_agent(key) or rec
+    if [w for w in live_workspaces(fresh) if w.get("path")] or fresh.get("deletion"):
+        raise SpecError("%s could not be fully withdrawn: %s"
+                        % (name, (fresh.get("deletion") or {}).get("last_error", "unknown")))
+    with Lock():
+        try:
+            os.remove(agent_path(key))
+        except OSError:
+            pass
+    event("withdrawn-cc", key=key, why=why, paths=paths)
+    return {"withdrawn": paths}
 
 
 def register_readonly(payload, entity):
@@ -3645,8 +3795,14 @@ def main(argv):
     x.add_argument("--name", required=True)
     x.add_argument("--path", required=True)
     x.add_argument("--failed", default="")
+    x = sub.add_parser("withdraw-cc",
+                       help="withdraw a registration whose spawn NEVER HAPPENED: delete its cc/ "
+                            "workspaces and branches and remove the record, so the name is free "
+                            "again. Refuses anything that ran (point 3's other half).")
+    x.add_argument("--name", required=True)
+    x.add_argument("--why", default="")
     for n in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier",
-              "observe-refs"):
+              "observe-refs", "check-spawn"):
         sub.add_parser(n)
     x = sub.add_parser("recipient")
     x.add_argument("--name", required=True)
@@ -3657,7 +3813,7 @@ def main(argv):
     entity = a.entity or os.environ.get("RICHOS_ENTITY_ROOT_RESOLVED", "")
     try:
         if a.cmd in ("hook", "gate-stop", "register-spawn", "register-readonly", "barrier",
-                     "observe-refs"):
+                     "observe-refs", "check-spawn"):
             raw = sys.stdin.read()
             try:
                 payload = json.loads(raw)
@@ -3669,7 +3825,7 @@ def main(argv):
                     return 0
                 if a.cmd == "observe-refs":
                     return 0
-                if a.cmd in ("register-spawn", "register-readonly"):
+                if a.cmd in ("register-spawn", "register-readonly", "check-spawn"):
                     sys.stderr.write("the spawn payload is unparseable; it cannot be registered\n")
                     return 2
                 return 0
@@ -3688,6 +3844,22 @@ def main(argv):
             if a.cmd == "register-spawn":
                 rec = register_spawn(payload, entity)
                 print("REGISTERED\t%s" % rec["key"])
+                return 0
+            if a.cmd == "check-spawn":
+                # THE DRY EVALUATION. Same refusals, nothing written. It refuses
+                # a payload that is NOT a dry one rather than evaluating it,
+                # because a caller that reached here with a live tool_use_id
+                # wanted `register-spawn` and would otherwise be told its spawn
+                # was fine while no registration was written for it.
+                if not is_spawn_check(payload):
+                    sys.stderr.write("check-spawn evaluates a spawn that has not been made: the payload "
+                                     "must carry richos_spawn_check and no tool_use_id. This one carries "
+                                     "a tool_use_id, so it is a live call - use register-spawn.\n")
+                    return 2
+                register_spawn(payload, entity, dry=True)
+                print("WOULD-REGISTER\t%s"
+                      % named_key(str(payload.get("session_id") or ""),
+                                  str((payload.get("tool_input") or {}).get("name") or "")))
                 return 0
             if a.cmd == "register-readonly":
                 rec = register_readonly(payload, entity)
@@ -3780,6 +3952,9 @@ def main(argv):
         elif a.cmd == "register-cc":
             register_cc(me, a.name, a.repo, a.path, a.branch)
             print("registered")
+        elif a.cmd == "withdraw-cc":
+            r = withdraw_cc(me, a.name, a.why)
+            print("withdrawn: %s - %s" % (a.name, ", ".join(r["withdrawn"]) or "nothing was created"))
         elif a.cmd == "confirm-cc":
             confirm_cc(me, a.name, a.path, not a.failed, a.failed)
             print("confirmed" if not a.failed else "recorded failure")

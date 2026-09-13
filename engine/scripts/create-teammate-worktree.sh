@@ -3,6 +3,13 @@
 # create-teammate-worktree.sh — THE ONLY WAY TO GIVE A TEAMMATE A WORKSPACE IN
 # ANOTHER REPOSITORY. The page: docs/plans/worktree-spec-2026-09-11.md.
 #
+# NORMALLY YOU DO NOT RUN THIS DIRECTLY. `scripts/spawn.sh` runs it as one step
+# of one command, having already resolved the repository by name, recorded or
+# repaired the branch this work integrates on, and evaluated every
+# PreToolUse[Agent] guard against the payload — so the refusals below are found
+# and reported TOGETHER before anything is created, rather than one per round
+# trip. This file stays the only creator, and stays runnable on its own.
+#
 #   1. "Every non-native Claude workspace is named cc/."            (point 1)
 #   3. "If registration fails, the spawn does not happen. Creating a
 #       non-native workspace not named cc/ is refused."             (point 3)
@@ -202,4 +209,6 @@ echo "  cross-repo-worktree: $DIR"
 echo "A cwd-only spawn is refused."
 echo "Prepare the full Agent JSON, including its mandatory acknowledgement contract:"
 echo "  python3 \"$SCRIPT_DIR/prepare-agent-spawn.py\" --file <task-input.json>"
+echo "...or do the whole thing, guards evaluated first, in ONE command next time:"
+echo "  $SCRIPT_DIR/spawn.sh <teammate-name> --repo <repo|name> --type <subagent-type> --brief <file>"
 exit 0

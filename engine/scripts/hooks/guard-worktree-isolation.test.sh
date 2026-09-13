@@ -790,6 +790,55 @@ else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q01  native registration (rc=%s)\n' "$rc"
 fi
 
+# (q7g) CLAUSE 7g — A DRY EVALUATION IS NOT A LIVE ONE, AND THE DIFFERENCE IS
+# THE WRITE. scripts/spawn.sh evaluates this guard against a payload it has not
+# sent yet, so a brief with three problems is fixed once instead of costing
+# three dispatches. The danger such a marker always carries is that it becomes a
+# way to spawn WITHOUT a registration, which is the one thing point 3 forbids.
+# It cannot, and these cases are why: the dry path needs the marker AND no
+# tool_use_id, and only the platform mints a tool_use_id.
+json_check() { # <name> <tool-use-id|""> <marker: yes|no>
+    python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+name, tuid, marker = sys.argv[1:4]
+d = {"tool_name": "Agent", "session_id": "deadbeef-0000-4000-8000-000000000000",
+     "tool_input": {"subagent_type": "dev", "name": name, "isolation": "worktree",
+                    "prompt": "Do the thing."}}
+if tuid:
+    d["tool_use_id"] = tuid
+if marker == "yes":
+    d["richos_spawn_check"] = {"planned": []}
+print(json.dumps(d))
+PY
+}
+
+# A LIVE call that ALSO carries the marker is still REGISTERED: the marker alone
+# decides nothing. This is the case that would go green for a guard that let the
+# marker turn a real spawn into an unregistered one.
+printf '%s' "$(json_check dev-sonnet-g7a toolu_test_g7a yes)" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(ws_record dev-sonnet-g7a tool_use_id)" = "toolu_test_g7a" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  Q7G1  a LIVE payload carrying richos_spawn_check is still REGISTERED\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q7G1  a live payload carrying the marker must still be registered (rc=%s, tool_use_id=%s)\n' "$rc" "$(ws_record dev-sonnet-g7a tool_use_id)"
+fi
+
+# A DRY payload — the marker and no tool_use_id — is evaluated and allowed, and
+# writes NOTHING. Both halves matter: allowed proves the evaluation runs, and
+# nothing written proves it is not a registration.
+printf '%s' "$(json_check dev-sonnet-g7b "" yes)" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--dev-sonnet-g7b.json" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  Q7G2  a DRY payload is evaluated, allowed, and writes NO registration\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q7G2  dry evaluation (rc=%s, record present=%s)\n' "$rc" "$( [ -e "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--dev-sonnet-g7b.json" ] && echo yes || echo no )"
+fi
+
+# NEGATIVE CONTROL. Without the marker, a payload with no tool_use_id is what it
+# has always been: unregisterable, so the spawn does not happen. Without this
+# case Q7G2 would also be green for a guard that had simply stopped requiring a
+# tool_use_id at all.
+run_case "Q7G3  NEGATIVE CONTROL: no tool_use_id and NO marker -> BLOCKED (unregisterable)" 2 \
+    "$(json_check dev-sonnet-g7c "" no)"
+
 # (q11) SYNCHRONOUS file-writing spawn -> refused; async/unspecified -> allowed
 SYNC_JSON="$(python3 -c '
 import json
