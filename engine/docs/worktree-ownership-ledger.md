@@ -187,7 +187,22 @@ orphan is `SKIP-BRANCH <name> unmerged(+N)` and stays.
 
 Native `isolation: "worktree"` roots at the SESSION's repository, and the
 Agent tool's `cwd` is "mutually exclusive with `isolation: worktree`". So
-cross-repository work runs in a hand-rolled worktree — one RichOS creates:
+cross-repository work runs in a hand-rolled worktree — one RichOS creates.
+
+**Do not assemble this by hand.** One command does the whole thing, and does
+it in the order that cannot waste a round trip:
+
+```
+scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file> [--model <alias>]
+```
+
+It resolves the repository and the integration branch, creates and registers
+the workspace through the helper below, assembles the Agent payload with its
+acknowledgement contract, and evaluates EVERY `PreToolUse[Agent]` guard from
+EVERY surface against that payload before anything is created — reporting all
+failures together. On refusal it exits 1 and leaves nothing behind.
+
+The helper it calls is still callable on its own, and still accepted:
 
 ```
 scripts/create-teammate-worktree.sh <repo> <teammate-name> [--dir p] [--base ref]
@@ -196,13 +211,18 @@ scripts/create-teammate-worktree.sh <repo> <teammate-name> [--dir p] [--base ref
 creates `<main>-wt/<name>` on branch `<name>` from HEAD, seeds every
 gitignored file matching `.worktreeinclude` (the same contract native
 isolation honors), and registers the tree by exact path with the session id
-(from `~/.claude/sessions/<pid>.json`), pid and start time. It prints the two
-spawn shapes:
+(from `~/.claude/sessions/<pid>.json`), pid and start time. It prints the one
+accepted spawn shape:
 
 ```
-cwd: "<path>"                    (no isolation)
 cross-repo-worktree: <path>      (a prompt line, with isolation:"worktree")
 ```
+
+A `cwd`-only spawn — `cwd: "<path>"` with no isolation — was a second accepted
+shape until clause 7 landed, and is now refused: it has no platform-owned
+lifecycle witness, so nothing marks the agent finished (`C7_PROBLEMS` in
+`scripts/hooks/guard-worktree-isolation.sh`). The helper's own output says so;
+this page went on listing it.
 
 `guard-worktree-isolation.sh` clause 4 refuses everything else: a `cwd` that
 is not the top level of a linked worktree with a ledger registration; `cwd`
