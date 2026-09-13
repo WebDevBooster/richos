@@ -1,0 +1,7 @@
+label: item23-mutant-c22  started: 2026-09-13T08:07:29Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: 8fd9a573fa4777717876be4f4e15d4c9077a1d7e  dirty: 5
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item23-mutant-c22/engine-base  workspaces.py sha256: 80687932e2ab49a5  guard sha256: e70e4673e78325fd
+declarations read from the harness: 82
+  PROVEN    S-p02-bash-guard-lets-codex-branch-go — removing it turns "C2.2 " red:       FAIL  C2.2 direct deletion of the codex/ branch or workspace is refused in Bash, with no override (exits 0 2 2 2)  [73s]
+=== targeted mutants: 1 proven, 0 unproven ===
+finished: 2026-09-13T08:08:42Z

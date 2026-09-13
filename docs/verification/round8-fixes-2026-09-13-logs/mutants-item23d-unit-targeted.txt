@@ -1,0 +1,7 @@
+label: item23d-unit-mutant  started: 2026-09-13T08:25:29Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: cc0f450d48d71f7a980a4f9ff43e08bd2ff500ad  dirty: 6
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item23d-unit-mutant/engine-base  workspaces.py sha256: c6c82863551973a8
+declarations read from the harness: 53
+  PROVEN    p14-end-of-run-undoes-the-leads-land — removing it turns "Point14_IntegrationBranch.test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" red  [1s]
+=== targeted unit mutants: 1 proven, 0 unproven ===
+finished: 2026-09-13T08:25:30Z

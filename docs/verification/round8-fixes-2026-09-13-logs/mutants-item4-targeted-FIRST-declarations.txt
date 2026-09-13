@@ -1,0 +1,11 @@
+label: item4-mutants  started: 2026-09-13T07:46:31Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: f06849af8d2d2a649aa3db32feabdbf6d7843b18  dirty: 7
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/item4-mutants/engine-base  workspaces.py sha256: 11b97f5e3c8dc09f  guard sha256: e1d2c7774496710e
+declarations read from the harness: 72
+  UNPROVEN  S-p05-notification-counts-as-the-ceo — red, but NOT at "C5.4 ":       FAIL  C5.15b NO SHAPE THAT IS NOT HIS COUNTS: a task notification, a peer message after his row, the 68 real old-shape peer rows with no stamps, a constructed <cross-session-message>, a constructed non-meta [SYSTEM NOTIFICATION …], a /exit row, a notification-then-compaction-summary [n1=Fals  [57s]
+  PROVEN    S-p05-his-word-does-not-end-the-turn — removing it turns "C5.10" red:       FAIL  C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn (2) — given through the RichOS app, the row sha  [58s]
+  PROVEN    S-p05-unstamped-rows-count-as-the-ceo — removing it turns "C5.15b" red:       FAIL  C5.15b NO SHAPE THAT IS NOT HIS COUNTS: a task notification, a peer message after his row, the 68 real old-shape peer rows with no stamps, a constru  [60s]
+  PROVEN    S-p05-peer-meta-row-lends-his-allowance — removing it turns "C5.15b" red:       FAIL  C5.15b NO SHAPE THAT IS NOT HIS COUNTS: a task notification, a peer message after his row, the 68 real old-shape peer rows with no stamps, a constru  [60s]
+  PROVEN    S-p05-textual-allow-list-rejects-his-image-turn — removing it turns "C5.15 " red:       FAIL  C5.15 EVERY SHAPE OF HIS COUNTS: typed, through the RichOS app with no origin key (670 real rows), a pasted-image turn beginning '[Image #5]', queue  [72s]
+=== targeted mutants: 4 proven, 1 unproven ===
+finished: 2026-09-13T07:51:38Z
