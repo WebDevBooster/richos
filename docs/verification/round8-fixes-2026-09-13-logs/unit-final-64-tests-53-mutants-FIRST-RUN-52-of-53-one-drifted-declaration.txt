@@ -1,0 +1,133 @@
+label: final-unit-mutants  suite: engine/scripts/lib/workspaces.test.sh  started: 2026-09-13T09:33:38Z  args: 
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: 96c85b04e7dc34cb8939a0c43f05fe8f080ddd74  dirty: 0
+  PASS  test_point_01_every_non_native_workspace_is_named_cc
+  PASS  test_point_01_only_cc_non_native_workspaces_are_the_systems_concern
+  PASS  test_point_02_codex_is_never_touched
+  PASS  test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents
+  PASS  test_point_03_a_continuing_agents_branch_is_never_its_predecessors
+  PASS  test_point_03_another_live_agents_branch_is_never_attributed
+  PASS  test_point_03_claude_worktree_sessions_are_not_allowed
+  PASS  test_point_03_failed_registration_means_no_spawn
+  PASS  test_point_03_two_agents_in_one_repository_both_land_their_own_refs
+  PASS  test_point_03_unregistered_workspace_and_branch_are_finished_work
+  PASS  test_point_04_landed_means_workspace_and_branch_deleted_automatically
+  PASS  test_point_05_a_ceo_discard_question_blocks_nothing_else
+  PASS  test_point_05_an_agent_started_to_land_it_lets_the_turn_end
+  PASS  test_point_05_answering_the_ceo_names_the_pending_work
+  PASS  test_point_05_no_new_work_while_finished_work_is_pending
+  PASS  test_point_05_no_turn_end_while_finished_work_is_pending
+  PASS  test_point_05_the_answer_allowance_is_spent_once_per_item
+  PASS  test_point_05_the_gate_answers_inside_its_budget
+  PASS  test_point_05_the_next_session_starts_with_it
+  PASS  test_point_05_waiting_items_allow_turn_end_but_not_new_work
+  PASS  test_point_06_native_workspaces_registered_at_spawn_and_deleted_on_land
+  PASS  test_point_06_subagentstart_before_the_agent_result
+  PASS  test_point_07_an_agent_that_produced_nothing_counts_as_landed
+  PASS  test_point_07_an_agent_with_no_workspaces_at_all_is_landed_not_pending
+  PASS  test_point_07_ceo_ordered_work_needs_his_word
+  PASS  test_point_07_discard_deletes_with_the_reason_recorded
+  PASS  test_point_07_unfinished_work_is_continued_by_a_new_agent
+  PASS  test_point_08_ignored_files_it_needs
+  PASS  test_point_08_nothing_uncommitted_is_ever_landed
+  PASS  test_point_08_a_pre_existing_branch_the_agent_only_checked_out_survives
+  PASS  test_point_09_a_finished_agent_is_refused_every_tool
+  PASS  test_point_09_a_paused_agent_is_not_locked_out
+  PASS  test_point_09_a_restarted_read_only_agent_is_refused_every_tool
+  PASS  test_point_09_every_process_it_started_is_stopped_before_deletion
+  PASS  test_point_03_a_backgrounded_calls_ref_after_its_post_is_still_the_agents
+  PASS  test_point_03_a_ref_created_after_the_last_post_is_still_the_agents
+  PASS  test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents
+  PASS  test_point_10_a_cross_repository_agent_loses_both_workspaces_as_one
+  PASS  test_point_10_a_side_branch_switched_away_from_blocks_the_land
+  PASS  test_point_10_branches_created_in_a_workspace_go_with_it
+  PASS  test_point_11_a_pause_with_nothing_named_is_pending
+  PASS  test_point_11_a_recorded_pause_is_not_finished_and_resumes
+  PASS  test_point_11_a_stopped_pause_is_finished
+  PASS  test_point_11_finished_means_run_ended_and_not_paused
+  PASS  test_point_11_handed_in_then_ended_is_finished_even_if_paused
+  PASS  test_point_12_a_reused_process_number_is_not_the_session
+  PASS  test_point_12_process_gone_finishes_its_agents
+  PASS  test_point_12_session_end_recorded_finishes_its_agents
+  PASS  test_point_12_two_sessions_each_handle_their_own
+  PASS  test_point_13_a_failed_deletion_is_retried_until_it_succeeds
+  PASS  test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored
+  PASS  test_point_03_a_post_that_carries_no_call_id_still_ends_a_call
+  PASS  test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run
+  PASS  test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it
+  PASS  test_point_14_a_record_bound_to_nothing_is_refused_never_guessed
+  PASS  test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored
+  PASS  test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents
+  PASS  test_point_14_a_tip_the_agent_only_borrowed_is_not_its_work
+  PASS  test_point_14_attribution_never_waits_for_the_record
+  PASS  test_point_14_the_integration_branch_is_recorded_never_inferred
+  PASS  test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone
+  PASS  test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows
+  PASS  test_point_14_work_merged_nowhere_is_not_landed
+  PASS  test_point_14_work_merged_onto_its_dev_branch_counts_as_landed
+----------------------------------------------------------------------
+Ran 64 tests in 33.347s
+
+OK
+=== workspaces spec tests: 64 run, 0 failed ===
+=== workspaces.py (the CEO's workspace spec): every property, proven load-bearing by removing it ===
+  PASS  p01-non-cc-accepted — removing it turns "test_point_01_every_non_native_workspace_is_named_cc" red  [1m00.2s]
+  PASS  p02-codex-branch-deleted — removing it turns "test_point_02_codex_is_never_touched" red  [59.2s]
+  PASS  p03-registration-without-identity — removing it turns "test_point_03_failed_registration_means_no_spawn" red  [1m00.1s]
+  PASS  p03-unregistered-ignored — removing it turns "test_point_03_unregistered_workspace_and_branch_are_finished_work" red  [59.3s]
+  PASS  p03-worktree-session-allowed — removing it turns "test_point_03_claude_worktree_sessions_are_not_allowed" red  [1m00.7s]
+  PASS  p04-no-automatic-land — removing it turns "test_point_04_landed_means_workspace_and_branch_deleted_automatically" red  [46.0s]
+  PASS  p05-gate-has-no-budget — removing it turns "test_point_05_the_gate_answers_inside_its_budget" red  [1m00.4s]
+  PASS  p05-new-work-not-blocked — removing it turns "test_point_05_no_new_work_while_finished_work_is_pending" red  [59.6s]
+  PASS  p05-turn-end-not-blocked — removing it turns "test_point_05_no_turn_end_while_finished_work_is_pending" red  [58.8s]
+  PASS  p05-ceo-wait-unblocks-new-work — removing it turns "test_point_05_a_ceo_discard_question_blocks_nothing_else" red  [59.2s]
+  PASS  p05-a-notification-counts-as-the-ceo — removing it turns "test_point_05_answering_the_ceo_names_the_pending_work" red  [59.9s]
+  PASS  p05-allowance-never-spent — removing it turns "test_point_05_the_answer_allowance_is_spent_once_per_item" red  [59.4s]
+  PASS  p06-native-not-registered — removing it turns "test_point_06_native_workspaces_registered_at_spawn_and_deleted_on_land" red  [39.8s]
+  PASS  p07-ceo-order-discarded — removing it turns "test_point_07_ceo_ordered_work_needs_his_word" red  [59.3s]
+  PASS  p07-continuation-keeps-old — removing it turns "test_point_07_unfinished_work_is_continued_by_a_new_agent" red  [58.4s]
+  PASS  p08-uncommitted-landed — removing it turns "test_point_08_nothing_uncommitted_is_ever_landed" red  [59.5s]
+  PASS  p09-finished-not-locked — removing it turns "test_point_09_a_finished_agent_is_refused_every_tool" red  [58.1s]
+  PASS  p09-readonly-not-registered — removing it turns "test_point_09_a_restarted_read_only_agent_is_refused_every_tool" red  [59.1s]
+  PASS  p09-processes-not-stopped — removing it turns "test_point_09_every_process_it_started_is_stopped_before_deletion" red  [54.4s]
+  FAIL  p03-no-snapshot-no-pair — the mutation did not apply  [0.2s]
+          MUTATION TARGET ABSENT — the source has drifted:
+                    row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}
+                  write_json(_slot_path(rec["key"], call), row)
+  PASS  p03-created-ref-not-attributed — removing it turns "test_point_10_branches_created_in_a_workspace_go_with_it" red  [53.3s]
+  PASS  p03-attribution-without-own-work — removing it turns "test_point_03_another_live_agents_branch_is_never_attributed" red  [57.4s]
+  PASS  p03-unrelated-ref-attributed — removing it turns "test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents" red  [57.2s]
+  PASS  p03-landed-ref-attributed — removing it turns "test_point_03_a_branch_rich_cuts_in_the_main_checkout_is_never_the_agents" red  [57.9s]
+  PASS  p03-borrowed-branch-attributed — removing it turns "test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it" red  [59.6s]
+  PASS  p03-recorded-elsewhere-ignored — removing it turns "test_point_03_a_continuing_agents_branch_is_never_its_predecessors" red  [58.9s]
+  PASS  p10-one-workspace-left — removing it turns "test_point_10_a_cross_repository_agent_loses_both_workspaces_as_one" red  [58.4s]
+  PASS  p10-observed-after-the-run-ended — removing it turns "test_point_10_a_branch_rich_cut_from_its_branch_is_not_the_agents" red  [59.5s]
+  PASS  p11-pause-ignored — removing it turns "test_point_11_a_recorded_pause_is_not_finished_and_resumes" red  [1m00.3s]
+  PASS  p12-gone-process-not-ended — removing it turns "test_point_12_process_gone_finishes_its_agents" red  [59.7s]
+  PASS  p12-reused-pid-trusted — removing it turns "test_point_12_a_reused_process_number_is_not_the_session" red  [1m00.1s]
+  PASS  p12-other-session-steals — removing it turns "test_point_12_two_sessions_each_handle_their_own" red  [1m00.0s]
+  PASS  p13-no-retry — removing it turns "test_point_13_a_failed_deletion_is_retried_until_it_succeeds" red  [57.3s]
+  PASS  p14-land-reads-a-moving-head — removing it turns "test_point_14_work_merged_onto_its_dev_branch_counts_as_landed" red  [55.8s]
+  PASS  p14-target-inferred-not-recorded — removing it turns "test_point_14_the_integration_branch_is_recorded_never_inferred" red  [56.0s]
+  PASS  p14-spawn-not-refused-without-a-record — removing it turns "test_point_14_the_integration_branch_is_recorded_never_inferred" red  [58.1s]
+  PASS  p14-nothing-bound-falls-back-to-current — removing it turns "test_point_14_a_record_bound_to_nothing_is_refused_never_guessed" red  [59.4s]
+  PASS  p14-floor-restored — removing it turns "test_point_14_the_integration_branch_is_recorded_never_inferred" red  [1m00.6s]
+  PASS  p14-frozen-copy-restored — removing it turns "test_point_14_the_integration_branch_is_recorded_never_inferred" red  [58.0s]
+  PASS  p03-one-window-per-agent — removing it turns "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" red  [58.2s]
+  PASS  p03-no-end-of-run-observation — removing it turns "test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows" red  [57.2s]
+  PASS  p03-end-of-run-ignores-the-last-snapshot — removing it turns "test_point_03_a_ref_created_after_the_last_post_is_still_the_agents" red  [58.9s]
+  PASS  p03-backgrounded-window-consumed-at-its-post — removing it turns "test_point_03_a_backgrounded_calls_ref_after_its_post_is_still_the_agents" red  [58.7s]
+  PASS  p14-unmerged-counts-as-landed — removing it turns "test_point_14_work_merged_nowhere_is_not_landed" red  [58.8s]
+  PASS  p08-refused-call-widens-the-window — removing it turns "test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run" red  [59.4s]
+  PASS  p03-unpaired-post-attributes-nothing — removing it turns "test_point_03_a_post_that_carries_no_call_id_still_ends_a_call" red  [59.3s]
+  PASS  p14-attribution-waits-for-the-record — removing it turns "test_point_14_attribution_never_waits_for_the_record" red  [58.4s]
+  PASS  p03-borrowed-tip-counts-as-own-work — removing it turns "test_point_14_a_tip_the_agent_only_borrowed_is_not_its_work" red  [59.8s]
+  PASS  p14-moved-recorded-branch-not-restored — removing it turns "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" red  [58.3s]
+  PASS  p14-the-leads-move-restored-too — removing it turns "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" red  [47.9s]
+  PASS  p14-end-of-run-undoes-the-leads-land — removing it turns "test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" red  [45.4s]
+  PASS  p02-agent-write-inside-codex-passes-the-lock-out — removing it turns "test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored" red  [41.0s]
+  PASS  p14-second-body-of-work-moves-the-first — removing it turns "test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents" red  [26.6s]
+  [53 mutant(s), 8 at a time, wall 6m31.3s, slowest 1m00.7s p03-worktree-session-allowed, 7.5x serial]
+
+=== mutation: 1 property(ies) NOT proven load-bearing, 52 proven ===
+exit: 1
+finished: 2026-09-13T09:40:45Z

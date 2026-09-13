@@ -111,8 +111,8 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
-    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}{NL}        write_json(_slot_path(rec["key"], call), row)' \
-    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap}' \
+    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
+    '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \
     "the FIRST half of the pair would record nothing, so no ref could ever be shown to be new: creation would be unobservable and every branch an agent created would be left behind (points 3, 10)."
 
 mutant p03-created-ref-not-attributed "test_point_10_branches_created_in_a_workspace_go_with_it" "$W" \

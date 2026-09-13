@@ -1,0 +1,7 @@
+label: final-unit-reaim  started: 2026-09-13T09:41:29Z
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: 96c85b04e7dc34cb8939a0c43f05fe8f080ddd74  dirty: 3
+engine snapshot: /private/tmp/claude-501/-Users-alex-ab-femcboost/16a15be1-c2c1-4d79-82eb-f09c3f533143/scratchpad/final-unit-reaim/engine-base  workspaces.py sha256: c6c82863551973a8
+declarations read from the harness: 53
+  PROVEN    p03-no-snapshot-no-pair — removing it turns "Point10_AllTogether.test_point_10_a_side_branch_switched_away_from_blocks_the_land" red  [1s]
+=== targeted unit mutants: 1 proven, 0 unproven ===
+finished: 2026-09-13T09:41:30Z
