@@ -2829,6 +2829,10 @@ def _delete(rec, workspaces, branches, why, processes=None):
     if processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
     else:
+        # Containers first, directories second: a workspace's containers are
+        # part of it, and stop_containers never raises, so this cannot cost a
+        # deletion that would otherwise have succeeded. See stop_containers.
+        stop_containers([w["path"] for w in workspaces])
         for w in workspaces:
             # Point 3: the branches the agent created are its branches too, and
             # they are recorded (observe_created_refs) rather than read back out of
@@ -3110,6 +3114,39 @@ def stop_processes(paths):
     survivors = [p for p in alive if _alive(p)]
     event("processes-stopped", pids=pids, survivors=survivors or None)
     return {"stopped": pids, "survivors": survivors}
+
+
+def stop_containers(paths):
+    """POINT 9'S OTHER HALF: the containers a workspace declared go with it.
+
+    "reap PROCESSES, not just directories" was written after a detached child
+    outlived both its agent and its worktree. A container is that same defect
+    wearing a different hat, and nothing was reaping them:
+    `agent-af36c9abcc76937ab-redis-1` — an agent id — sat on the founder's
+    machine for six weeks after its agent ended.
+
+    The whole mechanism, and the argument for every refusal in it, is in
+    scripts/lib/containers.py. Two properties matter to THIS caller, and both
+    are that file's job to keep: it NEVER raises, and it never removes a
+    container that is not DECLARED by one of these paths. A machine with no
+    Docker, or a daemon that is down, lands work exactly as it did before this
+    function existed.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import containers
+        res = containers.reap_for_workspaces(paths)
+    except Exception as e:
+        # Tidying up must never be able to break the deleter it is attached to.
+        event("containers-unreaped", why=str(e)[:200], paths=paths or None)
+        return {}
+    if res.get("removed") or res.get("failed") or res.get("kept"):
+        event("containers-reaped", removed=[r["name"] for r in res.get("removed") or []] or None,
+              failed=[r["name"] for r in res.get("failed") or []] or None,
+              kept=[r["name"] for r in res.get("kept") or []] or None)
+    return res
 
 
 def _alive(pid):
