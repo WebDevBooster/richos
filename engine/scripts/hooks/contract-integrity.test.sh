@@ -2808,8 +2808,31 @@ if _section WTI; then
 # "a statusline change needs no hatch" is passed by a guard that refuses
 # nothing. M5, M6, M7 and M11 are the over-blocking mutants that refuse both
 # shortcuts. An unrun mutant refuses nothing.
-set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+#
+# ITS OUTPUT IS KEPT ON FAILURE, for the reason written above CL2 and proved
+# again on 2026-09-13: "a mutation harness that can only say 'something
+# survived' is a harness you end up re-running by hand anyway." This case went
+# red on the runner and green on every machine anyone had. The CI log carried
+# one line -- `(expected exit=0 got=1)` -- and discarding the harness's own
+# report is what made the next several hours guesswork: the run was reproduced
+# green on Linux five times over (10-core and 4-core and 2-core, at the runner's
+# own job degree, inside the whole shard, and with $HOME absent) with no way to
+# ask the red run which of the 23 mutants had survived. Diagnosis is not a fix
+# and this is not one; it is the difference between a red CI that says what
+# happened and a red CI that says only that it is red.
+WTI1_LOG="$(mktemp -t staffing-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >"$WTI1_LOG" 2>&1; rc=$?; set -e
 emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    # The anchor is `^ *` and not `^  `, deliberately. When a mutant's suite
+    # goes red at the WRONG case, the harness prints the verdict AND then the
+    # inner suite's own failing cases indented under it -- and those are the
+    # lines that name which case actually broke, which is the whole question.
+    # A two-space anchor drops exactly them.
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|survived or misfired|summary:' "$WTI1_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /'
+fi
+rm -f "$WTI1_LOG"
 
 fi  # _section — WTI
 
