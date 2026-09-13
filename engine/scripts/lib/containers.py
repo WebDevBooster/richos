@@ -97,7 +97,10 @@ import time
 # for a workspace sets this; anything that reaps one reads it.
 WORKSPACE_LABEL = "sh.richos.workspace"
 COMPOSE_DIR_LABEL = "com.docker.compose.project.working_dir"
-COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+# `com.docker.compose.project` is DELIBERATELY not here. It carries the project
+# NAME — a basename a person can choose and two repositories can share — and
+# this file attributes ownership by absolute path only. A constant sitting here
+# unused would be an invitation to the exact shortcut the header argues against.
 
 # A wedged daemon must not hang a land. These are deliberately short.
 DOCKER_TIMEOUT = 30
