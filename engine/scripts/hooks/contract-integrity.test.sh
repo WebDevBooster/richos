@@ -2407,8 +2407,29 @@ rm -rf "$ROOT"
 # scripts. Case 48 does the same for the reaper wrapper.
 set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
-set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# ITS OUTPUT IS KEPT ON FAILURE, and so is every other mutation harness's
+# below, for the reason written above CL2 and paid for a second time on
+# 2026-09-13: a harness that can only say `(expected exit=0 got=1)` is a
+# harness somebody re-runs by hand, and the WTI1 red cost several hours of
+# guesswork because no one could ask the red run WHICH mutant had survived.
+#
+# The anchor is `^ *` and not `^  `, for the reason spelled out at WTI1: when a
+# mutant's suite goes red at the WRONG case, the harness prints its verdict AND
+# the inner suite's own failing cases indented further beneath it, and those
+# deeper lines are the ones that name what actually broke. A two-space anchor
+# drops exactly them.
+#
+# The trailing `|| true` is not decoration either: errexit is live here, a grep
+# that matches nothing exits 1, and a no-match must not take the run down
+# before the summary that names the red case.
+IP7_LOG="$(mktemp -t interactive-prompt-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >"$IP7_LOG" 2>&1; rc=$?; set -e
 emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IP7_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$IP7_LOG"
 
 # ---------------------------------------------------------------------------
 # LAYER IL — THE IDLE-LAND GATE, THE FIRST FUNCTIONAL LAYER ON THE Stop EVENT
@@ -2529,8 +2550,15 @@ rm -rf "$ROOT"
 # whether a green tick is load-bearing.
 set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
-set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+IL7_LOG="$(mktemp -t idle-land-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
 emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IL7_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$IL7_LOG"
 
 fi  # _section — IL
 
@@ -2578,10 +2606,24 @@ if _section RI; then
 # reads exactly like a guard that caught the mutation.
 set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "RI1.resume-isolation-suite-passes" 0 "$rc"
-set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+RI2_LOG="$(mktemp -t resume-isolation-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
 emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
-set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$RI2_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$RI2_LOG"
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+IN2_LOG="$(mktemp -t inflight-notify-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >"$IN2_LOG" 2>&1; rc=$?; set -e
 emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IN2_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$IN2_LOG"
 
 fi  # _section — RI
 
@@ -2596,8 +2638,15 @@ if _section WTR; then
 # was a fix to a FALSE POSITIVE — and the cheapest way to stop a guard
 # false-firing is to stop it firing. The harness's M6 mutant is the arm that
 # refuses that shortcut. An unrun mutant refuses nothing.
-set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+WTR1_LOG="$(mktemp -t worktree-removal-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >"$WTR1_LOG" 2>&1; rc=$?; set -e
 emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$WTR1_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$WTR1_LOG"
 
 # ---------------------------------------------------------------------------
 # LAYER MT — THE MODEL CAPABILITY ORDER IS DATA, AND THE PROSE IS HELD TO IT
@@ -2792,8 +2841,15 @@ if _section MC6; then
 # discovery. Every property of this guard is of the shape "it allowed the spawn
 # and said nothing", which a hook that never ran also satisfies — so the mutants
 # are the only thing standing between this guard and a permanent false green.
-set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+MC6_LOG="$(mktemp -t model-ceiling-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >"$MC6_LOG" 2>&1; rc=$?; set -e
 emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MC6_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$MC6_LOG"
 
 fi  # _section — MC6
 
@@ -2841,8 +2897,15 @@ if _section MF; then
 # WTR1 and WTI1 are: a *.mutation.sh is invisible to run-all-tests.sh's
 # discovery. Unregistered, it is itself an `unrun-harness` finding of the very
 # sweep it proves, and the sweep will write that row.
-set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with IP7's anchor and for IP7's reason.
+MF1_LOG="$(mktemp -t mechanical-findings-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >"$MF1_LOG" 2>&1; rc=$?; set -e
 emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MF1_LOG" \
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+fi
+rm -f "$MF1_LOG"
 
 fi  # _section — MF
 
