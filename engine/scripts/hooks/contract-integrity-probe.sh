@@ -90,6 +90,17 @@
 #      it is the confusion the 2026-08-31 incident was made of. Three callers
 #      take their whole answer from that file, one of which DELETES worktrees.
 #      Runs in BOTH modes.
+#   EP. THE STANDING INSTRUCTION NAMES THE CURRENT COMMAND: supersession is
+#      declared once as data (orchestration.config ENTRYPOINTS), the parser and
+#      the currency lint are present, and no file declared in
+#      INSTRUCTION_SURFACES names a superseded entrypoint without naming what
+#      replaced it — plus a two-sided sandbox canary (refuses a known-bad
+#      instruction naming file:line, ALLOWS the corrected one). Exists because a
+#      capability can ship, work, be tested and go green while the announcement
+#      every session boots with keeps routing traffic to the thing it replaced,
+#      so the new path is simply never taken and nothing anywhere goes red.
+#      Implemented in scripts/hooks/contract-integrity-layer-ep.sh, which also
+#      runs standalone.
 #
 # BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R + AL), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
@@ -3621,6 +3632,9 @@ run_layer_R
 run_layer_AL
 run_layer_MT
 run_layer_MC
+# shellcheck source=contract-integrity-layer-ep.sh
+. "$SCRIPT_DIR/contract-integrity-layer-ep.sh"
+run_layer_EP
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF
@@ -3676,6 +3690,16 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
           (MODEL_TIERS="fable > opus > sonnet > haiku", re-derived for your
           models), keep its alias set equal to ALLOWED_MODELS, and make
           CLAUDE.md quote that exact line. Never edit a consumer to fix it.
+
+  - "A STANDING INSTRUCTION ... STILL NAMES A SUPERSEDED ENTRYPOINT" (Layer EP)
+       -> a capability shipped and the thing that tells people what to do still
+          names what it replaced, so the new path goes unused while every
+          session reports success. The refusal names file:line, the superseded
+          command and the current one. Change the INSTRUCTION to name the
+          current command; do NOT retire the old script (spawn.sh calls the
+          commands it supersedes). A genuinely historical mention takes
+          \`entrypoint-exempt: <reason>\` on the line. Full report:
+          scripts/entrypoint-currency-lint.sh --root <repo>
 
   - "MODEL_CEILING ... ranks it NOWHERE" / "did NOT refuse a spawn one tier
     ABOVE" / "was allowed but NOT SILENTLY" (Layer MC)
