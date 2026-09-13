@@ -134,7 +134,35 @@ richos_sandbox_start_failures() {
                 export CLAUDE_PROJECT_DIR="$root"
                 export RICHOS_ENTITY_ROOT="$root"
                 export TMPDIR="$root/.sandbox-completeness-tmp"
-                mkdir -p "$TMPDIR" 2>/dev/null || true
+                # AND THE OPERATOR'S RECORD, which this function ran a hook at
+                # without redirecting until 2026-09-13. The point of the
+                # function is to START every registered hook; several of them
+                # (teammate-idle-handoff.sh, worker-ended-handoff.sh) START by
+                # appending to the ownership ledger, and the ledger resolves
+                # its path from $HOME — expanduser("~") in
+                # scripts/lib/worktree-ledger.py, not CLAUDE_CONFIG_DIR — so
+                # with $HOME inherited they appended `finished` rows naming
+                # this throwaway sandbox to the REAL ledger, and created
+                # ~/.claude/teammate-{idle,task}-events.jsonl beside it.
+                #
+                # THAT LEAK IS NOT NEW AND IT IS NOT CI-ONLY. It happened on
+                # every workstation run too; it was simply invisible there,
+                # because record-canary.sh excludes `finished` rows by design
+                # (the platform writes them constantly) and a ledger that
+                # already exists cannot be seen to be created. On a runner the
+                # file does not exist yet, so the same write shows up as
+                # "ledger: was ABSENT and now EXISTS" and the unit is red. The
+                # canary was right and the sandbox was wrong.
+                #
+                # This is the third member of the class record-canary.sh's own
+                # header names, and it gets the fix the other two got: a $HOME
+                # of its own. Redirecting all three of the names the record is
+                # reached by, rather than only the one that bit, so the next
+                # writer to appear is contained before it is written.
+                export HOME="$root/.sandbox-completeness-home"
+                export CLAUDE_CONFIG_DIR="$HOME/.claude"
+                export RICHOS_WORKSPACES_DIR="$CLAUDE_CONFIG_DIR/state/workspaces"
+                mkdir -p "$TMPDIR" "$CLAUDE_CONFIG_DIR" 2>/dev/null || true
                 cd "$root" 2>/dev/null || cd /
                 printf '%s' "$payload" | bash "$root/scripts/hooks/$h" 2>&1
             )" || true
@@ -154,6 +182,6 @@ PAYLOADS_EOF
             printf '%s\t%s\n' "$h" "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
         fi
     done
-    rm -rf "$root/.sandbox-completeness-tmp" 2>/dev/null || true
+    rm -rf "$root/.sandbox-completeness-tmp" "$root/.sandbox-completeness-home" 2>/dev/null || true
     [ "$found" = 0 ]
 }
