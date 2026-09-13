@@ -60,6 +60,11 @@ mutant unowned-not-reported "test_C5_no_evidence_at_all_is_reported_and_never_to
     '        else:{NL}            pass' \
     "a container with no ownership evidence would vanish from the report, so residue nobody can attribute would stop being visible at all."
 
+mutant age-read-as-local-time "test_C10_age_is_read_as_utc_not_local_time" "$C" \
+    '            return int(calendar.timegm(time.strptime(t, fmt)))' \
+    '            return int(time.mktime(time.strptime(t, fmt)) - time.timezone)' \
+    "the exact defect this shipped with: Docker's UTC stamp read as local time, so every age in the orphan report is off by the daylight-saving offset — measured as '1h old' on a container three seconds old."
+
 mutant docker-absence-raises "test_C8_docker_absent_is_never_a_failure" "$C" \
     '    except FileNotFoundError:{NL}        return False, "", "docker is not installed"' \
     '    except FileNotFoundError:{NL}        raise' \

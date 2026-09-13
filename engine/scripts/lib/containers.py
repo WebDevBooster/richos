@@ -86,6 +86,7 @@ protects EVERYTHING and deletes nothing: not knowing who is alive is a reason
 to keep your hands still, not a reason to guess.
 """
 
+import calendar
 import json
 import os
 import subprocess
@@ -214,7 +215,15 @@ def _container(c):
 
 
 def _epoch(ts):
-    """Docker's RFC3339 with nanoseconds, without pulling in a date library."""
+    """Docker's RFC3339 with nanoseconds, without pulling in a date library.
+
+    calendar.timegm, NOT time.mktime: Docker stamps UTC, and mktime reads a
+    struct as LOCAL time. The correction `mktime(t) - time.timezone` looks
+    right and is wrong under daylight saving, because time.timezone is the
+    standard-time offset — measured here in BST, a container three seconds old
+    reported an age of `1h`. An age is half of what the orphan report owes the
+    reader, so an hour of drift is not cosmetic.
+    """
     if not ts:
         return 0
     t = ts.strip().rstrip("Z")
@@ -222,7 +231,7 @@ def _epoch(ts):
         t = t.split(".", 1)[0]
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
-            return int(time.mktime(time.strptime(t, fmt)) - time.timezone)
+            return int(calendar.timegm(time.strptime(t, fmt)))
         except ValueError:
             continue
     return 0

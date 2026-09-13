@@ -162,6 +162,25 @@ class Ownership(unittest.TestCase):
             else:
                 os.environ["PATH"] = saved
 
+    def test_C10_age_is_read_as_utc_not_local_time(self):
+        """Docker stamps UTC. Reading it with time.mktime (which assumes LOCAL)
+        and correcting by time.timezone is wrong under daylight saving, because
+        time.timezone is the standard-time offset: a container three seconds
+        old reported `1h` when this was first measured, in BST.
+
+        An age is half of what the orphan report owes its reader, so this is
+        pinned rather than left to whoever next reads the machine's clock."""
+        import calendar
+        now = time.time()
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + ".123456789Z"
+        self.assertLess(abs(ct._epoch(stamp) - now), 5,
+                        "a UTC stamp must not be shifted by the local offset")
+        self.assertEqual(ct._epoch("2026-09-13T21:08:23Z"),
+                         calendar.timegm((2026, 9, 13, 21, 8, 23, 0, 0, 0)))
+        self.assertEqual(ct.human_age(ct._epoch(stamp)), "0m")
+        self.assertEqual(ct._epoch(""), 0)
+        self.assertEqual(ct._epoch("not a date"), 0)
+
     def test_C9_reap_with_no_paths_does_nothing(self):
         """A caller that passes nothing must never mean 'everything'."""
         res = ct.reap_for_workspaces([])
