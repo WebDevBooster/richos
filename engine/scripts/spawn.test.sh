@@ -394,6 +394,32 @@ PY
     else
         bad "the repository's own guard is collected" "$FOUND"
     fi
+
+    # A PREMISE THAT TURNED OUT TO BE FALSE, pinned so it stops being repeated.
+    # The brief for this work said guard-brief-verification-scope.sh "names only
+    # one of the two rules it enforces", offered as the reason one brief cost two
+    # refusals on 2026-09-13. It does not: it accumulates every finding and
+    # prints them as a list. The real cost was that it only ran at dispatch
+    # time, so every refusal from any guard arrived one per round trip.
+    # Escalation esc-20260913T221928Z-42f5cb1d.
+    SCOPE_GUARD="$REAL_PROJECT/scripts/hooks/guard-brief-verification-scope.sh"
+    if [ -f "$SCOPE_GUARD" ]; then
+        TWO_RULE_MSG="$(python3 - <<'PY' | (cd "$REAL_PROJECT" && bash "$SCOPE_GUARD" 2>&1 >/dev/null)
+import json
+print(json.dumps({"tool_name": "Agent", "tool_input": {
+    "name": "zach-sonnet-two1", "subagent_type": "zach", "isolation": "worktree",
+    "prompt": "Verify with scripts/run-all-tests.sh and confirm a complete verification pass is green."}}))
+PY
+)"
+        if printf '%s' "$TWO_RULE_MSG" | grep -q 'run-all-tests.sh' \
+           && printf '%s' "$TWO_RULE_MSG" | grep -q 'full suite/pass in prose'; then
+            ok "the brief-scope guard names BOTH broken rules in ONE message (the brief's premise that it names one was false)"
+        else
+            bad "the brief-scope guard names both rules at once" "$TWO_RULE_MSG"
+        fi
+    else
+        bad "the two-rule case could not run" "no $SCOPE_GUARD on this machine"
+    fi
 else
     bad "REAL-SURFACES could not run" "no $REAL_PROJECT/.claude/settings.local.json on this machine"
 fi
