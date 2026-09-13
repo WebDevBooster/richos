@@ -1,0 +1,39 @@
+workspaces.py under test: /Users/alex/ab/richos-wt/frank-fable-c9/engine/scripts/lib/workspaces.py
+
+=== 1 outside-stray — A stray that appears outside the bracket is attributed to nobody.
+    created_branches                       []
+    land                                   landed
+    branches after the land                ['main', 'spare']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 2 outside-side — A side branch that appears outside the bracket strands its commits.
+    created_branches                       []
+    land                                   landed
+    its side commit is in main             False
+    branches after the land                ['main', 'sidework']
+    pending after the land                 []
+    VERDICT                                BROKEN
+
+=== 8 serial-stray — The stray, one call at a time. EXPECTED: attributed and deleted.
+    created_branches                       ['spare']
+    land before its branch is merged       REFUSED: zach-opus-q6 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-frqxw86s/entity/.claude/worktrees/agent-azachopusq60000 (9212fc920a3a) is not in main of /priv
+    land after                             landed
+    branches after the land                ['main']
+    VERDICT                                HOLDS
+
+=== 9 serial-side — The side branch, one call at a time. EXPECTED: the land is held.
+    created_branches                       ['sidework']
+    land with the side branch out          REFUSED: zach-opus-q7 is not landed yet: sidework (3bfd0f9f50ef) is not in main of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-xmfutwpu/entity at 9c3b579e12c1. Merge it onto the branch th
+    VERDICT                                HOLDS
+
+=== 7 rich-at-my-tip — A ref Rich cuts AT the agent's own unlanded tip DURING its call.
+    created_branches                       ['rich/rescue']
+    land while rich/rescue is unmerged     REFUSED: zach-opus-q5 is not landed yet: HEAD of /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/frank-c3-d0mjshug/entity/.claude/worktrees/agent-azachopusq50000 (41b460b41a89) is not in main of /priv
+    branches after the discard             ['main']
+    the record of what was deleted         (none on the record)
+    the deleted tip is in the event log    True
+    rich/rescue survived                   False
+    VERDICT                                HOLDS
+
+=== 3/5 cases hold; BROKEN: outside-stray, outside-side

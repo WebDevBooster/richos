@@ -1,0 +1,233 @@
+files: 2593   user text rows: 7449   main-session: 4678   sidechain/agent: 2771
+
+MAIN-SESSION rows by stamped shape (entrypoint, origin.kind, promptSource, isMeta, isCompactSummary, queueSkipAttachments | first token) — version range
+  1862  cli      origin=human              promptSource=typed                meta=False compact=False queueSkip=False | words                             v2.1.220..v2.1.269
+   795  cli      origin=task-notification  promptSource=system               meta=False compact=False queueSkip=False | <task-notification>               v2.1.220..v2.1.246
+   670  sdk-cli  origin=absent             promptSource=sdk                  meta=False compact=False queueSkip=False | words                             v2.1.250..v2.1.267
+   517  cli      origin=task-notification  promptSource=system               meta=False compact=False queueSkip=True  | <task-notification>               v2.1.250..v2.1.269
+   153  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | Stop-hook-feedback                v2.1.251..v2.1.269
+    68  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | Another-Claude-session…           v2.1.229..v2.1.267
+    66  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | [Image…]                          v2.1.220..v2.1.268
+    65  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | <local-command-caveat>            v2.1.220..v2.1.269
+    64  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | <command-name>                    v2.1.220..v2.1.269
+    64  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | <local-command-stdout>            v2.1.220..v2.1.269
+    60  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | words                             v2.1.250..v2.1.267
+    52  cli      origin=human              promptSource=queued               meta=False compact=False queueSkip=False | words                             v2.1.220..v2.1.269
+    52  cli      origin=peer               promptSource=system               meta=True  compact=False queueSkip=True  | Another-Claude-session…           v2.1.251..v2.1.269
+    33  sdk-cli  origin=human              promptSource=sdk                  meta=False compact=False queueSkip=False | words                             v2.1.232..v2.1.232
+    24  cli      origin=human              promptSource=suggestion_accepted  meta=False compact=False queueSkip=False | words                             v2.1.220..v2.1.269
+    24  sdk-cli  origin=human              promptSource=sdk                  meta=False compact=False queueSkip=False | [INTERNAL…]                       v2.1.232..v2.1.232
+    16  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | Stop-hook-feedback                v2.1.251..v2.1.267
+    16  sdk-cli  origin=human              promptSource=sdk                  meta=False compact=False queueSkip=False | [Base…]                           v2.1.217..v2.1.217
+    14  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | [Request…]                        v2.1.223..v2.1.269
+    14  cli      origin=absent             promptSource=system               meta=True  compact=False queueSkip=False | words                             v2.1.224..v2.1.245
+    11  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | [structured-output-enforce…]      v2.1.261..v2.1.266
+    10  cli      origin=human              promptSource=typed                meta=False compact=False queueSkip=False | [Image…]                          v2.1.226..v2.1.267
+     9  sdk-cli  origin=task-notification  promptSource=sdk                  meta=False compact=False queueSkip=True  | <task-notification>               v2.1.250..v2.1.267
+     8  cli      origin=absent             promptSource=None                 meta=False compact=True  queueSkip=False | words                             v2.1.226..v2.1.269
+     2  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | [Your…]                           v2.1.267..v2.1.267
+     2  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | words                             v2.1.224..v2.1.263
+     2  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | [1…]                              v2.1.245..v2.1.245
+     1  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | <bash-input>                      v2.1.250..v2.1.250
+     1  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | <bash-stdout>                     v2.1.250..v2.1.250
+     1  sdk-cli  origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | [Request…]                        v2.1.263..v2.1.263
+     1  cli      origin=human              promptSource=queued               meta=False compact=False queueSkip=False | [Image…]                          v2.1.226..v2.1.226
+     1  cli      origin=peer               promptSource=system               meta=True  compact=False queueSkip=False | Another-Claude-session…           v2.1.229..v2.1.229
+
+SIDECHAIN/AGENT rows by shape (for the record; the Stop gate never reads these)
+  1739  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | words                             v2.1.220..v2.1.269
+   410  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | <system-reminder>                 v2.1.223..v2.1.269
+   294  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | [Image…]                          v2.1.220..v2.1.260
+   114  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | [Request…]                        v2.1.220..v2.1.269
+    75  cli      origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | <teammate-message>                v2.1.229..v2.1.267
+    59  cli      origin=task-notification  promptSource=None                 meta=True  compact=False queueSkip=False | [SYSTEM…]                         v2.1.226..v2.1.269
+    44  sdk-cli  origin=absent             promptSource=None                 meta=False compact=False queueSkip=False | words                             v2.1.232..v2.1.267
+    19  cli      origin=coordinator        promptSource=None                 meta=True  compact=False queueSkip=False | words                             v2.1.220..v2.1.269
+     7  cli      origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | (empty)                           v2.1.226..v2.1.233
+     3  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | words                             v2.1.250..v2.1.250
+     2  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | <system-reminder>                 v2.1.263..v2.1.263
+     2  sdk-cli  origin=absent             promptSource=None                 meta=True  compact=False queueSkip=False | <command-message>                 v2.1.250..v2.1.250
+     2  cli      origin=peer               promptSource=None                 meta=True  compact=False queueSkip=False | Another-Claude-session…           v2.1.266..v2.1.266
+     1  cli      origin=absent             promptSource=None                 meta=False compact=True  queueSkip=False | words                             v2.1.268..v2.1.268
+
+=== rule: STAMPED (origin human, or origin absent with promptSource typed/queued/sdk/suggestion_accepted; never meta/compact/queueSkip/system)
+  accepts 2692 main rows:
+      1862  origin=human              promptSource=typed                entry=cli      | words
+       670  origin=absent             promptSource=sdk                  entry=sdk-cli  | words
+        52  origin=human              promptSource=queued               entry=cli      | words
+        33  origin=human              promptSource=sdk                  entry=sdk-cli  | words
+        24  origin=human              promptSource=suggestion_accepted  entry=cli      | words
+        24  origin=human              promptSource=sdk                  entry=sdk-cli  | [INTERNAL…]
+        16  origin=human              promptSource=sdk                  entry=sdk-cli  | [Base…]
+        10  origin=human              promptSource=typed                entry=cli      | [Image…]
+         1  origin=human              promptSource=queued               entry=cli      | [Image…]
+  rejects 1986 main rows:
+       795  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=False | <task-notification>
+       517  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=True | <task-notification>
+       153  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | Stop-hook-feedback
+        68  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | Another-Claude-session…
+        66  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [Image…]
+        65  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | <local-command-caveat>
+        64  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <command-name>
+        64  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <local-command-stdout>
+        60  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | words
+        52  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=True | Another-Claude-session…
+        16  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | Stop-hook-feedback
+        14  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | [Request…]
+        14  origin=absent             promptSource=system               entry=cli      meta=True compact=False queueSkip=False | words
+        11  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [structured-output-enforce…]
+         9  origin=task-notification  promptSource=sdk                  entry=sdk-cli  meta=False compact=False queueSkip=True | <task-notification>
+         8  origin=absent             promptSource=None                 entry=cli      meta=False compact=True queueSkip=False | words
+         2  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [Your…]
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | words
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [1…]
+         1  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <bash-input>
+         1  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <bash-stdout>
+         1  origin=absent             promptSource=None                 entry=sdk-cli  meta=False compact=False queueSkip=False | [Request…]
+         1  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=False | Another-Claude-session…
+
+=== rule: ORIGIN-ONLY (origin.kind == human)
+  accepts 2022 main rows:
+      1862  origin=human              promptSource=typed                entry=cli      | words
+        52  origin=human              promptSource=queued               entry=cli      | words
+        33  origin=human              promptSource=sdk                  entry=sdk-cli  | words
+        24  origin=human              promptSource=suggestion_accepted  entry=cli      | words
+        24  origin=human              promptSource=sdk                  entry=sdk-cli  | [INTERNAL…]
+        16  origin=human              promptSource=sdk                  entry=sdk-cli  | [Base…]
+        10  origin=human              promptSource=typed                entry=cli      | [Image…]
+         1  origin=human              promptSource=queued               entry=cli      | [Image…]
+  rejects 2656 main rows:
+       795  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=False | <task-notification>
+       670  origin=absent             promptSource=sdk                  entry=sdk-cli  meta=False compact=False queueSkip=False | words
+       517  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=True | <task-notification>
+       153  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | Stop-hook-feedback
+        68  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | Another-Claude-session…
+        66  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [Image…]
+        65  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | <local-command-caveat>
+        64  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <command-name>
+        64  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <local-command-stdout>
+        60  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | words
+        52  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=True | Another-Claude-session…
+        16  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | Stop-hook-feedback
+        14  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | [Request…]
+        14  origin=absent             promptSource=system               entry=cli      meta=True compact=False queueSkip=False | words
+        11  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [structured-output-enforce…]
+         9  origin=task-notification  promptSource=sdk                  entry=sdk-cli  meta=False compact=False queueSkip=True | <task-notification>
+         8  origin=absent             promptSource=None                 entry=cli      meta=False compact=True queueSkip=False | words
+         2  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [Your…]
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | words
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [1…]
+         1  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <bash-input>
+         1  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <bash-stdout>
+         1  origin=absent             promptSource=None                 entry=sdk-cli  meta=False compact=False queueSkip=False | [Request…]
+         1  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=False | Another-Claude-session…
+
+=== rule: DENY-LIST TODAY (workspaces.py:2975)
+  accepts 2849 main rows:
+      1862  origin=human              promptSource=typed                entry=cli      | words
+       670  origin=absent             promptSource=sdk                  entry=sdk-cli  | words
+        68  origin=absent             promptSource=None                 entry=cli      | Another-Claude-session…
+        64  origin=absent             promptSource=None                 entry=cli      | <local-command-stdout>
+        52  origin=human              promptSource=queued               entry=cli      | words
+        33  origin=human              promptSource=sdk                  entry=sdk-cli  | words
+        24  origin=human              promptSource=suggestion_accepted  entry=cli      | words
+        24  origin=human              promptSource=sdk                  entry=sdk-cli  | [INTERNAL…]
+        16  origin=human              promptSource=sdk                  entry=sdk-cli  | [Base…]
+        14  origin=absent             promptSource=None                 entry=cli      | [Request…]
+        10  origin=human              promptSource=typed                entry=cli      | [Image…]
+         8  origin=absent             promptSource=None                 entry=cli      | words
+         1  origin=absent             promptSource=None                 entry=cli      | <bash-input>
+         1  origin=absent             promptSource=None                 entry=cli      | <bash-stdout>
+         1  origin=absent             promptSource=None                 entry=sdk-cli  | [Request…]
+         1  origin=human              promptSource=queued               entry=cli      | [Image…]
+  rejects 1829 main rows:
+       795  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=False | <task-notification>
+       517  origin=task-notification  promptSource=system               entry=cli      meta=False compact=False queueSkip=True | <task-notification>
+       153  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | Stop-hook-feedback
+        66  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [Image…]
+        65  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | <local-command-caveat>
+        64  origin=absent             promptSource=None                 entry=cli      meta=False compact=False queueSkip=False | <command-name>
+        60  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | words
+        52  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=True | Another-Claude-session…
+        16  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | Stop-hook-feedback
+        14  origin=absent             promptSource=system               entry=cli      meta=True compact=False queueSkip=False | words
+        11  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [structured-output-enforce…]
+         9  origin=task-notification  promptSource=sdk                  entry=sdk-cli  meta=False compact=False queueSkip=True | <task-notification>
+         2  origin=absent             promptSource=None                 entry=sdk-cli  meta=True compact=False queueSkip=False | [Your…]
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | words
+         2  origin=absent             promptSource=None                 entry=cli      meta=True compact=False queueSkip=False | [1…]
+         1  origin=peer               promptSource=system               entry=cli      meta=True compact=False queueSkip=False | Another-Claude-session…
+
+=== MAIN rows with NO origin and NO promptSource and not meta/compact/queueSkip, by version and first token
+   v2.1.220         1  <command-name>
+   v2.1.220         1  <local-command-stdout>
+   v2.1.223         5  <command-name>
+   v2.1.223         5  <local-command-stdout>
+   v2.1.223         2  [Request…]
+   v2.1.224         1  <command-name>
+   v2.1.224         1  <local-command-stdout>
+   v2.1.226         6  <command-name>
+   v2.1.226         6  <local-command-stdout>
+   v2.1.229         2  <command-name>
+   v2.1.229         2  <local-command-stdout>
+   v2.1.229        14  Another-Claude-session…
+   v2.1.233         1  <command-name>
+   v2.1.233         1  <local-command-stdout>
+   v2.1.233         2  [Request…]
+   v2.1.235         1  <command-name>
+   v2.1.235         1  <local-command-stdout>
+   v2.1.237         1  <command-name>
+   v2.1.237         1  <local-command-stdout>
+   v2.1.238         3  <command-name>
+   v2.1.238         3  <local-command-stdout>
+   v2.1.241         2  <command-name>
+   v2.1.241         2  <local-command-stdout>
+   v2.1.241         3  [Request…]
+   v2.1.245         4  <command-name>
+   v2.1.245         4  <local-command-stdout>
+   v2.1.245         1  [Request…]
+   v2.1.246         2  <command-name>
+   v2.1.246         2  <local-command-stdout>
+   v2.1.250         1  <bash-input>
+   v2.1.250         1  <bash-stdout>
+   v2.1.250         1  <command-name>
+   v2.1.250         1  <local-command-stdout>
+   v2.1.251         3  <command-name>
+   v2.1.251         3  <local-command-stdout>
+   v2.1.251        51  Another-Claude-session…
+   v2.1.252         1  <command-name>
+   v2.1.252         1  <local-command-stdout>
+   v2.1.258         3  <command-name>
+   v2.1.258         3  <local-command-stdout>
+   v2.1.258         1  [Request…]
+   v2.1.259         2  <command-name>
+   v2.1.259         2  <local-command-stdout>
+   v2.1.260         1  <command-name>
+   v2.1.260         1  <local-command-stdout>
+   v2.1.263         4  <command-name>
+   v2.1.263         4  <local-command-stdout>
+   v2.1.263         2  [Request…]
+   v2.1.266         4  <command-name>
+   v2.1.266         4  <local-command-stdout>
+   v2.1.267        14  <command-name>
+   v2.1.267        14  <local-command-stdout>
+   v2.1.267         3  Another-Claude-session…
+   v2.1.267         3  [Request…]
+   v2.1.268         1  <command-name>
+   v2.1.268         1  <local-command-stdout>
+   v2.1.269         1  <command-name>
+   v2.1.269         1  <local-command-stdout>
+   v2.1.269         1  [Request…]
+
+=== MAIN rows whose text starts with '[Image #' (a pasted screenshot then his words)
+   v2.1.251 origin=human promptSource=typed meta=False | 042f3850-8b30-478e-97c3-9c991a83fa86.jsonl | c6db2450-641f-4937-a9c0-0fe6d1fe976a | '[Image #1] When will there be a durable fix for th'
+   v2.1.251 origin=human promptSource=typed meta=False | 042f3850-8b30-478e-97c3-9c991a83fa86.jsonl | 384c3952-89aa-466a-86fe-0d34dd2ca896 | '[Image #1] Once again: When will there be a durabl'
+   v2.1.263 origin=human promptSource=typed meta=False | 16b21750-131b-400e-a6b4-f9313174b201.jsonl | 19d4e449-fc7e-4027-a573-cb772b413c8c | '[Image #4]'
+   v2.1.263 origin=human promptSource=typed meta=False | 16b21750-131b-400e-a6b4-f9313174b201.jsonl | a2f8d693-dba5-427c-883b-b2574f0f391d | '[Image #5]'
+   v2.1.260 origin=human promptSource=typed meta=False | 9befc211-b0af-4e74-b96a-8fcafc7d45ba.jsonl | 6d930a67-ed93-482e-ac93-247bb4bdd1b9 | '[Image #1]'
+   v2.1.260 origin=human promptSource=typed meta=False | 9befc211-b0af-4e74-b96a-8fcafc7d45ba.jsonl | 8302d5c2-5b1c-46ee-aa19-612da9a73cd1 | "[Image #10] I wonder why there's browser suite any"
+   v2.1.263 origin=human promptSource=typed meta=False | b8526f54-0b4a-44b9-bf92-aee6a35961dc.jsonl | 53ef448f-3c87-415b-ac48-379e93fcec31 | '[Image #2] [Response to Sage and owner repair inst'
+   v2.1.267 origin=human promptSource=typed meta=False | d0eef867-5636-46b7-a2bd-53dfd26564be.jsonl | d9f42251-c401-4167-8285-24746683528e | '[Image #5] you should be able to fetch it somewher'
+   v2.1.233 origin=human promptSource=typed meta=False | 5724a549-688b-4856-ae83-240e2e81e6b3.jsonl | 98d2733b-2005-480b-84bf-e50cb5de039a | '[Image #4]'
+   v2.1.226 origin=human promptSource=typed meta=False | 8263e832-a0bc-4482-8d6f-a7c6be0011aa.jsonl | ab6b62f6-6fdd-405b-9844-4471b46d2239 | '[Image #1]'
+   v2.1.226 origin=human promptSource=queued meta=False | 8263e832-a0bc-4482-8d6f-a7c6be0011aa.jsonl | b3b41280-05b6-4106-9884-33963e673364 | '[Image #2]'

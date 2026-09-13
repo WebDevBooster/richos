@@ -1,0 +1,2 @@
+    if kind == "codex":
+        spec.append("%s deleting the codex/ ref %s

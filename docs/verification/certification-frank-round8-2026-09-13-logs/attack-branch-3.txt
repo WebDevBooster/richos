@@ -1,0 +1,11 @@
+engine under test: /Users/alex/ab/richos-wt/frank-fable-c9/engine
+workspaces.py sha256: c6c82863551973a8
+guard sha256: e70e4673e78325fd
+
+=== main-checkout-cherry-pick — Same, by cherry-pick of the agent's own commit onto the recorded branch from
+    guard on the agent's cherry-pick in the main checkout exit 0 
+    main: snapshot / moved / after Post          1af5a720 / 2a42a24e / 2a42a24e
+    own.txt now in main                          True
+    VERDICT                                      BROKEN
+
+=== 0/1 cases hold; BROKEN: main-checkout-cherry-pick
