@@ -67,11 +67,13 @@ distinguishes "the session that owns this lock is still running" from "this
 lock was left behind by a session that is gone".
 
 That is stated here rather than glossed because it bounds what this file can
-prove. The LOCK'S PRESENCE is the per-agent signal; the pid check is the
-stale-lock filter. A worktree whose agent finished but which has not yet been
-reaped still reads ALIVE. That is why the claim guard built on this REPORTS
-rather than BLOCKS — see guard-agent-state-claims.py, which carries the
-measurement.
+prove FROM THE LOCK. The LOCK'S PRESENCE is the per-agent signal; the pid check
+is the stale-lock filter. A worktree whose agent finished but which has not
+yet been reaped still reads ALIVE from the lock alone — which is why, since
+round 8 (2026-09-13), `resolve()` asks the WORKSPACE REGISTRY whether the agent
+is finished (point 11) before it answers, and a finished record decides
+NOT-ALIVE. The claim guard built on this still REPORTS rather than BLOCKS — see
+guard-agent-state-claims.py, which carries the measurement.
 
 `pid_shared_with` is emitted in the JSON for exactly this reason: an operator
 reading the evidence can see for himself that the pid is a session pid rather
@@ -84,7 +86,23 @@ The defect was not a missing answer. It was TWO answers and the wrong one
 believed. So every verdict carries the other sources and says which of them
 disagree:
 
-  worktree-lock   AUTHORITATIVE. The only source that decides.
+  worktree-lock   Decides whether the SESSION that took the lock is still
+                  running: the pid on the lock line is the session's, shared by
+                  every agent of that session (measured above). It does NOT
+                  decide whether an AGENT is finished. Until round 8
+                  (2026-09-13) this line read "AUTHORITATIVE. The only source
+                  that decides", which over-claimed: a terminal agent inside a
+                  living session read ALIVE from its session's lock (round 7
+                  §10, brief-audit-frank-round8 §6).
+  workspace-registry
+                  DECIDES "finished": scripts/lib/workspaces.py finished_state,
+                  the CEO's own definition (docs/plans/worktree-spec-2026-09-11.md
+                  point 11 — the platform's recorded end-of-run signal, not
+                  paused; or its session has ended, point 12). A record that
+                  reads finished makes the verdict NOT-ALIVE whatever the lock
+                  says, and the lock's answer is kept as evidence beside it.
+                  An agent the registry does not know (spawned before the spec
+                  build, or under another entity) falls back to the lock.
   roster          ~/.claude/teams/session-*/config.json members[].status.
                   This is the surface `ListAgents` reads. Advisory ONLY.
   worker-events   worker-events.jsonl, the SubagentStart/SubagentStop log.
@@ -375,8 +393,77 @@ def _normalize(target):
     return "agent-" + t, None
 
 
+def _registry_says(agent_id):
+    """What the workspace registry (scripts/lib/workspaces.py, the spec's own
+    store) records for this agent id: {"finished", "paused", "why", "name"},
+    or None when it has no record of the id or cannot be read. Read-only.
+
+    This is the reader item 6 of round 8 added: the lock proves the SESSION is
+    alive, the registry proves the AGENT is finished (point 11), and the two
+    are different questions."""
+    if not agent_id:
+        return None
+    try:
+        import importlib.util
+        lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+        if not os.path.isfile(lib):
+            return None
+        spec = importlib.util.spec_from_file_location("al_workspaces", lib)
+        ws = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ws)
+        key = ws.key_for_id(agent_id)
+        if not key:
+            return None
+        rec = ws.load_agent(key) or ws.read_json(ws.done_path(key))
+        if not rec:
+            return None
+        fin, paused, why = ws.finished_state(rec)
+        return {"finished": bool(fin), "paused": bool(paused), "why": why,
+                "name": rec.get("name") or "", "key": key}
+    except Exception:
+        return None
+
+
 def resolve(entity_root, target):
-    """One authoritative verdict, with its evidence and its disagreements."""
+    """One verdict, with its evidence and its disagreements.
+
+    Two sources, two questions. The LOCK answers "is the session that took this
+    lock running?"; the WORKSPACE REGISTRY answers "is this agent finished?"
+    (point 11). A registry record that reads finished decides NOT-ALIVE, and the
+    lock's own answer is kept in the evidence so an operator can see both."""
+    rec = _lock_resolve(entity_root, target)
+    reg = _registry_says(rec.get("agent_id") or "")
+    rec.setdefault("sources", {})
+    rec["sources"]["workspace-registry"] = {
+        "authoritative": bool(reg),
+        "decides": "whether the AGENT is finished (docs/plans/worktree-spec-2026-09-11.md, point 11)",
+        "says": (("FINISHED" if reg["finished"] else ("PAUSED" if reg["paused"] else "RUNNING"))
+                 if reg else "no record of this agent"),
+        "detail": (reg["why"] if reg else "scripts/lib/workspaces.py has no record for this id; "
+                                          "the lock alone answers"),
+    }
+    if reg:
+        rec["evidence"]["registry_finished"] = reg["finished"]
+        rec["evidence"]["registry_why"] = reg["why"]
+    if reg and reg["finished"] and rec["verdict"] == ALIVE:
+        rec["evidence"]["lock_verdict"] = ALIVE
+        rec["evidence"]["lock_reason"] = rec["reason"]
+        rec["verdict"] = NOT_ALIVE
+        rec["reason"] = ("the workspace registry records %s as FINISHED — %s (point 11). Its "
+                         "worktree is still locked because the lock is the SESSION's (pid %s), not "
+                         "the agent's; the lock proves the session runs, not that this agent does"
+                         % (reg["name"] or rec.get("agent_id"), reg["why"], rec["evidence"].get("pid", "?")))
+    elif reg and not reg["finished"] and rec["verdict"] == NOT_ALIVE:
+        rec.setdefault("disagreements", []).append(
+            "the workspace registry records %s as not finished (%s) while the lock reads NOT-ALIVE "
+            "(%s). The registry decides 'finished'; the lock decides whether the session runs -- "
+            "an unfinished agent whose session is gone is finished by point 12, so ask the registry "
+            "again after its session's end is recorded." % (reg["name"] or rec.get("agent_id"), reg["why"], rec["reason"]))
+    return rec
+
+
+def _lock_resolve(entity_root, target):
+    """The LOCK's half: what the isolation-worktree lock says about the session."""
     agent_dir, path_hint = _normalize(target)
     rec = {
         "target": target,
@@ -512,6 +599,8 @@ def _attach_sources(rec):
     rec["sources"] = {
         "worktree-lock": {
             "authoritative": True,
+            "decides": "whether the SESSION that took the lock is running (the pid is the session's, "
+                       "shared by every agent of that session) -- never whether an agent is finished",
             "says": rec["verdict"],
             "detail": rec["reason"],
         },

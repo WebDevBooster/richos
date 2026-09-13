@@ -38,13 +38,19 @@ Two reasons, and the second is the honest one.
 2. THE LIVENESS HALF'S FALSE-POSITIVE RATE IS UNPROVEN, in those words. It
    cannot be measured on the archive: worktree lock state is not retained, so
    there is no way to ask of a 2026-08-14 message "was that agent's lock held
-   when this was written?". And there is one known false-positive mode, named
+   when this was written?". And there was one known false-positive mode, named
    rather than glossed: AN AGENT THAT GENUINELY FINISHED BUT WHOSE WORKTREE HAS
-   NOT YET BEEN REAPED still reads ALIVE, because the lock is released by
-   removal and not by the agent's last breath. A guard that blocked on an
-   unmeasured signal with a known FP mode would be switched off inside a day,
-   and a guard people switch off protects nothing. That is the failure mode
-   that produced this defect in the first place.
+   NOT YET BEEN REAPED read ALIVE from the lock, because the lock is the
+   SESSION's and is released by removal, not by the agent's last breath. Since
+   round 8 (2026-09-13) the resolver this guard calls asks the workspace
+   registry's finished_state first (docs/plans/worktree-spec-2026-09-11.md,
+   point 11), so a finished agent the registry knows reads NOT-ALIVE and the
+   guard stays silent on a true claim about it; an agent the registry does not
+   know still falls back to the lock, and that residue is why this still
+   reports. A guard that blocked on an unmeasured signal with a known FP mode
+   would be switched off inside a day, and a guard people switch off protects
+   nothing. That is the failure mode that produced this defect in the first
+   place.
 
    The sibling guard set the standard: it rejected a refinement measuring 10.3%
    precision and kept it as a report with the number written down. Same rule
@@ -309,11 +315,11 @@ def main():
         parts.append(bit)
     more = "" if len(fired) <= 3 else " (+%d more)" % (len(fired) - 3)
 
-    msg = ("AGENT-STATE CLAIM CONTRADICTED — you reported %s finished, and the "
-           "AUTHORITATIVE check disagrees. %s%s. The roster (ListAgents) is not "
-           "the source of truth for this and went stale exactly this way on "
-           "2026-08-31; the lock is. Confirm or correct before the CEO has to: "
-           "scripts/agent-liveness.sh %s"
+    msg = ("AGENT-STATE CLAIM CONTRADICTED — you reported %s finished; the workspace "
+           "registry does not record it finished (point 11) and its session's lock is "
+           "held by a running pid. %s%s. The roster (ListAgents) is not the source of "
+           "truth for this and went stale exactly this way on 2026-08-31. Confirm or "
+           "correct before the CEO has to: scripts/agent-liveness.sh %s"
            % (", ".join(f["name"] for f in fired), "; ".join(parts), more,
               fired[0]["agent_id"]))
 

@@ -207,6 +207,48 @@ git -C "$ENTITY" worktree lock "$WT_EMPTY" >/dev/null 2>&1
     && ok "A6 a worktree PATH resolves the same as its id" \
     || bad "A6 path form" "path form disagreed with id form"
 
+# --- A7. THE LOCK PROVES THE SESSION, THE REGISTRY PROVES "FINISHED" ---------
+# Round 8, item 6 (2026-09-13). The lock's pid is the SESSION's, shared by every
+# agent of that session, so a terminal agent inside a living session read ALIVE
+# from its session's lock (round 7 §10). The workspace registry
+# (scripts/lib/workspaces.py, finished_state — point 11 of the CEO's page) is
+# what decides "finished", and a finished record decides NOT-ALIVE whatever the
+# lock says. The registry here is a sandbox store; the record is built with the
+# library's own helpers and carries the platform's end-of-run signal.
+ID_FIN="a8888888888888888"
+WT_FIN="$ENTITY/.claude/worktrees/agent-$ID_FIN"
+git -C "$ENTITY" worktree add -q -b wt-fin "$WT_FIN" >/dev/null 2>&1
+git -C "$ENTITY" worktree lock \
+    --reason "claude agent agent-$ID_FIN (pid $LIVE_PID start now)" "$WT_FIN" >/dev/null 2>&1
+export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
+mkdir -p "$RICHOS_WORKSPACES_DIR"
+registry_record() { # <agent-id> <name> finished|running
+    python3 - "$ENGINE_ROOT/scripts/lib/workspaces.py" "$1" "$2" "$3" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
+ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+aid, name, state = sys.argv[2:5]
+key = "feedface--" + name
+rec = ws.load_agent(key) or ws.new_record(key, name=name, agent_id=aid)
+rec["end"] = {"at": ws.now(), "signal": "SubagentStop", "detail": ""} if state == "finished" else None
+ws.save_agent(rec)
+PY
+}
+registry_record "$ID_FIN" "zach-opus-fin" running
+[ "$(verdict "$ID_FIN")" = "ALIVE" ] \
+    && ok "A7a POSITIVE PROBE: a live-locked agent the registry records as RUNNING reads ALIVE" \
+    || bad "A7a running + live lock -> ALIVE" "got $(verdict "$ID_FIN")"
+registry_record "$ID_FIN" "zach-opus-fin" finished
+[ "$(verdict "$ID_FIN")" = "NOT-ALIVE" ] \
+    && ok "A7 a terminal agent inside a LIVING session (its lock held by a running pid) reads NOT-ALIVE: the registry decides finished (point 11), the lock only proves the session" \
+    || bad "A7 registry-finished + live lock -> NOT-ALIVE" "got $(verdict "$ID_FIN")"
+A7_JSON="$(python3 "$LIB_PY" --entity "$ENTITY" --owner "$ID_FIN" --format json)"
+printf '%s' "$A7_JSON" | grep -q '"lock_verdict": "ALIVE"' \
+    && printf '%s' "$A7_JSON" | grep -q '"workspace-registry"' \
+    && ok "A7b and the lock's own answer (ALIVE) is kept in the evidence beside the registry's" \
+    || bad "A7b evidence keeps both answers" "$A7_JSON"
+emit_spawn "zach-opus-fin" "$ID_FIN" "toolu_fin"
+
 echo ""
 echo "--- B. INDETERMINATE is a real outcome, never collapsed ---"
 B_OUT="$(python3 "$LIB_PY" --entity "$SANDBOX/not-a-repo" --owner "$ID_LIVE" --format triple | cut -f1)"
@@ -315,6 +357,8 @@ silent_on "a TRUE claim: the agent really is not alive (stale lock)" \
           "mark-sonnet-p3 completed and replied exactly P3-RAN."
 silent_on "a TRUE claim: the agent's worktree is gone entirely" \
           "A fifth, \`clark-opus-d1\` (the licensing research), finished and dropped off."
+silent_on "a TRUE claim about a terminal agent INSIDE A LIVING SESSION: the registry records it finished (point 11), so its session's held lock contradicts nothing" \
+          "\`zach-opus-fin\` is finished and its work is on its branch."
 silent_on "a name that cannot be joined to any agent id" \
           "\`nobody-opus-x9\` is completed."
 silent_on "a turn that says nothing about any agent" \
@@ -392,6 +436,15 @@ if [ "$(python3 "$MIRROR/scripts/lib/agent-liveness.py" --entity "$SANDBOX/not-a
     ok "R3 MUTANT 'collapse INDETERMINATE into NOT-ALIVE' -> flips B1"
 else
     bad "R3 mutant flips B1" "B1 proves nothing"
+fi
+
+# R4: the registry is never consulted — the round-7 resolver, restored. A7's
+# finished agent goes back to reading ALIVE from its session's lock.
+mutate_lib '    reg = _registry_says(rec.get("agent_id") or "")' '    reg = None'
+if [ "$(mirror_verdict "$ID_FIN")" = "ALIVE" ]; then
+    ok "R4 MUTANT 'never ask the workspace registry' -> flips A7 (the finished agent reads ALIVE from the session's lock again)"
+else
+    bad "R4 mutant flips A7" "the mutant still read $(mirror_verdict "$ID_FIN") — A7 proves nothing"
 fi
 cp "$LIB_PY" "$MIRROR/scripts/lib/agent-liveness.py"
 

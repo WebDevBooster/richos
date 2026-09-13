@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 #
-# agent-liveness.sh — ONE AUTHORITATIVE ANSWER TO "IS THIS AGENT ALIVE?",
-#                     and the call the lead owes himself before he says
-#                     anything about an agent's state.
+# agent-liveness.sh — ONE ANSWER TO "IS THIS AGENT ALIVE?", from two sources
+#                     that answer two different questions, and the call the
+#                     lead owes himself before he says anything about an
+#                     agent's state.
+#
+# THE LOCK proves the SESSION that took it is running (its pid is the session's,
+# shared by every agent of that session). THE WORKSPACE REGISTRY
+# (scripts/lib/workspaces.py) proves the AGENT is FINISHED, by the CEO's own
+# definition (docs/plans/worktree-spec-2026-09-11.md, point 11). A finished
+# record decides NOT-ALIVE whatever the lock says. Until round 8 (2026-09-13)
+# this header called the lock "the ONLY authoritative liveness signal", and a
+# terminal agent inside a living session read ALIVE from its session's lock.
 #
 # ===========================================================================
 # THE INCIDENT THIS ANSWERS
@@ -103,9 +112,10 @@ if [ -z "$ENTITY" ]; then
 fi
 if [ -z "$ENTITY" ]; then
     err "=== agent-liveness: NO ANSWER — no governed entity ==="
-    err "  Could not resolve which repository's worktree locks are authoritative"
-    err "  (status: ${RICHOS_ROOT_STATUS:-unknown}). The lock is the ONLY"
-    err "  authoritative liveness signal, so there is nothing to read."
+    err "  Could not resolve which repository's worktree locks to read"
+    err "  (status: ${RICHOS_ROOT_STATUS:-unknown}). The lock says whether the"
+    err "  session runs and the workspace registry says whether the agent is"
+    err "  finished; without the entity there is nothing to read."
     err "  Pass --entity <path>, or run from a session seated in the entity."
     err "  $TAG"
     exit 2
@@ -158,7 +168,7 @@ with open(sys.argv[1], encoding="utf-8") as _f:
 recs = data if isinstance(data, list) else [data]
 entity = os.environ.get("ENTITY", "")
 
-print("=== agent liveness — authoritative source: the isolation-worktree lock ===")
+print("=== agent liveness — the workspace registry decides FINISHED (point 11); the isolation-worktree lock decides whether the SESSION runs ===")
 print("    entity: %s" % entity)
 if not recs:
     print("    no agent worktrees registered.")
@@ -193,6 +203,10 @@ for r in recs:
     print("      evidence: %s" % ", ".join(str(b) for b in bits))
 
     src = r.get("sources") or {}
+    reg = src.get("workspace-registry") or {}
+    if reg:
+        print("      workspace-registry: %s  (%s; decides FINISHED, point 11)"
+              % (reg.get("says"), (reg.get("detail") or "")[:160]))
     ro = (src.get("roster") or {}).get("entries") or []
     if ro:
         for e in ro:
@@ -216,7 +230,9 @@ for r in recs:
             print("          - %s" % d)
 
 print("")
-print("  The lock decides. The roster and the event log are advisory and are")
-print("  both known to go stale in the direction that reads as 'finished'.")
+print("  The workspace registry decides whether an agent is FINISHED (point 11); the")
+print("  lock decides whether the SESSION that took it is running. The roster and the")
+print("  event log are advisory and are both known to go stale in the direction that")
+print("  reads as 'finished'.")
 sys.exit({"ALIVE": 10, "NOT-ALIVE": 0}.get(worst, 11) if len(recs) == 1 else 0)
 PY

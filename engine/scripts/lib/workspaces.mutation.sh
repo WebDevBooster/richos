@@ -190,7 +190,10 @@ mutant p14-spawn-not-refused-without-a-record "test_point_14_the_integration_bra
     '    missing = _unrecorded_repos(repos){NL}    if False:' \
     "a spawn (and a cc/ workspace) would be registered with NO body of work recorded, bound to nothing — and a nothing-bound agent is judged at land time against whichever body of work is current, so a later unrelated recording moves its verdict: the guess both round-6 reviewers reproduced (point 14, \"before its first agent is spawned\")."
 
-mutant p14-nothing-bound-falls-back-to-current "test_point_14_the_integration_branch_is_recorded_never_inferred" "$W" \
+# The witness token here used to name test_point_14_the_integration_branch_is_
+# recorded_never_inferred, which stays green under this mutant (round 7 §5:
+# 44/45); the red lands at the orphan-binding test, so that is the witness.
+mutant p14-nothing-bound-falls-back-to-current "test_point_14_a_record_bound_to_nothing_is_refused_never_guessed" "$W" \
     '    if work is None and chain:{NL}        return "", "", (' \
     '    if False:{NL}        return "", "", (' \
     "a chain bound to no body of work would be proved against the repository's CURRENT record at land time — the \"heals later\" fallback round 7 removed, which is a guess about which work the agent belongs to (point 14)."
