@@ -1374,6 +1374,42 @@ class Point14_IntegrationBranch(Base):
         ws.land("zach-opus-i4", self.sid)
         self.assertFalse(os.path.exists(npath2))
 
+    def test_point_14_never_refuses_a_path_that_is_not_a_repository(self):
+        """A REFUSAL WHOSE REMEDY CANNOT BE RUN IS NOT A FLOOR. Point 14 records
+        A BRANCH; a directory that is not a git repository has none, has no land
+        to measure, and `record_integration` refuses it outright. So the spawn
+        gate must not demand a record there: until it stopped, an entity root
+        that was not a repository was refused every spawn forever, and the one
+        command its refusal named refused in turn —
+
+            spawn  exit 2  "no branch is recorded ... Record it, then spawn:
+                            workspaces.sh integration --repo <dir> --branch ..."
+            remedy exit 2  "the repository <dir> could not be resolved from git"
+
+        — which is the shape this file deleted the first-registration floor for:
+        "with NO record at all the refusal HEALS". This one could not. Nothing
+        about a real repository is relaxed: the sibling assertion below is the
+        control, and every other point-14 case still refuses."""
+        plain = os.path.join(self.env.root, "not-a-repo")
+        os.makedirs(plain)
+        self.assertEqual(ws.main_checkout(plain), "")             # git resolves nothing here
+        with self.assertRaises(ws.SpecError) as e:                # so the remedy cannot be run
+            ws.record_integration(plain, "main", "impossible", self.sid)
+        self.assertIn("could not be resolved from git", str(e.exception))
+        payload = {"session_id": self.sid, "tool_use_id": "tu-plain", "tool_name": "Agent",
+                   "tool_input": {"name": "zach-opus-plain1", "subagent_type": "zach",
+                                  "prompt": "do it", "isolation": "worktree"}}
+        ws.register_spawn(payload, plain)                         # allowed: nothing to record
+        self.assertIsNotNone(self.rec("zach-opus-plain1"))
+        self.assertEqual(self.rec("zach-opus-plain1").get("integration_work", {}), {})
+        # THE CONTROL: a real repository with its record removed is still refused,
+        # and still named, so this is an exemption for non-repositories only.
+        os.unlink(os.path.join(ws.state_dir(), "integration.json"))
+        with self.assertRaises(ws.SpecError) as e2:
+            self.spawn("zach-opus-plain2")
+        self.assertIn("workspaces.sh integration", str(e2.exception))
+        self.assertIn("point 14", str(e2.exception))
+
     def test_point_14_a_record_bound_to_nothing_is_refused_never_guessed(self):
         """Point 14: "Nothing infers it and nothing guesses it." The one kind of
         record that is never spawned through the guard — a workspace the

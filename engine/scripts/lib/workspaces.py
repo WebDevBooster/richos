@@ -886,15 +886,35 @@ def _bind_body_of_work(rec, repo):
 
 def _unrecorded_repos(repos):
     """The repositories among `repos` with NO current body of work recorded —
-    the ones point 14 forbids spawning into. Deduplicated, in order."""
+    the ones point 14 forbids spawning into. Deduplicated, in order.
+
+    A PATH THAT IS NOT A GIT REPOSITORY IS NEVER ONE OF THEM, and that is not a
+    convenience — it is the same rule the deleted floor was deleted for. Point
+    14 records A BRANCH, `record_integration` refuses any path git cannot
+    resolve ("the repository %s could not be resolved from git"), and a
+    directory with no branches has no land to measure and nothing to record. So
+    until this line existed, an entity root that was not a repository was
+    refused EVERY spawn, forever, and the remedy the refusal printed could not
+    be run:
+
+        spawn  -> exit 2 "no branch is recorded as the one this work integrates
+                  on in <dir> ... Record it, then spawn: workspaces.sh
+                  integration --repo <dir> --branch <main|dev/...>"
+        remedy -> exit 2 "the repository <dir> could not be resolved from git"
+
+    That is the shape this file already rejects by name: "with NO record at all
+    the refusal HEALS"; a refusal that cannot heal "is not a floor, it is a
+    wrong answer with the authority of a recorded one". Every repository still
+    needs its record, including the repository of every cc/ workspace — nothing
+    about a real repository is relaxed here."""
     out, seen = [], set()
     for r in repos:
-        r = _norm_repo(r) if r else ""
-        if not r or r in seen:
+        main = main_checkout(r) if r else ""
+        if not main or main in seen:
             continue
-        seen.add(r)
-        if not integration_record(r):
-            out.append(r)
+        seen.add(main)
+        if not integration_record(main):
+            out.append(main)
     return out
 
 
