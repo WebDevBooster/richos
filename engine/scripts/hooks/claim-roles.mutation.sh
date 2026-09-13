@@ -76,7 +76,22 @@ _mutant_body() {
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
-    chmod +x "$dir/scripts/hooks/"*.sh
+    # THE STATE-CLAIM ARM DOES NOT EXIST IN A SANDBOX WITHOUT THESE TWO, and
+    # without them eighteen of the twenty mutants below were green for a reason
+    # that had nothing to do with their mutation. The gate asks point 14's
+    # recorded branch through scripts/lib/workspaces.py, loaded by path relative
+    # to the guard — absent, `_recorded_integration_refs` returns () and every
+    # "integrated" claim ABSTAINS into the silent verdict. The suite's own
+    # fixture records that branch through scripts/workspaces.sh — absent, the
+    # recording is swallowed by its `|| true`. So z1, z1b, z6 and zq1-zq4 were
+    # red in EVERY sandbox before a single property was removed: a mutant whose
+    # witness is one of those was killed by the missing file, and the two whose
+    # witness is a NEGATIVE assertion (z2b, z3b — "a true claim was NOT refused")
+    # could never go red, because a gate that refuses nothing satisfies them.
+    # Those two are the ones that reported the whole thing.
+    cp "$ENGINE_ROOT/scripts/lib/workspaces.py" "$dir/scripts/lib/"
+    cp "$ENGINE_ROOT/scripts/workspaces.sh" "$dir/scripts/"
+    chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/workspaces.sh"
 
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
@@ -207,10 +222,25 @@ mutant no-reachability-requirement "z3b." "$P" \
     '        ref = _reachable_from(root, sha, "refs/heads/") or "(none)"\n        if ref:\n            return ("violation", root, ref)' \
     "without it every pre-rewrite citation fires: 41 of them in the corpus, none a false report."
 
-mutant integration-refs-emptied "z2b." "$P" \
-    'INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")' \
-    'INTEGRATION_REFS = ()' \
-    "THE TWO-SIDED CANARY: a gate with nothing to compare against refuses a TRUE landing claim too, and exit 2 cannot tell you which one it did."
+# REPOINTED 2026-09-13, and the old target is why the sandbox above gained two
+# files. This mutant emptied `INTEGRATION_REFS`, which stopped being read when
+# the gate started asking point 14's recorded branch: the tuple is now a DEAD
+# CONSTANT, deliberately kept — workspace-spec-fourteen.test.sh C14.7 asserts it
+# has zero code uses, and that suite's own mutation harness makes
+# `_recorded_integration_refs` fall back to it — so emptying it changes nothing
+# and this mutant could only ever be a misfire. It reported itself as one
+# ("the suite went red, but NOT at z2b"), which is the harness working.
+#
+# THE PROPERTY IS REAL AND IT MOVED, so the mutant moves with it. What z2b
+# guards is that a gate which cannot confirm a landing must not refuse a TRUE
+# one, and the single line that decides a landing IS confirmed is the
+# `merge-base --is-ancestor` success. Break that and the gate refuses the true
+# claim and the false one alike — exit 2 both times, which is precisely the
+# corpse that satisfies "a false claim is refused".
+mutant landing-never-confirmed "z2b." "$P" \
+    '                if q.returncode == 0:\n                    return ("ok",)' \
+    '                if False:\n                    return ("ok",)' \
+    "THE TWO-SIDED CANARY: a gate that can never confirm a landing refuses a TRUE landing claim too, and exit 2 cannot tell you which one it did."
 
 mutant no-push-check "z4." "$P" \
     '            if _reachable_from(root, sha, "refs/remotes/"):\n                return ("ok",)' \
