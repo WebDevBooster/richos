@@ -1603,9 +1603,17 @@ def _item(rec, why, cache, me):
     kind = waiting.get("kind", "")
     if not kind and started:
         kind, waiting = "started", {"on": "agent %s is working to land it" % started[0].get("name")}
+    # POINT 5, BOTH SENTENCES AT ONCE. "that one item then waits on him, is on
+    # his TODO list, and blocks nothing else" governs the OTHER pending items
+    # and the turn; "New work stays blocked either way" governs new work, and
+    # its own parenthesis names this very case ("the CEO's word"). Until round
+    # 8 this read `kind != "ceo-discard"` — Rich's inverted paraphrase of the
+    # page, built into the library in round 7 (brief-audit-sage-round8 §3:
+    # with one item waiting on his word an unrelated spawn returned rc=0).
+    # A pending item, whatever it waits on, blocks new work.
     return {"key": rec["key"], "name": rec.get("name") or rec["key"], "why": why,
             "waiting": kind, "waiting_on": waiting.get("on", ""),
-            "blocks_new_work": kind != "ceo-discard",
+            "blocks_new_work": True,
             "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),
             "workspaces": [(w.get("path") or "(branch only)", w.get("branch")) for w in live_workspaces(rec)]}
 

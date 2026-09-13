@@ -41,10 +41,21 @@
 # fourteen did not ask, and for what a census of every sentence then found:
 # C2.8, C3.8–C3.9, C4.4 (asks git's registry and ref list, not two directory
 # names), C5.10–C5.13, C7.6–C7.9, C8.6–C8.7, C10.5–C10.6, C11.7, C12.7–C12.11,
-# C14.8–C14.12. Each has its mutant in the harness. One clause is deliberately
-# NOT asserted either way — whether a discard waiting on the CEO's word blocks
-# NEW work ("blocks nothing else" vs "New work stays blocked either way") —
-# because the page says both and only he can settle it (C5.13's comment).
+# C14.8–C14.12. Each has its mutant in the harness.
+#
+# ROUND 8 (2026-09-13) ADDED MORE, still under the frozen headings, for the eight
+# items of its brief: C5.13 now asserts BOTH sentences of point 5's last
+# paragraph (the page settles it — "New work stays blocked either way" names
+# the CEO's word in its own parenthesis, so nothing was his to decide), C5.14
+# (a second item lands while the first waits on him), C5.15–C5.16 (a person's
+# turn is decided on the fields the platform STAMPS, measured on this machine's
+# transcripts, never on the shape of the text), C8.8 (same name, same SIZE,
+# different bytes), C9.6 (a process that ignores TERM), C11.8 (handed in and
+# still running), C10.7 (a ref created after the agent's last PostToolUse),
+# C2.9–C2.12 (every deleter and mover of a codex/ ref, a write inside a codex/
+# workspace, and a codex/ ref moved by an unnamed verb is restored) and
+# C14.13–C14.16 (a RECORDED branch moved by any verb, named or unnamed, from
+# either checkout, is restored and reported; the lead's move is not).
 #
 # Usage: workspace-spec-fourteen.test.sh [--keep]   (--keep leaves the sandbox)
 
@@ -779,9 +790,16 @@ sub "C5.12 recorded with its TODO reference ($rw2): the turn may end ($rw3), and
 git -C "$ENT" merge -q --no-edit worktree-agent-aa2a2a2a2a2a2a2a2
 stop_gate >/dev/null 2>&1
 # A discard that needs HIS WORD: "Rich asks him in that same turn; that one item then waits on
-# him, is on his TODO list" — and the turn may end (both of his sentences allow that). Whether
-# it also blocks NEW work — "blocks nothing else" vs "New work stays blocked either way" — the
-# page says both ways; it is the CEO's to settle and is deliberately NOT asserted here either way.
+# him, is on his TODO list, and blocks nothing else" — the turn may end and the OTHER pending
+# items still land — AND "New work stays blocked either way", whose own parenthesis names
+# "the CEO's word". Both sentences govern different objects and both hold at once (round 8,
+# item 7). Round 7 read them as a contradiction and built the inversion into the library
+# (`blocks_new_work: kind != "ceo-discard"`); a second agent is spawned FIRST, while nothing
+# is pending, so that "blocks nothing else" can be observed on it.
+spawn "zach-opus-cw2" "a second body of work, running while nothing is pending"
+platform_spawn "zach-opus-cw2" "acw2cw2cw2cw2cw2c"
+NPCW2="$ENT/.claude/worktrees/agent-acw2cw2cw2cw2cw2c"
+commit_in "$NPCW2" cw2.txt
 spawn "zach-opus-cw" "$(printf 'work he ordered\nceo-ordered: build it, his words 2026-09-12\n')"
 platform_spawn "zach-opus-cw" "acwcwcwcwcwcwcwcw"
 NPCW="$ENT/.claude/worktrees/agent-acwcwcwcwcwcwcwcw"
@@ -789,8 +807,15 @@ commit_in "$NPCW" cw.txt
 subagent_stop "acwcwcwcwcwcwcwcw"
 ws wait zach-opus-cw --ceo "May I discard it? A reviewer rejected it." --todo "CEO-TODOs 7.2" >"$T/wait.out" 2>&1; rc1=$?
 stop_gate; rc2=$?
-sub "C5.13 a discard that needs his word, asked and recorded with its TODO reference ($rc1): that item waits on him and the turn may end ($rc2), the item named as waiting" \
-    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && grep -q 'zach-opus-cw' '$T/stop.out'" "$(cat "$T/wait.out" "$T/stop.err" "$T/stop.out")"
+spawn "zach-opus-b4" "unrelated new work while he is being asked"; rc3=$?
+sub "C5.13 a discard that needs his word, asked and recorded with its TODO reference ($rc1): that item waits on him and the turn may end ($rc2), the item named as waiting — AND new work stays blocked either way: an unrelated spawn is refused ($rc3), naming it" \
+    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && grep -q 'zach-opus-cw' '$T/stop.out' && [ $rc3 -eq 2 ] && grep -q 'zach-opus-cw' '$T/spawn.err'" "$(cat "$T/wait.out" "$T/stop.err" "$T/stop.out" "$T/spawn.err")"
+subagent_stop "acw2cw2cw2cw2cw2c"
+git -C "$ENT" merge -q --no-edit worktree-agent-acw2cw2cw2cw2cw2c
+stop_gate; rc4=$?
+DCW2="$(done_rec zach-opus-cw2)"
+sub "C5.14 'blocks nothing else': the second finished item lands on its own ($rc4) while the first still waits on him — its workspace gone, its ending 'landed', the first still pending by name" \
+    "[ $rc4 -eq 0 ] && [ ! -e '$NPCW2' ] && [ -n \"$DCW2\" ] && [ \"\$(jget '$DCW2' disposition.kind)\" = landed ] && [ -e '$NPCW' ] && grep -q 'zach-opus-cw' '$T/stop.out'" "$(cat "$T/stop.err" "$T/stop.out") done=$DCW2"
 ws discard zach-opus-cw --reason "he said drop it, check 5 fixture" --ceo-word "drop it, he said 2026-09-12" >/dev/null 2>&1
 verdict
 

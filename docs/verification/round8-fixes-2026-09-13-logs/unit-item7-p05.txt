@@ -1,0 +1,19 @@
+label: item7-unit-p05  started: 2026-09-13T06:58:25Z  args: Point05_Guarantee
+worktree: /Users/alex/ab/richos-wt/zach-fable-m5  HEAD: 6a04423db60e7da8004fc2fda2b012da07f707b4  dirty: 6
+engine: /Users/alex/ab/richos-wt/zach-fable-m5/engine  workspaces.py sha256: 385b37aa1dd25d9c
+  PASS  test_point_05_a_ceo_discard_question_blocks_nothing_else
+  PASS  test_point_05_an_agent_started_to_land_it_lets_the_turn_end
+  PASS  test_point_05_answering_the_ceo_names_the_pending_work
+  PASS  test_point_05_no_new_work_while_finished_work_is_pending
+  PASS  test_point_05_no_turn_end_while_finished_work_is_pending
+  PASS  test_point_05_the_answer_allowance_is_spent_once_per_item
+  PASS  test_point_05_the_gate_answers_inside_its_budget
+  PASS  test_point_05_the_next_session_starts_with_it
+  PASS  test_point_05_waiting_items_allow_turn_end_but_not_new_work
+----------------------------------------------------------------------
+Ran 9 tests in 3.489s
+
+OK
+=== workspaces spec tests: 9 run, 0 failed ===
+exit: 0
+finished: 2026-09-13T06:58:29Z

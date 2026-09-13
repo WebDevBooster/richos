@@ -528,12 +528,28 @@ class Point05_Guarantee(Base):
             ws.wait("zach-opus-p5", "outside", "x", "", self.sid)   # must be on his TODO list
 
     def test_point_05_a_ceo_discard_question_blocks_nothing_else(self):
+        """"that one item then waits on him, is on his TODO list, and blocks
+        nothing else" — the other pending items still land and the turn may
+        end — AND "New work stays blocked either way", whose own parenthesis
+        names the CEO's word. Both sentences hold at once (round 8, item 7)."""
+        aid2, npath2 = self.spawn("zach-opus-other")        # a second agent, running while nothing is pending
         aid, npath = self.spawn("zach-opus-ceo", extra="ceo-ordered: 'Implement spec.'\n")
         self.commit(npath)
         self.finish(aid)
         ws.wait("zach-opus-ceo", "ceo-discard", "May I discard the rejected spec branch?", "CEO-TODOs 1.1", self.sid)
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])   # the turn may end
+        with self.assertRaises(ws.SpecError) as cm:                              # new work stays blocked
+            self.spawn("zach-opus-unrelated")
+        self.assertIn("zach-opus-ceo", str(cm.exception))
+        # "blocks nothing else": the second agent finishes, is merged, and lands
+        # on its own while the first still waits on him.
+        self.commit(npath2, "other.txt")
+        self.finish(aid2)
+        self.merge(self.entity, "worktree-agent-" + aid2)
         self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
-        self.spawn("zach-opus-unrelated")                    # new work is not blocked by it
+        self.assertFalse(os.path.exists(npath2))
+        self.assertEqual(ws.load_agent(ws.named_key(self.sid, "zach-opus-other"))["disposition"]["kind"], "landed")
+        self.assertIsNone(self.rec("zach-opus-ceo")["disposition"])              # still waiting on his word
 
     def test_point_05_an_agent_started_to_land_it_lets_the_turn_end(self):
         self._pending_one()

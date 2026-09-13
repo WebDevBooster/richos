@@ -60,6 +60,11 @@ mutant p05-turn-end-not-blocked "test_point_05_no_turn_end_while_finished_work_i
     '    if True:{NL}        msg = ' \
     "Rich could end his turn with finished work pending (point 5)."
 
+mutant p05-ceo-wait-unblocks-new-work "test_point_05_a_ceo_discard_question_blocks_nothing_else" "$W" \
+    '            "blocks_new_work": True,' \
+    '            "blocks_new_work": kind != "ceo-discard",' \
+    "the round-7 mis-build restored: an item waiting on the CEO's word would be the one kind of pending item that lets new work start, against \"New work stays blocked either way\" (point 5)."
+
 mutant p05-allowance-never-spent "test_point_05_the_answer_allowance_is_spent_once_per_item" "$W" \
     '        if not spent:' \
     '        if True:' \
