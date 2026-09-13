@@ -638,11 +638,26 @@ def deleted_probes(root, mine):
     # commit that introduced each entry rather than at the tip.
     rc, out, _ = git(root, "log", "--format=%H", "-n", str(HISTORY_LIMIT),
                      mine or "HEAD", "--", MANIFEST)
+    # LISTED AT ANY COMMIT AND NOT LISTED AT HEAD IS MISSING, WHATEVER SITS AT
+    # THE PATH (round 8, item 1; certification-sage-round7 §0/§6 and
+    # brief-audit-sage-round8 §2). "Holds nothing" used to mean "the path is
+    # absent at HEAD", so one docs-only commit that hollowed a RED probe into a
+    # non-probe stub AND dropped its manifest line left DELETED 0, NOT LISTED 0,
+    # the probe gone from the report, exit 0 — the deletion scan judged the
+    # stub's text, the HEAD manifest no longer named it, and the path existed.
+    # A listing leaves by its author's retirement and never by delisting, so
+    # the manifest is the observable an attacker cannot avoid producing: what
+    # the file at the path happens to hold is not asked.
+    head_entries = set(entries)
     if rc == 0:
         for c in out.split():                       # newest first
             for rel in manifest_at(root, c)[0]:
                 if rel.endswith(".py") and not exists_at(root, "HEAD", rel) and all(q != rel for q, _c in gone):
                     gone.append((rel, "listed in the manifest at %s and absent at HEAD" % c[:12]))
+                elif rel.endswith(".py") and rel not in head_entries and all(q != rel for q, _c in gone):
+                    gone.append((rel, "listed in the manifest at %s and NOT LISTED at HEAD (the file at its "
+                                      "path is not asked: a listing leaves by retirement, never by delisting)"
+                                 % c[:12]))
     return gone
 
 
@@ -1104,9 +1119,10 @@ def main(argv):
                 if not args.only or any(o in q for o in args.only)]
         for q, c, w in gone:
             print("%-10s %s" % ("MISSING", q))
-            print("           it held a probe of this library and is DELETED at HEAD (%s). A probe "
-                  "leaves by retirement, which is attributable, and never by deletion, which "
-                  "is not (%s). Restore it, or have its author retire it in %s."
+            print("           it held a probe of this library and is DELETED or DELISTED at HEAD (%s). "
+                  "A probe leaves by retirement, which is attributable, and never by deletion or by "
+                  "dropping its manifest line, which are not (%s). Restore it, or have its author "
+                  "retire it in %s."
                   % (c[:12] if len(c) == 40 else c, w, RETIREMENTS))
         if args.list:
             return 1 if (gone or unlisted) else 0     # --list runs nothing and claims nothing
@@ -1124,7 +1140,7 @@ def main(argv):
         if red or stuck or gone or unlisted:
             print(REFUSAL)
             if gone:
-                print("DELETED (a probe that used to exist and does not):")
+                print("DELETED or DELISTED (a probe that used to be listed and is not, or used to exist and does not):")
                 for q, c, w in gone:
                     print("    %s   removed in %s" % (q, c[:12] if len(c) == 40 else c))
             if unlisted:

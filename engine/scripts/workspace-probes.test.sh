@@ -702,6 +702,87 @@ else
     bad "W30b rc=$RC — a retired-and-deleted probe found through the manifest's history still blocks: <$OUT>"
 fi
 
+# --- W31: A PROBE GUTTED INTO A STUB AND DELISTED, IN ONE COMMIT ---------------
+# Round 8, item 1 (certification-sage-round7 §0/§6, brief-audit-sage-round8 §2):
+# "holds nothing" was implemented as "the path is absent at HEAD", so a docs-only
+# commit that replaced a RED probe with a non-probe stub AND dropped its manifest
+# line left DELETED 0, NOT LISTED 0, the probe gone from the report, exit 0.
+# Outright deletion was caught (W16, W30) and must stay caught (W31c). The rule
+# is now read from the manifest alone: listed at any commit and not listed at
+# HEAD is MISSING unless its author retired it, whatever sits at the path.
+cat > "$R/docs/verification/certification-ivy-red.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Ivy's probe of workspaces.py. Deliberately red: the build lacks a rule."""
+import importlib.util, sys
+CASES = ["i"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("ws", argv[0])
+    ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+    ws.integration_for  # the entry point this probe drives
+    return 0 if hasattr(ws, "a_rule_ivy_wants_and_the_build_lacks") else 1
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+commit_listed certification-ivy-red.probe.py "ivy's probe, listed, red"
+run --tree-only --only ivy --only alice
+if [ "$RC" -ne 0 ] && grep -q "^RED        docs/verification/certification-ivy-red.probe.py" <<<"$OUT"; then
+    ok "W31a POSITIVE CONTROL: ivy's listed probe runs and is RED (it blocks)"
+else
+    bad "W31a rc=$RC — the fixture probe is not red before the gutting: <$OUT>"
+fi
+# The gut-and-delist commit: the file stays at its path as a non-probe stub (no
+# library name, no entry point — the text rule cannot see it), and the manifest
+# line goes, in ONE docs-only commit.
+cat > "$R/docs/verification/certification-ivy-red.probe.py" <<'STUB'
+#!/usr/bin/env python3
+"""A note that used to be a probe. It imports nothing and asserts nothing."""
+print("nothing to see")
+STUB
+grep -v 'certification-ivy-red' "$R/$MANIFEST" > "$R/$MANIFEST.new" && mv "$R/$MANIFEST.new" "$R/$MANIFEST"
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "tidy: an old note, and its stale manifest line" >/dev/null 2>&1
+run --tree-only --only ivy --only alice
+if [ "$RC" -ne 0 ] && grep -q "^MISSING    docs/verification/certification-ivy-red.probe.py" <<<"$OUT" \
+   && grep -q "NOT LISTED at HEAD" <<<"$OUT"; then
+    ok "W31 a RED probe gutted into a non-probe stub AND delisted in one commit is MISSING and blocks: listed at any commit and not listed at HEAD, whatever sits at the path"
+else
+    bad "W31 rc=$RC — a gutted-and-delisted probe left no trace: <$OUT>"
+fi
+# The deletion case must STAY caught: a second probe deleted outright together with its line.
+cat > "$R/docs/verification/certification-jon-red.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Jon's probe of workspaces.py. Deliberately red."""
+import importlib.util, sys
+CASES = ["j"]
+def main(argv):
+    spec = importlib.util.spec_from_file_location("ws", argv[0])
+    ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+    ws.integration_for
+    return 1
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PROBE
+commit_listed certification-jon-red.probe.py "jon's probe, listed, red"
+git -C "$R" rm -q docs/verification/certification-jon-red.probe.py >/dev/null 2>&1
+grep -v 'certification-jon-red' "$R/$MANIFEST" > "$R/$MANIFEST.new" && mv "$R/$MANIFEST.new" "$R/$MANIFEST"
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" commit -q -m "jon's probe and its line, gone in one commit" >/dev/null 2>&1
+run --tree-only --only jon --only ivy --only alice
+if [ "$RC" -ne 0 ] && grep -q "^MISSING    docs/verification/certification-jon-red.probe.py" <<<"$OUT" \
+   && grep -q "^MISSING    docs/verification/certification-ivy-red.probe.py" <<<"$OUT"; then
+    ok "W31c deletion is still caught beside delisting: both probes are MISSING"
+else
+    bad "W31c rc=$RC — deletion stopped being caught, or delisting did: <$OUT>"
+fi
+# A legitimately retired probe still reads as retired: ivy retires her file whole and lands it.
+land_from_author ivy "$(printf 'certification-ivy-red.probe.py\t*\tivy\tobsolete, says ivy, and the stub is a note now\n')"
+run --tree-only --only ivy --only alice
+if [ "$RC" -eq 0 ] && ! grep -q "certification-ivy-red" <<<"$OUT"; then
+    ok "W31b retired by its own author and landed, the delisted probe no longer blocks (and jon's deletion, unretired, still would)"
+else
+    bad "W31b rc=$RC — a retired-and-delisted probe still blocks: <$OUT>"
+fi
+
 # ===========================================================================
 # RETIREMENT PER CASE — W19..W25
 # ===========================================================================

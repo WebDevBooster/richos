@@ -111,6 +111,14 @@ mutant manifest-history-not-read "W30 " "$P" \
     '        for c in []:                                # newest first{NL}            for rel in manifest_at(root, c)[0]:' \
     "a probe deleted in the same commit as its manifest line would leave no trace: the deletion scan judges the file's text and the HEAD manifest no longer names it, so both are satisfied and the run prints its all-clear."
 
+# --- 10c. DELISTING IS NOT DELETION, AND IT IS NOT FREE EITHER ---------------
+# Round 8, item 1: a RED probe hollowed into a non-probe stub and delisted in one
+# docs-only commit left no trace, because MISSING meant "the path is absent".
+mutant delisting-is-free "W31 " "$P" \
+    '                elif rel.endswith(".py") and rel not in head_entries and all(q != rel for q, _c in gone):' \
+    '                elif False:' \
+    "a red probe could be gutted into a stub and dropped from the manifest in one commit: DELETED 0, NOT LISTED 0, the probe gone from the report, exit 0."
+
 # --- 11. AN UNCOMMITTED LINE EXCUSES NO DELETION ---------------------------
 mutant uncommitted-line-excuses-deletion "W16d" "$P" \
     '    ok, detail = attributable(root, "HEAD", RETIREMENTS, raw, mine){NL}    return ok, detail' \
