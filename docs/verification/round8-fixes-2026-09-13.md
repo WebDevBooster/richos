@@ -219,6 +219,7 @@ None of the fourteen headings is wrong: every sentence behind them is asked and 
 - **Did not capture a live `run_in_background` PostToolUse payload** (§E) — UNVERIFIED by name.
 - **Did not re-run** round 7's numbers I did not need (its 59-mutant fourteen run; the on-base runs) beyond what §A re-measured; the base's mutant COUNT is from `grep -c`, its RUN is round 7's log, and the run that matters is §B's final table.
 - **Did not run the full engine self-test** (`contract-integrity.test.sh`); the brief did not ask for it and the CEO's standing rule forbids briefing one. The suites this round touches were each run whole, with their mutants, and are tabled in §B.
+- **Did not write an inflight-ack row.** The brief's first instruction was `scripts/inflight-ack.sh`; run from this worktree it exited 2: *"--sha must be the FULL 40-character commit main moved to (got '<empty>')"* — that script acknowledges a LAND the lead sent, and no land was sent; there was nothing truthful to acknowledge. Said here rather than papered over with a made-up SHA.
 - **Did not treat any reviewer's number as a measurement.** Every audit figure I built on was re-derived here first, and three of them changed on re-derivation: the "68 peer rows are all isMeta" (they are not, on the whole corpus), "the end-of-run diff closes Frank's cases" (it does not; they are between-calls shapes), and "44/45" (46/46 after the repoint; 52 declared at the end).
 
 ## B-final · The numbers, side by side, each naming its harness — the final state
