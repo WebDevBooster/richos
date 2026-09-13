@@ -668,7 +668,35 @@ def collect_rm(text):
 
 
 # 5) Nobody starts a session in its own workspace (point 3).
-CLAUDE_WT = re.compile(r"(?:^|[;&|(\n]\s*|\s)(?:\S*/)?claude\b[^;&|\n]*\s(?:--worktree|-w)(?:\s|=|$)")
+# THE DELIMITER IS LOOKED AT, NOT CONSUMED, AND THAT IS A PERFORMANCE FIX WITH
+# A MEASUREMENT BEHIND IT. This read `(?:^|[;&|(\n]\s*|\s)` until 2026-09-13.
+# `\n` is in that character class AND in `\s`, so on a payload containing a long
+# run of newlines the engine could split that run between the class and `\s*` in
+# a different way at every one of its positions, and did: the cost is quadratic
+# in the length of the run, and it is paid in full precisely when the pattern
+# does NOT match, because only then is every position tried.
+#
+# payload-transport.test.py drives every guard with a 70,000-newline prefix for
+# exactly this class of defect, and it is the only thing that found this one. On
+# ubuntu:24.04, one search, no match:
+#
+#     old  94.56 s        new  0.0037 s
+#
+# On a Mac it stayed under the test's 60-second cap and was green; on the runner
+# it was not, and `payload-transport.test.sh` failed with subprocess.TimeoutExpired
+# after 60 seconds. So this was never a macOS/Linux difference in behavior -- it
+# is one machine being fast enough to hide a quadratic and another not. The
+# guard is a PreToolUse hook, so the same quadratic was stalling a real Bash call
+# carrying a long heredoc for the best part of a minute.
+#
+# The replacement asserts the same thing -- `claude` begins at the start of the
+# string or directly after a delimiter or whitespace -- with a fixed-width
+# lookbehind, so each starting position is decided in constant time and the scan
+# is linear. Equivalence is not assumed: 205,125 inputs (43 hand-written edge
+# cases, the product of a delimiter alphabet around six token shapes, and 200,000
+# random strings over the pattern's own alphabet) give the two patterns the same
+# verdict, with zero disagreements.
+CLAUDE_WT = re.compile(r"(?:^|(?<=[;&|(\s]))(?:\S*/)?claude\b[^;&|\n]*\s(?:--worktree|-w)(?:\s|=|$)")
 
 # 6) WHO RECORDS THE INTEGRATION BRANCH — point 14, and the round-6 finding
 #    both reviewers made (certification-frank-round6-2026-09-12.md §4 RN2b/RN2c,
