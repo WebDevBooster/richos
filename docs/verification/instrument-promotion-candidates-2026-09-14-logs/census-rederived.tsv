@@ -1,0 +1,73 @@
+check	events	class	host_act	host_act_verified	finding_sites	self_failure_sites	person_channel	author_channel	records	hatches	waivers	name_claim	name_agrees
+guard-bash-main-writes.sh	PreToolUse	CONTROL	refuses-call	True	1	4	True	False	-	-	-	control	True
+guard-brief-scope.sh	PreToolUse	CONTROL	refuses-call	True	1	0	False	False	-	brief-scope-acks.log	brief-scope-acks.log=0	control	True
+guard-ceo-ask-first.sh	PreToolUse	CONTROL	refuses-call	True	1	1	True	False	-	ceo-todos-defers.log	ceo-todos-defers.log=401	control	True
+guard-ceo-ruled-ask.sh	PreToolUse	CONTROL	refuses-call	True	2	1	True	False	-	-	-	control	True
+guard-ceo-todos-commits.sh	PreToolUse	CONTROL	refuses-call	True	4	9	True	False	-	-	-	control	True
+guard-ci-red-lands.sh	PreToolUse	CONTROL	refuses-call	True	2	2	True	False	-	ci-red-acks.log	ci-red-acks.log=116	control	True
+guard-ci-turn-gate.sh	Stop	CONTROL	refuses-turn-end	True	1	0	True	False	-	-	-	control	True
+guard-completeness-commits.sh	PreToolUse	CONTROL	refuses-call	True	5	7	True	False	-	-	-	control	True
+guard-definition-drift.sh	PreToolUse	CONTROL	refuses-call	True	1	2	True	False	-	unevaluated-payloads.log,definition-drift.log,definition-drift-acks.log	definition-drift-acks.log=35,definition-drift.log=16,unevaluated-payloads.log=32	control	True
+guard-dialect.sh	PreToolUse	CONTROL	refuses-call	True	2	8	True	False	-	-	-	control	True
+guard-hook-registration-commits.sh	PreToolUse	CONTROL	refuses-call	True	4	4	True	False	-	hook-inventory-acks.log	hook-inventory-acks.log=0	control	True
+guard-idle-land.sh	Stop	CONTROL	refuses-turn-end	True	1	0	True	False	-	-	-	control	True
+guard-inflight-notify.sh	PreToolUse	CONTROL	refuses-call	True	1	9	True	False	-	-	-	control	True
+guard-interactive-prompt.sh	PreToolUse	CONTROL	refuses-call	True	1	4	True	False	-	-	-	control	True
+guard-main-checkout-writes.sh	PreToolUse	CONTROL	refuses-call	True	1	4	True	False	-	-	-	control	True
+guard-model-ceiling.sh	PreToolUse	CONTROL	refuses-call	True	1	1	True	False	-	model-ceiling-acks.log	model-ceiling-acks.log=75	control	True
+guard-named-persons-commands.sh	PreToolUse	CONTROL	refuses-call	True	2	8	True	False	-	-	-	control	True
+guard-named-persons-writes.sh	PreToolUse	CONTROL	refuses-call	True	2	6	True	False	-	-	-	control	True
+guard-owned-state.sh	PreToolUse	CONTROL	refuses-call	True	1	1	True	False	-	-	-	control	True
+guard-publication-commits.sh	PreToolUse	CONTROL	refuses-call	True	5	9	True	False	-	-	-	control	True
+guard-publication-writes.sh	PreToolUse	CONTROL	refuses-call	True	4	7	True	False	-	-	-	control	True
+guard-resume-isolation.sh	PreToolUse	CONTROL	refuses-call	True	1	5	True	False	-	resume-acks.log	resume-acks.log=234	control	True
+guard-row-currency-commits.sh	PreToolUse	CONTROL	refuses-call	True	6	11	True	False	-	-	-	control	True
+guard-sealed-worktree.sh	PreToolUse	CONTROL	refuses-call	True	4	2	True	False	-	-	-	control	True
+guard-stale-staging.sh	PreToolUse	CONTROL	refuses-call	True	2	1	True	False	-	stale-staging-acks.log	stale-staging-acks.log=0	control	True
+guard-stated-actions.sh	Stop	CONTROL	refuses-turn-end	True	1	0	True	False	-	-	-	control	True
+guard-stop-live-work.sh	PreToolUse	CONTROL	refuses-call	True	1	0	True	False	-	stop-work-acks-used.log	stop-work-acks-used.log=2	control	True
+guard-unresolved-claims.sh	Stop	CONTROL	refuses-turn-end	True	1	0	True	False	-	-	-	control	True
+guard-vendoring-commits.sh	PreToolUse	CONTROL	refuses-call	True	2	9	True	False	-	vendoring-acks.log	vendoring-acks.log=0	control	True
+guard-workflow-ban.sh	PreToolUse	CONTROL	refuses-call	True	1	2	True	False	-	-	-	control	True
+guard-workspace-gate.sh	Stop	CONTROL	refuses-turn-end	True	1	0	True	False	-	-	-	control	True
+guard-worktree-isolation.sh	PreToolUse	CONTROL	refuses-call	True	4	6	True	False	idle-events.jsonl,spawned-names.log,task-events.jsonl	generic-agent-dispatches.log,main-checkout-runs.log,hand-roll-acks.log,model-downgrade-acks.log	generic-agent-dispatches.log=1,hand-roll-acks.log=1,main-checkout-runs.log=46,model-downgrade-acks.log=0	control	True
+guard-worktree-removal.sh	PreToolUse	CONTROL	refuses-call	True	2	4	True	False	-	worktree-remove-acks.log	worktree-remove-acks.log=112	control	True
+reader-teammate-hint.sh	PreToolUse	CONTROL	refuses-call	True	1	3	True	False	-	-	-	instrument	False
+scan-secrets.sh	PreToolUse	CONTROL	refuses-call	True	1	5	True	False	-	-	-	control	True
+task-completed-handoff.sh	TaskCompleted	CONTROL	refuses-completion	False	1	4	False	False	task-events.jsonl,teammate-task-events.jsonl	-	-	unstated	True
+verify-agent-prompt.sh	PreToolUse	CONTROL	refuses-call	True	1	3	True	False	-	data-contract-bypasses.log,conceal-acks.log	conceal-acks.log=0,data-contract-bypasses.log=917	control	True
+<inline echo in hooks.json>	SessionStart	INSTRUMENT (author)	none	False	0	0	False	True	-	-	-	unstated	True
+notice-claim-capability.sh	PostToolUse	INSTRUMENT (author)	none	True	0	0	False	True	-	-	-	instrument	True
+commit-ceo-inputs.sh	UserPromptSubmit	INSTRUMENT (person)	refuses-prompt	False	0	0	True	True	-	-	-	unstated	True
+detect-nonnative-worktree.sh	PostToolUse	INSTRUMENT (person)	none	True	0	1	True	True	spawned-names.log	-	-	instrument	True
+engine-status.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+guard-agent-state-claims.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	agent-state-claims.jsonl	-	-	control	False
+handoff-facts-annotate.sh	PostToolUse	INSTRUMENT (person)	none	True	0	0	True	False	-	-	-	unstated	True
+notice-ceo-asks.sh	PostToolUse	INSTRUMENT (person)	none	True	0	0	True	False	-	-	-	instrument	True
+notice-ceo-inputs-unheld.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-ceo-ruled-prose.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-ceo-unasked.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+notice-escalations.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+notice-hook-staleness.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-inflight-acks.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+notice-mechanical-findings.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+notice-protected-ref-moves.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-unasked-deferral.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-unlanded-branches.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	instrument	True
+notice-unstarted-rows.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+notice-waiver-repetition.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	1	True	False	-	-	-	instrument	True
+observe-created-refs.sh	PostToolUse	INSTRUMENT (person)	none	True	0	0	True	False	-	-	-	instrument	True
+session-start-ceo-ask.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+session-start-ci-surface.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+session-start-escalations.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+shell-evidence.sh	PreToolUse	INSTRUMENT (person)	refuses-call	True	0	0	True	True	-	-	-	unstated	True
+snapshot-agent-definitions.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+snapshot-enforcing-hooks.sh	SessionStart	INSTRUMENT (person)	none	False	0	0	True	True	-	-	-	instrument	True
+turn-manifest.sh	Stop	INSTRUMENT (person)	refuses-turn-end	True	0	0	True	False	-	-	-	unstated	True
+workspace-lifecycle.sh	PostToolUse,SessionEnd,SessionStart,SubagentStart,SubagentStop,TaskCompleted	INSTRUMENT (person)	refuses-turn-end	False	0	0	True	False	-	-	-	unstated	True
+notice-inflight-sends.sh	PostToolUse	RECORD	none	True	0	0	False	False	inflight-notices.jsonl	-	-	instrument	True
+teammate-idle-handoff.sh	TeammateIdle	RECORD	none	False	0	0	False	False	idle-events.jsonl,teammate-idle-events.jsonl	-	-	unstated	True
+worker-created-handoff.sh	PostToolUse	RECORD	none	True	0	0	False	False	worker-events.jsonl	-	-	unstated	True
+worker-ended-handoff.sh	SubagentStop	RECORD	refuses-turn-end	False	0	0	False	False	worker-events.jsonl	-	-	unstated	True
+worker-started-handoff.sh	SubagentStart	RECORD	none	False	0	0	False	False	worker-events.jsonl	-	-	unstated	True
+worker-updated-handoff.sh	PostToolUse	RECORD	none	True	0	0	False	False	worker-events.jsonl	-	-	unstated	True
