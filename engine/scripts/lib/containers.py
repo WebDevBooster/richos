@@ -180,17 +180,52 @@ def inventory():
     ids = [i for i in out.split() if i]
     if not ids:
         return {"available": True, "reason": "", "containers": []}
-    # --size is what makes the orphan report able to say what it costs. It is
-    # the slow flag, which is why it is spent once for the whole machine.
-    ok, out, why = _docker(["inspect", "--size"] + ids)
-    if not ok:
+    raw, why = _inspect_size(ids)
+    if raw is None:
         return {"available": False, "reason": why, "containers": []}
-    try:
-        raw = json.loads(out)
-    except ValueError as e:
-        return {"available": False, "reason": "docker inspect was unreadable (%s)" % e,
-                "containers": []}
     return {"available": True, "reason": "", "containers": [_container(c) for c in raw]}
+
+
+def _inspect_size(ids):
+    """(rows, "") or (None, why) — the inspected containers, or a reason.
+
+    A CONTAINER THAT DISAPPEARS BETWEEN THE ps AND THE inspect IS NORMAL, AND
+    IT IS NOT AN ERROR ABOUT THE OTHER CONTAINERS. `docker inspect` exits 1 if
+    ANY id is gone while still printing every object it did find:
+
+        docker inspect --size <alive> <removed>
+        rc=1  stderr: error: no such object: b8405228de60...  stdout: 1 object
+
+    Reading that exit code as the verdict threw the WHOLE inventory away
+    because one container had finished — inventory() came back
+    available=False with zero rows, so classify() reported nothing and the
+    reaper deleted nothing. It failed silently and it failed EXACTLY WHEN THE
+    MACHINE WAS BUSY, which is precisely when residue accumulates and when the
+    reaping is worth having.
+
+    Measured 2026-09-14: eight concurrent runs of containers.test.sh, with
+    nothing mutated, went red 8 out of 8 at D1, D2, D3 and D6 — "the workspace
+    landed and its container is still on the machine", "an unowned container
+    must be REPORTED", 0 rows where 1 was expected. One engineer lost most of
+    an evening to that signature believing it was his own code
+    (esc-20260914T003636Z-ea530880), and it was never his code.
+
+    So the verdict comes from the OUTPUT, not the status: whatever docker
+    managed to describe is the answer, and only an unreadable or empty reply is
+    a failure. --size is the slow flag and is still spent once for the whole
+    machine.
+    """
+    ok, out, why = _docker(["inspect", "--size"] + list(ids))
+    text = (out or "").strip()
+    if not text:
+        return None, (why or "docker inspect returned nothing")
+    try:
+        raw = json.loads(text)
+    except ValueError as e:
+        return None, "docker inspect was unreadable (%s)" % e
+    if not isinstance(raw, list):
+        return None, "docker inspect did not return a list of containers"
+    return raw, ""
 
 
 def _container(c):

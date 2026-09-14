@@ -111,6 +111,11 @@ if [ "$DOCKER_OK" = "1" ]; then
         '        pass' \
         "the automatic land at the next spawn would leave containers behind, so reaping would only happen when somebody typed a command."
 
+    mutant one-gone-container-empties-the-inventory "test_D9_a_container_that_vanished_does_not_empty_the_whole_inventory" "$C" \
+        '    ok, out, why = _docker(["inspect", "--size"] + list(ids)){NL}    text = (out or "").strip()' \
+        '    ok, out, why = _docker(["inspect", "--size"] + list(ids)){NL}    text = "" if not ok else (out or "").strip()' \
+        "the exit code would be the verdict again, so ONE container finishing mid-inventory would empty the whole thing: available=False, zero rows, the reaper deleting nothing — silently, and only on a busy machine. Eight concurrent runs of this suite went red 8 of 8 at D1/D2/D3/D6 under exactly that."
+
     # --- the suite's own three properties ---------------------------------
     mutant interrupt-leaks-containers "test_D7_an_interrupted_run_takes_its_containers_with_it" "$T" \
         'for _sig_name in _CLEANUP_SIGNALS:{NL}    _install_cleanup_signal(_sig_name)' \

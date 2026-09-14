@@ -95,15 +95,21 @@ SKIP = "docker is unavailable, or %s is not present locally — the reaper's own
 # before _callTearDown ever runs; SIGTERM's default action never reaches Python
 # at all; and SIGKILL cannot be handled by anything, ever.
 #
-# WHY THAT IS WORSE THAN WASTED RESOURCES. containers.py bounds every docker
-# call with a timeout (`docker inspect --size` at 30s), because a wedged daemon
-# must not hang a land. Residue pushes the machine toward that bound, so
-# inventory() starts coming back short or unavailable, the reaper deletes
-# nothing, and cases that expect a deletion go red AT CODE THAT IS INNOCENT.
-# An engineer lost most of an evening to exactly that on 2026-09-13, attributed
-# six consecutive reds to his own edit, and watched a bisect appear to confirm
-# it (esc-20260914T003636Z-ea530880). A suite that produces a confident false
-# accusation is worse than one that produces no result.
+# WHY THAT IS WORSE THAN WASTED RESOURCES. Residue makes cases that expect a
+# deletion go red AT CODE THAT IS INNOCENT. An engineer lost most of an evening
+# to that on 2026-09-13, attributed six consecutive reds to his own edit, and
+# watched a bisect appear to confirm it (esc-20260914T003636Z-ea530880). A suite
+# that produces a confident false accusation is worse than one that produces no
+# result.
+#
+# THE MECHANISM NAMED HERE FIRST WAS WRONG, AND IT IS CORRECTED RATHER THAN
+# QUIETLY DROPPED. This comment used to say residue pushes the machine toward
+# containers.py's 30s timeout until inventory() times out. That was a guess
+# written as a fact, and measuring it killed it: during a concurrent run,
+# `docker inspect --size` over 47 containers peaked at 6.0s against a 30s bound.
+# Nothing was timing out. The real mechanism is in D9 — one container finishing
+# mid-inventory made docker exit 1 and the whole inventory was thrown away — and
+# a wrong mechanism in a comment is how the next person loses their evening.
 #
 # So ownership is DECLARED ON THE CONTAINER — the same move containers.py makes
 # for everything else — and the run removes what it owns on every ending it can
@@ -754,6 +760,45 @@ class RealLifecycle(_spec_suite().Base):
         # ...and the deleter, which knows better, is not blocked by the same check.
         res2 = ct.reap_for_workspaces([live], ending=True, dry_run=True)
         self.assertEqual([r["name"] for r in res2["removed"]], [cname])
+
+    # -- D9 ----------------------------------------------------------------
+    def test_D9_a_container_that_vanished_does_not_empty_the_whole_inventory(self):
+        """THE DEFECT BEHIND "the red is unrelated".
+
+        inventory() runs `docker ps -aq` and then `docker inspect --size` on
+        every id it got back. On a machine where anything else is happening,
+        some of those ids are gone by the time the inspect runs — and docker
+        exits 1 for the whole batch while still printing every object it DID
+        find. Read as a verdict, that exit code emptied the inventory:
+        available=False, zero rows, classify() reporting nothing, the reaper
+        deleting nothing.
+
+        It failed silently, and it failed EXACTLY WHEN THE MACHINE WAS BUSY,
+        which is when residue accumulates and when the reaping is worth having.
+        Eight concurrent runs of this suite, nothing mutated, went red 8 out of
+        8 on this before it was fixed.
+
+        THE RACE IS DRIVEN DETERMINISTICALLY rather than reproduced by luck: a
+        real id plus one that does not exist is the same input the daemon hands
+        us when a container finishes mid-inventory, and a case that depends on
+        winning a race is a case that reports the weather.
+        """
+        cname = "reap-vanish-" + self.tag
+        self.container(cname)
+
+        inv = ct.inventory()
+        self.assertTrue(inv["available"], "inventory: %s" % inv["reason"])
+        row = [c for c in inv["containers"] if c["name"] == cname]
+        self.assertEqual(len(row), 1, "the container this case just started is "
+                                      "missing from the inventory")
+
+        gone = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd"
+        rows, why = ct._inspect_size([row[0]["id"], gone])
+        self.assertIsNotNone(rows, "one finished container emptied the whole "
+                                   "inventory (%s) — and every case that expects "
+                                   "a deletion then goes red at innocent code" % why)
+        self.assertEqual([c.get("Name", "").lstrip("/") for c in rows], [cname],
+                         "the container that still exists must still be described")
 
     # -- D5 ----------------------------------------------------------------
     def test_D5_the_automatic_land_at_the_next_spawn_reaps_too(self):
