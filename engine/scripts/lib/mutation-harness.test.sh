@@ -274,6 +274,121 @@ for h in guard-worktree-isolation guard-worktree-removal; do
     fi
 done
 
+
+# ---------------------------------------------------------------------------
+# 5. A MUTATION HARNESS MUST NOT LOSE A CASE IT HAS ALREADY FOUND.
+#
+# THE DEFECT THIS PINS. guard-worktree-isolation.mutation.sh and
+# guard-worktree-removal.mutation.sh both detected an expected-red case with
+#
+#     printf '%s' "$out" | grep -qE "^  FAIL  ${want}" || missing="$missing $want"
+#
+# `grep -q` exits the instant it matches and closes the pipe. `$out` is about
+# 11 KB, which bash's printf writes in several stdio-sized write(2)s, so when
+# grep wins the race the next write gets EPIPE and printf dies of SIGPIPE with
+# 141. Those files run under `set -o pipefail`, so the PIPELINE reports 141 —
+# nonzero — and `|| missing=` fired on a case grep had just FOUND. The harness
+# then printed `UNPROVEN <id> <- red but NOT at: <case>` and, three lines
+# below, DUMPED that same case in its own FAIL list: the dump greps without
+# `-q`, reads to EOF, never closes the pipe early, and so never loses what
+# detection lost. One report, one string, two readers, two answers.
+#
+# It was escalated twice as an unexplained intermittent — 2026-09-13 against
+# WTI1, 2026-09-14 against WTR1 — and read as a flaky guard both times. It is
+# not: the guards are sound and no assertion here is weakened. Measured on
+# ubuntu:24.04 at the real 11 KB size with the match on line 1, it is 1/300
+# idle and 9/300 under 48-way CPU oversubscription; with the match at the END
+# of the output it is 0/300, because grep then reads to EOF and there is no
+# early close to race. The variable is match POSITION, not output size, which
+# is why iteration counts at 11 KB came back clean and why macOS did not
+# reproduce it.
+#
+# WHY THE CONTROL BELOW IS DETERMINISTIC RATHER THAN A RERUN OF THAT RACE. A
+# test that has to win a 3%-of-the-time race is a test that reports green for
+# the wrong reason 97% of the time. Once the payload exceeds the pipe buffer
+# the writer MUST block and MUST still be writing when the reader leaves, so
+# the false miss stops being a race and becomes a certainty: measured 20/20 on
+# ubuntu:24.04 and 20/20 on macOS at 1 MB, and 40/40 on macOS at 680 KB. The
+# control therefore fails the same way on every platform this suite runs on,
+# and it is CHECKED for failing — if 5a ever comes out clean, 5b proves
+# nothing and this section says so instead of passing.
+# ---------------------------------------------------------------------------
+CD_TARGET='  FAIL  S3.the-case-detection-is-looking-for'
+CD_FILLER="$(yes '  ok    filler ..............................................' 2>/dev/null | head -n 16384 || true)"
+CD_OUT="$CD_TARGET
+$CD_FILLER"
+
+# The payload must genuinely contain the case, or every verdict below is
+# "not found" for the boring reason.
+if grep -qE "^  FAIL  S3\." <<<"$CD_OUT" && [ "${#CD_OUT}" -gt 262144 ]; then
+    ok "5.0 the probe payload contains the case and exceeds the pipe buffer (${#CD_OUT} bytes) — so a 'not found' below is a defect, not an absence"
+else
+    bad "5.0 the probe payload contains the case and is larger than the pipe buffer" \
+        "built ${#CD_OUT} bytes; nothing in section 5 can distinguish a lost case from a missing one"
+fi
+
+# 5a — NEGATIVE CONTROL. The retired idiom, verbatim, under pipefail.
+cd_old_shape() { printf '%s' "$CD_OUT" 2>/dev/null | grep -qE "^  FAIL  S3\."; }
+cd_old_shape; CD_OLD_RC=$?
+if [ "$CD_OLD_RC" -ne 0 ]; then
+    ok "5a  CONTROL: the retired \`printf | grep -q\` idiom loses a case that IS present (rc=$CD_OLD_RC) — so this suite can detect the defect"
+else
+    bad "5a  CONTROL: the retired idiom loses a case that is present" \
+        "it returned 0, so it did not reproduce the defect here and 5b's green would prove nothing about the fix"
+fi
+
+# 5b — THE FIX, on the identical payload. A here-string puts no second process
+# in the pipeline, so pipefail has nothing to misreport.
+cd_new_shape() { grep -qE "^  FAIL  S3\." <<<"$CD_OUT"; }
+cd_new_shape; CD_NEW_RC=$?
+if [ "$CD_NEW_RC" -eq 0 ]; then
+    ok "5b  the shipped shape finds the same case on the same payload (rc=0)"
+else
+    bad "5b  the shipped shape finds the same case on the same payload" \
+        "rc=$CD_NEW_RC — the fix does not hold"
+fi
+
+# 5c — and a grep that could not RUN must not be reported as a case that was
+# not FOUND. `|| missing=` conflated the two, which is how a transport failure
+# became a verdict about a mutant. An invalid ERE gives a real rc=2.
+cd_triage() { # returns: 0 found, 1 missing, 2 fault
+    local rc; grep -qE "$1" <<<"$CD_OUT" 2>/dev/null; rc=$?
+    case "$rc" in 0) return 0 ;; 1) return 1 ;; *) return 2 ;; esac
+}
+cd_triage "^  FAIL  S3\."; CD_T_FOUND=$?
+cd_triage "^  FAIL  NOPE-NOT-HERE"; CD_T_MISS=$?
+cd_triage "[unterminated"; CD_T_FAULT=$?
+if [ "$CD_T_FOUND" -eq 0 ] && [ "$CD_T_MISS" -eq 1 ] && [ "$CD_T_FAULT" -eq 2 ]; then
+    ok "5c  exit-code triage separates found / not-found / could-not-run (0,1,2) — 'red but NOT at' is reachable only on a POSITIVE no-match"
+else
+    bad "5c  exit-code triage separates found / not-found / could-not-run" \
+        "got found=$CD_T_FOUND missing=$CD_T_MISS fault=$CD_T_FAULT; a grep that cannot run can still be laundered into a verdict about a mutant"
+fi
+
+# 5d — SOURCE-LEVEL, so the idiom cannot come back by hand. Both files carried
+# it; neither may carry it for case detection again. The DUMP line
+# (`printf '%s\n' "$out" | grep '^  FAIL'`) is deliberately untouched and
+# deliberately not matched here: it has no `-q`, reads to EOF, and is safe.
+for h in guard-worktree-isolation guard-worktree-removal; do
+    F="$ENGINE_ROOT/scripts/hooks/$h.mutation.sh"
+    if [ ! -f "$F" ]; then
+        bad "5d  $h.mutation.sh exists" "not found at $F"
+        continue
+    fi
+    # Captured first and matched from a here-string, because piping a 35 KB
+    # file into `grep -q` is the exact idiom under test.
+    CODE="$(grep -vE '^[[:space:]]*#' "$F")"
+    if grep -qE "printf '%s' \"\\\$out\" \| grep -q" <<<"$CODE"; then
+        bad "5d  $h.mutation.sh does not pipe into \`grep -q\` for case detection" \
+            "the SIGPIPE-under-pipefail idiom is back; it loses cases it has already found"
+    elif ! grep -q 'HARNESS FAULT' "$F"; then
+        bad "5d  $h.mutation.sh triages a grep that could not run" \
+            "no HARNESS FAULT path, so a non-1 grep exit is still reported as a case that was not found"
+    else
+        ok "5d  $h.mutation.sh detects cases without a pipe and triages a grep that could not run"
+    fi
+done
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
