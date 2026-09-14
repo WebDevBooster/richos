@@ -195,7 +195,11 @@ def main():
     if not rows:
         print("(no protected-ref events)")
 
-    moved = after_a != t1 or after_b != after_a
+    # AN ENGINE WRITE IS A TIP THAT IS NOT WHERE THE LEAD LAST PUT IT — never
+    # "it changed", because in --mode destruction the lead himself merges again
+    # between the two Posts, and counting that as an engine write would call the
+    # fixed engine guilty.
+    moved = after_a != t1 or after_b != (second_land or after_a)
     last_land = second_land or t1
     reachable = run("git", "-C", repo, "merge-base", "--is-ancestor", last_land, "main",
                     check=False).returncode == 0
