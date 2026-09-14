@@ -17,6 +17,7 @@ containers would be its own best counter-example.
 """
 
 import atexit
+import io
 import os
 import shutil
 import signal
@@ -241,6 +242,136 @@ for _sig_name in _CLEANUP_SIGNALS:
 # exception that escapes the runner. SIGKILL is covered by nothing in this
 # process, by definition — that is what the residue sweep is for.
 atexit.register(cleanup_this_run)
+
+
+# ===========================================================================
+# RESIDUE A RUN THAT DIED LEFT BEHIND — NAMED, NEVER SILENT
+# ===========================================================================
+# SIGKILL, an OOM kill, a laptop lid: no in-process handler covers those, so
+# residue is possible however careful the run above is, and the only place left
+# to notice it is THE NEXT RUN. Today the next run notices nothing and simply
+# goes red somewhere unrelated, which is the false accusation this whole section
+# is about.
+#
+# THE POLICY IS THE ONE THE THING UNDER TEST USES, because the asymmetry
+# containers.py argues for is right here too:
+#
+#   owner declared, and that process is PROVABLY gone  → removed, and NAMED.
+#   owner declared, and alive (or liveness unknown)    → left alone, silently.
+#                                                        Under the mutation pool
+#                                                        that is seven other
+#                                                        concurrent runs, and
+#                                                        deleting their
+#                                                        containers would be the
+#                                                        defect with the sign
+#                                                        flipped.
+#   no owner declared at all                           → REPORTED, never touched,
+#                                                        with the command to
+#                                                        remove it. No evidence
+#                                                        is not authority (C5).
+#
+# REMOVED, RATHER THAN REFUSING TO RUN. Refusal was the other candidate and it
+# loses on one point that decides it: a refusal can FALSE-ACCUSE. A run that
+# finishes normally removes its containers and THEN exits, so there is a window
+# in which another run has listed those containers and the owner exits before
+# the liveness question is asked — benign if the verdict is "remove it anyway"
+# (it is already being removed) and a fabricated failure if the verdict is "stop,
+# this machine is dirty". Refusing would hand somebody a red run caused by the
+# race and not by their code, which is the exact experience that produced this
+# work. Removal is also the ACT the evidence supports: the tag is private to
+# this file, nothing else on the machine creates it, and the container's own
+# label names a process that no longer exists — a declaration by a dead owner,
+# which is precisely the one circumstance containers.py deletes in.
+#
+# Silence is not the alternative to refusing: every removal is printed with the
+# container's name, its status and its dead owner, so a leak that comes back
+# shows up as a line rather than as a mystery.
+
+
+def _owner_alive(run_id):
+    """Is the run that declared itself the owner still on this machine?
+
+    TRUE UNLESS PROVABLY GONE. The direction of the doubt is the whole design:
+    this answer decides whether containers get REMOVED, so "I could not tell"
+    has to mean "leave it alone". Only ProcessLookupError — no such process —
+    is treated as evidence of death.
+    """
+    head = run_id.split(".")[0]
+    if not head.isdigit():
+        return True                       # an identity we cannot read is not ours to judge
+    pid = int(head)
+    if pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False                      # the one positive signal
+    except PermissionError:
+        return True                       # alive, and another user's
+    except OSError:
+        return True
+    # The pid is in use, but pids are REUSED, and a container can easily outlive
+    # the number that made it. So ask what that pid is: something that is not
+    # this suite cannot be the owner. `ps` failing or saying nothing is unknown,
+    # and unknown means alive.
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                           capture_output=True, text=True)
+    except OSError:
+        return True
+    cmd = (r.stdout or "").strip()
+    if r.returncode != 0 or not cmd:
+        return True
+    return "containers.test" in cmd
+
+
+def foreign_residue():
+    """Containers carrying this suite's tag that this run did not start, split
+    by what the machine can actually prove about each one."""
+    if not DOCKER:
+        return {"dead": [], "unattributable": []}
+    fmt = '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Label "%s"}}' % OWNER_LABEL
+    out = _docker_out(["ps", "-a", "--filter", "label=" + TAG_LABEL, "--format", fmt])
+    dead, unattributable = [], []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        row = {"id": parts[0], "name": parts[1], "status": parts[2],
+               "owner": parts[3].strip()}
+        if row["owner"] == RUN_ID:
+            continue                      # ours; cleanup_this_run has it
+        if not row["owner"]:
+            unattributable.append(row)
+        elif not _owner_alive(row["owner"]):
+            dead.append(row)
+    return {"dead": dead, "unattributable": unattributable}
+
+
+def sweep_residue(stream=sys.stdout):
+    """Say what was left behind, remove what a dead run owns, and run on."""
+    found = foreign_residue()
+    dead, unattributable = found["dead"], found["unattributable"]
+    if dead:
+        stream.write("=== residue: %d container(s) from a run that was killed "
+                     "before it could clean up ===\n" % len(dead))
+        for c in dead:
+            stream.write("    reaped  %-38s %-20s owner %s no longer exists\n"
+                         % (c["name"], c["status"], c["owner"]))
+        _rm_ids([c["id"] for c in dead])
+        stream.write("    They would have shifted this run's results, so they go "
+                     "before any case runs.\n")
+    if unattributable:
+        stream.write("=== residue: %d container(s) carry this suite's tag and "
+                     "DECLARE NO OWNER — kept ===\n" % len(unattributable))
+        for c in unattributable:
+            stream.write("    kept    %-38s %-20s (started by a run from before "
+                         "this file declared ownership)\n" % (c["name"], c["status"]))
+        stream.write("    No evidence is not authority to delete. If they are "
+                     "yours and finished with:\n      docker rm -f -v %s\n"
+                     % " ".join(c["name"] for c in unattributable))
+    stream.flush()
+    return found
 
 
 _SPEC_SUITE = []
@@ -661,7 +792,7 @@ def _residue_probe():
 
 @unittest.skipUnless(DOCKER, SKIP)
 class Interrupted(unittest.TestCase):
-    """D7 — what the run leaves behind when it does not FINISH.
+    """D7, D8 — what the run leaves behind when it does not FINISH.
 
     Every other case here asks what the reaper does. These ask what the SUITE
     does, because the suite is a program that starts containers, and the spec's
@@ -725,6 +856,57 @@ class Interrupted(unittest.TestCase):
                              "%s must still end the run AS that signal (got %r)"
                              % (signal.Signals(sig).name, p.returncode))
 
+    # -- D8 ----------------------------------------------------------------
+    def test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie(self):
+        """SIGKILL IS THE ENDING NOTHING IN-PROCESS CAN COVER, so the residue is
+        real rather than planted: a child run of this file is killed outright
+        and its container survives. That container is what the next run on the
+        machine would silently classify against.
+
+        Three properties, and the middle one is the dangerous one. The sweep
+        must NAME and REMOVE a container whose owner is gone; it must NOT touch
+        a container whose owner is alive -- under the mutation pool that is
+        seven other concurrent runs, and reaping their work would be this defect
+        with the sign flipped; and having removed something once it must be
+        quiet about it afterwards, because a warning that repeats on a clean
+        machine is a warning nobody reads.
+        """
+        mine = "reap-mine-" + self.tag
+        r = subprocess.run(["docker", "run", "-d", "--name", mine]
+                           + _label_args(self.tag) + [TEST_IMAGE, "sleep", "300"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, "could not start %s: %s" % (mine, r.stderr))
+
+        p, leaked = self.start_probe()
+        p.kill()
+        p.wait(timeout=60)
+        self.assertTrue(_exists(leaked),
+                        "SIGKILL left nothing behind — then this case is not "
+                        "exercising residue at all and proves nothing")
+
+        found = foreign_residue()
+        self.assertIn(leaked, [c["name"] for c in found["dead"]],
+                      "the residue of a killed run was not recognized as residue")
+        self.assertNotIn(mine, [c["name"] for c in found["dead"]],
+                         "the sweep claimed a LIVE run's container — eight "
+                         "concurrent mutants would delete each other's work")
+
+        said = io.StringIO()
+        sweep_residue(said)
+        self.assertIn(leaked, said.getvalue(),
+                      "the residue was removed without being named — silent is "
+                      "the failure mode this exists to end")
+        self.assertFalse(_exists(leaked), "named, but still on the machine")
+        self.assertTrue(_exists(mine),
+                        "the sweep removed a container belonging to a run that "
+                        "is still going")
+
+        again = io.StringIO()
+        sweep_residue(again)
+        self.assertNotIn(leaked, again.getvalue(),
+                         "the sweep is still talking about a container it "
+                         "already removed")
+
 
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so containers.mutation.sh can
@@ -755,6 +937,10 @@ class _Result(unittest.TextTestResult):
 if __name__ == "__main__":
     if "--residue-probe" in sys.argv[1:]:
         sys.exit(_residue_probe())
+    # BEFORE ANY CASE RUNS, and never inside the probe: a run must not be
+    # classifying against a dead run's containers, and it must not find out by
+    # going red somewhere unrelated.
+    sweep_residue()
     runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=0, resultclass=_Result)
     loader = unittest.defaultTestLoader
     names = [a for a in sys.argv[1:] if a]
