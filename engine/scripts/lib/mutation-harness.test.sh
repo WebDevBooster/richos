@@ -369,7 +369,11 @@ fi
 # it; neither may carry it for case detection again. The DUMP line
 # (`printf '%s\n' "$out" | grep '^  FAIL'`) is deliberately untouched and
 # deliberately not matched here: it has no `-q`, reads to EOF, and is safe.
-for h in guard-worktree-isolation guard-worktree-removal; do
+# root-contract is here because it was the THIRD carrier of the same line. It
+# had never been seen to fail, which is the only reason it was not escalated
+# too — its `$out` is a whole suite's output, exactly like the other two, and
+# its `if !` turned the writer's death into "the fix is not load-bearing".
+for h in guard-worktree-isolation guard-worktree-removal root-contract; do
     F="$ENGINE_ROOT/scripts/hooks/$h.mutation.sh"
     if [ ! -f "$F" ]; then
         bad "5d  $h.mutation.sh exists" "not found at $F"

@@ -59,7 +59,7 @@ mutate() {
         return
     fi
 
-    local out rc
+    local out rc grc
     out="$(bash "$M/$suite" 2>&1)"; rc=$?
 
     if [ "$rc" -eq 0 ]; then
@@ -85,9 +85,29 @@ mutate() {
     # findings. The boundary was never what fixed anything: ESCAPING is. With
     # `.` taken literally, `z1.` cannot match `z1b.` and `C1.` cannot match
     # `C10.`, because the character after the prefix is a digit and not a dot.
-    if ! printf '%s' "$out" | grep -q "FAIL  ${expect_re}"; then
+    # NOT `printf '%s' "$out" | grep -q ...`. `grep -q` exits the instant it
+    # matches and closes the pipe; `$out` is a whole suite's output, which bash
+    # writes in several stdio-sized write(2)s, so when grep wins the race the
+    # next write gets EPIPE. Under `set -o pipefail` the PIPELINE then reports
+    # the writer's failure — 141 on Linux, 1 on macOS — and `if !` turned that
+    # into "the suite failed, but NOT on '$expect'" for a case grep had just
+    # FOUND. The dump on the next line greps WITHOUT `-q`, reads to EOF, never
+    # closes early, and so printed the very case this test had just lost: one
+    # report contradicting itself. That is the flake escalated twice against the
+    # two worktree harnesses (2026-09-13, 2026-09-14), which carried the
+    # identical line; this file was the third carrier and had not yet been seen
+    # to fail. A here-string puts no second process in the pipeline.
+    #
+    # The exit code is also TRIAGED rather than tested for truthiness, so a grep
+    # that could not RUN is named as a harness fault instead of being reported
+    # as a fix that is not load-bearing.
+    grep -q "FAIL  ${expect_re}" <<<"$out"; grc=$?
+    if [ "$grc" -eq 1 ]; then
         bad "$label — the suite failed, but NOT on '$expect'. It went red for some other reason, which is not proof."
         printf '%s\n' "$out" | grep '  FAIL' | sed 's/^/           /'
+        return
+    elif [ "$grc" -ne 0 ]; then
+        bad "$label — HARNESS FAULT: case detection could not run (grep rc=$grc). This is not a verdict about the fix."
         return
     fi
     ok "$label — removing the fix turns '$expect' red"
