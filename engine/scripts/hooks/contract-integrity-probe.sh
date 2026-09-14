@@ -1089,6 +1089,7 @@ worker-updated-handoff.sh|PostToolUse
 notice-inflight-sends.sh|PostToolUse
 notice-ceo-asks.sh|PostToolUse
 workspace-lifecycle.sh|PostToolUse
+handoff-facts-annotate.sh|PostToolUse
 workspace-lifecycle.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
 workspace-lifecycle.sh|SubagentStop
