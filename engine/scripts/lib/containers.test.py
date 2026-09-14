@@ -19,6 +19,7 @@ containers would be its own best counter-example.
 import atexit
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -75,6 +76,171 @@ def docker_usable():
 DOCKER = docker_usable()
 SKIP = "docker is unavailable, or %s is not present locally — the reaper's own\n" \
        "  degradation path says this must not be a failure" % TEST_IMAGE
+
+
+# ===========================================================================
+# WHO OWNS A CONTAINER THIS SUITE STARTED, AND WHO HAS TO REMOVE IT
+# ===========================================================================
+# The header above promises the D cases remove their containers "even when the
+# assertion fails", and tearDown delivers exactly that much: A FAILED
+# ASSERTION. It does not survive the RUN ENDING, and measured on the pristine
+# tree on 2026-09-14, on this machine:
+#
+#   SIGINT to the process group — a plain Ctrl-C     → 1 container left Up
+#   SIGKILL of a full run mid mutation pool          → 8 containers left Up
+#
+# Three different holes, not one. unittest's testPartExecutor RE-RAISES
+# KeyboardInterrupt rather than recording it, so a Ctrl-C leaves TestCase.run()
+# before _callTearDown ever runs; SIGTERM's default action never reaches Python
+# at all; and SIGKILL cannot be handled by anything, ever.
+#
+# WHY THAT IS WORSE THAN WASTED RESOURCES. containers.py bounds every docker
+# call with a timeout (`docker inspect --size` at 30s), because a wedged daemon
+# must not hang a land. Residue pushes the machine toward that bound, so
+# inventory() starts coming back short or unavailable, the reaper deletes
+# nothing, and cases that expect a deletion go red AT CODE THAT IS INNOCENT.
+# An engineer lost most of an evening to exactly that on 2026-09-13, attributed
+# six consecutive reds to his own edit, and watched a bisect appear to confirm
+# it (esc-20260914T003636Z-ea530880). A suite that produces a confident false
+# accusation is worse than one that produces no result.
+#
+# So ownership is DECLARED ON THE CONTAINER — the same move containers.py makes
+# for everything else — and the run removes what it owns on every ending it can
+# be given:
+#
+#   sh.richos.test-run          the per-case tag. tearDown's filter, unchanged.
+#   sh.richos.test-run-owner    the RUN responsible for removing it. The residue
+#                               sweep reads this and asks whether that process
+#                               still exists.
+#   sh.richos.test-run-sweeper  a SECOND run that may also remove it. This is
+#                               the only reason the two keys are not one: the
+#                               interrupt probe is a CHILD process that is
+#                               deliberately about to be killed, so its owner is
+#                               by construction not going to tidy up, and its
+#                               sweeper — this process — still will.
+RUN_ID = "%d.%s" % (os.getpid(), uuid.uuid4().hex[:8])
+OWNER_LABEL = "sh.richos.test-run-owner"
+SWEEPER_LABEL = "sh.richos.test-run-sweeper"
+# Set by the parent when this process is an interrupt probe; its own RUN_ID
+# otherwise, so an ordinary run is its own sweeper and the two keys agree.
+SWEEPER_ID = os.environ.get("RICHOS_CONTAINER_TEST_SWEEPER") or RUN_ID
+
+
+def _docker_out(args):
+    """stdout of a docker command, or "" — never raises, for the same reason
+    containers.py never raises: this runs from an exit path and a signal
+    handler, where an exception has nowhere to go."""
+    try:
+        r = subprocess.run(["docker"] + list(args), capture_output=True, text=True)
+    except OSError:
+        return ""
+    if r.returncode != 0:
+        return ""
+    return r.stdout or ""
+
+
+def _ids_labeled(key, value):
+    return [i for i in _docker_out(
+        ["ps", "-aq", "--filter", "label=%s=%s" % (key, value)]).split() if i]
+
+
+def _rm_ids(ids):
+    ids = list(ids)
+    if not ids:
+        return
+    try:
+        subprocess.run(["docker", "rm", "-f", "-v"] + ids, capture_output=True)
+    except OSError:
+        pass
+
+
+def _rm_by_tag(tag):
+    _rm_ids(_ids_labeled(TAG_LABEL, tag))
+
+
+def _exists(name):
+    return bool(_docker_out(["ps", "-aq", "--filter", "name=^%s$" % name]).strip())
+
+
+def _label_args(tag):
+    """Every container this file starts carries all three, always."""
+    return ["--label", "%s=%s" % (TAG_LABEL, tag),
+            "--label", "%s=%s" % (OWNER_LABEL, RUN_ID),
+            "--label", "%s=%s" % (SWEEPER_LABEL, SWEEPER_ID)]
+
+
+def cleanup_this_run(why=""):
+    """Remove every container THIS run is responsible for, and return them.
+
+    Idempotent and re-entrant on purpose: atexit and a signal handler may both
+    call it, and under a signal the second call is the one that has nothing left
+    to do. It asks docker rather than tracking a list in memory, because a list
+    in memory is exactly the thing an interrupt takes with it.
+    """
+    if not DOCKER:
+        return []
+    ids = _ids_labeled(OWNER_LABEL, RUN_ID)
+    for i in _ids_labeled(SWEEPER_LABEL, RUN_ID):
+        if i not in ids:
+            ids.append(i)
+    if not ids:
+        return []
+    _rm_ids(ids)
+    if why:
+        try:
+            sys.stdout.write("  cleanup  %d container(s) removed on %s\n" % (len(ids), why))
+            sys.stdout.flush()
+        except Exception:                                  # noqa: BLE001
+            pass                                           # a dying process owes no output
+    return ids
+
+
+def _cleanup_on_signal(signum, _frame):
+    """Clean up, then die of the signal we were sent.
+
+    Restoring SIG_DFL and re-raising is not ceremony: a handler that called
+    sys.exit(1) would report a KILLED run as an ordinary test failure, and the
+    exit status is what the mutation pool tallies.
+    """
+    try:
+        name = signal.Signals(signum).name
+    except (ValueError, AttributeError):
+        name = "signal %d" % signum
+    cleanup_this_run(name)
+    try:
+        signal.signal(signum, signal.SIG_DFL)
+    except (OSError, ValueError, RuntimeError):
+        os._exit(128 + signum)
+    os.kill(os.getpid(), signum)
+
+
+def _install_cleanup_signal(name):
+    """INSTALLED UNCONDITIONALLY, including over an inherited SIG_IGN.
+
+    bash sets SIGINT and SIGQUIT to SIG_IGN for a background job when job
+    control is off, and a child inherits that — which is not a footnote here,
+    because the mutation pool runs every mutant as a background job. Left
+    inherited, a SIGINT would be a no-op, the run would carry on, and the
+    interrupt case below would pass for a reason that has nothing to do with
+    cleanup. It cost two runs to see that: the first reproduction of this leak
+    sent SIGINT to a background suite and watched it finish green.
+    """
+    sig = getattr(signal, name, None)
+    if sig is None:
+        return
+    try:
+        signal.signal(sig, _cleanup_on_signal)
+    except (OSError, ValueError, RuntimeError):
+        pass
+
+
+_CLEANUP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"]
+for _sig_name in _CLEANUP_SIGNALS:
+    _install_cleanup_signal(_sig_name)
+# Covers the endings a handler cannot see: a normal finish, sys.exit, and an
+# exception that escapes the runner. SIGKILL is covered by nothing in this
+# process, by definition — that is what the residue sweep is for.
+atexit.register(cleanup_this_run)
 
 
 _SPEC_SUITE = []
@@ -303,13 +469,11 @@ class RealLifecycle(_spec_suite().Base):
 
     def tearDown(self):
         # Leak nothing, whatever the assertions did. A test for a reaper that
-        # leaked containers would be its own best counter-example.
-        r = subprocess.run(["docker", "ps", "-aq", "--filter",
-                            "label=%s=%s" % (TAG_LABEL, self.tag)],
-                           capture_output=True, text=True)
-        ids = [i for i in (r.stdout or "").split() if i]
-        if ids:
-            subprocess.run(["docker", "rm", "-f", "-v"] + ids, capture_output=True)
+        # leaked containers would be its own best counter-example. This arm
+        # covers a FAILED ASSERTION and nothing else — the run ending is covered
+        # by cleanup_this_run, registered above, because tearDown is precisely
+        # what an interrupt skips.
+        _rm_by_tag(self.tag)
         super(RealLifecycle, self).tearDown()
 
     def ended_workspace(self, name):
@@ -331,8 +495,7 @@ class RealLifecycle(_spec_suite().Base):
         return cc
 
     def container(self, cname, owner=None, mount=None):
-        args = ["docker", "run", "-d", "--name", cname,
-                "--label", "%s=%s" % (TAG_LABEL, self.tag)]
+        args = ["docker", "run", "-d", "--name", cname] + _label_args(self.tag)
         if owner:
             args += ct.docker_run_args(owner)
         if mount:
@@ -343,9 +506,7 @@ class RealLifecycle(_spec_suite().Base):
         return cname
 
     def exists(self, cname):
-        r = subprocess.run(["docker", "ps", "-aq", "--filter", "name=^%s$" % cname],
-                           capture_output=True, text=True)
-        return bool((r.stdout or "").strip())
+        return _exists(cname)
 
     # -- D1 ----------------------------------------------------------------
     def test_D1_a_landed_workspace_takes_its_container_with_it(self):
@@ -465,6 +626,106 @@ class RealLifecycle(_spec_suite().Base):
                          "residue would still depend on somebody remembering")
 
 
+def _residue_probe():
+    """`--residue-probe`: start ONE container, say its name, and wait to be
+    interrupted. Called by this file, in a child process, from the case below.
+
+    A DOCUMENTED MODE RATHER THAN A FIXTURE, because the only honest proof that
+    THIS FILE cleans up after a signal is THIS FILE being sent one. A fixture
+    that started a container and then asserted a hand-rolled handler removed it
+    would be testing the fixture. The child is the suite.
+
+    It carries the parent's tag and the parent as its SWEEPER, so the container
+    has three independent nets under it: the child's own handler, the parent's
+    tearDown (by tag), and the parent's own exit cleanup (by sweeper).
+    """
+    tag = os.environ.get("RICHOS_CONTAINER_TEST_TAG") or ("probe-" + RUN_ID)
+    name = "reap-probe-" + RUN_ID.replace(".", "-")
+    try:
+        r = subprocess.run(["docker", "run", "-d", "--name", name]
+                           + _label_args(tag) + [TEST_IMAGE, "sleep", "300"],
+                           capture_output=True, text=True)
+    except OSError as e:
+        sys.stdout.write("PROBE-FAILED %s\n" % e)
+        sys.stdout.flush()
+        return 3
+    if r.returncode != 0:
+        sys.stdout.write("PROBE-FAILED %s\n" % (r.stderr or "").strip())
+        sys.stdout.flush()
+        return 3
+    sys.stdout.write("PROBE-CONTAINER %s\n" % name)
+    sys.stdout.flush()
+    while True:
+        time.sleep(0.25)
+
+
+@unittest.skipUnless(DOCKER, SKIP)
+class Interrupted(unittest.TestCase):
+    """D7 — what the run leaves behind when it does not FINISH.
+
+    Every other case here asks what the reaper does. These ask what the SUITE
+    does, because the suite is a program that starts containers, and the spec's
+    standard for a piece of work — leave it as you found it — is not suspended
+    for the program that checks the spec.
+    """
+
+    def setUp(self):
+        self.tag = "reap-test-" + uuid.uuid4().hex[:8]
+        self.probes = []
+
+    def tearDown(self):
+        for p in self.probes:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            if p.stdout is not None:
+                p.stdout.close()
+        _rm_by_tag(self.tag)
+
+    def start_probe(self):
+        """A child running THIS file, holding one container, waiting."""
+        env = dict(os.environ)
+        env["RICHOS_CONTAINER_TEST_SWEEPER"] = RUN_ID
+        env["RICHOS_CONTAINER_TEST_TAG"] = self.tag
+        p = subprocess.Popen([sys.executable, "-B", "-W", "ignore",
+                              os.path.abspath(__file__), "--residue-probe"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, env=env)
+        self.probes.append(p)
+        line = (p.stdout.readline() or "").strip()
+        self.assertTrue(line.startswith("PROBE-CONTAINER "),
+                        "the interrupt probe never started a container: %s"
+                        % (line or "<the probe produced no output at all>"))
+        name = line.split(None, 1)[1]
+        self.assertTrue(_exists(name),
+                        "the probe named %s but docker does not have it" % name)
+        return p, name
+
+    # -- D7 ----------------------------------------------------------------
+    def test_D7_an_interrupted_run_takes_its_containers_with_it(self):
+        """THE DEFECT ITSELF. A Ctrl-C used to leave the container Up, because
+        unittest re-raises KeyboardInterrupt out of TestCase.run() BEFORE
+        tearDown; SIGTERM used to leave it Up because the default action never
+        reaches Python at all.
+
+        The exit STATUS is asserted alongside, and not as decoration: a handler
+        that cleaned up and then exited 1 would report a killed run as an
+        ordinary test failure, which is the same class of lie as the leak.
+        """
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            p, name = self.start_probe()
+            p.send_signal(sig)
+            p.wait(timeout=60)
+            self.assertFalse(
+                _exists(name),
+                "%s left %s behind — an interrupted run still leaks, and the "
+                "next run on this machine will classify against it"
+                % (signal.Signals(sig).name, name))
+            self.assertEqual(p.returncode, -sig,
+                             "%s must still end the run AS that signal (got %r)"
+                             % (signal.Signals(sig).name, p.returncode))
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so containers.mutation.sh can
     tell WHICH property went red, rather than merely that something did.
@@ -492,6 +753,8 @@ class _Result(unittest.TextTestResult):
 
 
 if __name__ == "__main__":
+    if "--residue-probe" in sys.argv[1:]:
+        sys.exit(_residue_probe())
     runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=0, resultclass=_Result)
     loader = unittest.defaultTestLoader
     names = [a for a in sys.argv[1:] if a]
