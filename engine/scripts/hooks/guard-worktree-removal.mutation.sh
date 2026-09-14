@@ -134,6 +134,16 @@ check() { # <id> <desc> <expected-red-case-substrings...>
     #     puts no second process in the pipeline, so pipefail has nothing to
     #     misreport.
     #
+    #     AND THE EXIT CODE IS NOT STABLE ACROSS PLATFORMS, which decides which
+    #     half of this fix is load-bearing. On Linux the writer is KILLED by
+    #     SIGPIPE and the pipeline reports 141. On macOS bash reports the same
+    #     EPIPE as an ordinary stdio write error and the pipeline reports 1 —
+    #     and 1 is EXACTLY what grep returns for a genuine no-match. So on that
+    #     platform no amount of exit-code triage could have told a lost case
+    #     from an absent one. Removing the pipe is the half that fixes this;
+    #     the triage in (2) is the half that stops the NEXT transport failure
+    #     being laundered into a verdict.
+    #
     # (2) THE CONFLATION. `|| missing=` treats EVERY nonzero as "the case is not
     #     in the output", which silently converts a transport failure into a
     #     verdict about a mutant. Triaging the code means "red but NOT at" can
