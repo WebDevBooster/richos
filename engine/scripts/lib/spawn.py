@@ -95,6 +95,8 @@ def _load(name, path):
 W = _load("richos_workspaces", os.path.join(HERE, "workspaces.py"))
 PREPARE = _load("richos_prepare_agent_spawn",
                 os.path.join(ENGINE, "scripts", "prepare-agent-spawn.py"))
+PROV = _load("richos_brief_provenance",
+             os.path.join(ENGINE, "scripts", "brief-provenance.py"))
 
 
 class Refusal(Exception):
@@ -607,6 +609,11 @@ def main(argv):
             notes.append("workspace:   native isolation only (the target repository IS this session's)")
 
         payload = build_payload(args, brief, workspace)
+        # THE PROVENANCE OF THE BRIEF ITSELF, decided here so the guards evaluate the
+        # text that will actually be dispatched. It never refuses: a statement with no
+        # source is named to the agent, and the agent re-derives it. On a brief that
+        # sources everything, nothing is appended and the payload is byte-identical.
+        payload["prompt"], findings = PROV.annotate(payload["prompt"], repo)
     except Refusal as exc:
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
         return 1
@@ -633,7 +640,7 @@ def main(argv):
     if args["dry_run"]:
         print("", file=sys.stderr)
         print("spawn: --dry-run - every check passed and nothing was created.", file=sys.stderr)
-        _print_report(notes, pre, guards, None, args)
+        _print_report(notes, pre, guards, None, args, findings)
         return _emit(payload, args, pre, notes, created=None)
 
     # --- create ------------------------------------------------------------
@@ -670,7 +677,7 @@ def main(argv):
         _rollback(session, args["name"], mine)
         return 4
 
-    _print_report(notes, post, guards, created, args)
+    _print_report(notes, post, guards, created, args, findings)
     return _emit(payload, args, post, notes, created)
 
 
@@ -706,7 +713,7 @@ def _print_guard_table(results, out=sys.stderr):
     print("", file=out)
 
 
-def _print_report(notes, results, guards, created, args):
+def _print_report(notes, results, guards, created, args, findings=()):
     out = sys.stderr
     print("", file=out)
     print("spawn: READY - %s" % args["name"], file=out)
@@ -721,6 +728,8 @@ def _print_report(notes, results, guards, created, args):
                                                    for lbl, _p, _c in guards)))), file=out)
     print("", file=out)
     _print_guard_table(results)
+    PROV.report(list(findings), args["name"], out=out)
+    print("", file=out)
     for r in errors_from(results):
         print("  NOTE: %s could not run (exit %d) - it is a non-blocking error for the platform "
               "too, but it protected nothing here:\n    %s" % (r["name"], r["rc"], r["output"]),
