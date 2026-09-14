@@ -1868,8 +1868,35 @@ rm -rf "$ROOT"
 
 # Case 40 — the pair's OWN behavioral suite (block/allow/ack/created/missing/
 # cross-session/dedup/e2e) passes against the live scripts.
-set +e; "$SCRIPT_DIR/guard-definition-drift.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# ITS OUTPUT IS KEPT ON FAILURE, and so is every other behavioral suite's
+# below, for IP7's reason and at the same cost: `(expected exit=0 got=1)` is
+# all a red run could say, so the only way to learn WHICH of a suite's cases
+# went red was to re-run it by hand.
+#
+# The filter is NOT IP7's, because a behavioral suite's output is not a
+# mutation harness's. These suites print one `  PASS  <case>` row per green
+# case, and EVERYTHING ELSE they print is the report -- the failing rows, the
+# detail lines indented beneath them, the section headers that locate them, and
+# the verdict, whose spelling differs in all seven (`=== ... FAILED ... ===`,
+# `workspaces-e2e: N passed, M failed`, a tick-or-cross line, a unittest
+# traceback). A keyword list would have to predict every one of those and would
+# silently drop the line it failed to predict. So the rule is the one that
+# cannot: keep every line that is not a PASS row. Measured at this commit, that
+# leaves 2-14 non-blank lines per suite on a GREEN log (IP6, at 113 cases, is
+# the 14), so the floor is small and a red run adds its failures to it.
+#
+# Blank lines are dropped too, so the indent does not print trailing spaces.
+#
+# The trailing `|| true` is IP7's and is not decoration: errexit is live here,
+# a grep that matches nothing exits 1, and a no-match must not take the run
+# down before the summary that names the red case.
+C40_LOG="$(mktemp -t definition-drift-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-definition-drift.test.sh" >"$C40_LOG" 2>&1; rc=$?; set -e
 emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$C40_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$C40_LOG"
 
 fi  # _section — P
 
@@ -2119,8 +2146,14 @@ emit_case "47b.post-install-probe-passes" 0 "$rc"
 rm -rf "$ROOT"
 
 # Case 48 — the registry's OWN suite (a test per numbered point) passes.
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../lib/workspaces.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+C48_LOG="$(mktemp -t workspace-registry-suite.XXXXXX)"
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../lib/workspaces.test.sh" >"$C48_LOG" 2>&1; rc=$?; set -e
 emit_case "48.workspace-registry-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$C48_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$C48_LOG"
 
 fi  # _section — Q
 
@@ -2218,8 +2251,14 @@ fi
 rm -rf "$ROOT"
 
 # Case 53 — the end-to-end demonstration through the real hooks passes.
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../workspaces-e2e.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+C53_LOG="$(mktemp -t workspace-e2e-suite.XXXXXX)"
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../workspaces-e2e.test.sh" >"$C53_LOG" 2>&1; rc=$?; set -e
 emit_case "53.workspace-spec-end-to-end-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$C53_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$C53_LOG"
 
 # ---------------------------------------------------------------------------
 # Layer S — the worktree guard and the one command it names
@@ -2405,8 +2444,14 @@ rm -rf "$ROOT"
 # IP6 — the guard's OWN behavioral suite (113 cases, two-sided throughout) and
 # the mutation harness that proves that suite can fail, both against the live
 # scripts. Case 48 does the same for the reaper wrapper.
-set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+IP6_LOG="$(mktemp -t interactive-prompt-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >"$IP6_LOG" 2>&1; rc=$?; set -e
 emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$IP6_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$IP6_LOG"
 # ITS OUTPUT IS KEPT ON FAILURE, and so is every other mutation harness's
 # below, for the reason written above CL2 and paid for a second time on
 # 2026-09-13: a harness that can only say `(expected exit=0 got=1)` is a
@@ -2548,8 +2593,14 @@ rm -rf "$ROOT"
 # not optional decoration here: this gate's previous suite was 38 green cases
 # over a term that disarmed it, and a mutation run is the only thing that asks
 # whether a green tick is load-bearing.
-set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+IL6_LOG="$(mktemp -t idle-land-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >"$IL6_LOG" 2>&1; rc=$?; set -e
 emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$IL6_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$IL6_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 IL7_LOG="$(mktemp -t idle-land-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
@@ -2604,8 +2655,14 @@ if _section RI; then
 # at pristine HEAD it killed 11 of 18, because five mutant sandboxes lacked
 # scripts/lib/git-jurisdiction.sh and so ran a guard that REFUSED TO START, which
 # reads exactly like a guard that caught the mutation.
-set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+RI1_LOG="$(mktemp -t resume-isolation-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >"$RI1_LOG" 2>&1; rc=$?; set -e
 emit_case "RI1.resume-isolation-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$RI1_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$RI1_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 RI2_LOG="$(mktemp -t resume-isolation-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
@@ -2916,8 +2973,14 @@ if _section SA; then
 # gate that refuses everything, and "a same-turn dispatch is let through" by
 # one that refuses nothing. The harness carries both kinds of mutant, and an
 # unrun mutant refuses nothing. Output KEPT on failure, for CL2's reason.
-set +e; "$SCRIPT_DIR/guard-stated-actions.test.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure, with case 40's filter and for its reason.
+SA1_LOG="$(mktemp -t stated-actions-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/guard-stated-actions.test.sh" >"$SA1_LOG" 2>&1; rc=$?; set -e
 emit_case "SA1.stated-actions-gate-suite-passes" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -vE '^ *PASS|^[[:space:]]*$' "$SA1_LOG" | sed 's/^/        /' || true
+fi
+rm -f "$SA1_LOG"
 SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
 emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
