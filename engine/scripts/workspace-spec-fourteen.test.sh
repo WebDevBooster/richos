@@ -320,10 +320,21 @@ sub "C14.12 PRECISION: an agent moving a branch nobody recorded passes ($r8), an
 # DOORWAY: a plain `checkout <it>`, after which commit/reset/merge/rebase move it naming
 # nothing, from the agent's worktree or the main checkout. "A longer verb list cannot close
 # this" — so the snapshot/observe pair records the recorded refs' TIPS at an agent's
-# PreToolUse and RESTORES and REPORTS a move at its PostToolUse (C14.13, C14.14); the lead's
-# legitimate move — a descendant carrying none of the agent's work, his land of a FINISHED
-# agent — is not restored (C14.15); and the guard refuses the eight verbs and the doorway by
-# name (C14.16). The agent below has a cc/ workspace in the dev repository.
+# PreToolUse and REPORTS a move at its PostToolUse (C14.13), re-creates a DELETED one
+# (C14.14), and passes over the lead's legitimate move in silence (C14.15); the guard refuses
+# the eight verbs and the doorway by name (C14.16).
+#
+# AMENDED 2026-09-14: A MOVE IS REPORTED AND THE REF IS LEFT ALONE. Until then C14.13 asserted
+# the ref was moved BACK, and that write moved refs/heads/main in richos three times in one
+# night — twice in twelve seconds in opposite directions, while Rich was landing, each write
+# manufacturing the condition the next agent's check fired on (docs/verification/
+# ref-write-forensics-2026-09-14.md; reproduced at docs/verification/
+# protected-ref-oscillation-2026-09-14-logs/). A check that infers the writer from the SHAPE
+# of the result cannot tell Rich's ordinary land from the doorway it hunts, so it reports and
+# a human decides. A DELETION is still put back: it is unambiguous, point 2 forbids it
+# outright, and re-creating a ref at the tip it held loses nothing.
+#
+# The agent below has a cc/ workspace in the dev repository.
 RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$DEV" zach-opus-d2 >/dev/null 2>&1
 CCD2="$T/devrepo-wt/zach-opus-d2"
 spawn "zach-opus-d2" "$(printf 'edit the dev repository\ncross-repo-worktree: %s\n' "$CCD2")"
@@ -335,19 +346,21 @@ agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-1"
 git -C "$CCD2" checkout -q dev/work && git -C "$CCD2" commit -q --allow-empty -m "moved unnamed"    # THE DOORWAY, from the agent's own worktree
 agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-1"
 git -C "$CCD2" checkout -q cc/zach-opus-d2
-sub "C14.13 the RECORDED branch moved by the UNNAMED doorway (checkout dev/work, then commit — no verb names it) from the agent's own worktree is RESTORED at the call's PostToolUse and reported (event log + the hook's notice)" \
-    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-restored\"' | grep -q '\"branch\": \"dev/work\"' && grep -q 'PROTECTED REF RESTORED: dev/work' '$T/observe.err'" "tip=$(git -C "$DEV" rev-parse dev/work) $(tail -2 "$T/observe.err")"
+DW_MOVED="$(git -C "$DEV" rev-parse dev/work)"
+sub "C14.13 the RECORDED branch moved by the UNNAMED doorway (checkout dev/work, then commit — no verb names it) from the agent's own worktree is REPORTED at the call's PostToolUse (event log + the hook's notice) and the ref is LEFT WHERE IT IS — the engine never moves a protected ref back" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_MOVED' ] && [ '$DW_MOVED' != '$DW_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-moved\"' | grep -q '\"branch\": \"dev/work\"' && grep -q 'PROTECTED REF MOVED: dev/work' '$T/observe.err' && grep -q 'NOTHING WAS CHANGED' '$T/observe.err'" "tip=$(git -C "$DEV" rev-parse dev/work) snapshot=$DW_TIP $(tail -2 "$T/observe.err")"
 agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-2"
 git -C "$DEV" update-ref -d refs/heads/dev/work                   # DELETED, from the main checkout, in the agent's call
 agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-2"
-sub "C14.14 the RECORDED branch DELETED from the main checkout during an agent's call is re-created at the call's PostToolUse at the snapshot tip" \
-    "has_branch '$DEV' dev/work && [ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_TIP' ]" "$(git -C "$DEV" for-each-ref refs/heads/dev)"
+sub "C14.14 the RECORDED branch DELETED from the main checkout during an agent's call is re-created at the call's PostToolUse at the snapshot tip, by a create-only write that carries a reflog message (an anonymous ref write is what cost a day of forensics)" \
+    "has_branch '$DEV' dev/work && [ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$DW_MOVED' ] && git -C '$DEV' reflog show dev/work | grep -q 'richos engine: protected ref restored'" "$(git -C "$DEV" for-each-ref refs/heads/dev) $(git -C "$DEV" reflog show dev/work | head -2)"
+EV_BEFORE_LEAD="$(wc -l < "$STORE/events.jsonl")"
 agent_call_pre "ad2d2d2d2d2d2d2d2" "tu-d2-3"
-LEAD_LAND="$(git -C "$DEV" commit-tree "$(git -C "$DEV" rev-parse "$DW_TIP^{tree}")" -p "$DW_TIP" -m "the lead lands a FINISHED agent's work onto dev/work")"
+LEAD_LAND="$(git -C "$DEV" commit-tree "$(git -C "$DEV" rev-parse "$DW_MOVED^{tree}")" -p "$DW_MOVED" -m "the lead lands a FINISHED agent's work onto dev/work")"
 git -C "$DEV" branch -f dev/work "$LEAD_LAND"                     # the lead's land: a descendant carrying none of THIS agent's work
 agent_call_post "ad2d2d2d2d2d2d2d2" "tu-d2-3"
-sub "C14.15 PRECISION: the lead's own move of the recorded branch during the agent's call — a descendant of the snapshot tip carrying none of this agent's work (his land of a finished agent) — is NOT restored" \
-    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$LEAD_LAND' ]" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$LEAD_LAND $(tail -2 "$T/observe.err")"
+sub "C14.15 PRECISION: the lead's own move of the recorded branch during the agent's call — a descendant of the snapshot tip carrying none of this agent's work (his land of a finished agent) — stands, and is not even reported" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$LEAD_LAND' ] && ! tail -n +$((EV_BEFORE_LEAD + 1)) '$STORE/events.jsonl' | grep -q 'protected-ref-'" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$LEAD_LAND $(tail -2 "$T/observe.err")"
 AG_D2="ad2d2d2d2d2d2d2d2"
 agent_bash_guard "$AG_D2" "git -C $DEV branch -C side dev/work"; v1=$?
 agent_bash_guard "$AG_D2" "git -C $DEV push . HEAD:heads/dev/work"; v2=$?
@@ -371,10 +384,11 @@ sub "C14.16 the Bash guard refuses the eight verbs that NAME the recorded branch
 # agent's own work is its doorway only INSIDE a window, so here it is the lead's land and stays.
 MERGE="$(git -C "$DEV" commit-tree "$(git -C "$CCD2" rev-parse 'HEAD^{tree}')" -p "$(git -C "$DEV" rev-parse dev/work)" -p "$(git -C "$CCD2" rev-parse HEAD)" -m "the lead merges the agent's branch onto dev/work")"
 git -C "$DEV" branch -f dev/work "$MERGE"
+EV_BEFORE_END="$(wc -l < "$STORE/events.jsonl")"
 subagent_stop "ad2d2d2d2d2d2d2d2"                                 # the end signal: the last observation, no window open
 ws land zach-opus-d2 >"$T/land-d2.out" 2>&1; rl=$?
-sub "C14.15b PRECISION, outside a window: the lead's merge of the agent's OWN branch onto the recorded branch after its last call and before its end signal is NOT undone at the end signal, and the land proceeds ($rl)" \
-    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$MERGE' ] && [ $rl -eq 0 ] && [ ! -e '$CCD2' ] && ! has_branch '$DEV' cc/zach-opus-d2" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$MERGE $(cat "$T/land-d2.out")"
+sub "C14.15b PRECISION, outside a window: the lead's merge of the agent's OWN branch onto the recorded branch after its last call and before its end signal is neither undone nor reported at the end signal, and the land proceeds ($rl)" \
+    "[ \"\$(git -C '$DEV' rev-parse dev/work)\" = '$MERGE' ] && [ $rl -eq 0 ] && [ ! -e '$CCD2' ] && ! has_branch '$DEV' cc/zach-opus-d2 && ! tail -n +$((EV_BEFORE_END + 1)) '$STORE/events.jsonl' | grep -q 'protected-ref-'" "tip=$(git -C "$DEV" rev-parse dev/work) expected=$MERGE $(cat "$T/land-d2.out")"
 verdict
 
 # ===========================================================================
@@ -469,10 +483,14 @@ sub "C2.8 a deleter AIMED at a codex/ ref on an agent's record refuses it: the d
 # passed the Bash guard and DELETED a codex/ branch at rc=0, nine movers rewrote one, a commit
 # inside a codex/ workspace landed on its branch, and a registered agent's Edit inside one
 # passed the lock-out. Two mechanisms, both asked here: the Bash guard refuses every deleter
-# and mover BY NAME (C2.13, C2.14), and the snapshot/observe pair RESTORES a codex/ ref that an
-# agent's call moved or deleted by ANY means — a verb the guard missed, the unnamed doorway, a
-# non-git write — and reports it (C2.9–C2.11). The lock-out refuses a writing tool aimed
-# inside a codex/ workspace (C2.12). The agent below has a cc/ workspace in this repository.
+# and mover BY NAME (C2.13, C2.14), and the snapshot/observe pair sees what an agent's call did
+# to a codex/ ref by ANY means — a verb the guard missed, the unnamed doorway, a non-git write.
+# A DELETION it re-creates (C2.10); a MOVE it reports and leaves alone (C2.9, C2.11), because
+# from 2026-09-14 the engine never moves a protected ref back: its own "restores" moved
+# refs/heads/main in richos three times in one night, each write manufacturing the condition
+# the next agent's check fired on (docs/verification/ref-write-forensics-2026-09-14.md).
+# The lock-out refuses a writing tool aimed inside a codex/ workspace (C2.12). The agent below
+# has a cc/ workspace in this repository.
 RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-cd >/dev/null 2>&1
 CCD_="$T/other-wt/zach-opus-cd"
 spawn "zach-opus-cd" "$(printf 'x\ncross-repo-worktree: %s\n' "$CCD_")"
@@ -483,19 +501,22 @@ EV_BEFORE="$(wc -l < "$STORE/events.jsonl")"
 agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-1"
 git -C "$OTHER" branch -f codex/other "$CD_TIP"                 # a MOVER, executed in the agent's call (as if the guard had missed it)
 agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-1"
-sub "C2.9 a codex/ ref MOVED during an agent's call (branch -f to the agent's tip) is RESTORED at the call's PostToolUse to the snapshot tip, and reported: the store's event log and the hook's notice say so" \
-    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-restored\"' | grep -q '\"branch\": \"codex/other\"' && grep -q 'PROTECTED REF RESTORED: codex/other' '$T/observe.err'" "tip=$(git -C "$OTHER" rev-parse codex/other) $(tail -3 "$T/observe.err")"
+sub "C2.9 a codex/ ref MOVED during an agent's call (branch -f to the agent's tip) is REPORTED at the call's PostToolUse — the store's event log and the hook's notice say so — and the ref is left where it is: the engine does not move a protected ref back" \
+    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CD_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-moved\"' | grep -q '\"branch\": \"codex/other\"' && grep -q 'PROTECTED REF MOVED: codex/other' '$T/observe.err'" "tip=$(git -C "$OTHER" rev-parse codex/other) $(tail -3 "$T/observe.err")"
+git -C "$OTHER" branch -f codex/other "$CODEX_OTHER_TIP"          # the human's own decision, made from the report
 agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-2"
 git -C "$OTHER" update-ref -d refs/heads/codex/other              # a DELETER, executed in the agent's call
 agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-2"
-sub "C2.10 a codex/ ref DELETED during an agent's call (update-ref -d) is re-created at the call's PostToolUse at the snapshot tip" \
+sub "C2.10 a codex/ ref DELETED during an agent's call (update-ref -d) is re-created at the call's PostToolUse at the snapshot tip — a deletion is unambiguous where a move is not, and point 2 forbids it outright" \
     "has_branch '$OTHER' codex/other && [ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ]" "$(git -C "$OTHER" for-each-ref refs/heads/codex)"
 agent_call_pre "acdcdcdcdcdcdcdcd" "tu-cd-3"
 git -C "$CCD_" checkout -q codex/other && git -C "$CCD_" commit -q --allow-empty -m "moved unnamed"   # THE DOORWAY: checkout, then a commit that names nothing
+DOORWAY_TIP="$(git -C "$CCD_" rev-parse HEAD)"
 agent_call_post "acdcdcdcdcdcdcdcd" "tu-cd-3"
 git -C "$CCD_" checkout -q cc/zach-opus-cd
-sub "C2.11 a codex/ ref moved by the UNNAMED doorway (checkout it, then commit — no verb names it) from the agent's own worktree is restored at the call's PostToolUse" \
-    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$CODEX_OTHER_TIP' ]" "tip=$(git -C "$OTHER" rev-parse codex/other) $(tail -2 "$T/observe.err")"
+sub "C2.11 a codex/ ref moved by the UNNAMED doorway (checkout it, then commit — no verb names it) from the agent's own worktree is REPORTED at the call's PostToolUse and left alone" \
+    "[ \"\$(git -C '$OTHER' rev-parse codex/other)\" = '$DOORWAY_TIP' ] && tail -n +$((EV_BEFORE + 1)) '$STORE/events.jsonl' | grep '\"event\": \"protected-ref-moved\"' | grep -q '\"branch\": \"codex/other\"'" "tip=$(git -C "$OTHER" rev-parse codex/other) doorway=$DOORWAY_TIP $(tail -2 "$T/observe.err")"
+git -C "$OTHER" branch -f codex/other "$CODEX_OTHER_TIP"          # the human's decision again, so the checks below start from the real tip
 barrier_path "acdcdcdcdcdcdcdcd" Edit "$CX/codex-work.txt"; re1=$?
 cp "$T/barrier.err" "$T/barrier-codex.err"
 barrier_path "acdcdcdcdcdcdcdcd" Write "$CX/new-file.txt"; re2=$?

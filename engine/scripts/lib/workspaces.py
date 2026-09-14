@@ -2265,6 +2265,28 @@ def _protected_tips(repo, refs):
     return {b: sha for b, sha in refs.items() if _is_protected(recorded, b)}
 
 
+def _recreate_deleted_ref(repo, branch, tip, who):
+    """THE ONLY REF WRITE THIS CHECK MAKES, and it is create-only.
+
+    The empty old value means "the ref must not exist at the time of the update"
+    (git refuses with `cannot lock ref ... reference already exists`, measured on
+    git 2.52.0), so this can re-create a protected ref that was DELETED and can
+    do nothing else: it cannot move a ref, cannot clobber one somebody re-created
+    between the deletion and this call, and cannot oscillate with another agent's
+    check, because repeating it is refused rather than repeated. It is therefore
+    incapable of dropping a commit.
+
+    The `-m` is not decoration. Until 2026-09-14 this call site passed none, and
+    the three writes it made to refs/heads/main landed in the reflog with an
+    EMPTY message — which is why a day was spent working out who had moved main
+    (docs/verification/ref-write-forensics-2026-09-14.md). An automated system
+    writing a ref anonymously is indefensible and the message is free.
+
+    Returns git's own (rc, out, err)."""
+    msg = "richos engine: protected ref restored after it was deleted during %s's tool call" % who
+    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")
+
+
 def _restore_protected_refs(rec, priors, latest):
     """ITEMS 2 AND 3 OF ROUND 8, THE EFFECTS CHECK. A protected ref — a RECORDED
     integration branch of THIS repository, or any codex/ ref — that is gone or
@@ -2400,13 +2422,10 @@ def _restore_protected_refs(rec, priors, latest):
                     event("protected-ref-moved", key=rec["key"], repo=repo, branch=b, tip=old,
                           found=cur, why=why, action="reported: the engine does not move a ref back")
                     continue
-                # A DELETION, AND ONLY A DELETION, IS PUT BACK: create-only
-                # (the empty old value means the ref must not exist), so it
-                # cannot clobber a re-created ref or move anything, and with a
-                # reflog message, so the write is never anonymous again.
-                msg = ("richos engine: protected ref restored after it was deleted during %s's tool call"
-                       % (rec.get("name") or rec["key"]))
-                rc, _o, err = git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + b, old, "")
+                # A DELETION, AND ONLY A DELETION, IS PUT BACK — by the
+                # create-only, attributed write above, which cannot clobber, move
+                # or oscillate.
+                rc, _o, err = _recreate_deleted_ref(repo, b, old, rec.get("name") or rec["key"])
                 if rc != 0:
                     event("protected-ref-restore-failed", key=rec["key"], repo=repo, branch=b, tip=old, err=err.strip()[:300])
                     continue

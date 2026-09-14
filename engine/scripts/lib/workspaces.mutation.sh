@@ -267,22 +267,37 @@ mutant p03-borrowed-tip-counts-as-own-work "test_point_14_a_tip_the_agent_only_b
     '                if True:{NL}                    tips.add(sha)' \
     "every commit the workspace's HEAD ever MOVED TO would count as the agent's own work, checkouts included, so a ref Rich cut at a tip the agent merely BORROWED would be on the agent's line of work and would be deleted with it (points 3, 8)."
 
-mutant p14-moved-recorded-branch-not-restored "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" "$W" \
+mutant p14-moved-recorded-branch-not-reported "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone" "$W" \
     '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
     '    pass' \
-    "a recorded branch (or a codex/ ref) moved or deleted during an agent's call by an unnamed verb, a verb the guard missed or a non-git write would stay moved: the doorway class no verb list can close (points 2, 14)."
+    "a recorded branch (or a codex/ ref) moved or deleted during an agent's call by an unnamed verb, a verb the guard missed or a non-git write would go unseen: no report, and a deleted one never re-created — the doorway class no verb list can close (points 2, 14)."
 
-mutant p14-the-leads-move-restored-too "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored" "$W" \
+mutant p14-a-move-is-put-back-again "test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run" "$W" \
+    '                if cur is not None:{AND}    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")' \
+    '                if False:{AND}    return git(repo, "update-ref", "--no-deref", "refs/heads/" + branch, tip)' \
+    "THE PRE-2026-09-14 BEHAVIOR, restored exactly: a MOVE would be written back instead of reported, by an unconditional, unattributed update-ref. That line moved refs/heads/main in richos three times in one night -- twice within twelve seconds in opposite directions, while Rich was landing -- because the check infers the writer from the SHAPE of the result and his ordinary land has the same shape as the doorway it hunts, and because each write manufactured the condition the next agent's check fired on (docs/verification/ref-write-forensics-2026-09-14.md; reproduced from nothing at docs/verification/protected-ref-oscillation-2026-09-14-logs/repro.py, where --mode destruction loses a merge he had just made)."
+
+mutant p14-the-restore-write-is-anonymous-and-unconditional "test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers" "$W" \
+    '    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")' \
+    '    return git(repo, "update-ref", "--no-deref", "refs/heads/" + branch, tip)' \
+    "the one write this check still makes would go back to the exact line that moved refs/heads/main unattributed: no old value, so it clobbers a ref somebody re-created between the deletion and the check instead of refusing; and no -m, so it lands in the reflog with an EMPTY message, which is what cost a day of forensics on 2026-09-13 (points 2, 14)."
+
+mutant p14-protected-set-keyed-by-name-across-repositories "test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only" "$W" \
+    '    recorded = _protected_names(repo)' \
+    '    recorded = set(w["branch"] for w in all_bodies_of_work().values() if (w or {}).get("branch"))' \
+    "the protected set would go back to matching on branch NAME across every body of work, so 'main' recorded for one repository would protect -- and make writable -- refs/heads/main in every other. Three bodies of work on this machine, all three integrating on main (forensics §4)."
+
+mutant p14-the-leads-move-reported-too "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone" "$W" \
     '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
     '                    else:{NL}                        why = "moved"' \
-    "the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse (point 14: landing is his)."
+    "the lead's own land onto the recorded branch during an agent's call would be reported as an agent's move (point 14: landing is his). It no longer UNDOES his land -- nothing does -- but a report that fires on every ordinary land is alarm fatigue, and this check's whole remaining value is that it only speaks when something is wrong."
 
-mutant p14-end-of-run-undoes-the-leads-land "test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" "$W" \
+mutant p14-end-of-run-reports-the-leads-land "test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" "$W" \
     '                elif b not in windowed:{NL}                    continue' \
     '                elif False:{NL}                    continue' \
-    "the own-work rule would apply with no call open, so the lead's fast-forward of the agent's OWN branch onto the recorded one — made after its last call, before its end signal — would be undone at the end signal and the land would refuse (measured on certification-sage-runner-round case R8, 2026-09-13)."
+    "the own-work rule would apply with no call open, so the lead's fast-forward of the agent's OWN branch onto the recorded one -- made after its last call, before its end signal -- would be reported as the agent's doing at the end signal (measured as a LAND REFUSAL on certification-sage-runner-round case R8, 2026-09-13, back when this branch of the rule also wrote)."
 
-mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored" "$W" \
+mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported" "$W" \
     '        cx = _codex_workspace_of(fp){NL}        if cx:' \
     '        cx = _codex_workspace_of(fp){NL}        if False:' \
     "a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it (point 2: an agent never works inside a codex/ workspace)."

@@ -1489,6 +1489,11 @@ class Point14_IntegrationBranch(Base):
         run("git", "-C", self.entity, "branch", "-f", "dev/rec", lead)              # the lead's move: a descendant, not this agent's work
         self.post(aid, call="tu-3")
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), lead)
+        # And his land is not even reported: exactly two protected-ref facts on
+        # the record, the move and the deletion, in that order.
+        self.assertEqual([h["fact"] for h in self.rec("zach-opus-mv").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")],
+                         ["protected ref moved (reported, not restored)", "protected ref restored"])
 
     def test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run(self):
         """THE 2026-09-14 INCIDENT, as a test. Events 3, 4 and 5 of
@@ -1573,6 +1578,12 @@ class Point14_IntegrationBranch(Base):
         tip = run("git", "-C", self.entity, "rev-parse", "main").stdout.strip()
         self.finish(aid)                                       # the end signal: no window open
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), tip)
+        # Nor is it REPORTED. Since 2026-09-14 nothing here writes a ref, so the
+        # whole value of the windowed rule is that the check stays silent about
+        # the lead's ordinary land: a report that fires on every land is alarm
+        # fatigue, and this check only earns attention by being rare.
+        self.assertEqual([h for h in self.rec("zach-opus-ff").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")], [])
         ws.land("zach-opus-ff", self.sid)
         self.assertFalse(os.path.exists(npath))
 
@@ -1637,12 +1648,19 @@ class Point14_IntegrationBranch(Base):
         self.assertEqual([h["fact"] for h in self.rec("zach-opus-cr").get("history") or []
                           if str(h.get("fact", "")).startswith("protected ref")],
                          ["protected ref moved (reported, not restored)"])
-        # And the write itself refuses when the ref exists: git's own answer.
-        rc, _o, err = ws.git(self.entity, "update-ref", "-m", "probe", "--no-deref",
-                             "refs/heads/codex/race", tip, "")
+        # And the engine's own write refuses while the ref exists, rather than
+        # forcing it — the property, asked of the line that carries it.
+        rc, _o, err = ws._recreate_deleted_ref(self.entity, "codex/race", tip, "zach-opus-cr")
         self.assertNotEqual(rc, 0)
         self.assertIn("already exists", err)
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), other_tip)
+        # With the ref gone it succeeds, at the tip it held, and says who wrote it.
+        run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/codex/race")
+        rc, _o, err = ws._recreate_deleted_ref(self.entity, "codex/race", tip, "zach-opus-cr")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), tip)
+        self.assertIn("richos engine: protected ref restored",
+                      run("git", "-C", self.entity, "reflog", "show", "codex/race").stdout)
 
     def test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents(self):
         """Point 14: "the branch THIS WORK integrates on." Point 5 permits a
