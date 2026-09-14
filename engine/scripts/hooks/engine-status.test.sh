@@ -596,8 +596,32 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # guard-workspace-gate.sh in the Stop chain on both surfaces: the workspace
 # spec's structural hold is settled first, and only then is the turn asked
 # about the state of what it pushed.
+# handoff-facts-annotate.sh and notice-protected-ref-moves.sh, added 2026-09-14
+# for two registrations landed the same night (ee2d3797 and d2be875f). The first
+# is PostToolUse[Bash|Write|Edit|MultiEdit|NotebookEdit]: it appends a measured
+# facts block to a restart note as the note is written, so the numbers in a
+# handoff are taken by the machine rather than recalled by the session least able
+# to verify them. The second is a non-blocking Stop hook: it refuses to let a
+# turn end quietly while a protected branch is missing commits it held, after the
+# old check MOVED refs/heads/main three times in one night with no
+# compare-and-swap. The OTHER inventories were derived the way the note further
+# up prescribes rather than guessed: `grep -rln guard-ci-turn-gate engine/` named
+# hooks/hooks.json, .claude/settings.local.json, this set, README.md's table,
+# contract-integrity-probe.sh and install.sh. Against that list the pair owed
+# exactly two things and both are now paid: the seated surface carried
+# notice-protected-ref-moves.sh but NOT handoff-facts-annotate.sh (a real gap —
+# in this repository's own sessions the block was never written), and the probe's
+# BR_EXPECTED named neither. README.md's table is a per-SYSTEM table rather than
+# a per-hook one and names neither; install.sh hashes the root-resolution library
+# and its dependants, and NEITHER hook resolves a root, so neither belongs in
+# R_ROOTED_HOOKS — putting them there would make Layer R assert something false.
+# Four suites said all of this rather than memory: this case, hook-staleness case
+# 11, session-evidence's registration test (which derives its set FROM the probe,
+# so the BR_EXPECTED line fixed it too) and the probe's own BR2.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 commit-ceo-inputs.sh
+handoff-facts-annotate.sh
+notice-protected-ref-moves.sh
 guard-ci-turn-gate.sh
 detect-nonnative-worktree.sh
 engine-status.sh
