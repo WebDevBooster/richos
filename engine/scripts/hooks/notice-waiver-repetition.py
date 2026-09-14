@@ -191,6 +191,12 @@ import sys
 MIN_CLASS = 3
 JACCARD = 0.35
 ACTIVE_DAYS = 14
+# DERIVED FROM ACTIVE_DAYS, not chosen beside it. The window's own half: inside
+# it a class is what is happening this week, outside it a class is what was
+# happening earlier in the same window. Used only to ORDER the report, never to
+# include or exclude — that is ACTIVE_DAYS' job and this must not become a
+# second, quieter one. Argued at the sort site.
+RECENCY_BUCKET = max(1, ACTIVE_DAYS // 2)
 MAX_LINES = 20000          # bound the work; a Stop hook has 25 seconds
 CONTEXT_LINES = 10         # lines either side of an append site scanned for vocabulary
 
@@ -810,7 +816,33 @@ def run(engine_root, entity_root, teams_root, today, jaccard=JACCARD):
                 "repeated_entries": sum(c["size"] for c in repeated),
             })
 
-    report["flagged"].sort(key=lambda f: -f["largest"]["size"])
+    # WHAT IS STILL HAPPENING, THEN HOW BIG. The one-liner names three and
+    # counts the rest, so this ordering decides what the operator is actually
+    # told — and ordering by size alone told him about the past.
+    #
+    # Measured on 2026-09-14, ten flagged hatches in one repository. The three
+    # named were 86x idle 12 days, 46x idle 1 day, 42x idle 14 days; the hatch
+    # its owner had used 21 times THAT EVENING was 40x idle 1 day, and it sat
+    # unnamed in "+7 more". Two of the three he was shown had not been touched
+    # in a fortnight, and one of them was a day from ageing out of the window
+    # entirely.
+    #
+    # This is ACTIVE_DAYS' own argument applied one step further in. That
+    # constant exists because "a guard that HAS BEEN FIXED must stop being
+    # reported"; a class idle for two weeks being announced ahead of one used
+    # yesterday is the same defect at the granularity of ordering rather than
+    # inclusion. Size still decides inside a bucket, because among things
+    # happening now the big one is the one to fix.
+    #
+    # THE CONSTANT IS NOT LOAD-BEARING AND THAT WAS CHECKED, not assumed, in
+    # the way this file checks JACCARD. Re-running the same ten rows with the
+    # bucket at 4, 5, 6, 7, 8 and 9 days gives the IDENTICAL three; only at 10
+    # does the third slot move. RECENCY_BUCKET is ACTIVE_DAYS // 2 = 7, in the
+    # middle of that range, so it is derived from a constant already argued
+    # rather than fitted to this data.
+    report["flagged"].sort(
+        key=lambda f: (f["largest"]["idle_days"] // RECENCY_BUCKET,
+                       -f["largest"]["size"]))
     return report
 
 

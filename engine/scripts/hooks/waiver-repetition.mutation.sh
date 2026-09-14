@@ -232,8 +232,8 @@ mutant "independence-dropped" "6. one day, ONE subject" "$PY_REL" \
 
 mutant "window-removed" "8. a class last used 30 days ago" "$PY_REL" \
     "ACTIVE_DAYS = 14
-MAX_LINES" "ACTIVE_DAYS = 100000
-MAX_LINES" \
+# DERIVED FROM ACTIVE_DAYS" "ACTIVE_DAYS = 100000
+# DERIVED FROM ACTIVE_DAYS" \
     "with no activity window a guard that was FIXED keeps being reported forever, which is precisely how this notice would become the line nobody reads."
 
 mutant "double-fire-counted" "9. four lines that are two acts" "$PY_REL" \
@@ -304,6 +304,11 @@ mutant "quiet-without-analyzer" "16. no analyzer" "$SH_REL" \
     exit 0' \
     "    exit 0" \
     "a wrapper that goes quiet without its analyzer is wired, hashed, executable and reading nothing — and looks exactly like a clean turn."
+
+mutant "ordered-by-size-alone" "21. a live class is named before a larger dormant one" "$PY_REL" \
+    '        key=lambda f: (f["largest"]["idle_days"] // RECENCY_BUCKET,' \
+    '        key=lambda f: (0,' \
+    "the one-liner names three and counts the rest, so ordering by size alone tells the operator about the past: on 2026-09-14 two of the three he was shown had been idle 12 and 14 days, while the hatch he had used 21 times that evening sat unnamed in '+7 more'."
 
 # --- the operator surfaces -------------------------------------------------
 mutant "lint-always-clean" "18. the lint shows its work" "$LINT_REL" \

@@ -812,6 +812,78 @@ else
     bad "20b. a marker inside the waivers waives nothing — the count is still the count" "rc=$RC out=$OUT"
 fi
 
+
+# ===========================================================================
+# 21 — THE LINE NAMES WHAT IS STILL HAPPENING, NOT WHAT WAS BIGGEST.
+#
+# The one-liner names three hatches and counts the rest, so the ORDER decides
+# what the operator is told. Ordering by size alone told him about the past:
+# measured on 2026-09-14 against ten flagged hatches, the three he was shown
+# were 86x idle 12 days, 46x idle 1 day and 42x idle 14 days, while the hatch
+# he had personally used 21 times THAT EVENING was 40x idle 1 day and sat
+# unnamed inside "+7 more". One of the three he was shown was a day away from
+# ageing out of the window altogether.
+#
+# This is ACTIVE_DAYS' own argument one step further in. That constant exists
+# so a guard which HAS BEEN FIXED stops being reported; announcing a fortnight-
+# old class ahead of one used yesterday is the same defect at the granularity
+# of ordering rather than inclusion.
+#
+# Both ledgers are written from scratch here so no earlier case can decide this
+# one, and every reason is the SAME reason within a ledger and a DIFFERENT one
+# across the two, so the two classes cannot merge.
+# ===========================================================================
+BIG="$STATE/fixture-acks.log"
+SMALL="$STATE/fixture-envhop.log"
+
+big_add() {   # <days-ago> <subject>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree %s\n' \
+        "$(days_ago "$1")" "$2" "$2" >> "$BIG"
+}
+small_add() { # <days-ago> <subject>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: continuous integration reads red on a workflow no part of this change touches, and its own repair is already under way elsewhere %s\n' \
+        "$(days_ago "$1")" "$2" "$2" >> "$SMALL"
+}
+
+# The BIG class is larger and dormant; the SMALL class is smaller and current.
+: > "$BIG"
+for s in a b c d e; do big_add 10 "$s"; done
+big_add 12 f
+: > "$SMALL"
+small_add 0 g
+small_add 1 h
+small_add 2 i
+
+OUT="$(run_py --one-liner)"; RC=$?
+say "21" "rc=$RC out=$OUT"
+LIVE_POS="$(printf '%s' "$OUT" | awk '{print index($0, "fixture-envhop-guard.sh")}')"
+DORMANT_POS="$(printf '%s' "$OUT" | awk '{print index($0, "fixture-hatch-guard.sh")}')"
+if [ "$RC" -eq 1 ] && [ "$LIVE_POS" -gt 0 ] && [ "$DORMANT_POS" -gt 0 ] \
+   && [ "$LIVE_POS" -lt "$DORMANT_POS" ]; then
+    ok "21. a live class is named before a larger dormant one"
+else
+    bad "21. a live class is named before a larger dormant one" "rc=$RC live=$LIVE_POS dormant=$DORMANT_POS out=$OUT"
+fi
+
+# 21b — THE TWIN, and it is what stops this becoming "newest wins". Bring the
+#       big class into the same bucket and nothing else: size must decide
+#       again. Without this, inverting the sort key outright would pass 21.
+: > "$BIG"
+for s in a b c d e; do big_add 1 "$s"; done
+big_add 2 f
+
+OUT="$(run_py --one-liner)"; RC=$?
+say "21b" "rc=$RC out=$OUT"
+LIVE_POS="$(printf '%s' "$OUT" | awk '{print index($0, "fixture-envhop-guard.sh")}')"
+DORMANT_POS="$(printf '%s' "$OUT" | awk '{print index($0, "fixture-hatch-guard.sh")}')"
+if [ "$RC" -eq 1 ] && [ "$LIVE_POS" -gt 0 ] && [ "$DORMANT_POS" -gt 0 ] \
+   && [ "$DORMANT_POS" -lt "$LIVE_POS" ]; then
+    ok "21b. within one bucket the larger class is named first — recency orders, it does not override"
+else
+    bad "21b. within one bucket the larger class is named first — recency orders, it does not override" "rc=$RC live=$LIVE_POS dormant=$DORMANT_POS out=$OUT"
+fi
+rm -f "$SMALL"
+
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;
 # contract-integrity.test.sh names a hand-typed set of harnesses that never
