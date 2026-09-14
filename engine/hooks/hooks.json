@@ -117,11 +117,6 @@
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/reader-teammate-hint.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/verify-agent-prompt.sh",
             "timeout": 10
           },

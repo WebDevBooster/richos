@@ -29,10 +29,11 @@
 #   A. .claude/settings.local.json (the canonical committed source) exists.
 #   B. settings.local.json wires PreToolUse[Write|Edit|MultiEdit|NotebookEdit]
 #      -> guard-main-checkout-writes.sh (path-confined, manifest-matched).
-#   C. settings.local.json wires PreToolUse[Agent] -> the four-hook chain, IN
-#      ORDER: guard-worktree-isolation.sh, guard-definition-drift.sh,
-#      reader-teammate-hint.sh, verify-agent-prompt.sh (each path-confined,
-#      manifest-matched).
+#   C. settings.local.json wires PreToolUse[Agent] -> the structural chain
+#      prefix, IN ORDER: guard-worktree-isolation.sh, guard-definition-drift.sh,
+#      verify-agent-prompt.sh (each path-confined, manifest-matched). The tail
+#      of the chain is deliberately unconstrained — see
+#      scripts/lib/registered-hooks.sh, AGENT_CHAIN_STRUCTURAL_PREFIX.
 #   D. The wired write-guard hook rejects a known-bad main-checkout source
 #      write (functional canary, targeting the first PROTECTED_PATHS tree).
 #   E. Every wired Agent hook chain script exists, is executable.
@@ -399,7 +400,7 @@ run_layer_R() {
     # nothing to say when a hook quietly stops sourcing the library — but it is a
     # cost, and whoever adds the next hook should expect the same two steps.
     R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
-    reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
+    verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-named-persons-writes guard-named-persons-commands \
@@ -1070,7 +1071,6 @@ session-start-ci-surface.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
-reader-teammate-hint.sh|PreToolUse
 verify-agent-prompt.sh|PreToolUse
 guard-ceo-ask-first.sh|PreToolUse
 guard-model-ceiling.sh|PreToolUse
@@ -2849,7 +2849,6 @@ CANON = [
     "guard-worktree-isolation.sh",
     "guard-definition-drift.sh",
     "snapshot-agent-definitions.sh",
-    "reader-teammate-hint.sh",
     "verify-agent-prompt.sh",
     "guard-main-checkout-writes.sh",
     "guard-bash-main-writes.sh",

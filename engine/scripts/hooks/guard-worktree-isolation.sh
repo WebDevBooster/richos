@@ -81,9 +81,9 @@
 #
 # BLOCKED-SPAWN NAME BURN.
 #   This guard used to append NAME to spawned-names.log itself, inline, the
-#   moment its own checks passed. But it runs FIRST in a FOUR-hook
+#   moment its own checks passed. But it runs FIRST in a multi-hook
 #   PreToolUse[Agent] chain (this guard, then guard-definition-drift.sh,
-#   reader-teammate-hint.sh, verify-agent-prompt.sh — see hooks/hooks.json),
+#   verify-agent-prompt.sh, and the policy tail — see hooks/hooks.json),
 #   and any LATER hook in that chain can still veto the same call. Result: a
 #   spawn this guard approved but a later hook blocked burned its name anyway
 #   — no teammate was ever created, yet the corrected retry under the same

@@ -104,7 +104,7 @@ scripts/hooks/contract-integrity-probe.sh
 richos-engine v1.0.0 — contract integrity probe
   ✓ A. .claude/settings.local.json present (canonical hook source)
   ✓ B. write-guard -> guard-main-checkout-writes.sh (path-confined, manifest-matched)
-  ✓ C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, reader-teammate-hint.sh, verify-agent-prompt.sh (path-confined, manifest-matched, in order)
+  ✓ C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, verify-agent-prompt.sh (path-confined, manifest-matched, in order)
   ✓ D. wired write-guard rejects main-checkout source writes (exit=2 canary)
   ✓ E. wired Agent hook chain scripts present + executable (4 entries)
   ✓ F. TeammateIdle hook wired + present (idle-event logging active)

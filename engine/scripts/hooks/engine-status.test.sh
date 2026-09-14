@@ -662,6 +662,18 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # scripts/hook-registration-completeness.test.sh so ci-affected-units A5 has a
 # suite naming it. Layer M's CANON list carries it too — not demanded by any
 # suite, so the guard reports that one as advice rather than refusing over it.
+#
+# reader-teammate-hint.sh, REMOVED 2026-09-14 — the first entry this list has
+# ever LOST, and the removal is the point. It fired only when `subagent_type`
+# was a generic agent type (Explore / Plan / general-purpose / claude); clause 5
+# of guard-worktree-isolation.sh, which runs FIRST in the same PreToolUse[Agent]
+# chain, already exits 2 on exactly that condition. So it could only ever be
+# reached on a spawn whose `generic-agent:` hatch had already been accepted and
+# logged — one occurrence in .claude/state/generic-agent-dispatches.log in the
+# ledger's whole life, and that one carried no reading task. Its invariant is
+# subsumed; the ordering makes it unreachable. Removing it cost edits in 13
+# files, which is the measurement that motivated docs/verification/
+# verification-layer-design-2026-09-14.md.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-brief-scope.sh
 guard-hook-registration-commits.sh
@@ -717,7 +729,6 @@ notice-unlanded-branches.sh
 notice-unstarted-rows.sh
 notice-waiver-repetition.sh
 observe-created-refs.sh
-reader-teammate-hint.sh
 scan-secrets.sh
 session-start-ceo-ask.sh
 session-start-ci-surface.sh
@@ -785,7 +796,7 @@ cat >"$ENGINE/scripts/lib/registered-hooks.sh" <<'STALE'
 # MUTATION (test-only): the pre-fix banner inventory — a list a human typed.
 registered_hook_scripts() {
     printf '%s\n' \
-        guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh \
+        guard-worktree-isolation.sh guard-definition-drift.sh guard-ceo-ask-first.sh \
         verify-agent-prompt.sh guard-main-checkout-writes.sh scan-secrets.sh \
         guard-resume-isolation.sh guard-bash-main-writes.sh guard-workflow-ban.sh \
         detect-nonnative-worktree.sh workspace-lifecycle.sh \

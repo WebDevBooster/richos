@@ -259,7 +259,7 @@ Set `PROTECTED_PATHS` to the real source trees from Stage 3. Set
 `APP_ROOT`/`NATIVE_ANDROID_ROOT`/`NATIVE_IOS_ROOT` if native mobile came up,
 otherwise leave them blank (per the file's own instructions — blank is a
 valid, intentional answer, not an omission). Leave
-`READONLY_ALLOWLIST`/`READER_TEAMMATE`/`CREATOR_TEAMMATE`/`ARTIFACT_*` at
+`READONLY_ALLOWLIST`/`CREATOR_TEAMMATE`/`ARTIFACT_*` at
 their shipped defaults unless the interview surfaced a reason to change
 them — these are platform-generic, not domain-specific, and shouldn't be
 touched without cause. Leave `ENABLE_QA_INSTALL_FRESH_GATE=0` unless the CEO

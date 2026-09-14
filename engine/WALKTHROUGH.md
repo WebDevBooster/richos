@@ -122,7 +122,7 @@ for a spawn missing `isolation`:
 ```
 
 The spawn above is compliant, so `guard-worktree-isolation.sh` →
-`reader-teammate-hint.sh` → `verify-agent-prompt.sh` all pass (exit 0), and
+`guard-definition-drift.sh` → `verify-agent-prompt.sh` all pass (exit 0), and
 the harness lands the new teammate in a real, dedicated git worktree:
 `.claude/worktrees/agent-<id>/` on branch `worktree-<id>` — this is what
 `isolation: "worktree"` *produces*, not just a config flag

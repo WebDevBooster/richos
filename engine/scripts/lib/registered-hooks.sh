@@ -299,7 +299,7 @@ for row in sorted(rows):
 # left UNCONSTRAINED on purpose. A tenth policy hook appended tomorrow satisfies
 # this rule untouched — the property that was missing — while a hook inserted
 # AHEAD of the structural four still fails as loudly as it must.
-AGENT_CHAIN_STRUCTURAL_PREFIX="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh"
+AGENT_CHAIN_STRUCTURAL_PREFIX="guard-worktree-isolation.sh guard-definition-drift.sh verify-agent-prompt.sh"
 
 # registered_agent_chain <path-to-hooks.json>
 #
