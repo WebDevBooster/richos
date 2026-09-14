@@ -123,6 +123,10 @@ barrier() { # <agent-id> <tool> -> rc of the point-9 lock-out; message in $T/bar
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"agent_type":"zach","tool_name":sys.argv[3],"cwd":sys.argv[4],"tool_input":{}}))' "$CUR_SID" "$1" "$2" "$ENT" \
         | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
 }
+resume_guard() { # <to> <text> -> rc of guard-resume-isolation.sh; message in $T/resume.err
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"tool_name":"SendMessage","cwd":sys.argv[4],"tool_input":{"to":sys.argv[2],"message":sys.argv[3]}}))' "$CUR_SID" "$1" "$2" "$ENT" \
+        | bash "$HOOKS/guard-resume-isolation.sh" >/dev/null 2>"$T/resume.err"
+}
 stop_gate() { # -> rc of the turn-end gate; stdout $T/stop.out, stderr $T/stop.err
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"Stop","session_id":sys.argv[1],"cwd":sys.argv[2],"stop_hook_active":False,"last_assistant_message":"done"}))' "$CUR_SID" "$ENT" \
         | bash "$HOOKS/guard-workspace-gate.sh" >"$T/stop.out" 2>"$T/stop.err"
@@ -245,6 +249,20 @@ sub "S4.3 the refusal names the stop as the reason" "grep -qi 'stopped' '$T/barr
 stop_gate >/dev/null 2>&1
 sub "S4.4 and the ordinary path then deletes its workspaces" "[ ! -d '$CC4' ]" \
     "cc4=$( [ -d "$CC4" ] && echo present || echo gone)"
+verdict
+
+# ===========================================================================
+begin S5 "A message to a stopped agent is refused rather than restarting it (point 11 -> point 9)"
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-s5 >/dev/null 2>&1
+CC5="$T/other-wt/zach-opus-s5"
+spawn "zach-opus-s5" "$(printf 'be messaged\ncross-repo-worktree: %s\n' "$CC5")"
+platform_spawn "zach-opus-s5" "as5s5s5s5s5s5s5s5"
+resume_guard "zach-opus-s5" "carry on"; M1=$?
+sub "S5.1 while it runs, a message to it is allowed" "[ $M1 -eq 0 ]" "rc=$M1 $(cat "$T/resume.err" | head -c 200)"
+platform_stops "zach-opus-s5" "as5s5s5s5s5s5s5s5"
+resume_guard "zach-opus-s5" "carry on"; M2=$?
+sub "S5.2 once stopped, the same message is REFUSED as finished work" \
+    "[ $M2 -ne 0 ] && grep -qi 'finished' '$T/resume.err'" "rc=$M2 $(cat "$T/resume.err" | head -c 300)"
 verdict
 
 echo "CHECKS RUN: $CHECKS_RUN  RED: $CHECKS_RED"

@@ -3488,6 +3488,11 @@ def recipient_state(session_id, name):
     rec = load_agent(named_key(session_id, name)) if session_id and name else None
     if not rec:
         return "unregistered", ""
+    # A STOPPED agent is finished (point 11), so a message to it would restart
+    # an agent that can do nothing — which is what guard-resume-isolation.sh
+    # refuses. It asks this function, so this function asks the platform's own
+    # record rather than waiting for a signal a stopped run never sends.
+    rec = observe_platform_end(rec)
     fin, paused_, why = finished_state(rec)
     return ("finished" if fin else ("paused" if paused_ else "active")), why
 
