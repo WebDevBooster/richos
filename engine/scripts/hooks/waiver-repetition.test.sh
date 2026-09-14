@@ -561,6 +561,65 @@ else
 fi
 
 # ===========================================================================
+# 15f — THE MACHINE-WIDE STATE DIRECTORY IS READ.
+#
+# A hatch ledger lives in one of THREE places, and until 2026-09-14 this
+# watcher looked in two. The third is the operator's own state directory,
+# outside every repository, and it is where the most-used hatch in the engine
+# writes: guard-ci-red-lands.sh appends to
+# "${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}". That location is
+# correct and deliberate — one operator lands into several repositories and the
+# habit is his, not any single repository's — but it meant 93 acks, 35 of them
+# for one workflow, were invisible here. Not flagged, not listed as unused, not
+# even named on the unattributed line.
+#
+# THE FAILURE MODE THIS PINS IS THE QUIET ONE. A directory nobody looks in
+# produces a shorter, cleaner report, and a ledger nobody looks for reads
+# exactly like a ledger nobody writes — the two answers this file exists to
+# keep apart.
+#
+# Aimed at CLAUDE_CONFIG_DIR rather than $HOME, which is what makes it safe to
+# assert: the suite sandboxes that variable at the top, for the reason case 15d
+# documents. Reaching for $HOME in the shipped code would have re-opened the
+# very hole the seal closed, one directory over.
+# ===========================================================================
+MACHINE_STATE="$CLAUDE_CONFIG_DIR/state"
+mkdir -p "$MACHINE_STATE"
+machine_add() { # <days-ago> <subject> <reason>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_ago "$1")" "$2" "$3" \
+        >> "$MACHINE_STATE/fixture-acks.log"
+}
+: > "$MACHINE_STATE/fixture-acks.log"
+# THE SAME THREE REASONS CASE 15d USES, deliberately. The variable under test
+# is the DIRECTORY and nothing else, so the wording is held fixed at a class
+# already proven to group — a fresh set of sentences would have made a failure
+# here ambiguous between "the directory is not read" and "these three did not
+# cluster", and the first draft of this case failed for the second reason.
+machine_add 0 kappa  "the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree"
+machine_add 1 lambda "recipient is a currently-running teammate that holds its own isolated worktree; every write lands inside that worktree as before"
+machine_add 2 mu     "the recipient is a live teammate with an isolated worktree of its own and every write still lands within that worktree"
+
+OUT="$(run_hook waivtst3)"; RC=$?
+say "15f" "rc=$RC out=$OUT"
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q "REPEATED WAIVERS" \
+   && printf '%s' "$OUT" | grep -q "3x one reason"; then
+    ok "15f. a ledger in the machine-wide state directory is read, not skipped"
+else
+    bad "15f. a ledger in the machine-wide state directory is read, not skipped" "rc=$RC out=$OUT"
+fi
+
+# 15g — the negative twin. A watcher that had simply started shouting would
+#       pass 15f on its own; taking the ledger away has to end the story.
+rm -f "$MACHINE_STATE/fixture-acks.log"
+OUT="$(run_hook waivtst3)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "clear again"; then
+    ok "15g. removing that ledger returns the session to clear"
+else
+    bad "15g. removing that ledger returns the session to clear" "rc=$RC out=$OUT"
+fi
+
+# ===========================================================================
 # 16 — THE WRAPPER DECIDES NOTHING, AND SAYS SO. Five Stop wrappers in this
 #      engine hand their entire verdict to a sibling .py; a wrapper that went
 #      quiet without its analyzer would be wired, hashed, executable and

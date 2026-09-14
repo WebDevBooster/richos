@@ -277,6 +277,17 @@ mutant "teams-dirs-unread" "15d. a ledger in a session team directory is read" "
                     dirs.append(p)' \
     "the session team directories are where a teammate's acks actually land; a reader that skips them reports a clean machine while the ledger it exists to read grows next door — and it looks identical to a clean machine, which is why 15c was sealed against them rather than the reading removed."
 
+mutant "machine-state-unread" "15f. a ledger in the machine-wide state directory is read" "$PY_REL" \
+    '    if config_root:
+        machine_state = os.path.join(config_root, "state")
+        if machine_state not in dirs:
+            dirs.append(machine_state)' \
+    "    if False:
+        machine_state = os.path.join(config_root, \"state\")
+        if machine_state not in dirs:
+            dirs.append(machine_state)" \
+    "the operator's own state directory is where the most-used hatch in this engine writes — guard-ci-red-lands.sh put 93 acks there, 35 for one workflow, and this watcher saw none of them. A reader that skips that directory reports a clean machine and looks exactly like one."
+
 mutant "quiet-without-analyzer" "16. no analyzer" "$SH_REL" \
     '    stop_notice_abnormal "no-analyzer" \
         "WAIVER-REPETITION WATCH IS OFF: scripts/hooks/notice-waiver-repetition.py is missing, so no escape-hatch ledger was read. This hook decides nothing on its own — without the analyzer it is wiring around an empty space."

@@ -568,10 +568,38 @@ def discover_on_disk(state_dirs):
     return found
 
 
-def state_dirs_for(entity_root, teams_root):
+def state_dirs_for(entity_root, teams_root, config_root=None):
+    """Every directory a hatch ledger is written to — THREE of them, not two.
+
+    THE MACHINE-WIDE ONE WAS MISSING, and the docstring above claimed the disk
+    side was "COMPLETE BY CONSTRUCTION" while it was not. Measured on
+    2026-09-14: guard-ci-red-lands.sh writes
+    "${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}" — outside every
+    repository, deliberately, because ONE operator lands into several
+    repositories and the habit is his, not any one repository's. That file held
+    93 acks across two repositories, 35 of them for a single workflow, and this
+    watcher could not see one of them: not as a hatch, not as unused, not even
+    on the unattributed line. A ledger nobody looks for is indistinguishable
+    from a ledger nobody writes, and those are the two answers this whole file
+    exists to keep apart.
+
+    DERIVED FROM CLAUDE_CONFIG_DIR, never from $HOME directly, and that is the
+    same expression main() already uses to find the team directories. It
+    matters for the suite as much as for production: waiver-repetition.test.sh
+    sandboxes CLAUDE_CONFIG_DIR precisely because reading the operator's real
+    machine made a case go red with a count it had never written. Reaching for
+    $HOME here would have re-opened that hole one directory over.
+    """
     dirs = []
     if entity_root:
         dirs.append(os.path.join(entity_root, ".claude", "state"))
+    if config_root is None:
+        config_root = (os.environ.get("CLAUDE_CONFIG_DIR")
+                       or os.path.expanduser("~/.claude"))
+    if config_root:
+        machine_state = os.path.join(config_root, "state")
+        if machine_state not in dirs:
+            dirs.append(machine_state)
     if teams_root and os.path.isdir(teams_root):
         try:
             for d in sorted(os.listdir(teams_root)):
