@@ -246,3 +246,154 @@ for row in sorted(rows):
     [ -n "$out" ] || return 2
     printf '%s\n' "$out"
 }
+
+# ===========================================================================
+# THE PreToolUse[Agent] CHAIN — ORDERED, AND ITS ORDER INTENT
+# ===========================================================================
+# Everything above answers "which scripts does the host load?" as a SET. The
+# Agent chain is the one place where the ANSWER IS A SEQUENCE: every registered
+# gate runs on every spawn, in the order the table lists them, and the FIRST
+# refusal is the one the operator reads.
+#
+# WHY THESE TWO FUNCTIONS EXIST, which is the whole lesson of 2026-09-14.
+# guard-brief-scope.sh was registered as the ninth entry in hooks/hooks.json.
+# Two consumers inside contract-integrity-probe.sh held their own TYPED copy of
+# the chain — CANONICAL_AGENT_CHAIN for Layer C, BR_AGENT_WANT for BR2 — and
+# both still said eight. Nothing was broken from the author's seat: the hook
+# loaded, fired, and did its job. The engine went red on `main` because a list
+# somebody typed weeks earlier disagreed with the registration, and the remedy
+# those consumers PRINTED — "run scripts/hooks/install.sh" — could not fix it:
+# install.sh validates two config keys, migrates a stale settings.json and mints
+# sha256 sidecars, and never writes a hook stanza or touches either list.
+#
+# A list that must be edited when a hook is added is not a mitigation for drift.
+# It IS the drift. So the MEMBERSHIP and the ORDER of the chain are derived here
+# from the registration, and what stays typed is the only thing the registration
+# cannot state about itself: WHY that order and not another.
+#
+# THE SPLIT IS THE DESIGN. Do not collapse it:
+#
+#   MEMBERSHIP + ORDER  are FACTS about the registration. Derived. A tenth hook
+#                       registered tomorrow appears in both with no edit here.
+#
+#   THE ORDER INTENT    is a SPEC the registration cannot check against itself.
+#                       Typed. Deriving it too would compare hooks.json against
+#                       hooks.json and could never fail — failure type Z, a
+#                       check that passes for a reason unrelated to what it
+#                       checks, which is the type this engine keeps retiring.
+#
+# THE INTENT IS A PREFIX RULE, NOT A SEQUENCE, and that is deliberate. The four
+# STRUCTURAL gates settle whether the SPAWN IS WELL FORMED — is it isolated and
+# truthfully named, is the booted definition the one on disk, is a reading task
+# routed to the reader, does the prompt carry what it must. They come first, in
+# that order, because a dispatch that is malformed AND something else should
+# hear about the malformed half first: that is the half the operator can fix
+# without leaving the keyboard.
+#
+# Everything after them is a POLICY question — cost, environment, standing
+# state, scope, whether the CEO was asked — and the probe's own comments already
+# concede that their relative order is not load-bearing ("Against the CEO-ask
+# gate the order is not load-bearing (both are policy questions), so the tie was
+# broken by the merge-safe choice: appending"). Four such hooks have been
+# appended since, and the comment on each one claims it is LAST. So the tail is
+# left UNCONSTRAINED on purpose. A tenth policy hook appended tomorrow satisfies
+# this rule untouched — the property that was missing — while a hook inserted
+# AHEAD of the structural four still fails as loudly as it must.
+AGENT_CHAIN_STRUCTURAL_PREFIX="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh"
+
+# registered_agent_chain <path-to-hooks.json>
+#
+# Prints one hook-script BASENAME per line, IN REGISTRATION ORDER — every script
+# the table runs on PreToolUse under a matcher that names Agent. Deliberately
+# NOT sorted and NOT de-duplicated: a duplicate registration is a real defect
+# (the hook fires twice on every spawn, and Layer M exists for it), so this
+# function's job is to show it, not to tidy it away.
+#
+# NO TEXT-SCAN FALLBACK, for registered_hook_rows' reason and one more: a grep
+# cannot see which event or matcher a command sits under, and it cannot see
+# order at all. A guessed sequence is worse than a refusal here, because its
+# only consumer is a check on that exact sequence.
+#
+# Exit codes — a caller MUST distinguish these from an empty chain:
+#   0  complete chain printed
+#   1  no such file (wrong path, or an incomplete engine install)
+#   2  present but unparseable, registering nothing on PreToolUse[Agent], or
+#      no python3 to read it with
+registered_agent_chain() {
+    local f="${1:-}"
+    local out=""
+    local rc=0
+
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    command -v python3 >/dev/null 2>&1 || return 2
+
+    out="$(python3 -c '
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = json.load(fh)
+chain = []
+entries = (doc.get("hooks") or {}).get("PreToolUse")
+if isinstance(entries, list):
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        matcher = entry.get("matcher", "")
+        if not isinstance(matcher, str) or "Agent" not in matcher:
+            continue
+        for h in entry.get("hooks", []) or []:
+            if not isinstance(h, dict):
+                continue
+            cmd = h.get("command", "")
+            if not isinstance(cmd, str):
+                continue
+            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                chain.append(m)
+for name in chain:
+    print(name)
+' "$f" 2>/dev/null)"
+    rc=$?
+    [ "$rc" -eq 0 ] || return 2
+
+    [ -n "$out" ] || return 2
+    printf '%s\n' "$out"
+}
+
+# agent_chain_order_violations <name> [<name> ...]
+#
+# Judges an ORDERED Agent chain against AGENT_CHAIN_STRUCTURAL_PREFIX above.
+# Prints one human-readable violation per line and returns 1 if there are any;
+# prints nothing and returns 0 when the order is sound.
+#
+# It says nothing whatever about the tail. That is not an omission — see the
+# intent above: the tail's order is explicitly not load-bearing, and a rule that
+# constrained it would have to be edited by every future appender, which is the
+# defect this whole section exists to end.
+agent_chain_order_violations() {
+    local -a chain=("$@")
+    local -a want=()
+    local i=0 bad=0 seen=""
+    # shellcheck disable=SC2206
+    want=($AGENT_CHAIN_STRUCTURAL_PREFIX)
+
+    for i in "${!want[@]}"; do
+        if [ "${#chain[@]}" -le "$i" ] || [ "${chain[$i]}" != "${want[$i]}" ]; then
+            seen="${chain[$i]:-<nothing — the chain ends here>}"
+            printf 'position %d of the PreToolUse[Agent] chain must be %s, and is %s. The four structural gates settle whether the SPAWN is well formed, and they run ahead of every policy gate so that a dispatch which is malformed AND something else hears about the malformed half first.\n' \
+                "$((i+1))" "${want[$i]}" "$seen"
+            bad=1
+        fi
+    done
+
+    for i in "${!chain[@]}"; do
+        [ "$i" -lt "${#want[@]}" ] && continue
+        case " $AGENT_CHAIN_STRUCTURAL_PREFIX " in
+            *" ${chain[$i]} "*)
+                printf '%s is a STRUCTURAL gate wired at position %d, behind a policy gate. It belongs in the first %d entries: a spawn that fails it should never have been reasoned about by anything downstream.\n' \
+                    "${chain[$i]}" "$((i+1))" "${#want[@]}"
+                bad=1
+                ;;
+        esac
+    done
+
+    return "$bad"
+}

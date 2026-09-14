@@ -521,6 +521,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # list, plus contract-integrity.test.sh's own sandbox chain. All eight carry it,
 # so unlike the notice-unlanded-branches note above, this one leaves no
 # inventory owing.
+# guard-brief-scope.sh, added 2026-09-14: the ninth PreToolUse[Agent] gate. It
+# refuses a dispatch whose brief has drifted outside the scope the CEO actually
+# set, and it is silent on every body of work with no recorded spec. It is also
+# the hook that PROVED this acknowledgement list is not the expensive half of
+# adding a hook: it landed registered in hooks/hooks.json alone, and four
+# separate suites went red on `main` for inventories nobody had told its author
+# about. Two of those inventories are now DERIVED (the probe's Layer C chain and
+# BR2's order rule, both from hooks/hooks.json via scripts/lib/registered-
+# hooks.sh), so the places a tenth hook must be named by hand are fewer than the
+# places this one was.
 # guard-owned-state.sh, added 2026-09-10: the standing-ownership gate on
 # PreToolUse[Agent]. It refuses ONE dispatch per session while the oldest
 # system whose health the orchestrator owns — CI, worktree reclamation,
@@ -653,6 +663,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # suite naming it. Layer M's CANON list carries it too — not demanded by any
 # suite, so the guard reports that one as advice rather than refusing over it.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-brief-scope.sh
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh

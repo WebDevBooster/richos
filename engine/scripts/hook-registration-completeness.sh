@@ -119,12 +119,21 @@
 #     both live instances: neither resolves a root, so neither belongs there.
 #     The condition is tested with the SAME grep Layer R itself uses.
 #
-#   CANONICAL_AGENT_CHAIN (contract-integrity-probe.sh Layer C) — only for a
-#     hook registered on PreToolUse with an Agent matcher. It is an ORDERED
-#     chain; a Stop hook has no position in it.
+# That leaves ONE conditional inventory. There were two until 2026-09-14:
 #
-# Both conditions are read off the artifacts (the hook's own source, its
-# hooks.json matcher), never off intent.
+#   CANONICAL_AGENT_CHAIN (contract-integrity-probe.sh Layer C) — GONE, and its
+#     removal is the reason this paragraph is worth reading. It was an ORDERED
+#     typed chain that an Agent-matcher hook had to be added to by hand, in the
+#     right position, and this file dutifully DEMANDED it: the ninth Agent hook's
+#     report named it as one of four owed places. A demand is the right answer
+#     to a list that must exist. It is the wrong answer to a list that should
+#     not. That chain is now derived from hooks/hooks.json through
+#     scripts/lib/registered-hooks.sh, so the registration IS the entry and
+#     there is nothing left to owe — the only demand this file can make of a
+#     tenth Agent hook is the one it makes of every hook.
+#
+# The surviving condition is read off the artifacts (the hook's own source),
+# never off intent.
 #
 # ===========================================================================
 # WHAT THIS DELIBERATELY DOES NOT CHECK
@@ -520,8 +529,13 @@ ROOTED_LIST = None
 AGENT_CHAIN = None
 CANON_LIST = ""
 if PROBE_REL in INVENTORIES:
-    ROOTED_LIST = block(probe_text, r'R_ROOTED_HOOKS="(.*?)"\n', "the R_ROOTED_HOOKS list", PROBE_REL).split()
-    AGENT_CHAIN = block(probe_text, r"CANONICAL_AGENT_CHAIN=\(\n(.*?)\n\)\n", "the CANONICAL_AGENT_CHAIN array", PROBE_REL)
+    ROOTED_LIST = block(probe_text, r'R_ROOTED_HOOKS="(.*?)"\n', "the R_ROOTED_HOOKS list", PROBE_REL)
+    ROOTED_LIST = ROOTED_LIST.split()
+    # AGENT_CHAIN stays None on purpose. Layer C's chain is DERIVED from
+    # hooks/hooks.json now, so a hook on PreToolUse[Agent] owes it nothing and
+    # the demand below is skipped. Left as an explicit None with this note
+    # rather than deleted, because the next reader's question is "was this
+    # forgotten?" and a silence cannot answer it.
     # Layer M's double-registration list. NOT a requirement — no suite asserts
     # membership — so it is read only to keep the advisory from telling
     # somebody to do a thing they have already done.
@@ -583,16 +597,10 @@ for s in SUBJECTS:
                                   "does" if rooted else "does not"))
 
         on_agent = any("Agent" in m for m in rec["matchers"]) and "PreToolUse" in rec["events"]
-        if AGENT_CHAIN is not None:
-            if on_agent and s not in AGENT_CHAIN:
-                failures.append((s, PROBE_REL + " :: CANONICAL_AGENT_CHAIN",
-                                 "this hook is registered on PreToolUse[Agent], so add it to "
-                                 "CANONICAL_AGENT_CHAIN in %s, IN THE POSITION IT IS WIRED. "
-                                 "Layer C checks the chain position by position and BR2 "
-                                 "checks the order, so an out-of-order entry fails as loudly "
-                                 "as a missing one." % PROBE_REL))
-            elif on_agent:
-                checked.append("%s: named in CANONICAL_AGENT_CHAIN" % s)
+        if on_agent:
+            checked.append("%s: the PreToolUse[Agent] chain owes nothing — Layer C and BR2 "
+                           "both DERIVE it from hooks/hooks.json, so this hook's position is "
+                           "its registration and there is no list to add it to" % s)
 
         if not on_agent and any("Bash" in m for m in rec["matchers"]) and s not in CANON_LIST:
             advisories.append(

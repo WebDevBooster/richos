@@ -180,6 +180,19 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# THE SHARED HOOK-INVENTORY LIBRARY, SOURCED HERE AND NOT WHERE IT IS FIRST USED.
+# Both routes need it and they are far apart in this file: BR2 (plugin route)
+# judges the Agent chain's order around line 1250, Layer C (seated route) derives
+# the whole chain around line 2050. Sourcing it beside either one leaves the other
+# calling an undefined function, which under `set -u` is an unbound-variable exit
+# rather than a named failure. The layers that use it each carry their own
+# not-available branch, so a missing library is reported, never assumed away.
+_RH_LIB="$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+if [ -f "$_RH_LIB" ]; then
+    # shellcheck source=../lib/registered-hooks.sh disable=SC1090
+    . "$_RH_LIB"
+fi
+
 if resolve_entity_root ""; then
     REPO_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 else
@@ -1063,6 +1076,7 @@ guard-ceo-ask-first.sh|PreToolUse
 guard-model-ceiling.sh|PreToolUse
 guard-stale-staging.sh|PreToolUse
 guard-owned-state.sh|PreToolUse
+guard-brief-scope.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
@@ -1225,15 +1239,37 @@ BR_EOF
             BR_AGENT_ORDER="$(printf '%s\n' "$BR_HOOKS_ROWS" \
                 | awk -F'\t' '$1=="PreToolUse" && $2=="Agent" {print $3}' \
                 | sed -e 's|.*/scripts/hooks/||' -e 's|[[:space:]].*||' | tr '\n' ' ')"
-            # guard-ceo-ask-first.sh is LAST, deliberately: the spawn's own
-            # structural contract (isolation, name, definition, prompt) is
-            # settled before a policy question about the SESSION is put. A
-            # dispatch that is malformed AND unasked should be told it is
-            # malformed first, because that is the one the operator can fix
-            # without leaving the keyboard.
-            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh guard-stale-staging.sh guard-owned-state.sh "
-            if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
-                emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
+            # THIS WAS A TYPED SEQUENCE OF EIGHT NAMES AND IT WENT STALE THE DAY
+            # A NINTH HOOK WAS REGISTERED. It failed with `want:` and `got:`
+            # lines that were identical for eight entries and differed only by a
+            # trailing guard-brief-scope.sh — a correctly registered hook
+            # reported as a defect, by a list, on behalf of nobody.
+            #
+            # What was load-bearing in that sequence was never the sequence. It
+            # was that the four STRUCTURAL gates come first, in their order,
+            # ahead of every policy gate. The tail's order is explicitly NOT
+            # load-bearing — the comment beside guard-model-ceiling.sh says so
+            # in as many words — so constraining it bought nothing and cost an
+            # edit to every future appender.
+            #
+            # The rule now lives once, in scripts/lib/registered-hooks.sh, and
+            # BOTH routes ask it: Layer C for the seated table, this for the
+            # plugin table. A TENTH hook appended tomorrow passes here untouched.
+            BR_AGENT_NAMES=()
+            for _bn in $BR_AGENT_ORDER; do BR_AGENT_NAMES+=("$_bn"); done
+            if ! command -v agent_chain_order_violations >/dev/null 2>&1; then
+                emit_fail "BR2. the PreToolUse[Agent] chain ORDER was NOT checked: the shared hook-inventory library is missing or unreadable at $_RH_LIB, and this rule is declared there. An order nobody checked is not an order anybody verified."
+                BR2_OK=0
+            elif [ "${#BR_AGENT_NAMES[@]}" -eq 0 ]; then
+                emit_fail "BR2. the plugin hook table registers NOTHING on PreToolUse[Agent]. Every spawn-contract gate this engine has is on that chain, so a spawn would meet none of them."
+                BR2_OK=0
+            elif ! BR_ORDER_PROBLEMS="$(agent_chain_order_violations "${BR_AGENT_NAMES[@]}")"; then
+                while IFS= read -r _v; do
+                    [ -n "$_v" ] || continue
+                    emit_fail "BR2. PreToolUse[Agent] chain ORDER: $_v"
+                done <<BR_ORDER_EOF
+$BR_ORDER_PROBLEMS
+BR_ORDER_EOF
                 BR2_OK=0
             fi
 
@@ -1294,7 +1330,7 @@ BR_EOF_REV
             fi
 
             if [ "$BR2_OK" -eq 1 ]; then
-                emit_pass "BR2. all $BR_EXPECTED_COUNT managed guards registered exactly once on the right event and nothing else registered; PreToolUse[Agent] chain in canonical order; session banner's inventory agrees"
+                emit_pass "BR2. all $BR_EXPECTED_COUNT managed guards registered exactly once on the right event and nothing else registered; PreToolUse[Agent] chain leads with its structural gates; session banner's inventory agrees"
             fi
         fi
     fi
@@ -1949,11 +1985,17 @@ while IFS= read -r line; do
     [ -n "$line" ] && WRITE_CMDS+=("$line")
 done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1 ~ /Write/ && $1 ~ /Edit/ {print $2}')
 
-# The PreToolUse[Agent] matcher wires a CHAIN of hooks, in order:
-#   1. guard-worktree-isolation.sh  (spawn-contract PREVENTER: isolation + name)
-#   2. guard-definition-drift.sh    (booted-definition freshness PREVENTER)
-#   3. reader-teammate-hint.sh      (routes reading/ingest work to the reader)
-#   4. verify-agent-prompt.sh       (spawn-content gate)
+# The PreToolUse[Agent] matcher wires a CHAIN of hooks, in order. It opens with
+# four STRUCTURAL gates — isolation and truthful name, booted-definition
+# freshness, reader routing, spawn-content — and continues with a policy tail
+# whose order is deliberately not load-bearing.
+#
+# NO ROSTER HERE, ON PURPOSE. This comment used to name four hooks as though
+# that were the whole chain; the chain had been eight for weeks. A literal
+# inventory in a comment is the same defect as one in an array, minus the
+# ability to fail — so the names are DERIVED below (CANONICAL_AGENT_CHAIN) and
+# the rule they are judged against is declared once in
+# scripts/lib/registered-hooks.sh.
 AGENT_CMDS=()
 while IFS= read -r line; do
     [ -n "$line" ] && AGENT_CMDS+=("$line")
@@ -2020,39 +2062,60 @@ CANONICAL_IDLELAND_PY="$REPO_ROOT/scripts/hooks/guard-idle-land.py"
 CANONICAL_INTERACTIVE_LIB="$REPO_ROOT/scripts/lib/interactive-prompt.py"
 CANONICAL_DRIFTGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
 CANONICAL_DEFSNAPSHOT_HOOK="$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
-CANONICAL_AGENT_CHAIN=(
-    "$REPO_ROOT/scripts/hooks/guard-worktree-isolation.sh"
-    "$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
-    "$REPO_ROOT/scripts/hooks/reader-teammate-hint.sh"
-    "$REPO_ROOT/scripts/hooks/verify-agent-prompt.sh"
-    # LAST, and the position is the design rather than an append. The four above
-    # decide whether the SPAWN is well formed; this one decides whether the
-    # SESSION has earned a dispatch at all. A spawn that is both malformed and
-    # unasked is told it is malformed first, because that is the half the
-    # operator can fix without leaving the keyboard.
-    "$REPO_ROOT/scripts/hooks/guard-ceo-ask-first.sh"
-    # LAST, appended rather than inserted, and both halves of that are
-    # deliberate. The four structural guards settle whether the SPAWN is well
-    # formed, and a dispatch that is malformed AND over the cost ceiling should
-    # hear about the malformed half first — the half the operator can fix
-    # without leaving the keyboard. Against the CEO-ask gate the order is not
-    # load-bearing (both are policy questions), so the tie was broken by the
-    # merge-safe choice: appending, while another engineer held hooks.json open.
-    "$REPO_ROOT/scripts/hooks/guard-model-ceiling.sh"
-    # LAST, after the cost ceiling. The chain reads outward: is the SPAWN
-    # well formed, then what does it COST, then what ENVIRONMENT will it
-    # meet. A dispatch that is malformed should hear that first; whether
-    # staging is current is the least actionable thing to be told about a
-    # spawn that was never going to run.
-    "$REPO_ROOT/scripts/hooks/guard-stale-staging.sh"
-    # LAST, after the environment gate, and the chain now reads outward in
-    # full: is the SPAWN well formed, what does it COST, what ENVIRONMENT
-    # will it meet, and only then what STANDING STATE was being ignored when
-    # it was made. The last of those is the least specific to this dispatch
-    # and the only one that is not about the dispatch at all, so it is the
-    # last thing the operator should be told.
-    "$REPO_ROOT/scripts/hooks/guard-owned-state.sh"
-)
+# --- THE Agent CHAIN, DERIVED FROM THE REGISTRATION -------------------------
+#
+# THIS USED TO BE A TYPED ARRAY OF EIGHT PATHS, AND ON 2026-09-14 IT COST A RED
+# `main`. guard-brief-scope.sh was registered as the ninth PreToolUse[Agent]
+# hook in hooks/hooks.json. Nothing was broken from the author's seat — the hook
+# loaded, fired, refused what it was built to refuse. This array still said
+# eight, so Layer C reported "hook chain has 9 entries wired, expected 8" in
+# scripts/demo.sh's sandbox, whose seated table IS derived from hooks.json.
+#
+# AND THE REMEDY IT PRINTED WAS DEAD. "run scripts/hooks/install.sh" appears in
+# the message below; install.sh validates two config keys, migrates a stale
+# settings.json and mints sha256 sidecars, and never writes a hook stanza or
+# touches this array. An engineer who did as they were told got the identical
+# failure back. A guard whose fix text does not fix it teaches its reader that
+# the guard is noise, so the message now names the actual surfaces.
+#
+# The chain is therefore READ from the plugin registration, which is the file
+# that determines what the host loads, through the one parser this engine keeps
+# for it (scripts/lib/registered-hooks.sh). That makes this layer a CROSS-
+# SURFACE check rather than a tautology: AGENT_CMDS comes from the SEATED table
+# (.claude/settings.local.json), the expectation comes from the PLUGIN table
+# (hooks/hooks.json), and the two are different files that must agree. The
+# defect that has to be caught — a hook registered on one surface and not the
+# other — is exactly the shape this comparison sees, and it was live on `main`
+# while this array was typed, uncaught by anything in the seated route.
+#
+# THE ORDER INTENT DID NOT MOVE INTO THE DERIVATION, because it cannot: derived
+# from hooks.json and checked against hooks.json it could never fail. It is
+# typed, once, as AGENT_CHAIN_STRUCTURAL_PREFIX in that same library, as a
+# PREFIX rule rather than a sequence — so a tenth hook appended tomorrow costs
+# this layer nothing, while a hook inserted ahead of the structural four still
+# fails. The paragraph-per-entry rationale that used to live here is in the
+# library, beside the rule it justifies.
+PLUGIN_HOOKS_JSON="$ENGINE_ROOT/hooks/hooks.json"
+CANONICAL_AGENT_CHAIN=()
+AGENT_CHAIN_NAMES=()
+AGENT_CHAIN_SOURCE_ERROR=""
+if ! command -v registered_agent_chain >/dev/null 2>&1; then
+    AGENT_CHAIN_SOURCE_ERROR="the shared hook-inventory library is missing or unreadable at $_RH_LIB"
+else
+    _chain_out="$(registered_agent_chain "$PLUGIN_HOOKS_JSON" 2>/dev/null)"
+    case "$?" in
+        0) while IFS= read -r _n; do
+               [ -n "$_n" ] || continue
+               AGENT_CHAIN_NAMES+=("$_n")
+               CANONICAL_AGENT_CHAIN+=("$REPO_ROOT/scripts/hooks/$_n")
+           done <<CHAIN_EOF
+$_chain_out
+CHAIN_EOF
+           ;;
+        1) AGENT_CHAIN_SOURCE_ERROR="the plugin registration is not at $PLUGIN_HOOKS_JSON" ;;
+        *) AGENT_CHAIN_SOURCE_ERROR="$PLUGIN_HOOKS_JSON is unreadable, registers nothing on PreToolUse[Agent], or there is no python3 to parse it with" ;;
+    esac
+fi
 
 # Resolve settings.json $CLAUDE_PROJECT_DIR placeholder → absolute path.
 RESOLVED_GUARD_CMD="${GUARD_CMD//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
@@ -2114,25 +2177,38 @@ fi
 
 # --- Layer C: Agent hook CHAIN path-confined + manifest-hash-matched, IN ORDER ---
 #
-# Order is load-bearing. guard-worktree-isolation.sh runs FIRST as the hard
-# spawn-contract preventer (isolation + truthful name) — a spawn that fails it
-# should never reach anything downstream. guard-definition-drift.sh runs SECOND:
-# it is the other structural spawn-correctness gate (is this agent's BOOTED
-# definition actually the one on disk?), so it rejects before the softer
-# routing/content checks. reader-teammate-hint.sh then runs before
-# verify-agent-prompt.sh so a misrouted reading task gets the reader nudge
-# before the stricter spawn-content gate. guard-ceo-ask-first.sh is LAST because
-# it is the only one asking about the SESSION rather than about the spawn: a
-# dispatch that is both malformed and unasked should hear about the malformed
-# half first, since that is the half the operator can fix on the spot.
-if [ "${#AGENT_CMDS[@]}" -eq 0 ]; then
+# WHAT THIS LAYER COMPARES, and why it is not a tautology: AGENT_CMDS is the
+# SEATED chain, read out of .claude/settings.local.json. CANONICAL_AGENT_CHAIN
+# is DERIVED from the PLUGIN registration, hooks/hooks.json. Two different files
+# that must agree — a hook registered on one surface and not the other is the
+# defect, and on 2026-09-14 it was live on `main` for hours with nothing in the
+# seated route able to see it, because this expectation was a typed list of
+# eight and the answer it should have given was nine.
+#
+# ORDER is load-bearing for the first four and only the first four. That intent
+# is typed once, as AGENT_CHAIN_STRUCTURAL_PREFIX in scripts/lib/registered-
+# hooks.sh, and applied below through agent_chain_order_violations. The
+# per-position rationale lives beside it there.
+if [ -n "$AGENT_CHAIN_SOURCE_ERROR" ]; then
+    # NEVER a silent zero. An unreadable registration would otherwise derive an
+    # EMPTY expectation, and an empty expectation makes every comparison below
+    # vacuous while this layer still prints a tick — the absence of a check
+    # wearing the costume of the absence of a finding.
+    emit_fail "C. the PreToolUse[Agent] chain could not be DERIVED: $AGENT_CHAIN_SOURCE_ERROR. Nothing below was checked — not the count, not the order, not one path, not one hash."
+elif [ "${#AGENT_CMDS[@]}" -eq 0 ]; then
     emit_fail "C. PreToolUse[Agent] hook chain NOT wired in settings.json"
 elif [ "${#AGENT_CMDS[@]}" -ne "${#CANONICAL_AGENT_CHAIN[@]}" ]; then
     C_CHAIN_NAMES=""
     for _c in "${CANONICAL_AGENT_CHAIN[@]}"; do
         C_CHAIN_NAMES="${C_CHAIN_NAMES}${C_CHAIN_NAMES:+, then }$(basename "$_c")"
     done
-    emit_fail "C. PreToolUse[Agent] hook chain has ${#AGENT_CMDS[@]} entries wired, expected ${#CANONICAL_AGENT_CHAIN[@]} (${C_CHAIN_NAMES}) — run scripts/hooks/install.sh"
+    # THE REMEDY NAMES THE TWO SURFACES, because the one that stood here — "run
+    # scripts/hooks/install.sh" — could not fix this and never could. install.sh
+    # validates two config keys, migrates a stale settings.json and mints sha256
+    # sidecars; it does not write a hook stanza. An engineer who followed it got
+    # the identical failure back, which is how a guard teaches its reader to
+    # route around it.
+    emit_fail "C. PreToolUse[Agent] chain MISMATCH between the two registration surfaces: ${#AGENT_CMDS[@]} entries seated in $SETTINGS, ${#CANONICAL_AGENT_CHAIN[@]} registered in $PLUGIN_HOOKS_JSON (${C_CHAIN_NAMES}). Both surfaces register hooks and both must carry the same chain — seat the missing entry in .claude/settings.local.json, in the position it is wired in hooks/hooks.json."
 else
     CHAIN_OK=1
     for i in "${!CANONICAL_AGENT_CHAIN[@]}"; do
@@ -2165,6 +2241,23 @@ else
             fi
         fi
     done
+
+    # THE ORDER INTENT. The loop above proved the seated chain IS the registered
+    # chain; this asks whether that chain is in an order anybody meant. The two
+    # are different questions and the derivation can only answer the first —
+    # hooks.json cannot tell you whether hooks.json is ordered correctly. A
+    # PREFIX rule, so a tenth hook appended tomorrow needs no edit anywhere,
+    # while a gate inserted ahead of the structural four fails here.
+    C_ORDER_PROBLEMS="$(agent_chain_order_violations "${AGENT_CHAIN_NAMES[@]}")" || {
+        while IFS= read -r _v; do
+            [ -n "$_v" ] || continue
+            emit_fail "C. PreToolUse[Agent] chain ORDER: $_v"
+        done <<C_ORDER_EOF
+$C_ORDER_PROBLEMS
+C_ORDER_EOF
+        CHAIN_OK=0
+    }
+
     if [ "$CHAIN_OK" -eq 1 ]; then
         # DERIVED, never typed. This tick said "4 hooks" while verifying 5 for
         # exactly as long as it took to read it — a literal inventory inside a
@@ -2174,7 +2267,7 @@ else
         for _c in "${CANONICAL_AGENT_CHAIN[@]}"; do
             C_PASS_NAMES="${C_PASS_NAMES}${C_PASS_NAMES:+, }$(basename "$_c")"
         done
-        emit_pass "C. PreToolUse[Agent] chain -> ${C_PASS_NAMES} (path-confined, manifest-matched, in order)"
+        emit_pass "C. PreToolUse[Agent] chain -> ${C_PASS_NAMES} (seated table matches the registration, path-confined, manifest-matched, structural gates first)"
     fi
 fi
 
