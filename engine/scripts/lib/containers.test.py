@@ -191,6 +191,31 @@ class Ownership(unittest.TestCase):
             else:
                 os.environ["PATH"] = saved
 
+    # The program the case below runs in a CHILD process. A module-level
+    # constant rather than an inline string so the quoting stays readable, and
+    # so the mutation harness's `mutate.py` never has to reason about it.
+    _UTC_UNDER_DST = r"""
+import calendar, sys, time
+sys.path.insert(0, sys.argv[1])
+import containers as ct
+
+summer = calendar.timegm((2026, 7, 1, 12, 0, 0, 0, 0, 0))
+
+# THE PIN IS A PRECONDITION, so it is checked before anything rests on it.
+if time.timezone != 0:
+    sys.exit("the pinned zone's STANDARD offset is %r, expected 0" % (time.timezone,))
+if time.localtime(summer).tm_isdst != 1:
+    sys.exit("the pinned zone is not in daylight saving at the moment under test"
+             " -- outside DST, mktime and timegm agree and this proves nothing")
+
+for stamp in ("2026-07-01T12:00:00Z", "2026-07-01T12:00:00.123456789Z",
+              "2026-07-01 12:00:00"):
+    got = ct._epoch(stamp)
+    if got != summer:
+        sys.exit("%s read as %d, expected %d (off by %+d) -- a UTC stamp was"
+                 " shifted by the local offset" % (stamp, got, summer, got - summer))
+"""
+
     def test_C10_age_is_read_as_utc_not_local_time(self):
         """Docker stamps UTC. Reading it with time.mktime (which assumes LOCAL)
         and correcting by time.timezone is wrong under daylight saving, because
@@ -198,8 +223,53 @@ class Ownership(unittest.TestCase):
         old reported `1h` when this was first measured, in BST.
 
         An age is half of what the orphan report owes its reader, so this is
-        pinned rather than left to whoever next reads the machine's clock."""
+        pinned rather than left to whoever next reads the machine's clock.
+
+        WITHOUT A PINNED TIMEZONE THIS CASE PROVES NOTHING ON A RUNNER.
+        `mktime(t) - time.timezone` and `calendar.timegm(t)` are
+        ARITHMETICALLY IDENTICAL wherever daylight saving is not in force at
+        the moment being read -- that is the entire content of the bug -- and a
+        GitHub runner is UTC. So this case, written about a defect it could not
+        observe, passed on the defect and on the fix alike, and the mutation
+        harness said so out loud on 2026-09-13:
+
+            FAIL  age-read-as-local-time — the suite still PASSED without
+                  this property.
+
+        A suite reporting that its own assertion carries nothing. The defect
+        was never on the runner; the BLINDNESS was, and the only machine that
+        could see it was the developer's, in BST.
+
+        A CHILD PROCESS, NOT os.environ + time.tzset() IN THIS ONE, for two
+        reasons that have nothing to do with taste. time.tzset() mutates the
+        timezone of the WHOLE interpreter, and this file is not an ordinary
+        suite -- the D cases drive real Docker containers in the same process,
+        so a pin that is restored in a `finally` is still a window in which
+        anything running here reads a fabricated clock. And time.tzset() does
+        not exist off Unix, so the in-process form would have to choose between
+        failing and skipping on a platform where the property is perfectly
+        true. The child reads TZ from its environment at start-up, needs no
+        tzset at all, and dies with the case.
+
+        A POSIX TZ STRING, NOT A ZONE NAME. "Europe/London" needs the tz
+        database, and where tzdata is thin or absent the lookup falls back to
+        UTC SILENTLY -- restoring the exact hole this closes, with a green tick
+        on top. The string carries its own DST rule and reads nothing from
+        disk. And the pin is ASSERTED, never assumed, because a pin that
+        quietly did not take is the state this case was already in.
+        """
         import calendar
+
+        # --- the defect itself, under a zone that is IN daylight saving -----
+        env = dict(os.environ)
+        env["TZ"] = "TST0TDT,M3.2.0,M11.1.0"   # std +0, dst +1, Mar..Nov
+        r = subprocess.run([sys.executable, "-c", self._UTC_UNDER_DST, HERE],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0,
+                         "reading a Docker stamp under a DST timezone: "
+                         + (r.stdout + r.stderr).strip())
+
+        # --- and the parts that hold in any zone, in this process -----------
         now = time.time()
         stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + ".123456789Z"
         self.assertLess(abs(ct._epoch(stamp) - now), 5,
