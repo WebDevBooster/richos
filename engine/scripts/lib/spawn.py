@@ -97,6 +97,8 @@ PREPARE = _load("richos_prepare_agent_spawn",
                 os.path.join(ENGINE, "scripts", "prepare-agent-spawn.py"))
 PROV = _load("richos_brief_provenance",
              os.path.join(ENGINE, "scripts", "brief-provenance.py"))
+SCOPE = _load("richos_brief_scope",
+              os.path.join(ENGINE, "scripts", "brief-scope.py"))
 
 
 class Refusal(Exception):
@@ -614,6 +616,14 @@ def main(argv):
         # source is named to the agent, and the agent re-derives it. On a brief that
         # sources everything, nothing is appended and the payload is byte-identical.
         payload["prompt"], findings = PROV.annotate(payload["prompt"], repo)
+        # WHO CHOOSES THE MECHANISM, appended for the same reason and in the same
+        # place. It fires only when the brief anchors an item to a spec point that
+        # a previous round left red — the CEO's own scoping clause for a prescribed
+        # design, computed from the verdict history rather than read off the prose.
+        # On every other brief it appends nothing and the payload is unchanged.
+        payload["prompt"], stamp_notes = SCOPE.annotate(payload["prompt"], repo)
+        for _n in stamp_notes:
+            notes.append("design:      %s" % _n)
     except Refusal as exc:
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
         return 1
