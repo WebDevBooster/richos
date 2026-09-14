@@ -55,11 +55,30 @@
 #     operator looked for a banner that had gone somewhere only the model could
 #     see and concluded the engine was not loaded.
 #
-# THE AUDIENCE IS THE OPERATOR ON PURPOSE, not by omission. The remedy is a
-# session restart, and the binary's own hook-authoring guidance is explicit that
-# the assistant cannot do it: "Tell the user to open /hooks once (reloads
-# config) or restart — you can't do this yourself". Addressing this notice to
-# the model would be telling the one party that cannot act.
+# THE OPERATOR IS THE AUDIENCE FOR THE REMEDY, and that has not changed. The
+# remedy is a session restart, and the binary's own hook-authoring guidance is
+# explicit that the assistant cannot do it: "Tell the user to open /hooks once
+# (reloads config) or restart — you can't do this yourself."
+#
+# THE MODEL IS A SECOND AUDIENCE FOR THE FACT — added 2026-09-14, and the
+# original reasoning above is corrected rather than deleted, because it was
+# right about the remedy and wrong to conclude from that that the model does
+# not need the fact.
+#
+# What it cost: on 2026-09-14 this hook fired correctly and named
+# guard-hook-registration-commits.sh as landed-and-inert. The announcement went
+# out on systemMessage alone. The orchestrator never saw it, and twelve hours
+# later briefed an engineer that the guard was "present in the booting session's
+# hook set" — quoting the snapshot file as proof. It was not in that session's
+# hook set. The commit that guard exists to refuse went through it in silence,
+# `main` went red, and the repair cost a six-figure-token agent.
+#
+# THE DISTINCTION THE ORIGINAL ARGUMENT MISSED: "who can perform the remedy" and
+# "who needs to know the fact" are different questions. An assistant that cannot
+# learn its guards are off will keep reasoning as though they are on, will read
+# a clean run as enforcement, and will write that belief into the next brief as
+# an established premise. So the fact goes to both; the request still names the
+# operator, in the message text, exactly as before.
 #
 # ONE Stop hook already exists (guard-unresolved-claims.sh) and this is
 # deliberately NOT folded into it. That one is a blocking gate on report
@@ -202,20 +221,45 @@ INPUT="$(cat 2>/dev/null || true)"
 
 # emit <message>
 #
-# ONE channel, chosen because it is the one that reaches the party who can act.
-# stdout JSON with systemMessage, exit 0 — the shape proven live above.
+# TWO channels, because this notice has TWO audiences and the measured table
+# above says no single channel reaches both.
+#
+#   systemMessage    -> the PERSON. Only they can restart the session, and the
+#                       message says so ("THIS IS YOURS TO DO"). This was the
+#                       original and correct choice.
+#   additionalContext -> the MODEL. Added 2026-09-14, and the reason is a
+#                       specific failure rather than symmetry.
+#
+# WHY THE ASSISTANT HAS TO HEAR THIS TOO. On 2026-09-14 this hook fired
+# correctly and named guard-hook-registration-commits.sh as landed-and-inert.
+# It went out on systemMessage alone, so the ORCHESTRATOR never saw it — and
+# twelve hours later it briefed an engineer with "present in the booting
+# session's hook set", quoting the snapshot file as proof. It was not in that
+# session's hook set, the commit the guard exists to refuse went through in
+# silence, and `main` went red.
+#
+# An assistant that cannot learn its guards are off will keep reasoning as if
+# they are on, will report a clean run as enforcement, and will write the
+# belief into the next brief. Telling only the operator makes the assistant a
+# confident source of a false premise. This hook is registered on Stop and
+# nowhere else, so naming Stop in the envelope is exact rather than a guess.
 emit() {
     local msg="$1"
     if command -v python3 >/dev/null 2>&1; then
         MSG="$msg" python3 - <<'PY' 2>/dev/null || true
 import json, os
-print(json.dumps({"systemMessage": os.environ.get("MSG", "")}))
+m = os.environ.get("MSG", "")
+print(json.dumps({
+    "systemMessage": m,
+    "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": m},
+}))
 PY
     else
         local escaped="${msg//\\/\\\\}"
         escaped="${escaped//\"/\\\"}"
         escaped="${escaped//$'\n'/\\n}"
-        printf '{"systemMessage":"%s"}\n' "$escaped"
+        printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' \
+            "$escaped" "$escaped"
     fi
 }
 

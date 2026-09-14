@@ -56,6 +56,8 @@
 #   (12) SessionStart source=clear/compact  -> baseline PRESERVED (same process)
 #   (12b) an inert guard is STILL named after a compaction re-fire
 #   (12c) source=startup/resume             -> baseline refreshed (new process)
+#   (13) the notice names the inert guard on BOTH channels — systemMessage
+#        (person) and additionalContext (model)
 #
 # Run directly: scripts/hooks/hook-staleness.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
@@ -626,6 +628,40 @@ for src in startup resume; do
     fi
 done
 
+
+# ===========================================================================
+# 13. THE NOTICE REACHES THE ASSISTANT, NOT ONLY THE OPERATOR
+# ===========================================================================
+# Measured channel table (this engine's own, 2026-09-14): on Stop,
+# systemMessage renders to the PERSON and additionalContext reaches the MODEL.
+# Emitting only systemMessage is why the orchestrator briefed an engineer on
+# 2026-09-14 with "present in the booting session's hook set" while this hook
+# had already named that very guard as inert. An assistant that cannot learn
+# its guards are off writes the false premise into the next brief.
+R13="$(make_sandbox)"
+take_baseline "$R13"
+wire_hook "$R13/hooks.json" "Stop" "zz-fixture-never-registered.sh"
+OUT13="$(run_notice "$R13")"
+CHAN13="$(printf '%s' "$OUT13" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("UNPARSEABLE"); raise SystemExit
+person = str(d.get("systemMessage") or "")
+model = str((d.get("hookSpecificOutput") or {}).get("additionalContext") or "")
+ev = str((d.get("hookSpecificOutput") or {}).get("hookEventName") or "")
+missing = []
+if "zz-fixture-never-registered.sh" not in person: missing.append("systemMessage")
+if "zz-fixture-never-registered.sh" not in model: missing.append("additionalContext")
+if ev != "Stop": missing.append("hookEventName=%r want Stop" % ev)
+print("OK" if not missing else "MISSING:" + ",".join(missing))
+' 2>/dev/null || echo UNPARSEABLE)"
+if [ "$CHAN13" = "OK" ]; then
+    ok "13  the notice names the inert guard on BOTH channels — systemMessage (person) and additionalContext (model)"
+else
+    bad "13  notice reaches both audiences" "($CHAN13)"
+fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
