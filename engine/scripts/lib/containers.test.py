@@ -853,7 +853,17 @@ class Interrupted(unittest.TestCase):
         that cleaned up and then exited 1 would report a killed run as an
         ordinary test failure, which is the same class of lie as the leak.
         """
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        # SIGTERM FIRST, AND THE ORDER IS LOAD-BEARING FOR THE HARNESS RATHER
+        # THAN FOR THIS CASE. Both signals are checked either way. But when the
+        # mutation harness removes the signal registration, the probe falls back
+        # to the disposition it INHERITED, and a pool worker is a background job
+        # whose SIGINT is SIG_IGN — so a SIGINT-first loop spends the full
+        # 60-second wait discovering that, while the machine runs seven other
+        # mutants. Measured: that one mutant took 1m11s, more than the whole
+        # pristine harness took to run, and the contention it added turned
+        # unrelated mutants red. SIGTERM is never inherited-ignored, so it fails
+        # in about a second and the harness stops competing with itself.
+        for sig in (signal.SIGTERM, signal.SIGINT):
             p, name = self.start_probe()
             p.send_signal(sig)
             p.wait(timeout=60)
