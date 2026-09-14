@@ -1,5 +1,35 @@
 # How Codex commits reached `main`: the provenance of every `codex/` branch
 
+> **CORRECTED 2026-09-14 BY `reed-opus-cx2`, BEFORE ANY OF THIS IS QUOTED.** The arithmetic below is
+> sound — summing the branch-side payload of the 36 reflog-named merges gives 165 commit for commit.
+> **The METHOD is incomplete and one claim in it is false.**
+>
+> **The counts are 38 operations and 185 commits, not 36 and 165.** Reading reflog entries of the form
+> `merge codex/<name>:` is structurally blind to entries git records as `commit (merge)` — the form git
+> writes when a merge is finished by hand after conflicts, **which records no branch name at all**.
+> `richos` holds 36 such entries; two carried `codex/` work: `727d8890` (16 commits, 2026-09-06) and
+> `7714871a` ("Merge Codex 9/10", 6 commits, 2026-08-30). A further 7 Codex commits arrived on
+> `sage-fable-r*` review branches.
+>
+> **The passenger claim in this document is FALSE.** `codex/durable-orchestration` did not arrive inside
+> `codex/workspace-retirement-safety`'s merge; it arrived **44 minutes earlier through a dedicated merge
+> of its own**. The evidence used here — `merge-base --is-ancestor 55728e67 f201e904` → 0 — is true of
+> *every* merge that came afterwards and therefore cannot identify the introducing one. Tested against
+> the value `main` held BEFORE each merge it is unambiguous: `--is-ancestor 55728e67 f2211148` exits 1.
+> **The passenger list is empty.**
+>
+> **A third discriminator exists that this document does not name:** a back-merge commit message
+> (`Merge branch 'main' into codex/<name>`) is an ordinary object on `main` that outlives the branch,
+> the reflog and a clone.
+>
+> **UNDETERMINED: 1.** The branch behind `7714871a` is named nowhere — not the reflog, not the merge
+> message, not the back-merge, which calls it only "the slice 9/10 branch". Its payload, date and both
+> tips are determined; its `codex/` prefix is not, and no repository can settle it.
+>
+> Full inventory, one row per merge with the command beside every number:
+> [`codex-merge-reflog-inventory-2026-09-14.md`](codex-merge-reflog-inventory-2026-09-14.md).
+> Escalation `esc-20260914T070409Z-5622da32`.
+
 **Author:** Sage (software architect). **Date:** 2026-09-14.
 **Question put to me:** how did commits reachable only through `codex/` branches come to be reachable
 from `main`, and was any of it authorized?
