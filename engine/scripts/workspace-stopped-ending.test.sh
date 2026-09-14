@@ -119,6 +119,10 @@ platform_stops() { # <name> <agent-id>
     python3 -c 'import json,sys; json.dump({"agentType":"zach","description":"d","name":sys.argv[2],"spawnDepth":1,"model":"opus","stoppedByUser":True}, open(sys.argv[1],"w"))' \
         "$d/agent-$2.meta.json" "$1"
 }
+barrier() { # <agent-id> <tool> -> rc of the point-9 lock-out; message in $T/barrier.err
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"agent_type":"zach","tool_name":sys.argv[3],"cwd":sys.argv[4],"tool_input":{}}))' "$CUR_SID" "$1" "$2" "$ENT" \
+        | bash "$HOOKS/guard-sealed-worktree.sh" >/dev/null 2>"$T/barrier.err"
+}
 stop_gate() { # -> rc of the turn-end gate; stdout $T/stop.out, stderr $T/stop.err
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"Stop","session_id":sys.argv[1],"cwd":sys.argv[2],"stop_hook_active":False,"last_assistant_message":"done"}))' "$CUR_SID" "$ENT" \
         | bash "$HOOKS/guard-workspace-gate.sh" >"$T/stop.out" 2>"$T/stop.err"
@@ -220,6 +224,27 @@ D3="$(done_rec zach-opus-s3)"
 sub "S3.3 a pause ends when the agent is stopped: it is finished and its workspaces go (point 11)" \
     "[ -n '$D3' ] && [ \"\$(jget '$D3' end.signal)\" = stopped ] && [ ! -d '$CC3' ]" \
     "done=$D3 signal=$(jget "$D3" end.signal) cc3=$( [ -d "$CC3" ] && echo present || echo gone)"
+verdict
+
+# ===========================================================================
+begin S4 "A stopped agent the platform RESTARTS is refused every tool before anything has looked at it (point 11 -> point 9)"
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-s4 >/dev/null 2>&1
+CC4="$T/other-wt/zach-opus-s4"
+spawn "zach-opus-s4" "$(printf 'work then be stopped\ncross-repo-worktree: %s\n' "$CC4")"
+platform_spawn "zach-opus-s4" "as4s4s4s4s4s4s4s4"
+barrier "as4s4s4s4s4s4s4s4" Edit; R1=$?
+sub "S4.1 before the stop it writes like any registered worker" "[ $R1 -eq 0 ]" "rc=$R1 $(cat "$T/barrier.err")"
+# Stopped, and the FIRST thing that happens next is the platform restarting it:
+# no gate, no command, nobody noticing.
+platform_stops "zach-opus-s4" "as4s4s4s4s4s4s4s4"
+barrier "as4s4s4s4s4s4s4s4" Edit; R2=$?
+sub "S4.2 restarted after the stop, its very next tool call is REFUSED (point 9)" \
+    "[ $R2 -ne 0 ] && grep -qi 'finished' '$T/barrier.err'" "rc=$R2 $(cat "$T/barrier.err" | head -c 300)"
+sub "S4.3 the refusal names the stop as the reason" "grep -qi 'stopped' '$T/barrier.err'" \
+    "$(cat "$T/barrier.err" | head -c 300)"
+stop_gate >/dev/null 2>&1
+sub "S4.4 and the ordinary path then deletes its workspaces" "[ ! -d '$CC4' ]" \
+    "cc4=$( [ -d "$CC4" ] && echo present || echo gone)"
 verdict
 
 echo "CHECKS RUN: $CHECKS_RUN  RED: $CHECKS_RED"

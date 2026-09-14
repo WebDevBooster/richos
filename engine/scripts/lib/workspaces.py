@@ -3428,6 +3428,12 @@ def barrier(payload):
     rec = load_agent(key) if key else None
     if not rec:
         return "UNREGISTERED", "agent %s has no registration" % aid
+    # POINT 9 MEETS POINT 11'S FOURTH ENDING. "The platform restarts finished
+    # agents. A restarted agent is refused every tool." A STOPPED agent's
+    # restart can be the FIRST thing that happens after the kill — before any
+    # gate or command has looked at it — so the lock-out asks the platform's
+    # own record here too, rather than waiting to be told.
+    rec = observe_platform_end(rec)
     fin, _paused, why = finished_state(rec)
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
