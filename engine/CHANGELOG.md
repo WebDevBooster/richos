@@ -10,6 +10,21 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added — the session handoff carries measurements (type U, 2026-09-14)
+
+- **`scripts/handoff-facts.py` + `scripts/hooks/handoff-facts-annotate.sh`
+  (PostToolUse).** A restart note written to a project's `memory/` directory
+  gains a delimited block of facts that were MEASURED when it was written —
+  repository tips and cleanliness, escalations outstanding split by audience,
+  reclaimable Docker, agent liveness — each beside the command that produced it.
+  The note that caused this was typed from recollection: one figure was never
+  produced by any command, and one carried the right number under the wrong
+  audience. Nothing is silently omitted; a fact this machine cannot measure gets
+  a row saying `UNMEASURED`. It never blocks, never edits a word the author
+  wrote, and refreshes its own block rather than appending a second one.
+  Argument, corpus measurement and the two false positives it cost to remove:
+  `docs/verification/restart-handoff-2026-09-14.md`.
+
 ### Fixed — the worktree reclaim deadlock (round 10, 2026-09-10)
 
 - **Terminal worktrees are reclaimed again, automatically, by the nightly
