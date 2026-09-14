@@ -907,6 +907,56 @@ emit_case() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# diag_or_tail — the FLOOR under every capture filter in this file.
+#
+# Every filter below is a PREDICTION about the shape its harness fails in, and
+# an unpredicted failure is precisely the thing that violates it. CL2 and SA2
+# were moved onto the exclusion form for that reason. The filters that remain
+# POSITIVE cannot follow them: MT5/MC5 read probe output, which is 114 lines of
+# ✓/✗ with no PASS row anywhere in it, so "print everything that is not a PASS
+# row" would tip all 114 lines into the report and bury the one finding it was
+# supposed to surface. Flooding hides a cause exactly as well as silence does,
+# which is why this is not a fifteen-site unification: the harnesses genuinely
+# differ, and each one keeps its own filter.
+#
+# Measured, not assumed — each of these run through the filters as they stand:
+#
+#     FATAL: python3 required
+#     FATAL: mut_pool_init: could not create a pool directory
+#     MUTATION TARGET ABSENT — the source has drifted:
+#     <script>: line 42: yq: command not found
+#     <script>: line 99: MUT_POOL_DIR: unbound variable
+#     Traceback (most recent call last):
+#     <script>: line 12: syntax error near unexpected token
+#     WARNING: RICHOS_MUTANT_JOBS='x' is not a positive integer
+#
+# The exclusion form prints 8 of 8. The `^ *(FAIL|PASS|UNPROVEN)|...` allowlist
+# prints 0 of 8, and so do `grep -E 'MT\.'` and `grep -E 'MC\.'`. Note that
+# `FATAL` does not match `^ *FAIL` — the two words differ at the third letter,
+# which is the entire reason this class of failure reports nothing.
+#
+# So: keep the narrow filter, and put a bounded floor under it. This CANNOT
+# change any output that exists today. When the filter matches anything at all
+# this prints exactly that and nothing else; the fallback reaches only the case
+# whose output is empty right now — the silent one.
+#
+#   $1  the filtered diagnostic (may be empty)
+#   $2  the raw captured output that the filter ran over
+DIAG_TAIL_N=8
+diag_or_tail() {
+    if [ -n "$1" ]; then
+        printf '%s\n' "$1" | sed 's/^/        /'
+        return 0
+    fi
+    if [ -n "$2" ]; then
+        printf '        (filter matched nothing — last %s lines of raw output)\n' "$DIAG_TAIL_N"
+        printf '%s\n' "$2" | tail -n "$DIAG_TAIL_N" | sed 's/^/        /'
+    else
+        printf '        (the harness produced no output at all)\n'
+    fi
+}
+
 # Helper: mutate ONLY the write-guard's (first) command in the Write|Edit
 # matcher entry, leaving scan-secrets.sh's (second) command untouched — the
 # matcher wires TWO hooks, and these cases are specifically about Layer B's
@@ -2471,8 +2521,8 @@ IP7_LOG="$(mktemp -t interactive-prompt-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >"$IP7_LOG" 2>&1; rc=$?; set -e
 emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IP7_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IP7_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$IP7_LOG" 2>/dev/null || true)"
 fi
 rm -f "$IP7_LOG"
 
@@ -2606,8 +2656,8 @@ IL7_LOG="$(mktemp -t idle-land-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
 emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IL7_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IL7_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$IL7_LOG" 2>/dev/null || true)"
 fi
 rm -f "$IL7_LOG"
 
@@ -2685,8 +2735,8 @@ RI2_LOG="$(mktemp -t resume-isolation-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
 emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$RI2_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$RI2_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$RI2_LOG" 2>/dev/null || true)"
 fi
 rm -f "$RI2_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
@@ -2694,8 +2744,8 @@ IN2_LOG="$(mktemp -t inflight-notify-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >"$IN2_LOG" 2>&1; rc=$?; set -e
 emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IN2_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IN2_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$IN2_LOG" 2>/dev/null || true)"
 fi
 rm -f "$IN2_LOG"
 
@@ -2717,8 +2767,8 @@ WTR1_LOG="$(mktemp -t worktree-removal-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >"$WTR1_LOG" 2>&1; rc=$?; set -e
 emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$WTR1_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$WTR1_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$WTR1_LOG" 2>/dev/null || true)"
 fi
 rm -f "$WTR1_LOG"
 
@@ -2797,7 +2847,7 @@ if printf '%s' "$MT_OUT" | grep -q 'MT\. capability order declared as data'; the
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 1
-    printf '%s\n' "$MT_OUT" | grep -E 'MT\.' | sed 's/^/        /' || true
+    diag_or_tail "$(printf '%s\n' "$MT_OUT" | grep -E 'MT\.' || true)" "$MT_OUT"
 fi
 rm -rf "$ROOT"
 
@@ -2902,7 +2952,7 @@ if printf '%s' "$MC_OUT" | grep -q 'MC\. cost ceiling declared as data'; then
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 1
-    printf '%s\n' "$MC_OUT" | grep -E 'MC\.' | sed 's/^/        /' || true
+    diag_or_tail "$(printf '%s\n' "$MC_OUT" | grep -E 'MC\.' || true)" "$MC_OUT"
 fi
 rm -rf "$ROOT"
 
@@ -2920,8 +2970,8 @@ MC6_LOG="$(mktemp -t model-ceiling-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >"$MC6_LOG" 2>&1; rc=$?; set -e
 emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MC6_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MC6_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$MC6_LOG" 2>/dev/null || true)"
 fi
 rm -f "$MC6_LOG"
 
@@ -2959,8 +3009,8 @@ if [ "$rc" -ne 0 ]; then
     # inner suite's own failing cases indented under it -- and those are the
     # lines that name which case actually broke, which is the whole question.
     # A two-space anchor drops exactly them.
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|survived or misfired|summary:' "$WTI1_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|survived or misfired|summary:' "$WTI1_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$WTI1_LOG" 2>/dev/null || true)"
 fi
 rm -f "$WTI1_LOG"
 
@@ -2976,8 +3026,8 @@ MF1_LOG="$(mktemp -t mechanical-findings-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >"$MF1_LOG" 2>&1; rc=$?; set -e
 emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MF1_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /' || true
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MF1_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$MF1_LOG" 2>/dev/null || true)"
 fi
 rm -f "$MF1_LOG"
 
