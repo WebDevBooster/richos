@@ -94,6 +94,27 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$HERE/../brief-scope.py"
 
 PAYLOAD="$(cat 2>/dev/null)"
+
+# A PAYLOAD THIS GUARD NEVER READ IS NOT A DISPATCH IT APPROVED, and the bare
+# `[ -n "$PAYLOAD" ] || exit 0` that stood here could not tell the two apart. It
+# took the SAME silent exit 0 on an empty payload, on a truncated one and on one
+# that is not JSON, as it takes on a spawn it read in full and found in scope —
+# which is the absence of a CHECK wearing the costume of the absence of a
+# FINDING, the property scripts/lib/unevaluated-notice.sh exists for.
+#
+# This guard is emphatically NOT payload-independent: every word of its verdict
+# comes out of the prompt in that payload, so the `# UNEVALUATED-PAYLOAD-EXEMPT:`
+# declaration would be a false claim about this file. It announces instead. The
+# exit stays 0 either way — failing closed on its own inability protects nothing,
+# which is the same rule the python3/library branches below already follow.
+_UE_LIB="$HERE/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-brief-scope.sh" "$PAYLOAD" \
+        "${CLAUDE_PROJECT_DIR:-}" \
+        "whether this dispatch's brief stays inside the scope the CEO actually set"
+fi
 [ -n "$PAYLOAD" ] || exit 0
 
 # A GUARD THAT CANNOT RUN SAYS SO. It still exits 0 — refusing a spawn because
