@@ -1,0 +1,32 @@
+lib      : /Users/alex/ab/richos-wt/zach-opus-n4/engine/scripts/lib/workspaces.py
+sandbox  : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-s1gs5dms
+
+T0 main  : e3feb3911b14   (before anything lands)
+A opens a tool call (its window records main = e3feb3911b14)
+the LEAD lands A's work: git merge worktree-agent-aaaa000000000001
+T1 main  : 15bedac32559   (Rich's merge)
+B opens a tool call (its window records main = 15bedac32559)
+
+A's PostToolUse -> main = e3feb3911b14   MOVED BY THE ENGINE
+    finding: ('/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-s1gs5dms/entity', 'main', 'e3feb3911b144b7c6a6532c54a5b0c6367c94250', '15bedac32559c24229e5266c874711fc47ddbdaf', "moved to 15bedac32559, which carries this agent's own unlanded work (it committed or merged onto it)")
+the LEAD lands C's work onto that tip: main = fa1e068e632e
+B's PostToolUse -> main = 15bedac32559   MOVED BY THE ENGINE
+    finding: ('/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-s1gs5dms/entity', 'main', '15bedac32559c24229e5266c874711fc47ddbdaf', 'fa1e068e632eeb41185da8ea89f1a6aa53353a1f', 'moved to fa1e068e632e, which does not descend from 15bedac32559 (a rewind, a force-move or a symref)')
+
+--- reflog of refs/heads/main (an EMPTY message is an engine write) ---
+15bedac main@{2026-09-14 01:27:56 +0100}: 
+fa1e068 main@{2026-09-14 01:27:56 +0100}: merge worktree-agent-cccc000000000003: Fast-forward
+e3feb39 main@{2026-09-14 01:27:56 +0100}: 
+15bedac main@{2026-09-14 01:27:56 +0100}: merge worktree-agent-aaaa000000000001: Fast-forward
+e3feb39 main@{2026-09-14 01:27:55 +0100}: commit (initial): init
+
+--- the engine's own event log ---
+{"branch": "main", "event": "protected-ref-restored", "found": "15bedac32559c24229e5266c874711fc47ddbdaf", "key": "sess-repro-0001--zach-opus-aa1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-s1gs5dms/entity", "tip": "e3feb3911b144b7c6a6532c54a5b0c6367c94250", "ts": "2026-09-14T00:27:56Z", "why": "moved to 15bedac32559, which carries this agent's own unlanded work (it committed or merged onto it)"}
+{"branch": "main", "event": "protected-ref-restored", "found": "fa1e068e632eeb41185da8ea89f1a6aa53353a1f", "key": "sess-repro-0001--zach-opus-bb1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-s1gs5dms/entity", "tip": "15bedac32559c24229e5266c874711fc47ddbdaf", "ts": "2026-09-14T00:27:56Z", "why": "moved to fa1e068e632e, which does not descend from 15bedac32559 (a rewind, a force-move or a symref)"}
+
+=== VERDICT ===
+mode                                  : destruction
+main was moved by the engine          : YES
+empty-message reflog lines            : 2
+the lead's last land still reachable  : NO - HIS LAND IS GONE
+main ends at                          : 15bedac32559 (the lead left it at fa1e068e632e)

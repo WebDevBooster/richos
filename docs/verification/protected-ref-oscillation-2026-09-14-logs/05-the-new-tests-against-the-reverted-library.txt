@@ -1,0 +1,86 @@
+  PASS  test_point_02_codex_is_never_touched
+  FAIL  test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported
+  FAIL  test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers
+  PASS  test_point_03_a_post_that_carries_no_call_id_still_ends_a_call
+  PASS  test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run
+  PASS  test_point_08_a_branch_that_existed_before_the_call_is_never_created_in_it
+  PASS  test_point_14_a_record_bound_to_nothing_is_refused_never_guessed
+  FAIL  test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only (error)
+  FAIL  test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone
+  PASS  test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents
+  PASS  test_point_14_a_tip_the_agent_only_borrowed_is_not_its_work
+  PASS  test_point_14_attribution_never_waits_for_the_record
+  PASS  test_point_14_never_refuses_a_path_that_is_not_a_repository
+  FAIL  test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run
+  PASS  test_point_14_the_integration_branch_is_recorded_never_inferred
+  PASS  test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone
+  PASS  test_point_14_two_of_one_agents_own_calls_open_at_once_keep_both_windows
+  PASS  test_point_14_work_merged_nowhere_is_not_landed
+  PASS  test_point_14_work_merged_onto_its_dev_branch_counts_as_landed
+======================================================================
+ERROR: test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only (__main__.Point14_IntegrationBranch.test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only)
+§4 of the forensics: the protected set was keyed by branch NAME across
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250/scratchpad/baselib/workspaces.test.py", line 1554, in test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only
+    self.assertNotIn("dev/shared-name", ws._protected_tips(self.other, other_refs))
+                                        ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: _protected_tips() takes 1 positional argument but 2 were given
+
+======================================================================
+FAIL: test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported (__main__.Point14_IntegrationBranch.test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported)
+Round 8, item 3, as amended on 2026-09-14: a codex/ ref DELETED during
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250/scratchpad/baselib/workspaces.test.py", line 1602, in test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported
+    self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip(), mine)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '7117fd676c452f329b143a80b1e5b838e83aca1d' != '00bc8e1e6d1988bd4ca290d743c181e9edf89db7'
+- 7117fd676c452f329b143a80b1e5b838e83aca1d
++ 00bc8e1e6d1988bd4ca290d743c181e9edf89db7
+
+
+======================================================================
+FAIL: test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers (__main__.Point14_IntegrationBranch.test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers)
+The one write this check still makes is CREATE-ONLY: the empty old
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250/scratchpad/baselib/workspaces.test.py", line 1636, in test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers
+    self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), other_tip)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '7c5423a71e1981c97d0b356f138224379fc419e2' != 'd9444fc9a49aaef03d55e32c5ec6eede4c45de31'
+- 7c5423a71e1981c97d0b356f138224379fc419e2
++ d9444fc9a49aaef03d55e32c5ec6eede4c45de31
+
+
+======================================================================
+FAIL: test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone (__main__.Point14_IntegrationBranch.test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone)
+Round 8, item 2, as amended on 2026-09-14. The recorded branch moved
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250/scratchpad/baselib/workspaces.test.py", line 1473, in test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone
+    self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), moved)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '0fffc0868940ddb12a5572702bf50b7bdcd33cfc' != '48883ce6b47f4273316c8b0c4dd25d1e74705b2e'
+- 0fffc0868940ddb12a5572702bf50b7bdcd33cfc
++ 48883ce6b47f4273316c8b0c4dd25d1e74705b2e
+
+
+======================================================================
+FAIL: test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run (__main__.Point14_IntegrationBranch.test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run)
+THE 2026-09-14 INCIDENT, as a test. Events 3, 4 and 5 of
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250/scratchpad/baselib/workspaces.test.py", line 1524, in test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run
+    self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), t1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '0450ef2362fd4dbafbde8e5c0719455f7009bda1' != '925609955f87eb83d3da24f55e61bb0fa9fc1038'
+- 0450ef2362fd4dbafbde8e5c0719455f7009bda1
++ 925609955f87eb83d3da24f55e61bb0fa9fc1038
+
+
+----------------------------------------------------------------------
+Ran 19 tests in 11.719s
+
+FAILED (failures=4, errors=1)
+=== workspaces spec tests: 19 run, 5 failed ===

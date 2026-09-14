@@ -1,0 +1,28 @@
+lib      : /Users/alex/ab/richos-wt/zach-opus-n4/engine/scripts/lib/workspaces.py
+sandbox  : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-2549q3kl
+
+T0 main  : 244c41503ac4   (before anything lands)
+A opens a tool call (its window records main = 244c41503ac4)
+the LEAD lands A's work: git merge worktree-agent-aaaa000000000001
+T1 main  : 05ade9be16de   (Rich's merge)
+B opens a tool call (its window records main = 05ade9be16de)
+
+A's PostToolUse -> main = 05ade9be16de   left alone
+    finding: ('MOVED', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-2549q3kl/entity', 'main', '244c41503ac4415254108d02c42055db907b9bf0', '05ade9be16de18c6491997d8c3e7b26c525cdbe1', "moved to 05ade9be16de, which carries this agent's own unlanded work (it committed or merged onto it)")
+the LEAD lands C's work onto that tip: main = 22333bbf664f
+B's PostToolUse -> main = 22333bbf664f   MOVED BY THE ENGINE
+
+--- reflog of refs/heads/main (an EMPTY message is an engine write) ---
+22333bb main@{2026-09-14 01:32:00 +0100}: merge worktree-agent-cccc000000000003: Merge made by the 'ort' strategy.
+05ade9b main@{2026-09-14 01:32:00 +0100}: merge worktree-agent-aaaa000000000001: Fast-forward
+244c415 main@{2026-09-14 01:32:00 +0100}: commit (initial): init
+
+--- the engine's own event log ---
+{"action": "reported: the engine does not move a ref back", "branch": "main", "event": "protected-ref-moved", "found": "05ade9be16de18c6491997d8c3e7b26c525cdbe1", "key": "sess-repro-0001--zach-opus-aa1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-2549q3kl/entity", "tip": "244c41503ac4415254108d02c42055db907b9bf0", "ts": "2026-09-14T00:32:00Z", "why": "moved to 05ade9be16de, which carries this agent's own unlanded work (it committed or merged onto it)"}
+
+=== VERDICT ===
+mode                                  : destruction
+main was moved by the engine          : NO
+empty-message reflog lines            : 0
+the lead's last land still reachable  : yes
+main ends at                          : 22333bbf664f (the lead left it at 22333bbf664f)

@@ -82,12 +82,16 @@ mutant R-p02-codex-deleter-passes-the-guard "C2.13" "$G" \
     '    if kind == "codex":{NL}        spec.append("%s deleting the codex/ ref %s' \
     '    if False:{NL}        spec.append("%s deleting the codex/ ref %s' \
     "RECORDED [richos-hq lifecycle-failure-record-2026-09-13.md §5, 2026-09-13: 'Point 2 of the CEO's page is violable today — an agent can delete a codex/ branch'; brief-audit-frank-round8-2026-09-13.md §3, executed in a fixture on the base: git update-ref -d refs/heads/codex/bare, push --delete . codex/bare, push . :codex/bare, push . :refs/heads/codex/bare and branch -M codex/bare not-codex all passed the guard at rc=0 and the branch was GONE; the CEO's ruling ceo-decisions.md §31 and RICH-TODOs.md:175 (5fb3e5b9, 2026-09-12): 'codex/ is closed as a topic'. No real codex/ ref has been lost on this machine (lifecycle-failure-record-2026-09-12.md: eight codex/ workspaces measured clean) — the incident is the measured violability]: the five deleters would pass the guard again."
-mutant S-p02-codex-ref-not-restored "C2.9 " "$W" \
+mutant S-p02-codex-ref-not-seen-at-all "C2.9 " "$W" \
     '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
     '    pass' \
-    "SPEC-DERIVED (point 2 negated, 'a codex/ workspace or branch is never deleted'; constructed after both round-8 reviewers showed a verb list cannot close the unnamed doorway): a codex/ ref moved or deleted during an agent's call by a verb the guard missed, by the doorway or by a non-git write would stay moved. (C2.10, C2.11 and C14.13 go red under it too.)"
+    "SPEC-DERIVED (point 2 negated, 'a codex/ workspace or branch is never deleted'; constructed after both round-8 reviewers showed a verb list cannot close the unnamed doorway): a codex/ ref moved or deleted during an agent's call by a verb the guard missed, by the doorway or by a non-git write would go unseen — no report for a move, and a deleted one never re-created. (C2.10, C2.11 and C14.13 go red under it too.)"
+mutant S-p02-a-move-is-written-back-again "C2.9 " "$W" \
+    '                if cur is not None:{AND}    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")' \
+    '                if False:{AND}    return git(repo, "update-ref", "--no-deref", "refs/heads/" + branch, tip)' \
+    "RECORDED [docs/verification/ref-write-forensics-2026-09-14.md, 2026-09-13/14: this line moved refs/heads/main in /Users/alex/ab/richos three times, twice within twelve seconds in opposite directions while Rich was landing, each write with an EMPTY reflog message; reproduced from nothing at docs/verification/protected-ref-oscillation-2026-09-14-logs/repro.py, whose --mode destruction loses a merge he had just made]: a MOVED protected ref would be written back instead of reported, by an unconditional, unattributed update-ref aimed at one agent's minutes-stale snapshot."
 mutant S-p02-codex-tips-not-snapshotted "C2.11" "$W" \
-    '            tips[repo] = _protected_tips(refs)' \
+    '            tips[repo] = _protected_tips(repo, refs)' \
     '            tips[repo] = {}' \
     "SPEC-DERIVED (point 2 negated): the snapshot would record which refs exist and not where the protected ones point, so a move could never be seen — only a deletion."
 mutant S-p02-agent-writes-inside-codex-pass-the-lock-out "C2.12" "$W" \
@@ -384,18 +388,22 @@ mutant S-p14-agent-may-push-into-the-recorded-branch "C14.11" "$G" \
     '            if pdelete or src == "":{NL}                _refuse_delete(kind, "git %s" % sub, dst){NL}            else:{NL}                _refuse_write(kind, "git %s into" % sub, dst)' \
     '            if pdelete or src == "":{NL}                _refuse_delete(kind, "git %s" % sub, dst){NL}            else:{NL}                pass' \
     "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git push . HEAD:dev/workspace-spec' → 0): an agent's call could push its own tip into the recorded integration branch."
-mutant S-p14-recorded-branch-not-restored "C14.13" "$W" \
+mutant S-p14-recorded-branch-not-reported "C14.13" "$W" \
     '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
     '    pass' \
-    "SPEC-DERIVED (point 14 negated, 'The branch a body of work integrates on is RECORDED ... Nothing infers it and nothing guesses it' — and both round-8 reviewers measured that no verb list closes the doorway: checkout <it>, then commit/reset/merge/rebase move it naming nothing, from either checkout): a recorded branch moved by an unnamed verb in an agent's call would stay moved, and every in-flight agent's land would be measured against a tip an agent chose."
-mutant S-p14-the-leads-move-restored-too "C14.15" "$W" \
+    "SPEC-DERIVED (point 14 negated, 'The branch a body of work integrates on is RECORDED ... Nothing infers it and nothing guesses it' — and both round-8 reviewers measured that no verb list closes the doorway: checkout <it>, then commit/reset/merge/rebase move it naming nothing, from either checkout): a recorded branch moved by an unnamed verb in an agent's call would go unseen — nobody would be told, and every in-flight agent's land would be measured against a tip an agent chose with no record that it happened."
+mutant S-p14-a-move-is-written-back-again "C14.13" "$W" \
+    '                if cur is not None:{AND}    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")' \
+    '                if False:{AND}    return git(repo, "update-ref", "--no-deref", "refs/heads/" + branch, tip)' \
+    "RECORDED [docs/verification/ref-write-forensics-2026-09-14.md: on 2026-09-13/14 this line moved refs/heads/main in /Users/alex/ab/richos three times, twice within twelve seconds in opposite directions while Rich was landing, each with an EMPTY reflog message because it passed no -m; reproduced from nothing at docs/verification/protected-ref-oscillation-2026-09-14-logs/repro.py]: a MOVED protected ref would be written back instead of reported, unconditionally and unattributed, to whichever tip one agent's oldest open window happened to hold."
+mutant S-p14-the-leads-move-reported-too "C14.15" "$W" \
     '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
     '                    else:{NL}                        why = "moved"' \
-    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it' — landing is his): the lead's own land onto the recorded branch during an agent's call would be undone by that agent's PostToolUse."
-mutant S-p14-end-of-run-undoes-the-leads-land "C14.15b" "$W" \
+    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it' — landing is his): the lead's own land onto the recorded branch during an agent's call would be reported as an agent's move. It is no longer UNDONE — nothing here writes over a move — but a check that fires on every ordinary land is alarm fatigue, and being rare is the whole of its remaining value."
+mutant S-p14-end-of-run-reports-the-leads-land "C14.15b" "$W" \
     '                elif b not in windowed:{NL}                    continue' \
     '                elif False:{NL}                    continue' \
-    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it'; RECORDED shape: certification-sage-runner-round case R8 went RED under this round's first restore rule on 2026-09-13 — the lead's fast-forward of the agent's own branch, made after its last call and before its end signal, was undone at the end signal and the land refused): the own-work rule would apply with no call open."
+    "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it'; RECORDED shape: certification-sage-runner-round case R8 went RED under this round's first restore rule on 2026-09-13 — the lead's fast-forward of the agent's own branch, made after its last call and before its end signal, was undone at the end signal and the land refused): the own-work rule would apply with no call open, so his land would be reported as the agent's doing at its end signal."
 mutant S-p14-checkout-doorway-open "C14.16" "$G" \
     '                for t in positional[:1]:        # the branch being checked out' \
     '                for t in []:' \

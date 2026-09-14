@@ -1447,13 +1447,18 @@ class Point14_IntegrationBranch(Base):
         self.assertEqual(done["disposition"]["kind"], "landed")
         self.assertEqual(done["integration_work"][self.entity], ws.integration_record(self.entity)["id"])
 
-    def test_point_14_a_recorded_branch_moved_in_an_agents_call_is_restored(self):
-        """Round 8, item 2. The recorded branch moved by an UNNAMED verb — the
-        checkout doorway, then a commit — or deleted, during an agent's call,
-        is restored at the call's PostToolUse from the snapshot the call
-        started with, and reported; the lead's legitimate move (a descendant
-        carrying none of the agent's work: his land of a finished agent) is
-        not restored."""
+    def test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone(self):
+        """Round 8, item 2, as amended on 2026-09-14. The recorded branch moved
+        by an UNNAMED verb — the checkout doorway, then a commit — during an
+        agent's call is REPORTED at the call's PostToolUse and the ref is left
+        exactly where it is: the engine never moves a protected ref back, since
+        the shape of the result cannot tell an agent's doorway from Rich's own
+        land, and the write it used to make moved refs/heads/main in richos
+        three times in one night (docs/verification/
+        ref-write-forensics-2026-09-14.md). A DELETION is still put back, with a
+        create-only write that carries a reflog message. The lead's legitimate
+        move (a descendant carrying none of the agent's work) is not even
+        reported."""
         run("git", "-C", self.entity, "branch", "dev/rec")
         ws.record_integration(self.entity, "dev/rec", "body of work on a dev branch", self.sid)
         tip = run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip()
@@ -1462,21 +1467,100 @@ class Point14_IntegrationBranch(Base):
         self.pre(aid, "tu-1")
         run("git", "-C", npath, "checkout", "-q", "dev/rec")                  # the doorway
         run("git", "-C", npath, "commit", "-q", "--allow-empty", "-m", "moved unnamed")
+        moved = run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip()
         self.post(aid, call="tu-1")
         run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
-        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), tip)
-        hist = [h for h in self.rec("zach-opus-mv").get("history") or [] if h.get("fact") == "protected ref restored"]
-        self.assertEqual([h["branch"] for h in hist], ["dev/rec"])
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), moved)
+        hist = [h for h in self.rec("zach-opus-mv").get("history") or []
+                if h.get("fact") == "protected ref moved (reported, not restored)"]
+        self.assertEqual([(h["branch"], h["tip"], h["found"]) for h in hist], [("dev/rec", tip, moved)])
+        # The deleted case: re-created at the tip the snapshot recorded, and the
+        # write says who made it — an anonymous ref write is what cost a day.
+        run("git", "-C", self.entity, "branch", "-f", "dev/rec", tip)
         self.pre(aid, "tu-2")
         run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/dev/rec")   # deleted, from the main checkout
         self.post(aid, call="tu-2")
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), tip)
+        self.assertIn("richos engine: protected ref restored",
+                      run("git", "-C", self.entity, "reflog", "show", "dev/rec").stdout)
         self.pre(aid, "tu-3")
         lead = run("git", "-C", self.entity, "commit-tree", tip + "^{tree}", "-p", tip, "-m",
                    "the lead lands a finished agent's work").stdout.strip()
         run("git", "-C", self.entity, "branch", "-f", "dev/rec", lead)              # the lead's move: a descendant, not this agent's work
         self.post(aid, call="tu-3")
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip(), lead)
+        # And his land is not even reported: exactly two protected-ref facts on
+        # the record, the move and the deletion, in that order.
+        self.assertEqual([h["fact"] for h in self.rec("zach-opus-mv").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")],
+                         ["protected ref moved (reported, not restored)", "protected ref restored"])
+
+    def test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run(self):
+        """THE 2026-09-14 INCIDENT, as a test. Events 3, 4 and 5 of
+        docs/verification/ref-write-forensics-2026-09-14.md: the engine moved
+        refs/heads/main three times, twice within twelve seconds in opposite
+        directions, while Rich was landing. Nothing was lost only because the
+        second write happened to go forwards.
+
+        The condition, which needs no attacker and no unusual verb — it is the
+        NORMAL case of two agents running while the lead lands:
+
+          A opens a call while main is at T0;
+          Rich merges A's finished work, main -> T1;
+          B opens a call while main is at T1;
+          A's Post fires, then B's.
+
+        A's window says T0, B's says T1, so under the old rule A "restored" main
+        to T0 (dropping Rich's merge) and B "restored" it to T1 — each write
+        manufacturing the condition the next one fired on. Now: two reports, no
+        writes, main exactly where Rich left it, and B has nothing to report at
+        all because nobody moved anything."""
+        a_id, a_path = self.spawn("zach-opus-os1", agent_id="aosc000000000001")
+        b_id, b_path = self.spawn("zach-opus-os2", agent_id="bosc000000000002")
+        self.commit(a_path, "a.txt")
+        self.commit(b_path, "b.txt")
+        t0 = run("git", "-C", self.entity, "rev-parse", "main").stdout.strip()
+        self.pre(a_id, "tu-a")                                   # A's window: main at T0
+        self.merge(self.entity, "worktree-agent-" + a_id)        # Rich lands A's work
+        t1 = run("git", "-C", self.entity, "rev-parse", "main").stdout.strip()
+        self.assertNotEqual(t0, t1)
+        self.pre(b_id, "tu-b")                                   # B's window: main at T1
+        self.post(a_id, call="tu-a")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), t1)
+        self.post(b_id, call="tu-b")
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), t1)
+        # Rich's merge is still reachable, and no ref write went in without a
+        # reflog message — the signature of the three real events.
+        self.assertEqual(run("git", "-C", self.entity, "merge-base", "--is-ancestor", t1, "main",
+                             check=False).returncode, 0)
+        reflog = run("git", "-C", self.entity, "reflog", "show", "main").stdout.splitlines()
+        self.assertEqual([ln for ln in reflog if ln.rstrip().endswith(":")], [])
+        # Reported, not silent: A saw it, B had nothing to see.
+        self.assertEqual([h["branch"] for h in self.rec("zach-opus-os1").get("history") or []
+                          if h.get("fact") == "protected ref moved (reported, not restored)"], ["main"])
+        self.assertEqual([h for h in self.rec("zach-opus-os2").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")], [])
+
+    def test_point_14_a_recorded_branch_is_protected_in_its_own_repository_only(self):
+        """§4 of the forensics: the protected set was keyed by branch NAME across
+        every body of work, so `main` recorded for one repository protected —
+        and made restorable — `refs/heads/main` in every other. Three bodies of
+        work on the operator's machine, all three integrating on `main`.
+
+        Keyed by (repository, branch), the tips an agent's window records for a
+        repository are that repository's own protected refs."""
+        # The same branch NAME exists in both repositories; it is the recorded
+        # integration branch of one body of work, in one of them.
+        run("git", "-C", self.entity, "branch", "dev/shared-name")
+        run("git", "-C", self.other, "branch", "dev/shared-name")
+        ws.record_integration(self.entity, "dev/shared-name", "the entity's dev branch", self.sid)
+        other_refs = ws._local_refs(self.other)
+        self.assertIn("dev/shared-name", other_refs)
+        self.assertNotIn("dev/shared-name", ws._protected_tips(self.other, other_refs))
+        self.assertIn("dev/shared-name", ws._protected_tips(self.entity, ws._local_refs(self.entity)))
+        # Each repository keeps its own: both recorded `main`, and both are
+        # protected where they were recorded.
+        self.assertIn("main", ws._protected_tips(self.other, other_refs))
 
     def test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone(self):
         """Round 8, item 2 — the bound measured on Sage's runner-round case R8:
@@ -1494,14 +1578,28 @@ class Point14_IntegrationBranch(Base):
         tip = run("git", "-C", self.entity, "rev-parse", "main").stdout.strip()
         self.finish(aid)                                       # the end signal: no window open
         self.assertEqual(run("git", "-C", self.entity, "rev-parse", "main").stdout.strip(), tip)
+        # Nor is it REPORTED. Since 2026-09-14 nothing here writes a ref, so the
+        # whole value of the windowed rule is that the check stays silent about
+        # the lead's ordinary land: a report that fires on every land is alarm
+        # fatigue, and this check only earns attention by being rare.
+        self.assertEqual([h for h in self.rec("zach-opus-ff").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")], [])
         ws.land("zach-opus-ff", self.sid)
         self.assertFalse(os.path.exists(npath))
 
-    def test_point_02_a_codex_ref_moved_or_deleted_in_an_agents_call_is_restored(self):
-        """Round 8, item 3: a codex/ ref moved by any means, or deleted, during
-        an agent's call is restored at its PostToolUse; and a registered
-        agent's Write/Edit aimed inside a codex/ workspace is refused by the
-        lock-out (the only hook that sees it), while the lead's passes."""
+    def test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported(self):
+        """Round 8, item 3, as amended on 2026-09-14: a codex/ ref DELETED during
+        an agent's call is put back — point 2 says a codex/ branch is never
+        deleted without the CEO's express word, the deletion is unambiguous, and
+        re-creating it at the tip it held loses nothing. A MOVE is reported and
+        left alone: the engine stopped moving protected refs after its own
+        "restores" moved refs/heads/main three times in richos
+        (docs/verification/ref-write-forensics-2026-09-14.md), and a move cannot
+        be put back without deciding whose write it was.
+
+        And a registered agent's Write/Edit aimed inside a codex/ workspace is
+        refused by the lock-out (the only hook that sees it), while the lead's
+        passes."""
         run("git", "-C", self.entity, "branch", "codex/keep")
         cx = os.path.join(self.env.root, "codex-wt")
         run("git", "-C", self.entity, "worktree", "add", "-q", cx, "-b", "codex/live")
@@ -1512,7 +1610,10 @@ class Point14_IntegrationBranch(Base):
         self.pre(aid, "tu-1")
         run("git", "-C", self.entity, "branch", "-f", "codex/keep", mine)          # a mover the guard did not see
         self.post(aid, call="tu-1")
-        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip(), tip)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/keep").stdout.strip(), mine)
+        self.assertEqual([h["branch"] for h in self.rec("zach-opus-cx").get("history") or []
+                          if h.get("fact") == "protected ref moved (reported, not restored)"], ["codex/keep"])
+        run("git", "-C", self.entity, "branch", "-f", "codex/keep", tip)
         self.pre(aid, "tu-2")
         run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/codex/keep")
         self.post(aid, call="tu-2")
@@ -1525,6 +1626,41 @@ class Point14_IntegrationBranch(Base):
                                      "tool_input": {"file_path": os.path.join(npath, "README")}})[0], "REGISTERED")
         self.assertEqual(ws.barrier({"session_id": self.sid, "tool_name": "Edit",
                                      "tool_input": {"file_path": os.path.join(cx, "README")}})[0], "LEAD")
+
+    def test_point_02_the_restore_of_a_deleted_ref_is_create_only_and_never_clobbers(self):
+        """The one write this check still makes is CREATE-ONLY: the empty old
+        value in `git update-ref -m <msg> --no-deref <ref> <tip> ""` means the
+        ref must not exist. So a ref somebody re-created between the deletion and
+        the check — at a different tip, and deliberately — is not clobbered, the
+        attempt is recorded as a failure rather than forced, and the write can
+        never oscillate with another agent's."""
+        run("git", "-C", self.entity, "branch", "codex/race")
+        tip = run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip()
+        aid, npath = self.spawn("zach-opus-cr")
+        self.commit(npath, "cr.txt")
+        other_tip = run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip()
+        self.pre(aid, "tu-1")
+        run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/codex/race")
+        run("git", "-C", self.entity, "branch", "codex/race", other_tip)       # re-created, elsewhere
+        self.post(aid, call="tu-1")
+        # Seen as a move, not a deletion — and a move is never written.
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), other_tip)
+        self.assertEqual([h["fact"] for h in self.rec("zach-opus-cr").get("history") or []
+                          if str(h.get("fact", "")).startswith("protected ref")],
+                         ["protected ref moved (reported, not restored)"])
+        # And the engine's own write refuses while the ref exists, rather than
+        # forcing it — the property, asked of the line that carries it.
+        rc, _o, err = ws._recreate_deleted_ref(self.entity, "codex/race", tip, "zach-opus-cr")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("already exists", err)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), other_tip)
+        # With the ref gone it succeeds, at the tip it held, and says who wrote it.
+        run("git", "-C", self.entity, "update-ref", "-d", "refs/heads/codex/race")
+        rc, _o, err = ws._recreate_deleted_ref(self.entity, "codex/race", tip, "zach-opus-cr")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "codex/race").stdout.strip(), tip)
+        self.assertIn("richos engine: protected ref restored",
+                      run("git", "-C", self.entity, "reflog", "show", "codex/race").stdout)
 
     def test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents(self):
         """Point 14: "the branch THIS WORK integrates on." Point 5 permits a

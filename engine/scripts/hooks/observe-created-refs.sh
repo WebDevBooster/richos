@@ -113,11 +113,21 @@ if [ -n "$OUT" ]; then
             CREATED)
                 [ -n "$branch" ] && echo "NOTICE: $branch in $repo was created by this agent and is recorded against it: it is deleted with its workspaces when its work is landed or discarded (docs/plans/worktree-spec-2026-09-11.md, points 3, 10)." >&2 ;;
             RESTORED)
-                # ITEMS 2 AND 3 OF ROUND 8: a RECORDED integration branch or a codex/ ref
-                # that this agent's call moved or deleted — by any verb, named or unnamed,
-                # from either checkout — has been put back from the snapshot the call
-                # started with, and this is the report the page asks for.
-                [ -n "$branch" ] && echo "=== PROTECTED REF RESTORED: $branch in $repo was $why during this agent's tool call and has been restored to $tip (found: ${found:-deleted}). A RECORDED integration branch is moved only by Rich (point 14) and a codex/ ref is never touched (point 2) — docs/plans/worktree-spec-2026-09-11.md. Recorded on the agent's record and in the store's event log (protected-ref-restored). ===" >&2 ;;
+                # ITEMS 2 AND 3 OF ROUND 8, DELETION HALF: a RECORDED integration branch
+                # or a codex/ ref that this agent's call DELETED — by any verb, named or
+                # unnamed, from either checkout — has been re-created at the tip the
+                # snapshot recorded. The write is create-only and carries a reflog
+                # message, so it can neither clobber nor move anything.
+                [ -n "$branch" ] && echo "=== PROTECTED REF RESTORED: $branch in $repo was $why during this agent's tool call and has been re-created at $tip. A RECORDED integration branch is moved only by Rich (point 14) and a codex/ ref is never deleted without the CEO's express word (point 2) — docs/plans/worktree-spec-2026-09-11.md. Recorded on the agent's record and in the store's event log (protected-ref-restored). ===" >&2 ;;
+            MOVED)
+                # THE MOVE HALF, AND NOTHING WAS WRITTEN. Until 2026-09-14 this case put
+                # the ref back, and that line moved refs/heads/main in richos three times
+                # in one night — twice in twelve seconds, in opposite directions, while
+                # Rich was landing (docs/verification/ref-write-forensics-2026-09-14.md).
+                # A check that infers the writer from the SHAPE of the result cannot tell
+                # an ordinary land from the abuse it hunts, so it reports and a human
+                # decides. The reflog holds every tip either way.
+                [ -n "$branch" ] && echo "=== PROTECTED REF MOVED: $branch in $repo was $why during this agent's tool call. NOTHING WAS CHANGED — the engine reports this and never moves a ref back (it did until 2026-09-14, and it undid Rich's own merges: docs/verification/ref-write-forensics-2026-09-14.md). $branch is at $found; this agent's call started with it at $tip. If that move was not intended, inspect it and decide: git -C $repo reflog show $branch --date=iso. A RECORDED integration branch is moved only by Rich (point 14) and a codex/ ref is never touched (point 2) — docs/plans/worktree-spec-2026-09-11.md. Recorded on the agent's record and in the store's event log (protected-ref-moved). ===" >&2 ;;
         esac
     done
 fi

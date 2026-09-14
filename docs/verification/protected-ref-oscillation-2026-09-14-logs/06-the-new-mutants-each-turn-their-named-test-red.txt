@@ -1,0 +1,9 @@
+  PASS  p14-moved-recorded-branch-not-reported               applies; named test goes RED
+  PASS  p14-a-move-is-put-back-again                         applies; named test goes RED
+  PASS  p14-the-restore-write-is-anonymous-and-unconditional applies; named test goes RED
+  PASS  p14-protected-set-keyed-by-name-across-repositories  applies; named test goes RED
+  PASS  p14-the-leads-move-reported-too                      applies; named test goes RED
+  PASS  p14-end-of-run-reports-the-leads-land                applies; named test goes RED
+  PASS  p02-codex-tips-not-snapshotted                       applies; named test goes RED
+
+7 mutant(s) checked, 0 not proven

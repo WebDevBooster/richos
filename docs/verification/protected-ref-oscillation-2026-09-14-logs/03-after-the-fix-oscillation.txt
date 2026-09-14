@@ -1,0 +1,26 @@
+lib      : /Users/alex/ab/richos-wt/zach-opus-n4/engine/scripts/lib/workspaces.py
+sandbox  : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-g4gwvp4o
+
+T0 main  : 8d93e6b3877e   (before anything lands)
+A opens a tool call (its window records main = 8d93e6b3877e)
+the LEAD lands A's work: git merge worktree-agent-aaaa000000000001
+T1 main  : abab0ab689bb   (Rich's merge)
+B opens a tool call (its window records main = abab0ab689bb)
+
+A's PostToolUse -> main = abab0ab689bb   left alone
+    finding: ('MOVED', '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-g4gwvp4o/entity', 'main', '8d93e6b3877e07346946b4d675425c219f72b7a7', 'abab0ab689bb701361c15189717ced6b6caf3330', "moved to abab0ab689bb, which carries this agent's own unlanded work (it committed or merged onto it)")
+B's PostToolUse -> main = abab0ab689bb   left alone
+
+--- reflog of refs/heads/main (an EMPTY message is an engine write) ---
+abab0ab main@{2026-09-14 01:31:24 +0100}: merge worktree-agent-aaaa000000000001: Fast-forward
+8d93e6b main@{2026-09-14 01:31:23 +0100}: commit (initial): init
+
+--- the engine's own event log ---
+{"action": "reported: the engine does not move a ref back", "branch": "main", "event": "protected-ref-moved", "found": "abab0ab689bb701361c15189717ced6b6caf3330", "key": "sess-repro-0001--zach-opus-aa1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-g4gwvp4o/entity", "tip": "8d93e6b3877e07346946b4d675425c219f72b7a7", "ts": "2026-09-14T00:31:24Z", "why": "moved to abab0ab689bb, which carries this agent's own unlanded work (it committed or merged onto it)"}
+
+=== VERDICT ===
+mode                                  : oscillation
+main was moved by the engine          : NO
+empty-message reflog lines            : 0
+the lead's last land still reachable  : yes
+main ends at                          : abab0ab689bb (the lead left it at abab0ab689bb)
