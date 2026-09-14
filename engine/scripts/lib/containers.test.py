@@ -339,17 +339,30 @@ def foreign_residue():
     by what the machine can actually prove about each one."""
     if not DOCKER:
         return {"dead": [], "unattributable": []}
-    fmt = '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Label "%s"}}' % OWNER_LABEL
+    fmt = '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Label "%s"}}\t{{.Label "%s"}}' % (
+        OWNER_LABEL, SWEEPER_LABEL)
     out = _docker_out(["ps", "-a", "--filter", "label=" + TAG_LABEL, "--format", fmt])
     dead, unattributable = [], []
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) < 4:
+        if len(parts) < 5:
             continue
         row = {"id": parts[0], "name": parts[1], "status": parts[2],
                "owner": parts[3].strip()}
+        sweeper = parts[4].strip()
         if row["owner"] == RUN_ID:
             continue                      # ours; cleanup_this_run has it
+        # ANOTHER LIVE RUN HAS ALREADY SAID IT WILL CLEAN THIS UP, so it is not
+        # ours to take. Normally the sweeper IS the owner and this decides
+        # nothing; it decides everything for a container held by a CHILD process
+        # whose parent is still running, which is exactly what an interrupt
+        # probe is. Without it, eight concurrent suites all see the same
+        # container as residue and race to remove it: one wins, the losers are
+        # told the removal is already in progress, and a suite goes red over a
+        # container it named as removed and then found still listed. Measured —
+        # that was the last red in eight concurrent runs.
+        if sweeper and sweeper != RUN_ID and _owner_alive(sweeper):
+            continue
         if not row["owner"]:
             unattributable.append(row)
         elif not _owner_alive(row["owner"]):
