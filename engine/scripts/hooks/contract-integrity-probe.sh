@@ -497,7 +497,16 @@ R_REG_EOF
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
-    R_ROOTED_COUNT="$(printf '%s\n' $R_ROOTED_HOOKS | grep -c .)"
+    #
+    # `|| true` IS LOAD-BEARING AND IS NOT A SWALLOWED ERROR. When the derivation
+    # above failed, this list is legitimately EMPTY, and `grep -c .` on empty
+    # input prints 0 and exits 1 — which under this file's `set -eo pipefail`
+    # aborted the whole probe with exit 1 where the caller expects 2. The typed
+    # list could never be empty, so this path did not exist before the
+    # derivation; by-reference.test.sh cases 2a and 2h caught it, both of them
+    # deleting the registration surface on purpose. The failure is already
+    # reported by emit_fail above; this line must not turn it into a crash.
+    R_ROOTED_COUNT="$(printf '%s\n' $R_ROOTED_HOOKS | grep -c . || true)"
 
     R_MISSING_SOURCE=""
     R_BOOTSTRAP_REF=""

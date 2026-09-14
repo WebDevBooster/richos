@@ -455,12 +455,24 @@ BR2_BASE_N="$(printf '%s\n' "$OUT" | sed -n 's/.*BR2\. all \([0-9][0-9]*\) manag
 rm -rf "$SB"
 
 SB="$(make_sandbox)"
-cat >"$SB/engine/scripts/hooks/guard-tenth-example.sh" <<'TENTH'
-#!/usr/bin/env bash
-# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing: this case is
-# about whether the engine's own inventories tolerate its existence.
-exit 0
-TENTH
+# THE FIXTURE CARRIES A REAL ROOT BOOTSTRAP, copied from a real rooted hook
+# rather than retyped. It was a bare `exit 0`, which was fine while Layer R
+# walked a TYPED list this synthetic name was never in. Layer R derives the
+# hooks it walks from hooks/hooks.json since 2026-09-14, so a registered hook
+# that resolves its root any other way is named — correctly, and by this fixture
+# too. Copying rather than retyping matters because R3 compares the block byte
+# for byte.
+{
+    echo '#!/usr/bin/env bash'
+    echo '# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing: this case is'
+    echo '# about whether the engine'"'"'s own inventories tolerate its existence.'
+    echo 'set -euo pipefail'
+    echo ''
+    sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' \
+        "$SB/engine/scripts/hooks/notice-unlanded-branches.sh" \
+        | sed 's|scripts/hooks/notice-unlanded-branches\.sh|scripts/hooks/guard-tenth-example.sh|'
+    echo 'exit 0'
+} >"$SB/engine/scripts/hooks/guard-tenth-example.sh"
 chmod +x "$SB/engine/scripts/hooks/guard-tenth-example.sh"
 # The sidecar, minted the way install.sh mints one, so BR4 hash-matches it
 # rather than reporting it as the one script whose tamper check did not run.
