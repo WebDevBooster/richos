@@ -258,6 +258,16 @@ mutant "orphans-dropped" "11. a ledger no guard claims" "$PY_REL" \
     "            pass" \
     "dropping the ledgers no guard claims makes a broken deriver look like a cleaner report, which is the failure mode of every derived inventory."
 
+mutant "env-hop-unfollowed" "11b. a ledger named across the shell/environment/Python hop is derived and analyzed" "$PY_REL" \
+    '    for groups in _ENVREF_RE.findall(text):' \
+    '    for groups in []:' \
+    "five guards in this engine hand a Python heredoc its ledger path through the environment; a resolver that follows only the shell spelling breaks at the one link that changes language, and drops the append site with a bare continue — which shortens the census in silence. ci-red-acks.log went unnamed that way while it collected 93 acks."
+
+mutant "past-tense-unmatched" "11b. a ledger named across the shell/environment/Python hop is derived and analyzed" "$PY_REL" \
+    '    r"\back(s|ed|ing)?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"' \
+    '    r"\backs?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"' \
+    "a guard writes its log line in the past tense — \"was acked with a real reason\" — and a vocabulary that requires the word to end at ack files the ledger as a plain record. The name then resolves and nothing is ever analyzed, which is the quieter half of the same failure."
+
 # --- the notice channel ----------------------------------------------------
 mutant "state-key-frozen" "14. the state key is stable" "$PY_REL" \
     '    return "repeated:" + ",".join(parts)' \

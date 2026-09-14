@@ -393,6 +393,99 @@ fi
 rm -f "$STATE/orphan-acks.log"
 
 # ===========================================================================
+# 11b — THE NAME CROSSES A LANGUAGE BOUNDARY, AND THE SCAN FOLLOWS IT.
+#
+# Five guards in this engine embed a Python program in a shell heredoc and hand
+# it the ledger path through the environment. The append site then reads
+# `open(log_path, "a")` while the only place the name is spelled is a shell
+# assignment hundreds of lines above. guard-ci-red-lands.sh is the one that
+# mattered: 93 acks, 35 of them for a single workflow, and until 2026-09-14 the
+# resolver followed a variable to a variable only through the SHELL spelling
+# `$VAR`, so the chain broke at the one link that changes language and the
+# ledger was never named by the scan at all.
+#
+# THE SECOND HALF IS THE TENSE. A guard writes its log line in the past — "was
+# acked with a real reason" — and the vocabulary required the word to end at
+# "ack", so even once the name resolved the ledger was filed as a plain record
+# and never analyzed. Both halves are in this one fixture, which is why two
+# mutants aim at this case.
+#
+# The guard below is READ, never run. It is the only thing the discovery scan
+# has to go on, exactly as the real ones are.
+# ===========================================================================
+cat > "$REPO/scripts/hooks/fixture-envhop-guard.sh" <<'ENVHOP'
+#!/usr/bin/env bash
+# fixture-envhop-guard.sh — refuses a thing, with one way through.
+#
+# The ledger name is spelled ONCE, here, in shell. The write happens inside an
+# embedded Python program that receives the path through the environment.
+ENVHOP_LOG="$ENTITY_ROOT/.claude/state/fixture-envhop.log"
+export ENVHOP_LOG
+python3 <<'PY'
+import os
+log_path = os.environ["ENVHOP_LOG"]
+
+if REFUSAL_WAS_OVERRIDDEN:
+    # Every refusal that was acked with a real reason is recorded here, and the
+    # count is what shows one becoming a habit.
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(os.environ.get("ROW", ""))
+PY
+ENVHOP
+
+envhop_add() { # <days-ago> <subject> <reason>
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_ago "$1")" "$2" "$3" \
+        >> "$STATE/fixture-envhop.log"
+}
+: > "$STATE/fixture-envhop.log"
+envhop_add 0 nu  "the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree"
+envhop_add 1 xi  "recipient is a currently-running teammate that holds its own isolated worktree; every write lands inside that worktree as before"
+envhop_add 2 pi  "the recipient is a live teammate with an isolated worktree of its own and every write still lands within that worktree"
+
+OUT="$(run_py)"
+say "11b" "$OUT"
+if printf '%s' "$OUT" | grep -q "fixture-envhop.log *3 entries" \
+   && printf '%s' "$OUT" | grep -q "fixture-envhop-guard.sh"; then
+    ok "11b. a ledger named across the shell/environment/Python hop is derived and analyzed"
+else
+    bad "11b. a ledger named across the shell/environment/Python hop is derived and analyzed" "$OUT"
+fi
+
+# 11c — THE NEGATIVE TWIN, and it guards the widened vocabulary rather than the
+#       hop. Following one more kind of reference is only worth having if the
+#       classifier still says no to something: this guard crosses the identical
+#       env hop and permits nothing, so it must stay a plain record. Without
+#       this, "follow the hop" and "call everything a hatch" pass the same test.
+cat > "$REPO/scripts/hooks/fixture-envhop-record.sh" <<'ENVREC'
+#!/usr/bin/env bash
+# fixture-envhop-record.sh — writes down what happened.
+#
+# Same shape as its neighbor and none of its meaning: this file permits
+# nothing and refuses nothing, so there is nothing to get through.
+ENVREC_LOG="$ENTITY_ROOT/.claude/state/fixture-envrec.log"
+export ENVREC_LOG
+python3 <<'PY'
+import os
+log_path = os.environ["ENVREC_LOG"]
+
+if SOMETHING_HAPPENED:
+    # One line per event, so a later sweep can enumerate them in order.
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(os.environ.get("ROW", ""))
+PY
+ENVREC
+
+printf '2026-09-02T12:00:00Z\tsomething happened\n' > "$STATE/fixture-envrec.log"
+OUT="$(run_py)"
+if printf '%s' "$OUT" | grep -A3 "NOT CLASSIFIED AS A HATCH" | grep -q "fixture-envrec.log"; then
+    ok "11c. the same hop with no hatch vocabulary stays a plain record"
+else
+    bad "11c. the same hop with no hatch vocabulary stays a plain record" "$OUT"
+fi
+
+rm -f "$STATE/fixture-envhop.log" "$STATE/fixture-envrec.log"
+
+# ===========================================================================
 # 12 — FINDING NOTHING IS A FAILURE, NOT AN ALL-CLEAR. The engine's own
 #      history is a typed sandbox list that fell behind and turned a dead
 #      scanner into a passing layer. A discovery scan that matches nothing must

@@ -202,8 +202,18 @@ CONTEXT_LINES = 10         # lines either side of an append site scanned for voc
 # names its reason ACK_REASON at the append site and has to match, while the
 # word BACKGROUND appears next to half the append sites in this engine and must
 # not. A prefix match would have classified every one of them as a hatch.
+#
+# `(s|ed|ing)?` rather than `s?`: the append site of the most-used hatch in this
+# engine says "Every red workflow was acked with a real reason" and carries an
+# `acked_before` count two lines up, and NONE of that matched a pattern that
+# required the word to end at "ack". The past tense is the tense a guard writes
+# its log line in, which is the one place this vocabulary has to work. It stays
+# a suffix list rather than a prefix match for the reason the docstring gives —
+# `\back\w*` would swallow BACKGROUND, which sits beside half the append sites
+# in this engine. Measured across the whole engine when it was widened: one
+# ledger promoted (ci-red-acks.log), none demoted.
 HATCH_VOCAB = re.compile(
-    r"\backs?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"
+    r"\back(s|ed|ing)?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"
     r"|escape hatch|override|marker|live prompt line|audit trail"
     r"|allowed \+ logged|allowed and logged",
     re.I,
@@ -231,6 +241,39 @@ _LEDGER_NAME_RE = re.compile(r"(?<![$\w])([a-z0-9][a-z0-9._-]*\.(?:log|jsonl))")
 _ASSIGN_RE = re.compile(
     r"""^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
 _DEF_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+# THE SHELL -> ENVIRONMENT -> PYTHON HOP. Five guards in this engine embed a
+# Python program in a shell heredoc and hand it the ledger path through the
+# environment, so the append site reads `open(log_path, "a")` while the only
+# place the name is spelled is a shell assignment hundreds of lines above:
+#
+#     guard-ci-red-lands.sh:224  ACK_LOG="${CI_RED_ACK_LOG:-$HOME/...}"
+#     guard-ci-red-lands.sh:608  log_path = os.environ["ACK_LOG"]
+#     guard-ci-red-lands.sh:694  with open(log_path, "a", ...) as f:
+#
+# The resolver already followed a variable to a variable, but only through the
+# SHELL spelling `$VAR` — so the chain broke at the one link that changes
+# language, and ci-red-acks.log was never named by the scan at all. It is the
+# same defect the module docstring warns about: a resolver that cannot follow a
+# hop drops the site with `continue`, which shortens the census in silence.
+_ENVREF_RE = re.compile(
+    r"""os\.environ\s*\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]"""
+    r"""|os\.environ\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']"""
+    r"""|os\.getenv\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+
+
+def _var_refs(text):
+    """Every name this text reads a value OUT of, in either language.
+
+    Shell `$VAR` / `${VAR}` first, because that is the common case and the
+    order decides ties; then the environment reads a heredoc'd Python program
+    uses to receive what the shell around it computed.
+    """
+    out = list(re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", text))
+    for groups in _ENVREF_RE.findall(text):
+        for g in groups:
+            if g:
+                out.append(g)
+    return out
 
 
 # ==========================================================================
@@ -469,7 +512,7 @@ def discover_from_source(engine_root):
             still = []
             for name, rhs in pending:
                 hit = ""
-                for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", rhs):
+                for var in _var_refs(rhs):
                     if var in vmap:
                         hit = vmap[var]
                         break
@@ -535,10 +578,10 @@ def _resolve_ledger(line, vmap, gmap):
     m = _LEDGER_NAME_RE.search(line)
     if m:
         return m.group(1)
-    for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", line):
+    for var in _var_refs(line):
         if var in vmap:
             return vmap[var]
-    for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", line):
+    for var in _var_refs(line):
         if var in gmap:
             return gmap[var]
     for var in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", line):
