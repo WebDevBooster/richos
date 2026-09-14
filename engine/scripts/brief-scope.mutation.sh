@@ -57,4 +57,37 @@ mutant fenced-anchors-counted S9 scripts/brief-scope.py \
     'if False:{NL}            continue' \
     "without the fenced-block rule, a brief inherits the anchors of a brief it quotes"
 
+# --- §6, WHO CHOOSES THE MECHANISM -----------------------------------------
+# M8 IS §6'S CLAIM AS A FALSIFIABLE PROPERTY, and it is the counterpart of M1:
+# remove the undeclared-design refusal and S31 — THE REAL ROUND-9 BRIEF, anchored
+# to point 2, with point 2 red in two consecutive verdicts — is dispatched
+# carrying an adversarial reviewer's own prescription, exactly as it was.
+
+mutant design-undeclared-accepted S31 scripts/brief-scope.py \
+    'if undeclared:' \
+    'if False:' \
+    "without the disposition requirement, the round-9 brief's prescribed design is dispatched"
+
+mutant design-disposition-unchecked S25 scripts/brief-scope.py \
+    'if bad_disp:' \
+    'if False:' \
+    "without the disposition check, any prose on a design: line counts as a declaration"
+
+# The retry rule is the TRIGGER, so removing it must not merely change a message:
+# with every red point treated as first-time-red, nothing is ever on retry and the
+# whole of §6 stops firing.
+mutant retry-never-detected S22 scripts/brief-scope.py \
+    'return set(int(k) for k, v in now.items() if v == "red" and was.get(k) == "red")' \
+    'return set()' \
+    "without the red-then-red rule, no point is ever on retry and §6 never fires"
+
+# And the BOUNDARY is load-bearing in the other direction: if a first-time-red
+# point were treated as a retry, §6 would demand a disposition from every brief
+# that ever opens work on a point, which is the false-positive class that kills a
+# guard. S28 is the case that pins it.
+mutant retry-over-triggers S28 scripts/brief-scope.py \
+    'if hist[-1].get("base") == current_base:{NL}        return hist[-2] if len(hist) >= 2 else None' \
+    'if False:{NL}        return hist[-2] if len(hist) >= 2 else None' \
+    "treating the current verdict as its own predecessor makes every red point a retry"
+
 mutation_end

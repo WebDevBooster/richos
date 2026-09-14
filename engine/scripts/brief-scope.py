@@ -84,15 +84,32 @@ hand: he ordered a hard reset deleting round 9 and installed round 8.
 ===========================================================================
 WHAT THIS DOES NOT DO, STATED HERE SO IT IS NEVER READ AS COVERAGE
 ===========================================================================
-IT DOES NOT CHECK THAT AN ITEM IS A GOOD WAY TO CLOSE ITS POINT. Round 9's item
-2 prescribed a design ("record the lead's own windows") that made the build
-worse in three measured respects. That design was NOT the lead's invention — it
-is lifted verbatim from certification-frank-round8-2026-09-13.md:185, an
-adversarial reviewer's own prescription, which even ends "That is a round-9
+IT DOES NOT CHECK THAT AN ITEM IS A GOOD WAY TO CLOSE ITS POINT, AND IT CANNOT.
+Round 9's item 2 prescribed a design ("record the lead's own windows") that made
+the build worse in three measured respects. That design was NOT the lead's
+invention — it is near-verbatim from certification-frank-round8-2026-09-13.md:185,
+an adversarial reviewer's own prescription, which even ends "That is a round-9
 build, not a CEO decision." A faithful relay of a reviewer's wrong design is
 invisible to every provenance and authorship check there is, and it is invisible
-to this one. What this refuses is the DISPATCH, on the ground that the
-measurement records point 2 green; it has no opinion about the design inside.
+to this one.
+
+THE REASON IT CANNOT IS WORTH STATING ONCE, because it bounds everything §6 does:
+a check that could tell a good design from a bad one AT DISPATCH would make the
+round unnecessary. Whether the mechanism works is what the round exists to find
+out. And the prescription is not detectable by its FORM either — "do not build a
+second reaper" is the same sentence shape as "do not weaken the guard", which
+good briefs carry and must keep carrying.
+
+SO §6 DECIDES A DIFFERENT QUESTION, AND IT IS A FACT: NOT whether the design is
+right, but whether this round is one where FINDING a design is the objective.
+The CEO scoped it that way himself — "prescribed design (IN CASES WHERE FINDING
+NEW DESIGN OPTIONS IS THE OBJECTIVE)" — and a point RED IN THE PREVIOUS RECORDED
+VERDICT AND RED STILL is that case, computed from the history ledger, which the
+lead does not author. On such an item the brief must declare who chooses the
+mechanism (`design: open` / `spec point <N>` / `ceo-word:`), and an undeclared
+one is REFUSED. Where it is `open`, §4b appends a counter-stamp to the dispatched
+payload saying so — see §4b for why that is an authority transfer and not a
+report, and for the residue it leaves.
 
 IT DOES NOT SURVIVE A SPEC THAT MOVES WITHOUT SAYING SO — it refuses instead.
 The CEO's page went from 5 numbered points to 14 WHILE THE ROUNDS WERE RUNNING
@@ -272,6 +289,47 @@ def read_history(verdict_path):
     return out
 
 
+def previous_verdict(hist, current_base):
+    """The recorded verdict BEFORE the current one. When the last history entry is
+    the current verdict itself, the one before it is the predecessor."""
+    if not hist:
+        return None
+    if hist[-1].get("base") == current_base:
+        return hist[-2] if len(hist) >= 2 else None
+    return hist[-1]
+
+
+def points_on_retry(hist, verdict):
+    """Points that were RED in the previous recorded verdict and are RED STILL.
+
+    THIS IS THE WHOLE OF §6'S TRIGGER, AND IT IS ARITHMETIC OVER A LEDGER THE
+    LEAD DOES NOT AUTHOR. The CEO scoped the harm of a prescribed design himself
+    — "IN CASES WHERE FINDING NEW DESIGN OPTIONS IS THE OBJECTIVE" — and a point
+    the measurement has failed to move is that case, stated as a fact rather than
+    judged from prose.
+
+    A point red for the FIRST time is deliberately NOT on retry: the work has not
+    yet had a verdict against it, and a brief that carries a starting approach is
+    doing its job.
+
+    WHAT THIS DELIBERATELY OVER-TRIGGERS ON, because the alternative is worse:
+    a point nobody has WORKED yet, red in two verdicts merely because no round
+    reached it. The precise notion would be "a point a previous dispatch was
+    anchored to, still red", and nothing records which points a dispatch claimed.
+    Adding a second ledger to find out is failure type X — one registration, many
+    inventories — for a gain that is one line of declaration. The over-trigger is
+    benign in the only way that matters: for a point nobody has worked,
+    `design: open` is the TRUE disposition, so the line the lead is forced to
+    write is the line he should have written. Every sentence this module emits is
+    therefore worded to claim only red-then-red, never "a round was spent"."""
+    prev = previous_verdict(hist, verdict.get("base"))
+    if not prev:
+        return set()
+    now = verdict.get("points") or {}
+    was = prev.get("points") or {}
+    return set(int(k) for k, v in now.items() if v == "red" and was.get(k) == "red")
+
+
 def write_verdict(log_path, base_sha, out_path):
     with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
@@ -307,14 +365,22 @@ _SERVES = re.compile(r"^\s*(?:[-*>]\s*)?(?:\*\*)?serves:(?:\*\*)?\s*point\s*(\d+
                      re.IGNORECASE)
 _SCOPE = re.compile(r"^\s*(?:[-*>]\s*)?(?:\*\*)?scope:(?:\*\*)?\s*([A-Za-z0-9_.-]+)", re.IGNORECASE)
 _HATCH = re.compile(r"^\s*(?:[-*>]\s*)?(?:\*\*)?scope-ceo-word:(?:\*\*)?\s*(\S.*)$", re.IGNORECASE)
+# WHO CHOOSES THE MECHANISM FOR THIS ITEM. Parsed, never interpreted — see §6.
+_DESIGN = re.compile(r"^\s*(?:[-*>]\s*)?(?:\*\*)?design:(?:\*\*)?\s*(\S.*)$", re.IGNORECASE)
 
 
 def parse_declaration(brief):
     """The anchor block, read from the brief exactly as written. Fenced code is
     skipped: a `serves:` line inside a quoted example is an example, not a
     declaration, and a brief that pastes another brief must not inherit its
-    anchors."""
+    anchors.
+
+    A `design:` line binds to the `serves:` line ABOVE it — one item, one
+    disposition. A `design:` line that appears before any `serves:` is the
+    brief's default and binds every item that does not carry its own. Nothing
+    here reads what the disposition SAYS; §6 decides on the literal token."""
     serves, scope, hatch, fenced = [], None, None, False
+    default_design = None
     for raw in brief.splitlines():
         stripped = raw.lstrip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
@@ -324,7 +390,14 @@ def parse_declaration(brief):
             continue
         m = _SERVES.match(raw)
         if m:
-            serves.append((int(m.group(1)), m.group(2).strip()))
+            serves.append([int(m.group(1)), m.group(2).strip(), None])
+            continue
+        d = _DESIGN.match(raw)
+        if d:
+            if serves:
+                serves[-1][2] = d.group(1).strip()
+            elif default_design is None:
+                default_design = d.group(1).strip()
             continue
         if scope is None:
             s = _SCOPE.match(raw)
@@ -335,7 +408,12 @@ def parse_declaration(brief):
             h = _HATCH.match(raw)
             if h:
                 hatch = h.group(1).strip()
-    return {"serves": serves, "scope": scope, "hatch": hatch}
+    if default_design is not None:
+        for item in serves:
+            if item[2] is None:
+                item[2] = default_design
+    return {"serves": [tuple(s) for s in serves], "scope": scope, "hatch": hatch,
+            "default_design": default_design}
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +500,8 @@ def decide(repo, brief, now_tip=None):
     if not decl["hatch"]:
         hist = read_history(verdict_path)
         if len(hist) >= 2:
-            prev = hist[-2]["points"] if hist[-1].get("base") == verdict.get("base") else hist[-1]["points"]
+            # One definition of "the verdict before this one", shared with §6.
+            prev = (previous_verdict(hist, verdict.get("base")) or {}).get("points") or {}
             regressed = sorted(int(k) for k, v in points.items()
                                if v == "red" and prev.get(k) == "green")
             if regressed:
@@ -478,21 +557,21 @@ def decide(repo, brief, now_tip=None):
             "Still red, and therefore dispatchable: %s" % red_txt])
 
     n_points = int(spec.get("points") or 0)
-    bad = [n for n, _ in decl["serves"] if n_points and (n < 1 or n > n_points)]
+    bad = [n for n, _, _ in decl["serves"] if n_points and (n < 1 or n > n_points)]
     if bad:
         raise Refusal("NO-SUCH-POINT", [
             "The brief names point(s) %s; the spec has %d."
             % (", ".join(str(b) for b in bad), n_points),
             "  %s" % spec_path])
 
-    absent = [(n, t) for n, t in decl["serves"] if str(n) not in points]
+    absent = [(n, t) for n, t, _ in decl["serves"] if str(n) not in points]
     if absent:
         raise Refusal("POINT-UNMEASURED", [
             "The brief names point(s) %s, and the run recorded no verdict for them."
             % ", ".join(str(n) for n, _ in absent),
             "An unmeasured point is not a red one. Measure it, then dispatch against it."])
 
-    green_hits = [(n, t) for n, t in decl["serves"] if points.get(str(n)) == "green"]
+    green_hits = [(n, t) for n, t, _ in decl["serves"] if points.get(str(n)) == "green"]
 
     if green_hits:
         if decl["hatch"]:
@@ -544,10 +623,230 @@ def decide(repo, brief, now_tip=None):
             "    scope-ceo-word: <what he said, and when>"]
         raise Refusal(code, lines)
 
-    return ["scope: %s; %s named, %s red in the measurement at %s"
-            % (work_id,
-               ", ".join("point %d" % n for n, _ in decl["serves"]),
-               red_txt, (verdict.get("base") or "?")[:12])]
+    # --- §6 · WHO CHOOSES THE MECHANISM ------------------------------------
+    retry = points_on_retry(read_history(verdict_path), verdict)
+    notes = []
+    if retry and not decl["hatch"]:
+        undeclared, bad_disp, open_items = [], [], []
+        for n, t, disp in decl["serves"]:
+            if n not in retry:
+                continue
+            if disp is None:
+                undeclared.append((n, t))
+                continue
+            kind, detail = classify_design(disp, n_points)
+            if kind == "bad":
+                bad_disp.append((n, disp, detail))
+            elif kind == "open":
+                open_items.append(n)
+            else:
+                notes.append("design on point %d: %s" % (n, detail))
+        if undeclared:
+            raise Refusal("DESIGN-UNDECLARED", _design_undeclared_lines(undeclared, retry, hist_len(verdict_path)))
+        if bad_disp:
+            raise Refusal("DESIGN-NOT-A-DISPOSITION", _design_bad_lines(bad_disp))
+        if open_items:
+            notes.append("design: open on %s; the counter-stamp goes to the agent"
+                         % ", ".join("point %d" % n for n in sorted(open_items)))
+
+    return notes + ["scope: %s; %s named, %s red in the measurement at %s"
+                    % (work_id,
+                       ", ".join("point %d" % n for n, _, _ in decl["serves"]),
+                       red_txt, (verdict.get("base") or "?")[:12])]
+
+
+def hist_len(verdict_path):
+    return len(read_history(verdict_path))
+
+
+def classify_design(disp, n_points):
+    """The disposition is decided on its LITERAL LEADING TOKEN and nothing else.
+    This function never reads a design, never scores one, and never compares one
+    brief's prose with another's — see the module header, §6."""
+    d = disp.strip()
+    low = d.lower()
+    if low == "open" or low.startswith("open ") or low.startswith("open-") or low.startswith("open,"):
+        return "open", "the engineer chooses"
+    m = re.match(r"^spec\s+point\s+(\d+)\b", low)
+    if m:
+        n = int(m.group(1))
+        if n_points and (n < 1 or n > n_points):
+            return "bad", "names spec point %d; the spec has %d" % (n, n_points)
+        return "spec", "the CEO's own point %d carries it" % n
+    if low.startswith("ceo-word:"):
+        return "ceo", "on the CEO's word: %s" % d[len("ceo-word:"):].strip()
+    return "bad", "not one of the three dispositions"
+
+
+def _design_undeclared_lines(undeclared, retry, rounds):
+    many = len(retry) > 1
+    lines = [
+        "%s %s red in the PREVIOUS recorded verdict and %s red STILL."
+        % (", ".join("Point %d" % n for n in sorted(retry)),
+           "were" if many else "was", "are" if many else "is"),
+        "",
+        "  recorded verdicts so far: %d" % rounds,
+        "",
+        "That is all this measured, and it is stated that narrowly on purpose: it does",
+        "NOT claim a round was spent on %s, only that the measurement has not moved."
+        % ("them" if many else "it"),
+        "Either way, whatever approach the work has been taking is not closing %s, which"
+        % ("them" if many else "it"),
+        "is the CEO's own scoping clause for the fourth kind of corrupted brief — stated",
+        "as a fact rather than judged from prose:",
+        "",
+        "    \"prescribed design (in cases where FINDING NEW DESIGN OPTIONS is the",
+        "     objective)\"",
+        "",
+        "So each of these items must say who chooses the mechanism. One line under the",
+        "item's `serves:`:",
+        "",
+        "    design: open                  the engineer chooses; the brief's suggestions",
+        "                                  are not binding on him",
+        "    design: spec point <N>        the mechanism is in the CEO's own page",
+        "    design: ceo-word: <what he said, and when>",
+        "",
+        "  undeclared:"]
+    for n, t in undeclared:
+        lines.append("    serves: point %d%s   <- on retry, no `design:` line" % (n, (" - " + t) if t else ""))
+    lines += [
+        "",
+        "NOTHING HERE READ YOUR DESIGN, and nothing here can. Whether a mechanism is the",
+        "right one is what the round exists to find out; a check that could answer it at",
+        "dispatch would make the round unnecessary. What this refuses is a retry that",
+        "does not say whose choice the mechanism is — because round 9's did not, and the",
+        "design it carried was an adversarial reviewer's own, relayed faithfully, which",
+        "every provenance and authorship check in this engine passes.",
+        "",
+        "    Is this round to FIND a mechanism, or to BUILD one already decided?",
+        "    If it is decided, say where — the spec, or his word."]
+    return lines
+
+
+def _design_bad_lines(bad):
+    lines = ["A `design:` line is one of exactly three dispositions, and these are not:", ""]
+    for n, disp, detail in bad:
+        lines.append("    point %d ->  design: %s" % (n, disp))
+        lines.append("                %s" % detail)
+    lines += [
+        "",
+        "    design: open",
+        "    design: spec point <N>",
+        "    design: ceo-word: <what he said, and when>",
+        "",
+        "The token is matched literally. A disposition that needs interpreting is a",
+        "disposition this file would have to read, and reading is the thing it refuses",
+        "to do."]
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# 4b. THE COUNTER-STAMP
+# ---------------------------------------------------------------------------
+# WHAT IT IS FOR. Type AE's damage is an AUTHORITY TRANSFER, not a false
+# statement: "the brief arrives at the engineer stamped `quoted from the reviewer
+# who found it`, and that stamp is an argument for compliance. An engineer who
+# would have pushed back on the lead's design does not push back on the
+# certifier's." Every fact in round 9's brief was true and correctly attributed.
+#
+# So the counter is a stamp with BETTER provenance than the quotation, saying the
+# design is the engineer's to choose — and it is written HERE, by a program, not
+# by the lead, so the lead cannot decline to include it or soften it.
+#
+# THIS IS NOT A REPORT AND IT IS NOT A FINDING. It refuses nothing, and it is
+# deliberately not counted as a refusal anywhere in this file. What makes it
+# different from failure type AB — a detector that never misses and never
+# intervenes — is that it is not addressed to an observer who may act on it: it
+# MODIFIES THE INSTRUCTION THE AGENT RECEIVES, at the moment of dispatch, on the
+# only copy there is. The existing precedent is brief-provenance.annotate(),
+# called at lib/spawn.py's build step; its appended section is what makes an
+# engineer re-derive a premise he would otherwise have built on.
+#
+# ITS RESIDUE, stated here rather than discovered later: its effect runs through
+# what the engineer then decides. It gives him standing to refuse a prescription;
+# it cannot make him use it.
+
+STAMP_HEAD = "## Who chooses the mechanism for this item — decided by the dispatch, not by the lead"
+
+
+def counterstamp_text(open_points, rounds, spec_path):
+    pts = ", ".join("point %d" % n for n in sorted(open_points))
+    many = len(open_points) > 1
+    return "\n".join([
+        STAMP_HEAD,
+        "",
+        "This is appended by `brief-scope.py` at spawn. The lead did not write it and",
+        "cannot remove it.",
+        "",
+        "**%s %s declared `design: open`.** %s red in the PREVIOUS recorded verdict"
+        % (pts, "are" if many else "is", "They were" if many else "It was"),
+        "and red STILL — which is the whole of what was measured here. Whatever was or was",
+        "not tried last time, this measurement has not moved, so finding a mechanism that",
+        "moves it is the objective of this round rather than a side-effect of it.",
+        "",
+        "  recorded verdicts for this body of work so far: %d" % rounds,
+        "  the governing spec: %s" % spec_path,
+        "",
+        "**Therefore: no sentence in this brief is binding on your design.** Not the ones",
+        "that name a mechanism, not the ones that forbid an alternative, and not the ones",
+        "attributed to a reviewer or quoted from a certification. The binding constraints",
+        "are the named spec point and the observable the item states. Everything else in",
+        "the brief is a candidate.",
+        "",
+        "**Why this paragraph exists, in one instance.** Round 9's brief instructed *\"record",
+        "the lead's own windows\"* and *\"Do NOT build the alternative\"*. That design was not",
+        "the lead's — it is near-verbatim from an adversarial reviewer's own round-8",
+        "certification, which ends *\"That is a round-9 build, not a CEO decision.\"* Nothing",
+        "was smuggled: the attribution was correct, the citation resolved, and every",
+        "provenance check passed because every provenance fact was TRUE. The round made the",
+        "build worse in three measured respects and the CEO ordered it hard-reset. The",
+        "reviewer's authorship is exactly what made the prescription unchallengeable.",
+        "",
+        "**So: if you build the mechanism this brief suggests, say that you re-derived it**",
+        "**and why. If you refute it, that is a complete and welcome outcome.**",
+    ]) + "\n"
+
+
+def counterstamp(repo, brief):
+    """(text to append, notes). Empty when nothing is on retry, so a brief that
+    needs no stamp is byte-identical after this runs."""
+    rec = W.integration_record(repo)
+    if not rec:
+        return "", []
+    spec = rec.get("spec")
+    if not spec:
+        return "", []
+    verdict_path = spec.get("verdict", "")
+    verdict = W.read_json(verdict_path) if verdict_path else None
+    if not verdict or not verdict.get("points"):
+        return "", []
+    hist = read_history(verdict_path)
+    retry = points_on_retry(hist, verdict)
+    if not retry:
+        return "", []
+    decl = parse_declaration(brief)
+    open_points = []
+    for n, _t, disp in decl["serves"]:
+        if n in retry and disp is not None:
+            kind, _d = classify_design(disp, int(spec.get("points") or 0))
+            if kind == "open":
+                open_points.append(n)
+    if not open_points:
+        return "", []
+    return (counterstamp_text(open_points, len(hist), spec.get("path", "?")),
+            ["design counter-stamp appended for %s"
+             % ", ".join("point %d" % n for n in sorted(open_points))])
+
+
+def annotate(prompt, repo=""):
+    """The shape lib/spawn.py already calls on brief-provenance."""
+    notes = []
+    if repo:
+        text, n = counterstamp(W.realpath(repo), prompt)
+        notes += n
+        if text:
+            prompt = prompt.rstrip("\n") + "\n\n" + text
+    return prompt, notes
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +915,19 @@ def main(argv):
                  ", ".join("%s=%s" % kv for kv in sorted(obj["points"].items(),
                                                          key=lambda kv: int(kv[0])))))
         return 0
+    if len(argv) >= 3 and argv[1] == "annotate":
+        with open(argv[2], "r", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        if argv[2].endswith(".json"):
+            try:
+                raw = json.loads(raw)["prompt"]
+            except (ValueError, KeyError, TypeError):
+                pass
+        out, notes = annotate(raw, get("--repo") or "")
+        sys.stdout.write(out)
+        for n in notes:
+            sys.stderr.write("  brief-scope:  %s\n" % n)
+        return 0
     if len(argv) >= 3 and argv[1] == "check":
         with open(argv[2], "r", encoding="utf-8", errors="replace") as fh:
             payload = json.load(fh)
@@ -626,7 +938,8 @@ def main(argv):
     sys.stderr.write(
         "usage: brief-scope.py record-spec <repo> --spec <path> --points <N> --verdict <path>\n"
         "       brief-scope.py verdict --from-log <log> --base <sha> --out <path>\n"
-        "       brief-scope.py check <payload.json> [--repo <repo>]\n")
+        "       brief-scope.py check <payload.json> [--repo <repo>]\n"
+        "       brief-scope.py annotate <brief|payload.json> --repo <repo>\n")
     return 2
 
 

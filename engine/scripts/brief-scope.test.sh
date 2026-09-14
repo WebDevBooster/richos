@@ -116,7 +116,11 @@ want "S2b the refusal names what is still red" 2 "point 2, point 9" "$RC" "$OUT"
 
 echo ""
 echo "=== 3  a brief anchored to a RED point passes, and one anchored to a GREEN point does not ==="
-printf 'serves: point 2 - the thing that is broken\n' >"$T/red.md"
+# `design: open` because point 2 is red in verdict after verdict in the cases
+# below, and §6 requires a retry item to say who chooses the mechanism. Every
+# one of these cases is about staleness, regression or convergence, so the
+# disposition is there to keep them testing what they were written to test.
+printf 'serves: point 2 - the thing that is broken\ndesign: open\n' >"$T/red.md"
 run_check "$T/red.md"
 want "S3 anchored to a red point -> allowed" 0 "point 2 named" "$RC" "$OUT"
 
@@ -257,6 +261,106 @@ if [ -f "$R9" ]; then
     want "S21 THE MISS, ASSERTED: with point 2 red, round 9 item 2 passes untouched" 0 "point 2 named" "$RC" "$OUT"
 else
     bad "S19 the round-9 brief is not at $R9" "acceptance case could not run"
+fi
+
+echo ""
+echo "=== 10  §6 WHO CHOOSES THE MECHANISM — the retry rule and the counter-stamp ==="
+# A point is ON RETRY when it was red in the PREVIOUS recorded verdict and is red
+# still. That is arithmetic over a ledger the lead does not author, and it is the
+# CEO's own scoping clause — "prescribed design (in cases where finding new design
+# options is the objective)" — turned into a fact instead of a reading of prose.
+
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$TIP5" 2 9
+record_verdict "$TIP5" 2 9
+
+printf 'serves: point 2 - the thing that is broken\n' >"$T/retry-bare.md"
+run_check "$T/retry-bare.md"
+want "S22 a retry item with no design: line is REFUSED" 2 "DESIGN-UNDECLARED" "$RC" "$OUT"
+want "S22b the refusal quotes the CEO's scoping clause" 2 "FINDING NEW DESIGN OPTIONS" "$RC" "$OUT"
+want "S22c and it claims only what it measured, never 'a round was spent'" 2 "NOT claim a round was spent" "$RC" "$OUT"
+
+printf 'serves: point 2 - the thing that is broken\ndesign: open\n' >"$T/retry-open.md"
+run_check "$T/retry-open.md"
+want "S23 design: open is accepted" 0 "design: open on point 2" "$RC" "$OUT"
+
+printf 'serves: point 2 - x\ndesign: spec point 2\n' >"$T/retry-spec.md"
+run_check "$T/retry-spec.md"
+want "S24 design: spec point <N> is accepted" 0 "the CEO's own point 2" "$RC" "$OUT"
+
+printf 'serves: point 2 - x\ndesign: spec point 99\n' >"$T/retry-spec99.md"
+run_check "$T/retry-spec99.md"
+want "S25 a disposition naming a point the spec lacks is refused" 2 "DESIGN-NOT-A-DISPOSITION" "$RC" "$OUT"
+
+printf 'serves: point 2 - x\ndesign: record the lead own windows\n' >"$T/retry-presc.md"
+run_check "$T/retry-presc.md"
+want "S26 a prescription written INTO the disposition line is not one of the three" 2 "DESIGN-NOT-A-DISPOSITION" "$RC" "$OUT"
+
+printf 'serves: point 2 - x\ndesign: ceo-word: he said build it this way, 2026-09-14\n' >"$T/retry-ceo.md"
+run_check "$T/retry-ceo.md"
+want "S27 design: ceo-word: is accepted and echoed for the log" 0 "on the CEO's word" "$RC" "$OUT"
+
+# A point red for the FIRST time is NOT on retry: nothing has failed to move yet,
+# and a brief that carries a starting approach is doing its job. This is the
+# clause's own boundary and it is asserted, not assumed.
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$TIP5" 2 9
+run_check "$T/retry-bare.md"
+want "S28 BOUNDARY: a first-time-red point needs no disposition" 0 "point 2" "$RC" "$OUT"
+
+# A GREEN point is never on retry, so §6 never fires on one — the green clauses
+# own that case and must keep owning it.
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$TIP5" 9
+record_verdict "$TIP5" 9
+run_check "$T/retry-bare.md"
+want "S29 BOUNDARY: a green point is refused as SPEC-SATISFIED, not for its design" 2 "SPEC-SATISFIED" "$RC" "$OUT"
+
+# THE COUNTER-STAMP. Not a refusal and not a report: it changes the instruction the
+# agent receives, on the only copy there is, and the lead cannot remove it.
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$TIP5" 2 9
+record_verdict "$TIP5" 2 9
+STAMPED="$(python3 "$LIB" annotate "$T/retry-open.md" --repo "$REPO" 2>/dev/null)"
+if printf '%s' "$STAMPED" | grep -q "no sentence in this brief is binding on your design"; then
+    ok "S30 design: open appends the counter-stamp to the dispatched text"
+else
+    bad "S30 design: open appends the counter-stamp to the dispatched text" "$STAMPED"
+fi
+if printf '%s' "$STAMPED" | grep -q "^serves: point 2"; then
+    ok "S30b and the brief itself is left intact above it"
+else
+    bad "S30b and the brief itself is left intact above it" "$STAMPED"
+fi
+UNSTAMPED="$(python3 "$LIB" annotate "$T/retry-open.md" --repo "" 2>/dev/null)"
+if [ "$UNSTAMPED" = "$(cat "$T/retry-open.md")" ]; then
+    ok "S30c a brief with nothing on retry is byte-identical after annotate"
+else
+    bad "S30c a brief with nothing on retry is byte-identical after annotate" "$UNSTAMPED"
+fi
+
+# THE ACCEPTANCE CASE FOR §6, and it is the one S21 records as the miss: the REAL
+# round-9 brief, anchored to point 2, with point 2 red in two consecutive
+# verdicts. S21 keeps asserting that a FIRST-time-red point lets it through; this
+# asserts that once the measurement has failed to move, the same brief is refused
+# until it says whose design it is carrying.
+if [ -f "$R9" ]; then
+    rm -f "$VERDICT" "$VERDICT.history.jsonl"
+    record_verdict "$(git -C "$REPO" rev-parse main)" 2
+    record_verdict "$(git -C "$REPO" rev-parse main)" 2
+    run_check "$T/r9-anchored.md"
+    want "S31 THE ROUND-9 BRIEF, on a retry, is REFUSED for its undeclared design" 2 "DESIGN-UNDECLARED" "$RC" "$OUT"
+    want "S31b and the refusal names round 9's own reviewer-authored prescription" 2 "adversarial reviewer's own" "$RC" "$OUT"
+
+    # And the honest half of §6, asserted so it cannot quietly become a claim of
+    # coverage: a lead who writes `design: open` and prescribes anyway is NOT
+    # refused. Nothing here reads the prose, so the prescription in the body
+    # survives; what it no longer carries is unchallenged authority.
+    { echo "design: open"; cat "$T/r9-anchored.md"; } >"$T/r9-open.md"
+    run_check "$T/r9-open.md"
+    want "S32 THE RESIDUE, ASSERTED: design: open + a prescription in the body still passes" 0 "design: open on point 2" "$RC" "$OUT"
+else
+    bad "S31 the round-9 brief is not at $R9" "acceptance case could not run"
 fi
 
 echo ""
