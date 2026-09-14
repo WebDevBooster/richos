@@ -63,13 +63,25 @@
 # ===========================================================================
 # Because running them only reaches what the payload reaches, and that is not a
 # quibble — it is measured. contract-integrity.test.sh's SC1 starts every
-# registered hook in a sandbox and passes. Its sandbox does not contain
+# registered hook in a sandbox and passed while that sandbox did not contain
 # scripts/hook-registration-completeness.sh — the file whose absence killed the
-# demo — and SC1 is green anyway, because that sandbox is not a git repository
-# (`git init` appears nowhere in the suite), so the guard exits 0 at its
-# jurisdiction test and never reaches the helper it would refuse without. The
-# demo caught the same omission only because the demo performs a REAL
+# demo — because the sandbox was not a git repository, so the guard exited 0 at
+# its jurisdiction test and never reached the helper it would refuse without.
+# The demo caught the same omission only because the demo performs a REAL
 # `git commit` in a REAL repository.
+#
+# TWO CORRECTIONS, 2026-09-14, both to this paragraph as it was first written.
+#
+# The sandbox IS a repository now (contract-integrity.test.sh →
+# init_sandbox_repo), so that specific dependency is reached and SC1 names it
+# when it is removed — measured both ways before and after.
+#
+# And the parenthesis this paragraph used to carry — "`git init` appears nowhere
+# in the suite" — was a GREP RESULT dressed as a fact about the harness. The
+# suite had built real repositories since long before it was written; the call
+# is spelled `git -C "$root" init -q -b main` in that file's make_git_main, and
+# a search for the two words "git init" cannot see it. The conclusion happened
+# to be right for the SANDBOX and the reason given for it was not checked.
 #
 #   "CAN IT START?" IS NOT "CAN IT RUN?". A dependency loaded past a
 #   precondition the harness does not satisfy is never reached, and a harness

@@ -347,14 +347,29 @@ fi
 # scripts/hook-registration-completeness.sh -- the helper it exits 2 without --
 # was copied into none.
 #
-# SC1 was green over it, and the reason is worth stating because it is the limit
-# of what SC1 can ever do: SC1 asks whether a hook can START, by running it, and
-# this suite's sandbox is not a git repository (`git init` appears nowhere in
-# this file), so the guard exits 0 at its jurisdiction test and never reaches the
-# helper. "Can it start?" is not "can it run?", and a dependency loaded past a
-# precondition the harness does not satisfy is never reached. The derivation
-# sees it whether or not any payload does; SC1 sees what no scan can read. The
-# two are complements and both are kept.
+# SC1 was green over it, and the reason was the harness rather than the check:
+# SC1 asks whether a hook can START, by running it, and the SANDBOX every case
+# is built from was NOT A GIT REPOSITORY, so the guard exited 0 at its
+# jurisdiction test and never reached the helper. A dependency loaded past a
+# precondition the harness does not satisfy is never reached.
+#
+# (The claim first written here was that "`git init` appears nowhere in this
+# file". That was a grep result, not a fact about the harness: make_git_main
+# below has built real repositories for the `worktree` and `N` cases all along,
+# spelled `git -C "$root" init -q -b main`, which a search for those two words
+# cannot see. The sandbox conclusion held; the reason given for it did not.)
+#
+# AMENDED 2026-09-14, later the same day: the sandbox is a repository now
+# (init_sandbox_repo, below), so that particular blindness is closed and SC1
+# names this exact omission when it is planted -- measured both ways. Twelve of
+# the seventy registered hooks execute further for it; the census is at
+# init_sandbox_repo.
+#
+# THE LIMIT ITSELF DOES NOT GO AWAY, and it is the reason both halves are kept:
+# "can it start?" is still not "can it run?", and the next dependency to sit
+# behind a precondition this harness does not satisfy will be just as invisible
+# to SC1 as this one was. The derivation sees it whether or not any payload
+# does; SC1 sees what no scan can read. The two are complements.
 _HD_LIB="$SCRIPT_DIR/../lib/hook-dependencies.sh"
 if [ ! -f "$_HD_LIB" ]; then
     echo "FATAL: scripts/lib/hook-dependencies.sh missing — the files the registered hooks depend on cannot be derived, and this suite will not assemble a sandbox from a hand list alone and report it green" >&2
@@ -812,13 +827,138 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# THE SANDBOX IS A REPOSITORY, because the hooks in it test that it is one.
+#
+# "CAN IT START?" IS NOT "CAN IT RUN?" — and until 2026-09-14 this harness only
+# ever asked the first question. The sandbox was a plain mktemp directory, `git
+# init` appeared nowhere in this file, and nine registered guards answer their
+# FIRST question with a variant of
+#
+#     REPO="$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
+#     [ -n "$REPO" ] || exit 0
+#
+# so in this harness they exited 0 at that line and were never asked anything
+# else. SC1 — "every registered hook starts in a sandbox" — was green over
+# exactly that, and green is what it printed while
+# guard-hook-registration-commits.sh sat in every sandbox without
+# scripts/hook-registration-completeness.sh, the file it exits 2 without. The
+# guard declined before it could miss it. The demo caught what SC1 could not,
+# only because demo.sh performs a real commit in a real repository.
+#
+# MEASURED, not assumed (2026-09-14, 70 registered hooks, SC1's own six
+# payloads, counting distinct traced source lines per hook):
+#
+#     hooks that execute FURTHER when the sandbox is a repository   12 of 70
+#     the other 58                                     decline for reasons of
+#                                                      their own, or need no
+#                                                      repository at all
+#
+# and the 12, with the gain in distinct lines reached:
+#
+#     guard-hook-registration-commits.sh  +17    guard-named-persons-writes.sh  +4
+#     guard-ceo-todos-commits.sh           +6    guard-vendoring-commits.sh     +4
+#     guard-completeness-commits.sh        +6    notice-unlanded-branches.sh    +3
+#     guard-publication-commits.sh         +6    detect-nonnative-worktree.sh   +2
+#     guard-publication-writes.sh          +6    teammate-idle-handoff.sh       +1
+#     guard-row-currency-commits.sh        +6
+#     guard-named-persons-commands.sh      +4
+#
+# AND IT IS NOT ONLY THE HOOKS. Probe Layer N — ".claude/settings.local.json is
+# git-tracked, so the next clone receives it" — answers with a WARN and its own
+# skip line ("not a git work tree") outside a repository, which is what it
+# emitted in every one of the ~100 sandboxes built here. Sections `worktree` and
+# `N` were the only cases that ever exercised it, through make_git_main below.
+# Every other probe-running case now puts Layer N on its real branch.
+#
+# WHAT IS DELIBERATELY NOT HERE. A remote and an upstream were measured too, and
+# changed the reach of ZERO hooks of the 70 — so no fake `origin` is invented
+# here to make the sandbox look more real than the cases need. An empty repo
+# with no commit reached the same lines as one with a commit; the commit is kept
+# anyway, because a repository with an unborn HEAD is a state no engine ever
+# runs in, and a sandbox that models an impossible repository is the same class
+# of error as one that models no repository at all. Both facts are recorded so
+# the next reader does not have to re-measure them to widen this.
+#
+# HERMETIC, because the operator's git configuration is a third-party default
+# and this suite runs on workstations and on CI runners. --template= (empty)
+# refuses any init template the machine has installed, core.hooksPath is pointed
+# at nothing, and identity and branch are pinned locally rather than inherited —
+# so a runner with no user.name and a workstation with a global commit template
+# build the same sandbox.
+#
+# FATAL ON FAILURE, for the reason everything else in this file is: a sandbox
+# that quietly failed to become a repository would put all 12 of those guards
+# straight back behind their jurisdiction test, and every case would go green
+# again while testing less. There is no fallback.
+# ---------------------------------------------------------------------------
+init_sandbox_repo() { # <root>
+    local root="$1" top out
+    # Captured rather than discarded: git's own message is the only thing that
+    # distinguishes "no identity on this runner" from "TMPDIR is not writable",
+    # and a harness that swallows it sends whoever is debugging to rebuild the
+    # sandbox by hand.
+    out="$(
+        cd "$root" || exit 1
+        # The operator's git configuration is a third-party default, and this
+        # suite runs on workstations and on bare CI runners. Both files are
+        # replaced rather than merged, and the two machine-level defaults that
+        # survive that -- the init template and the XDG ignore file, neither of
+        # which lives in the config being replaced -- are refused by name.
+        export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+        git -c init.defaultBranch=main init -q --template= . || exit 1
+        git config user.email sandbox@richos.invalid || exit 1
+        git config user.name "RichOS Sandbox" || exit 1
+        git config commit.gpgsign false || exit 1
+        # RELATIVE, deliberately: this config is cloned into ~100 sandboxes at
+        # other paths, and git resolves a relative hooksPath against the working
+        # tree it is run in. An absolute path here would point every clone back
+        # at the template, which is deleted when the suite exits.
+        git config core.hooksPath .git/no-hooks || exit 1
+        # ~/.config/git/ignore is consulted whenever core.excludesFile is unset,
+        # so emptying the global CONFIG does not disarm it. This machine's copy
+        # carries the '**/.claude/settings.local.json' line the vanilla client
+        # suggests, and with it in force `git add -A` skipped the canonical
+        # settings file in silence and probe Layer N hard-failed in every
+        # sandbox — the exact trap Layer N exists to catch, planted by the
+        # harness rather than by the engine.
+        git config core.excludesFile /dev/null || exit 1
+        git add -A || exit 1
+        # Belt and braces, and the same remedy make_git_main uses: whatever
+        # ignore rule survives, the canonical source is tracked.
+        git add -f .claude/settings.local.json || exit 1
+        git commit -q -m "sandbox baseline" || exit 1
+    ) 2>&1)" || {
+        echo "FATAL: the sandbox template could not be made a git repository — refusing to run a suite whose guards would all decline at their jurisdiction test and report that as green" >&2
+        printf '%s\n' "$out" | sed 's/^/  /' >&2
+        exit 1
+    }
+    top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ "$(cd "$top" 2>/dev/null && pwd -P)" != "$(cd "$root" && pwd -P)" ]; then
+        echo "FATAL: the sandbox at $root does not answer as its own repository root (got '${top:-nothing}') — refusing to run a suite that cannot tell which repository its guards are protecting" >&2
+        exit 1
+    fi
+    # ASSERTED, NOT ASSUMED. Layer N is one of the layers this change takes off
+    # its skip branch, and it reads git tracking. A sandbox whose canonical
+    # settings file failed to be tracked would turn every probe-passes case in
+    # this file red for a reason that has nothing to do with what it tests, and
+    # the message would point at the engine instead of at this function.
+    if ! git -C "$root" ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1; then
+        echo "FATAL: the sandbox at $root committed without tracking .claude/settings.local.json — probe Layer N would hard-fail in every case, naming the engine for a defect that belongs to this harness" >&2
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Build a sandbox repo skeleton mirroring a committed fresh clone with the
 # sidecars minted: canonical settings.local.json (all events, placeholders) +
 # all hook scripts + their .sha256 sidecars + orchestration.config, and NO
 # generated settings.json. Returns the absolute path of the new sandbox.
+#
+# It is a real git repository (init_sandbox_repo above), because twelve of the
+# seventy registered hooks decide nothing at all outside one.
 # ---------------------------------------------------------------------------
 build_sandbox_template() {
-    local root _ts0 _ts1 _ts2 _ts3 _ts4
+    local root _ts0 _ts1 _ts2 _ts3 _ts4 _ts5
     _ts0="$(_t)"
     root="$(mktemp -d -t contract-integrity-template.XXXXXX)"
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
@@ -849,11 +989,14 @@ build_sandbox_template() {
     _ts3="$(_t)"
     gen_sidecars "$root"
     _ts4="$(_t)"
+    init_sandbox_repo "$root"
+    _ts5="$(_t)"
     _trec template.hooks     "$_ts0" "$_ts1" copy-hooks
     _trec template.root      "$_ts1" "$_ts2" copy-root-scripts
     _trec template.settings  "$_ts2" "$_ts3" write-config-and-settings
     _trec template.sidecars  "$_ts3" "$_ts4" gen-sidecars
-    _trec template           "$_ts0" "$_ts4" TOTAL
+    _trec template.git       "$_ts4" "$_ts5" init-repository
+    _trec template           "$_ts0" "$_ts5" TOTAL
     echo "$root"
 }
 
@@ -1453,6 +1596,17 @@ make_git_main() {
     # maintained list of the engine's files, in the suite whose entire subject
     # is lists that fall behind the engine.
     clone_sandbox_into "$root"
+    # AND THROW THE TEMPLATE'S REPOSITORY AWAY. Since 2026-09-14 the sandbox
+    # template is itself a git repository (init_sandbox_repo), and this fixture
+    # is not a sandbox: it builds its OWN repository, on its own terms, three
+    # of which the template's baseline would quietly overwrite. It ignores the
+    # sidecars so cases 20/21 model a linked worktree that has none until
+    # install.sh runs in it — and files already tracked in an inherited
+    # baseline commit are not untracked by a later .gitignore. It inherits the
+    # operator's real identity on purpose (see below). And it is the fixture
+    # whose FIRST commit the cases care about. Starting from no repository at
+    # all is what keeps this function's behavior exactly what it was.
+    rm -rf "$root/.git"
     # Gitignore the generated settings.json + nested worktrees so a linked
     # worktree does NOT receive its own settings.json — mirroring the real repo,
     # where a probe run from a worktree reaches back to the MAIN checkout. The

@@ -56,10 +56,20 @@
 #
 # contract-integrity.test.sh's SC1 passed for months over a sandbox missing
 # scripts/hook-registration-completeness.sh, the file whose absence killed the
-# demo — because the sandbox is not a git repository, so the guard that needs it
-# exits 0 at its jurisdiction test and never reaches it. Running a hook only
-# reaches what the payload reaches. Scanning reaches what no payload can. Both
-# are kept, and neither is the answer alone.
+# demo — because that suite's sandbox was not a git repository, so the guard
+# that needs it exited 0 at its jurisdiction test and never reached it. Running
+# a hook only reaches what the payload reaches. Scanning reaches what no payload
+# can. Both are kept, and neither is the answer alone.
+#
+# AMENDED 2026-09-14, later the same day: that suite's sandbox IS a repository
+# now (contract-integrity.test.sh → init_sandbox_repo), so this particular
+# dependency is reached, and SC1 names it when it is removed. THE ARGUMENT
+# ABOVE IS UNCHANGED. A precondition was satisfied; the class was not closed.
+# Twelve of the seventy registered hooks needed that one, measured — the
+# thirteenth will sit behind some other precondition this function's six
+# payloads do not create, and will be exactly as invisible here as this one was.
+# Satisfying preconditions makes this check reach further. It never makes it
+# complete.
 #
 # ===========================================================================
 # WHAT THIS DOES NOT COVER — say it here, not in a postmortem
