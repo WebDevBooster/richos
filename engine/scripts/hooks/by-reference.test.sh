@@ -331,6 +331,13 @@ rm -rf "$SB"
 
 # Chain order. The isolation guard must refuse a bad spawn before the later
 # hooks start reasoning about a spawn that should never have been considered.
+#
+# The rule BR2 applies is no longer a typed sequence of every registered name —
+# that list went stale the day a ninth hook was registered and reported the new
+# hook as the defect. It is a PREFIX rule (AGENT_CHAIN_STRUCTURAL_PREFIX in
+# scripts/lib/registered-hooks.sh): the four structural gates come first, in
+# order, and the policy tail is deliberately unconstrained. A reversed chain
+# violates it at position 1, which is what this case asserts by name.
 SB="$(make_sandbox)"
 python3 - "$SB/engine/hooks/hooks.json" <<'PY'
 import json, sys
@@ -342,7 +349,7 @@ for entry in d["hooks"]["PreToolUse"]:
 json.dump(d, open(p, "w"), indent=2)
 PY
 run_probe "$SB"
-expect_only_layer_failed "2d.BR2-agent-chain-out-of-order" "BR2" "chain ORDER wrong"
+expect_only_layer_failed "2d.BR2-agent-chain-out-of-order" "BR2" "chain ORDER: position 1 of the PreToolUse[Agent] chain must be guard-worktree-isolation.sh"
 rm -rf "$SB"
 
 # Right guard, wrong event: registered, present, hash-matched — and wired to an
@@ -405,6 +412,107 @@ PY
 run_probe "$SB"
 expect_only_layer_failed "2f.BR2-guard-wired-but-not-declared-in-the-managed-set" "BR2" \
     "the managed set above does not name: guard-brand-new.sh"
+rm -rf "$SB"
+
+# ---------------------------------------------------------------------------
+# 2f2 — A TENTH PreToolUse[Agent] HOOK, REGISTERED AND DECLARED, IS GREEN.
+# ---------------------------------------------------------------------------
+# THIS IS THE CASE THAT DID NOT EXIST ON 2026-09-14, and its absence is the
+# whole reason that day cost a red `main`. guard-brief-scope.sh was registered
+# as the NINTH Agent hook, correctly, and the engine went red — not because
+# anything was wrong with it, but because two consumers inside the probe held a
+# TYPED copy of the chain that still said eight. Every existing case here
+# mutates the engine and asserts a REFUSAL; not one of them asked the opposite
+# question, which is the one an engine that expects to grow has to answer:
+#
+#     DOES A CORRECTLY ADDED HOOK PASS?
+#
+# So this case adds a tenth, exactly the way the tenth will really be added —
+# appended to the Agent chain in hooks/hooks.json, declared in the managed set,
+# on disk, executable, hash-matched — and asserts the probe is GREEN.
+#
+# It fails on the pre-fix code, which is what makes it worth keeping: there,
+# Layer C's typed CANONICAL_AGENT_CHAIN and BR2's typed BR_AGENT_WANT would both
+# report the new hook as the defect. It is the negative control for the
+# derivation itself — re-type either list and this case goes red.
+#
+# WHAT IT DELIBERATELY STILL COSTS: one line in BR_EXPECTED. That table is the
+# probe's INDEPENDENT oracle and deriving it would make BR2 tautological (its
+# own header says so), so a tenth hook still has to be DECLARED. The difference
+# is that the probe names that one line when it is missing — case 2f above —
+# whereas the two typed chains named nothing and failed somewhere else entirely.
+#
+# HOW "IT WAS ACTUALLY COUNTED" IS ASSERTED. A green BR2 prints a COUNT, not a
+# roster — "all N managed guards registered exactly once …" — so grepping the
+# output for the new hook's name proves nothing either way (the first draft of
+# this case did exactly that and failed against a working engine). The
+# observable that does carry the claim is the count itself: it must be exactly
+# one higher than the same sandbox reports unmutated. A layer that skipped the
+# tenth hook would print the baseline number and still be green, which is the
+# 14/14-guards defect this engine has already paid for twice.
+SB="$(make_sandbox)"
+run_probe "$SB"
+BR2_BASE_N="$(printf '%s\n' "$OUT" | sed -n 's/.*BR2\. all \([0-9][0-9]*\) managed guards.*/\1/p' | head -1)"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+cat >"$SB/engine/scripts/hooks/guard-tenth-example.sh" <<'TENTH'
+#!/usr/bin/env bash
+# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing: this case is
+# about whether the engine's own inventories tolerate its existence.
+exit 0
+TENTH
+chmod +x "$SB/engine/scripts/hooks/guard-tenth-example.sh"
+# The sidecar, minted the way install.sh mints one, so BR4 hash-matches it
+# rather than reporting it as the one script whose tamper check did not run.
+shasum -a 256 "$SB/engine/scripts/hooks/guard-tenth-example.sh" \
+    | awk '{print $1}' >"$SB/engine/scripts/hooks/guard-tenth-example.sh.sha256"
+# Registered at the TAIL of the chain, which is where a policy gate goes and is
+# the position the order rule deliberately leaves unconstrained.
+python3 - "$SB/engine/hooks/hooks.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+for entry in d["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Agent":
+        entry["hooks"].append({
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-tenth-example.sh",
+            "timeout": 10,
+        })
+        break
+else:
+    sys.stderr.write("2f2: no Agent matcher in the sandbox hook table\n")
+    sys.exit(3)
+json.dump(d, open(p, "w"), indent=2)
+PY
+# Declared in the managed set — the one place a tenth hook still owes a line.
+python3 - "$SB/engine/scripts/hooks/contract-integrity-probe.sh" <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p, encoding="utf-8").read()
+anchor = "guard-brief-scope.sh|PreToolUse\n"
+if anchor not in src:
+    sys.stderr.write("2f2: BR_EXPECTED anchor not found in the sandbox probe\n")
+    sys.exit(3)
+open(p, "w", encoding="utf-8").write(
+    src.replace(anchor, anchor + "guard-tenth-example.sh|PreToolUse\n", 1))
+PY
+run_probe "$SB"
+if [ "$RC" -eq 0 ]; then
+    ok "2f2.a-tenth-agent-hook-registered-and-declared-is-GREEN"
+else
+    bad "2f2.a-tenth-agent-hook-registered-and-declared-is-GREEN" \
+        "probe exit was $RC, expected 0 — a correctly added tenth hook must not be a defect: $(printf '%s\n' "$OUT" | grep '✗' | head -3)"
+fi
+# And it was actually COUNTED, not merely tolerated by a layer that skipped it.
+BR2_N="$(printf '%s\n' "$OUT" | sed -n 's/.*BR2\. all \([0-9][0-9]*\) managed guards.*/\1/p' | head -1)"
+if [ -n "$BR2_BASE_N" ] && [ -n "$BR2_N" ] && [ "$BR2_N" -eq "$((BR2_BASE_N + 1))" ]; then
+    ok "2f2b.the-tenth-hook-is-COUNTED-by-BR2-not-silently-skipped"
+else
+    bad "2f2b.the-tenth-hook-is-COUNTED-by-BR2-not-silently-skipped" \
+        "BR2 counted [${BR2_N:-none}] managed guards, expected one more than the unmutated [${BR2_BASE_N:-none}]"
+fi
 rm -rf "$SB"
 
 # The SESSION BANNER's copy of the inventory. engine-status.sh sizes its

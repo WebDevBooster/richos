@@ -690,8 +690,10 @@ copy_hook_dependencies() {
 #
 # Writes the sandbox's canonical .claude/settings.local.json wiring EVERY event
 # (mirroring the real repo): SessionStart echo + agent-definition snapshotter,
-# PreToolUse[Agent] four-hook chain (in canonical order, drift guard at position
-# 2), PreToolUse[Write...] write-guard + secrets
+# the whole PreToolUse[Agent] chain DERIVED from hooks/hooks.json in registration
+# order (this line said "four-hook chain" while the chain was eight, which is the
+# small version of the defect agent_chain() below was written for),
+# PreToolUse[Write...] write-guard + secrets
 # scanner, PreToolUse[SendMessage] resume-guard, PostToolUse[Agent] detector,
 # TeammateIdle + TaskCompleted loggers — PLUS the two critical config keys
 # (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, worktree.baseRef) parameterized so
@@ -699,10 +701,48 @@ copy_hook_dependencies() {
 # ($CLAUDE_PROJECT_DIR) exactly as committed.
 write_sandbox_settings_local() {
     local root="$1" teams_flag="$2" base_ref="$3"
-    python3 - "$root/.claude/settings.local.json" "$teams_flag" "$base_ref" <<'PY'
-import json, sys
-out_path, teams_flag, base_ref = sys.argv[1:4]
+    python3 - "$root/.claude/settings.local.json" "$teams_flag" "$base_ref" \
+             "$SCRIPT_DIR/../../hooks/hooks.json" <<'PY'
+import json, re, sys
+out_path, teams_flag, base_ref, plugin_hooks = sys.argv[1:5]
 P = "$CLAUDE_PROJECT_DIR/scripts/hooks"
+
+
+def agent_chain():
+    """The PreToolUse[Agent] chain, DERIVED from hooks/hooks.json.
+
+    THIS USED TO BE EIGHT TYPED ENTRIES, each with a comment explaining that it
+    was LAST and that Layer C compares the chain position by position, so a
+    sandbox that stopped short would model an engine that cannot pass its own
+    probe. Every word of that was true, and it is exactly why the list could not
+    stay typed: on 2026-09-14 a ninth hook was registered, this fixture still
+    said eight, and the sandbox it built would have modeled an engine that
+    cannot pass its own probe.
+
+    The hook SCRIPT SET in this file has been derived from hooks.json since it
+    was written ("NEVER TYPED", further up). The chain is the same fact at one
+    more level of detail — order — and it is read the same way. A tenth hook
+    registered tomorrow is in this sandbox with no edit here.
+    """
+    with open(plugin_hooks, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    out = []
+    for entry in (doc.get("hooks") or {}).get("PreToolUse", []):
+        if "Agent" not in (entry.get("matcher") or ""):
+            continue
+        for h in entry.get("hooks", []) or []:
+            m = re.search(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", h.get("command", ""))
+            if m:
+                out.append({"type": "command",
+                            "command": P + "/" + m.group(1),
+                            "timeout": h.get("timeout", 10)})
+    if not out:
+        sys.stderr.write("FATAL: derived an EMPTY PreToolUse[Agent] chain from %s — a "
+                         "sandbox with no spawn gates would report every Layer C case "
+                         "green against nothing.\n" % plugin_hooks)
+        sys.exit(1)
+    return out
+
 data = {}
 if teams_flag:
     data["env"] = {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": teams_flag}
@@ -729,31 +769,9 @@ data["hooks"] = {
         {"hooks": [{"type": "command", "command": P + "/workspace-lifecycle.sh", "timeout": 60}]},
     ],
     "PreToolUse": [
-        {"matcher": "Agent", "hooks": [
-            {"type": "command", "command": P + "/guard-worktree-isolation.sh", "timeout": 10},
-            {"type": "command", "command": P + "/guard-definition-drift.sh", "timeout": 10},
-            {"type": "command", "command": P + "/reader-teammate-hint.sh", "timeout": 10},
-            {"type": "command", "command": P + "/verify-agent-prompt.sh", "timeout": 10},
-            # LAST, mirroring the shipped chain. Layer C compares this chain
-            # position by position against CANONICAL_AGENT_CHAIN, so a sandbox
-            # that stopped at four would model an engine that cannot pass its
-            # own probe — and every "probe passes" case in this file would go
-            # red for a reason that has nothing to do with what it is testing.
-            {"type": "command", "command": P + "/guard-ceo-ask-first.sh", "timeout": 20},
-            # LAST, mirroring the shipped chain again. Same argument as the line
-            # above: Layer C compares this chain position by position against
-            # CANONICAL_AGENT_CHAIN, so a sandbox that stopped at five would
-            # model an engine that cannot pass its own probe.
-            {"type": "command", "command": P + "/guard-model-ceiling.sh", "timeout": 10},
-            # LAST again, for the same reason: Layer C compares this chain
-            # position by position against CANONICAL_AGENT_CHAIN.
-            {"type": "command", "command": P + "/guard-stale-staging.sh", "timeout": 10},
-            # LAST again, and for the same reason: Layer C compares this chain
-            # position by position against CANONICAL_AGENT_CHAIN, so a sandbox
-            # that stopped at seven would model an engine that cannot pass its
-            # own probe.
-            {"type": "command", "command": P + "/guard-owned-state.sh", "timeout": 60},
-        ]},
+        # DERIVED, never typed — see agent_chain() above for what the eight
+        # hand-written entries here cost on 2026-09-14.
+        {"matcher": "Agent", "hooks": agent_chain()},
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},
             {"type": "command", "command": P + "/scan-secrets.sh", "timeout": 10},
@@ -1202,6 +1220,95 @@ if _section base; then
 ROOT="$(make_sandbox)"
 set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
 emit_case "1.committed-source-passes" 0 "$rc"
+rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# C10 — A TENTH PreToolUse[Agent] HOOK IS NOT A DEFECT.
+#
+# Every other Layer C case in this file mutates the chain and asserts a
+# REFUSAL. None of them asked the question an engine that expects to grow has
+# to answer: DOES A CORRECTLY ADDED HOOK PASS? On 2026-09-14 the answer was no.
+# A ninth Agent hook was registered, correctly, and Layer C refused it — its
+# expectation was a typed array of eight paths, and the remedy it printed ("run
+# scripts/hooks/install.sh") could not change either number.
+#
+# So: register a tenth on BOTH surfaces the way a tenth is really added, and
+# require a green. Layer C now derives its expectation from hooks/hooks.json,
+# so it has nothing to fall behind.
+#
+# C10b is the negative control, and without it C10 proves nothing: a chain the
+# layer never looked at is also green. It seats the tenth hook WITHOUT
+# registering it, which is the half-registration that was live on `main` for
+# hours with nothing in the seated route able to see it, and requires Layer C to
+# name the disagreement.
+# ---------------------------------------------------------------------------
+add_tenth_agent_hook() { # <sandbox root> <seat?> <register?>
+    local root="$1" seat="$2" register="$3"
+    cat >"$root/scripts/hooks/guard-tenth-example.sh" <<'TENTH'
+#!/usr/bin/env bash
+# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing — this case is
+# about whether the engine's own inventories tolerate its existence.
+exit 0
+TENTH
+    chmod +x "$root/scripts/hooks/guard-tenth-example.sh"
+    shasum -a 256 "$root/scripts/hooks/guard-tenth-example.sh" \
+        | awk '{print $1}' >"$root/scripts/hooks/guard-tenth-example.sh.sha256"
+    python3 - "$root" "$seat" "$register" <<'PY'
+import json, sys
+root, seat, register = sys.argv[1:4]
+
+
+def append(path, command, placeholder_ok):
+    with open(path, encoding="utf-8") as fh:
+        d = json.load(fh)
+    for entry in d["hooks"]["PreToolUse"]:
+        if "Agent" in (entry.get("matcher") or ""):
+            entry["hooks"].append({"type": "command", "command": command, "timeout": 10})
+            break
+    else:
+        sys.stderr.write("C10: no Agent matcher in %s\n" % path)
+        sys.exit(3)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, indent=2)
+
+
+if seat == "1":
+    append(root + "/.claude/settings.local.json",
+           "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-tenth-example.sh", True)
+if register == "1":
+    append(root + "/hooks/hooks.json",
+           "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-tenth-example.sh", True)
+PY
+}
+
+ROOT="$(make_sandbox)"
+add_tenth_agent_hook "$ROOT" 1 1
+set +e; C10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -ne 0 ]; then
+    printf '        a correctly added tenth Agent hook was refused:\n%s\n' \
+        "$(printf '%s\n' "$C10_OUT" | grep '✗' | head -3)" >&2
+fi
+emit_case "C10.a-tenth-agent-hook-seated-and-registered-passes" 0 "$rc"
+# Green is not enough: a layer that skipped the new hook is also green. It has
+# to have been SEEN.
+if printf '%s\n' "$C10_OUT" | grep -q "guard-tenth-example.sh"; then
+    emit_case "C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped" 0 0
+else
+    printf '        the probe was green but never named guard-tenth-example.sh\n' >&2
+    emit_case "C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped" 0 1
+fi
+rm -rf "$ROOT"
+
+ROOT="$(make_sandbox)"
+add_tenth_agent_hook "$ROOT" 1 0
+set +e; C10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -eq 2 ] && printf '%s\n' "$C10_OUT" | grep -q "C\..*MISMATCH between the two registration surfaces"; then
+    emit_case "C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C" 0 0
+else
+    printf '        expected Layer C to report a surface mismatch, rc=%s, got: [%s]\n' \
+        "$rc" "$(printf '%s\n' "$C10_OUT" | grep '✗' | head -3)" >&2
+    emit_case "C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C" 0 1
+fi
 rm -rf "$ROOT"
 
 # ---------------------------------------------------------------------------
