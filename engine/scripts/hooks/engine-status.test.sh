@@ -618,7 +618,27 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # Four suites said all of this rather than memory: this case, hook-staleness case
 # 11, session-evidence's registration test (which derives its set FROM the probe,
 # so the BR_EXPECTED line fixed it too) and the probe's own BR2.
+# guard-hook-registration-commits.sh, added 2026-09-14: the PreToolUse[Bash]
+# gate that answers THIS CASE'S OWN COMPLAINT. Case 1b has said for months that
+# "this set is NOT the only inventory a registration has to be added to" and
+# pointed at a comment for deriving the rest — and on 2026-09-14 that prose cost
+# five CI units red on main at once, three hooks landing within two hours, each
+# missing a different subset, three engineers hitting it independently (type X,
+# §10h of the 2026-09-13 lifecycle failure record). The guard refuses a commit
+# or a push whose newly registered hook is absent from any inventory, and names
+# each missing place with its fix. THE INVENTORY LIST IS DERIVED, NOT TYPED: a
+# file that names every one of the other registered hooks is an inventory, which
+# on this tree picks out exactly hooks.json, .claude/settings.local.json, the
+# probe and THIS FILE — and measures README.md (41/68) and install.sh (20/68)
+# out, which is the pair a hand audit had to argue about. Its own other
+# inventories were derived by running it against itself rather than guessed:
+# hooks/hooks.json, .claude/settings.local.json, this set, the probe's
+# BR_EXPECTED table and Layer R's R_ROOTED_HOOKS (it resolves a root), plus
+# scripts/hook-registration-completeness.test.sh so ci-affected-units A5 has a
+# suite naming it. Layer M's CANON list carries it too — not demanded by any
+# suite, so the guard reports that one as advice rather than refusing over it.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh
 notice-protected-ref-moves.sh

@@ -252,6 +252,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-hook-registration-commits.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ci-red-lands.sh",
             "timeout": 25
           },
