@@ -44,6 +44,9 @@ WHAT IS RECORDED, AND BY WHOM (never inferred):
                    agent's own tool calls, and carries that agent's own
                    unlanded work, was created by it        (point 3, point 10)
     end of run     SubagentStop, and a successful TaskStop  (point 11)
+                   a run the platform STOPPED gets neither: it is recorded in
+                   the platform's own per-agent record beside the transcript
+                   (`stoppedByUser`), which observe_platform_end reads (11)
     handed in      TaskCompleted                            (point 11, hole 7)
     pause/resume   a SendMessage carrying `pause-until: <what ends it>`, a later
                    message to a paused agent, or `workspaces.sh pause|resume`
@@ -53,6 +56,7 @@ WHAT IS RECORDED, AND BY WHOM (never inferred):
 
 import errno
 import fcntl
+import glob
 import hashlib
 import json
 import os
@@ -1494,6 +1498,83 @@ def record_end(session_id, agent_id, signal_name, detail=""):
     return rec
 
 
+def _platform_projects_dir():
+    return (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip() or os.path.join(
+        (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(os.path.expanduser("~"), ".claude"),
+        "projects")
+
+
+def platform_agent_record(rec):
+    """The platform's OWN per-agent record, which it writes beside the agent's
+    transcript as <projects>/<project>/<session>/subagents/agent-<id>.meta.json
+    and updates at the moment a run ends. Read, never written."""
+    aid = (rec.get("agent_id") or "").strip()
+    if not AGENT_ID_RE.match(aid):
+        return None
+    leaf = os.path.join("subagents", "agent-%s.meta.json" % aid)
+    base = _platform_projects_dir()
+    pats = []
+    sid = (rec.get("session_id") or "").strip()
+    if sid and "/" not in sid:
+        pats.append(os.path.join(base, "*", sid, leaf))
+    pats.append(os.path.join(base, "*", "*", leaf))
+    for pat in pats:
+        for p in sorted(glob.glob(pat)):
+            d = read_json(p)
+            if d is not None:
+                return d
+    return None
+
+
+# POINT 11's UNTIDY ENDINGS. "That covers every ending: it handed in its work,
+# crashed, was cut off by a limit, OR WAS STOPPED." The tidy ending arrives as
+# a hook: the LAST SubagentStop of a run carries the agent's own bound id, and
+# record_end takes it. A STOPPED agent's run never reaches that point, so no
+# SubagentStop is ever delivered for it — measured on this machine on
+# 2026-09-13: of 24 runs the platform flagged stoppedByUser in 14 days, 23 had
+# no terminal SubagentStop at all, and the two the CEO stopped that day
+# (reed-opus-fr1/fr2, killed 18:24:21Z and 18:26:28Z with
+# "[Request interrupted by user]" as the last line of each transcript) have
+# ZERO rows in worktree-ledger.jsonl, which worker-ended-handoff.sh appends to
+# on every SubagentStop and on nothing else. They were marked finished BY HAND
+# at 22:56:32Z, four and a half hours later, which is exactly what point 11
+# forbids ("automatically and never by Rich noticing").
+#
+# The signal does exist. The platform records the stop ITSELF, in the agent's
+# own record, within 0-5 s of the last transcript row (measured across all 20
+# flagged runs that still have transcripts). Reading a recorded terminal fact
+# is not a liveness question: nothing here asks whether a process is alive, and
+# a running agent never carries the flag.
+PLATFORM_ENDINGS = (
+    ("stoppedByUser", "stopped", "the platform recorded stoppedByUser: the run was stopped (point 11)"),
+)
+
+
+def observe_platform_end(rec):
+    """Point 11: an ending the platform recorded in its own per-agent record,
+    for which it delivers no hook, makes the agent finished — automatically,
+    at the next moment anything asks."""
+    if not rec or rec.get("end") or rec.get("disposition") or rec.get("orphan"):
+        return rec
+    d = platform_agent_record(rec)
+    if not d:
+        return rec
+    for field, signal_name, why in PLATFORM_ENDINGS:
+        if not d.get(field):
+            continue
+        with Lock():
+            fresh = load_agent(rec["key"]) or rec
+            if fresh.get("end") or fresh.get("disposition"):
+                return fresh
+            fresh["end"] = {"at": now(), "signal": signal_name, "detail": why, "source": field}
+            fresh["pause"] = None
+            save_agent(fresh)
+        observe_created_refs(fresh, all_open=True)
+        event("end", key=fresh["key"], signal=signal_name, detail=why, source=field)
+        return fresh
+    return rec
+
+
 def record_handed_in(session_id, agent_id="", name=""):
     with Lock():
         rec = _record_for_agent(session_id, agent_id, name)
@@ -1507,7 +1588,12 @@ def record_handed_in(session_id, agent_id="", name=""):
 
 def _resolve(ref, session_id=""):
     """A record by key, by agent id, or by name (this session first, then any
-    pending item this session may handle)."""
+    pending item this session may handle), with any ending the platform has
+    recorded for it since taken (point 11)."""
+    return observe_platform_end(_resolve_record(ref, session_id))
+
+
+def _resolve_record(ref, session_id=""):
     if not ref:
         raise SpecError("name an agent")
     r = load_agent(ref)
@@ -1731,6 +1817,10 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None):
     for rec in all_agents():
         if rec.get("disposition"):
             continue
+        # Point 11: an ending the platform recorded itself and gave no hook for
+        # (a stopped agent) becomes finished HERE, before anything asks whether
+        # it is, so the list below is the list the page describes.
+        rec = observe_platform_end(rec)
         fin, paused_, why = finished_state(rec, cache)
         if not fin:
             if paused_ and rec.get("session_id") == me and not (rec.get("pause") or {}).get("until"):
@@ -3338,6 +3428,12 @@ def barrier(payload):
     rec = load_agent(key) if key else None
     if not rec:
         return "UNREGISTERED", "agent %s has no registration" % aid
+    # POINT 9 MEETS POINT 11'S FOURTH ENDING. "The platform restarts finished
+    # agents. A restarted agent is refused every tool." A STOPPED agent's
+    # restart can be the FIRST thing that happens after the kill — before any
+    # gate or command has looked at it — so the lock-out asks the platform's
+    # own record here too, rather than waiting to be told.
+    rec = observe_platform_end(rec)
     fin, _paused, why = finished_state(rec)
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
@@ -3392,6 +3488,11 @@ def recipient_state(session_id, name):
     rec = load_agent(named_key(session_id, name)) if session_id and name else None
     if not rec:
         return "unregistered", ""
+    # A STOPPED agent is finished (point 11), so a message to it would restart
+    # an agent that can do nothing — which is what guard-resume-isolation.sh
+    # refuses. It asks this function, so this function asks the platform's own
+    # record rather than waiting for a signal a stopped run never sends.
+    rec = observe_platform_end(rec)
     fin, paused_, why = finished_state(rec)
     return ("finished" if fin else ("paused" if paused_ else "active")), why
 
