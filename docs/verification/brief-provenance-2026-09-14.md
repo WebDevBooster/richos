@@ -244,7 +244,10 @@ it carries the word `unverified`.
 | `zach-n1`: "`spawn.sh` landed last night and does the whole thing in one command, evaluating every PreToolUse[Agent] guard from every surface..." | **TRUE, and a good one** — this is a type-W architectural account written from memory. It happens to be right. |
 | `zach-n1`: "the instruction every session boots with still names the old four-step path" | **FALSE POSITIVE** — the brief sources this with an explicit `grep` in the NEXT section, under a heading. Block scoping did not reach it. |
 
-**Strict false-positive rate: 1 of 20 findings (5%), on 1 of 8 clean briefs.** The one FP is a
+**Strict false-positive rate: 1 of 20 findings across the corpus (5%); 1 of the 14 findings on
+clean briefs (7.1%); 1 of 8 clean briefs carried one at all.** Both denominators are given because
+the first flatters the mechanism and the second is the one a reader of a clean brief experiences.
+The one FP is a
 scoping artifact and it is reported rather than patched: widening evidence scope past a heading would
 let a single command at the top of a brief source every claim under it, which is the hole the scoping
 rule exists to close. That trade is stated so a future reader can re-decide it rather than discover it.
@@ -271,6 +274,11 @@ that ratio is the number to watch.** At 0-4 rows per brief it is readable today.
 | commands executed at spawn time | **none** |
 | `spawn.test.sh` with the wiring in | **32 passed, 0 failed** |
 | `brief-provenance.test.sh` | **20 passed, 0 failed** |
+
+**No registration line was needed anywhere, and none was written.** `ci-units.sh` discovers suites
+by `find "$ENGINE_ROOT" -type f -name '*.test.sh' | LC_ALL=C sort` — its own comment says *"Never a
+typed list"* — so the new suite reaches CI by existing. `contract-integrity.test.sh` was not touched,
+which also means this branch cannot conflict with the teammate editing it.
 
 ---
 
