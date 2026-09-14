@@ -1092,6 +1092,7 @@ notice-inflight-sends.sh|PostToolUse
 notice-ceo-asks.sh|PostToolUse
 workspace-lifecycle.sh|PostToolUse
 handoff-facts-annotate.sh|PostToolUse
+notice-claim-capability.sh|PostToolUse
 workspace-lifecycle.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
 workspace-lifecycle.sh|SubagentStop

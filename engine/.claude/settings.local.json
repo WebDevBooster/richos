@@ -387,6 +387,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/handoff-facts-annotate.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-claim-capability.sh",
+            "timeout": 30
           }
         ]
       }

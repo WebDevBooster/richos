@@ -618,6 +618,21 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # Four suites said all of this rather than memory: this case, hook-staleness case
 # 11, session-evidence's registration test (which derives its set FROM the probe,
 # so the BR_EXPECTED line fixed it too) and the probe's own BR2.
+# notice-claim-capability.sh, added 2026-09-14. PostToolUse[Bash|Write|Edit|
+# MultiEdit|NotebookEdit], non-blocking: when a RECORD is written it states what
+# the cited command is capable of establishing, beside what the sentence asserts.
+# It is a DELIVERY SURFACE, not a new check — it imports brief-provenance.py and
+# calls check_capability, because that check was wired into the spawn path and
+# measured there at ONE row across 23 briefs, a row that is itself a false
+# positive, while not one of the four real instances happened in a brief. Its
+# inventories were derived by running hook-registration-completeness.sh rather
+# than guessed, and it owes nothing to R_ROOTED_HOOKS (it resolves no root) or
+# to CANONICAL_AGENT_CHAIN (it is not a PreToolUse[Agent] hook). Suites:
+# notice-claim-capability.test.sh (14 cases, six of them negatives) and
+# claim-capability-delivery.mutation.sh (8 mutants), the latter run FROM the
+# suite it mutates so it cannot go unrun. Record:
+# docs/verification/claim-capability-delivery-2026-09-14.md.
+#
 # guard-hook-registration-commits.sh, added 2026-09-14: the PreToolUse[Bash]
 # gate that answers THIS CASE'S OWN COMPLAINT. Case 1b has said for months that
 # "this set is NOT the only inventory a registration has to be added to" and
@@ -641,6 +656,7 @@ ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh
+notice-claim-capability.sh
 notice-protected-ref-moves.sh
 guard-ci-turn-gate.sh
 detect-nonnative-worktree.sh

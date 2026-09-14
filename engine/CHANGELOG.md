@@ -10,6 +10,26 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added — the claim-capability check is delivered where it fires (type Y, 2026-09-14)
+
+- **`scripts/hooks/notice-claim-capability.sh` (PostToolUse, non-blocking).** When a
+  RECORD is written — `docs/verification/`, a wiki page, a `memory/` note — any sentence
+  in what that call just wrote which cites a source that cannot establish its verb is put
+  in front of its author, at the one moment the word can still be changed. It is a
+  DELIVERY SURFACE and not a new check: it imports `scripts/brief-provenance.py` and calls
+  `check_capability`, so no rule is copied and none is re-tuned. The check had been wired
+  into the spawn path and measured there at ONE row across 23 briefs — a row that is
+  itself a false positive — while not one of the four real instances of the failure
+  happened in a brief. Replayed against every write event in 753 session transcripts, the
+  hook is SILENT on 90% of them, and the surface list, the check-4-only filter and the
+  only-what-this-call-wrote narrowing are each forced by a measurement rather than chosen.
+  `RICH-TODOs.md` and `CEO-TODOs.md` are excluded on the measurement: their purpose is to
+  record what is awaited by a person, so they would be flagged on every write. One of the
+  four instances — a sentence typed to the CEO in chat — is out of reach of any mechanism,
+  and this is said rather than implied away. Argument, corpus measurement and the
+  hand-classified false-positive rate:
+  [`docs/verification/claim-capability-delivery-2026-09-14.md`](../docs/verification/claim-capability-delivery-2026-09-14.md).
+
 ### Added — the session handoff carries measurements (type U, 2026-09-14)
 
 - **`scripts/handoff-facts.py` + `scripts/hooks/handoff-facts-annotate.sh`
