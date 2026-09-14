@@ -1,0 +1,54 @@
+=== THE CONDITION ===
+repository : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/prmdemo.XXXXXX.BKScNYm3zH/richos
+main held  : 8659fc081a7fd8d9ee8cd31306e454ccd3d87956   <- the tip an agent's call started with
+main is now: 614ec4bd850957cc11933d338f68efeb48b551ad   <- rewound; the lead's land is off the branch
+
+the row the check writes today, in the store's event log:
+  {"action": "reported: the engine does not move a ref back", "branch": "main", "event": "protected-ref-moved", "found": "614ec4bd850957cc11933d338f68efeb48b551ad", "key": "feedface-0000-4000-8000-000000000000--zach-opus-n4", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/prmdemo.XXXXXX.BKScNYm3zH/richos", "tip": "8659fc081a7fd8d9ee8cd31306e454ccd3d87956", "ts": "2026-09-14T01:16:08Z", "why": "moved to 614ec4bd8509, which carries this agent's own unlanded work (it committed or merged onto it)"}
+
+=== THE WORLD AS IT WAS: every registered Stop hook EXCEPT the new one ===
+  silent  guard-unresolved-claims.sh           
+  silent  turn-manifest.sh                     TURN MANIFEST — UNAVAILABLE: the transcript is not a readabl
+  silent  notice-hook-staleness.sh             RichOS engine: CANNOT CHECK whether a landed guard is inert 
+  silent  notice-inflight-acks.sh              
+  silent  notice-mechanical-findings.sh        
+  silent  notice-unstarted-rows.sh             
+  silent  notice-unlanded-branches.sh          UNLANDED-BRANCH WATCH COULD NOT LOOK — NOT EXAMINED - 1 repo
+  silent  guard-workspace-gate.sh              
+  silent  guard-ci-turn-gate.sh                
+  silent  notice-ceo-unasked.sh                
+  silent  notice-unasked-deferral.sh           
+  silent  notice-ceo-ruled-prose.sh            
+  silent  notice-waiver-repetition.sh          REPEATED WAIVERS, NOT EXCEPTIONS — 1 escape hatch was used o
+  silent  notice-escalations.sh                ESCALATION OUTSTANDING — 90 ESCALATIONS ARE OUTSTANDING, the
+  silent  guard-agent-state-claims.sh          
+  silent  guard-idle-land.sh                   
+  silent  guard-stated-actions.sh              
+  silent  notice-ceo-inputs-unheld.sh          
+
+  18 pre-existing Stop hooks driven against the finding; 0 mentioned it.
+
+=== AND NOTHING ELSE IN THE ENGINE READS THE ROW EITHER ===
+  files under engine/scripts naming protected-ref-moved:
+    engine/scripts/workspace-spec-fourteen.test.sh
+    engine/scripts/hooks/observe-created-refs.sh
+    engine/scripts/hooks/notice-protected-ref-moves.sh
+    engine/scripts/hooks/protected-ref-moves.test.sh
+    engine/scripts/lib/__pycache__/workspaces.cpython-314.pyc
+    engine/scripts/lib/protected-ref-moves.py
+    engine/scripts/lib/workspaces.py
+
+=== THE WORLD AS IT IS: the new Stop hook, same finding, same payload ===
+
+  PROTECTED REF MOVED AND NOTHING WAS PUT BACK: main in 
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/prmdemo.XXXXXX.BKScNYm3zH/richos no longer 
+  contains 8659fc081a7f, the tip it held when zach-opus-n4's tool call started 0 min ago — 1 commit 
+  is off the branch. The engine reports this and never moves a ref back (since 2026-09-14 — it used 
+  to, and it undid the lead's own merges: docs/verification/ref-write-forensics-2026-09-14.md), so 
+  nobody has acted on it yet. Look: git -C 
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/prmdemo.XXXXXX.BKScNYm3zH/richos reflog 
+  show main --date=iso. Then put the commits back, or settle it on purpose: 
+  scripts/lib/protected-ref-moves.py review --repo 
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/prmdemo.XXXXXX.BKScNYm3zH/richos --branch 
+  main --tip 8659fc081a7f --why '<reason>'
+

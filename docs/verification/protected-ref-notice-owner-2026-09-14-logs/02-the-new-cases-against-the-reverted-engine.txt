@@ -1,0 +1,10 @@
+=== the same suite, run against a reverted engine, one revert at a time ===
+
+  as expected   R1 the predicate deleted -> P01 RED
+  as expected   R2 the notice back on stderr at exit 0 -> P01 RED
+  as expected   R3 the UTC age conversion reverted (TZ=Europe/London) -> P14 RED
+
+  shipped: 
+  shipped:   15/15 cases passed
+
+every revert turned its NAMED case red, and the unmutated mirror is green.
