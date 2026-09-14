@@ -187,6 +187,15 @@ if [ "${1:-}" = "--session" ] && [ -n "${2:-}" ]; then
     SESSION_ID="$2"
 fi
 
+# --- explicit source override (tests) -------------------------------------
+# SessionStart carries a `source`, and it is the ONLY thing that distinguishes
+# a new OS process from a `/clear` inside the one already running. See the
+# WHY-THIS-IS-WRITE-ONCE block below for what turns on it.
+SESSION_SOURCE="${HOOK_SNAPSHOT_SOURCE:-}"
+if [ "${3:-}" = "--source" ] && [ -n "${4:-}" ]; then
+    SESSION_SOURCE="$4"
+fi
+
 if [ -n "${HOOK_STALENESS_ROOT:-}" ]; then
     RICHOS_ENTITY_ROOT="$HOOK_STALENESS_ROOT"
 fi
@@ -284,6 +293,11 @@ except Exception:
             | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' \
             | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
     fi
+    if [ -z "$SESSION_SOURCE" ] && [ -n "$STDIN_JSON" ]; then
+        SESSION_SOURCE="$(printf '%s' "$STDIN_JSON" | tr '\n' ' ' \
+            | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    fi
 fi
 SESSION_SHORT="$(printf '%s' "$SESSION_ID" | tr -cd '[:alnum:]-' | cut -c1-8)"
 
@@ -341,6 +355,47 @@ else
 fi
 SNAP_PATH="$STATE_DIR/$SNAP_NAME"
 TMP_PATH="$SNAP_PATH.tmp.$$"
+
+# --- WHY THIS IS WRITE-ONCE PER SESSION ----------------------------------
+# THIS FILE IS THE ONLY RECORD OF WHAT THE SESSION ACTUALLY BOOTED WITH, and
+# until 2026-09-14 it was overwritten by every SessionStart — which is not one
+# event. The host fires SessionStart again on `/clear` and on every compaction,
+# IN THE SAME OS PROCESS, and the host reads the plugin hook table exactly once,
+# at process start. So a compaction rewrote the "session start" baseline from
+# the CURRENT contents of hooks.json while the running session's loaded table
+# had not moved at all.
+#
+# The consequence is the worst kind: the overwrite FORGIVES. Every guard that
+# landed mid-session and is inert becomes part of the new baseline, so
+# notice-hook-staleness.sh compares equal and reports no drift, for the rest of
+# a session in which those guards still enforce nothing.
+#
+# MEASURED, on this machine, on the day this was written:
+#   claude pid 75476 started        Sun 13 Sep 23:59:44 2026  (ps -eo lstart)
+#   guard-hook-registration-commits.sh registered  2026-09-14 08:10 (git log)
+#   enforcing-hooks-b7d89f44.snapshot header says  generated=2026-09-14T19:10:17Z
+# A "session start" baseline stamped twenty hours after the session started.
+# That file was then quoted as proof the guard was live in the session, and it
+# was not: the identical commit the guard exists to refuse went through it in
+# silence at 20:25, and repairing the red `main` that followed cost a
+# six-figure-token agent.
+#
+# THE DISCRIMINATOR IS `source`, AND IT IS THE ONLY HONEST ONE. `startup` and
+# `resume` are new OS processes, so the host really did re-read the table and
+# the baseline MUST be refreshed. `clear` and `compact` are the same process,
+# so the boot table is unchanged and the baseline must NOT move. Anything else
+# — an unknown source, a payload that did not parse, a direct CLI call — keeps
+# the previous behavior and writes, because refusing to record a baseline is
+# how the partner hook ends up unable to compare at all, and "I could not
+# check" must never be produced by a fix for "I checked the wrong thing".
+case "$SESSION_SOURCE" in
+    clear|compact)
+        if [ -f "$SNAP_PATH" ]; then
+            emit_context "enforcing-hook snapshot: baseline PRESERVED (SessionStart source=$SESSION_SOURCE). This is the same OS process, so the hook table this session booted with has NOT changed; rewriting the baseline now would silently forgive every guard that landed mid-session and leave notice-hook-staleness.sh reporting no drift while those guards enforce nothing."
+            exit 0
+        fi
+        ;;
+esac
 
 {
     printf '# enforcing-hook snapshot — written by scripts/hooks/snapshot-enforcing-hooks.sh\n'

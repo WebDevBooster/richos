@@ -53,6 +53,9 @@
 #   (9)  META: case 2's silence assertion is load-bearing
 #   (10) never blocks: every case above exits 0
 #   (11) BOTH registration surfaces carry the pair, verified by PARSING
+#   (12) SessionStart source=clear/compact  -> baseline PRESERVED (same process)
+#   (12b) an inert guard is STILL named after a compaction re-fire
+#   (12c) source=startup/resume             -> baseline refreshed (new process)
 #
 # Run directly: scripts/hooks/hook-staleness.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
@@ -560,6 +563,69 @@ case "$REG_OUT" in
     OK\ *) ok "11  both registration surfaces carry the pair exactly once, no duplicate keys, identical sets (${REG_OUT#OK } scripts) — verified by PARSING" ;;
     *)     bad "11  registration verified by parsing" "$REG_OUT" ;;
 esac
+
+# ===========================================================================
+# 12. THE BASELINE IS WRITE-ONCE PER OS PROCESS
+# ===========================================================================
+# SessionStart is not one event. The host fires it again on `/clear` and on
+# every compaction, in the SAME process, and the host reads the plugin hook
+# table only at process start. Rewriting the baseline on those re-fires made
+# the comparison FORGIVE every guard that landed mid-session: the notice then
+# reported no drift for the rest of a session in which those guards enforced
+# nothing.
+#
+# This is the case that was missing on 2026-09-14, when
+# enforcing-hooks-b7d89f44.snapshot was stamped generated=2026-09-14T19:10:17Z
+# for a process that started 2026-09-13 23:59:44, and was then quoted as proof
+# that a guard was live in a session it had never been loaded into.
+R12="$(make_sandbox)"
+take_baseline "$R12"
+SNAP12="$R12/.claude/state/enforcing-hooks-${SESSION_SHORT}.snapshot"
+BASE12_ROWS="$(grep -vc '^#' "$SNAP12" 2>/dev/null || echo 0)"
+
+wire_hook "$R12/hooks.json" "Stop" "zz-fixture-never-registered.sh"
+
+for src in clear compact; do
+    HOOK_STALENESS_ROOT="$R12" HOOK_STALENESS_SURFACE="$R12/hooks.json" \
+        "$SNAP" --session "$SESSION_ID" --source "$src" >/dev/null 2>&1 || true
+    NOW12="$(grep -vc '^#' "$SNAP12" 2>/dev/null || echo 0)"
+    if [ "$NOW12" -eq "$BASE12_ROWS" ] \
+       && ! grep -q 'zz-fixture-never-registered.sh' "$SNAP12" 2>/dev/null; then
+        ok "12  SessionStart source=$src does NOT rewrite the baseline (same process, same booted table)"
+    else
+        bad "12  source=$src preserves the baseline" \
+            "(rows ${BASE12_ROWS}->${NOW12}; mid-session guard leaked into the boot baseline)"
+    fi
+done
+
+# THE CONSEQUENCE, asserted separately from the mechanism: after a compaction
+# the notice must STILL name the inert guard. A baseline that moved would make
+# this silent, which is the whole damage.
+OUT12="$(run_notice "$R12")"
+if printf '%s' "$OUT12" | grep -q 'zz-fixture-never-registered.sh'; then
+    ok "12b a guard landed mid-session is STILL named after a compaction re-fire"
+else
+    bad "12b inert guard survives compaction" "(said: ${OUT12:-<nothing>})"
+fi
+
+# A REAL process restart is the opposite case and must NOT be frozen: the host
+# genuinely re-read the table, so the new registrations ARE live and the
+# baseline has to catch up. Freezing here would invent permanent false
+# positives, which is how a true notice gets trained into noise.
+for src in startup resume; do
+    R12B="$(make_sandbox)"
+    take_baseline "$R12B"
+    SNAP12B="$R12B/.claude/state/enforcing-hooks-${SESSION_SHORT}.snapshot"
+    wire_hook "$R12B/hooks.json" "Stop" "zz-fixture-never-registered.sh"
+    HOOK_STALENESS_ROOT="$R12B" HOOK_STALENESS_SURFACE="$R12B/hooks.json" \
+        "$SNAP" --session "$SESSION_ID" --source "$src" >/dev/null 2>&1 || true
+    if grep -q 'zz-fixture-never-registered.sh' "$SNAP12B" 2>/dev/null; then
+        ok "12c SessionStart source=$src DOES refresh the baseline (new process really did re-read the table)"
+    else
+        bad "12c source=$src refreshes the baseline" "(new registration absent from the refreshed baseline)"
+    fi
+done
+
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
