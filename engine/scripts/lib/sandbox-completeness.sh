@@ -43,6 +43,24 @@
 # a shell can express one — a sourced library, a sibling .py, a data file, a
 # path built at runtime out of three variables.
 #
+# AMENDED 2026-09-14, because the paragraph above was half right and the half it
+# got wrong cost demo.sh a whole run. A derivation now exists —
+# scripts/lib/hook-dependencies.sh — and both consumers add it to their lists.
+# The objection stands and is answered rather than dropped: it is a UNION, never
+# a replacement, so a deriver that goes blind costs nothing that was not already
+# being paid; and it carries an ANCHOR measured a different way, so going blind
+# is loud instead of silent. What changed the balance is the limit of THIS file,
+# stated in the next section and worth stating twice:
+#
+#   "CAN IT START?" IS NOT "CAN IT RUN?".
+#
+# contract-integrity.test.sh's SC1 passed for months over a sandbox missing
+# scripts/hook-registration-completeness.sh, the file whose absence killed the
+# demo — because the sandbox is not a git repository, so the guard that needs it
+# exits 0 at its jurisdiction test and never reaches it. Running a hook only
+# reaches what the payload reaches. Scanning reaches what no payload can. Both
+# are kept, and neither is the answer alone.
+#
 # ===========================================================================
 # WHAT THIS DOES NOT COVER — say it here, not in a postmortem
 # ===========================================================================
