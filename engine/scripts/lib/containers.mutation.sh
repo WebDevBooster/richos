@@ -26,6 +26,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 C="scripts/lib/containers.py"
 W="scripts/lib/workspaces.py"
+# THE SUITE ITSELF IS A MUTATION TARGET, and that is not a category error. The
+# suite is a program that starts real containers, so "it leaves the machine as
+# it found it" is one of its properties, exactly like the properties it checks
+# in containers.py — and it is a property that was FALSE until 2026-09-14, at a
+# cost of most of an evening to the engineer who hit it. A property nobody has
+# watched fail is not proven, wherever it lives.
+T="scripts/lib/containers.test.py"
 
 # A mutant whose witness is a D case proves nothing when Docker is not there,
 # and saying so is the point: the alternative is a harness that reports every
@@ -103,11 +110,47 @@ if [ "$DOCKER_OK" = "1" ]; then
         '        stop_containers([w["path"] for w in workspaces])' \
         '        pass' \
         "the automatic land at the next spawn would leave containers behind, so reaping would only happen when somebody typed a command."
+
+    # --- the suite's own three properties ---------------------------------
+    mutant interrupt-leaks-containers "test_D7_an_interrupted_run_takes_its_containers_with_it" "$T" \
+        'for _sig_name in _CLEANUP_SIGNALS:{NL}    _install_cleanup_signal(_sig_name)' \
+        'for _sig_name in []:{NL}    _install_cleanup_signal(_sig_name)' \
+        "THE DEFECT AS IT SHIPPED. tearDown covers a failed assertion and not a run that ENDS, so a Ctrl-C would again leave containers Up — measured at 1 for a SIGINT and 8 for a killed mutation pool — and the next local run would go red at code that is innocent."
+
+    mutant residue-not-reaped "test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie" "$T" \
+        '        _rm_ids([c["id"] for c in dead])' \
+        '        pass' \
+        "residue from a killed run would be named and then left exactly where it was, so the run would carry on classifying against it — the report without the act is the same red at the same innocent case, with a banner over it."
+
+    # THE DIRECTION OF THIS MUTANT IS DELIBERATE, AND THE OTHER DIRECTION IS
+    # DELIBERATELY ABSENT. Here the sweep stops SEEING death, so it under-reaps
+    # and removes nothing: the blast radius is zero. The opposite mutation —
+    # every owner looks dead — was written first and RUN, and it did exactly
+    # what it says on the tin: the mutant's own sweep destroyed the live
+    # containers of the seven other mutants sharing this machine, and they
+    # reported reds at D1, D2 and D3 that had nothing to do with their own
+    # mutations. It manufactured, inside the pool, the very false accusation
+    # this file's D7/D8 exist to end.
+    #
+    # The pool's isolation argument is "each mutant gets its own directory,
+    # built from a read-only tree, so no two mutants share a path". THE DOCKER
+    # DAEMON IS THE ONE PIECE OF STATE THAT ARGUMENT DOES NOT COVER, and a
+    # mutant that reaps machine-wide reaches straight through the sandbox. So
+    # that property is held up by an ASSERTION instead — D8 leaves a second
+    # probe RUNNING and requires the sweep not to touch it — and this comment is
+    # here because "there is no mutant for it" must be a decision on the record
+    # rather than an omission somebody later reads as an oversight.
+    mutant residue-sweep-never-sees-death "test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie" "$T" \
+        '    except ProcessLookupError:{NL}        return False                      # the one positive signal' \
+        '    except ProcessLookupError:{NL}        return True                       # the one positive signal' \
+        "no owner would ever be recognized as gone, so residue from a killed run would sit on the machine unnamed and unremoved — the run would go red at an unrelated case exactly as it did before any of this, with the sweep present and silent."
 else
-    printf '  SKIP  four mutants (reap-does-nothing, reap-ignores-liveness,\n'
-    printf '        mount-authorizes-delete-real, auto-land-does-not-reap) — their\n'
-    printf '        witnesses are the D cases and Docker is not available here, so\n'
-    printf '        those properties are UNPROVEN on this machine rather than proven.\n'
+    printf '  SKIP  seven mutants (reap-does-nothing, reap-ignores-liveness,\n'
+    printf '        mount-authorizes-delete-real, auto-land-does-not-reap,\n'
+    printf '        interrupt-leaks-containers, residue-not-reaped,\n'
+    printf '        residue-sweep-ignores-liveness) — their witnesses are the D\n'
+    printf '        cases and Docker is not available here, so those properties are\n'
+    printf '        UNPROVEN on this machine rather than proven.\n'
 fi
 
 mutation_end

@@ -877,6 +877,13 @@ class Interrupted(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, "could not start %s: %s" % (mine, r.stderr))
 
+        # A SECOND run that is STILL GOING, and it is the important one. `mine`
+        # is skipped by IDENTITY (its owner is this process), so on its own it
+        # can never catch a liveness answer that has gone wrong. This one is a
+        # different process with a different owner id, alive, and the only thing
+        # standing between it and deletion is _owner_alive.
+        alive_p, alive_c = self.start_probe()
+
         p, leaked = self.start_probe()
         p.kill()
         p.wait(timeout=60)
@@ -888,8 +895,14 @@ class Interrupted(unittest.TestCase):
         self.assertIn(leaked, [c["name"] for c in found["dead"]],
                       "the residue of a killed run was not recognized as residue")
         self.assertNotIn(mine, [c["name"] for c in found["dead"]],
-                         "the sweep claimed a LIVE run's container — eight "
-                         "concurrent mutants would delete each other's work")
+                         "the sweep claimed a container of the run it is part of")
+        self.assertNotIn(alive_c, [c["name"] for c in found["dead"]],
+                         "the sweep claimed a container of a run that is STILL "
+                         "RUNNING — under the mutation pool that is eight "
+                         "concurrent suites deleting each other's work, which is "
+                         "this defect with the sign flipped")
+        self.assertIsNone(alive_p.poll(), "the second probe was supposed to "
+                                          "still be running for that question to mean anything")
 
         said = io.StringIO()
         sweep_residue(said)
@@ -898,8 +911,12 @@ class Interrupted(unittest.TestCase):
                       "the failure mode this exists to end")
         self.assertFalse(_exists(leaked), "named, but still on the machine")
         self.assertTrue(_exists(mine),
-                        "the sweep removed a container belonging to a run that "
-                        "is still going")
+                        "the sweep removed a container belonging to the run it "
+                        "is part of")
+        self.assertTrue(_exists(alive_c),
+                        "the sweep removed a container belonging to a DIFFERENT "
+                        "run that is still going — the failure that costs "
+                        "somebody their work rather than merely their time")
 
         again = io.StringIO()
         sweep_residue(again)
