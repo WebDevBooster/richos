@@ -3632,9 +3632,24 @@ run_layer_R
 run_layer_AL
 run_layer_MT
 run_layer_MC
-# shellcheck source=contract-integrity-layer-ep.sh
-. "$SCRIPT_DIR/contract-integrity-layer-ep.sh"
-run_layer_EP
+# Layer EP lives in its own file, and this include is GUARDED rather than bare.
+# A bare `.` of a missing file under `set -e` ends the probe HERE — after every
+# ✗ has been printed and BEFORE the epilogue that turns them into exit 2 — so
+# the probe reports success over its own findings. That is not hypothetical: the
+# integrity suite's sandbox template carries only registered hooks, so cases 3
+# and 4 (a hook unwired, a hook mis-pathed) went from exit 2 to exit 0 the moment
+# a bare include was added, and the only visible trace was one line of shell
+# error in the middle of a green run. NOTHING MAY BE ABLE TO TRUNCATE THIS
+# PROBE. A missing layer is announced by name and the run continues; deleting it
+# from a real engine is caught hard by scripts/entrypoint-currency-lint.test.sh,
+# which asserts the file is present and executable.
+if [ -f "$SCRIPT_DIR/contract-integrity-layer-ep.sh" ]; then
+    # shellcheck source=contract-integrity-layer-ep.sh
+    . "$SCRIPT_DIR/contract-integrity-layer-ep.sh"
+    run_layer_EP
+else
+    emit_warn "EP. layer implementation not present at $SCRIPT_DIR/contract-integrity-layer-ep.sh — nothing here checked whether a standing instruction still names a superseded entrypoint. Expected in a synthetic sandbox that carries only registered hooks; in a real engine it means the layer was deleted, and scripts/entrypoint-currency-lint.test.sh fails hard on that."
+fi
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF
