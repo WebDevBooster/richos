@@ -2638,11 +2638,28 @@ rm -f "$CL1_LOG"
 # this suite while passing standalone, "exit=1" was the entire diagnosis. A
 # mutation harness that can only say "something survived" is a harness you end
 # up re-running by hand anyway.
+#
+# The filter is case 40's EXCLUSION form -- print every line that is not a PASS
+# row -- and deliberately NOT a positive allowlist. An allowlist prints only the
+# failures somebody predicted, and this harness's own fatal paths are not among
+# them: `FATAL: python3 required` (claim-roles.mutation.sh line 38), the
+# `FATAL: mut_pool_*` and `WARNING:` exits in scripts/lib/mutation-pool.sh, and
+# the embedded python's `MUTATION TARGET ABSENT -- the source has drifted`
+# match neither `^  FAIL` nor `survived or misfired`. Reproduced end-to-end
+# against a python3-less harness before this line changed: the report said
+#
+#       FAIL  CL2.claim-gate-mutations-all-load-bearing  (expected exit=0 got=1)
+#
+# and the harness's own message appeared ZERO times in it. The run survived and
+# named the red case -- and still did not say what broke, which is the whole
+# point of keeping the output. The exclusion form also keeps two things the old
+# anchor dropped on an ORDINARY failure: the 10-space `why` continuation under
+# each FAIL row, and the closing `N mutant(s) killed, M survived or misfired`.
 CL2_LOG="$(mktemp -t claim-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >"$CL2_LOG" 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^  FAIL|survived or misfired' "$CL2_LOG" | sed 's/^/        /' || true
+    grep -vE '^ *PASS|^[[:space:]]*$' "$CL2_LOG" | sed 's/^/        /' || true
 fi
 rm -f "$CL2_LOG"
 
@@ -2981,11 +2998,19 @@ if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$SA1_LOG" | sed 's/^/        /' || true
 fi
 rm -f "$SA1_LOG"
+# Output KEPT on failure, with case 40's EXCLUSION filter -- the same one SA1
+# uses three lines above -- and for CL2's reason. The old `^  FAIL` anchor was
+# the narrowest in this file: it printed nothing at all when the harness died
+# BEFORE it could print a FAIL row, and SA2 is the last case before the summary,
+# so that silence lands exactly where the report is all anyone has. Reproduced
+# with a python3-less harness: `FATAL: python3 required` reached the report zero
+# times. The anchor also dropped the `why` continuation and the closing
+# `x N/M properties are NOT load-bearing` line on an ordinary failure.
 SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
 emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^  FAIL' "$SA2_LOG" | sed 's/^/        /' || true
+    grep -vE '^ *PASS|^[[:space:]]*$' "$SA2_LOG" | sed 's/^/        /' || true
 fi
 rm -f "$SA2_LOG"
 
