@@ -21,8 +21,11 @@
 # This is the DETECTOR: it answers "how do I know I fucked up if all guards
 # fail?" It runs AFTER an Agent spawn and loudly surfaces the tell —
 # independent of the preventer, so if the preventer is unloaded/disabled the
-# failure still gets caught. Non-blocking (the spawn already ran): it exits 2
-# only to push the warning into the model's context.
+# failure still gets caught. Non-blocking (the spawn already ran): it exits 0
+# and pushes the warning into the model's context as additionalContext. It used
+# to exit 2 for that, which made the host announce a NON-BLOCKING detector's
+# report as a "blocking error" over a spawn that had already succeeded — see
+# "THE CHANNEL THIS DETECTOR REPORTS ON" below for the measurement.
 #
 # It flags two things:
 #   (a) THIS spawn was a file-capable agent WITHOUT native isolation AND
@@ -64,6 +67,63 @@ set -eo pipefail
 # the preventer (guard-worktree-isolation.sh) is ALSO blind for the same
 # reason. Refuse loudly instead of degrading silently.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: detect-nonnative-worktree.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
+
+# --- THE CHANNEL THIS DETECTOR REPORTS ON ----------------------------------
+# It reports through `hookSpecificOutput.additionalContext` at exit 0, NOT
+# through stderr at exit 2. What it DETECTS is unchanged; only the envelope is.
+#
+# MEASURED, NOT ASSUMED — Claude Code 2.1.270, macOS, 2026-09-14. Three
+# PostToolUse[Write] hooks in one headless session, each emitting a unique
+# marker on a different channel, read back out of the session transcript:
+#
+#   channel                        reaches the author?   how the host frames it
+#   ----------------------------   -------------------   ----------------------
+#   stderr, exit 2                 yes                   attachment type
+#                                                        `hook_blocking_error`:
+#                                                        "PostToolUse:Write hook
+#                                                        BLOCKING ERROR from
+#                                                        command: ..."
+#   additionalContext, exit 0      yes                   attachment type
+#                                                        `hook_additional_context`:
+#                                                        "PostToolUse:Write hook
+#                                                        additional context: ..."
+#                                                        — the text, nothing else
+#   stderr, exit 0                 NO                    `hook_success` with the
+#                                                        text in its stderr field
+#                                                        and NO rendering at all
+#
+# THE REASON THE FIRST ROW IS WRONG FOR THIS HOOK, and it is stronger than a
+# preference. On PostToolUse, exit 2 CANNOT REFUSE ANYTHING — the tool has
+# already run. In the same measurement the Write completed, the file was on
+# disk, the tool result read "File created successfully", and the call was not
+# retried. So the host's "blocking error" banner over a PostToolUse hook is
+# describing an event that never happens on this event type. This hook's own
+# header has said "Non-blocking (the spawn already ran)" since it was written,
+# and it then announced itself to the reader as a blocking error — a mechanism
+# arguing with its own first line, where the reader believes the banner.
+#
+# THE THIRD ROW IS WHY THE FIX IS NOT "just exit 0". Dropping to stderr at
+# exit 0 would have removed the false banner by silencing the hook completely.
+# The same table is reached independently in scripts/lib/stop-hook-notice.sh
+# and relied on in notice-protected-ref-moves.sh.
+#
+# python3 is guaranteed present here by the fail-closed check directly above,
+# so the JSON encoding below cannot be the thing that fails.
+_NOTICE_BUF="$(mktemp -t detect-nonnative-notice.XXXXXX)"
+trap 'rm -f "$_NOTICE_BUF"' EXIT
+
+# emit_notice_and_exit — the SINGLE exit path for everything this hook has to
+# say. Always exit 0: nothing here is a refusal.
+emit_notice_and_exit() {
+  if [ -s "$_NOTICE_BUF" ]; then
+    NOTICE_TEXT="$(cat "$_NOTICE_BUF")" python3 -c 'import json, os, sys
+sys.stdout.write(json.dumps({"hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": os.environ.get("NOTICE_TEXT", ""),
+}}) + "\n")'
+  fi
+  exit 0
+}
 
 # --- ROOT RESOLUTION -------------------------------------------------------
 # TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
@@ -298,7 +358,7 @@ if [ "${#WARN[@]}" -gt 0 ]; then
     echo ""
     echo "(hook: scripts/hooks/detect-nonnative-worktree.sh — detective; this is the"
     echo " guard-free backstop for when the PreToolUse preventer fails.)"
-  } >&2
+  } >>"$_NOTICE_BUF"
 fi
 
 if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
@@ -329,11 +389,11 @@ if [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
       echo ""
     fi
     echo "(hook: scripts/hooks/detect-nonnative-worktree.sh)"
-  } >&2
+  } >>"$_NOTICE_BUF"
 fi
 
-if [ "${#WARN[@]}" -gt 0 ] || [ "${#PRESERVED_RESIDUE[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
-  exit 2
-fi
-
-exit 0
+# One exit path, always 0. The findings above travel as additionalContext; see
+# "THE CHANNEL THIS DETECTOR REPORTS ON" near the top for the measurement that
+# chose it. A finding is still LOUD — it is simply no longer announced to its
+# reader as a failure of the call that produced it.
+emit_notice_and_exit

@@ -10,12 +10,19 @@
 # `git init`, one commit, then the hook copied in at scripts/hooks/ so its
 # self-resolved REPO_ROOT is the sandbox root.
 #
-# Covers: (a) file-capable, no isolation, no marker -> exit 2 warning; (b) a
-# hand-rolled (non agent-<hex>) worktree present -> exit 2 warning (two-causes
+# THE HOOK EXITS 0 IN EVERY CASE BELOW, warnings included. It is a PostToolUse
+# detector, so the spawn it examines has already run and it refuses nothing;
+# reporting at exit 2 made the host frame its findings as a "blocking error"
+# over a call that succeeded. Findings therefore travel as
+# hookSpecificOutput.additionalContext, and the warn/clean axis is "did a notice
+# come back", asserted by run_case. A regression to exit 2 fails every case.
+#
+# Covers: (a) file-capable, no isolation, no marker -> warning; (b) a
+# hand-rolled (non agent-<hex>) worktree present -> warning (two-causes
 # explanation preserved); (c) a clean native-only worktree list + a
-# well-formed, isolated launch -> exit 0; (d) additional file-capable role
-# types with NO isolation and NO marker -> exit 2 warning, WITH isolation ->
-# exit 0, WITH the marker -> exit 0; (e) the main-checkout-run: marker present
+# well-formed, isolated launch -> silent; (d) additional file-capable role
+# types with NO isolation and NO marker -> warning, WITH isolation -> silent,
+# WITH the marker -> silent; (e) the main-checkout-run: marker present
 # -> no (a) warning; (f) the marker suppresses (a) but never (b).
 #
 # Run directly: scripts/hooks/detect-nonnative-worktree.test.sh
@@ -155,21 +162,63 @@ print(json.dumps(d))
 PY
 }
 
-# run_case <name> <expected-exit> <repo> <json>
+# hook_notice <repo> <json> — run the hook and print the additionalContext it
+# emitted, or nothing at all when it was silent. This is the reader's-eye view:
+# the text the host would render under "PostToolUse:Agent hook additional
+# context:". Exit code is deliberately NOT the signal — see run_case.
+hook_notice() {
+    local repo="$1" json="$2" out
+    out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" \
+        RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+        RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
+        "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>/dev/null)"
+    [ -n "$out" ] || return 0
+    printf '%s' "$out" | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+sys.stdout.write((d.get("hookSpecificOutput") or {}).get("additionalContext", ""))'
+}
+
+# run_case <name> <warn|clean> <repo> <json>
+#
+# THE EXIT CODE IS ASSERTED TO BE 0 IN EVERY CASE, including the warning ones.
+# This hook is a PostToolUse detector: the spawn it examines has already run, so
+# it refuses nothing and must not be announced to its reader as a blocking
+# error. The finding/no-finding axis therefore moved OFF the exit code and onto
+# whether an additionalContext notice was emitted. A regression to exit 2 fails
+# every case here, which is the point.
 run_case() {
     local name="$1" expected="$2" repo="$3" json="$4"
-    local actual
+    local actual notice
     printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
         RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
     actual=$?
-    if [ "$actual" -eq "$expected" ]; then
-        printf '  PASS  %s\n' "$name"
-        PASS=$((PASS + 1))
-    else
-        printf '  FAIL  %s (expected exit %s, got %s)\n' "$name" "$expected" "$actual"
+    if [ "$actual" -ne 0 ]; then
+        printf '  FAIL  %s (non-blocking detector must exit 0, got %s)\n' "$name" "$actual"
         FAIL=$((FAIL + 1))
+        return
     fi
+    notice="$(hook_notice "$repo" "$json")"
+    case "$expected" in
+        warn)
+            if [ -n "$notice" ]; then
+                printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
+            else
+                printf '  FAIL  %s (expected an additionalContext notice, got silence)\n' "$name"
+                FAIL=$((FAIL + 1))
+            fi ;;
+        clean)
+            if [ -z "$notice" ]; then
+                printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
+            else
+                printf '  FAIL  %s (expected silence, got a notice)\n' "$name"
+                FAIL=$((FAIL + 1))
+            fi ;;
+        *)
+            printf '  FAIL  %s (test bug: expected warn|clean, got "%s")\n' "$name" "$expected"
+            FAIL=$((FAIL + 1)) ;;
+    esac
 }
 
 # make_fakebin_no_python3 — a PATH dir populated with symlinks to every
@@ -190,17 +239,23 @@ make_fakebin_no_python3() {
 BASH_BIN="$(command -v bash)"
 
 # run_case_msg <name> <expected-substring> <repo> <json>
+#
+# Searches EVERYTHING the hook says — the additionalContext notice (its report
+# channel) and stderr (where the pre-root-resolution banners still go). Pooling
+# the two keeps this helper usable for both classes without letting a message
+# that moved between them pass silently.
 run_case_msg() {
     local name="$1" needle="$2" repo="$3" json="$4"
     local out
-    out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
+    out="$(hook_notice "$repo" "$json")
+$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" RICHOS_WORKSPACES_DIR="$repo/ws" RICHOS_WORKTREE_LEDGER="$repo/wt-ledger.jsonl" \
         RICHOS_WORKSPACE_RETIRE_DIR="$repo/retire" \
         "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"
     if printf '%s' "$out" | grep -qF "$needle"; then
         printf '  PASS  %s\n' "$name"
         PASS=$((PASS + 1))
     else
-        printf '  FAIL  %s (stderr did not mention "%s")\n' "$name" "$needle"
+        printf '  FAIL  %s (hook output did not mention "%s")\n' "$name" "$needle"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -209,7 +264,7 @@ echo "=== detect-nonnative-worktree tests ==="
 
 # --- non-Agent tool passes through untouched ---
 ROOT="$(make_sandbox)"
-run_case "non-Agent tool" 0 "$ROOT" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+run_case "non-Agent tool" clean "$ROOT" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 rm -rf "$ROOT"
 
 # --- a payload this hook CANNOT READ is waved through, and SAYS SO -----------
@@ -226,7 +281,7 @@ for _shape in empty truncated non-json; do
         truncated) _payload='{"tool_name":"Agent","tool_input":{"subagent_ty' ;;
         *)         _payload='this is not JSON, it is a sentence' ;;
     esac
-    run_case "unreadable payload ($_shape) is allowed, not blocked" 0 "$ROOT" "$_payload"
+    run_case "unreadable payload ($_shape) is allowed, not blocked" clean "$ROOT" "$_payload"
     run_case_msg "unreadable payload ($_shape) SAYS the spawn was not examined" \
         "could not read this call" "$ROOT" "$_payload"
 done
@@ -247,7 +302,7 @@ rm -rf "$ROOT"
 
 # --- (a) file-capable, no isolation, no marker -> exit 2 warning ---
 ROOT="$(make_sandbox)"
-run_case "no isolation, no marker, dev -> warning" 2 "$ROOT" \
+run_case "no isolation, no marker, dev -> warning" warn "$ROOT" \
     "$(json_agent 'dev' 'dev-1' '' 'Do the thing.')"
 run_case_msg "warning names the missing-isolation tell" "spawned WITHOUT native isolation" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' '' 'Do the thing.')"
@@ -255,50 +310,50 @@ rm -rf "$ROOT"
 
 # --- read-only type exempt from check (a), no worktree stray -> exit 0 ---
 ROOT="$(make_sandbox)"
-run_case "read-only type Explore, no isolation" 0 "$ROOT" \
+run_case "read-only type Explore, no isolation" clean "$ROOT" \
     "$(json_agent 'Explore' '' '' 'Find where the login button is defined.')"
 rm -rf "$ROOT"
 
 # --- (c) clean native-only worktree list + well-formed isolated launch -> exit 0 ---
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-deadbeef01" "worktree-deadbeef01"
-run_case "native-only worktree list + isolated launch -> clean" 0 "$ROOT" \
+run_case "native-only worktree list + isolated launch -> clean" clean "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 rm -rf "$ROOT"
 
 # --- (d) additional file-capable role types: NO isolation and NO marker ->
 # exit 2 warning. WITH isolation:"worktree" or WITH the marker -> exit 0.
 ROOT="$(make_sandbox)"
-run_case "deviceqa: no isolation, no marker -> warning" 2 "$ROOT" \
+run_case "deviceqa: no isolation, no marker -> warning" warn "$ROOT" \
     "$(json_agent 'deviceqa' 'deviceqa-1' '' 'Run device QA.')"
 rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
-run_case "visualqa: no isolation, no marker -> warning" 2 "$ROOT" \
+run_case "visualqa: no isolation, no marker -> warning" warn "$ROOT" \
     "$(json_agent 'visualqa' 'visualqa-1' '' 'Adversarially verify the visual verdict.')"
 rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
-run_case "funcqa: no isolation, no marker -> warning" 2 "$ROOT" \
+run_case "funcqa: no isolation, no marker -> warning" warn "$ROOT" \
     "$(json_agent 'funcqa' 'funcqa-1' '' 'Functional QA on staging.')"
 rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
-run_case "deviceqa: isolation worktree, clean worktree list -> no warning" 0 "$ROOT" \
+run_case "deviceqa: isolation worktree, clean worktree list -> no warning" clean "$ROOT" \
     "$(json_agent 'deviceqa' 'deviceqa-1' 'worktree' 'Run device QA.')"
 rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
-run_case "deviceqa: main-checkout-run marker, no isolation -> no warning" 0 "$ROOT" \
+run_case "deviceqa: main-checkout-run marker, no isolation -> no warning" clean "$ROOT" \
     "$(json_agent 'deviceqa' 'deviceqa-oneoff1' '' $'Run a one-off task.\nmain-checkout-run: deliberate one-off main-checkout run.')"
 rm -rf "$ROOT"
 
 # --- (e) main-checkout-run: marker present -> no (a) warning ---
 ROOT="$(make_sandbox)"
-run_case "marker present, no isolation -> no (a) warning" 0 "$ROOT" \
+run_case "marker present, no isolation -> no (a) warning" clean "$ROOT" \
     "$(json_agent 'worker' 'worker-oneoff1' '' $'Do the task.\nmain-checkout-run: needs main checkout HEAD.')"
 rm -rf "$ROOT"
 
 # --- (b) a hand-rolled (non agent-<hex>) worktree present -> exit 2 warning ---
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "design-echo-mirror" "design-echo-mirror"
-run_case "hand-rolled worktree present -> warning even for a clean launch" 2 "$ROOT" \
+run_case "hand-rolled worktree present -> warning even for a clean launch" warn "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 run_case_msg "warning names the stray worktree + two-causes explanation" "lingering NON-NATIVE worktree" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
@@ -313,7 +368,7 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-cafefeed02" "worktree-cafefeed02"
 add_worktree "$ROOT" "design-freelance-mirror" "design-freelance-mirror"
-run_case "stray alongside a native worktree still warns" 2 "$ROOT" \
+run_case "stray alongside a native worktree still warns" warn "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 rm -rf "$ROOT"
 
@@ -321,13 +376,13 @@ rm -rf "$ROOT"
 # worktree still warns even for a properly-isolated launch ---
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "design-echo-mirror" "design-echo-mirror"
-run_case "isolated deviceqa launch does not suppress (b) when a stray exists" 2 "$ROOT" \
+run_case "isolated deviceqa launch does not suppress (b) when a stray exists" warn "$ROOT" \
     "$(json_agent 'deviceqa' 'deviceqa-1' 'worktree' 'Run device QA.')"
 rm -rf "$ROOT"
 
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "design-echo-mirror" "design-echo-mirror"
-run_case "marker present suppresses (a) but not (b) when a stray exists" 2 "$ROOT" \
+run_case "marker present suppresses (a) but not (b) when a stray exists" warn "$ROOT" \
     "$(json_agent 'worker' 'worker-oneoff2' '' $'Do the task.\nmain-checkout-run: needs main checkout HEAD.')"
 rm -rf "$ROOT"
 
@@ -345,11 +400,11 @@ ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-cafefeed10" "worktree-cafefeed10"   # REGISTERED
 mkdir -p "$ROOT/.claude/worktrees/agent-deaddead11"             # UNREGISTERED residue
 printf 'ghost\n' > "$ROOT/.claude/worktrees/agent-deaddead11/seal.json"
-run_case "zombie residue dir present -> exit 2 (report-only path)" 2 "$ROOT" \
+run_case "zombie residue dir present -> notice (report-only path)" warn "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 mkdir -p "$ROOT/.claude/worktrees/agent-deaddead11"
 printf 'ghost\n' > "$ROOT/.claude/worktrees/agent-deaddead11/seal.json"
-run_case_msg "zombie residue dir -> stderr names PRESERVED" "PRESERVED" "$ROOT" \
+run_case_msg "zombie residue dir -> the notice names PRESERVED" "PRESERVED" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 if [ "$(cat "$ROOT/.claude/worktrees/agent-deaddead11/seal.json" 2>/dev/null)" = "ghost" ]; then
     printf '  PASS  unregistered directory and its file were preserved\n'; PASS=$((PASS + 1))
@@ -367,7 +422,7 @@ rm -rf "$ROOT"
 # -> exit 0, nothing reaped.
 ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-beefbeef12" "worktree-beefbeef12"
-run_case "registered-only worktree list -> clean exit 0 (no false reap)" 0 "$ROOT" \
+run_case "registered-only worktree list -> silent (no false reap)" clean "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 if [ -d "$ROOT/.claude/worktrees/agent-beefbeef12" ]; then
     printf '  PASS  registered worktree untouched when no residue exists\n'; PASS=$((PASS + 1))
@@ -386,7 +441,7 @@ ROOT="$(make_sandbox)"
 add_worktree "$ROOT" "agent-cafefeed24" "worktree-cafefeed24"
 mkdir -p "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z"
 printf 'archived\n' > "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z/work.txt"
-run_case "(c) a retirement quarantine alone is not residue -> clean exit 0" 0 "$ROOT" \
+run_case "(c) a retirement quarantine alone is not residue -> silent" clean "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')"
 if [ "$(cat "$ROOT/.claude/worktrees/.richos-retired/agent-old25.richos-retired-ws-00000000feedface-20260906T000000Z/work.txt" 2>/dev/null)" = "archived" ]; then
     printf '  PASS  (c) the quarantine and its bytes are intact\n'; PASS=$((PASS + 1))
@@ -396,23 +451,28 @@ fi
 rm -rf "$ROOT"
 
 # --- (d) zombie PROCESS: an orphaned process referencing an UNREGISTERED
-# worktree path under THIS sandbox's main checkout -> exit 2, REPORT-ONLY (pid +
-# kill recommendation), never auto-killed. `exec -a` plants the ghost path in
-# argv[0] (macOS `bash -c 'cmd' name` exec-optimizes the name away).
+# worktree path under THIS sandbox's main checkout -> a REPORT-ONLY notice (pid
+# + kill recommendation) at exit 0, never auto-killed. `exec -a` plants the
+# ghost path in argv[0] (macOS `bash -c 'cmd' name` exec-optimizes the name
+# away).
 ROOT="$(make_sandbox)"
 ROOT_PHYS="$(cd "$ROOT" && pwd -P)"
 GHOST_PATH="$ROOT_PHYS/.claude/worktrees/agent-ghostproc13/scripts/install-fresh.sh"
 bash -c 'exec -a "$1" sleep 30' _ "$GHOST_PATH" &
 GHOST_PID=$!
 sleep 0.4
-ZP_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')" \
-    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKSPACES_DIR="$ROOT/ws" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"; ZP_RC=$?
+ZP_JSON="$(printf '%s' "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')" \
+    | RICHOS_ENTITY_ROOT="$ROOT" RICHOS_WORKSPACES_DIR="$ROOT/ws" RICHOS_WORKTREE_LEDGER="$ROOT/wt-ledger.jsonl" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>/dev/null)"; ZP_RC=$?
+ZP_OUT="$(printf '%s' "$ZP_JSON" | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+sys.stdout.write((d.get("hookSpecificOutput") or {}).get("additionalContext", ""))')"
 kill "$GHOST_PID" 2>/dev/null || true
 wait "$GHOST_PID" 2>/dev/null || true
-if [ "$ZP_RC" -eq 2 ]; then
-    printf '  PASS  zombie process present -> exit 2\n'; PASS=$((PASS + 1))
+if [ "$ZP_RC" -eq 0 ] && [ -n "$ZP_OUT" ]; then
+    printf '  PASS  zombie process present -> report-only notice at exit 0\n'; PASS=$((PASS + 1))
 else
-    printf '  FAIL  zombie process present -> expected exit 2, got %s\n' "$ZP_RC"; FAIL=$((FAIL + 1))
+    printf '  FAIL  zombie process present -> expected a notice at exit 0, got rc=%s notice=%s chars\n' "$ZP_RC" "${#ZP_OUT}"; FAIL=$((FAIL + 1))
 fi
 if printf '%s' "$ZP_OUT" | grep -qF "pid ${GHOST_PID}"; then
     printf '  PASS  zombie process report names the PID\n'; PASS=$((PASS + 1))
