@@ -392,7 +392,7 @@ esac
     echo
     echo "    2. YOU WRITE IT DOWN:"
     echo
-    echo "         <engine>/scripts/stop-work-ack.sh \\"
+    echo "         $ENGINE_ROOT/scripts/stop-work-ack.sh \\"
     echo "             --task '$TASK_ID' \\"
     echo "             --destroying '<what is lost if it dies right now>' \\"
     echo "             --why '<why it cannot wait for the agent to commit>'"

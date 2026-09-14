@@ -192,7 +192,7 @@ ARC=0
 ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
 if [ "$ARC" -ge 2 ]; then
     stop_notice_abnormal "assess-broken:$(printf '%s' "${CA_BROKEN:-}" | cksum | tr -d ' ')" \
-        "CEO-ASK WATCH SWEPT NOTHING — ${CA_BROKEN:-the predicate could not run}. This is not an empty list; it is an unread one. Detail: scripts/ceo-asks-status.sh"
+        "CEO-ASK WATCH SWEPT NOTHING — ${CA_BROKEN:-the predicate could not run}. This is not an empty list; it is an unread one. Detail: ${ENGINE_ROOT}/scripts/ceo-asks-status.sh"
     exit 0
 fi
 
@@ -213,5 +213,5 @@ if [ "${CA_UNASKED:-0}" -gt 1 ]; then
 fi
 
 stop_notice_abnormal "unasked:$IDS" \
-    "HE HAS NOT BEEN ASKED — CEO TODO ${TOP_ID}: ${TOP_ASK}${MORE} Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: scripts/ceo-asks-status.sh"
+    "HE HAS NOT BEEN ASKED — CEO TODO ${TOP_ID}: ${TOP_ASK}${MORE} Put one to him with AskUserQuestion; asking is what discharges this, not recording it. Full list: ${ENGINE_ROOT}/scripts/ceo-asks-status.sh"
 exit 0

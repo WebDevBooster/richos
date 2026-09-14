@@ -90,7 +90,7 @@
 # one — the marker would sit in the same command line it excuses, forgeable by
 # reflex and invisible afterwards. Instead:
 #
-#     scripts/inflight-notify.sh waive <worktree> --reason "<why>"
+#     <engine>/scripts/inflight-notify.sh waive <worktree> --reason "<why>"
 #
 # which appends a dated, attributed row to inflight-waivers.jsonl naming the
 # tip, the worktree and the reason. Auditable, never silent, and it survives
@@ -101,6 +101,19 @@
 #
 # NOTE: hooks are snapshotted at session start. This one is INERT until the
 # next session — it assumes nothing about being live in the session that adds it.
+#
+# A PRINTED REMEDY IS A COMMAND SOMEBODY PASTES. A relative path in one is a
+# guess about the reader's cwd, and this engine is loaded BY REFERENCE from
+# outside every repository, so there is no cwd from which `scripts/<x>.sh`
+# resolves. Reproduced 2026-09-14 from the richos repository root:
+#
+#   $ scripts/inflight-notify.sh status
+#   (eval):2: no such file or directory: scripts/inflight-notify.sh   # rc=127
+#
+# Every runnable path printed by this file is therefore absolute, built from the
+# root this hook already resolved for itself. `(hook: scripts/hooks/<x>.sh)`
+# attribution lines are deliberately left relative: they name a file, they are
+# not a command, and nobody pastes them.
 
 set -eo pipefail
 
@@ -416,7 +429,7 @@ TIP="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
     echo "  TO CLEAR THIS, per §8b — for each one, either:"
     echo ""
     echo "   1. MESSAGE IT — and do NOT compose the message. GENERATE it:"
-    echo "        scripts/inflight-notify.sh notice \\"
+    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh notice \\"
     echo "            --impact <conflict|stale-record|grew-scope|none> \\"
     echo "            --detail \"<one sentence: which of ITS assumptions this breaks>\""
     echo ""
@@ -431,10 +444,10 @@ TIP="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
     echo "      on, and the send itself is the record. Then re-run this push."
     echo ""
     echo "   2. WAIVE IT, on the record:"
-    echo "        scripts/inflight-notify.sh waive <worktree-path> --reason \"<why>\""
+    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh waive <worktree-path> --reason \"<why>\""
     echo ""
     echo "  See what you are deciding about first:"
-    echo "        scripts/inflight-notify.sh status"
+    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh status"
     echo "(hook: scripts/hooks/guard-inflight-notify.sh)"
 } >&2
 exit 2

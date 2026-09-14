@@ -327,7 +327,7 @@ TOP_ASK="$(printf '%s' "$TOP" | cut -f4)"
         printf '%s\n' "$CA_ASK_LINES" | tail -n +2 | head -5 \
             | awk -F'\t' '{printf "    %s  %s\n", $2, $3}'
         if [ "${CA_UNASKED:-0}" -gt 6 ] 2>/dev/null; then
-            echo "    (+$((CA_UNASKED - 6)) more — scripts/ceo-asks-status.sh)"
+            echo "    (+$((CA_UNASKED - 6)) more — $ENGINE_ROOT/scripts/ceo-asks-status.sh)"
         fi
         echo ""
     fi

@@ -43,6 +43,14 @@
 set -uo pipefail
 
 STATE_DIR="${CI_SURFACE_STATE_DIR:-$HOME/.claude/state/ci-surface}"
+
+# THE COMMAND THIS NOTICE OFFERS IS ONE SOMEBODY PASTES, so it is absolute.
+# `engine/scripts/ci-status.sh` resolves only from the richos repository root,
+# and this hook fires at SessionStart in whatever repository the seat is in —
+# measured 2026-09-14: that path does not exist under /Users/alex/ab/femcboost.
+# Derived from this file's own location, which needs no root resolution and no
+# git.
+CI_SURFACE_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 command -v python3 >/dev/null 2>&1 || exit 0
 
 NOTICE="$(STATE_DIR="$STATE_DIR" python3 - <<'PY' 2>/dev/null || true
@@ -163,8 +171,8 @@ PY
 # STDERR IS NOT KEPT ALONGSIDE. It renders to nobody, and a duplicate copy of
 # the same text on a third channel is what made this hook's own suite count
 # thirteen rows in a twelve-row list when the fix was first tried.
-BODY="$(printf '=== CI SURFACE ===\n%s\n  Everything, on all six axes, in one command:  engine/scripts/ci-status.sh\n' \
-    "$(printf '%s\n' "$NOTICE" | sed 's/^/  /')")"
+BODY="$(printf '=== CI SURFACE ===\n%s\n  Everything, on all six axes, in one command:  %s/ci-status.sh\n' \
+    "$(printf '%s\n' "$NOTICE" | sed 's/^/  /')" "$CI_SURFACE_SCRIPTS")"
 
 BODY="$BODY" python3 -c '
 import json, os

@@ -552,7 +552,7 @@ if [ "$NEEDS_STAFFING_HATCH" -eq 1 ]; then
         echo "    roster: ${ROSTER_HINT}"
       fi
       echo "  Needing a worktree first is NOT a reason to reach for a generic agent —"
-      echo "  scripts/create-teammate-worktree.sh creates and registers one in a single call."
+      echo "  $ENGINE_ROOT/scripts/create-teammate-worktree.sh creates and registers one in a single call."
       echo ""
       echo "  FIX (only when no roster teammate genuinely fits): add ONE live prompt line"
       echo "      generic-agent: <why no roster teammate fits this work>"

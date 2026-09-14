@@ -241,6 +241,17 @@ fi
 # shellcheck source=../lib/git-jurisdiction.sh
 . "$_GJ_LIB"
 
+# THE REMEDIES THIS GATE PRINTS ARE COMMANDS SOMEBODY PASTES, so they are
+# absolute. They used to read `${ENGINE_SCRIPTS}/ci-status.sh`, which resolves only
+# from the richos repository root — and this gate's whole reason for existing is
+# that a session seated in ONE repository lands work in ANOTHER, where there is
+# no `engine/` at all. Measured 2026-09-14 from /Users/alex/ab/femcboost:
+# ${ENGINE_SCRIPTS}/ci-status.sh does not exist. Derived from this file's own
+# location rather than from a root, because the header above argues at length
+# that this gate resolves no entity root and must not start doing git work for
+# the sake of a printed line.
+ENGINE_SCRIPTS="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 RED_PROBE="$SCRIPT_DIR/../lib/ci-red.py"
 [ -f "$RED_PROBE" ] || exit 0
 
@@ -429,7 +440,7 @@ if [ -z "$WATCHED_BRANCH" ]; then
             echo "=== CI RED GATE: NO INTEGRATION BRANCH RECORDED — THIS LAND IS ALLOWED ==="
             echo "  Nothing is recorded for ${REPO_ROOT} as the branch this work integrates"
             echo "  on, so there is no branch whose CI to read. NOTHING WAS CHECKED."
-            echo "  Record it:  engine/scripts/workspaces.sh integration --repo ${REPO_ROOT} \\"
+            echo "  Record it:  ${ENGINE_SCRIPTS}/workspaces.sh integration --repo ${REPO_ROOT} \\"
             echo "                  --branch <main|dev/...> --why '<this body of work>'"
         } >&2
         exit 0
@@ -558,7 +569,7 @@ except Exception:
                 echo "=== LAND-COMPLETENESS CHECK: TIMED OUT — THE LAND IS ALLOWED ==="
                 echo "  It did not answer within ${LAND_COMPLETENESS_TIMEOUT:-10}s, so nothing was"
                 echo "  checked. That is NOT 'the last land was clean'."
-                echo "  Answer it yourself:  engine/scripts/land-completeness.sh --repo $REPO_ROOT"
+                echo "  Answer it yourself:  ${ENGINE_SCRIPTS}/land-completeness.sh --repo $REPO_ROOT"
             } >&2
         else
             wait "$_LRG_PID"
@@ -600,7 +611,7 @@ PROBE_JSON="$(python3 "$RED_PROBE" --repo "$SLUG" --branch "$WATCHED_BRANCH" \
         echo "=== CI RED GATE: COULD NOT LOOK ==="
         echo "  The red probe produced nothing for ${SLUG} (${WATCHED_BRANCH}). This land is ALLOWED,"
         echo "  because 'could not look' is not evidence of red — but nothing was checked."
-        echo "  Answer it yourself:  engine/scripts/ci-status.sh --repo ${REPO_ROOT}"
+        echo "  Answer it yourself:  ${ENGINE_SCRIPTS}/ci-status.sh --repo ${REPO_ROOT}"
     } >&2
     exit 0
 }
@@ -623,7 +634,7 @@ if [ "$STATE" != "red" ]; then
         echo "  on the day would always be to waive, and habitual waiving is how three guards died"
         echo "  in this project in one afternoon. So it allows, and it says so where you can see it."
         echo ""
-        echo "  Settle it:  engine/scripts/ci-status.sh --repo ${REPO_ROOT}"
+        echo "  Settle it:  ${ENGINE_SCRIPTS}/ci-status.sh --repo ${REPO_ROOT}"
     } >&2
     exit 0
 fi
@@ -823,6 +834,6 @@ print("  read %s (%s), %s workflows seen" % (d.get("read_at"), d.get("source"), 
     echo "     one line."
     echo ""
     echo "  The full picture across every governed repository, on all six axes:"
-    echo "       engine/scripts/ci-status.sh"
+    echo "       ${ENGINE_SCRIPTS}/ci-status.sh"
 } >&2
 exit 2

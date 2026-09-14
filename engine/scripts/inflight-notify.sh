@@ -237,6 +237,7 @@ if not any_ack:
         IF_ARGS_TMO="$TIMEOUT_MIN" IF_ARGS_SID="$SESSION_ID" IF_ARGS_TRANSCRIPT="$TRANSCRIPT" \
         IF_ARGS_IMPACT="$IMPACT" IF_ARGS_DETAIL="$DETAIL" \
         IF_ARGS_TEAMMATE="$TEAMMATE" IF_ARGS_WORKTREE="$WORKTREE" \
+        IF_SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
         IF_LIB_DIR="$SCRIPT_DIR/lib" python3 -c '
 import os, sys
 sys.path.insert(0, os.environ["IF_LIB_DIR"])
@@ -350,7 +351,11 @@ if missing:
     print("  %s not given, so %s left as a FILL placeholder in the body above."
           % (" and ".join(missing), "it is" if len(missing) == 1 else "they are"))
     print("  Pass them and the body comes out ready to send:")
-    print("      scripts/inflight-notify.sh notice --impact <kind> --detail \"<one sentence>\"")
+    # ABSOLUTE, from the location of this very file. A relative path here is a
+    # guess about the cwd of whoever reads it, and the engine is loaded by
+    # reference from outside every repo, so no cwd makes a relative one work.
+    print("      %s notice --impact <kind> --detail \"<one sentence>\""
+          % (os.environ.get("IF_SELF") or "inflight-notify.sh"))
 print("  sha, paths and teammate are GENERATED from the same predicate the guard")
 print("  refuses on. impact and detail are the only two fields that are yours.")
 print("  RELEVANCE IS STILL YOURS TOO: the costlier of the two failures this")

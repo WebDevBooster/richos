@@ -304,7 +304,7 @@ mutant teams-dir-pointer-ignored "11c." scripts/lib/teammate-identity.py \
 # 17. THE REFUSAL POINTS AT THE GENERATOR. Point it back at a message to
 #     compose and the whole mechanism is a suggestion again.
 mutant refusal-points-at-hand-composition "2d." scripts/hooks/guard-inflight-notify.sh \
-    'echo "        scripts/inflight-notify.sh notice \\"' \
+    'echo "        $ENGINE_ROOT/scripts/inflight-notify.sh notice \\"' \
     'echo "        (compose it yourself, and name the sha) \\"' \
     "The lander would be told to write the message, which is what produced 25 lines."
 
