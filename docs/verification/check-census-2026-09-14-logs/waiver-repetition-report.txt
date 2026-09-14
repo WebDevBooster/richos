@@ -1,0 +1,215 @@
+=== waiver repetition — a hatch used over and over is a broken guard ===
+
+  entity root : /Users/alex/ab/femcboost
+  engine root : /Users/alex/ab/richos-wt/sage-opus-c1/engine
+  as of       : 2026-09-14
+  rule        : same reason, >= 3 times, on >= 2 days or >= 2 subjects,
+                last used within 14 days.  reason grouping: Jaccard >= 0.35
+
+  ESCAPE-HATCH LEDGERS DERIVED FROM THE GUARDS (23):
+    ceo-ruled-exempts.log           3 entries
+    ceo-todos-defers.log            384 entries
+    ci-red-acks.log                 113 entries
+    conceal-acks.log                never used
+    data-contract-bypasses.log      550 entries
+    definition-drift-acks.log       35 entries
+    definition-drift.log            16 entries
+    generic-agent-dispatches.log    1 entries
+    hand-roll-acks.log              1 entries
+    hook-inventory-acks.log         never used
+    inflight-waivers.jsonl          29 entries
+    main-checkout-runs.log          45 entries
+    model-ceiling-acks.log          75 entries
+    model-downgrade-acks.log        never used
+    owned-state-acks.log            never used
+    owned-state-dispositions.log    6 entries
+    resume-acks.log                 232 entries
+    stale-staging-acks.log          never used
+    stop-work-acks-used.log         2 entries
+    stop-work-acks.jsonl            2 entries
+    unevaluated-payloads.log        32 entries
+    vendoring-acks.log              never used
+    worktree-remove-acks.log        112 entries
+
+  APPENDED BUT NOT CLASSIFIED AS A HATCH (8) — check this list if a
+  hatch is missing above; a wrong classification hides it:
+    agent-state-claims.jsonl, escalations.jsonl, idle-events.jsonl, premise-ask-ledger.jsonl, ref-transactions.jsonl, spawned-names.log, task-events.jsonl, watch.log
+
+  ON DISK, CLAIMED BY NO GUARD (16) — either dead state or a ledger
+  whose writer the scan failed to find. Not analyzed, not dropped:
+    ceo-asks.jsonl, ceo-inputs.jsonl, ci-turn-gate-acks.log, claim-checks.jsonl, cleanup-delivery-final-backlog-journal.jsonl, cleanup-delivery-kit-backlog-journal.jsonl, full-suite-acks.log, idle-land-checks.jsonl, inflight-acks.jsonl, inflight-notices.jsonl, quota-samples.jsonl, stated-actions.jsonl, turn-manifests.jsonl, worker-events.jsonl, worktree-ledger.jsonl, worktree-reconciler.log
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-ceo-ask-first.sh
+    ledger        : ceo-todos-defers.log  (384 entries)
+    written at    : scripts/hooks/guard-ceo-ask-first.sh:290
+    repeated      : 26 class(es), 306 of the 384 entries
+      x46   2026-09-11..2026-09-13 (3 days, 44 subjects, last used 1 day(s) ago)
+            The CEO gated this exact dispatch on my report of the four calls, I delivered it, and he answer…
+      x34   2026-09-13..2026-09-13 (1 days, 16 subjects, last used 1 day(s) ago)
+            the CEO gave this order directly in this session and is watching the red checks on the public r…
+      x31   2026-09-10..2026-09-11 (2 days, 27 subjects, last used 3 day(s) ago)
+            the CEO directed this round in this session ("go") and set the gate it continues; TODO 1.4 stay…
+      x23   2026-09-06..2026-09-06 (1 days, 22 subjects, last used 8 day(s) ago)
+            He was put two of his prepared items this session with AskUserQuestion and declined both, then …
+      x23   2026-09-02..2026-09-02 (1 days, 20 subjects, last used 12 day(s) ago)
+            The CEO has said get on with it in the strongest terms, three times in a row this session — "WH…
+      x23   2026-09-13..2026-09-14 (2 days, 7 subjects, last used 0 day(s) ago)
+            the CEO flagged this defect live in conversation and is waiting on it; his prepared-question li…
+      x19   2026-09-02..2026-09-02 (1 days, 15 subjects, last used 12 day(s) ago)
+            The CEO spent this entire session interrogating the worktree failure himself, explicitly ordere…
+      x10   2026-09-10..2026-09-10 (1 days, 10 subjects, last used 4 day(s) ago)
+            the CEO asked, this session and directly, how he can know that Rich hiding a problem from him w…
+      x10   2026-09-06..2026-09-06 (1 days, 7 subjects, last used 8 day(s) ago)
+            the CEO directed independent work to continue this session while his prepared question stays pe…
+      x9    2026-09-03..2026-09-03 (1 days, 6 subjects, last used 11 day(s) ago)
+            The CEO told me to get this built, in those words. This is that work.
+      x9    2026-09-13..2026-09-14 (2 days, 2 subjects, last used 0 day(s) ago)
+            the CEO has just named this his priority #1, live in this session, in place of everything else.
+      x7    2026-09-03..2026-09-14 (2 days, 3 subjects, last used 0 day(s) ago)
+            The CEO is waiting on this and asked directly what happened to the review fixes. This is that w…
+      x7    2026-09-06..2026-09-06 (1 days, 5 subjects, last used 8 day(s) ago)
+            The CEO ordered work started without his input this turn. This is the top unblocked item on the…
+      x6    2026-09-14..2026-09-14 (1 days, 2 subjects, last used 0 day(s) ago)
+            the CEO asked this directly tonight, in anger, and it is unanswered; it is not his prepared-que…
+      x6    2026-09-13..2026-09-13 (1 days, 2 subjects, last used 1 day(s) ago)
+            the CEO is live in this session demanding to know why the one-command spawn he landed last nigh…
+      x6    2026-09-14..2026-09-14 (1 days, 2 subjects, last used 0 day(s) ago)
+            this is the mechanism for a failure type recorded tonight, which the CEO has twice said is not …
+      x5    2026-09-01..2026-09-01 (1 days, 5 subjects, last used 13 day(s) ago)
+            The CEO was asked item 1.2 this session and RULED it (ceo-decisions.md §18, richos-hq 41c1593);…
+      x4    2026-09-09..2026-09-09 (1 days, 4 subjects, last used 5 day(s) ago)
+            He said "go" on this dispatch explicitly, then "Try again" after clearing the blocker himself. …
+      x4    2026-09-09..2026-09-09 (1 days, 2 subjects, last used 5 day(s) ago)
+            He said "implement now" after four reviewers stress-tested the plan. His top prepared item 1.3 …
+      x4    2026-09-03..2026-09-03 (1 days, 3 subjects, last used 11 day(s) ago)
+            The CEO directed this work himself in his own words this session and explicitly declined the pr…
+      x4    2026-09-07..2026-09-07 (1 days, 4 subjects, last used 7 day(s) ago)
+            User explicitly directed live rollout in this Codex conversation on 2026-09-07; run ed803501-3b…
+      x4    2026-09-03..2026-09-04 (2 days, 4 subjects, last used 10 day(s) ago)
+            the CEO is driving the public open-source launch in real time and supplied this file himself as…
+      x3    2026-09-01..2026-09-01 (1 days, 2 subjects, last used 13 day(s) ago)
+            The CEO was asked item 1.2 this session (entity and license) and RULED it — entity settled, lic…
+      x3    2026-09-10..2026-09-10 (1 days, 2 subjects, last used 4 day(s) ago)
+            This is a defect found by another engineer mid-flight, it blocks nothing of the CEO's and needs…
+      x3    2026-09-10..2026-09-10 (1 days, 3 subjects, last used 4 day(s) ago)
+            the CEO directed this work himself in this session, angrily and twice; asking him a prepared TO…
+      x3    2026-09-09..2026-09-09 (1 days, 3 subjects, last used 5 day(s) ago)
+            the CEO ordered this dispatch in his own message as the immediate next job.
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-ci-red-lands.sh
+    ledger        : ci-red-acks.log  (113 entries)
+    written at    : scripts/hooks/guard-ci-red-lands.sh:727
+    repeated      : 4 class(es), 92 of the 113 entries
+      x40   2026-09-11..2026-09-13 (3 days, n/a subjects, last used 1 day(s) ago)
+            WebDevBooster/richos-hq windows-companion-ci.yml merge this land is one docs-only review of a s…
+      x25   2026-09-10..2026-09-14 (4 days, n/a subjects, last used 0 day(s) ago)
+            WebDevBooster/richos engine-self-verify.yml merge this land is two docs-only certification verd…
+      x18   2026-09-10..2026-09-11 (2 days, n/a subjects, last used 3 day(s) ago)
+            WebDevBooster/richos app-voice-ci.yml merge docs-only verdict record under docs/verification, t…
+      x9    2026-09-11..2026-09-12 (2 days, n/a subjects, last used 2 day(s) ago)
+            WebDevBooster/richos engine-self-verify.yml push pre-existing red; this push REMOVES work the C…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: notice-waiver-repetition.py
+    ledger        : inflight-waivers.jsonl  (29 entries)
+    written at    : scripts/hooks/notice-waiver-repetition.py:457
+    repeated      : 1 class(es), 14 of the 29 entries
+      x14   2026-09-13..2026-09-14 (2 days, 1 subjects, last used 0 day(s) ago)
+            abandoned Codex worktree from 2026-09-09, five days stale, no live agent and no session owns it…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-model-ceiling.sh
+    ledger        : model-ceiling-acks.log  (75 entries)
+    written at    : scripts/hooks/guard-model-ceiling.sh:460
+    repeated      : 10 class(es), 62 of the 75 entries
+      x14   2026-09-12..2026-09-13 (2 days, 14 subjects, last used 1 day(s) ago)
+            The CEO's own worked example (a) for Fable is "this worktree-lifecycle work and its fixes", and…
+      x12   2026-09-10..2026-09-11 (2 days, 10 subjects, last used 3 day(s) ago)
+            The CEO expressly ordered this review on Fable — "Sage and Frank (both on Fable) must inspect a…
+      x10   2026-09-09..2026-09-09 (1 days, 2 subjects, last used 5 day(s) ago)
+            CEO names Fable for Sage. One-off design; everything downstream inherits the conclusion.
+      x5    2026-09-10..2026-09-11 (2 days, 4 subjects, last used 3 day(s) ago)
+            the CEO's own worked example (a) for a Fable spawn is "this worktree-lifecycle work and its fix…
+      x4    2026-09-06..2026-09-06 (1 days, 4 subjects, last used 8 day(s) ago)
+            The CEO directed this review on Fable by name. It is the one-off shape his ruling reserves Fabl…
+      x4    2026-09-12..2026-09-12 (1 days, 4 subjects, last used 2 day(s) ago)
+            The CEO ordered Fable for both reviewers of this pass by name ("both on Fable this time"). This…
+      x4    2026-09-09..2026-09-09 (1 days, 4 subjects, last used 5 day(s) ago)
+            direct CEO order to run this review on Fable; it is the independent verification gate on the si…
+      x3    2026-09-10..2026-09-10 (1 days, 2 subjects, last used 4 day(s) ago)
+            G0 is the gate that decides whether the entire owned-outcome system gets built at all. A wrong …
+      x3    2026-09-05..2026-09-05 (1 days, 2 subjects, last used 9 day(s) ago)
+            The CEO directed this seat and this model by name, for the second round of an adjudication he i…
+      x3    2026-09-09..2026-09-09 (1 days, 2 subjects, last used 5 day(s) ago)
+            The CEO named the model himself and has repeated it across every round of this review chain — "…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-definition-drift.sh
+    ledger        : definition-drift.log  (16 entries)
+    written at    : scripts/hooks/guard-definition-drift.sh:210, scripts/hooks/guard-definition-drift.sh:381
+    repeated      : 1 class(es), 9 of the 16 entries
+      x9    2026-09-05..2026-09-13 (2 days, 3 subjects, last used 1 day(s) ago)
+            nosnapshot
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-worktree-removal.sh
+    ledger        : worktree-remove-acks.log  (112 entries)
+    written at    : scripts/hooks/guard-worktree-removal.sh:930
+    repeated      : 1 class(es), 4 of the 112 entries
+      x4    2026-09-12..2026-09-13 (2 days, n/a subjects, last used 1 day(s) ago)
+            this is my own throwaway landing worktree in the session scratchpad, created by me three comman…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-resume-isolation.sh
+    ledger        : resume-acks.log  (232 entries)
+    written at    : scripts/hooks/guard-resume-isolation.sh:352
+    repeated      : 4 class(es), 113 of the 232 entries
+      x86   2026-07-23..2026-09-02 (6 days, 40 subjects, last used 12 day(s) ago)
+            recipient is an ACTIVE background teammate spawned minutes ago with native isolation:worktree (…
+      x15   2026-08-31..2026-09-02 (2 days, 8 subjects, last used 12 day(s) ago)
+            No writes are caused by this message — it is the in-flight land notice the push guard requires,…
+      x9    2026-09-02..2026-09-02 (1 days, 5 subjects, last used 12 day(s) ago)
+            Notice to a running agent (lock-verified ALIVE); writes land only in its own worktrees.
+      x3    2026-09-02..2026-09-02 (1 days, 3 subjects, last used 12 day(s) ago)
+            PURE LIVENESS PROBE, NO WRITES ANYWHERE. This is a measurement, not a work request. Your worktr…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-definition-drift.sh
+    ledger        : definition-drift-acks.log  (35 entries)
+    written at    : scripts/hooks/guard-definition-drift.sh:407
+    repeated      : 1 class(es), 35 of the 35 entries
+      x35   2026-08-25..2026-09-05 (4 days, 35 subjects, last used 9 day(s) ago)
+            b274704496d753f1cb3c9a4d4323ac4c396aaf583419866613caefa22e505639
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: verify-agent-prompt.sh
+    ledger        : data-contract-bypasses.log  (550 entries)
+    written at    : scripts/hooks/verify-agent-prompt.sh:439
+    repeated      : 3 class(es), 38 of the 550 entries
+      x19   2026-09-04..2026-09-04 (1 days, 4 subjects, last used 10 day(s) ago)
+            this task deletes skill directories and repairs their citations in Markdown, JSON and shell fil…
+      x13   2026-09-10..2026-09-11 (2 days, 3 subjects, last used 3 day(s) ago)
+            this task is the RichOS orchestration engine's worktree-lifecycle code and its test suites in t…
+      x6    2026-09-04..2026-09-04 (1 days, 2 subjects, last used 10 day(s) ago)
+            this task installs and launches the PUBLISHED macOS desktop release on this Mac and observes it…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+
+  --------------------------------------------------------------
+  SUSPECTED BROKEN GUARD: guard-worktree-isolation.sh
+    ledger        : main-checkout-runs.log  (45 entries)
+    written at    : scripts/hooks/guard-worktree-isolation.sh:726
+    repeated      : 1 class(es), 42 of the 45 entries
+      x42   2026-08-30..2026-08-31 (2 days, 42 subjects, last used 14 day(s) ago)
+            cross-repo work — you write ONLY inside the hand-rolled richos worktree /Users/alex/ab/richos-w…
+    THE FIX IS IN THE GUARD, NOT IN THE NEXT WAIVER.
+

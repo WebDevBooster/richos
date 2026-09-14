@@ -1,0 +1,12 @@
+=== session-start-ci-surface tests ===
+  PASS  N1   clean and watched: completely silent
+  PASS  N3   an uninstalled watch is said out loud, not mistaken for a clean surface
+  PASS  N4   a watch that ran and did not work says exactly that
+  PASS  N5   a watch that quietly stopped is reported, not read as clean
+  PASS  N2   red is named with the age of each streak, oldest first
+  PASS  N7   a truncated list ANNOUNCES the truncation and the remainder (12 rows shown of 20)
+  PASS  N6   a repository that could not be read is UNREAD, never folded into clear
+  PASS  N8   the notice exits 0 even while shouting — it never wedges a session
+  PASS  N9   the finding reaches the operator AND the model, and nothing goes to the silent channels
+
+=== session-start-ci-surface tests: all 9 passed ===

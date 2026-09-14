@@ -1,0 +1,4 @@
+=== CI SURFACE ===
+  CI IS RED — 1 workflow(s), oldest first:
+      WebDevBooster/richos     engine-self-verify.yml     0 day(s), since run #201
+  Everything, on all six axes, in one command:  engine/scripts/ci-status.sh

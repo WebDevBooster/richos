@@ -1,0 +1,320 @@
+=== check census — does a finding change what happens? ===
+
+  engine root    : /Users/alex/ab/richos-wt/sage-opus-c1/engine
+  entity root    : /Users/alex/ab/femcboost
+  registrations  : 76
+  distinct checks: 71
+
+  BY CLASS
+    CONTROL                        36
+    INSTRUMENT (author)            2
+    INSTRUMENT (person)            27
+    RECORD                         6
+
+  check                                  event(s)                 class                sites   hatch (entries on disk)
+  --------------------------------------------------------------------------------------------------------------------
+  guard-bash-main-writes.sh              PreToolUse               CONTROL              1/5     -
+        finding      scripts/hooks/guard-bash-main-writes.sh:275  exit 2 ;;
+        self-failure scripts/hooks/guard-bash-main-writes.sh:68  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-bash-main-w
+        self-failure scripts/hooks/guard-bash-main-writes.sh:120  exit 2
+        self-failure scripts/hooks/guard-bash-main-writes.sh:140  exit 2
+        self-failure scripts/hooks/guard-bash-main-writes.sh:261  exit 2
+  guard-ceo-ask-first.sh                 PreToolUse               CONTROL              1/2     ceo-todos-defers.log=384
+        finding      scripts/hooks/guard-ceo-ask-first.sh:343  exit 2
+        self-failure scripts/hooks/guard-ceo-ask-first.sh:160  exit 2
+  guard-ceo-ruled-ask.sh                 PreToolUse               CONTROL              2/3     -
+        finding      scripts/hooks/guard-ceo-ruled-ask.sh:331  exit 2
+        finding      scripts/hooks/guard-ceo-ruled-ask.sh:499  exit 2
+        self-failure scripts/hooks/guard-ceo-ruled-ask.sh:150  exit 2
+  guard-ceo-todos-commits.sh             PreToolUse               CONTROL              4/13    -
+        finding      scripts/hooks/guard-ceo-todos-commits.sh:311  *) ct_broken_banner "guard-ceo-todos-commits.sh" "$CT_BROKEN_REASON" >
+        finding      scripts/hooks/guard-ceo-todos-commits.sh:407  exit 2
+        finding      scripts/hooks/guard-ceo-todos-commits.sh:431  exit 2 ;;
+        finding      scripts/hooks/guard-ceo-todos-commits.sh:439  exit 2 ;;
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:80  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-ceo-todos-c
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:132  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:157  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:178  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:199  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:227  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:270  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:414  exit 2
+        self-failure scripts/hooks/guard-ceo-todos-commits.sh:442  exit 2 ;;
+  guard-ci-red-lands.sh                  PreToolUse               CONTROL              2/4     ci-red-acks.log=113
+        finding      scripts/hooks/guard-ci-red-lands.sh:568  [ "$_LRG_RC" = "2" ] && exit 2
+        finding      scripts/hooks/guard-ci-red-lands.sh:828  exit 2
+        self-failure scripts/hooks/guard-ci-red-lands.sh:222  exit 2
+        self-failure scripts/hooks/guard-ci-red-lands.sh:239  exit 2
+  guard-ci-turn-gate.sh                  Stop                     CONTROL              1/1     -
+        finding      scripts/hooks/guard-ci-turn-gate.sh:188  exit 2 ;;
+  guard-completeness-commits.sh          PreToolUse               CONTROL              5/12    -
+        finding      scripts/hooks/guard-completeness-commits.sh:471  *) pb_broken_banner "guard-completeness-commits.sh" "$PB_BROKEN_REASON
+        finding      scripts/hooks/guard-completeness-commits.sh:486  exit 2
+        finding      scripts/hooks/guard-completeness-commits.sh:538  exit 2
+        finding      scripts/hooks/guard-completeness-commits.sh:591  exit 2 ;;
+        finding      scripts/hooks/guard-completeness-commits.sh:633  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:242  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:267  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:288  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:332  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-completenes
+        self-failure scripts/hooks/guard-completeness-commits.sh:348  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:361  exit 2
+        self-failure scripts/hooks/guard-completeness-commits.sh:424  exit 2
+  guard-definition-drift.sh              PreToolUse               CONTROL              1/3     unevaluated-payloads.log=32, definition-drif
+        finding      scripts/hooks/guard-definition-drift.sh:457  exit 2
+        self-failure scripts/hooks/guard-definition-drift.sh:155  exit 2
+        self-failure scripts/hooks/guard-definition-drift.sh:276  exit 2
+  guard-dialect.sh                       PreToolUse               CONTROL              2/10    -
+        finding      scripts/hooks/guard-dialect.sh:436  exit 2 ;;
+        finding      scripts/hooks/guard-dialect.sh:737  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:167  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-dialect.sh:
+        self-failure scripts/hooks/guard-dialect.sh:219  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:240  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:258  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:333  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:410  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:687  exit 2
+        self-failure scripts/hooks/guard-dialect.sh:741  exit 2
+  guard-hook-registration-commits.sh     PreToolUse               CONTROL              4/8     hook-inventory-acks.log=0
+        finding      scripts/hooks/guard-hook-registration-commits.sh:374  exit 2
+        finding      scripts/hooks/guard-hook-registration-commits.sh:416  exit 2 ;;
+        finding      scripts/hooks/guard-hook-registration-commits.sh:438  exit 2
+        finding      scripts/hooks/guard-hook-registration-commits.sh:497  exit 2
+        self-failure scripts/hooks/guard-hook-registration-commits.sh:208  exit 2
+        self-failure scripts/hooks/guard-hook-registration-commits.sh:228  exit 2
+        self-failure scripts/hooks/guard-hook-registration-commits.sh:262  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-hook-regist
+        self-failure scripts/hooks/guard-hook-registration-commits.sh:309  exit 2
+  guard-idle-land.sh                     Stop                     CONTROL              1/1     -
+        finding      scripts/hooks/guard-idle-land.sh:393  [ "$RC" = "2" ] && exit 2
+  guard-inflight-notify.sh               PreToolUse               CONTROL              1/10    -
+        finding      scripts/hooks/guard-inflight-notify.sh:440  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:107  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-inflight-no
+        self-failure scripts/hooks/guard-inflight-notify.sh:159  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:184  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:198  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:220  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:237  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:334  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:380  exit 2
+        self-failure scripts/hooks/guard-inflight-notify.sh:400  exit 2 ;;
+  guard-interactive-prompt.sh            PreToolUse               CONTROL              1/5     -
+        finding      scripts/hooks/guard-interactive-prompt.sh:237  exit 2 ;;
+        self-failure scripts/hooks/guard-interactive-prompt.sh:93  exit 2
+        self-failure scripts/hooks/guard-interactive-prompt.sh:146  exit 2
+        self-failure scripts/hooks/guard-interactive-prompt.sh:162  exit 2
+        self-failure scripts/hooks/guard-interactive-prompt.sh:175  exit 2
+  guard-main-checkout-writes.sh          PreToolUse               CONTROL              1/5     -
+        finding      scripts/hooks/guard-main-checkout-writes.sh:255  exit 2
+        self-failure scripts/hooks/guard-main-checkout-writes.sh:30  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-main-checko
+        self-failure scripts/hooks/guard-main-checkout-writes.sh:82  exit 2
+        self-failure scripts/hooks/guard-main-checkout-writes.sh:107  exit 2
+        self-failure scripts/hooks/guard-main-checkout-writes.sh:131  exit 2
+  guard-model-ceiling.sh                 PreToolUse               CONTROL              1/2     model-ceiling-acks.log=75
+        finding      scripts/hooks/guard-model-ceiling.sh:527  exit 2
+        self-failure scripts/hooks/guard-model-ceiling.sh:205  exit 2
+  guard-named-persons-commands.sh        PreToolUse               CONTROL              2/10    -
+        finding      scripts/hooks/guard-named-persons-commands.sh:285  exit 2
+        finding      scripts/hooks/guard-named-persons-commands.sh:290  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:63  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-named-perso
+        self-failure scripts/hooks/guard-named-persons-commands.sh:115  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:136  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:155  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:169  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:182  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:249  exit 2
+        self-failure scripts/hooks/guard-named-persons-commands.sh:294  exit 2
+  guard-named-persons-writes.sh          PreToolUse               CONTROL              2/8     -
+        finding      scripts/hooks/guard-named-persons-writes.sh:241  exit 2
+        finding      scripts/hooks/guard-named-persons-writes.sh:246  exit 2
+        self-failure scripts/hooks/guard-named-persons-writes.sh:48  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-named-perso
+        self-failure scripts/hooks/guard-named-persons-writes.sh:100  exit 2
+        self-failure scripts/hooks/guard-named-persons-writes.sh:121  exit 2
+        self-failure scripts/hooks/guard-named-persons-writes.sh:143  exit 2
+        self-failure scripts/hooks/guard-named-persons-writes.sh:158  exit 2
+        self-failure scripts/hooks/guard-named-persons-writes.sh:250  exit 2
+  guard-owned-state.sh                   PreToolUse               CONTROL              1/2     -
+        finding      scripts/hooks/guard-owned-state.sh:476  exit 2
+        self-failure scripts/hooks/guard-owned-state.sh:210  exit 2
+  guard-publication-commits.sh           PreToolUse               CONTROL              5/14    -
+        finding      scripts/hooks/guard-publication-commits.sh:455  *) pb_broken_banner "guard-publication-commits.sh" "$PB_BROKEN_REASON"
+        finding      scripts/hooks/guard-publication-commits.sh:460  exit 2
+        finding      scripts/hooks/guard-publication-commits.sh:562  exit 2 ;;
+        finding      scripts/hooks/guard-publication-commits.sh:694  exit 2 ;;
+        finding      scripts/hooks/guard-publication-commits.sh:699  exit 2 ;;
+        self-failure scripts/hooks/guard-publication-commits.sh:73  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-publication
+        self-failure scripts/hooks/guard-publication-commits.sh:125  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:150  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:171  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:192  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:204  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:408  exit 2
+        self-failure scripts/hooks/guard-publication-commits.sh:685  ' || { echo "ERROR: guard-publication-commits.sh: could not build the 
+        self-failure scripts/hooks/guard-publication-commits.sh:702  exit 2 ;;
+  guard-publication-writes.sh            PreToolUse               CONTROL              4/11    -
+        finding      scripts/hooks/guard-publication-writes.sh:208  *) pb_broken_banner "guard-publication-writes.sh" "$PB_BROKEN_REASON" 
+        finding      scripts/hooks/guard-publication-writes.sh:241  exit 2
+        finding      scripts/hooks/guard-publication-writes.sh:308  exit 2 ;;
+        finding      scripts/hooks/guard-publication-writes.sh:313  exit 2 ;;
+        self-failure scripts/hooks/guard-publication-writes.sh:31  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-publication
+        self-failure scripts/hooks/guard-publication-writes.sh:83  exit 2
+        self-failure scripts/hooks/guard-publication-writes.sh:108  exit 2
+        self-failure scripts/hooks/guard-publication-writes.sh:129  exit 2
+        self-failure scripts/hooks/guard-publication-writes.sh:141  exit 2
+        self-failure scripts/hooks/guard-publication-writes.sh:299  ' || { echo "ERROR: guard-publication-writes.sh: could not build the s
+        self-failure scripts/hooks/guard-publication-writes.sh:316  exit 2 ;;
+  guard-resume-isolation.sh              PreToolUse               CONTROL              1/6     resume-acks.log=234
+        finding      scripts/hooks/guard-resume-isolation.sh:287  exit 2 ;;
+        self-failure scripts/hooks/guard-resume-isolation.sh:69  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-resume-isol
+        self-failure scripts/hooks/guard-resume-isolation.sh:121  exit 2
+        self-failure scripts/hooks/guard-resume-isolation.sh:141  exit 2
+        self-failure scripts/hooks/guard-resume-isolation.sh:238  exit 2
+        self-failure scripts/hooks/guard-resume-isolation.sh:728  exit 2
+  guard-row-currency-commits.sh          PreToolUse               CONTROL              6/17    -
+        finding      scripts/hooks/guard-row-currency-commits.sh:498  rc_require_ceo_todos_lib || { rc_broken_banner "guard-row-currency-com
+        finding      scripts/hooks/guard-row-currency-commits.sh:525  *) rc_broken_banner "guard-row-currency-commits.sh" "$RC_BROKEN_REASON
+        finding      scripts/hooks/guard-row-currency-commits.sh:546  *) rc_broken_banner "guard-row-currency-commits.sh" "$RC_BROKEN_REASON
+        finding      scripts/hooks/guard-row-currency-commits.sh:583  exit 2
+        finding      scripts/hooks/guard-row-currency-commits.sh:638  exit 2 ;;
+        finding      scripts/hooks/guard-row-currency-commits.sh:644  exit 2 ;;
+        self-failure scripts/hooks/guard-row-currency-commits.sh:58  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-row-currenc
+        self-failure scripts/hooks/guard-row-currency-commits.sh:110  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:135  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:156  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:177  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:205  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:480  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:602  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:609  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:614  exit 2
+        self-failure scripts/hooks/guard-row-currency-commits.sh:647  exit 2 ;;
+  guard-sealed-worktree.sh               PreToolUse               CONTROL              4/6     -
+        finding      scripts/hooks/guard-sealed-worktree.sh:265  exit 2 ;;
+        finding      scripts/hooks/guard-sealed-worktree.sh:275  exit 2 ;;
+        finding      scripts/hooks/guard-sealed-worktree.sh:286  exit 2 ;;
+        finding      scripts/hooks/guard-sealed-worktree.sh:297  exit 2 ;;
+        self-failure scripts/hooks/guard-sealed-worktree.sh:74  exit 2
+        self-failure scripts/hooks/guard-sealed-worktree.sh:194  exit 2
+  guard-stale-staging.sh                 PreToolUse               CONTROL              2/3     stale-staging-acks.log=0
+        finding      scripts/hooks/guard-stale-staging.sh:538  exit 2
+        finding      scripts/hooks/guard-stale-staging.sh:602  exit 2
+        self-failure scripts/hooks/guard-stale-staging.sh:237  exit 2
+  guard-stated-actions.sh                Stop                     CONTROL              1/1     -
+        finding      scripts/hooks/guard-stated-actions.sh:300  [ "$RC" = "2" ] && exit 2
+  guard-stop-live-work.sh                PreToolUse               CONTROL              1/1     stop-work-acks-used.log=2
+        finding      scripts/hooks/guard-stop-live-work.sh:409  exit 2
+  guard-unresolved-claims.sh             Stop                     CONTROL              1/1     -
+        finding      scripts/hooks/guard-unresolved-claims.sh:322  [ "$RC" = "2" ] && exit 2
+  guard-vendoring-commits.sh             PreToolUse               CONTROL              2/11    vendoring-acks.log=0
+        finding      scripts/hooks/guard-vendoring-commits.sh:462  exit 2 ;;
+        finding      scripts/hooks/guard-vendoring-commits.sh:668  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:107  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-vendoring-c
+        self-failure scripts/hooks/guard-vendoring-commits.sh:159  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:178  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:195  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:210  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:230  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:435  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:487  exit 2
+        self-failure scripts/hooks/guard-vendoring-commits.sh:494  exit 2
+  guard-workflow-ban.sh                  PreToolUse               CONTROL              1/3     -
+        finding      scripts/hooks/guard-workflow-ban.sh:80  exit 2
+        self-failure scripts/hooks/guard-workflow-ban.sh:215  exit 2
+        self-failure scripts/hooks/guard-workflow-ban.sh:235  exit 2
+  guard-workspace-gate.sh                Stop                     CONTROL              1/1     -
+        finding      scripts/hooks/guard-workspace-gate.sh:185  exit 2 ;;
+  guard-worktree-isolation.sh            PreToolUse               CONTROL              4/10    generic-agent-dispatches.log=1, main-checkou
+        finding      scripts/hooks/guard-worktree-isolation.sh:570  exit 2
+        finding      scripts/hooks/guard-worktree-isolation.sh:880  exit 2
+        finding      scripts/hooks/guard-worktree-isolation.sh:972  exit 2
+        finding      scripts/hooks/guard-worktree-isolation.sh:1075  exit 2
+        self-failure scripts/hooks/guard-worktree-isolation.sh:239  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-worktree-is
+        self-failure scripts/hooks/guard-worktree-isolation.sh:291  exit 2
+        self-failure scripts/hooks/guard-worktree-isolation.sh:311  exit 2
+        self-failure scripts/hooks/guard-worktree-isolation.sh:397  exit 2
+        self-failure scripts/hooks/guard-worktree-isolation.sh:444  exit 2
+        self-failure scripts/hooks/guard-worktree-isolation.sh:615  exit 2
+  guard-worktree-removal.sh              PreToolUse               CONTROL              2/6     worktree-remove-acks.log=112
+        finding      scripts/hooks/guard-worktree-removal.sh:950  exit 2 ;;
+        finding      scripts/hooks/guard-worktree-removal.sh:964  exit 2 ;;
+        self-failure scripts/hooks/guard-worktree-removal.sh:99  command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-worktree-re
+        self-failure scripts/hooks/guard-worktree-removal.sh:151  exit 2
+        self-failure scripts/hooks/guard-worktree-removal.sh:171  exit 2
+        self-failure scripts/hooks/guard-worktree-removal.sh:911  exit 2
+  reader-teammate-hint.sh                PreToolUse               CONTROL              1/4     -   <-- NAME DISAGREES
+        finding      scripts/hooks/reader-teammate-hint.sh:191  exit 2
+        self-failure scripts/hooks/reader-teammate-hint.sh:40  command -v python3 >/dev/null 2>&1 || { echo "ERROR: reader-teammate-h
+        self-failure scripts/hooks/reader-teammate-hint.sh:92  exit 2
+        self-failure scripts/hooks/reader-teammate-hint.sh:114  exit 2
+  scan-secrets.sh                        PreToolUse               CONTROL              1/6     -
+        finding      scripts/hooks/scan-secrets.sh:440  exit 2
+        self-failure scripts/hooks/scan-secrets.sh:57  command -v python3 >/dev/null 2>&1 || { echo "ERROR: scan-secrets.sh: 
+        self-failure scripts/hooks/scan-secrets.sh:109  exit 2
+        self-failure scripts/hooks/scan-secrets.sh:134  exit 2
+        self-failure scripts/hooks/scan-secrets.sh:170  exit 2
+        self-failure scripts/hooks/scan-secrets.sh:445  exit 2
+  task-completed-handoff.sh              TaskCompleted            CONTROL              1/5     -
+        finding      scripts/hooks/task-completed-handoff.sh:175  cd "$_EVENT_CWD" || exit 2
+        self-failure scripts/hooks/task-completed-handoff.sh:143  exit 2
+        self-failure scripts/hooks/task-completed-handoff.sh:145  . "$_ROOT_LIB" || exit 2
+        self-failure scripts/hooks/task-completed-handoff.sh:180  *) root_failure_banner "task-completed-handoff" >&2; exit 2 ;;
+        self-failure scripts/hooks/task-completed-handoff.sh:184  exit 2
+  verify-agent-prompt.sh                 PreToolUse               CONTROL              1/4     data-contract-bypasses.log=917, conceal-acks
+        finding      scripts/hooks/verify-agent-prompt.sh:749  exit 2
+        self-failure scripts/hooks/verify-agent-prompt.sh:58  command -v python3 >/dev/null 2>&1 || { echo "ERROR: verify-agent-prom
+        self-failure scripts/hooks/verify-agent-prompt.sh:110  exit 2
+        self-failure scripts/hooks/verify-agent-prompt.sh:135  exit 2
+  <inline echo in hooks.json>            SessionStart             INSTRUMENT (author)  0/0     -
+  notice-claim-capability.sh             PostToolUse              INSTRUMENT (author)  0/0     -
+  commit-ceo-inputs.sh                   UserPromptSubmit         INSTRUMENT (person)  0/0     -
+  detect-nonnative-worktree.sh           PostToolUse              INSTRUMENT (person)  0/1     spawned-names.log
+        self-failure scripts/hooks/detect-nonnative-worktree.sh:69  command -v python3 >/dev/null 2>&1 || { echo "ERROR: detect-nonnative-
+  engine-status.sh                       SessionStart             INSTRUMENT (person)  0/0     -
+  guard-agent-state-claims.sh            Stop                     INSTRUMENT (person)  0/0     agent-state-claims.jsonl   <-- NAME DISAGREES
+  handoff-facts-annotate.sh              PostToolUse              INSTRUMENT (person)  0/0     -
+  notice-ceo-asks.sh                     PostToolUse              INSTRUMENT (person)  0/0     -
+  notice-ceo-inputs-unheld.sh            Stop                     INSTRUMENT (person)  0/0     -
+  notice-ceo-ruled-prose.sh              Stop                     INSTRUMENT (person)  0/0     -
+  notice-ceo-unasked.sh                  Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-ceo-unasked.sh:117  exit 2
+  notice-escalations.sh                  Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-escalations.sh:150  exit 2
+  notice-hook-staleness.sh               Stop                     INSTRUMENT (person)  0/0     -
+  notice-inflight-acks.sh                Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-inflight-acks.sh:112  exit 2
+  notice-mechanical-findings.sh          Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-mechanical-findings.sh:122  exit 2
+  notice-protected-ref-moves.sh          Stop                     INSTRUMENT (person)  0/0     -
+  notice-unasked-deferral.sh             Stop                     INSTRUMENT (person)  0/0     -
+  notice-unlanded-branches.sh            Stop                     INSTRUMENT (person)  0/0     -
+  notice-unstarted-rows.sh               Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-unstarted-rows.sh:105  exit 2
+  notice-waiver-repetition.sh            Stop                     INSTRUMENT (person)  0/1     -
+        self-failure scripts/hooks/notice-waiver-repetition.sh:121  exit 2
+  observe-created-refs.sh                PostToolUse              INSTRUMENT (person)  0/0     -
+  session-start-ceo-ask.sh               SessionStart             INSTRUMENT (person)  0/0     -
+  session-start-ci-surface.sh            SessionStart             INSTRUMENT (person)  0/0     -
+  session-start-escalations.sh           SessionStart             INSTRUMENT (person)  0/0     -
+  shell-evidence.sh                      PreToolUse               INSTRUMENT (person)  0/0     -
+  snapshot-agent-definitions.sh          SessionStart             INSTRUMENT (person)  0/0     -
+  snapshot-enforcing-hooks.sh            SessionStart             INSTRUMENT (person)  0/0     -
+  turn-manifest.sh                       Stop                     INSTRUMENT (person)  0/0     -
+  workspace-lifecycle.sh                 PostToolUse,SessionEnd,S INSTRUMENT (person)  0/0     -
+  notice-inflight-sends.sh               PostToolUse              RECORD               0/0     inflight-notices.jsonl
+  teammate-idle-handoff.sh               TeammateIdle             RECORD               0/0     idle-events.jsonl, teammate-idle-events.json
+  worker-created-handoff.sh              PostToolUse              RECORD               0/0     worker-events.jsonl
+  worker-ended-handoff.sh                SubagentStop             RECORD               0/0     worker-events.jsonl
+  worker-started-handoff.sh              SubagentStart            RECORD               0/0     worker-events.jsonl
+  worker-updated-handoff.sh              PostToolUse              RECORD               0/0     worker-events.jsonl
+
+  'sites' is finding-refusals / all refusal sites in the check's source.
+
+  HOST CEILING PER EVENT — the rows NOT measured in this repository:
+    SessionEnd         none                 UNVERIFIED
+    SessionStart       none                 UNVERIFIED
+    SubagentStart      none                 UNVERIFIED
+    SubagentStop       refuses-turn-end     UNVERIFIED
+    TaskCompleted      refuses-completion   UNVERIFIED
+    TeammateIdle       none                 UNVERIFIED
+    UserPromptSubmit   refuses-prompt       UNVERIFIED
+
+  LEDGER DISCOVERY NOTES: attribution dropped, site is a comment: scripts/hooks/notice-waiver-repetition.py:457 -> inflight-waivers.jsonl (comment line)

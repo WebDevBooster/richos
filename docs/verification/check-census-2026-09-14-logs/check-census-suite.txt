@@ -1,0 +1,8 @@
+=== check-census tests ===
+  PASS  C1   population matches hooks.json exactly (ok 76 registrations, 71 checks)
+  PASS  C2   census says CONTROL and the hook refuses the call (exit 2)
+  PASS  C3   census says INSTRUMENT (person); the hook found its thing and refused nothing (exit 0)
+  PASS  C4   no check is called a CONTROL on an event whose host ceiling is none
+  PASS  C5   an empty registration table is refused, not reported as a clean engine
+
+=== check-census tests: all 5 passed ===

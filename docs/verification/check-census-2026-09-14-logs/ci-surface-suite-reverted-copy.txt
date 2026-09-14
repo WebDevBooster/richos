@@ -1,0 +1,17 @@
+=== session-start-ci-surface tests ===
+  PASS  N1   clean and watched: completely silent
+  FAIL  N3   an uninstalled watch was silent — the most dangerous state it has
+  FAIL  N4   out=<>
+  FAIL  N5   a 40-hour silence from a thrice-daily job went unmentioned
+  FAIL  N2   out=<>
+  FAIL  N7   a count and a list disagreed with nobody being told: rows=0
+          
+  FAIL  N6   out=<>
+  PASS  N8   the notice exits 0 even while shouting — it never wedges a session
+  FAIL  N9   verdict=<not-json> stderr=<=== CI SURFACE ===
+  CI IS RED — 2 workflow(s), oldest first:
+      Example/alpha            wf-00.yml                  60 day(s), since run #50
+      Example/alpha            wf-01.yml                  59 day(s), since run #51
+  Everything, on all six axes, in one command:  engine/scripts/ci-status.sh> — a notice on a channel measured to reach nobody is a notice that does not exist
+
+=== session-start-ci-surface tests: 2 passed, 7 FAILED ===
