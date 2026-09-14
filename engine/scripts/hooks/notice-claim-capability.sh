@@ -33,16 +33,24 @@
 # The brief was explicit: this session has repeatedly produced mechanisms nobody reads, and
 # "if your own measurement says this becomes wallpaper, say so and do not ship it."
 #
-# Replayed against every write event recorded in the 753 session transcripts under
-# `~/.claude/projects/`, restricted to the surfaces below:
+# THIS HOOK, not a model of it, was replayed against every write-shaped tool call recorded in
+# the 753 session transcripts under `~/.claude/projects/` that names a record path:
 #
-#     466 write events on record paths
-#     418 of them (90%) touch a file with ZERO capability rows -> the hook is SILENT
-#      89 rows over the whole recorded history of this machine = 0.19 rows per write event
+#     1035 calls replayed
+#       14 of them (1.4%) produced a notice, carrying 15 rows in total
+#     1021 stayed SILENT, and the reasons are separated rather than pooled:
+#          500  the file no longer exists at that path — a REPLAY ARTIFACT, not the hook
+#          296  the file has no capability rows at all
+#          168  the file HAS rows and this call wrote none of them  <- the narrowing working
+#           57  the path shape did not resolve
+#     excluding the replay artifact: 535 live calls, 14 notices = 2.6%
 #
-# Eighty-nine lines across two months is not wallpaper; the honest risk runs the other way —
-# it may be too RARE to build a habit around. That is stated in the record rather than
-# guessed at here.
+# Fifteen lines across two months is not wallpaper, and the honest reading runs the other way:
+# the risk is that it is too RARE to build a habit around. The 500-call artifact class is
+# biased toward first full writes, which are the likeliest to fire, so the production rate is
+# higher than 2.6% — bounded above by the 88 rows the four corpora hold today, since a row is
+# introduced by at least one write. Somewhere between 15 and 88 notices over two months.
+# The argument, the bound and the hand-classified false-positive rate are in the record.
 #
 # ===========================================================================================
 # THE THREE DESIGN DECISIONS THAT KEEP IT OFF THE WALL, each forced by a measurement
@@ -59,7 +67,8 @@
 #    largest source of repetition in the corpus. The fix is not a dedupe ledger — it is a
 #    narrower and MORE CORRECT question: does the flagged sentence appear in the text THIS
 #    call wrote? A row about a paragraph the author did not touch is not about this write.
-#    Stateless, and it takes the same history from 89 rows to 32.
+#    Stateless, and in the replay above it is what keeps 168 of the 1035 calls quiet — every
+#    one of them a call that touched a flagged record and wrote none of its flagged lines.
 #
 #    It also makes reads silent for free: `sed -n '1,50p' record.md` and
 #    `git add record.md` name the path and write no sentence, so nothing matches.
@@ -73,10 +82,11 @@
 #
 #    RICH-TODOs.md and CEO-TODOs.md are excluded on the measurement, not on taste: their
 #    whole PURPOSE is to record what is awaited by a person, and rule A1 holds "awaited" to
-#    be universally unestablishable. Eight recorded writes to RICH-TODOs.md would have
-#    re-emitted the same four rows — 32 of the corpus's 89 emissions, from one file whose
-#    rows are correct about the words and wrong about the document. A page that would be
-#    flagged on every write is the wallpaper this was forbidden to become.
+#    be universally unestablishable. Eight recorded writes to RICH-TODOs.md would each have
+#    re-emitted the same four rows — one file accounting for 32 emissions, more than the
+#    other three surfaces put together, over rows that are correct about the WORDS and wrong
+#    about the DOCUMENT. A page that would be flagged on every write is the wallpaper this
+#    was forbidden to become.
 #
 #    Source files, `fixtures/` and `*.corpus.md` are out by construction: the check reads
 #    prose, and a corpus file asserts known-bad sentences ON PURPOSE.
@@ -84,14 +94,18 @@
 # ===========================================================================================
 # WHAT IT WILL NOT DO
 # ===========================================================================================
-#   * IT NEVER BLOCKS AND NEVER FAILS A TOOL CALL. The write has already happened. Exit 2 on
-#     PostToolUse cannot undo it; it puts the text in front of the author and nothing else —
-#     the same channel `detect-nonnative-worktree.sh` has used since it landed. Every error
-#     path exits 0 silently, because a check that could not run must never look like a failed
-#     write.
+#   * IT NEVER BLOCKS AND NEVER FAILS A TOOL CALL — and it never LOOKS like it did either,
+#     which took a measurement to get right. It exits 0 on every path and speaks through
+#     `hookSpecificOutput.additionalContext`. The obvious alternative, stderr with exit 2, is
+#     what the engine's other PostToolUse reporter uses and is what this hook used first; both
+#     were measured in headless sessions and both reach the author, but the host wraps the
+#     exit-2 form in "PostToolUse:Write hook BLOCKING ERROR from command". The table is at the
+#     emission site. A check that could not run is silent, because it must never look like a
+#     failed write.
 #   * IT NEVER EDITS THE RECORD. The rows are transient, addressed to the author at the one
-#     moment the word can still be changed. They are 62% false on the measured corpus; a
-#     permanent section of them inside a landed record would be noise in the durable record.
+#     moment the word can still be changed. 49 of 88 hand-classified rows are sentences that
+#     turn out to be fine; a permanent section of those inside a landed record would be noise
+#     in the durable record, forever, which is the opposite of what a record is for.
 #   * IT DOES NOT COVER THE FOURTH INSTANCE, and this is said plainly rather than implied
 #     away: one of the four was a sentence typed straight to the CEO in chat. It passes
 #     through no file and no tool. Nothing textual will ever catch it, and this hook does not.
@@ -208,8 +222,8 @@ if not out:
 
 total = sum(len(r) for _, r in out)
 lines = [
-    "NOTICE — nothing failed. Your write succeeded; this is the claim-capability check "
-    "reading what you just wrote.",
+    "Claim-capability check on the record you just wrote. Nothing failed and nothing is "
+    "blocked; the write succeeded.",
     "",
     "%d sentence%s you just wrote cite%s a source that does NOT establish what "
     "%s say%s:" % (total, "" if total == 1 else "s", "s" if total == 1 else "",
@@ -224,14 +238,42 @@ for path, rows in out:
 lines += ["", PROV.CAPABILITY_LEAD, "",
           "This is a DISCLOSURE, not a verdict: the first half of each row is a fact about "
           "the command, and the check never judges your sentence. It is also often "
-          "unnecessary — hand-classified over 92 rows on these surfaces, roughly three in "
-          "five are sentences that turn out to be fine, so the cost of a row is one re-read. "
+          "unnecessary: of 88 rows hand-classified across these surfaces, 49 were sentences "
+          "that turn out to be fine. So the expected cost of a row is one re-read, and more "
+          "often than not that re-read ends in nothing. "
           "Nothing is blocked and there is no waiver to grant. "
           "Rules, corpus and counts: docs/verification/claim-capability-2026-09-14.md and "
           "docs/verification/claim-capability-delivery-2026-09-14.md."]
-print("\n".join(lines), file=sys.stderr)
-sys.exit(2)
+
+# THE CHANNEL, MEASURED RATHER THAN ASSUMED — Claude Code, macOS, 2026-09-14. Two PostToolUse
+# hooks were registered in two headless sessions, each emitting a unique marker on a different
+# channel, and the model was asked to quote back whatever a hook returned to it:
+#
+#   channel                                        reaches the author   framed as
+#   --------------------------------------------   ------------------   ---------------------
+#   stderr, exit 2            (ZACHCHANNEL_..QX71)        YES            "PostToolUse:Write
+#                                                                        hook BLOCKING ERROR
+#                                                                        from command: ..."
+#   additionalContext, exit 0 (ZACHCHANNEL_..QX72)        YES            the text, and nothing
+#                                                                        else
+#
+# BOTH reach the author verbatim, so the choice is made entirely by the second column. The
+# exit-2 form — which is what `detect-nonnative-worktree.sh` has used since it landed, and
+# what this hook used for its first hour — announces a NON-BLOCKING disclosure as a BLOCKING
+# ERROR. A notice whose first sentence says "nothing failed" arriving under a host banner that
+# says it did is a mechanism arguing with itself, and the reader believes the banner.
+#
+# The operator is deliberately NOT told. `suppressOutput` keeps the raw JSON out of the
+# rendered transcript, and the engine's own measured table (scripts/lib/stop-hook-notice.sh)
+# says neither of these channels reaches the operator's stream anyway. That is correct here:
+# the one person who can act on a row is the author, in the seconds after writing it.
+print(json.dumps({
+    "hookSpecificOutput": {"hookEventName": "PostToolUse",
+                           "additionalContext": "\n".join(lines)},
+    "suppressOutput": True,
+}))
+sys.exit(0)
 PY
-rc=$?
-[ "$rc" -eq 2 ] && exit 2
+# ALWAYS 0. The tool call already succeeded; a non-zero exit here would be the host telling
+# the author its write failed, which is both false and the opposite of what this hook is for.
 exit 0

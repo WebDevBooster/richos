@@ -11,7 +11,7 @@
 # the hook never ran, when the payload was malformed, when python3 was missing, and when the
 # predicate it imports could not be loaded. Every one of those would print PASS.
 #
-# Worse, the whole argument for shipping this hook is that it is quiet 90% of the time. If
+# Worse, the whole argument for shipping this hook is that it is quiet 98.6% of the time. If
 # the quiet cases are passing for the wrong reason, the measurement behind the decision is
 # measuring a hook that does nothing.
 #
@@ -140,7 +140,7 @@ mutant "capability-check-neutered" "D1" "$PROV_REL" \
 mutant "written-filter-dropped" "D5" "$HOOK_REL" \
     'rows = [r for r in rows if PROV.norm(r["text"]) and PROV.norm(r["text"]) in norm_written]' \
     "rows = list(rows)" \
-    "without it, every edit to a flagged record re-emits every row in the file — measured on the real corpus, the difference between 89 emissions and 32, and the single mechanism that would turn this into the line nobody reads."
+    "without it, every edit to a flagged record re-emits every row in the file — replaying the shipped hook over every recorded write event on this machine, it is what keeps 168 of 1035 calls quiet - calls that touched a flagged record and wrote none of its flagged lines - and it is the single mechanism that would otherwise turn this into the line nobody reads."
 
 # --- THE SURFACE LIST ----------------------------------------------------------------------
 mutant "surface-widened" "D10" "$HOOK_REL" \
@@ -154,22 +154,27 @@ mutant "exclusions-dropped" "D9" "$HOOK_REL" \
     "without the exclusions a corpus file is flagged for the known-bad sentences it asserts ON PURPOSE — the check reporting its own test data as a finding."
 
 # --- THE CHANNEL ---------------------------------------------------------------------------
-mutant "exit-code-dropped" "D1" "$HOOK_REL" \
-    "print(\"\\n\".join(lines), file=sys.stderr)
-sys.exit(2)" \
-    "print(\"\\n\".join(lines), file=sys.stderr)
-sys.exit(0)" \
-    "exit 2 is what puts a PostToolUse hook's stderr in front of the author; at exit 0 the rows are written where nobody reads them, which is this mechanism's failure mode exactly."
+mutant "context-key-dropped" "D1" "$HOOK_REL" \
+    '"additionalContext": "\n".join(lines)},' \
+    '"somethingElse": "\n".join(lines)},' \
+    "additionalContext is the key the host lifts into the author's context; under any other name the rows are computed, serialized, and read by nobody."
 
-mutant "stdout-not-stderr" "D13" "$HOOK_REL" \
-    'print("\n".join(lines), file=sys.stderr)' \
-    'print("\n".join(lines), file=sys.stdout)' \
-    "a PostToolUse hook's stdout is not the author's channel, and stdout must stay clean for the host to parse."
+mutant "back-to-the-blocking-channel" "D13" "$HOOK_REL" \
+    'print(json.dumps({
+    "hookSpecificOutput": {"hookEventName": "PostToolUse",
+                           "additionalContext": "\n".join(lines)},
+    "suppressOutput": True,
+}))
+sys.exit(0)' \
+    'print("\n".join(lines), file=sys.stderr)
+sys.exit(2)' \
+    "stderr at exit 2 also reaches the author - both channels were measured in headless sessions and both do - but the host wraps that one in 'PostToolUse hook BLOCKING ERROR from command' over a write that SUCCEEDED, so the notice's own first sentence is contradicted by the banner above it."
 
 mutant "record-edited" "D13" "$HOOK_REL" \
-    'print("\n".join(lines), file=sys.stderr)' \
-    'open(out[0][0], "a", encoding="utf-8").write("\n".join(lines))' \
-    "the rows are 62% false on the measured corpus; appending them into the record would put that noise in the durable record forever, and D13 is the case that forbids it."
+    'print(json.dumps({' \
+    'open(out[0][0], "a", encoding="utf-8").write("\n".join(lines))
+print(json.dumps({' \
+    "the rows are 56% false on the measured corpus; appending them into the record would put that noise in the durable record forever, and D13 is the case that forbids it."
 
 # --- NEVER A FAILED TOOL CALL ---------------------------------------------------------------
 mutant "errors-propagate" "D12" "$HOOK_REL" \
