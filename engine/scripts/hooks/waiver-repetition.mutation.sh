@@ -232,8 +232,8 @@ mutant "independence-dropped" "6. one day, ONE subject" "$PY_REL" \
 
 mutant "window-removed" "8. a class last used 30 days ago" "$PY_REL" \
     "ACTIVE_DAYS = 14
-MAX_LINES" "ACTIVE_DAYS = 100000
-MAX_LINES" \
+# DERIVED FROM ACTIVE_DAYS" "ACTIVE_DAYS = 100000
+# DERIVED FROM ACTIVE_DAYS" \
     "with no activity window a guard that was FIXED keeps being reported forever, which is precisely how this notice would become the line nobody reads."
 
 mutant "double-fire-counted" "9. four lines that are two acts" "$PY_REL" \
@@ -258,6 +258,16 @@ mutant "orphans-dropped" "11. a ledger no guard claims" "$PY_REL" \
     "            pass" \
     "dropping the ledgers no guard claims makes a broken deriver look like a cleaner report, which is the failure mode of every derived inventory."
 
+mutant "env-hop-unfollowed" "11b. a ledger named across the shell/environment/Python hop is derived and analyzed" "$PY_REL" \
+    '    for groups in _ENVREF_RE.findall(text):' \
+    '    for groups in []:' \
+    "five guards in this engine hand a Python heredoc its ledger path through the environment; a resolver that follows only the shell spelling breaks at the one link that changes language, and drops the append site with a bare continue — which shortens the census in silence. ci-red-acks.log went unnamed that way while it collected 93 acks."
+
+mutant "past-tense-unmatched" "11b. a ledger named across the shell/environment/Python hop is derived and analyzed" "$PY_REL" \
+    '    r"\back(s|ed|ing)?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"' \
+    '    r"\backs?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"' \
+    "a guard writes its log line in the past tense — \"was acked with a real reason\" — and a vocabulary that requires the word to end at ack files the ledger as a plain record. The name then resolves and nothing is ever analyzed, which is the quieter half of the same failure."
+
 # --- the notice channel ----------------------------------------------------
 mutant "state-key-frozen" "14. the state key is stable" "$PY_REL" \
     '    return "repeated:" + ",".join(parts)' \
@@ -277,12 +287,28 @@ mutant "teams-dirs-unread" "15d. a ledger in a session team directory is read" "
                     dirs.append(p)' \
     "the session team directories are where a teammate's acks actually land; a reader that skips them reports a clean machine while the ledger it exists to read grows next door — and it looks identical to a clean machine, which is why 15c was sealed against them rather than the reading removed."
 
+mutant "machine-state-unread" "15f. a ledger in the machine-wide state directory is read" "$PY_REL" \
+    '    if config_root:
+        machine_state = os.path.join(config_root, "state")
+        if machine_state not in dirs:
+            dirs.append(machine_state)' \
+    "    if False:
+        machine_state = os.path.join(config_root, \"state\")
+        if machine_state not in dirs:
+            dirs.append(machine_state)" \
+    "the operator's own state directory is where the most-used hatch in this engine writes — guard-ci-red-lands.sh put 93 acks there, 35 for one workflow, and this watcher saw none of them. A reader that skips that directory reports a clean machine and looks exactly like one."
+
 mutant "quiet-without-analyzer" "16. no analyzer" "$SH_REL" \
     '    stop_notice_abnormal "no-analyzer" \
         "WAIVER-REPETITION WATCH IS OFF: scripts/hooks/notice-waiver-repetition.py is missing, so no escape-hatch ledger was read. This hook decides nothing on its own — without the analyzer it is wiring around an empty space."
     exit 0' \
     "    exit 0" \
     "a wrapper that goes quiet without its analyzer is wired, hashed, executable and reading nothing — and looks exactly like a clean turn."
+
+mutant "ordered-by-size-alone" "21. a live class is named before a larger dormant one" "$PY_REL" \
+    '        key=lambda f: (f["largest"]["idle_days"] // RECENCY_BUCKET,' \
+    '        key=lambda f: (0,' \
+    "the one-liner names three and counts the rest, so ordering by size alone tells the operator about the past: on 2026-09-14 two of the three he was shown had been idle 12 and 14 days, while the hatch he had used 21 times that evening sat unnamed in '+7 more'."
 
 # --- the operator surfaces -------------------------------------------------
 mutant "lint-always-clean" "18. the lint shows its work" "$LINT_REL" \

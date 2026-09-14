@@ -191,6 +191,12 @@ import sys
 MIN_CLASS = 3
 JACCARD = 0.35
 ACTIVE_DAYS = 14
+# DERIVED FROM ACTIVE_DAYS, not chosen beside it. The window's own half: inside
+# it a class is what is happening this week, outside it a class is what was
+# happening earlier in the same window. Used only to ORDER the report, never to
+# include or exclude — that is ACTIVE_DAYS' job and this must not become a
+# second, quieter one. Argued at the sort site.
+RECENCY_BUCKET = max(1, ACTIVE_DAYS // 2)
 MAX_LINES = 20000          # bound the work; a Stop hook has 25 seconds
 CONTEXT_LINES = 10         # lines either side of an append site scanned for vocabulary
 
@@ -202,8 +208,18 @@ CONTEXT_LINES = 10         # lines either side of an append site scanned for voc
 # names its reason ACK_REASON at the append site and has to match, while the
 # word BACKGROUND appears next to half the append sites in this engine and must
 # not. A prefix match would have classified every one of them as a hatch.
+#
+# `(s|ed|ing)?` rather than `s?`: the append site of the most-used hatch in this
+# engine says "Every red workflow was acked with a real reason" and carries an
+# `acked_before` count two lines up, and NONE of that matched a pattern that
+# required the word to end at "ack". The past tense is the tense a guard writes
+# its log line in, which is the one place this vocabulary has to work. It stays
+# a suffix list rather than a prefix match for the reason the docstring gives —
+# `\back\w*` would swallow BACKGROUND, which sits beside half the append sites
+# in this engine. Measured across the whole engine when it was widened: one
+# ledger promoted (ci-red-acks.log), none demoted.
 HATCH_VOCAB = re.compile(
-    r"\backs?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"
+    r"\back(s|ed|ing)?\b|\back_|acknowledg|waiv|exempt|bypass|defer|opt-?out"
     r"|escape hatch|override|marker|live prompt line|audit trail"
     r"|allowed \+ logged|allowed and logged",
     re.I,
@@ -231,6 +247,39 @@ _LEDGER_NAME_RE = re.compile(r"(?<![$\w])([a-z0-9][a-z0-9._-]*\.(?:log|jsonl))")
 _ASSIGN_RE = re.compile(
     r"""^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$""")
 _DEF_RE = re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+# THE SHELL -> ENVIRONMENT -> PYTHON HOP. Five guards in this engine embed a
+# Python program in a shell heredoc and hand it the ledger path through the
+# environment, so the append site reads `open(log_path, "a")` while the only
+# place the name is spelled is a shell assignment hundreds of lines above:
+#
+#     guard-ci-red-lands.sh:224  ACK_LOG="${CI_RED_ACK_LOG:-$HOME/...}"
+#     guard-ci-red-lands.sh:608  log_path = os.environ["ACK_LOG"]
+#     guard-ci-red-lands.sh:694  with open(log_path, "a", ...) as f:
+#
+# The resolver already followed a variable to a variable, but only through the
+# SHELL spelling `$VAR` — so the chain broke at the one link that changes
+# language, and ci-red-acks.log was never named by the scan at all. It is the
+# same defect the module docstring warns about: a resolver that cannot follow a
+# hop drops the site with `continue`, which shortens the census in silence.
+_ENVREF_RE = re.compile(
+    r"""os\.environ\s*\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]"""
+    r"""|os\.environ\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']"""
+    r"""|os\.getenv\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+
+
+def _var_refs(text):
+    """Every name this text reads a value OUT of, in either language.
+
+    Shell `$VAR` / `${VAR}` first, because that is the common case and the
+    order decides ties; then the environment reads a heredoc'd Python program
+    uses to receive what the shell around it computed.
+    """
+    out = list(re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", text))
+    for groups in _ENVREF_RE.findall(text):
+        for g in groups:
+            if g:
+                out.append(g)
+    return out
 
 
 # ==========================================================================
@@ -469,7 +518,7 @@ def discover_from_source(engine_root):
             still = []
             for name, rhs in pending:
                 hit = ""
-                for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", rhs):
+                for var in _var_refs(rhs):
                     if var in vmap:
                         hit = vmap[var]
                         break
@@ -535,10 +584,10 @@ def _resolve_ledger(line, vmap, gmap):
     m = _LEDGER_NAME_RE.search(line)
     if m:
         return m.group(1)
-    for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", line):
+    for var in _var_refs(line):
         if var in vmap:
             return vmap[var]
-    for var in re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", line):
+    for var in _var_refs(line):
         if var in gmap:
             return gmap[var]
     for var in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", line):
@@ -568,10 +617,38 @@ def discover_on_disk(state_dirs):
     return found
 
 
-def state_dirs_for(entity_root, teams_root):
+def state_dirs_for(entity_root, teams_root, config_root=None):
+    """Every directory a hatch ledger is written to — THREE of them, not two.
+
+    THE MACHINE-WIDE ONE WAS MISSING, and the docstring above claimed the disk
+    side was "COMPLETE BY CONSTRUCTION" while it was not. Measured on
+    2026-09-14: guard-ci-red-lands.sh writes
+    "${CI_RED_ACK_LOG:-$HOME/.claude/state/ci-red-acks.log}" — outside every
+    repository, deliberately, because ONE operator lands into several
+    repositories and the habit is his, not any one repository's. That file held
+    93 acks across two repositories, 35 of them for a single workflow, and this
+    watcher could not see one of them: not as a hatch, not as unused, not even
+    on the unattributed line. A ledger nobody looks for is indistinguishable
+    from a ledger nobody writes, and those are the two answers this whole file
+    exists to keep apart.
+
+    DERIVED FROM CLAUDE_CONFIG_DIR, never from $HOME directly, and that is the
+    same expression main() already uses to find the team directories. It
+    matters for the suite as much as for production: waiver-repetition.test.sh
+    sandboxes CLAUDE_CONFIG_DIR precisely because reading the operator's real
+    machine made a case go red with a count it had never written. Reaching for
+    $HOME here would have re-opened that hole one directory over.
+    """
     dirs = []
     if entity_root:
         dirs.append(os.path.join(entity_root, ".claude", "state"))
+    if config_root is None:
+        config_root = (os.environ.get("CLAUDE_CONFIG_DIR")
+                       or os.path.expanduser("~/.claude"))
+    if config_root:
+        machine_state = os.path.join(config_root, "state")
+        if machine_state not in dirs:
+            dirs.append(machine_state)
     if teams_root and os.path.isdir(teams_root):
         try:
             for d in sorted(os.listdir(teams_root)):
@@ -739,7 +816,33 @@ def run(engine_root, entity_root, teams_root, today, jaccard=JACCARD):
                 "repeated_entries": sum(c["size"] for c in repeated),
             })
 
-    report["flagged"].sort(key=lambda f: -f["largest"]["size"])
+    # WHAT IS STILL HAPPENING, THEN HOW BIG. The one-liner names three and
+    # counts the rest, so this ordering decides what the operator is actually
+    # told — and ordering by size alone told him about the past.
+    #
+    # Measured on 2026-09-14, ten flagged hatches in one repository. The three
+    # named were 86x idle 12 days, 46x idle 1 day, 42x idle 14 days; the hatch
+    # its owner had used 21 times THAT EVENING was 40x idle 1 day, and it sat
+    # unnamed in "+7 more". Two of the three he was shown had not been touched
+    # in a fortnight, and one of them was a day from ageing out of the window
+    # entirely.
+    #
+    # This is ACTIVE_DAYS' own argument applied one step further in. That
+    # constant exists because "a guard that HAS BEEN FIXED must stop being
+    # reported"; a class idle for two weeks being announced ahead of one used
+    # yesterday is the same defect at the granularity of ordering rather than
+    # inclusion. Size still decides inside a bucket, because among things
+    # happening now the big one is the one to fix.
+    #
+    # THE CONSTANT IS NOT LOAD-BEARING AND THAT WAS CHECKED, not assumed, in
+    # the way this file checks JACCARD. Re-running the same ten rows with the
+    # bucket at 4, 5, 6, 7, 8 and 9 days gives the IDENTICAL three; only at 10
+    # does the third slot move. RECENCY_BUCKET is ACTIVE_DAYS // 2 = 7, in the
+    # middle of that range, so it is derived from a constant already argued
+    # rather than fitted to this data.
+    report["flagged"].sort(
+        key=lambda f: (f["largest"]["idle_days"] // RECENCY_BUCKET,
+                       -f["largest"]["size"]))
     return report
 
 
