@@ -403,7 +403,7 @@ $ RICHOS_ENTITY_ROOT=<engine> bash engine/scripts/hooks/contract-integrity-probe
                                                                           → rc 0, 29 layers ✓, 0 ✗
 $ bash engine/scripts/hooks/engine-status.test.sh                        → rc 0, 18/18
 $ bash engine/scripts/hooks/root-contract.test.sh                        → rc 0, 29/29 + 11 mutants
-$ bash engine/scripts/hooks/contract-integrity.test.sh                   → see §App C
+$ bash engine/scripts/hooks/contract-integrity.test.sh                   → rc 0, 180/180
 $ python3 engine/scripts/check-census.py --engine-root engine
     CONTROL 36 (was 37), INSTRUMENT 29, RECORD 6, total 71 (was 72)
 ```
@@ -585,6 +585,6 @@ surface — **retired by step 2.**
 | `contract-integrity-probe.sh` | rc 0, 29 layers ✓, 0 ✗ |
 | `engine-status.test.sh` | rc 0 — 18/18 |
 | `root-contract.test.sh` | rc 0 — 29/29 + 11 mutants load-bearing |
-| `contract-integrity.test.sh` | cases 14a/14b/14c/14d and 18 — the ones whose specimen I changed — all PASS; full result in the commit message |
+| `contract-integrity.test.sh` | rc 0 — **180 passed, 0 failed**, including every case whose specimen I changed (14a, 14b, 14c, 14d, 18) and `WTI1.staffing-gate-mutations-all-load-bearing`, the harness for the clause 5 this deletion relies on |
 | `check-census.py` | CONTROL 37 → 36, total 72 → 71 |
 | `hook-registration-completeness.sh` | `NOT APPLICABLE` — cannot see a removal (§5.1) |
