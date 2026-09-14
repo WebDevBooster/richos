@@ -409,7 +409,8 @@ run_layer_R() {
     guard-stated-actions \
     notice-escalations session-start-escalations \
     commit-ceo-inputs notice-ceo-inputs-unheld \
-    notice-unlanded-branches"
+    notice-unlanded-branches \
+    notice-protected-ref-moves"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -1107,6 +1108,7 @@ guard-ceo-ruled-ask.sh|PreToolUse
 notice-ceo-ruled-prose.sh|Stop
 notice-waiver-repetition.sh|Stop
 notice-escalations.sh|Stop
+notice-protected-ref-moves.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop
