@@ -125,7 +125,12 @@ REDERIVE = re.compile(
 # ---------------------------------------------------------------------------
 COUNT_WORD = re.compile(
     r"\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twice|thrice|"
-    r"both|neither|dozens|several|a handful|a couple)\b", re.I)
+    r"both|neither|dozens|several|a handful|a couple)\b"
+    # "three commits" is a count somebody had to derive. "three hours earlier" is a
+    # duration, and reading it as a count put a row on a brief that had done nothing
+    # wrong. Durations are excluded by the noun that follows them.
+    r"(?!\s+(?:hours?|minutes?|seconds?|days?|weeks?|months?|years?|nights?|"
+    r"o'clock|a\.?m\.?|p\.?m\.?)\b)", re.I)
 # A digit is a count unless it is a pointer (point 11, line 229, exit 3), a date,
 # a time, a version, or a duration in the stock instruction lines.
 DIGIT = re.compile(r"(?<![\w./:-])(\d{1,3}(?:,\d{3})*|\d{4,})(?![\w./:-])")

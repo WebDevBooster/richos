@@ -43,6 +43,9 @@
 #  P12   A COUNT INSIDE SOMEBODY ELSE'S QUOTED WORDS is not the author's claim and is silent.
 #  P13   The stock instruction sections are not read as claims, so "21-181 s, exit 3" and the
 #        `ceo-todos-deferred:` marker do not put an identical row on every brief ever written.
+#  P15   A DURATION is not a COUNT. Found on the real corpus, not invented: "which had been
+#        main three hours earlier" put a row on a brief that had done nothing wrong. A count
+#        of the same shape ("three commits") still is one.
 #  P14   The annotation is APPENDED and the brief is otherwise untouched — nothing is rewritten,
 #        reordered or removed. What the lead wrote is what the agent reads, plus a section.
 #
@@ -268,6 +271,25 @@ cat > "$SANDBOX/brief.md" <<'B'
 twice this week already."*
 B
 silent "P12  a count inside quoted words is not the author's claim" "CEO CONSTRAINT"
+
+# --------------------------------------------------------------------------------
+# P15 — a duration is not a count. Found on the real corpus: "which had been main
+# three hours earlier" put a row on a brief that had done nothing wrong.
+# --------------------------------------------------------------------------------
+cat > "$SANDBOX/brief.md" <<'B'
+## Why
+
+For the 23:41:29 entry the direction is unambiguous: it pointed at a commit which had been
+main three hours earlier, and stayed there for two days.
+B
+silent "P15a a DURATION is not a count" "three hours earlier"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## Why
+
+Main had just fast-forwarded, and three commits went in behind it.
+B
+flags "P15b a COUNT of the same shape still is" "three commits"
 
 # --------------------------------------------------------------------------------
 # P14b — annotation is appended, original bytes preserved
