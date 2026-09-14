@@ -338,6 +338,42 @@ fi
 # shellcheck source=../lib/sandbox-completeness.sh
 . "$_SC_LIB"
 
+# The files the registered hooks themselves reach for, DERIVED. The list below
+# is a hand-maintained statement of why each file is carried, and it stays that
+# way; this adds the half that has no registration surface to be derived from
+# and therefore goes stale unnoticed. On 2026-09-14 that half cost demo.sh its
+# whole run, and the same omission was live HERE, unfixed, the day this was
+# written: guard-hook-registration-commits.sh was copied into every sandbox and
+# scripts/hook-registration-completeness.sh -- the helper it exits 2 without --
+# was copied into none.
+#
+# SC1 was green over it, and the reason is worth stating because it is the limit
+# of what SC1 can ever do: SC1 asks whether a hook can START, by running it, and
+# this suite's sandbox is not a git repository (`git init` appears nowhere in
+# this file), so the guard exits 0 at its jurisdiction test and never reaches the
+# helper. "Can it start?" is not "can it run?", and a dependency loaded past a
+# precondition the harness does not satisfy is never reached. The derivation
+# sees it whether or not any payload does; SC1 sees what no scan can read. The
+# two are complements and both are kept.
+_HD_LIB="$SCRIPT_DIR/../lib/hook-dependencies.sh"
+if [ ! -f "$_HD_LIB" ]; then
+    echo "FATAL: scripts/lib/hook-dependencies.sh missing — the files the registered hooks depend on cannot be derived, and this suite will not assemble a sandbox from a hand list alone and report it green" >&2
+    exit 1
+fi
+# shellcheck source=../lib/hook-dependencies.sh
+. "$_HD_LIB"
+HOOK_DEPENDENCIES=()
+if ! _HD_OUT="$(richos_hook_dependency_closure "$REAL_REPO_ROOT")"; then
+    echo "FATAL: could not derive what the registered hooks depend on (rc $?) — refusing to build sandboxes whose hooks start and decide nothing" >&2
+    exit 1
+fi
+while IFS= read -r _d; do
+    [ -n "$_d" ] || continue
+    HOOK_DEPENDENCIES+=("$_d")
+done <<HOOK_DEPS_EOF
+$_HD_OUT
+HOOK_DEPS_EOF
+
 # Managed scripts living OUTSIDE scripts/hooks/, relative to the repo root.
 # install.sh mints a sidecar for each, so every sandbox must carry them.
 ALL_ROOT_SCRIPTS=(
@@ -597,6 +633,16 @@ gen_sidecars() {
         [ -f "$f" ] || continue
         shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
     done
+    # The derived half, hashed on the same terms. install.sh mints a sidecar for
+    # every file it manages and several of these are on that list; a sandbox
+    # carrying the file without its sidecar would make the installer's first run
+    # a write, and "install is a no-op on a fresh clone" is a case here.
+    for s in "${HOOK_DEPENDENCIES[@]}"; do
+        f="$root/$s"
+        [ -f "$f" ] || continue
+        [ -f "$f.sha256" ] && continue
+        shasum -a 256 "$f" | awk '{print $1}' > "$f.sha256"
+    done
 }
 
 # copy_root_scripts <root> — mirror the managed non-hooks/ scripts
@@ -606,6 +652,22 @@ copy_root_scripts() {
     for s in "${ALL_ROOT_SCRIPTS[@]}"; do
         cp "$REAL_REPO_ROOT/$s" "$root/$s"
         chmod +x "$root/$s"
+    done
+}
+
+# copy_hook_dependencies <root> — the derived half of the same job. A UNION with
+# the list above, never a replacement: a file named in both is copied once and
+# the hand-written reason for it survives. Directories are created here because
+# the derivation may reach a path the skeleton does not already have.
+copy_hook_dependencies() {
+    local root="$1" d
+    for d in "${HOOK_DEPENDENCIES[@]}"; do
+        [ -f "$REAL_REPO_ROOT/$d" ] || continue
+        mkdir -p "$root/$(dirname "$d")"
+        cp "$REAL_REPO_ROOT/$d" "$root/$d"
+        case "$d" in
+            *.sh|*.py) chmod +x "$root/$d" ;;
+        esac
     done
 }
 
@@ -779,6 +841,7 @@ build_sandbox_template() {
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     _ts1="$(_t)"
     copy_root_scripts "$root"
+    copy_hook_dependencies "$root"
     chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
     _ts2="$(_t)"
     write_sandbox_config "$root"
