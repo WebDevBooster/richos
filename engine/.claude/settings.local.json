@@ -149,11 +149,6 @@
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/reader-teammate-hint.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/verify-agent-prompt.sh",
             "timeout": 10
           },

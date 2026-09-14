@@ -392,8 +392,8 @@ else
 fi
 
 # ===========================================================================
-# 8. scan-secrets.sh and reader-teammate-hint.sh still work through the
-#    resolved root (they read only config, so the risk is a silent stand-down).
+# 8. scan-secrets.sh still works through the resolved root (it reads only
+#    config, so the risk is a silent stand-down).
 # ===========================================================================
 SEC='{"tool_name":"Write","cwd":"'"$SESSREPO"'","tool_input":{"file_path":"'"$SESSREPO"'/notes.txt","content":"aws_key = \"AKIAIOSFODNN7EXAMPLE\"\nghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n"}}'
 run scan-secrets.sh "$SEC" "CLAUDE_PROJECT_DIR=$SESSREPO"

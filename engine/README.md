@@ -101,7 +101,7 @@ external tools it shells out to. All of the following must be resolvable on
   enforcement hook (`guard-worktree-isolation.sh`, `guard-definition-drift.sh`,
   `guard-main-checkout-writes.sh`,
   `guard-bash-main-writes.sh`, `verify-agent-prompt.sh`, `detect-nonnative-worktree.sh`,
-  `reader-teammate-hint.sh`, `guard-resume-isolation.sh`),
+  `guard-resume-isolation.sh`),
   `snapshot-agent-definitions.sh`,
   `scripts/hooks/install.sh`, and `scripts/hooks/contract-integrity-probe.sh` all
   check `command -v python3` up front and refuse (non-zero exit, loud stderr) if

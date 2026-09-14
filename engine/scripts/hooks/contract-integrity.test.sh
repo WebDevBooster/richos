@@ -15,9 +15,9 @@
 # The hard-gated hooks are the main-checkout write guard
 # (guard-main-checkout-writes.sh), the secrets scanner (scan-secrets.sh —
 # wired as a SECOND hook in the same Write|Edit|MultiEdit|NotebookEdit
-# matcher entry), and the four-hook PreToolUse[Agent] chain
+# matcher entry), and the PreToolUse[Agent] chain's structural prefix
 # (guard-worktree-isolation.sh FIRST, then guard-definition-drift.sh, then
-# reader-teammate-hint.sh, then verify-agent-prompt.sh). Adversarial coverage:
+# verify-agent-prompt.sh). Adversarial coverage:
 # shim attacks (path confinement) and manifest tampering (sidecar hash closure).
 #
 # The definition-drift guard PAIR is part of the managed set —
@@ -613,7 +613,6 @@ write_sandbox_config() {
     cat >"$1/orchestration.config" <<'CFG'
 PROTECTED_PATHS="app packages"
 READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup"
-READER_TEAMMATE="reed"
 CREATOR_TEAMMATE="dean"
 # Declared, so Layer T exercises the dialect guard instead of taking its
 # "declared nothing, enforcing nothing" WARN branch. A sandbox that models the
@@ -1604,11 +1603,11 @@ set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
 emit_case "14a.tamper-guard-worktree-isolation-fails" 2 "$rc"
 rm -rf "$ROOT"
 
-# Case 14b — tamper the MIDDLE chain member (reader-teammate-hint.sh) → FAIL.
+# Case 14b — tamper the MIDDLE chain member (guard-definition-drift.sh) → FAIL.
 ROOT="$(make_sandbox)"
-printf '\n# tampered\n' >> "$ROOT/scripts/hooks/reader-teammate-hint.sh"
+printf '\n# tampered\n' >> "$ROOT/scripts/hooks/guard-definition-drift.sh"
 set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
-emit_case "14b.tamper-reader-teammate-hint-fails" 2 "$rc"
+emit_case "14b.tamper-guard-definition-drift-fails" 2 "$rc"
 rm -rf "$ROOT"
 
 # Case 14c — chain entry count mismatch (only verify-agent-prompt.sh wired) → FAIL.
@@ -1672,12 +1671,12 @@ ROOT="$(make_sandbox)"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
 HASH1_G="$(shasum -a 256 "$ROOT/scripts/hooks/guard-main-checkout-writes.sh.sha256" | awk '{print $1}')"
 HASH1_A="$(shasum -a 256 "$ROOT/scripts/hooks/verify-agent-prompt.sh.sha256" | awk '{print $1}')"
-HASH1_R="$(shasum -a 256 "$ROOT/scripts/hooks/reader-teammate-hint.sh.sha256" | awk '{print $1}')"
+HASH1_R="$(shasum -a 256 "$ROOT/scripts/hooks/guard-definition-drift.sh.sha256" | awk '{print $1}')"
 HASH1_W="$(shasum -a 256 "$ROOT/scripts/hooks/guard-worktree-isolation.sh.sha256" | awk '{print $1}')"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
 HASH2_G="$(shasum -a 256 "$ROOT/scripts/hooks/guard-main-checkout-writes.sh.sha256" | awk '{print $1}')"
 HASH2_A="$(shasum -a 256 "$ROOT/scripts/hooks/verify-agent-prompt.sh.sha256" | awk '{print $1}')"
-HASH2_R="$(shasum -a 256 "$ROOT/scripts/hooks/reader-teammate-hint.sh.sha256" | awk '{print $1}')"
+HASH2_R="$(shasum -a 256 "$ROOT/scripts/hooks/guard-definition-drift.sh.sha256" | awk '{print $1}')"
 HASH2_W="$(shasum -a 256 "$ROOT/scripts/hooks/guard-worktree-isolation.sh.sha256" | awk '{print $1}')"
 if [ "$HASH1_G" = "$HASH2_G" ] && [ "$HASH1_A" = "$HASH2_A" ] && [ "$HASH1_R" = "$HASH2_R" ] && [ "$HASH1_W" = "$HASH2_W" ]; then
     PASS=$((PASS+1)); printf '  PASS  18.install-idempotent-manifests\n'

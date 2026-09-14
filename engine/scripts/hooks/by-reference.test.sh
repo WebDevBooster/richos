@@ -94,7 +94,6 @@ ALLOWED_MODELS="opus sonnet haiku"
 # ALLOWED_MODELS is: Layer MT reads the ENTITY's declaration, and a layer that
 # read the engine's would be visible here rather than plausible.
 MODEL_TIERS="opus > sonnet > haiku"
-READER_TEAMMATE="reed"
 CREATOR_TEAMMATE="dean"
 CFG
     printf -- '---\nname: mark\nmodel: opus\n---\nentity roster body\n' \
@@ -529,7 +528,7 @@ cat >"$SB/engine/scripts/lib/registered-hooks.sh" <<'STALE'
 #!/usr/bin/env bash
 registered_hook_scripts() {
     printf '%s\n' \
-        guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh \
+        guard-worktree-isolation.sh guard-definition-drift.sh guard-ceo-ask-first.sh \
         verify-agent-prompt.sh guard-main-checkout-writes.sh scan-secrets.sh \
         guard-resume-isolation.sh guard-bash-main-writes.sh guard-workflow-ban.sh \
         detect-nonnative-worktree.sh session-start-reap-worktrees.sh \
@@ -609,7 +608,7 @@ expect_only_layer_failed "4a.BR4-registered-script-not-on-disk" "BR4" "NOT ON DI
 rm -rf "$SB"
 
 SB="$(make_sandbox)"
-chmod -x "$SB/engine/scripts/hooks/reader-teammate-hint.sh"
+chmod -x "$SB/engine/scripts/hooks/guard-ceo-ask-first.sh"
 run_probe "$SB"
 expect_only_layer_failed "4b.BR4-registered-script-not-executable" "BR4" "not executable"
 rm -rf "$SB"
