@@ -1,0 +1,29 @@
+lib      : /Users/alex/ab/richos-wt/zach-opus-n4/engine/scripts/lib/workspaces.py
+sandbox  : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-h6kbfgde
+
+T0 main  : bbc31ab6a73a   (before anything lands)
+A opens a tool call (its window records main = bbc31ab6a73a)
+the LEAD lands A's work: git merge worktree-agent-aaaa000000000001
+T1 main  : 8f03460c1ef2   (Rich's merge)
+B opens a tool call (its window records main = 8f03460c1ef2)
+
+A's PostToolUse -> main = bbc31ab6a73a   MOVED BY THE ENGINE
+    finding: ('/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-h6kbfgde/entity', 'main', 'bbc31ab6a73afca7186cf607efaaf11e51ec6b7b', '8f03460c1ef2a8034c268749e2fd6f3979ef729d', "moved to 8f03460c1ef2, which carries this agent's own unlanded work (it committed or merged onto it)")
+B's PostToolUse -> main = 8f03460c1ef2   MOVED BY THE ENGINE
+    finding: ('/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-h6kbfgde/entity', 'main', '8f03460c1ef2a8034c268749e2fd6f3979ef729d', 'bbc31ab6a73afca7186cf607efaaf11e51ec6b7b', 'moved to bbc31ab6a73a, which does not descend from 8f03460c1ef2 (a rewind, a force-move or a symref)')
+
+--- reflog of refs/heads/main (an EMPTY message is an engine write) ---
+8f03460 main@{2026-09-14 01:26:47 +0100}: 
+bbc31ab main@{2026-09-14 01:26:47 +0100}: 
+8f03460 main@{2026-09-14 01:26:47 +0100}: merge worktree-agent-aaaa000000000001: Fast-forward
+bbc31ab main@{2026-09-14 01:26:46 +0100}: commit (initial): init
+
+--- the engine's own event log ---
+{"branch": "main", "event": "protected-ref-restored", "found": "8f03460c1ef2a8034c268749e2fd6f3979ef729d", "key": "sess-repro-0001--zach-opus-aa1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-h6kbfgde/entity", "tip": "bbc31ab6a73afca7186cf607efaaf11e51ec6b7b", "ts": "2026-09-14T00:26:47Z", "why": "moved to 8f03460c1ef2, which carries this agent's own unlanded work (it committed or merged onto it)"}
+{"branch": "main", "event": "protected-ref-restored", "found": "bbc31ab6a73afca7186cf607efaaf11e51ec6b7b", "key": "sess-repro-0001--zach-opus-bb1", "repo": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ref-oscillation-h6kbfgde/entity", "tip": "8f03460c1ef2a8034c268749e2fd6f3979ef729d", "ts": "2026-09-14T00:26:47Z", "why": "moved to bbc31ab6a73a, which does not descend from 8f03460c1ef2 (a rewind, a force-move or a symref)"}
+
+=== VERDICT ===
+main was moved by the engine          : YES
+empty-message reflog lines            : 2
+Rich's merge still reachable from main: yes
+main ends at                          : 8f03460c1ef2 (the lead left it at 8f03460c1ef2)
