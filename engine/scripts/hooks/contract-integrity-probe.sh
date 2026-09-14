@@ -399,6 +399,26 @@ run_layer_R() {
     # is the cost of a typed list. It is worth paying — a derived list would have
     # nothing to say when a hook quietly stops sourcing the library — but it is a
     # cost, and whoever adds the next hook should expect the same two steps.
+    #
+    # THE COST WENT UNPAID FIVE TIMES, AND THE WINDOW WAS NOT A WINDOW.
+    # Measured 2026-09-14 against hooks/hooks.json: 57 registered hooks assign
+    # ENGINE_ROOT from resolve_engine_root, and this list named 52. The five it
+    # did not name — guard-ceo-ruled-ask, guard-owned-state, guard-stop-live-work,
+    # notice-ceo-ruled-prose, observe-created-refs — were not red here, because a
+    # hook this list omits is not checked at all. They are added below.
+    #
+    # ONE OF THE FIVE WAS ALREADY DIVERGENT, which is the whole argument for
+    # noticing. guard-stop-live-work.sh assigned SCRIPT_DIR above the python3
+    # check instead of inside the bootstrap, so its block was missing its own
+    # first line — exactly the R3 failure this layer exists to raise, sitting on
+    # main behind the gap that stopped anyone walking it. Fixed in the same commit.
+    #
+    # hook-registration-completeness.sh demands this list of a NEWLY registered
+    # rooted hook and is right to, but it only ever examines new subjects, so five
+    # hooks registered before it existed are invisible to it by construction.
+    # NOTHING IN THE ENGINE ASKS WHETHER THIS LIST IS SHORT — that question is
+    # answered by the next commit, which derives the membership from the
+    # registration and leaves only the rootless exemptions typed.
     R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
     verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
@@ -425,7 +445,11 @@ run_layer_R() {
     notice-escalations session-start-escalations \
     commit-ceo-inputs notice-ceo-inputs-unheld \
     notice-unlanded-branches \
-    notice-protected-ref-moves"
+    notice-protected-ref-moves \
+    guard-ceo-ruled-ask notice-ceo-ruled-prose \
+    guard-owned-state \
+    guard-stop-live-work \
+    observe-created-refs"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.

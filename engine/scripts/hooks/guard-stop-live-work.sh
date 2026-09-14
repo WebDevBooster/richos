@@ -112,14 +112,21 @@ if [ "${1:-}" = "--self-test" ]; then
     exec bash "$_SELF_DIR/guard-stop-live-work.test.sh"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # python3 is required to read anything at all. FAIL OPEN -- see the header.
 if ! command -v python3 >/dev/null 2>&1; then
     echo "NOTE: guard-stop-live-work.sh: python3 unavailable, so this TaskStop was NOT checked against the CEO's instruction or an ack. $HOOK_TAG" >&2
     exit 0
 fi
 
+# SCRIPT_DIR IS ASSIGNED INSIDE THE BLOCK BELOW AND NOWHERE ELSE. It used to sit
+# above the python3 check, hoisted out of the bootstrap — harmless to run, and the
+# one thing Layer R cannot tolerate: R3 compares the block below BYTE FOR BYTE
+# across every rooted hook, and a block missing its own first line is a divergent
+# copy. It went unseen because this hook was absent from R_ROOTED_HOOKS, so Layer R
+# never walked it (measured 2026-09-14: 52 hooks named, 57 registered hooks resolve
+# a root). Nothing between here and there reads SCRIPT_DIR, so moving it back in is
+# behavior-preserving; `--self-test` above uses its own _SELF_DIR.
+#
 # --- ROOT RESOLUTION -------------------------------------------------------
 # TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
 # resolution was wrong the moment the engine became loadable by reference,
@@ -158,6 +165,7 @@ fi
 # shell) and calls nothing external: this is the one code path in the engine
 # that runs when the install is already known to be broken, so it must not
 # depend on python3, jq, or any file it has just failed to find.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
 if [ ! -f "$_RR_LIB" ]; then
     _RR_MSG="=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ===
