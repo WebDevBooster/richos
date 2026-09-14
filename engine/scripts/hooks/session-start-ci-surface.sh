@@ -126,9 +126,55 @@ PY
 
 [ -n "$NOTICE" ] || exit 0
 
-{
-    echo "=== CI SURFACE ==="
-    printf '%s\n' "$NOTICE" | sed 's/^/  /'
-    echo "  Everything, on all six axes, in one command:  engine/scripts/ci-status.sh"
-} >&2
+# ===========================================================================
+# THE CHANNEL — CORRECTED 2026-09-14, and the correction is the whole point
+# of this hook
+# ===========================================================================
+# This notice shipped writing its entire text to STDERR with exit 0, which the
+# engine's own measured channel table says renders to NOBODY — not the
+# operator, not the model — on every event including SessionStart:
+#
+#   channel, exit 0     SessionStart  UserPromptSubmit  PreToolUse  PostToolUse  Stop
+#   stderr              silent        silent            silent      silent       silent
+#   stdout, plain text  model         model             silent      silent       silent
+#   {"systemMessage"}   PERSON        PERSON            PERSON      PERSON       PERSON
+#   additionalContext   model         model             model       model        model
+#
+# (scripts/lib/stop-hook-notice.sh lines 20-32; the five-event form is repeated
+# in scripts/hooks/notice-escalations.sh lines 110-116.)
+#
+# So the third leg of the CI subsystem — the one whose own header says it
+# exists because the gate and the watch "put no single word in front of a
+# person" — put its word on the one channel measured to reach no person.
+# Found by scripts/check-census.py, which classified it INERT: it neither
+# refuses, nor announces on an audible channel, nor records. Reproduced while
+# it was holding a live finding (CI IS RED, 1 workflow): 223 bytes on stderr,
+# 0 on stdout, exit 0. Record: docs/verification/check-census-2026-09-14.md.
+#
+# Nothing about WHAT it says changes, and it still blocks nothing. The text is
+# now carried on both audible channels — systemMessage for the operator, who
+# is the person who can act on a red surface, and additionalContext for the
+# model, which is what stops the orchestrator reporting a clean surface in the
+# same turn. This is exactly the pair session-start-escalations.sh uses, and
+# for the reason that file gives: a notice only the model hears is one the
+# orchestrator may summarize away; one only the operator hears is one the
+# orchestrator does not know it owes an answer to.
+#
+# STDERR IS NOT KEPT ALONGSIDE. It renders to nobody, and a duplicate copy of
+# the same text on a third channel is what made this hook's own suite count
+# thirteen rows in a twelve-row list when the fix was first tried.
+BODY="$(printf '=== CI SURFACE ===\n%s\n  Everything, on all six axes, in one command:  engine/scripts/ci-status.sh\n' \
+    "$(printf '%s\n' "$NOTICE" | sed 's/^/  /')")"
+
+BODY="$BODY" python3 -c '
+import json, os
+body = os.environ.get("BODY", "")
+print(json.dumps({
+    "systemMessage": body,
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": body,
+    },
+}))
+' 2>/dev/null || true
 exit 0

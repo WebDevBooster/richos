@@ -89,9 +89,31 @@ json.dump(doc, open(sys.argv[1], "w"), indent=2)' \
         "$S/red-$(printf '%s' "$1" | tr '/' '-')-main.json" "$1" "$2" "$3"
 }
 
+# THE CHANNEL CHANGED ON 2026-09-14 AND SO DID THIS HARNESS, deliberately.
+# The hook used to write its notice to stderr with exit 0 — a channel the
+# engine's own measured table (scripts/lib/stop-hook-notice.sh lines 20-32)
+# says renders to NOBODY, so every case below was asserting on text no person
+# or model ever saw. It now emits the pair session-start-escalations.sh uses:
+# `systemMessage` for the operator and `additionalContext` for the model.
+#
+# So RAW keeps the literal stdout, OUT becomes the OPERATOR-VISIBLE text, and
+# every existing case goes on asserting exactly what it always asserted —
+# about a channel somebody actually reads. N9 is new and is the regression
+# test for the defect itself.
 run() {
-    OUT="$(HOME="$FAKE_HOME" CI_SURFACE_STATE_DIR="$S" bash "$HOOK" 2>&1)"
+    RAW="$(HOME="$FAKE_HOME" CI_SURFACE_STATE_DIR="$S" bash "$HOOK" 2>/dev/null)"
     RC=$?
+    OUT="$(RAW="$RAW" python3 -c '
+import json, os, sys
+raw = os.environ.get("RAW", "").strip()
+if not raw:
+    sys.exit(0)
+try:
+    doc = json.loads(raw)
+except ValueError:
+    print(raw)
+    sys.exit(0)
+print(doc.get("systemMessage", ""))' 2>/dev/null || true)"
 }
 
 # --- N1 --------------------------------------------------------------------
@@ -172,6 +194,40 @@ if [ "$RC" -eq 0 ]; then
     ok "N8   the notice exits 0 even while shouting — it never wedges a session"
 else
     bad "N8   rc=$RC — a SessionStart notice returned non-zero"
+fi
+
+# --- N9 --------------------------------------------------------------------
+# THE REGRESSION THIS SUITE DID NOT HAVE, and the reason every case above
+# passed for a year over a notice nobody could see. The hook wrote to stderr
+# with exit 0; the measured channel table says that renders to NO ONE. Found
+# by scripts/check-census.py, which classified this hook INERT — neither
+# refusing, nor announcing audibly, nor recording — while it held a live
+# finding. So the assertion is not "it printed something": it is that the
+# finding arrives on the OPERATOR channel and on the MODEL channel, both, in a
+# single well-formed JSON object, and on NEITHER of the two silent ones.
+rm -f "$S"/red-*.json
+write_red "Example/alpha" red 2
+RAW="$(HOME="$FAKE_HOME" CI_SURFACE_STATE_DIR="$S" bash "$HOOK" 2>/dev/null)"
+ERRTXT="$(HOME="$FAKE_HOME" CI_SURFACE_STATE_DIR="$S" bash "$HOOK" 2>&1 >/dev/null)"
+VERDICT="$(RAW="$RAW" python3 -c '
+import json, os
+raw = os.environ.get("RAW", "").strip()
+try:
+    doc = json.loads(raw)
+except ValueError:
+    print("not-json")
+else:
+    sm = doc.get("systemMessage", "")
+    ac = doc.get("hookSpecificOutput", {}).get("additionalContext", "")
+    ev = doc.get("hookSpecificOutput", {}).get("hookEventName", "")
+    if "CI IS RED" in sm and sm == ac and ev == "SessionStart":
+        print("both")
+    else:
+        print("operator=%s model=%s event=%s" % (bool(sm), bool(ac), ev))' 2>/dev/null || true)"
+if [ "$VERDICT" = "both" ] && [ -z "$ERRTXT" ]; then
+    ok "N9   the finding reaches the operator AND the model, and nothing goes to the silent channels"
+else
+    bad "N9   verdict=<$VERDICT> stderr=<$ERRTXT> — a notice on a channel measured to reach nobody is a notice that does not exist"
 fi
 
 echo ""
