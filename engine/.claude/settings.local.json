@@ -284,6 +284,11 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-hook-registration-commits.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-ci-red-lands.sh",
             "timeout": 25
           },

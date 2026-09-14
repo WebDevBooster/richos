@@ -393,6 +393,7 @@ run_layer_R() {
     guard-completeness-commits \
     guard-row-currency-commits \
     guard-vendoring-commits \
+    guard-hook-registration-commits \
     guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     workspace-lifecycle guard-workspace-gate guard-ci-turn-gate snapshot-agent-definitions guard-unresolved-claims \
@@ -1079,6 +1080,7 @@ guard-ceo-todos-commits.sh|PreToolUse
 guard-completeness-commits.sh|PreToolUse
 guard-row-currency-commits.sh|PreToolUse
 guard-vendoring-commits.sh|PreToolUse
+guard-hook-registration-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 guard-ci-red-lands.sh|PreToolUse
 guard-stop-live-work.sh|PreToolUse
@@ -2785,6 +2787,11 @@ CANON = [
     # parse: registered twice it would name the same unrecorded vendoring twice,
     # which reads as two separate unregistered things in one commit.
     "guard-vendoring-commits.sh",
+    # The hook-registration completeness gate. BLOCKING, same event, and its
+    # cost is a hooks.json parse plus one `git grep`: registered twice it would
+    # derive the same inventories twice and print the same owed places twice,
+    # which reads as two separate incomplete registrations in one commit.
+    "guard-hook-registration-commits.sh",
     "guard-resume-isolation.sh",
     "detect-nonnative-worktree.sh",
     "teammate-idle-handoff.sh",
