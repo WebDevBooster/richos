@@ -46,6 +46,29 @@
 #  P15   A DURATION is not a COUNT. Found on the real corpus, not invented: "which had been
 #        main three hours earlier" put a row on a brief that had done nothing wrong. A count
 #        of the same shape ("three commits") still is one.
+#  Y1    REACHABILITY REPORTED AS AN ACT is caught. `git branch --no-merged` returns one
+#        branch; the sentence says "fully merged into main". The instance the CEO found.
+#  Y2    --is-ancestor USED TO SINGLE OUT ONE MERGE is caught. Exit 0 is true of every
+#        later merge, so it identifies none of them.
+#  Y3    A COUNT NAMED BY A FILTER ITS SELECTOR NEVER APPLIED is caught. No actor appears
+#        anywhere in it, which is why an actor detector alone would not do.
+#  Y4    A MEASUREMENT REPORTED AS WHOSE MOVE IT IS is caught - 79 for the lead, called
+#        waiting on him.
+#  Y5    THE SAME VERB WITH A COMMAND THAT DOES RECORD THE ACT IS SILENT. `git reflog`
+#        names the merge. Without this, the check flags the one document that got this
+#        right, which is how a report becomes wallpaper.
+#  Y6    THE CORRECT WORD FOR THE SAME MEASUREMENT IS SILENT ("reachable from main").
+#  Y7    A COUNT WHOSE SELECTOR DOES FILTER ON ITS NAME IS SILENT.
+#  Y8    A SPECIFICATION IS NOT A REPORT ("must be reconciled as landed"). Most of this
+#        corpus is specifications.
+#  Y9    A CITED COMMIT IS EVIDENCE OF AN ACT, so "deleted at `3ddc05a3`" is silent.
+#  Y10   A DEFINITION AND AN INDIRECT QUESTION are not claims of authorization.
+#  Y11   A KNOWN FALSE POSITIVE, asserted out loud: a sentence ABOUT these verbs is
+#        flagged for containing them. Mention versus use is not decidable here, and a
+#        file that quietly passed this would claim a precision it does not have.
+#  Y12   CAPABILITY ROWS CARRY THEIR OWN INSTRUCTION. Under check 3's heading they would
+#        tell the agent to re-derive the number - which CONFIRMS the sentence, and is
+#        exactly how all four instances survived.
 #  P14   The annotation is APPENDED and the brief is otherwise untouched — nothing is rewritten,
 #        reordered or removed. What the lead wrote is what the agent reads, plus a section.
 #
@@ -310,6 +333,154 @@ if printf '%s' "$OUT" | grep -q "Provenance of this brief"; then
   ok "P14c the appended section reaches the agent"
 else
   printf '  FAIL  %s\n' "P14c the appended section reaches the agent"; FAIL=$((FAIL + 1))
+fi
+
+# --------------------------------------------------------------------------------
+# Y1-Y11 — CHECK 4, CAPABILITY. Type Y: the measurement is right and the word for it
+# is false (richos-hq docs/verification/lifecycle-failure-record-2026-09-13.md §10i).
+#
+# Y1-Y4 ARE THE FOUR REAL INSTANCES, reduced to their shape. Y5-Y10 are the negative
+# halves, and they carry more weight here than anywhere else in this file: a check
+# whose trigger is a VERB would pass Y1-Y4 while flagging every correct sentence that
+# uses the same verb, and the corpus is full of those. Y11 asserts a known FALSE
+# POSITIVE, for the same reason P4 asserts a known miss.
+# --------------------------------------------------------------------------------
+cat > "$SANDBOX/brief.md" <<'B'
+## The codex branches
+
+    $ git branch --no-merged main --list 'codex/*'
+    + codex/owned-outcome-prd
+
+All but one of the codex branches are fully merged into main.
+B
+flags "Y1   reachability reported as an ACT is caught" "fully merged into main"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The passenger
+
+The back-merge commit is an ancestor of the other tip, which means the retirement branch
+carried it in.
+
+    $ git merge-base --is-ancestor 55728e67 f201e904 ; echo $?
+    0
+B
+flags "Y2   --is-ancestor used to single out ONE merge is caught" "carried it in"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The ledger
+
+    $ grep -c '"for": "ceo"' escalations.jsonl
+    10
+
+There are 10 outstanding for the CEO.
+B
+flags "Y3   a count named by a filter the selector never applied is caught" "10 outstanding"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The escalations
+
+    $ escalations.py outstanding
+    by audience: {'lead': 79, 'ceo': 6}
+
+79 teammate escalations are outstanding, explicitly waiting on him.
+B
+flags "Y4   a measurement reported as whose move it is, is caught" "waiting on him"
+
+# --- the negatives, one per rule ---
+cat > "$SANDBOX/brief.md" <<'B'
+## The codex branches
+
+    $ git reflog show main | grep 'merge codex/'
+    f201e904 main@{31}: merge codex/workspace-retirement-safety: Merge made by 'ort'
+
+Twelve codex branches were merged into main, and the reflog names each one.
+B
+silent "Y5   the SAME verb with a command that DOES record the act is silent" "were merged into main"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The codex branches
+
+    $ git branch --no-merged main --list 'codex/*'
+    + codex/owned-outcome-prd
+
+Every codex branch except that one is reachable from main.
+B
+silent "Y6   the CORRECT word for the same measurement is silent" "reachable from main"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The ledger
+
+    $ grep -c '"outstanding": true' escalations.jsonl
+    6
+
+There are 6 outstanding for the CEO.
+B
+silent "Y7   a count whose selector DOES filter on the name is silent" "6 outstanding"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## The rule
+
+    $ git branch --no-merged main --list 'codex/*'
+    + codex/owned-outcome-prd
+
+A branch that no longer appears here must be reconciled as landed and its workspace deleted.
+B
+silent "Y8   a SPECIFICATION is not a report, and is silent" "must be reconciled"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## What happened
+
+    $ ls .claude/worktrees/
+    agent-aaaba572
+
+Both hooks were deleted from the tree at commit `3ddc05a3` on 2026-08-28.
+B
+silent "Y9   a cited COMMIT is evidence of an act, so the act class is silent" "were deleted from the tree"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## Scope
+
+    $ grep -rn 'workspaces.sh' engine/scripts
+    engine/scripts/land.sh:14
+
+Nothing here changes what is allowed; whether it was authorized is a separate question.
+B
+silent "Y10  a DEFINITION and an indirect question are not claims of authorization" "what is allowed"
+
+# Y11 — A KNOWN FALSE POSITIVE, asserted out loud so precision cannot be overclaimed.
+# A document that DISCUSSES these verbs is flagged for containing them. Telling mention
+# from use is not something a regular expression can do, and a file that quietly failed
+# this case would be claiming a precision it does not have.
+cat > "$SANDBOX/brief.md" <<'B'
+## The tell
+
+    $ git branch --list 'codex/*'
+    codex/owned-outcome-prd
+
+Verbs implying history — merged, landed, deleted, deployed — are claims a state command
+cannot carry.
+B
+flags "Y11  KNOWN FALSE POSITIVE: a sentence ABOUT the verbs is flagged for using them" \
+      "Verbs implying history"
+
+# Y12 — the capability rows reach the agent under their own instruction. Sending them
+# under check 3's heading would tell the agent to re-derive the number, which CONFIRMS
+# the sentence and is exactly how all four instances survived.
+cat > "$SANDBOX/brief.md" <<'B'
+## The codex branches
+
+    $ git branch --no-merged main --list 'codex/*'
+    + codex/owned-outcome-prd
+
+All but one of the codex branches are fully merged into main.
+B
+OUT="$(python3 "$CHECK" "$SANDBOX/brief.md" --annotate --repo "$SANDBOX")"
+if printf '%s' "$OUT" | grep -qF "SOURCED" \
+   && printf '%s' "$OUT" | grep -qF "re-running it will agree"; then
+  ok "Y12  capability rows carry their OWN instruction, not check 3's"
+else
+  printf '  FAIL  %s\n' "Y12  capability rows carry their OWN instruction, not check 3's"
+  FAIL=$((FAIL + 1))
 fi
 
 echo

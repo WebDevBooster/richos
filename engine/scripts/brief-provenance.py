@@ -47,7 +47,7 @@ optimism about precision, is what makes the non-blocking form viable where the b
 was rejected.
 
 ===========================================================================================
-THE THREE CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the honest part
+THE FOUR CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the honest part
 ===========================================================================================
 1. QUOTATION (exact, no judgment, no false positives). A blockquote presented as coming from
    a file is searched for in that file, byte for byte modulo whitespace. Either the string is
@@ -60,13 +60,33 @@ THE THREE CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the hone
    surface for distortion - one of them distorted. A brief that says *read points 4, 5, 7 and
    11 of <path>* carries the same authority and cannot drift from it."
 
-3. PROVENANCE (heuristic, and the only check that can be noisy). A statement is listed when it
-   carries a COUNT, an assertion of CERTAINTY, or a claim about the BEHAVIOR OF A NAMED CODE
-   ENTITY, and no command, captured output, commit, file:line or re-derive instruction sits in
-   scope with it.
+3. PROVENANCE (heuristic, and noisy). A statement is listed when it carries a COUNT, an
+   assertion of CERTAINTY, or a claim about the BEHAVIOR OF A NAMED CODE ENTITY, and no command,
+   captured output, commit, file:line or re-derive instruction sits in scope with it.
+
+4. CAPABILITY (heuristic, and the noisiest — added for type Y, §10i of the same record). The
+   MIRROR IMAGE of check 3: it looks only at statements that DO carry a source, and asks whether
+   the source is the KIND of thing that could establish the sentence's verb. A state measurement
+   answers what IS; it never answers who did it, when, whether it was allowed, or which of
+   several candidates it was. `git branch --no-merged` returning one branch was reported to the
+   CEO as "all but one are fully merged into main", and merged names an act somebody performed.
+   Re-running the command CONFIRMS the number, which is why checks 1-3 are blind to this by
+   construction rather than by oversight.
+
+   MEASURED, so the noise is not a matter of opinion: over this session's 23 spawn payloads it
+   adds 1 row (against 140 from checks 1-3), and over 63 landed records it adds 37 (against
+   1743). Of those 37, eight are real, six are arguable and 23 are false positives — a 62% false
+   positive rate, which is survivable ONLY in the non-blocking shape and would be fatal in a
+   guard. The eight include all three sentences of the one record in that corpus later PROVEN
+   false by another agent, at the cost of an escalation and a published correction.
 
 WHAT THIS CANNOT DO, STATED HERE SO IT IS NOT DISCOVERED LATER:
   - It cannot tell a true account from a false one. Nothing textual can.
+  - Check 4 cannot tell MENTION from USE. A document about the word "merged" is flagged for
+    containing it; test case Y11 asserts that failure out loud rather than hiding it.
+  - Check 4 only speaks about commands in its own table. An unrecognized command yields nothing,
+    which is deliberate: the table is an allowlist of capabilities somebody wrote down, not a
+    guess about every program on the machine.
   - It cannot catch a bare prescription that names no code entity — "do not build a second
     reaper". That sentence is formally identical to a legitimate constraint ("do not weaken
     the guard"), which good briefs carry. It catches such a prescription only through the
@@ -532,6 +552,367 @@ def check_provenance(blocks):
     return findings
 
 
+# ---------------------------------------------------------------------------
+# CHECK 4 — CAPABILITY: the citation is real, and it does not establish the verb
+#
+# Type Y, richos-hq docs/verification/lifecycle-failure-record-2026-09-13.md §10i.
+# Checks 1-3 ask whether a statement HAS a source. This one only ever looks at
+# statements that DO, which is why it is not a stricter version of check 3 but its
+# complement: check 3 fires when nothing in scope sources a sentence, check 4 fires
+# only when something does. The two populations are disjoint by construction.
+#
+# WHAT IT DOES NOT DO. It does not decide whether the sentence is true, and it does
+# not decide entailment. It states what the CITED COMMAND is capable of establishing
+# and what the SENTENCE asserts, and leaves the comparison to the reader. That is
+# deliberate: a capability statement about `git branch --no-merged` has no truth value
+# to get wrong, so this check cannot produce a false ACCUSATION. It can only produce
+# an UNNECESSARY row, and the rate of those is the thing measured on the real corpus.
+#
+# THREE RULES, and they are three because the corpus is not one shape. §10i proposes a
+# single tell - "if the sentence has an actor in it, the command must have found the
+# actor". Instance 2 of its own four has no actor: a count of rows ever addressed to
+# the CEO was given the name outstanding. That is a SCOPE mismatch, not an actor one,
+# and an actor detector is blind to it.
+#
+#   A1  AUTHORITY and EXPECTATION are universally unestablishable. No shell command
+#       reports whether something was allowed, or whose action is awaited. This rule
+#       needs no table and does not even need a command: ANY cited evidence plus such
+#       a predicate is a mismatch.
+#   A2  ACT, AGENT, TIME and IDENTITY are table-driven, because whether a command can
+#       carry them depends on the command. `git reflog` DOES record operations;
+#       `git branch --no-merged` does not. Firing on the word alone would flag the
+#       correct usage, and a check that cannot tell the two apart teaches its reader
+#       to skip it.
+#   B   A COUNT'S NAME MUST BE DERIVABLE FROM ITS SELECTOR. Purely lexical: if the
+#       sentence calls a count `outstanding` and the command that produced it contains
+#       no word to that effect, the count may carry a filter that was never applied.
+#       This is the only rule that catches instance 2.
+# ---------------------------------------------------------------------------
+
+# What a command establishes, and the classes of claim it cannot carry. FIRST MATCH
+# WINS, so the specific forms precede the general ones. A command that is not in this
+# table produces NO finding under A2 - the table is an allowlist of things we can state
+# a capability for, not a denylist, and that is what keeps the rate low.
+CAPABILITY_TABLE = [
+    (re.compile(r"\bgit\b[^|;&]*\bbranch\b[^|;&]*--(?:no-)?merged\b"),
+     "which branch tips are reachable from a ref at this instant",
+     {"act", "agent", "time"}),
+    (re.compile(r"\bgit\b[^|;&]*\bmerge-base\b[^|;&]*--is-ancestor\b"),
+     "whether one commit is reachable from another at this instant - which is equally "
+     "true of EVERY later merge, so it singles out none of them",
+     {"act", "agent", "time", "identity"}),
+    (re.compile(r"\bgit\b[^|;&]*\bstatus\b"),
+     "the working tree's state at this instant",
+     {"act", "agent", "time"}),
+    (re.compile(r"\bgit\b[^|;&]*\b(?:rev-parse|show-ref|symbolic-ref|cat-file|ls-tree)\b"),
+     "what a ref or object is at this instant",
+     {"act", "agent", "time"}),
+    (re.compile(r"\bgit\b[^|;&]*\b(?:branch|tag|worktree\s+list|stash\s+list)\b"
+                r"(?![^|;&]*(?:-[dDmM]\b|--delete|--move|--force))"),
+     "which refs or workspaces exist at this instant",
+     {"act", "agent", "time"}),
+    (re.compile(r"(?:\bwc\s+-l\b|\bgrep\s+-c\b|\b--count\b|\|\s*wc\b|\bjq\b[^|;&]*\blength\b)"),
+     "a count of the items the selector you gave it matched",
+     {"act", "agent", "status"}),
+    (re.compile(r"(?:^|\s)(?:ls|test\s+-[a-z]|\[\s+-[a-z]|stat|find)\b"),
+     "what is present at this instant",
+     {"act", "agent", "time"}),
+    (re.compile(r"(?:^|\s)(?:grep|rg)\b"),
+     "whether that text is present in the files you searched",
+     {"act", "agent", "time"}),
+]
+
+# A command that PERFORMS the act establishes the act. Running `git merge` and then
+# saying it was merged is not this failure; it is a report.
+#
+# `merge(?!-base)` is not cosmetic. A hyphen is a word boundary, so `\bmerge\b` matches
+# INSIDE `git merge-base` - which made this list read the corpus's own read-only
+# ancestry probe as a merge operation and silently exonerated instance 4.
+MUTATION = re.compile(
+    r"\bgit\b[^|;&]*\b(?:merge(?!-base)|push|commit|rebase|cherry-pick|revert|reset|"
+    r"checkout|switch|am|apply|worktree\s+(?:add|remove)|clean)\b|"
+    r"\bgit\b[^|;&]*\b(?:branch|tag)\s+-[dDmM]\b|"
+    r"(?:^|\s)(?:rm|mv|cp|mkdir|touch|kill|pkill)\b", re.I)
+# A command that READS THE HISTORY genuinely carries who and when. The codex-merge
+# record's whole method rests on the reflog, and a check that flagged its every row
+# would be wallpaper on the one document that got this right.
+HISTORY_CAPABLE = re.compile(
+    r"\bgit\b[^|;&]*\b(?:reflog|blame|whatchanged)\b|"
+    r"\bgit\b[^|;&]*\blog\b[^|;&]*(?:--merges|--author|--format|--pretty|--walk-reflogs)",
+    re.I)
+
+PERSON = (r"(?:him|her|them|his|hers|their|theirs|the CEO|the founder|the user|"
+          r"the lead|you|your)")
+PREDICATE = {
+    "act": re.compile(
+        r"\b(?:merged|landed|deleted|removed|reverted|pushed|deployed|introduced|arrived|"
+        r"shipped|reaped|cherry-picked|rebased|abandoned|discarded|"
+        r"brought\s+(?:it|them|in)|carried\s+(?:it|them)\s+in|"
+        r"(?:has|have|had)\s+been\s+\w+ed|(?:was|were)\s+(?:performed|done|run))\b", re.I),
+    "authority": re.compile(
+        r"\b(?:authori[sz]ed|approved|sanctioned|permitted|allowed|signed\s+off|"
+        r"greenlit|consented|blessed|(?:he|she|they)\s+(?:agreed|said\s+yes|asked\s+for))\b",
+        re.I),
+    # Requires a PERSON. "waiting on the lock" is an engineering fact a command can
+    # settle; "waiting on him" is a statement about whose move it is, and no command
+    # has ever been able to see that.
+    "expectation": re.compile(
+        r"\b(?:waiting\s+(?:on|for)|awaiting|blocked\s+on|owed\s+(?:by|to)|assigned\s+to)"
+        r"\s+" + PERSON + r"\b|"
+        r"\b" + PERSON + r"\s+(?:to\s+(?:decide|approve|answer|rule|act)|"
+        r"must\s+(?:decide|approve|answer))\b", re.I),
+    "identity": re.compile(
+        r"\b(?:carried\s+(?:it|them)\s+in|arrived\s+(?:as\s+a\s+passenger|inside|with|"
+        r"through)|came\s+in\s+(?:with|inside|through)|brought\s+(?:it|them)\s+in|"
+        r"inside\s+that\s+merge|by\s+that\s+merge|it\s+was\s+\S+\s+that\s+\w+ed\s+it)\b",
+        re.I),
+    "agent": re.compile(
+        r"\b(?:by\s+(?:him|her|them|the\s+CEO|the\s+lead|somebody|someone)|"
+        r"(?:he|she|they)\s+(?:merged|deleted|landed|pushed|removed|ran))\b", re.I),
+}
+CANNOT_SAY = {
+    "act": "that any operation was performed",
+    "agent": "who performed it",
+    "authority": "whether it was authorized",
+    "time": "when it happened",
+    "identity": "which of several equally-consistent candidates it was",
+    "status": "the current status of the things it counted",
+    "expectation": "whose action is awaited",
+}
+ASSERTS = {
+    "act": "an act - something having been done",
+    "agent": "an actor",
+    "authority": "authorization",
+    "time": "a time",
+    "identity": "one candidate out of several",
+    "status": "a status the selector did not filter on",
+    "expectation": "that a named person's action is awaited",
+}
+# A count's name, and the words in a command that would justify it. A qualifier is
+# satisfied by ANY of its aliases appearing anywhere in the cited command or its
+# captured output - a loose test on purpose, because a missed row and a spurious row
+# cost the same thing here, and the loose direction is the quiet one.
+STATUS_WORD = {
+    "outstanding": ("outstand", "open", "pending", "unresolved", "unanswered", "ack"),
+    "unresolved": ("unresolv", "open", "outstand", "ack"),
+    "unacknowledged": ("unack", "ack"),
+    "pending": ("pending", "queue", "wait", "open"),
+    "remaining": ("remain", "left", "rest"),
+    "orphaned": ("orphan", "dangl"),
+    "stale": ("stale", "age", "mtime", "older", "since"),
+    "failing": ("fail", "red", "error", "exit"),
+    "unmerged": ("merged", "merge"),
+}
+# A SPECIFICATION IS NOT A REPORT. "the record must be reconciled as landed", "a probe
+# deleted with its manifest line would leave no trace" - these state an obligation or a
+# hypothesis, and neither claims that anything happened, so no source could be expected
+# to establish one. This corpus is mostly specifications, and without this the check
+# reads a test matrix as a pile of assertions.
+HYPOTHETICAL = re.compile(
+    r"\b(?:must|should|shall|would|could|can|may|might|ought)\b|"
+    r"^\s*(?:if|when|unless|suppose|given|were)\b|\b(?:if|unless)\s", re.I)
+UNIVERSAL = {"authority", "expectation"}
+MAX_PER_CAPABILITY = 3
+
+
+def scope_commands(blocks, idx):
+    """(commands in scope, the cited text) for a block.
+
+    THE CITED TEXT IS THE COMMANDS AND THEIR CAPTURED OUTPUT, AND NEVER THE PROSE
+    BLOCK ITSELF. Rule B asks whether the COMMAND says `outstanding`; feeding it the
+    sentence under test lets the claim exonerate itself, which is exactly how the
+    first draft of this check silently passed instance 2.
+
+    The scoping is otherwise the evidence check's: the block, and a code block
+    directly adjacent on either side, never across a heading."""
+    cmds, cited = [], []
+    for span in INLINE_CMD.findall(blocks[idx]["text"]):
+        if is_command(span):
+            cmds.append(span.strip())
+            cited.append(span)
+    for j in (idx - 1, idx + 1):
+        if 0 <= j < len(blocks) and blocks[j]["kind"] == "code":
+            cited.append(blocks[j]["text"])
+            for line in blocks[j]["text"].split("\n"):
+                line = re.sub(r"^\s*(?:```\w*|[$#>]\s*)", "", line).strip()
+                if line and is_command(line):
+                    cmds.append(line)
+    return cmds, "\n".join(cited)
+
+
+QUOTE_MARK = re.compile(u'["\u201c\u201d]')
+CODE_SPAN = re.compile(r"`[^`\n]*`")
+# "whether it was authorized" is a QUESTION; "what is allowed" is a DEFINITION. Neither
+# asserts that anything was authorized, and both put a row on a brief that had done
+# nothing wrong - one of them on the brief that commissioned this check, which uses the
+# word in the course of defining it.
+DEFINITIONAL = re.compile(r"\b(?:what|whether|which)\b[^.;:]*$", re.I)
+
+
+def blank_code(text):
+    """The sentence with every backticked span replaced by filler OF THE SAME LENGTH,
+    so offsets still line up with the original.
+
+    Two reasons, and the first is a defect this had: `--no-merged` contains `merged`
+    between two word boundaries, so the act predicate matched INSIDE the very command
+    being cited, at an offset outside the quotation, which then defeated the quotation
+    test. The second: a quote mark inside a command (`grep -c '\"for\": \"ceo\"'`)
+    corrupts the parity count that test depends on."""
+    return CODE_SPAN.sub(lambda m: "x" * len(m.group(0)), text)
+
+
+def inside_quotes(text, pos):
+    """True when an odd number of double-quote marks precede this position, i.e. the
+    match is inside somebody else's words.
+
+    mask_quotes() already blanks quotations, and it is not enough here. It pairs quote
+    marks with a non-greedy 12-character floor, so a SHORT quotation earlier in the
+    sentence (`"32.6 GB"`) is skipped and the pairing walks off by one, leaving the
+    real quotation exposed. That is how a sentence CORRECTING the phrase "waiting on
+    him" was flagged for containing it. Counting marks needs no pairing and does not
+    care how short the first quotation was."""
+    return len(QUOTE_MARK.findall(text[:pos])) % 2 == 1
+
+
+def capability_of(cmds, established=()):
+    """(command, what it establishes, what it cannot carry) for the first command in
+    scope this table can speak about, with the classes any OTHER command in scope does
+    establish removed. A block that runs `git merge` and `git status` has performed an
+    act, whatever the second command measures."""
+    established = set(established)
+    for c in cmds:
+        if MUTATION.search(c):
+            established |= {"act", "time"}
+        if HISTORY_CAPABLE.search(c):
+            established |= {"act", "agent", "time", "identity"}
+    for c in cmds:
+        for pat, says, cannot in CAPABILITY_TABLE:
+            if pat.search(c):
+                return c, says, cannot - established
+    return "", "", set()
+
+
+def miscalled_count(sentence, cited_text):
+    """RULE B. A count called `outstanding` whose command never mentions anything of
+    the kind may carry a filter that was never applied.
+
+    THE STATUS WORD MUST BE NEXT TO THE NUMBER. Without that, any sentence containing
+    the word "failing" anywhere and a number anywhere is a finding - which is what put
+    three rows on three briefs discussing a two-space grep anchor and a suite's failing
+    cases. Naming a count and using the word in a different clause are not the same
+    thing, and only the first is this failure."""
+    low = " " + re.sub(r"\s+", " ", cited_text.lower()) + " "
+    for word, aliases in STATUS_WORD.items():
+        w = re.escape(word)
+        near = (r"\b\d[\d,]*\s+(?:\w+\s+){0,2}" + w + r"\b|"
+                r"\b" + w + r"\s+(?:\w+\s+){0,2}\d[\d,]*\b|"
+                r"\b(?:are|is|were|was)\s+\d[\d,]*\s+" + w + r"\b")
+        if not re.search(near, sentence, re.I):
+            continue
+        if any(a in low for a in aliases):
+            continue
+        return word
+    return None
+
+
+def check_capability(blocks):
+    findings = []
+    seen = {}
+    for i, b in enumerate(blocks):
+        if b["kind"] in ("code", "heading", "quote"):
+            continue
+        if SKIP_SECTION.search(b["section"] or ""):
+            continue
+        # SOURCED IS THE ENTRY CONDITION. Without it this would be check 3 again, and
+        # the whole point of type Y is that the source is present and real.
+        got = scope_evidence(blocks, i)
+        if not (got - {"marked-unverified"}):
+            continue
+        if "marked-unverified" in got:
+            continue                      # the author already said not to trust it
+        # A COMMIT SHA IS EVIDENCE OF AN ACT. Somebody made that commit, the history
+        # records who and when, and a sentence citing one is not guessing that
+        # something happened. Leaving this out generated rows on sentences of the exact
+        # form "deleted at `3ddc05a3` on 2026-08-28" - the best-sourced shape there is.
+        from_commit = ({"act", "agent", "time"}
+                       if "commit" in scope_evidence(blocks, i) else set())
+        cmds, cited_text = scope_commands(blocks, i)
+        cmd, says, cannot = capability_of(cmds, from_commit)
+        shown = sentences(b["text"])
+        masked = sentences(mask_quotes(b["text"]))
+        if len(masked) != len(shown):
+            masked = shown
+        for s, m in zip(shown, masked):
+            if MARKER_LINE.match(s):
+                continue
+            p, pm = plain(s), plain(m)
+            if b["kind"] == "table":
+                # A TABLE ROW IS ITS OWN ITEM. A code block above a table does not
+                # source each of its rows, and letting it do so put one command's
+                # capability onto four unrelated rows of a test-case matrix. A row is
+                # read only against a command printed in that row.
+                row = [x.strip() for x in INLINE_CMD.findall(s) if is_command(x)]
+                if not row:
+                    continue
+                cmd, says, cannot = capability_of(row, from_commit)
+                cmds, cited_text = row, " ".join(row)
+            pa = blank_code(pm if len(pm) == len(p) else p)
+            if HYPOTHETICAL.search(pa):
+                continue
+            classes = []
+            for cls in ("act", "agent", "authority", "expectation", "identity"):
+                hit = PREDICATE[cls].search(pa)
+                if not hit:
+                    continue
+                if inside_quotes(pa, hit.start()):
+                    continue
+                # A hyphen is a word boundary, so `\bsanctioned\b` matches inside the
+                # PATH `sanctioned-edits` and `\bmerged\b` inside `--no-merged`. A verb
+                # welded into a compound is a name, not a predicate.
+                if pa[max(hit.start() - 1, 0):hit.start()] == "-" \
+                        or pa[hit.end():hit.end() + 1] == "-":
+                    continue
+                if cls == "authority" and DEFINITIONAL.search(pa[:hit.start()]):
+                    continue
+                if cls in UNIVERSAL:
+                    classes.append(cls)             # rule A1 - no table, no command
+                elif cmd and cls in cannot:
+                    classes.append(cls)             # rule A2 - table-driven
+            # "status" is in the cannot-set of exactly one table entry: the counter.
+            # So this condition IS "a counting command is in scope", and without it the
+            # rule fires on any command at all, including `rm -f`.
+            name = (miscalled_count(pm, cited_text)
+                    if (cmd and "status" in cannot and counts_in(pm)) else None)
+            if name:
+                classes.append("status")            # rule B
+            if not classes:
+                continue
+            source = cmd or (cmds[0] if cmds else "")
+            key = (source, tuple(sorted(classes)))
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > MAX_PER_CAPABILITY:
+                continue
+            if says:
+                what = "`%s` establishes %s" % (source[:90], says)
+            elif source:
+                what = "`%s` is the source in scope" % source[:90]
+            else:
+                what = "the captured output in scope is a measurement"
+            extra = (" The count is called “%s”, and nothing in the command or its "
+                     "output filters on that." % name) if name else ""
+            findings.append({
+                "check": "capability",
+                "detail": "%s. It cannot establish %s — and the sentence asserts %s.%s"
+                          % (what,
+                             " or ".join(CANNOT_SAY[c] for c in classes),
+                             " and ".join(ASSERTS[c] for c in classes),
+                             extra),
+                "text": p[:MAX_QUOTE],
+                "section": b["section"],
+            })
+    return findings
+
+
 def dedupe(findings):
     """One statement, one row. A sentence that is both a restatement and an unsourced
     account is one thing to go and check, not two."""
@@ -550,7 +931,7 @@ def dedupe(findings):
 def review(prompt, repo=""):
     blocks = segment(prompt)
     return dedupe(check_quotations(blocks, repo) + check_restatements(blocks)
-                  + check_provenance(blocks))
+                  + check_capability(blocks) + check_provenance(blocks))
 
 
 # ---------------------------------------------------------------------------
@@ -569,19 +950,42 @@ you. If the code contradicts it, that is a finding — report it and stop rather
 brief's shape onto what is actually there."""
 
 
+# The capability rows are the OPPOSITE finding to the other three, so they cannot sit
+# under a heading that says "no source". They need their own instruction, because the
+# right response to them is not "go and re-run it" — re-running it CONFIRMS the number,
+# which is precisely how all four instances of this failure survived.
+CAPABILITY_LEAD = """These are not unsourced. The command was run, the output is real, and
+re-running it will agree with the number — that is why they are listed apart. **What is in
+question is the WORD, not the measurement.** A command reports what IS; none of them reports
+who did a thing, when, whether it was allowed, or which of several candidates it was.
+
+**Before you build on one of these, decide which you actually need.** If you need the
+measurement, it is there and it is good. If you need the claim — that somebody did something,
+that it was authorized, that a particular one of them is the one — then this source does not
+carry it, and neither does re-running it: you need different evidence, or the honest answer
+that the record cannot settle it."""
+
+
 def annotation(findings):
     if not findings:
         return ""
-    out = [HEAD, "", BODY, ""]
+    out = [HEAD, ""]
+    if any(f["check"] != "capability" for f in findings):
+        out += [BODY, ""]
     for kind, title in (("quotation", "Presented as a quotation, and NOT found in the file named"),
                         ("restatement", "Restated from a source this brief names — read the "
                                         "source, not this"),
+                        ("capability", "SOURCED — and the source does NOT establish "
+                                       "what the sentence says"),
                         ("provenance", "Asserted without a source in this brief")):
         rows = [f for f in findings if f["check"] == kind]
         if not rows:
             continue
         out.append("**%s:**" % title)
         out.append("")
+        if kind == "capability":
+            out.append(CAPABILITY_LEAD)
+            out.append("")
         for f in rows:
             out.append("- “%s”" % f["text"])
             out.append("  (%s)" % f["detail"])
@@ -601,8 +1005,18 @@ def report(findings, name="", out=sys.stderr):
         print("  provenance:  nothing asserted without a source%s"
               % (" in %s's brief" % name if name else ""), file=out)
         return
-    print("  provenance:  %d statement(s) carry no source; the brief now says so to the agent"
-          % len(findings), file=out)
+    # The counts are separated because they are opposite findings, and one line
+    # calling both "carry no source" would be this file committing the failure its
+    # own fourth check exists to catch.
+    cap = sum(1 for f in findings if f["check"] == "capability")
+    rest = len(findings) - cap
+    parts = []
+    if rest:
+        parts.append("%d statement(s) carry no source" % rest)
+    if cap:
+        parts.append("%d cite a source that does not establish what they say" % cap)
+    print("  provenance:  %s; the brief now says so to the agent"
+          % "; ".join(parts), file=out)
     for f in findings:
         print("    [%-11s] %s" % (f["check"], f["text"][:96]), file=out)
         print("                  %s" % f["detail"], file=out)
