@@ -276,7 +276,36 @@ engine/scripts/ledger-prune-sandbox.test.sh       # 13 passed, 0 failed
 
 ---
 
-## 9. What is still owed
+## 9. Final integrity check — the strongest form of "nothing was rewritten"
+
+Every surviving line was compared byte-for-byte against the backup:
+
+```
+rows now       : 16947          unparseable    : 0
+backup rows    : 22015
+kept lines NOT byte-identical in backup: 4
+```
+
+Those four are **new arrivals, not edits** — every one timestamped after the prune ran at 02:00:04Z:
+
+```
+NEW ts=2026-09-14T02:00:28  source=worker-ended-handoff.sh  teammate=zach-opus-n7
+NEW ts=2026-09-14T02:00:59  source=worker-ended-handoff.sh  teammate=zach-opus-n7
+NEW ts=2026-09-14T02:02:30  source=worker-ended-handoff.sh  teammate=zach-opus-n7
+NEW ts=2026-09-14T02:03:02  source=worker-ended-handoff.sh  teammate=zach-opus-n7
+```
+
+So **every row that existed before the prune and was not removed is still present, byte-identical**,
+and the file kept taking writes throughout. Zero unparseable lines.
+
+`land-completeness.test.sh`, which carries L21, was run at this HEAD: **all 23 passed**, with L21
+green over a corpus of 14 suites. The two new files are not in that corpus (they call no registry
+writer), and the suite was run with `RICHOS_WORKTREE_LEDGER` pointed at a decoy — **which received
+nothing**, so it does not leak.
+
+---
+
+## 10. What is still owed
 
 1. **The open writer.** One `export HOME=` in `contract-integrity.test.sh`. Out of my scope;
    `esc-20260914T015351Z-7f951af7`. **Until it lands, the backlog regrows** — about 3,576 rows'
