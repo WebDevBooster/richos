@@ -336,6 +336,25 @@ DEMO_FILES+=(
     # demonstrate an engine that cannot name a teammate. Caught by reading, not
     # by running — which is why every entry on this list states its own reason.
     "scripts/lib/teammate-identity.py"
+    # The hook-registration completeness predicate — a REFUSE-TO-START
+    # dependency of the strongest kind. guard-hook-registration-commits.sh is
+    # a CHOKEPOINT that holds no decision of its own: the entire contract
+    # lives in this one script, so the guard exits 2 rather than invent a
+    # weaker answer, and a sample repo missing it cannot start the guard at
+    # all. It landed registered in c730240e (2026-09-14) while this list stood
+    # still, and the completeness check below caught it — which is the whole
+    # reason that check exists.
+    #
+    # WHAT IS NEW ABOUT THIS ONE, because it is not the usual shape: the
+    # guard's OWN file is derived. It lives in scripts/hooks/ and hooks.json
+    # names it, so the loop above copied it faithfully. The thing no
+    # registration surface names is the helper ONE DIRECTORY UP. A hook's
+    # dependency is not a hook, so no inventory of hooks can ever enumerate
+    # it — including the very predicate this file is, whose own design note
+    # says the inventories are derived by unanimity over registered hooks.
+    # The guard that landed to end this class of omission was itself the
+    # omission, and it could not have caught itself.
+    "scripts/hook-registration-completeness.sh"
     # Not hooks and registered nowhere: the installer the setup beat runs, and
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
