@@ -2110,10 +2110,12 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 #   so the age-based cap was an unproven claim and is not here. What actually
 #   rescues it is the fallback, which has its own case and its own mutant.
 _MAX_OPEN_CALLS = 64
-# What the last observation of this process restored (see
-# _restore_protected_refs): the CLI prints it after the CREATED rows so the
-# observe hook can announce it.
-RESTORED_THIS_CALL = []
+# What the last observation of this process FOUND about the protected refs (see
+# _restore_protected_refs): rows of (action, repo, branch, snapshot_tip, found,
+# why), action "RESTORED" (a deleted ref put back) or "MOVED" (seen, reported,
+# left exactly where it was). The CLI prints them after the CREATED rows so the
+# observe hook can announce them.
+PROTECTED_REF_FINDINGS = []
 
 
 def _refs_dir(key):
@@ -2212,7 +2214,7 @@ def snapshot_refs(rec, call=""):
             # other half of the pair is not only which refs EXIST but where
             # these point, so a move by any verb — named or not, from the
             # agent's own worktree or the main checkout — can be restored.
-            tips[repo] = _protected_tips(refs)
+            tips[repo] = _protected_tips(repo, refs)
         row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}
         write_json(_slot_path(rec["key"], call), row)
         # The same fact, kept where consuming a window cannot remove it. It is
@@ -2225,42 +2227,108 @@ def snapshot_refs(rec, call=""):
         return {}
 
 
-def _protected_tips(refs):
-    """{branch: tip} for every ref of `refs` that is a RECORDED integration
-    branch (any body of work, superseded ones included) or a codex/ ref."""
-    recorded = set()
+def _protected_names(repo):
+    """The branch names protected IN THIS REPOSITORY: a RECORDED integration
+    branch of a body of work recorded FOR THIS REPOSITORY (any body of work,
+    superseded ones included). A codex/ ref is protected by its prefix in every
+    repository and is not in here.
+
+    KEYED BY (REPOSITORY, BRANCH), NEVER BY NAME ALONE. Until 2026-09-14 this
+    gathered every recorded branch of every body of work and matched on the NAME,
+    so `main` recorded for femcboost made `refs/heads/main` protected — and
+    restorable — in richos and richos-hq too (three bodies of work on this
+    machine, all three integrating on `main`). The repository a body of work was
+    recorded for is written on the record; nothing has to be inferred."""
+    names = set()
     try:
+        key = _norm_repo(repo)
         for w in all_bodies_of_work().values():
-            if (w or {}).get("branch"):
-                recorded.add(w["branch"])
+            if not (w or {}).get("branch"):
+                continue
+            if realpath(w.get("repo") or "") != key:
+                continue
+            names.add(w["branch"])
     except (OSError, ValueError):
         pass
-    return {b: sha for b, sha in refs.items() if b.startswith(CODEX_PREFIX) or b in recorded}
+    return names
+
+
+def _is_protected(repo_names, b):
+    return b.startswith(CODEX_PREFIX) or b in repo_names
+
+
+def _protected_tips(repo, refs):
+    """{branch: tip} for every ref of `refs` that is protected in THIS repository:
+    a recorded integration branch of a body of work recorded for it, or a codex/
+    ref."""
+    recorded = _protected_names(repo)
+    return {b: sha for b, sha in refs.items() if _is_protected(recorded, b)}
 
 
 def _restore_protected_refs(rec, priors, latest):
     """ITEMS 2 AND 3 OF ROUND 8, THE EFFECTS CHECK. A protected ref — a RECORDED
-    integration branch, or any codex/ ref — that is gone or has moved since
-    the snapshot this agent's call started with is RESTORED from that snapshot
-    and REPORTED, whatever verb moved it: a named one the Bash guard missed, an
-    unnamed one (`checkout <it>` then `commit`/`reset`/`merge`/`rebase`, the
-    doorway class no verb list can close — brief-audit-frank-round8 §2), from
-    the agent's own worktree or from the main checkout, or a non-git write.
+    integration branch of THIS repository, or any codex/ ref — that is gone or
+    has moved since the snapshot this agent's call started with is REPORTED,
+    whatever verb moved it: a named one the Bash guard missed, an unnamed one
+    (`checkout <it>` then `commit`/`reset`/`merge`/`rebase`, the doorway class
+    no verb list can close — brief-audit-frank-round8 §2), from the agent's own
+    worktree or from the main checkout, or a non-git write.
 
-    THE LEAD'S LEGITIMATE MOVE IS NOT RESTORED. Rich lands FINISHED agents'
-    work onto the recorded branch while other agents run, so a move that lands
-    a DESCENDANT of the snapshot tip carrying none of THIS agent's own unlanded
-    work is his and stays. Restored: the ref is DELETED; or it moved to a tip
-    that is not a descendant (a rewind, a force-move, a symref); or it moved to
-    a descendant that carries this agent's own unlanded commits (the agent
-    committed or merged onto it). The one shape this cannot tell apart is
-    Rich rewinding the recorded branch during an agent's call — restored and
-    reported, loudly, and he redoes it; the reflog keeps his tip.
+    A MOVE IS NEVER PUT BACK. THE CHECK REPORTS IT AND LEAVES THE REF ALONE.
+    From 2026-09-14, and the reason is measured, not argued. Until then a move
+    was "restored" with `git update-ref --no-deref refs/heads/<b> <snapshot
+    tip>`, and on 2026-09-13/14 that line moved `refs/heads/main` in
+    /Users/alex/ab/richos three times, twice within twelve seconds in opposite
+    directions, while Rich was landing (docs/verification/
+    ref-write-forensics-2026-09-14.md, events 3, 4, 5; reproduced from nothing by
+    docs/verification/protected-ref-oscillation-2026-09-14-logs/repro.py).
 
-    The restore is `git update-ref --no-deref refs/heads/<b> <snapshot tip>`:
-    it re-creates a deleted ref (its objects survive), overwrites a symref, and
-    moves a checked-out branch under its worktree. Returns
-    [(repo, branch, snapshot_tip, found_tip_or_"", why)].
+      * THE SHAPE CANNOT IDENTIFY THE WRITER. This check infers who moved the
+        ref from the shape of the result, and Rich's ordinary land has the same
+        shape as the abuse it hunts — a land is the most common write the
+        recorded branch ever receives. The old docstring conceded this for "Rich
+        rewinding the branch"; the reproduction shows it fires on his plain
+        `git merge` of the very agent whose window is open.
+      * ITS OWN WRITE WAS AN INPUT TO ITSELF. Every restore manufactured the
+        non-descendant condition that made the NEXT agent's check fire, so two
+        agents holding different snapshots alternated for as long as both kept
+        making tool calls. A report is not an input to the check, so the loop
+        cannot exist.
+      * A "RESTORE" OF A MOVE IS AN ASSIGNMENT IN EITHER DIRECTION, and it drops
+        every commit made between the snapshot and the write. `--mode
+        destruction` of the reproduction loses a merge Rich had just made.
+      * THE SNAPSHOT IT WOULD RESTORE TO IS NOBODY'S DECISION: the oldest still-
+        open window of ONE agent, which can be minutes stale, and which a second
+        running agent does not share.
+
+    A DELETION IS STILL RESTORED, AND ONLY A DELETION. A deleted protected ref
+    is unambiguous — point 2 says a codex/ branch is never deleted without the
+    CEO's express word, and nothing in the spec deletes the branch a body of
+    work integrates on while an agent is running — and re-creating it is
+    information-preserving: the objects are still there and the ref goes back to
+    the tip it held. The write is CREATE-ONLY and carries a reflog message:
+
+        git update-ref -m <msg> --no-deref refs/heads/<b> <snapshot tip> ""
+
+    The empty old value means "the ref must not exist" (git refuses with
+    `reference already exists` otherwise, measured on git 2.52.0), so it can
+    never clobber a ref somebody re-created in between, can never move one, and
+    cannot oscillate: re-creating a ref that is already there is refused rather
+    than repeated. `-m` is free, and its absence is what cost a day of
+    forensics.
+
+    NOT REPORTED: the lead's legitimate move. Rich lands FINISHED agents' work
+    onto the recorded branch while other agents run, so a move to a DESCENDANT
+    of the snapshot tip carrying none of THIS agent's own unlanded work is his
+    and is passed over in silence. Reported: the ref is DELETED (and restored);
+    or it moved to a tip that is not a descendant (a rewind, a force-move, a
+    symref); or it moved to a descendant carrying this agent's own unlanded
+    commits (it committed or merged onto it — which is ALSO what Rich's land of
+    that same agent looks like, and is now reported rather than undone).
+
+    Returns [(action, repo, branch, snapshot_tip, found_tip_or_"", why)], with
+    action "RESTORED" (a deletion put back) or "MOVED" (seen, reported, left
+    alone).
 
     THE OWN-WORK RULE APPLIES ONLY INSIDE A WINDOW. A descendant that carries
     the agent's own unlanded commits is evidence of the AGENT's move only while
@@ -2271,8 +2339,8 @@ def _restore_protected_refs(rec, priors, latest):
     last call and before its end signal; measured undoing exactly that in
     certification-sage-runner-round case R8 on 2026-09-13, and the land then
     refused. So outside a window only a deletion or a non-descendant move is
-    restored."""
-    restored = []
+    reported."""
+    findings = []
     try:
         ordered = sorted([p for p in priors if isinstance(p.get("tips"), dict)], key=lambda p: p.get("at", 0))
         for repo in _repos_of(rec):
@@ -2290,8 +2358,15 @@ def _restore_protected_refs(rec, priors, latest):
             refs = _local_refs(repo)
             if refs is None:
                 continue
+            # (REPOSITORY, BRANCH) KEYING IS APPLIED HERE TOO, not only where the
+            # snapshot is taken: a window opened before 2026-09-14 recorded the
+            # name `main` for every repository at once, and those windows are
+            # still on disk when this lands.
+            protected = _protected_names(repo)
             own = None
             for b, old in sorted(before.items()):
+                if not _is_protected(protected, b):
+                    continue
                 cur = refs.get(b)
                 if cur == old:
                     continue
@@ -2315,24 +2390,42 @@ def _restore_protected_refs(rec, priors, latest):
                         why = "moved to %s, which carries this agent's own unlanded work (it committed or merged onto it)" % cur[:12]
                     else:
                         continue                        # a descendant carrying none of the agent's work: the lead's land
-                rc, _o, err = git(repo, "update-ref", "--no-deref", "refs/heads/" + b, old)
+                if cur is not None:
+                    # A MOVE IS REPORTED AND LEFT ALONE. See the docstring: the
+                    # shape cannot tell Rich's land from an agent's doorway, and
+                    # the write this used to make was destructive, self-
+                    # triggering, and aimed at a tip no one decided on.
+                    findings.append(("MOVED", repo, b, old, cur, why))
+                    PROTECTED_REF_FINDINGS.append(("MOVED", repo, b, old, cur, why))
+                    event("protected-ref-moved", key=rec["key"], repo=repo, branch=b, tip=old,
+                          found=cur, why=why, action="reported: the engine does not move a ref back")
+                    continue
+                # A DELETION, AND ONLY A DELETION, IS PUT BACK: create-only
+                # (the empty old value means the ref must not exist), so it
+                # cannot clobber a re-created ref or move anything, and with a
+                # reflog message, so the write is never anonymous again.
+                msg = ("richos engine: protected ref restored after it was deleted during %s's tool call"
+                       % (rec.get("name") or rec["key"]))
+                rc, _o, err = git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + b, old, "")
                 if rc != 0:
                     event("protected-ref-restore-failed", key=rec["key"], repo=repo, branch=b, tip=old, err=err.strip()[:300])
                     continue
-                restored.append((repo, b, old, cur or "", why))
-                RESTORED_THIS_CALL.append((repo, b, old, cur or "", why))
+                findings.append(("RESTORED", repo, b, old, "", why))
+                PROTECTED_REF_FINDINGS.append(("RESTORED", repo, b, old, "", why))
                 event("protected-ref-restored", key=rec["key"], repo=repo, branch=b, tip=old, found=cur, why=why)
-        if restored:
+        if findings:
             with Lock():
                 fresh = load_agent(rec["key"])
                 if fresh:
                     fresh.setdefault("history", []).extend(
-                        {"at": iso(), "fact": "protected ref restored", "repo": r, "branch": b, "tip": o,
-                         "found": c, "why": w} for r, b, o, c, w in restored)
+                        {"at": iso(),
+                         "fact": "protected ref restored" if a == "RESTORED" else "protected ref moved (reported, not restored)",
+                         "repo": r, "branch": b, "tip": o, "found": c, "why": w}
+                        for a, r, b, o, c, w in findings)
                     save_agent(fresh)
     except (OSError, ValueError, SpecError):
         pass
-    return restored
+    return findings
 
 
 def _take_snapshots(key, call="", all_open=False, background=False):
@@ -2597,7 +2690,9 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     if all_open:
         _drop_snapshots(rec["key"])
     # The effects check runs FIRST, on the snapshots as taken: a protected ref
-    # the call moved or deleted is put back before anything is attributed.
+    # the call DELETED is put back, and one it MOVED is reported and left where
+    # it is (it never moves a ref back — see _restore_protected_refs), before
+    # anything is attributed.
     _restore_protected_refs(rec, priors + bg_priors, latest)
     added = []
     if bg_priors:
@@ -3834,8 +3929,8 @@ def main(argv):
             if a.cmd == "observe-refs":
                 for repo, b in observe(payload):
                     print("CREATED\t%s\t%s" % (repo, b))
-                for r in RESTORED_THIS_CALL:
-                    print("RESTORED\t%s\t%s\t%s\t%s\t%s" % r)
+                for r in PROTECTED_REF_FINDINGS:
+                    print("%s\t%s\t%s\t%s\t%s\t%s" % r)
                 return 0
             if a.cmd == "barrier":
                 k, d = barrier(payload)
