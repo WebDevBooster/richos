@@ -47,6 +47,23 @@ RICHOS_REF_FORENSICS_LOG="${RICHOS_REF_FORENSICS_LOG:-$RICHOS_REF_FORENSICS_DIR/
     PHASE="${1:-unknown}"
 
     # --- JSON string escaping, without spawning an interpreter ---------------
+    # CAP, and why there is one: a `git commit -m` with a long body puts the
+    # whole message on the command line, and Claude Code's shell wrapper puts a
+    # ~1.5 kB preamble in front of every command. Uncapped, one ordinary commit
+    # wrote ~24 kB to this log. 1000 bytes per command comfortably contains the
+    # subcommand, its flags and the refs it names — which is the whole forensic
+    # payload — and a truncation is MARKED with the number of bytes dropped, so
+    # it can never be mistaken for the end of a command.
+    CAP=1000
+    cap() {
+        local s="${1-}"
+        if [ "${#s}" -gt "$CAP" ]; then
+            printf '%s...[+%d bytes truncated]' "${s:0:$CAP}" "$(( ${#s} - CAP ))"
+        else
+            printf '%s' "$s"
+        fi
+    }
+
     jesc() {
         local s="${1-}"
         s="${s//\\/\\\\}"
@@ -94,7 +111,7 @@ RICHOS_REF_FORENSICS_LOG="${RICHOS_REF_FORENSICS_LOG:-$RICHOS_REF_FORENSICS_DIR/
             WRITER_CMD="$cmd"
         fi
         [ -n "$CHAIN" ] && CHAIN="$CHAIN,"
-        CHAIN="$CHAIN{\"pid\":$p,\"cmd\":\"$(jesc "$cmd")\"}"
+        CHAIN="$CHAIN{\"pid\":$p,\"cmd\":\"$(jesc "$(cap "$cmd")")\"}"
         p="$parent"
         depth=$((depth + 1))
     done
@@ -126,7 +143,7 @@ RICHOS_REF_FORENSICS_LOG="${RICHOS_REF_FORENSICS_LOG:-$RICHOS_REF_FORENSICS_DIR/
         printf '{"ts":"%s","epoch":%s,"phase":"%s","repo":"%s","ref":"%s","old":"%s","new":"%s","hook_pid":%s,"writer_pid":%s,"writer_cmd":"%s","cwd":"%s","reflog_action":%s,"chain":[%s],"env":{%s}}\n' \
             "$TS" "${EPOCH:-0}" "$(jesc "$PHASE")" "$(jesc "$COMMON")" \
             "$(jesc "$REF")" "$(jesc "$OLD")" "$(jesc "$NEW")" \
-            "$$" "${WRITER_PID:-0}" "$(jesc "${WRITER_CMD:-}")" "$(jesc "${PWD:-}")" \
+            "$$" "${WRITER_PID:-0}" "$(jesc "$(cap "${WRITER_CMD:-}")")" "$(jesc "${PWD:-}")" \
             "$RLA" "$CHAIN" "$HINTS" \
             >> "$RICHOS_REF_FORENSICS_LOG" 2>/dev/null
     done
