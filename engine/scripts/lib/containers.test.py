@@ -127,13 +127,21 @@ SWEEPER_LABEL = "sh.richos.test-run-sweeper"
 SWEEPER_ID = os.environ.get("RICHOS_CONTAINER_TEST_SWEEPER") or RUN_ID
 
 
-def _docker_out(args):
+def _docker_out(args, timeout=None):
     """stdout of a docker command, or "" — never raises, for the same reason
     containers.py never raises: this runs from an exit path and a signal
-    handler, where an exception has nowhere to go."""
+    handler, where an exception has nowhere to go.
+
+    BOUNDED BY THE SAME CLOCK AS THE THING UNDER TEST, and borrowed from it
+    rather than picked: containers.py bounds every call because a wedged daemon
+    must not hang a land, and a wedged daemon must not hang a Ctrl-C either. An
+    unbounded `docker ps` inside a signal handler is a process that will not
+    die, which is a worse bug than the one this file is fixing.
+    """
     try:
-        r = subprocess.run(["docker"] + list(args), capture_output=True, text=True)
-    except OSError:
+        r = subprocess.run(["docker"] + list(args), capture_output=True, text=True,
+                           timeout=timeout or ct.DOCKER_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
         return ""
     if r.returncode != 0:
         return ""
@@ -150,8 +158,9 @@ def _rm_ids(ids):
     if not ids:
         return
     try:
-        subprocess.run(["docker", "rm", "-f", "-v"] + ids, capture_output=True)
-    except OSError:
+        subprocess.run(["docker", "rm", "-f", "-v"] + ids, capture_output=True,
+                       timeout=ct.DOCKER_REMOVE_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 
@@ -316,8 +325,8 @@ def _owner_alive(run_id):
     # and unknown means alive.
     try:
         r = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
-                           capture_output=True, text=True)
-    except OSError:
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
         return True
     cmd = (r.stdout or "").strip()
     if r.returncode != 0 or not cmd:
@@ -775,8 +784,9 @@ def _residue_probe():
     try:
         r = subprocess.run(["docker", "run", "-d", "--name", name]
                            + _label_args(tag) + [TEST_IMAGE, "sleep", "300"],
-                           capture_output=True, text=True)
-    except OSError as e:
+                           capture_output=True, text=True,
+                           timeout=ct.DOCKER_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
         sys.stdout.write("PROBE-FAILED %s\n" % e)
         sys.stdout.flush()
         return 3
@@ -874,7 +884,8 @@ class Interrupted(unittest.TestCase):
         mine = "reap-mine-" + self.tag
         r = subprocess.run(["docker", "run", "-d", "--name", mine]
                            + _label_args(self.tag) + [TEST_IMAGE, "sleep", "300"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           timeout=ct.DOCKER_TIMEOUT)
         self.assertEqual(r.returncode, 0, "could not start %s: %s" % (mine, r.stderr))
 
         # A SECOND run that is STILL GOING, and it is the important one. `mine`
