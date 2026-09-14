@@ -1363,11 +1363,15 @@ if grep -q "^${G}|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-pro
 else
     bad "$G NOT declared in the probe's managed set"
 fi
-if grep -q "guard-ceo-todos-commits" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
-   && grep -q "guard-ceo-todos-commits \\\\" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null; then
-    ok "$G listed among Layer R's root-resolving hooks"
+# INVERTED 2026-09-14 WITH LAYER R: the layer derives the hooks it walks from
+# hooks/hooks.json, so being registered IS being walked. The remaining failure is
+# being EXEMPTED as rootless, which drops this hook's bootstrap out of R3's
+# comparison without anything going red.
+if sed -n '/^    R_ROOTLESS_HOOKS="/,/"$/p' "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
+   | grep -q '\bguard-ceo-todos-commits\b'; then
+    bad "$G is EXEMPTED in R_ROOTLESS_HOOKS — Layer R skips it and its bootstrap goes unchecked"
 else
-    bad "$G NOT listed in Layer R's rooted-hook set — its bootstrap would go unchecked"
+    ok "$G is not exempted, so Layer R derives it from the registration and checks its bootstrap"
 fi
 for lib in scripts/lib/ceo-todos.sh scripts/lib/ceo-todos.py scripts/lib/cold-open-prompt.md; do
     if grep -q "$lib" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null; then

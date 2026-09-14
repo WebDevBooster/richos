@@ -529,14 +529,25 @@ for g in guard-named-persons-writes.sh guard-named-persons-commands.sh; do
         bad "(p) $g NOT declared in the probe's managed set"
     fi
 done
-for h in guard-named-persons-writes guard-named-persons-commands; do
-    if grep -q "$h " "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
-       || grep -q "$h\$" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null; then
-        ok "(p) $h listed in the probe's R_ROOTED_HOOKS"
-    else
-        bad "(p) $h NOT in R_ROOTED_HOOKS — its bootstrap is never checked for divergence"
-    fi
-done
+# INVERTED 2026-09-14 WITH LAYER R. This used to assert the hook was NAMED in a
+# typed R_ROOTED_HOOKS. Layer R now derives the hooks it walks from
+# hooks/hooks.json, so being registered IS being walked and there is no list to
+# be named in. What can still go wrong is the opposite: somebody exempting these
+# hooks as rootless, which would silently take their bootstrap back out of the
+# comparison. So the assertion is that they are NOT exempted.
+_np_rootless="$(sed -n '/^    R_ROOTLESS_HOOKS="/,/"$/p' \
+    "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null || true)"
+if [ -z "$_np_rootless" ]; then
+    bad "(p) could not read R_ROOTLESS_HOOKS from the probe — its shape changed, and a membership test against a block this suite can no longer locate would pass everything"
+else
+    for h in guard-named-persons-writes guard-named-persons-commands; do
+        if printf '%s' "$_np_rootless" | grep -q "\b$h\b"; then
+            bad "(p) $h is EXEMPTED in R_ROOTLESS_HOOKS — Layer R skips it, so its bootstrap is never checked for divergence"
+        else
+            ok "(p) $h is not exempted, so Layer R derives it from the registration and checks its bootstrap"
+        fi
+    done
+fi
 for f in scripts/lib/named-persons.sh scripts/lib/named-persons.py; do
     if grep -q "$f" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null; then
         ok "(p) $f is sidecar-hashed by install.sh"

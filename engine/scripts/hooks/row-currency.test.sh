@@ -1628,9 +1628,14 @@ grep -q "$G" "$ENGINE_ROOT/.claude/settings.local.json" 2>/dev/null \
 grep -q "^${G}|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
     && ok "$G declared in the probe's BR_EXPECTED oracle, on PreToolUse" \
     || bad "$G NOT declared in the probe's managed set"
-grep -q "guard-row-currency-commits \\\\" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
-    && ok "$G listed among Layer R's root-resolving hooks" \
-    || bad "$G NOT listed in Layer R's rooted-hook set — its bootstrap would go unchecked"
+# INVERTED 2026-09-14 WITH LAYER R: the layer derives the hooks it walks from
+# hooks/hooks.json, so being registered IS being walked and there is no list to
+# be named in. The failure still available is being EXEMPTED as rootless, which
+# would take this hook's bootstrap out of R3's comparison with nothing red.
+sed -n '/^    R_ROOTLESS_HOOKS="/,/"$/p' "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
+    | grep -q '\bguard-row-currency-commits\b' \
+    && bad "$G is EXEMPTED in R_ROOTLESS_HOOKS — Layer R skips it and its bootstrap goes unchecked" \
+    || ok "$G is not exempted, so Layer R derives it from the registration and checks its bootstrap"
 for lib in scripts/lib/row-currency.sh scripts/lib/row-currency.py scripts/lib/declaration-path.sh; do
     grep -q "$lib" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null \
         && ok "$lib is sidecar-hashed by install.sh (the guard delegates its whole decision to it)" \

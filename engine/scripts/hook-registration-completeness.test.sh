@@ -14,8 +14,8 @@
 #   IT FIRES      on an incomplete registration, naming every missing place.
 #   IT IS SILENT  on a complete one, on an unrelated commit, on a repository
 #                 with no engine, and — the one that decides whether this guard
-#                 is worse than nothing — on a hook that does NOT resolve a
-#                 root, which must never be asked for R_ROOTED_HOOKS.
+#                 is worse than nothing — on a hook that DOES resolve a root,
+#                 which must never be asked for R_ROOTLESS_HOOKS.
 #   IT IS LOAD-BEARING: the negative cases are re-run against a MUTATED copy of
 #                 the predicate, so a case that would pass for the wrong reason
 #                 is caught. A negative test with no positive probe passes when
@@ -96,7 +96,7 @@ make_fixture() {
     {
         echo '#!/usr/bin/env bash'
         echo '# a fixture probe'
-        echo '    R_ROOTED_HOOKS="hook-a hook-b hook-c"'
+        echo '    R_ROOTLESS_HOOKS="hook-already-rootless"'
         echo ''
         echo '    BR_EXPECTED="\'
         local p
@@ -212,9 +212,12 @@ import sys
 p, name, stem, rooted = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "1"
 t = open(p).read()
 t = t.replace('hook-c.sh|PreToolUse\n', 'hook-c.sh|PreToolUse\n%s|PreToolUse\n' % name)
-if rooted:
-    t = t.replace('R_ROOTED_HOOKS="hook-a hook-b hook-c"',
-                  'R_ROOTED_HOOKS="hook-a hook-b hook-c %s"' % stem)
+# INVERTED 2026-09-14 with Layer R. A ROOTED hook owes this inventory nothing —
+# Layer R derives the hooks it walks from hooks.json, so registering it is the
+# entry. It is the ROOTLESS hook that must now declare itself.
+if not rooted:
+    t = t.replace('R_ROOTLESS_HOOKS="hook-already-rootless"',
+                  'R_ROOTLESS_HOOKS="hook-already-rootless %s"' % stem)
 open(p, "w").write(t)
 PY
     python3 - "$repo/engine/scripts/hooks/engine-status.test.sh" "$name" <<'PY'
@@ -239,8 +242,12 @@ OUT="$(run "$R1")"; RC=$?
 if [ "$RC" = "1" ]; then ok "A1  an incomplete registration exits 1"
 else bad "A1  expected rc 1, got $RC" "$OUT"; fi
 
+# FOUR PLACES, NOT FIVE, SINCE 2026-09-14. guard-new-thing.sh is ROOTED, and a
+# rooted hook no longer owes Layer R an entry: the layer derives the hooks it
+# walks from hooks.json, so the registration IS the entry. The fifth place moved
+# to the rootless case, which is C3.
 for place in ".claude/settings.local.json" "contract-integrity-probe.sh" \
-             "engine-status.test.sh" "R_ROOTED_HOOKS" "A5"; do
+             "engine-status.test.sh" "A5"; do
     if printf '%s' "$OUT" | grep -qF -- "$place"; then
         ok "A2  the refusal names $place"
     else
@@ -248,10 +255,19 @@ for place in ".claude/settings.local.json" "contract-integrity-probe.sh" \
     fi
 done
 
-if printf '%s' "$OUT" | grep -q "MISSING from 5 place"; then
-    ok "A3  all five owed places are counted in one refusal"
+# FOUR, AND THE NUMBER IS THE MEASUREMENT. This is positions-per-rule for a
+# ROOTED hook, which is 57 of the 70 registered today, and it was 5 until Layer R
+# stopped keeping a typed membership list on 2026-09-14. The four that remain are
+# not removable by deriving anything: the seated surface is a second registration
+# (a different problem), BR_EXPECTED and ACKNOWLEDGED_SCRIPTS are ORACLES that go
+# tautological the moment they are derived from the file they are checked
+# against, and A5 asks for a SUITE, which nothing can write for you. If this
+# number changes, change it here deliberately and say why — it is the headline
+# the whole verification-layer design is measured against.
+if printf '%s' "$OUT" | grep -q "MISSING from 4 place"; then
+    ok "A3  all four owed places are counted in one refusal"
 else
-    bad "A3  expected five owed places" "$OUT"
+    bad "A3  expected four owed places" "$OUT"
 fi
 
 # A REFUSAL THAT SAYS "INCOMPLETE" AND NOT "ADD X TO Y" IS HOW A GUARD BECOMES
@@ -275,33 +291,45 @@ else bad "B2  no COMPLETE line" "$OUT"; fi
 # ===========================================================================
 # C — THE CONDITIONAL INVENTORIES STAY CONDITIONAL
 # ===========================================================================
-# THE CASE THAT DECIDES WHETHER THIS GUARD IS WORSE THAN NOTHING. A hook that
-# resolves no root must never be asked for R_ROOTED_HOOKS: Layer R asserts
-# every hook it names carries the root bootstrap, so an obedient engineer
-# adding it would make the probe assert something false and turn the layer red.
-# handoff-facts-annotate.sh and notice-protected-ref-moves.sh are both live
-# instances of exactly this shape.
-R3="$SANDBOX/c"; make_fixture "$R3"; register "$R3" "notice-rootless.sh" 0; complete "$R3" "notice-rootless.sh" 0
+# THE CASE THAT DECIDES WHETHER THIS GUARD IS WORSE THAN NOTHING, INVERTED WITH
+# LAYER R ON 2026-09-14. It used to be: a hook that resolves no root must never
+# be asked for R_ROOTED_HOOKS, because Layer R asserted every hook it NAMED
+# carried the bootstrap, so an obedient engineer adding it would make the probe
+# assert something false.
+#
+# Layer R now derives the hooks it walks from hooks/hooks.json, so the false
+# assertion is no longer available and the direction of the demand flips:
+#
+#   a ROOTED hook owes this inventory NOTHING — registering it is the entry, and
+#     that is the whole point of the derivation. C1/C2.
+#   a ROOTLESS hook must DECLARE itself, or Layer R names it for not sourcing a
+#     library it has no reason to source. C3.
+#
+# handoff-facts-annotate.sh is a live instance of the rootless shape.
+# notice-protected-ref-moves.sh was named here as a second one and that was
+# WRONG: measured 2026-09-14 it both sources resolve-roots.sh and assigns
+# ENGINE_ROOT, and it has been in the rooted set the whole time.
+R3="$SANDBOX/c"; make_fixture "$R3"; register "$R3" "guard-rooted-thing.sh" 1; complete "$R3" "guard-rooted-thing.sh" 1
 OUT="$(run "$R3" --explain)"; RC=$?
-if [ "$RC" = "0" ]; then ok "C1  a rootless hook, complete everywhere else, exits 0"
+if [ "$RC" = "0" ]; then ok "C1  a rooted hook, complete everywhere else, exits 0"
 else bad "C1  expected rc 0, got $RC" "$OUT"; fi
-if printf '%s' "$OUT" | grep -q "R_ROOTED_HOOKS correctly does not name it"; then
-    ok "C2  R_ROOTED_HOOKS is NOT demanded of a hook that resolves no root"
+if printf '%s' "$OUT" | grep -q "R_ROOTLESS_HOOKS correctly does not name it"; then
+    ok "C2  R_ROOTLESS_HOOKS is NOT demanded of a hook that DOES resolve a root"
 else
     bad "C2  the rootless condition was not evaluated as a pass" "$OUT"
 fi
 
-# The reverse, which is the direction Layer R actually goes red on.
+# The direction Layer R actually goes red on now.
 R4="$SANDBOX/c2"; make_fixture "$R4"; register "$R4" "notice-rootless.sh" 0; complete "$R4" "notice-rootless.sh" 1
 OUT="$(run "$R4")"; RC=$?
 # Matched on two fragments rather than one phrase: the refusal wraps its prose
 # at 66 columns, so the instruction can be split across a line break and a
 # single-phrase grep would report a working check as broken.
-if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q "REMOVE" \
-   && printf '%s' "$OUT" | grep -q "notice-rootless' from R_ROOTED_HOOKS"; then
-    ok "C3  a rootless hook WRONGLY listed in R_ROOTED_HOOKS is told to remove it"
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q "add" \
+   && printf '%s' "$OUT" | grep -q "notice-rootless' to R_ROOTLESS_HOOKS"; then
+    ok "C3  a rootless hook NOT declared in R_ROOTLESS_HOOKS is told to add it"
 else
-    bad "C3  expected a removal instruction, rc=$RC" "$OUT"
+    bad "C3  expected an add instruction, rc=$RC" "$OUT"
 fi
 
 # The Agent chain, conditional on the matcher and not on the event.
@@ -535,13 +563,19 @@ else
     bad "I1  the unanimity mutant could not be built"
 fi
 
+# I2 INVERTED WITH THE DEMAND. Hard-coding `rooted = True` means the mutant can
+# never see a hook that resolves no root, so the R_ROOTLESS_HOOKS demand never
+# fires — and C3's sandbox, which SHOULD be refused, comes back complete. The
+# mutant is proved by the demand going MISSING, which is the direction a
+# conditional inventory actually fails in: silently, on the case it was written
+# for. Run against $SANDBOX/c2, which is case C3's tree.
 M2="$(mutate rooted 'rooted = sources_roots_lib(s)'$'\x1e''rooted = True')"
 if [ -n "$M2" ]; then
-    OUT="$(bash "$M2" --root "$SANDBOX/c" 2>&1)"; RC=$?
-    if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q "R_ROOTED_HOOKS"; then
-        ok "I2  hard-coding the rooted test makes case C fail — the CONDITION is load-bearing"
+    OUT="$(bash "$M2" --root "$SANDBOX/c2" 2>&1)"; RC=$?
+    if [ "$RC" != "1" ] || ! printf '%s' "$OUT" | grep -q "R_ROOTLESS_HOOKS"; then
+        ok "I2  hard-coding the rooted test makes case C3 stop firing — the CONDITION is load-bearing"
     else
-        bad "I2  case C passed with the rooted condition hard-coded, rc=$RC" "$OUT"
+        bad "I2  case C3 still fired with the rooted condition hard-coded: it proves nothing, rc=$RC" "$OUT"
     fi
 else
     bad "I2  the rooted mutant could not be built"

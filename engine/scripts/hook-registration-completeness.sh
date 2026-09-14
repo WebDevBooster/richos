@@ -111,13 +111,22 @@
 # Two inventories are conditional on a property of the hook, and demanding them
 # unconditionally would force an engineer to WRITE SOMETHING FALSE:
 #
-#   R_ROOTED_HOOKS (contract-integrity-probe.sh Layer R) — only for a hook that
-#     sources scripts/lib/resolve-roots.sh. Layer R asserts that every hook it
-#     names carries the shared root bootstrap; a hook that resolves no root put
-#     in that list makes Layer R assert something false about it, and the layer
-#     fails. handoff-facts-annotate.sh and notice-protected-ref-moves.sh are
-#     both live instances: neither resolves a root, so neither belongs there.
-#     The condition is tested with the SAME grep Layer R itself uses.
+#   R_ROOTLESS_HOOKS (contract-integrity-probe.sh Layer R) — only for a hook
+#     that does NOT source scripts/lib/resolve-roots.sh. INVERTED 2026-09-14
+#     with Layer R itself: that layer used to hold a typed R_ROOTED_HOOKS and
+#     walk only the hooks it named, which let five rooted hooks accumulate
+#     unchecked, one of them already carrying a divergent bootstrap. It now
+#     DERIVES the hooks it walks from hooks/hooks.json, so a rooted hook owes
+#     this file nothing and a rootless one must declare itself or fail R2 for
+#     not sourcing a library it has no reason to source. The condition is still
+#     tested with the SAME grep Layer R itself uses.
+#
+#     handoff-facts-annotate.sh is a live instance. notice-protected-ref-moves.sh
+#     was named here as a second one and that was WRONG — measured 2026-09-14, it
+#     both sources resolve-roots.sh and assigns ENGINE_ROOT, and it has been in
+#     the rooted set the whole time. The same sentence is repeated in
+#     engine-status.test.sh's comment above ACKNOWLEDGED_SCRIPTS; it is wrong
+#     there too.
 #
 # That leaves ONE conditional inventory. There were two until 2026-09-14:
 #
@@ -525,12 +534,20 @@ def named_by_a_suite(name):
 
 
 # --- THE CONDITIONAL INVENTORIES ------------------------------------------
-ROOTED_LIST = None
+ROOTLESS_LIST = None
 AGENT_CHAIN = None
 CANON_LIST = ""
 if PROBE_REL in INVENTORIES:
-    ROOTED_LIST = block(probe_text, r'R_ROOTED_HOOKS="(.*?)"\n', "the R_ROOTED_HOOKS list", PROBE_REL)
-    ROOTED_LIST = ROOTED_LIST.split()
+    # THE DEMAND INVERTED WITH LAYER R, 2026-09-14. Layer R used to hold a typed
+    # R_ROOTED_HOOKS and this file demanded a rooted hook be added to it. Layer R
+    # now DERIVES that membership from hooks/hooks.json and types only the
+    # rootless exemption, so a rooted hook owes nothing here — it is walked the
+    # moment it is registered — and the demand moves to the hook that resolves NO
+    # root, which must be declared or R2 will name it for not sourcing a library
+    # it has no reason to source.
+    ROOTLESS_LIST = block(probe_text, r'R_ROOTLESS_HOOKS="(.*?)"\n',
+                          "the R_ROOTLESS_HOOKS list", PROBE_REL)
+    ROOTLESS_LIST = ROOTLESS_LIST.split()
     # AGENT_CHAIN stays None on purpose. Layer C's chain is DERIVED from
     # hooks/hooks.json now, so a hook on PreToolUse[Agent] owes it nothing and
     # the demand below is skipped. Left as an explicit None with this note
@@ -574,27 +591,32 @@ for s in SUBJECTS:
             else:
                 failures.append((s, rel, why))
 
-        if ROOTED_LIST is not None:
+        if ROOTLESS_LIST is not None:
             rooted = sources_roots_lib(s)
-            listed = stem in ROOTED_LIST
-            if rooted and not listed:
-                failures.append((s, PROBE_REL + " :: R_ROOTED_HOOKS",
-                                 "this hook SOURCES scripts/lib/resolve-roots.sh, so add "
-                                 "'%s' to R_ROOTED_HOOKS in %s. Layer R only walks the "
-                                 "hooks it names, so an absent one is not red — it is "
-                                 "UNCHECKED, and its root bootstrap has nothing standing "
-                                 "over it." % (stem, PROBE_REL)))
-            elif listed and not rooted:
-                failures.append((s, PROBE_REL + " :: R_ROOTED_HOOKS",
+            exempt = stem in ROOTLESS_LIST
+            if not rooted and not exempt:
+                failures.append((s, PROBE_REL + " :: R_ROOTLESS_HOOKS",
                                  "this hook does NOT source scripts/lib/resolve-roots.sh, so "
-                                 "REMOVE '%s' from R_ROOTED_HOOKS in %s. Layer R asserts "
-                                 "every hook it names carries the shared bootstrap; naming "
-                                 "this one makes the layer assert something false and it "
-                                 "fails with '%s' in R_MISSING_SOURCE." % (stem, PROBE_REL, stem)))
+                                 "add '%s' to R_ROOTLESS_HOOKS in %s. Layer R derives the "
+                                 "hooks it walks from hooks/hooks.json, so a registered hook "
+                                 "is walked whether or not anyone remembered it — and one "
+                                 "that resolves no root fails R2 with '%s' in "
+                                 "R_MISSING_SOURCE until the exemption is declared. Write "
+                                 "one line above it saying why this hook needs no root."
+                                 % (stem, PROBE_REL, stem)))
+            elif exempt and rooted:
+                # Not a failure and deliberately not one: guard-ci-red-lands.sh
+                # sources the library for its broken-install banner and never
+                # calls resolve_engine_root. Sourcing is not the same claim as
+                # resolving, so an exemption that still sources is legitimate and
+                # is reported rather than demanded away.
+                checked.append("%s: R_ROOTLESS_HOOKS exempts it though it sources the "
+                               "library — legitimate if it never calls resolve_engine_root; "
+                               "check that it does not" % s)
             else:
-                checked.append("%s: R_ROOTED_HOOKS correctly %s (the hook %s resolve a root)"
-                               % (s, "names it" if listed else "does not name it",
-                                  "does" if rooted else "does not"))
+                checked.append("%s: R_ROOTLESS_HOOKS correctly %s (the hook %s resolve a root)"
+                               % (s, "exempts it" if exempt else "does not name it",
+                                  "does not" if not rooted else "does"))
 
         on_agent = any("Agent" in m for m in rec["matchers"]) and "PreToolUse" in rec["events"]
         if on_agent:

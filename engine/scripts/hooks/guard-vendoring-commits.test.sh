@@ -448,9 +448,14 @@ grep -q '^guard-vendoring-commits\.sh|PreToolUse$' "$ENGINE_ROOT/scripts/hooks/c
     && ok "E4. declared in the probe's BR_EXPECTED specification" \
     || bad "E4. declared in the probe's BR_EXPECTED specification" "BR2 checks registration in BOTH directions; an undeclared wired guard is a probe failure"
 
-grep -q 'guard-vendoring-commits \\' "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" \
-    && ok "E5. declared in the probe's rooted-hook list (Layer R)" \
-    || bad "E5. declared in the probe's rooted-hook list (Layer R)"
+# INVERTED 2026-09-14 WITH LAYER R: the layer derives the hooks it walks from
+# hooks/hooks.json, so registration IS membership. What is still assertable is
+# that nobody exempted this hook as rootless, which would silently drop its
+# bootstrap out of R3's comparison.
+sed -n '/^    R_ROOTLESS_HOOKS="/,/"$/p' "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" \
+    | grep -q '\bguard-vendoring-commits\b' \
+    && bad "E5. not exempted from Layer R (R_ROOTLESS_HOOKS)" "it IS exempted, so Layer R skips it and its root bootstrap goes unchecked" \
+    || ok "E5. not exempted from Layer R, so its bootstrap is derived from the registration and checked"
 
 grep -q 'vendored-material\.sh' "$ENGINE_ROOT/scripts/hooks/install.sh" \
     && ok "E6. the predicate is sidecar-hashed by install.sh" \

@@ -1243,12 +1243,24 @@ rm -rf "$ROOT"
 # ---------------------------------------------------------------------------
 add_tenth_agent_hook() { # <sandbox root> <seat?> <register?>
     local root="$1" seat="$2" register="$3"
-    cat >"$root/scripts/hooks/guard-tenth-example.sh" <<'TENTH'
-#!/usr/bin/env bash
-# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing — this case is
-# about whether the engine's own inventories tolerate its existence.
-exit 0
-TENTH
+    # THE FIXTURE CARRIES A REAL ROOT BOOTSTRAP, copied from a real rooted hook
+    # rather than retyped. It used to be a bare `exit 0`, which was fine while
+    # Layer R walked a typed list this synthetic name was never in. Layer R now
+    # derives the hooks it walks from the registration, so a registered hook
+    # that resolves its root any other way is named — correctly, and by this
+    # fixture too. Copying rather than retyping matters because R3 compares the
+    # block byte for byte.
+    {
+        echo '#!/usr/bin/env bash'
+        echo '# A synthetic TENTH PreToolUse[Agent] gate. It decides nothing — this case is'
+        echo '# about whether the engine'"'"'s own inventories tolerate its existence.'
+        echo 'set -euo pipefail'
+        echo ''
+        sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' \
+            "$root/scripts/hooks/notice-unlanded-branches.sh" \
+            | sed 's|scripts/hooks/notice-unlanded-branches\.sh|scripts/hooks/guard-tenth-example.sh|'
+        echo 'exit 0'
+    } >"$root/scripts/hooks/guard-tenth-example.sh"
     chmod +x "$root/scripts/hooks/guard-tenth-example.sh"
     shasum -a 256 "$root/scripts/hooks/guard-tenth-example.sh" \
         | awk '{print $1}' >"$root/scripts/hooks/guard-tenth-example.sh.sha256"
@@ -1307,6 +1319,110 @@ else
     printf '        expected Layer C to report a surface mismatch, rc=%s, got: [%s]\n' \
         "$rc" "$(printf '%s\n' "$C10_OUT" | grep '✗' | head -3)" >&2
     emit_case "C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C" 0 1
+fi
+rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# R10 — A NEWLY REGISTERED ROOTED HOOK IS WALKED BY LAYER R WITH NO EDIT TO IT.
+#
+# Layer R used to hold a TYPED R_ROOTED_HOOKS and walk only the names in it, so
+# a hook absent from that list was not red — it was UNCHECKED. That is not a
+# hypothetical: measured 2026-09-14 against hooks/hooks.json, 57 registered
+# hooks assign ENGINE_ROOT from resolve_engine_root and the list named 52, and
+# one of the five it missed (guard-stop-live-work.sh) had been carrying a
+# bootstrap that diverges from its siblings the whole time. Nothing was red.
+#
+# The membership is now derived from the registration, so this case asks the
+# question the old shape could not answer: does a correctly added rooted hook
+# get CHECKED, rather than merely tolerated?
+#
+# R10b IS THE CASE THAT PROVES IT AND R10 ALONE PROVES NOTHING. A probe that
+# never looked at the new hook is green too — which is exactly what the typed
+# list did for five hooks. So R10b breaks the new hook's bootstrap the way a
+# real regression does, reverting it to trusting its own on-disk location, and
+# REQUIRES Layer R to name it. Run against the typed list this same mutant is
+# silent, because the mutant's name was never in it.
+# ---------------------------------------------------------------------------
+add_rooted_stop_hook() { # <sandbox root> <register?> <bootstrap?>
+    local root="$1" register="$2" bootstrap="$3"
+    local donor="$root/scripts/hooks/notice-unlanded-branches.sh"
+    local target="$root/scripts/hooks/notice-rooted-example.sh"
+
+    if [ ! -f "$donor" ]; then
+        echo "R10: donor hook missing from the sandbox: $donor" >&2
+        return 3
+    fi
+
+    {
+        echo '#!/usr/bin/env bash'
+        echo '# A synthetic rooted Stop hook. It decides nothing — this case is about'
+        echo '# whether Layer R walks a hook nobody added to a list.'
+        echo 'set -euo pipefail'
+        echo ''
+        if [ "$bootstrap" = "1" ]; then
+            # Copied from a real rooted hook rather than retyped, because R3
+            # compares the block BYTE FOR BYTE and a hand-copy that drifts would
+            # make this case fail for a reason unrelated to what it tests. Only
+            # the hook's own name in the diagnostic changes, which is the one
+            # substitution Layer R normalizes out before comparing.
+            sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$donor" \
+                | sed 's|scripts/hooks/notice-unlanded-branches\.sh|scripts/hooks/notice-rooted-example.sh|'
+        else
+            # THE MUTANT: the same hook with the resolver dropped, back to
+            # deriving its root from where its own file happens to sit. This is
+            # the regression Layer R exists to catch and it has no other symptom.
+            echo 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
+            echo 'ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"'
+        fi
+        echo 'exit 0'
+    } >"$target"
+
+    chmod +x "$target"
+    shasum -a 256 "$target" | awk '{print $1}' >"$target.sha256"
+
+    [ "$register" = "1" ] || return 0
+    python3 - "$root" <<'PY'
+import json, sys
+
+root = sys.argv[1]
+for path, command in (
+    (root + "/.claude/settings.local.json",
+     "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-rooted-example.sh"),
+    (root + "/hooks/hooks.json",
+     "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-rooted-example.sh"),
+):
+    with open(path, encoding="utf-8") as fh:
+        d = json.load(fh)
+    stop = d["hooks"].get("Stop")
+    if not stop:
+        sys.stderr.write("R10: no Stop entries in %s\n" % path)
+        sys.exit(3)
+    stop[-1]["hooks"].append({"type": "command", "command": command, "timeout": 10})
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, indent=2)
+PY
+}
+
+ROOT="$(make_sandbox)"
+add_rooted_stop_hook "$ROOT" 1 1
+set +e; R10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -ne 0 ]; then
+    printf '        a correctly added rooted Stop hook was refused:\n%s\n' \
+        "$(printf '%s\n' "$R10_OUT" | grep '✗' | head -3)" >&2
+fi
+emit_case "R10.a-newly-registered-rooted-hook-passes-with-no-edit-to-Layer-R" 0 "$rc"
+rm -rf "$ROOT"
+
+ROOT="$(make_sandbox)"
+add_rooted_stop_hook "$ROOT" 1 0
+set +e; R10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -eq 2 ] && printf '%s\n' "$R10_OUT" \
+        | grep -q "R\..*do NOT source the root-resolution contract.*notice-rooted-example"; then
+    emit_case "R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED" 0 0
+else
+    printf '        expected Layer R to name notice-rooted-example, rc=%s, got: [%s]\n' \
+        "$rc" "$(printf '%s\n' "$R10_OUT" | grep '✗' | head -3)" >&2
+    emit_case "R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED" 0 1
 fi
 rm -rf "$ROOT"
 

@@ -435,10 +435,19 @@ if grep -q "$G|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.
 else
     bad "NOT in BR_EXPECTED — BR2's reverse arm would report it as wired-but-undeclared"
 fi
-if grep -q 'guard-completeness-commits ' "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null; then
-    ok "declared in Layer R's rooted-hook set"
+# INVERTED 2026-09-14 WITH LAYER R. This used to assert the hook was NAMED in a
+# typed R_ROOTED_HOOKS. Layer R derives the hooks it walks from hooks/hooks.json
+# now, so being registered IS being walked. The failure still available is the
+# opposite one — being EXEMPTED as rootless, which takes the bootstrap back out
+# of R3's comparison without anything going red.
+_cc_rootless="$(sed -n '/^    R_ROOTLESS_HOOKS="/,/"$/p' \
+    "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null || true)"
+if [ -z "$_cc_rootless" ]; then
+    bad "could not read R_ROOTLESS_HOOKS from the probe — its shape changed, and a membership test against a block this suite can no longer locate would pass everything"
+elif printf '%s' "$_cc_rootless" | grep -q '\bguard-completeness-commits\b'; then
+    bad "EXEMPTED in R_ROOTLESS_HOOKS — Layer R skips it, so its root-resolution bootstrap goes unverified"
 else
-    bad "NOT in R_ROOTED_HOOKS — its root-resolution bootstrap would go unverified"
+    ok "not exempted, so Layer R derives it from the registration and checks its bootstrap"
 fi
 
 # R3 in miniature, so a divergence is caught by this suite too and not only by a

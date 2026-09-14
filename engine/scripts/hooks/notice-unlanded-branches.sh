@@ -79,17 +79,23 @@
 # speaks again — deliberately, because that is new work now at risk.
 #
 # ===========================================================================
-# NOT REGISTERED IN THE PROBE'S LAYER R LIST, AND SAYING SO
+# LAYER R CHECKS THIS HOOK, AND NOBODY HAD TO REMEMBER TO SAY SO
 # ===========================================================================
-# contract-integrity-probe.sh carries a TYPED list (R_ROOTED_HOOKS) of the hooks
-# whose root bootstrap it holds byte-identical. This hook is absent from it,
-# because that file was owned by another engineer at the moment this was
-# written and editing it would have been a collision. Nothing goes red as a
-# result — the list is an inventory, not a derivation — which is exactly why it
-# is written here rather than left to be noticed: an unlisted hook is one whose
-# bootstrap can drift with no check standing over it. Add
-# `notice-unlanded-branches` to R_ROOTED_HOOKS. The block below is a byte-exact
-# copy of the canonical one until that happens.
+# This section used to read: contract-integrity-probe.sh carries a TYPED list
+# (R_ROOTED_HOOKS) of the hooks whose root bootstrap it holds byte-identical,
+# this hook is absent from it because that file belonged to another engineer
+# when this was written, nothing goes red as a result, please add it.
+#
+# SETTLED 2026-09-14, AND THE WAY IT WAS SETTLED IS THE POINT. It was added to
+# the list on 2026-09-06 with the merge — and four other rooted hooks that made
+# the same note were not, so Layer R was walking 52 of the 57 registered hooks
+# that resolve a root and one of them was already carrying a divergent
+# bootstrap. A note asking a future reader to update an inventory is not a
+# mitigation for that; it is the same bet placed politely. Layer R now DERIVES
+# the hooks it walks from hooks/hooks.json, so this hook is checked because it
+# is registered, and the only way out of the check is an explicit entry in
+# R_ROOTLESS_HOOKS. The block below is a byte-exact copy of the canonical one,
+# which is now an enforced property rather than a promise.
 #
 # ===========================================================================
 # WHEN IT TAKES EFFECT

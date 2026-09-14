@@ -386,70 +386,114 @@ run_layer_R() {
         fi
     fi
 
-    # R2/R3 — the hooks that resolve a root.
-    # `notice-unlanded-branches` was added on 2026-09-06, and the small story is
-    # worth keeping because the list will grow again. zach-opus-hk1 landed the
-    # hook in 3a661a4 and correctly did NOT add it here, this file being someone
-    # else's; and it could not be added on a branch that did not yet carry the
-    # hook, because the list is typed rather than derived precisely so that
-    # naming a hook nobody can find is a failure. It went in with the merge.
+    # R2/R3 — the hooks that resolve a root. MEMBERSHIP IS DERIVED FROM THE
+    # REGISTRATION. The only thing typed here is the ROOTLESS exemption.
     #
-    # A NEW ROOTED HOOK IS TWO COMMITS IN TWO PLACES BY CONSTRUCTION, and in the
-    # window between them its root bootstrap has no check standing over it. That
-    # is the cost of a typed list. It is worth paying — a derived list would have
-    # nothing to say when a hook quietly stops sourcing the library — but it is a
-    # cost, and whoever adds the next hook should expect the same two steps.
+    # ===================================================================
+    # WHY THIS ONE IS DERIVED AND BR_EXPECTED IS NOT
+    # ===================================================================
+    # Layer C already states the rule this file lives by, and it decides both
+    # cases without appeal to anyone's opinion:
     #
-    # THE COST WENT UNPAID FIVE TIMES, AND THE WINDOW WAS NOT A WINDOW.
-    # Measured 2026-09-14 against hooks/hooks.json: 57 registered hooks assign
-    # ENGINE_ROOT from resolve_engine_root, and this list named 52. The five it
-    # did not name — guard-ceo-ruled-ask, guard-owned-state, guard-stop-live-work,
-    # notice-ceo-ruled-prose, observe-created-refs — were not red here, because a
-    # hook this list omits is not checked at all. They are added below.
+    #   A derivation is a CROSS-SURFACE CHECK when the side it is derived from
+    #   and the side it is checked against are DIFFERENT FILES. It is a
+    #   TAUTOLOGY when they are the same file.
     #
-    # ONE OF THE FIVE WAS ALREADY DIVERGENT, which is the whole argument for
-    # noticing. guard-stop-live-work.sh assigned SCRIPT_DIR above the python3
-    # check instead of inside the bootstrap, so its block was missing its own
-    # first line — exactly the R3 failure this layer exists to raise, sitting on
-    # main behind the gap that stopped anyone walking it. Fixed in the same commit.
+    # BR2 compares BR_EXPECTED against hooks/hooks.json. Deriving BR_EXPECTED
+    # from hooks/hooks.json would leave it checked against itself, unable ever
+    # to report a missing guard — so it stays typed, and so does
+    # engine-status.test.sh's ACKNOWLEDGED_SCRIPTS, which case 1b compares
+    # against a REGISTERED_LIST read from that same file. Both are ORACLES.
     #
-    # hook-registration-completeness.sh demands this list of a NEWLY registered
-    # rooted hook and is right to, but it only ever examines new subjects, so five
-    # hooks registered before it existed are invisible to it by construction.
-    # NOTHING IN THE ENGINE ASKS WHETHER THIS LIST IS SHORT — that question is
-    # answered by the next commit, which derives the membership from the
-    # registration and leaves only the rootless exemptions typed.
-    R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
-    verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-dialect \
-    guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
-    guard-named-persons-writes guard-named-persons-commands \
-    guard-completeness-commits \
-    guard-row-currency-commits \
-    guard-vendoring-commits \
-    guard-hook-registration-commits \
-    guard-interactive-prompt \
-    guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
-    workspace-lifecycle guard-workspace-gate guard-ci-turn-gate snapshot-agent-definitions guard-unresolved-claims \
-    turn-manifest \
-    snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
-    notice-mechanical-findings \
-    notice-unstarted-rows \
-    notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
-    guard-model-ceiling \
-    guard-stale-staging \
-    notice-unasked-deferral \
-    guard-agent-state-claims \
-    guard-idle-land notice-waiver-repetition \
-    guard-stated-actions \
-    notice-escalations session-start-escalations \
-    commit-ceo-inputs notice-ceo-inputs-unheld \
-    notice-unlanded-branches \
-    notice-protected-ref-moves \
-    guard-ceo-ruled-ask notice-ceo-ruled-prose \
-    guard-owned-state \
-    guard-stop-live-work \
-    observe-created-refs"
+    # Layer R is the other shape. Membership comes from the REGISTRATION
+    # (hooks/hooks.json); the property — does this hook carry the shared root
+    # bootstrap — is read off each hook's OWN SOURCE on disk. Two surfaces, so
+    # the check keeps its teeth. The comment that used to sit here feared that
+    # "a derived list would have nothing to say when a hook quietly stops
+    # sourcing the library", and that fear is exactly right about deriving
+    # membership FROM THE DISK: a hook that drops its `. "$_RR_LIB"` line would
+    # drop out of a disk-derived list and take its own check with it. Derived
+    # from the REGISTRATION it cannot: a hook cannot deregister itself by
+    # editing its own bootstrap, so it is still walked and R2 still names it.
+    #
+    # ===================================================================
+    # WHAT THE TYPED LIST COST, MEASURED RATHER THAN ARGUED
+    # ===================================================================
+    # It named 52 hooks. 57 registered hooks assign ENGINE_ROOT from
+    # resolve_engine_root (measured 2026-09-14 against hooks/hooks.json). The
+    # five it did not name were not red — a hook this layer does not name is
+    # not checked at all — and one of them, guard-stop-live-work.sh, had been
+    # carrying a bootstrap that diverges from its siblings the whole time. The
+    # preceding commit named the five and fixed the divergence. This one removes
+    # the way that happens: a rooted hook registered tomorrow is walked with no
+    # edit here, and the list can no longer be short.
+    #
+    # THE DIRECTION OF THE REMAINING COST IS THE POINT. A hook that resolves NO
+    # root must now be declared below, or R2 names it. That is a real edit and it
+    # is the minority case — 13 of 70 today — where the old shape charged an edit
+    # for the majority case, 57 of 70, and charged it silently.
+    #
+    # ROOTLESS, EACH FOR A REASON READ OFF ITS SOURCE RATHER THAN ITS INTENT:
+    #   guard-brief-scope, notice-claim-capability, handoff-facts-annotate,
+    #   notice-inflight-sends, session-start-ci-surface, shell-evidence — they
+    #     resolve no entity root at all, so naming them would make this layer
+    #     assert something false about them (hook-registration-completeness.sh
+    #     names handoff-facts-annotate.sh as a live instance of exactly that).
+    #   task-completed-handoff, teammate-idle-handoff, worker-created-handoff,
+    #     worker-started-handoff, worker-updated-handoff, worker-ended-handoff —
+    #     the lifecycle emitters. They append to a store keyed by session, not by
+    #     repository, and none of them asks which repository it is in.
+    #   guard-ci-red-lands — THE ONE THAT LOOKS LIKE A MISTAKE AND IS NOT. It
+    #     SOURCES resolve-roots.sh, so R2's grep would pass on it, and it then
+    #     deliberately never calls resolve_engine_root: its own header argues at
+    #     length that this gate resolves no entity root and must not start doing
+    #     git work for the sake of a printed remedy line. R3's comparison runs to
+    #     the resolve_engine_root assignment, so walking it would compare its
+    #     whole remaining file against a bootstrap and report a divergence that
+    #     is not one. Sourcing the library is not the same claim as resolving a
+    #     root, which is why this exemption is declared and not derived.
+    R_ROOTLESS_HOOKS="guard-brief-scope notice-claim-capability handoff-facts-annotate \
+    notice-inflight-sends session-start-ci-surface shell-evidence \
+    task-completed-handoff teammate-idle-handoff \
+    worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
+    guard-ci-red-lands"
+
+    # FAIL LOUD, NEVER FALL BACK. A typed list kept here "in case the derivation
+    # cannot run" would be the second inventory this change exists to delete, and
+    # it would be consulted on exactly the day it is most likely to be stale. If
+    # the registration cannot be read, this layer says so and fails.
+    R_HOOKS_JSON="$ENGINE_ROOT/hooks/hooks.json"
+    R_ROOTED_HOOKS=""
+    R_DERIVE_ERROR=""
+    if ! command -v registered_hook_scripts >/dev/null 2>&1; then
+        R_DERIVE_ERROR="the shared hook-inventory library is missing or unreadable at $_RH_LIB"
+    else
+        set +e
+        _r_reg="$(registered_hook_scripts "$R_HOOKS_JSON" 2>/dev/null)"
+        _r_rc=$?
+        set -e
+        case "$_r_rc" in
+            0) ;;
+            1) R_DERIVE_ERROR="the registration surface is missing at $R_HOOKS_JSON" ;;
+            *) R_DERIVE_ERROR="the registration surface at $R_HOOKS_JSON is present but unparseable, or registers no hook script at all" ;;
+        esac
+    fi
+    if [ -n "$R_DERIVE_ERROR" ]; then
+        emit_fail "R. the rooted-hook inventory could NOT be derived: $R_DERIVE_ERROR. This layer walks the hooks the registration names and checks each one's root bootstrap; with no registration to read it would walk nothing and pass, which is a green tick over an unchecked defense. Restore hooks/hooks.json and scripts/lib/registered-hooks.sh, then re-run this probe."
+        R_OK=0
+    else
+        _r_rootless_pad=" $(printf '%s ' $R_ROOTLESS_HOOKS)"
+        while IFS= read -r _r_h; do
+            [ -n "$_r_h" ] || continue
+            _r_stem="${_r_h%.sh}"
+            case "$_r_rootless_pad" in
+                *" $_r_stem "*) continue ;;
+            esac
+            R_ROOTED_HOOKS="$R_ROOTED_HOOKS $_r_stem"
+        done <<R_REG_EOF
+$_r_reg
+R_REG_EOF
+    fi
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.

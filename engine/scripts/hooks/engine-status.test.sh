@@ -489,6 +489,13 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # instead of left to be noticed.
 # THAT DEBT IS SETTLED, 2026-09-10: R_ROOTED_HOOKS now carries
 # `notice-unlanded-branches` and `notice-land-disposition` both.
+# AND THE DEBT CLASS IS GONE, 2026-09-14. Four other rooted hooks made the same
+# note and were never paid, so Layer R was walking 52 of the 57 registered hooks
+# that resolve a root, one of them already carrying a divergent bootstrap and
+# nothing red. Layer R now DERIVES the hooks it walks from hooks/hooks.json, so
+# a rooted hook owes it nothing and the only way out of the check is an explicit
+# entry in R_ROOTLESS_HOOKS. Every "still has to be added to R_ROOTED_HOOKS"
+# note below this line is history, not an instruction.
 # notice-land-disposition.sh, added 2026-09-10 on Stop, and it is the OTHER
 # half of the hook above rather than a louder version of it. That one answers
 # "is anything ahead of main that nobody holds" -- a fact about branches. This
@@ -625,6 +632,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a per-hook one and names neither; install.sh hashes the root-resolution library
 # and its dependants, and NEITHER hook resolves a root, so neither belongs in
 # R_ROOTED_HOOKS — putting them there would make Layer R assert something false.
+#   CORRECTION, 2026-09-14: that sentence is half wrong and it was believed for
+#   a day. handoff-facts-annotate.sh resolves no root and the claim holds for it.
+#   notice-protected-ref-moves.sh DOES — measured, it both sources
+#   resolve-roots.sh and assigns ENGINE_ROOT, and it was in R_ROOTED_HOOKS at the
+#   moment this paragraph said it should not be. The same sentence was copied
+#   into hook-registration-completeness.sh's header, where it is corrected too.
+#   Both hooks are now derived rather than typed, so neither claim decides
+#   anything any more; the correction is here because the reasoning is what a
+#   later reader copies.
 # Four suites said all of this rather than memory: this case, hook-staleness case
 # 11, session-evidence's registration test (which derives its set FROM the probe,
 # so the BR_EXPECTED line fixed it too) and the probe's own BR2.
