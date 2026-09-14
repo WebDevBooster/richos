@@ -95,7 +95,7 @@ PROVEN=0; UNPROVEN=0
 
 check() { # <id> <desc> <expected-red-case-substrings...>
     local id="$1" desc="$2"; shift 2
-    local out rc missing="" want prered=""
+    local out rc missing="" want prered="" grc fault=""
     # BASELINE SUBTRACTION — see M0. A case already red before any mutation
     # cannot have been turned red BY a mutation, so a mutant naming it would be
     # scoring off somebody else's failure.
@@ -112,9 +112,56 @@ check() { # <id> <desc> <expected-red-case-substrings...>
         printf 'UNPROVEN  %-4s %s  <- suite still GREEN\n' "$id" "$desc"
         MUT_SCORE=unproven; return
     fi
+    # CASE DETECTION — deliberately NOT `printf '%s' "$out" | grep -q ...`, and
+    # deliberately not `|| missing=`. See the note on `check` above; both halves
+    # of that idiom are defects and they compound.
+    #
+    # (1) THE PIPE. `grep -q` exits the instant it matches and closes the pipe.
+    #     `$out` is ~11 KB, which bash's printf writes in several stdio-sized
+    #     write(2)s, so when grep wins the race the NEXT write gets EPIPE and
+    #     printf dies of SIGPIPE with 141. `set -o pipefail` is on, so the
+    #     PIPELINE then reports 141 — and 141 is nonzero, so `|| missing=` fired
+    #     on a case grep had just FOUND. That is the whole of the intermittent
+    #     "red but NOT at: <case>" red that cost 2026-09-13 and 2026-09-14: the
+    #     report contradicted itself because the DUMP below uses a grep with no
+    #     `-q`, which reads to EOF and therefore never SIGPIPEs the writer, so
+    #     it faithfully printed the very case detection had just lost.
+    #     Measured on ubuntu:24.04 at the real 11 KB size, match on line 1:
+    #     1/300 false misses idle, 9/300 under 48-way CPU oversubscription,
+    #     every one of them rc=141; 0/300 with the match at the END (grep reads
+    #     to EOF, so there is no early close and no race). That match-position
+    #     dependence is why 700 clean iterations did not clear it. A here-string
+    #     puts no second process in the pipeline, so pipefail has nothing to
+    #     misreport.
+    #
+    #     AND THE EXIT CODE IS NOT STABLE ACROSS PLATFORMS, which decides which
+    #     half of this fix is load-bearing. On Linux the writer is KILLED by
+    #     SIGPIPE and the pipeline reports 141. On macOS bash reports the same
+    #     EPIPE as an ordinary stdio write error and the pipeline reports 1 —
+    #     and 1 is EXACTLY what grep returns for a genuine no-match. So on that
+    #     platform no amount of exit-code triage could have told a lost case
+    #     from an absent one. Removing the pipe is the half that fixes this;
+    #     the triage in (2) is the half that stops the NEXT transport failure
+    #     being laundered into a verdict.
+    #
+    # (2) THE CONFLATION. `|| missing=` treats EVERY nonzero as "the case is not
+    #     in the output", which silently converts a transport failure into a
+    #     verdict about a mutant. Triaging the code means "red but NOT at" can
+    #     now only be printed when grep POSITIVELY returned 1 — no match — so
+    #     the self-contradicting report is unreachable rather than unlikely.
     for want in "$@"; do
-        printf '%s' "$out" | grep -qE "^  FAIL  ${want}" || missing="$missing $want"
+        grep -qE "^  FAIL  ${want}" <<<"$out"; grc=$?
+        case "$grc" in
+            0) ;;
+            1) missing="$missing $want" ;;
+            *) fault="$fault ${want}(grep rc=$grc)" ;;
+        esac
     done
+    if [ -n "$fault" ]; then
+        printf 'UNPROVEN  %-4s %s  <- HARNESS FAULT: case detection could not run for:%s\n' \
+            "$id" "$desc" "$fault"
+        MUT_SCORE=unproven; return
+    fi
     if [ -z "$missing" ]; then
         printf 'PROVEN    %-4s %s ... turns%s red\n' "$id" "$desc" "$(printf ' %s' "$@")"
         MUT_SCORE=proven
