@@ -2642,7 +2642,7 @@ CL2_LOG="$(mktemp -t claim-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >"$CL2_LOG" 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^  FAIL|survived or misfired' "$CL2_LOG" | sed 's/^/        /'
+    grep -E '^  FAIL|survived or misfired' "$CL2_LOG" | sed 's/^/        /' || true
 fi
 rm -f "$CL2_LOG"
 
@@ -2780,7 +2780,7 @@ if printf '%s' "$MT_OUT" | grep -q 'MT\. capability order declared as data'; the
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 1
-    printf '%s\n' "$MT_OUT" | grep -E 'MT\.' | sed 's/^/        /'
+    printf '%s\n' "$MT_OUT" | grep -E 'MT\.' | sed 's/^/        /' || true
 fi
 rm -rf "$ROOT"
 
@@ -2885,7 +2885,7 @@ if printf '%s' "$MC_OUT" | grep -q 'MC\. cost ceiling declared as data'; then
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 1
-    printf '%s\n' "$MC_OUT" | grep -E 'MC\.' | sed 's/^/        /'
+    printf '%s\n' "$MC_OUT" | grep -E 'MC\.' | sed 's/^/        /' || true
 fi
 rm -rf "$ROOT"
 
@@ -2943,7 +2943,7 @@ if [ "$rc" -ne 0 ]; then
     # lines that name which case actually broke, which is the whole question.
     # A two-space anchor drops exactly them.
     grep -E '^ *(FAIL|PASS|UNPROVEN)|survived or misfired|summary:' "$WTI1_LOG" \
-        | grep -vE '^ *PASS' | sed 's/^/        /'
+        | grep -vE '^ *PASS' | sed 's/^/        /' || true
 fi
 rm -f "$WTI1_LOG"
 
@@ -2985,7 +2985,7 @@ SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
 set +e; "$SCRIPT_DIR/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
 emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
-    grep -E '^  FAIL' "$SA2_LOG" | sed 's/^/        /'
+    grep -E '^  FAIL' "$SA2_LOG" | sed 's/^/        /' || true
 fi
 rm -f "$SA2_LOG"
 
