@@ -2,18 +2,25 @@ name: engine-run-record
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
 # See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
-# NO RUN EXISTS YET — this file landed 2026-09-10 and its first firing is due
-# within six hours of that, so there is nothing to measure and the budget is
-# taken from the job's own timeout-minutes: 10. It is a handful of API reads.
-# Re-derive it from real runs once there are some; a budget copied from a
-# timeout is a ceiling nobody has ever tested against.
+# RE-DERIVED FROM REAL RUNS on 2026-09-14, as the placeholder it replaces asked
+# to be. It had been `10m`, copied from this job's own timeout-minutes because
+# the file was a few hours old and there was nothing to measure — a ceiling
+# nobody had ever tested against, which is the thing that makes the `slow` axis
+# unfalsifiable.
+#
+#   gh api 'repos/WebDevBooster/richos/actions/workflows/engine-run-record.yml/runs?per_page=100'
+#     -> total_count 18; durations (updated_at - created_at): 14s min, 18s
+#        typical, 49s max (run #10).
+#
+# 2m is ~2.4x the worst observed, which leaves room for the run-list paging
+# added the same day and still fails loudly if this ever becomes minutes.
 #
 # THE NEVER-RUN AXIS IS WATCHING THIS FILE SPECIFICALLY. A cron workflow that
 # never fires is neither red nor green and appears in no summary, which is the
 # state this workflow itself exists to detect one level down — so if it is
 # still showing no runs after its first interval, that is a finding and
 # ci-status.sh will say so rather than leaving it blank.
-# ci-budget: 10m
+# ci-budget: 2m
 # ci-evidence: it compares PushEvents against workflow runs and FAILS on a push with no run, so its green means "a run existed for every push" rather than "a command exited 0"
 # ---------------------------------------------------------------------------
 
@@ -47,6 +54,71 @@ name: engine-run-record
 # not run either. A check for absence cannot be hosted by the thing that might
 # be absent. Hence a separate workflow on a SCHEDULE, which fires from GitHub's
 # side and does not depend on anybody pushing.
+#
+# ===========================================================================
+# 2026-09-14: ITS FIRST FINDING WAS ITS OWN BUG, AND --since WAS NOT MOVED
+# ===========================================================================
+# THIS SECTION IS HERE BECAUSE THE OBVIOUS NEXT EDIT TO THIS FILE IS THE WRONG
+# ONE, and the check's own printed remedy used to recommend it.
+#
+# Run 34848283457 reported `1 push(es) to main have NO run of
+# engine-self-verify.yml at all`, naming 0fb68b7c (2026-09-10T06:38:23Z). A
+# local re-run the same hour named a second, de6ca1f8 (07:07:12Z). The remedy
+# printed underneath said: if the gap is permanent and nothing is at risk, move
+# --since past it and say why. The work was dispatched to do exactly that.
+#
+# BOTH SHAs HAD RUNS. Settled by one API call that no window bounds:
+#
+#   gh api repos/WebDevBooster/richos/actions/runs/34446109882
+#     -> 0fb68b7c  run #101  event=push  conclusion=success   06:38:25Z
+#   gh api repos/WebDevBooster/richos/actions/runs/34448386082
+#     -> de6ca1f8  run #107  event=push  conclusion=FAILURE   07:07:13Z
+#
+# The check read ONE page of the runs API. total_count was 207; the hundred runs
+# it fetched reached back only to 07:09:05Z, so every push before that was
+# reported as having no run. Both of these sat on page 2, which nothing asked
+# for. It was not detecting dropped runs; it was reporting the edge of its own
+# pagination. Fixed in engine/scripts/ci-run-record-check.sh (it now pages until
+# the run list is exhausted) and in lib/ci-run-records.py (a push the run list
+# does not provably cover is UNCOVERED and exits 2, never MISSING).
+#
+# --since IS THEREFORE UNCHANGED, and that is the deliberate outcome rather than
+# an omission. Moving it would have suppressed de6ca1f8 — a run that EXISTS and
+# FAILED, on a merge commit that is an ancestor of main, which no human had ever
+# looked at — behind a comment explaining that nothing was at risk. (That
+# failure was WTI1.staffing-gate-mutations-all-load-bearing; it is not true of
+# current main, and the intermittent harness fault behind it was fixed by
+# 5173432b on 2026-09-14.)
+#
+# THE GENERAL RULE, WHICH COST A DAY: a check's own output is not evidence about
+# the world until the check has been checked. Confirm a MISSING with
+# `runs?head_sha=<sha>` before acting on it. That step is now step 1 of the
+# printed remedy.
+#
+# ===========================================================================
+# THERE IS NO WAY TO GIVE A SUPERSEDED SHA A RUN IN THIS REPOSITORY
+# ===========================================================================
+# Recorded so the next person does not re-derive it. If a run IS ever genuinely
+# dropped, the printed remedy's re-dispatch cannot be carried out here:
+#
+#   gh api repos/WebDevBooster/richos/rulesets/23194738
+#     -> name "main-only", target branch, enforcement ACTIVE, bypass_actors []
+#        conditions: include ~ALL, exclude refs/heads/main
+#        rules: creation, update
+#
+# Every branch ref except main is refused at creation, with an empty bypass list
+# that binds the owner too — the CEO's standing rule that GitHub shows main and
+# release tags ONLY. `workflow_dispatch` takes a branch or a tag and will not
+# take a bare SHA, and `gh run rerun` re-runs an EXISTING run, so it cannot
+# manufacture one that never happened. A release TAG would satisfy the ruleset
+# but publishing a tag to re-run CI would put a fake release on the front page.
+#
+# So the honest answer is: nothing recovers a genuinely dropped run here. What
+# exists instead is that the next push to main runs the whole suite against a
+# tree that contains the superseded commit, so the CONTENT is verified even
+# though that SHA never is. That is weaker than a run per push and it is stated
+# rather than implied. If the concurrency limit ever does drop one, the decision
+# is the CEO's — a tag is a product artifact, not a CI lever.
 # ===========================================================================
 
 on:
@@ -99,10 +171,23 @@ jobs:
           # every firing (run 34530537060), over a gap nobody can close.
           # The bound is therefore the push that produced the first run.
           #
+          # NOT MOVED ON 2026-09-14, and the reasoning is in this file's header
+          # under "ITS FIRST FINDING WAS ITS OWN BUG". The two pushes that
+          # looked like a permanent gap both had runs; the check's pagination
+          # was the defect. A future reader seeing this check red should fix
+          # the check before touching this line.
+          #
           # When the trigger changes again, change this timestamp and say why.
+          # --max-pages BOUNDS THE PAGING; IT DOES NOT DECIDE CORRECTNESS.
+          # Falling short of the end of the run list makes pushes UNCOVERED and
+          # exits 2, so a cap that is too low is loud rather than wrong. Ten
+          # pages is a thousand runs against a total_count of 207 measured on
+          # 2026-09-14, which leaves years of headroom; raise it when the count
+          # approaches it rather than when this goes red.
           scripts/ci-run-record-check.sh \
             --repo "${{ github.repository }}" \
             --workflow engine-self-verify.yml \
             --branch main \
             --since 2026-09-10T04:11:26Z \
+            --max-pages 10 \
             --grace-minutes 30
