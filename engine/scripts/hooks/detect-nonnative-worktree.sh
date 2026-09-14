@@ -125,6 +125,16 @@ sys.stdout.write(json.dumps({"hookSpecificOutput": {
   exit 0
 }
 
+# ONE SCREAM BELOW IS DELIBERATELY LEFT ON THE CHANNEL THAT REACHES NOBODY, and
+# it is left that way because fixing it HERE would be the wrong repair. The
+# bootstrap block that follows is byte-identical in every rooted hook and Layer
+# R of contract-integrity-probe.sh asserts exactly that; routing this one copy
+# through the notice buffer diverged it and failed the layer, which is the
+# layer working. So the "BROKEN INSTALL" banner still goes to stderr at exit 0
+# — measured 2026-09-14 to be recorded in the transcript and rendered to no
+# one. That is not this hook's defect to fix: it is one shared bootstrap that
+# every rooted hook carries, so it is one change across all of them or none,
+# and that is a larger piece of work than a channel correction.
 # --- ROOT RESOLUTION -------------------------------------------------------
 # TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
 # resolution was wrong the moment the engine became loadable by reference,
@@ -151,8 +161,10 @@ ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 INPUT="$(cat)"
 
 # Resolve the governed repository. A log-only hook must never block a session,
-# so a BROKEN root SCREAMS instead of exiting non-zero — but it screams into
+# so a BROKEN root SCREAMS instead of exiting non-zero — and it screams into
 # both stderr and the hook's own JSON output, so it cannot pass for a skip.
+# Until 2026-09-14 that second half was a promise the code did not keep: there
+# was no JSON output, and stderr alone at exit 0 is invisible to every reader.
 ROOT_FAILURE=""
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
@@ -161,14 +173,23 @@ elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
 else
     ENTITY_ROOT=""
     ROOT_FAILURE="$(root_failure_banner "scripts/hooks/detect-nonnative-worktree.sh")"
-    printf '%s\n' "$ROOT_FAILURE" >&2
+    printf '%s\n' "$ROOT_FAILURE" | tee -a "$_NOTICE_BUF" >&2
 fi
 
 # Nothing to detect against in a repository that never adopted the engine, and
 # nothing this backstop can honestly say when its root is broken — but it has
 # already SCREAMED in the broken case above, which is the difference between
 # this and the silent skip it replaces.
-[ -n "$ENTITY_ROOT" ] || exit 0
+#
+# THE SCREAM USED TO BE INAUDIBLE, which is why it now goes through the buffer
+# as well as stderr. The comment above promised it reached "both stderr and the
+# hook's own JSON output"; there was no JSON output, and stderr at exit 0 is the
+# one channel measured to reach NOBODY — recorded in the transcript as a
+# `hook_success` attachment with no rendering. A broken install therefore
+# announced itself exactly as loudly as a clean pass. Adopted repositories that
+# simply never adopted the engine stay silent, as before: the buffer is empty
+# for them, and emit_notice_and_exit says nothing when it has nothing.
+[ -n "$ENTITY_ROOT" ] || emit_notice_and_exit
 
 CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090

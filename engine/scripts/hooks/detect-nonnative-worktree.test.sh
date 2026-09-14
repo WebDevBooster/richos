@@ -582,6 +582,37 @@ else
 fi
 rm -rf "$DEFAULT_TX_SANDBOX"
 
+# --- R1/R2: A BROKEN ROOT IS AUDIBLE, AND ONLY A BROKEN ONE -----------------
+# The hook's own comment promised a broken root "screams into both stderr and
+# the hook's own JSON output". There was no JSON output, and stderr at exit 0 is
+# the one channel measured to reach nobody (scripts/lib/stop-hook-notice.sh;
+# re-measured 2026-09-14 on PostToolUse), so a broken install announced itself
+# exactly as loudly as a clean pass. R2 is the control that stops R1 being
+# satisfied by a hook that simply speaks on every call.
+R1_DIR="$(mktemp -d -t detect-brokenroot.XXXXXX)"   # no orchestration.config -> "broken"
+R1_JSON="$(printf '%s' "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')" \
+    | RICHOS_ENTITY_ROOT="$R1_DIR" "$SCRIPT_DIR/detect-nonnative-worktree.sh" 2>/dev/null)"; R1_RC=$?
+R1_CTX="$(printf '%s' "$R1_JSON" | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+sys.stdout.write((d.get("hookSpecificOutput") or {}).get("additionalContext", ""))')"
+if [ "$R1_RC" -eq 0 ] && printf '%s' "$R1_CTX" | grep -q "ENFORCEMENT IS NOT ACTIVE\|cannot tell WHICH REPOSITORY\|NOT ACTIVE"; then
+    PASS=$((PASS + 1)); printf '  PASS  R1 a broken root reaches the reader as additionalContext at exit 0\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  R1 broken root: rc=%s, notice=%s chars (expected an audible banner at exit 0)\n' "$R1_RC" "${#R1_CTX}"
+fi
+rm -rf "$R1_DIR"
+
+R2_DIR="$(mktemp -d -t detect-notadopted.XXXXXX)"
+R2_OUT="$(cd "$R2_DIR" && printf '%s' "$(json_agent 'dev' 'dev-1' '' 'Do the thing.')" \
+    | env -u RICHOS_ENTITY_ROOT -u CLAUDE_PROJECT_DIR "$SCRIPT_DIR/detect-nonnative-worktree.sh" 2>/dev/null)"; R2_RC=$?
+if [ "$R2_RC" -eq 0 ] && [ -z "$R2_OUT" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  R2 CONTROL a repository that never adopted the engine stays silent\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  R2 CONTROL not-adopted should be silent: rc=%s, %s chars on stdout\n' "$R2_RC" "${#R2_OUT}"
+fi
+rm -rf "$R2_DIR"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== detect-nonnative-worktree tests: $FAIL FAILED, $PASS passed ==="
