@@ -358,3 +358,48 @@ values happened to be equal: where the CODE is versus which roots to SCAN (both 
 answered with `ENGINE_ROOT`), and executed-versus-sourced (inferred from "is `emit_fail`
 defined", which also decided whether to parse arguments, so sourcing the layer into any
 shell carrying positional parameters made it refuse them as its own).
+
+---
+
+## 7. The worst thing this work did, and how it was caught
+
+**The registration line was a bare `. contract-integrity-layer-ep.sh`, and it silently
+disarmed two of the engine's own alarms.**
+
+Under `set -e`, sourcing a file that is not there ends the probe *there* — after every red
+mark has been printed, and **before** the epilogue that turns them into `exit 2`. The probe
+reports SUCCESS over its own findings. The only visible trace is one line of shell error in
+the middle of a green run.
+
+The integrity suite's sandbox template carries only REGISTERED hooks, so the new layer file
+is absent in every sandbox. Cases `3.hook-removed-fails` and `4.wrong-path-fails` — which
+exist precisely to prove the probe still catches a broken engine — went from exit 2 to
+exit 0 the moment the include landed.
+
+**Attribution was measured rather than assumed**, because "probably pre-existing" is how a
+real finding gets written off:
+
+```
+# pristine main, extracted to a scratch tree, same scoped section
+git archive 953b0369 | tar -x -C <scratch>
+cd <scratch>/engine && ./scripts/hooks/contract-integrity.test.sh --only base
+  -> 11 PASS, 0 FAIL, BASELINE_SUITE_EXIT=3   (scoped-and-green)
+
+# this branch, before the fix
+  -> 9 PASS, 2 FAIL (3.hook-removed-fails, 4.wrong-path-fails), exit 1
+```
+
+The failures were mine. The include is now guarded: a missing layer is announced by name
+and the run continues, and a real engine that lost the file is caught **hard** by
+`scripts/entrypoint-currency-lint.test.sh`, which asserts it is present and executable. The
+split is deliberate — the probe verifies the engine as INSTALLED on this machine, the suite
+verifies the engine's own completeness, and only one of those can tell a synthetic sandbox
+from a real tree.
+
+`contract-integrity.test.sh` was not touched. After the fix the scoped run matches the
+baseline case for case: **11 of 11 PASS, exit 3.**
+
+**The general shape, which is the reason this section exists:** a check that cannot fail is
+indistinguishable from a check that passes, and an include is a perfectly ordinary-looking
+way to build one. This one was caught only because the suite was run before the handoff and
+the two failures were attributed instead of explained away.
