@@ -21,7 +21,9 @@
 #   R4   A push inside the grace window is PENDING, not missing — its run may
 #        not have reached the API yet — and the tolerance is printed.
 #   R5   --since excludes pushes made before the trigger existed. Without it
-#        this check is red on arrival over 95 historical pushes.
+#        this check is red on arrival over 95 historical pushes. R5b carries
+#        --runs-complete because a 40-day-old push is outside any short runs
+#        window, and R11 forbids calling that missing.
 #   R6   AN UNREADABLE SOURCE EXITS 2, NOT 0. A run-record check that goes quiet
 #        when its own inputs fail is the defect it exists to catch, one level out.
 #   R7   An event feed with no pushes for the branch exits 2 rather than
@@ -30,6 +32,20 @@
 #        when the event feed is unavailable, and says which predicate it used.
 #   R9   A run for a DIFFERENT workflow does not satisfy a push: the runs
 #        payload is per-workflow, and matching is on head_sha.
+#   R10  A RUN ON PAGE 2 IS FOUND. The runs API pages at 100; the event feed
+#        reaches further back than one page of runs does, and on 2026-09-14 that
+#        gap was reported as two dropped runs. One of them, de6ca1f8, had run
+#        #107 and it FAILED — so the printed remedy ("move --since past it,
+#        nothing is at risk") would have buried a real red. R10 fails on the
+#        pre-2026-09-14 code by construction: the run it needs is on page 2 and
+#        the old fetch never asked for a page 2.
+#   R11  A push OLDER than the oldest run fetched is UNCOVERED, not MISSING, and
+#        exits 2. "Missing" is a claim that no run exists; what a single page
+#        actually supports is "not in the window I looked at". The two are only
+#        the same when the window provably covers the push.
+#   R12  --runs-complete is what makes absence mean absence. The same fixture
+#        that is UNCOVERED without it is MISSING with it, so the assertion is
+#        carried by a flag the caller has to earn rather than by an assumption.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -156,7 +172,13 @@ if [ "$RC" = "0" ] && grep -q 'outside the watched window' "$SANDBOX/out"; then
 else
     bad "R5   rc=$RC"; sed 's/^/          /' "$SANDBOX/out"
 fi
-RC="$(chk)"
+# --runs-complete is REQUIRED here and is not a fudge: $OLD was pushed 40 days
+# ago, and this fixture's runs payload reaches back only days. Without the flag
+# the correct answer is UNCOVERED, not MISSING (see R11) — so asserting a
+# finding here without it would be asserting the very thing R11 forbids. In the
+# real check the flag is set by the fetch exhausting the run list, which is
+# exactly the state the historical 95-push argument rests on.
+RC="$(chk --runs-complete)"
 if [ "$RC" = "1" ]; then
     ok "R5b  without --since the same old push IS a finding — the bound is explicit, never implied"
 else
@@ -230,6 +252,123 @@ if [ "$RC" = "1" ] && grep -qF "$A" "$SANDBOX/out"; then
     ok "R9   runs for other commits do not satisfy a push — matching is on head_sha"
 else
     bad "R9   rc=$RC"; sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# --- R10/R11/R12: the run window must out-reach the push window -----------
+# THE BUG THESE ARE WRITTEN FROM: the fetch read ONE page of the runs API and
+# compared it against one page of the event feed. Those do not span the same
+# time. On 2026-09-14, 70 pushes reached back to 06:38Z while the hundred runs
+# fetched reached back only to 07:09Z, and every push in between was reported as
+# having NO RUN AT ALL. Both named SHAs had runs on page 2:
+#   0fb68b7c run #101 success, de6ca1f8 run #107 FAILURE.
+#
+# R10 drives the REAL fetch path through a stub `gh` on PATH, because the paging
+# loop is the thing that was wrong and a test that hands the merged payload
+# straight in would exercise none of it. --limit 4 keeps the fixtures small: a
+# full first page forces the loop to ask for a second one.
+GHBIN="$SANDBOX/ghbin"
+mkdir -p "$GHBIN"
+cat > "$GHBIN/gh" <<'GHEOF'
+#!/usr/bin/env bash
+# A stand-in for `gh` that serves the fixtures in $STUB_DIR, so the paging loop
+# is exercised with no network and no token.
+case "${1:-}" in
+  auth) exit 0 ;;
+  api) : ;;
+  *) exit 1 ;;
+esac
+P="${2:-}"
+case "$P" in
+  *"/events"*)              cat "$STUB_DIR/events.json" ;;
+  *"&page=1"*)               cat "$STUB_DIR/runs.p1.json" ;;
+  *"&page=2"*)               cat "$STUB_DIR/runs.p2.json" ;;
+  *"&page=3"*)               cat "$STUB_DIR/runs.p3.json" ;;
+  *) echo '{"workflow_runs":[]}' ;;
+esac
+GHEOF
+chmod +x "$GHBIN/gh"
+
+STUB="$SANDBOX/stub"
+mkdir -p "$STUB"
+python3 - "$STUB" "$A" "$B" <<'PY'
+import datetime, json, sys
+stub, a, b = sys.argv[1], sys.argv[2], sys.argv[3]
+now = datetime.datetime.now(datetime.timezone.utc)
+def iso(mins):
+    return (now - datetime.timedelta(minutes=mins)).strftime("%Y-%m-%dT%H:%M:%SZ")
+# $A pushed recently, $B pushed well before it — the real shape of the bug.
+events = [{"type": "PushEvent", "created_at": iso(600),
+           "payload": {"ref": "refs/heads/main", "head": a}},
+          {"type": "PushEvent", "created_at": iso(3000),
+           "payload": {"ref": "refs/heads/main", "head": b}}]
+open(stub + "/events.json", "w").write(json.dumps(events))
+# Page 1 is FULL (4 of --limit 4) and carries only recent, unrelated runs, so
+# the oldest run on it is newer than $B's push. Page 1 alone therefore cannot
+# answer for $B — which is exactly the state that shipped.
+p1 = [{"id": 900 + i, "head_sha": "e" * 40 if i else a, "conclusion": "success",
+       "created_at": iso(500 + i * 10)} for i in range(4)]
+open(stub + "/runs.p1.json", "w").write(json.dumps({"total_count": 5, "workflow_runs": p1}))
+# $B's only run is here, on page 2, which the old fetch never asked for.
+p2 = [{"id": 800, "head_sha": b, "conclusion": "success", "created_at": iso(2999)}]
+open(stub + "/runs.p2.json", "w").write(json.dumps({"total_count": 5, "workflow_runs": p2}))
+open(stub + "/runs.p3.json", "w").write(json.dumps({"total_count": 5, "workflow_runs": []}))
+PY
+
+RC=0
+PATH="$GHBIN:$PATH" STUB_DIR="$STUB" GITHUB_TOKEN="" \
+    bash "$CHECK" --repo owner/repo --workflow engine-self-verify.yml \
+                  --limit 4 --max-pages 5 --grace-minutes 20 \
+    > "$SANDBOX/out" 2>&1 || RC=$?
+if [ "$RC" = "0" ] && grep -q '0 MISSING' "$SANDBOX/out" \
+   && grep -q 'WHOLE run list was fetched' "$SANDBOX/out"; then
+    ok "R10  a push whose only run is on PAGE 2 is found — the fetch pages until the list ends"
+else
+    bad "R10  rc=$RC — the run list was not paged, which is the 2026-09-14 false positive verbatim"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# and the paging must not quietly give up: capped below the end of the list, the
+# same fixture must say it could not answer rather than inventing a finding.
+RC=0
+PATH="$GHBIN:$PATH" STUB_DIR="$STUB" GITHUB_TOKEN="" \
+    bash "$CHECK" --repo owner/repo --workflow engine-self-verify.yml \
+                  --limit 4 --max-pages 1 --grace-minutes 20 \
+    > "$SANDBOX/out" 2>&1 || RC=$?
+if [ "$RC" = "2" ] && grep -q 'UNKNOWN' "$SANDBOX/out" && grep -qF "$B" "$SANDBOX/out"; then
+    ok "R10b --max-pages stopping short reports UNKNOWN, not a dropped run — a cap is not a verdict"
+else
+    bad "R10b rc=$RC — a truncated fetch produced a confident answer"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# --- R11: uncovered is not missing ----------------------------------------
+# $B was pushed 3000 minutes ago; the only run in the payload is 500 minutes
+# old. Nothing in that payload can speak to $B.
+mk_payloads "$A:main:600" "$B:main:3000"
+python3 - "$SANDBOX" "$A" <<'PY'
+import datetime, json, sys
+sandbox, a = sys.argv[1], sys.argv[2]
+now = datetime.datetime.now(datetime.timezone.utc)
+runs = [{"id": 1, "head_sha": a, "conclusion": "success",
+         "created_at": (now - datetime.timedelta(minutes=500)).strftime("%Y-%m-%dT%H:%M:%SZ")}]
+open(sandbox + "/runs.json", "w").write(json.dumps({"workflow_runs": runs}))
+PY
+RC="$(chk)"
+if [ "$RC" = "2" ] && grep -q 'UNKNOWN' "$SANDBOX/out" && grep -qF "$B" "$SANDBOX/out" \
+   && ! grep -q 'NO run of' "$SANDBOX/out"; then
+    ok "R11  a push older than the oldest run fetched is UNCOVERED and exits 2, never MISSING"
+else
+    bad "R11  rc=$RC — absence from a window was reported as absence from the world"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# --- R12: the flag is what earns the claim --------------------------------
+RC="$(chk --runs-complete)"
+if [ "$RC" = "1" ] && grep -q 'NO run of' "$SANDBOX/out" && grep -qF "$B" "$SANDBOX/out"; then
+    ok "R12  with --runs-complete the same push IS missing — absence means absence only once proven"
+else
+    bad "R12  rc=$RC — --runs-complete did not restore the strong verdict"
+    sed 's/^/          /' "$SANDBOX/out"
 fi
 
 echo ""
