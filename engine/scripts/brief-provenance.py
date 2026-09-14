@@ -47,7 +47,7 @@ optimism about precision, is what makes the non-blocking form viable where the b
 was rejected.
 
 ===========================================================================================
-THE FOUR CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the honest part
+THE FIVE CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the honest part
 ===========================================================================================
 1. QUOTATION (exact, no judgment, no false positives). A blockquote presented as coming from
    a file is searched for in that file, byte for byte modulo whitespace. Either the string is
@@ -80,6 +80,31 @@ THE FOUR CHECKS, IN DESCENDING ORDER OF SOUNDNESS — and the order is the hones
    guard. The eight include all three sentences of the one record in that corpus later PROVEN
    false by another agent, at the cost of an escalation and a published correction.
 
+5. SELECTOR BLINDNESS (heuristic; the narrowest of the five and the one with the oldest rule
+   behind it — added 2026-09-14 for the three instances of one night). A NEGATIVE-EXISTENCE
+   claim resting on a search. `grep "git init"` returned one hit, THE COMMENT MAKING THE CLAIM,
+   and the brief said the suite builds no repositories; it had built them all along, spelled
+   `git -C "$root" init -q -b main`. The rule is this project's own, written 2026-05-08 for
+   TESTS (`feedback_negative_tests_pass_for_wrong_reason.md`) and never pointed at claims until
+   now: a negative result cannot tell "the thing is absent" from "the check could not see it."
+
+   THE LINE, because a check that fires on every negative claim dies in a week. A CENSUS
+   (`git status`, `ls`) enumerates its domain, so empty output IS absence. A SELECTOR SEARCH
+   puts an author-written pattern in front of the domain, and only that can be blind. Then the
+   discriminator: the claim is flagged only when the SENTENCE DOES NOT NAME THE PATTERN — a
+   sentence about the string is grep's own question, and grep answers it exactly.
+
+   TWO ENTRY BRANCHES, because the instance as retold and the instance as SHIPPED are not the
+   same. (a) the search is cited and the sentence is about something wider. (b) no search is
+   cited at all and a QUOTED LITERAL is asserted absent — which is the flagship instance: the
+   brief relayed a conclusion, the search happened in the lead's head, and a claim that a
+   string is absent is a search result whether or not anybody shows the search.
+
+   MEASURED on the surface it is delivered on: 4 rows over 30 real briefs (3 real, 1 the known
+   mention-versus-use false positive), 6 over 31 spawn payloads. Over the 65-document records
+   corpus it would be 31 against checks 1-4's 1862, which is why it is not wired into the
+   record-write hook; that hook is check 4 only by its own measured decision.
+
 WHAT THIS CANNOT DO, STATED HERE SO IT IS NOT DISCOVERED LATER:
   - It cannot tell a true account from a false one. Nothing textual can.
   - Check 4 cannot tell MENTION from USE. A document about the word "merged" is flagged for
@@ -91,6 +116,13 @@ WHAT THIS CANNOT DO, STATED HERE SO IT IS NOT DISCOVERED LATER:
     reaper". That sentence is formally identical to a legitimate constraint ("do not weaken
     the guard"), which good briefs carry. It catches such a prescription only through the
     account it rests on, which is usually in the same sentence and usually is caught.
+  - Check 5 cannot see a negative claim that names neither a search nor a literal. "The suite
+    builds no repositories", relayed with nothing beside it, has no surface to recognize; test
+    case S7b asserts that out loud.
+  - NOTHING HERE TOUCHES MISREADING. A command that ran, whose output was pasted, and whose
+    output was read wrong — indented log lines taken for top-level failures — produces a brief
+    with a real command, a real output and a false sentence, and every check above is satisfied
+    by it. That failure has a second reader as its only defense.
   - It cannot make the lead read its output. It does not need to: the annotation reaches the
     agent whether or not the lead reads a word of it.
 
@@ -108,6 +140,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import sys
 
 # ---------------------------------------------------------------------------
@@ -289,9 +322,27 @@ def plain(s):
 # ---------------------------------------------------------------------------
 # EVIDENCE IN SCOPE
 # ---------------------------------------------------------------------------
+# A SPAN THAT WAS NAMED IS NOT A SPAN THAT WAS RUN, and the difference was worth
+# finding. The brief that shipped the flagship search-blindness instance cited NO
+# command for it — it relayed a conclusion — and check 3 was silent on the false
+# sentence anyway, because the sentence contained “`git init`” in a code span and that
+# span was read as a citation. THE STRING THE CLAIM WAS WRONG ABOUT WAS COUNTED AS THE
+# EVIDENCE FOR IT.
+#
+# An invocation carries a flag, a path, a pipe, a redirect, an extension, or a third
+# token. A bare `verb noun` pair carries none of those and is how prose NAMES a command
+# it is talking about. Measured before adopting, because widening what counts as
+# unsourced is the direction that can turn a report into wallpaper: +3 rows over 30
+# briefs, +3 over 31 spawn payloads, +25 over 65 records — and the real sentence gets
+# its row.
+INVOKED = re.compile(r"(?:^|\s)--?[a-zA-Z]|[/|>]|\.\w|\s\S+\s\S+")
+
+
 def is_command(span):
     span = span.strip()
     if " " not in span and not span.startswith("./"):
+        return False
+    if not INVOKED.search(span):
         return False
     if re.match(r"^" + EXEC_FIRST + r"\b", span):
         return True
@@ -913,6 +964,331 @@ def check_capability(blocks):
     return findings
 
 
+# ---------------------------------------------------------------------------
+# CHECK 5 — SELECTOR BLINDNESS: a negative claim resting on a search for ONE SPELLING
+#
+# THE RULE THIS MOVES. `feedback_negative_tests_pass_for_wrong_reason.md`, 2026-05-08,
+# four months before this check and never pointed anywhere but at tests: a negative
+# result cannot distinguish "the thing is absent" from "THE CHECK COULD NOT SEE IT."
+# Its remedy there is a positive-shape probe. This is the same finding moved from
+# tests to CLAIMS, and the remedy does NOT move with it — see below.
+#
+# THE THREE INSTANCES IT IS BUILT FROM, one night, each becoming a briefed premise:
+#
+#   `grep "git init" contract-integrity.test.sh`  -> 1 hit, THE COMMENT MAKING THE CLAIM
+#       claimed: "the suite builds no repositories"
+#       truth:   it had built them all along, spelled `git -C "$root" init -q -b main`
+#   `grep -rn "ALREADY ACKED 26 TIME" engine/`    -> 0 hits
+#       claimed: "the guard does not log its own usage"
+#       truth:   guard-ci-red-lands.sh prints it from a `%d` template; the rendered
+#                form with a number in it cannot appear in the source that renders it
+#   a count of a typed list                       -> 53
+#       claimed: "53 files carry the bootstrap"    truth: 60 do; 53 was A LIST'S LENGTH
+#
+# WHERE THE LINE IS, and getting it wrong is what kills a check like this. "The working
+# tree is clean" also rests on a search that found nothing, and it is fine. The
+# difference is not the emptiness:
+#
+#   A CENSUS enumerates its domain. `git status`, `ls`, `git branch` -- nothing the
+#   author wrote stands between the domain and the answer, so an empty output IS the
+#   absence.
+#
+#   A SELECTOR SEARCH puts an author-written pattern between the domain and the answer.
+#   `grep PATTERN`, `find -name PATTERN`. An empty output is then ambiguous between the
+#   thing being absent and the pattern not matching its spelling, and no exit code and
+#   no re-run can tell the two apart.
+#
+# THAT ALONE IS NOT ENOUGH, and the second condition does the discriminating work.
+# "`freshness-check.sh` is not referenced in the deploy scripts", sourced by a grep for
+# `freshness-check`, is a sentence ABOUT THE STRING, and grep answers exactly that
+# question. What went wrong in all three instances is a TRANSLATION from a string to a
+# CONCEPT -- repositories, logging, carrying the bootstrap -- performed silently between
+# the command and the sentence. So:
+#
+#   FLAG = a negative-existence claim + a selector search in scope + THE SENTENCE DOES
+#          NOT NAME THE PATTERN THAT WAS SEARCHED.
+#
+# In instance 1 that lands exactly where the harm was: "`git init` appears nowhere in
+# this file" names the pattern and is SILENT (it is true, and it is grep's own
+# question); "the suite builds no repositories" does not, and is flagged. The second
+# sentence is the one that misled the engineer.
+#
+# WHY "DID THE SEARCH RETURN NOTHING?" IS NOT A CONDITION, though it is the obvious one
+# and the brief that commissioned this asked for it. It is not detectable -- a brief
+# quotes a command and rarely its output -- and it is NOT NEEDED: instance 1's search
+# returned a hit and was just as wrong. The negative claim lives in the brief's own
+# prose, which is always there. The emptiness was never the signal.
+#
+# WHY NOT THE POSITIVE CONTROL, which is what the 2026-05-08 rule literally prescribes.
+# Measured against the three, a control pairing (cite a second search of the same shape
+# that DOES find something) catches NONE. Instance 1's own search found something, so
+# the control is self-satisfying and adds no row. Instance 2's control would prove the
+# path readable, which it was, and the pattern would still be a rendering of a template.
+# Instance 3 has no search at all. A control proves the PLUMBING; every one of these
+# failed at the SELECTOR. What actually recovers instances 1 and 2 is a strictly WEAKER
+# selector -- `init -q` finds line 1621, `ALREADY ACKED` finds the print -- and "weaker"
+# is a direction a person chooses, not a property two strings have. It also is not free:
+# broadening instance 1 all the way to `init` returns 51 lines, most of them the word
+# "definition". So the check NAMES the discipline and does not pretend to verify it,
+# which is this file's shape everywhere else.
+# ---------------------------------------------------------------------------
+SEARCH_PROGRAM = re.compile(r"^(?:sudo\s+)?(?:git\s+grep|grep|egrep|fgrep|rg|ag|ack)\b")
+FIND_PROGRAM = re.compile(r"^(?:sudo\s+)?find\b")
+# Flags that swallow the operand after them, so the operand is not the pattern.
+VALUE_FLAG = {"-e", "--regexp", "-f", "--file", "--include", "--exclude", "--exclude-dir",
+              "-m", "--max-count", "-A", "-B", "-C", "-g", "--glob", "-t", "--type",
+              "--color", "-d", "--devices", "--colour"}
+# ...except these two, where the operand after them IS the pattern.
+PATTERN_FLAG = {"-e", "--regexp"}
+FIND_PATTERN_FLAG = {"-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename"}
+PAT_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_]{2,}")
+# A claim that something is ABSENT. Deliberately narrower than "contains a negation":
+# "this is not the same as X" negates an identity, not an existence, and a check that
+# read every `not` as an absence claim would fire on half of every brief.
+NEGATIVE_EXISTENCE = re.compile(
+    r"\b(?:nowhere|no(?:t)? anywhere|returns? nothing|finds? nothing|matche[sd] nothing|"
+    r"no (?:hits|matches|results|occurrences|instances|such)\b|"
+    r"not (?:present|found|referenced|there|defined|wired|registered|called|invoked)\b|"
+    r"\babsent\b|\bnonexistent\b|\bnon-existent\b|"
+    r"never (?:appears|occurs|called|invoked|run|runs|ran|logged|logs|fires|fired|"
+    r"happens|happened|reached|reaches)\b|"
+    # A BEHAVIOR NEGATION ("the guard does not log its own usage") is the class. An
+    # IDENTITY NEGATION is not, and `(is|are|was|were) not <word>` was in this list for
+    # one draft: it produced FOUR of the first six rows on the records corpus, every one
+    # of them a sentence saying a thing is not some OTHER thing — "`WorkerRunEnded` is
+    # not a platform event", "32.6 GB was not a stale measurement". Nothing is claimed
+    # absent there, so no search could be too narrow for it. The explicit
+    # `not present|found|referenced|...` alternative above keeps every existence sense
+    # of `is not`, so dropping the generic form costs nothing.
+    r"(?:does|do|did) n[o']t\s+\w+|"
+    # "no X <verb>" — a negative existential quantifier with a predicate after it. The
+    # VERB is what is anchored on, not the noun. The first draft enumerated the nouns
+    # and case S9b caught it committing this check's own failure: an enumerated list is
+    # ONE SPELLING of the thing, and "no harness covers that branch" was outside it.
+    # `no longer` is a TEMPORAL, not a quantifier: "45 name paths that no longer exist"
+    # says a thing stopped being, which is a history claim and not an absence a search
+    # could have been too narrow for. Two of the seven rows this broadening produced.
+    r"\bno\s+(?!longer\b)\w+(?:[ -]\w+){0,2}\s+"
+    r"(?:covers?|carries|carry|calls?|invokes?|references?|exercises?|reaches|reads?|"
+    r"writes?|emits?|logs?|records?|names?|matches|contains?|uses?|builds?|creates?|"
+    r"touches|asserts?|checks?|tests?|fires?|runs?|exists?|loads?|sets?|wires?|"
+    r"registers?|enforces?|declares?|mentions?|appears?|handles?|guards?|catches)\b|"
+    r"\bno\s+(?:\w+\s+){0,2}"
+    r"(?:file|files|hook|hooks|script|scripts|test|tests|suite|suites|call|calls|"
+    r"caller|callers|site|sites|reference|references|repositor\w+|entry|entries|"
+    r"line|lines|place|places|path|paths|code|guard|guards|check|checks|one|thing|"
+    r"mechanism|record|records|log|logs|way|means)\b|"
+    r"\bnone of\b|\bnothing (?:in|else|at all|anywhere)\b)", re.I)
+MAX_PER_SELECTOR = 3
+
+
+def _pipeline_segments(cmd):
+    """A command split at the places a new program starts. `... | grep foo` has to
+    yield its grep, or a pattern search behind a pipe is invisible to this."""
+    return [s.strip() for s in re.split(r"\|\||&&|[|;]", cmd) if s.strip()]
+
+
+def search_selector(cmd):
+    """(the search segment, the author-written pattern) or None.
+
+    The pattern is the first operand that is not a flag and is not swallowed by one.
+    Paths after it are not patterns; `-e PATTERN` is. A command with no extractable
+    pattern yields nothing, which is the same allowlist discipline check 4 uses: this
+    speaks only about searches somebody can point at the selector in."""
+    for seg in _pipeline_segments(cmd):
+        if FIND_PROGRAM.match(seg):
+            try:
+                toks = shlex.split(seg)
+            except ValueError:
+                toks = seg.split()
+            for j, t in enumerate(toks):
+                if t in FIND_PATTERN_FLAG and j + 1 < len(toks):
+                    return seg, toks[j + 1]
+            continue
+        if not SEARCH_PROGRAM.match(seg):
+            continue
+        try:
+            toks = shlex.split(seg)
+        except ValueError:
+            toks = seg.split()
+        if not toks:
+            continue
+        i = 2 if toks[0] in ("git", "sudo") else 1
+        while i < len(toks):
+            t = toks[i]
+            if t in PATTERN_FLAG:
+                return (seg, toks[i + 1]) if i + 1 < len(toks) else None
+            if t in VALUE_FLAG:
+                i += 2
+                continue
+            if t.startswith("-") and t != "-":
+                i += 1
+                continue
+            return seg, t
+        return None
+    return None
+
+
+def pattern_tokens(pat):
+    """The words a pattern is looking for, with regex punctuation and one- and
+    two-character fragments dropped. `ALREADY ACKED 26 TIME` -> already, acked, time;
+    the 26 is gone because a digit inside a searched string is the single strongest
+    sign it is a RENDERED value being sought in the source that renders it."""
+    core = re.sub(r"[\\^$.\[\]()*+?{}|/-]", " ", pat)
+    return [t.lower() for t in PAT_TOKEN.findall(core)]
+
+
+# The literal the sentence says is absent. A backticked span, or a quoted one — the two
+# forms a brief writes a string it looked for. A LONG span is excluded: "`the record must
+# be reconciled`" is a phrase being discussed, not a needle.
+NEEDLE = re.compile(r"`([^`\n]{2,48})`|[\"“]([^\"“”\n]{2,48})[\"”]")
+# Branch (b) needs a NARROWER negation than branch (a), and the measurement is why. Run
+# with the general one it put 20 rows on 30 briefs, 16 documents of 30 — over half of
+# every brief, which is how a report becomes wallpaper. Nearly all of the surplus was
+# one shape: "`notice-hook-staleness.sh` does NOT cover this", where the quoted span is
+# the ACTOR and not the needle. Nothing is claimed absent there.
+#
+# So branch (b) fires only on a PRESENCE predicate — the sentence has to be saying the
+# string itself is not to be found, which is the only claim that is necessarily a search
+# result. `does not <any verb>` is dropped; `does not appear` is kept.
+ABSENT_PRESENCE = re.compile(
+    r"\bnowhere\b|"
+    r"\b(?:is|are|was|were)\s+(?:\w+\s+){0,2}"
+    r"(?:absent|nonexistent|non-existent|not present|not found|not there|not referenced|"
+    r"not named|not mentioned|not used|not called|not wired|not registered|not defined|"
+    # `not in` was in this list for one measurement and produced a row on "wherever DST
+    # is not in force" — a state of the world, not the absence of a string.
+    r"not anywhere)\b|"
+    r"\b(?:is|are|was|were)\s+(?:named|referenced|used|carried|called|covered|matched|"
+    r"mentioned|listed|required|imported|loaded)\s+(?:by|in|from)\s+no\b|"
+    r"\bno\s+\w+(?:[ -]\w+){0,2}\s+"
+    r"(?:names?|references?|mentions?|lists?|contains?|matches|includes?|carries|carry|"
+    r"imports?|loads?)\b|"
+    r"\b(?:does|do|did) n[o']t\s+(?:appear|occur|exist|show\s+up)\b", re.I)
+
+
+def _absent_literal_rows(b, seen):
+    """Rows for 'this string is absent', with no search shown."""
+    out = []
+    for s in sentences(b["text"]):
+        if MARKER_LINE.match(s):
+            continue
+        p = plain(s)
+        pa = blank_code(p)
+        if IMPERATIVE.match(pa.strip()) or HYPOTHETICAL.search(pa):
+            continue
+        hit = ABSENT_PRESENCE.search(pa)
+        if not hit:
+            continue
+        m = NEEDLE.search(p)
+        if not m:
+            continue
+        needle = (m.group(1) or m.group(2)).strip()
+        # The needle has to be the SUBJECT of the absence, not something further along
+        # the sentence. "`X` appears nowhere" qualifies; "the guard does not run, see
+        # `land.sh`" does not, and without this the row lands on half the corpus.
+        if m.start() > hit.start():
+            continue
+        key = "absent:" + needle
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > MAX_PER_SELECTOR:
+            continue
+        out.append({
+            "check": "selector",
+            "detail": "this says the string “%s” is absent, and NO SEARCH IS SHOWN. The "
+                      "only way anyone knows a string is absent is by looking for it, so "
+                      "there is a search behind this sentence and the brief does not say "
+                      "what it was. Ask for it, widen it, and read what comes back."
+                      % needle[:60],
+            "text": p[:MAX_QUOTE],
+            "section": b["section"],
+        })
+    return out
+
+
+def check_selector(blocks):
+    findings, seen = [], {}
+    for i, b in enumerate(blocks):
+        if b["kind"] in ("code", "heading", "quote"):
+            continue
+        if SKIP_SECTION.search(b["section"] or ""):
+            continue
+        got = scope_evidence(blocks, i)
+        if "marked-unverified" in got:
+            continue
+        cmds, _cited = scope_commands(blocks, i)
+        sel = None
+        for c in cmds:
+            sel = search_selector(c)
+            if sel:
+                break
+        if not sel:
+            # THE SEARCH LEFT OUT. This is the flagship instance as it ACTUALLY SHIPPED,
+            # and it is why the entry condition is not simply "a search is cited".
+            # `tom7-brief.md` line 11 relayed a conclusion — "`git init` appears nowhere
+            # in that suite" — with NO command anywhere near it. A claim that a QUOTED
+            # LITERAL is absent is a search result whether or not a search is shown; the
+            # only way anyone knows a string is absent is by looking for it. So the
+            # claim is answered here rather than by check 3, because the instruction it
+            # needs is check 5's (broaden, and show it) and not check 3's (re-derive,
+            # which reproduces the same narrow search and confirms it).
+            findings += _absent_literal_rows(b, seen)
+            continue
+        seg, pat = sel
+        toks = pattern_tokens(pat)
+        if not toks:
+            continue
+        # THE DISCRIMINATOR, AND ITS SCOPE IS THE BLOCK. A brief that names the searched
+        # string anywhere in this paragraph has shown the reader the translation; the row
+        # is worth something only when the string is nowhere in sight.
+        #
+        # Scoping it to the SENTENCE was the first draft and it leaked, structurally
+        # rather than occasionally: `sentences()` splits per LINE, so wrapped prose —
+        # which is every brief this project writes — hands the second half of "`X` appears
+        # nowhere in this file" to the test with the `X` left behind on the line above.
+        # The well-formed text claim then flags itself. Block scope is also what the
+        # header of this file already declares for evidence, so the two now agree.
+        #
+        # THE MISS THIS BUYS, stated rather than discovered later: a translated claim
+        # sitting in the SAME paragraph as the string is exempted with it. Test S6 pins
+        # that miss out loud.
+        block_low = plain(b["text"]).lower()
+        if all(t in block_low for t in toks):
+            continue
+        shown = sentences(b["text"])
+        masked = sentences(mask_quotes(b["text"]))
+        if len(masked) != len(shown):
+            masked = shown
+        for s, m in zip(shown, masked):
+            if MARKER_LINE.match(s):
+                continue
+            p, pm = plain(s), plain(m)
+            pa = blank_code(pm if len(pm) == len(p) else p)
+            # An instruction is not a report. "do not add a second reaper" and "no file
+            # should carry it" state what must be, and no search could establish either.
+            if IMPERATIVE.match(pa.strip()) or HYPOTHETICAL.search(pa):
+                continue
+            hit = NEGATIVE_EXISTENCE.search(pa)
+            if not hit or inside_quotes(pa, hit.start()):
+                continue
+            key = pat
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > MAX_PER_SELECTOR:
+                continue
+            findings.append({
+                "check": "selector",
+                "detail": "`%s` can only answer about the string “%s” in the files it was "
+                          "pointed at. This sentence is about something else, and the "
+                          "sentence does not name that string — so between the search and "
+                          "the claim there is a translation nobody checked. Broaden the "
+                          "pattern until it returns hits and read them; re-running this one "
+                          "will agree with it." % (seg[:90], pat[:60]),
+                "text": p[:MAX_QUOTE],
+                "section": b["section"],
+            })
+    return findings
+
+
 def dedupe(findings):
     """One statement, one row. A sentence that is both a restatement and an unsourced
     account is one thing to go and check, not two."""
@@ -931,7 +1307,8 @@ def dedupe(findings):
 def review(prompt, repo=""):
     blocks = segment(prompt)
     return dedupe(check_quotations(blocks, repo) + check_restatements(blocks)
-                  + check_capability(blocks) + check_provenance(blocks))
+                  + check_capability(blocks) + check_selector(blocks)
+                  + check_provenance(blocks))
 
 
 # ---------------------------------------------------------------------------
@@ -966,17 +1343,43 @@ carry it, and neither does re-running it: you need different evidence, or the ho
 that the record cannot settle it."""
 
 
+# Selector rows need a third instruction again, and for a third reason. Check 3 says
+# GO AND DERIVE IT. Check 4 says the number is fine and the WORD is not, so do not
+# bother re-deriving. This one says the command is fine, the word may be fine, and the
+# QUESTION PUT TO THE COMMAND was narrower than the sentence — so the response is
+# neither re-run nor find other evidence: it is BROADEN, and look at what comes back.
+SELECTOR_LEAD = """Every sentence below says something is NOT THERE, and rests on a search —
+shown or unshown — to say it. **The search is not in question; what it was ASKED is.** A search
+answers about the STRING you gave it, in the FILES you pointed it at. Where the command is shown,
+the sentence is about something wider than that string and does not name it, so a translation
+happened between the two that nobody checked. Where no command is shown, the search still happened
+— nobody learns that a string is absent by any other means — and the brief has not said what it was.
+
+**Re-running the search is zero defense. It will agree with itself.** The rule that applies is this
+project's own, written on 2026-05-08 for tests and never pointed at claims until now
+(`feedback_negative_tests_pass_for_wrong_reason.md`): a negative result cannot tell *the thing is
+absent* from *the check could not see it*.
+
+**So before you build on one: BROADEN the pattern until it returns hits, and READ them.** `CLAUDE.md`
+— *"A value has more than one spelling ... Grep for the thing, not for one of its forms."* The
+instance that forced this row into existence: a two-word search returned exactly one hit, the comment
+making the claim, while the suite it denied had been building real repositories all along under a
+spelling those two words cannot match."""
+
+
 def annotation(findings):
     if not findings:
         return ""
     out = [HEAD, ""]
-    if any(f["check"] != "capability" for f in findings):
+    if any(f["check"] not in ("capability", "selector") for f in findings):
         out += [BODY, ""]
     for kind, title in (("quotation", "Presented as a quotation, and NOT found in the file named"),
                         ("restatement", "Restated from a source this brief names — read the "
                                         "source, not this"),
                         ("capability", "SOURCED — and the source does NOT establish "
                                        "what the sentence says"),
+                        ("selector", "A NEGATIVE claim, resting on a search for ONE SPELLING "
+                                     "of the thing"),
                         ("provenance", "Asserted without a source in this brief")):
         rows = [f for f in findings if f["check"] == kind]
         if not rows:
@@ -985,6 +1388,9 @@ def annotation(findings):
         out.append("")
         if kind == "capability":
             out.append(CAPABILITY_LEAD)
+            out.append("")
+        if kind == "selector":
+            out.append(SELECTOR_LEAD)
             out.append("")
         for f in rows:
             out.append("- “%s”" % f["text"])
@@ -1009,12 +1415,15 @@ def report(findings, name="", out=sys.stderr):
     # calling both "carry no source" would be this file committing the failure its
     # own fourth check exists to catch.
     cap = sum(1 for f in findings if f["check"] == "capability")
-    rest = len(findings) - cap
+    sel = sum(1 for f in findings if f["check"] == "selector")
+    rest = len(findings) - cap - sel
     parts = []
     if rest:
         parts.append("%d statement(s) carry no source" % rest)
     if cap:
         parts.append("%d cite a source that does not establish what they say" % cap)
+    if sel:
+        parts.append("%d rest on a search narrower than the claim" % sel)
     print("  provenance:  %s; the brief now says so to the agent"
           % "; ".join(parts), file=out)
     for f in findings:

@@ -72,6 +72,36 @@
 #  P14   The annotation is APPENDED and the brief is otherwise untouched — nothing is rewritten,
 #        reordered or removed. What the lead wrote is what the agent reads, plus a section.
 #
+#  S1    A NEGATIVE CLAIM TRANSLATED FROM A SEARCHED STRING is caught. The instance: a
+#        two-word search returned one hit, the comment making the claim, and the sentence
+#        generalized it into a capability the suite had had all along.
+#  S2    A CLAIM ABOUT THE SEARCHED STRING IS SILENT. The suppressor the check lives or dies
+#        by — a sentence about the string is grep's own question and grep answers it exactly.
+#  S3    A CENSUS IS NOT A SELECTOR SEARCH. "The working tree is clean" also rests on a search
+#        that found nothing, and is fine. This case is where the line is drawn.
+#  S4    A RENDERED VALUE SOUGHT IN THE SOURCE THAT RENDERS IT is caught — a number inside the
+#        searched string is a `%d`, so the literal can never appear however often it prints.
+#  S5    A SPECIFICATION IS NOT A REPORT.
+#  S6    A KNOWN MISS: the pattern exemption is scoped to the BLOCK (sentences() splits per
+#        LINE, so wrapped prose otherwise flags its own well-formed claim), and the price is
+#        that a translated claim sharing a paragraph with the string is exempted with it.
+#  S7    THE INSTANCE AS IT ACTUALLY SHIPPED — an absent literal with NO search shown. The
+#        brief relayed a conclusion; a check requiring a cited search is silent on it.
+#  S7b   AND THE MISS THAT REMAINS: the same conclusion with no literal and no search has no
+#        surface to recognize.
+#  S8    AN IDENTITY NEGATION IS NOT AN EXISTENCE CLAIM — four of the first six corpus rows.
+#  S9    THE PATTERN EXTRACTOR, POSITIVELY PROBED in its two awkward forms (`-e` behind a
+#        value-taking flag; `find -name`). Without it the check could stop finding selectors
+#        and every case above would still pass for the wrong reason — which is the exact
+#        failure this check is named after.
+#  S10   SELECTOR ROWS CARRY THEIR OWN INSTRUCTION — broaden, not re-run. Re-running a search
+#        that found nothing agrees with itself.
+#  S11   A QUOTED SPAN THAT IS THE ACTOR IS NOT A NEEDLE. Measured: without this the second
+#        branch put 20 rows on 30 briefs, 16 documents of 30.
+#  S12   A STATE OF THE WORLD IS NOT AN ABSENT STRING ("wherever DST is not in force").
+#  S13   A KNOWN FALSE POSITIVE, asserted out loud: a brief DISCUSSING this failure is flagged
+#        for quoting it. One of the four rows on the 30-brief corpus is exactly this.
+#
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
@@ -480,6 +510,213 @@ if printf '%s' "$OUT" | grep -qF "SOURCED" \
   ok "Y12  capability rows carry their OWN instruction, not check 3's"
 else
   printf '  FAIL  %s\n' "Y12  capability rows carry their OWN instruction, not check 3's"
+  FAIL=$((FAIL + 1))
+fi
+
+# --------------------------------------------------------------------------------
+# CHECK 5 — SELECTOR BLINDNESS. A negative claim resting on a search for one spelling.
+# The night of 2026-09-14, three times; the rule is this project's own, written
+# 2026-05-08 for tests (feedback_negative_tests_pass_for_wrong_reason.md) and never
+# pointed at claims.
+# --------------------------------------------------------------------------------
+
+# S1 — THE INSTANCE. A two-word search returned one hit, the comment making the claim,
+# and the sentence generalized it to a capability of the suite. The suite had been
+# building real repositories all along under a spelling those two words cannot match.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -n "git init" engine/scripts/hooks/contract-integrity.test.sh
+    356:# a comment
+
+The suite builds no repositories, so the guard never reaches the helper.
+B
+flags "S1   a negative claim TRANSLATED from a searched string is caught" \
+      "The suite builds no repositories"
+
+# S2 — THE FALSE POSITIVE THIS CHECK WOULD OTHERWISE BE. A sentence about the STRING is
+# grep's own question and grep answers it exactly. Without this suppressor the check
+# fires on every correct grep claim in the corpus, which is a dead check by the end of
+# the week.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -rn "freshness-check" scripts/deploy-avelor-staging.sh
+
+`freshness-check` is not referenced anywhere in the deploy script.
+B
+silent "S2   a claim ABOUT THE SEARCHED STRING is silent — the suppressor that keeps it alive" \
+       "not referenced anywhere"
+
+# S3 — WHERE THE LINE IS, and the case that decides whether this check survives contact
+# with a real corpus. "The working tree is clean" also rests on a search that found
+# nothing. A CENSUS enumerates its domain; a SELECTOR puts an author-written pattern in
+# front of it. Only the second can be blind.
+cat > "$SANDBOX/brief.md" <<'B'
+## State
+
+    $ git status --porcelain
+
+The working tree is clean and no files are modified.
+B
+silent "S3   a CENSUS is not a selector search — the line the whole check rests on" \
+       "working tree is clean"
+
+# S4 — A RENDERED VALUE SOUGHT IN THE SOURCE THAT RENDERS IT. The second instance: the
+# number in the searched string is a `%d`, so the literal cannot appear in the source
+# however many times the line is printed.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -rn "ALREADY ACKED 26 TIME" engine/
+
+Nothing in the engine emits that line.
+B
+flags "S4   a rendered value searched for in its own source is caught" \
+      "Nothing in the engine emits"
+
+# S5 — A SPECIFICATION IS NOT A REPORT, the same exemption check 4 needs and for the
+# same reason: most of this corpus states what must be true, and no search establishes
+# an obligation.
+cat > "$SANDBOX/brief.md" <<'B'
+## Constraints
+
+    $ grep -rn "tenantGuard" convex/
+
+No hook should carry the bootstrap without a test beside it.
+B
+silent "S5   a specification is not a report" "No hook should carry"
+
+# S6 — A KNOWN MISS, ASSERTED OUT LOUD. The pattern-presence exemption is scoped to the
+# BLOCK, because sentences() splits per LINE and wrapped prose otherwise hands the
+# second half of a well-formed claim to the test with its string left on the line above.
+# The price is that a translated claim in the SAME paragraph as the string is exempted
+# with it. A file that quietly passed this would be claiming a coverage it does not have.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -n "git init" engine/scripts/hooks/contract-integrity.test.sh
+    356:# a comment
+
+`git init` appears nowhere in that file, so the suite builds no repositories.
+B
+silent "S6   KNOWN MISS: the translated claim SHARING a paragraph with the string is exempted" \
+       "the suite builds no repositories"
+
+# S7 — THE INSTANCE AS IT ACTUALLY SHIPPED, which is not the instance as it is usually
+# retold. `tom7-brief.md` line 11 relayed a conclusion and cited NO COMMAND AT ALL; the
+# search happened in the lead's head. A check whose entry condition is "a search is
+# cited" is silent on the very failure it is named after, so the entry condition is two
+# branches and this is the second: a QUOTED LITERAL asserted absent is a search result
+# whether or not the search is shown.
+cat > "$SANDBOX/brief.md" <<'B'
+## What is established
+
+His explanation, to be verified rather than assumed: `git init` appears nowhere in that
+suite, so the guard exits 0 at its jurisdiction test.
+B
+flags "S7   the instance AS SHIPPED — an absent literal with NO search shown is caught" \
+      "appears nowhere in that"
+
+# S7b — AND THE MISS THAT REMAINS, asserted out loud. Strip the quoted literal and there
+# is nothing left to recognize: no search, no needle, and a sentence formally identical
+# to a legitimate constraint. This is why the record shipping with this check does not
+# claim the CEO's question is closed by a mechanism.
+cat > "$SANDBOX/brief.md" <<'B'
+## What is established
+
+His explanation, to be verified rather than assumed: the suite builds no repositories, so
+the guard exits 0 at its jurisdiction test.
+B
+silent "S7b  KNOWN MISS: the same conclusion with no literal and no search is invisible" \
+       "search narrower than the claim"
+
+# S11 — THE NEEDLE IS THE ACTOR, NOT THE NEEDLE. Measured: with a general negation this
+# branch put 20 rows on 30 briefs, 16 documents of 30, and nearly all the surplus was
+# this one shape. Nothing is claimed absent in it.
+cat > "$SANDBOX/brief.md" <<'B'
+## Coverage
+
+`notice-hook-staleness.sh` does NOT cover this — it answers a different question.
+B
+silent "S11  a quoted span that is the ACTOR is not a needle — 16 of 30 briefs rode on this" \
+       "is absent, and NO SEARCH IS SHOWN"
+
+# S12 — A STATE OF THE WORLD IS NOT AN ABSENT STRING. Found on the corpus, not invented:
+# "wherever DST is not in force" put a row on a brief that had done nothing wrong.
+cat > "$SANDBOX/brief.md" <<'B'
+## Why the mutant survived
+
+`containers.test.sh` was environmental — two conversions are identical wherever DST is
+not in force, so the mutant was unkillable on a UTC runner.
+B
+silent "S12  a state of the world is not an absent string" "is absent, and NO SEARCH IS SHOWN"
+
+# S13 — A KNOWN FALSE POSITIVE, asserted out loud. A brief DISCUSSING this failure quotes
+# the claim and is flagged for quoting it. Mention versus use is not decidable here, it
+# is the same miss check 4 records as Y11, and it is one of the four rows this branch
+# produces on the 30-brief corpus.
+cat > "$SANDBOX/brief.md" <<'B'
+## The category
+
+What distinguishes the working tree being clean from "`init -q` appears nowhere"?
+B
+flags "S13  KNOWN FALSE POSITIVE: a brief ABOUT this failure is flagged for quoting it" \
+      "What distinguishes the working tree"
+
+# S8 — AN IDENTITY NEGATION IS NOT AN EXISTENCE CLAIM. Measured, not imagined: the first
+# draft read `(is|are|was|were) not <word>` as an absence claim and produced four of its
+# first six rows on sentences saying a thing is not some OTHER thing.
+cat > "$SANDBOX/brief.md" <<'B'
+## Correction
+
+    $ grep -rn "WorkerRunEnded" engine/scripts/
+
+`WorkerRunEnded` is not a platform event; it is written by our own helper.
+B
+silent "S8   an IDENTITY negation is not an existence claim — 4 of the first 6 corpus rows" \
+       "not a platform event"
+
+# S9 — THE PATTERN EXTRACTOR, positively probed in its two awkward forms. Without this
+# the check could silently stop finding selectors and every case above would still pass
+# for the wrong reason — which is the very failure this whole check is named after.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -rn --include='*.sh' -e "resolve_main_checkout" engine/
+
+No script calls the resolver.
+B
+flags "S9a  a pattern behind -e and a value-taking flag is still found" "No script calls the resolver"
+
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ find engine/scripts -name '*.mutation.sh'
+
+No harness covers that branch.
+B
+flags "S9b  a find -name pattern is a selector too" "No harness covers that branch"
+
+# S10 — the selector rows reach the agent under their OWN instruction. Check 3 says go
+# and derive it; check 4 says the number is fine and the word is not; this one says the
+# question put to the command was narrower than the sentence, so BROADEN it. Sending it
+# under either of the others tells the agent to do something that cannot work.
+cat > "$SANDBOX/brief.md" <<'B'
+## Background
+
+    $ grep -n "git init" engine/scripts/hooks/contract-integrity.test.sh
+    356:# a comment
+
+The suite builds no repositories, so the guard never reaches the helper.
+B
+OUT="$(python3 "$CHECK" "$SANDBOX/brief.md" --annotate --repo "$SANDBOX")"
+if printf '%s' "$OUT" | grep -qF "ONE SPELLING" \
+   && printf '%s' "$OUT" | grep -qF "BROADEN the pattern"; then
+  ok "S10  selector rows carry their OWN instruction — broaden, not re-run"
+else
+  printf '  FAIL  %s\n' "S10  selector rows carry their OWN instruction — broaden, not re-run"
+  printf '%s' "$OUT" | sed 's/^/          /'
   FAIL=$((FAIL + 1))
 fi
 
