@@ -212,6 +212,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 8 — THE CONSUMER CONTRACT. demo.sh must PROVISION the closure, not merely be
+# able to compute it. Asserted against the script rather than by running it
+# (demo.test.sh runs it), because the failure being prevented is a wiring that
+# gets removed, and a wiring that is gone is a grep away from being seen.
+# ---------------------------------------------------------------------------
+if grep -q 'richos_hook_dependency_closure' "$ENGINE_ROOT/scripts/demo.sh"; then
+    ok "8  demo.sh provisions the derived closure"
+else
+    bad "8  demo.sh no longer calls richos_hook_dependency_closure"
+fi
+
+# ---------------------------------------------------------------------------
 # 9 — THE WRAPPER. The shell entry point callers actually source.
 # ---------------------------------------------------------------------------
 WRAP_RC=0

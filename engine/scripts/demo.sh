@@ -439,6 +439,54 @@ DEMO_FILES+=(
     "VERSION"
 )
 
+# ---------------------------------------------------------------------------
+# AND EVERY FILE THE REGISTERED HOOKS THEMSELVES REACH FOR — DERIVED.
+#
+# The list above is the files the DEMO needs: the installer it runs, the probe
+# it runs, the VERSION its banner prints, the CLIs its refusals name. Those are
+# this script's own, and this script notices immediately when one is missing.
+#
+# The files the HOOKS need are a different question and it was being answered by
+# the same hand-maintained list, which is how 2026-09-14 happened:
+# guard-hook-registration-commits.sh landed correctly registered, every
+# hooks.json-derived inventory carried it, and the sample repo had never heard
+# of scripts/hook-registration-completeness.sh -- the helper it sources, one
+# directory up. A HOOK'S DEPENDENCY IS NOT A HOOK, so no inventory of hooks can
+# enumerate it, and the guard that landed to end that class of omission WAS the
+# omission.
+#
+# It was not one file's problem. Measured on this tree the same day, the list
+# above was missing TWENTY-ONE more, and the two worst are silent rather than
+# loud: scripts/lib/stop-hook-notice.sh (18 Stop hooks do `[ -f "$_SHN_LIB" ] ||
+# exit 0`) and scripts/lib/unevaluated-notice.sh (36 hooks). With those absent
+# this sample repo started every hook, passed the completeness check below --
+# which asks whether a hook can START -- and showed a buyer an engine whose
+# escalation watch exits 0 in silence on every turn. That is the exact sentence
+# this demo exists to be trusted about.
+#
+# A UNION, NOT A REPLACEMENT, and scripts/lib/hook-dependencies.sh explains why
+# at length: the hand list above stays, entry by entry with its reason, because
+# a derivation cannot produce the WHY; and a deriver that goes blind refuses
+# with rc 4 rather than quietly handing back a shorter list.
+# ---------------------------------------------------------------------------
+_HD_LIB="$REPO_ROOT/scripts/lib/hook-dependencies.sh"
+[ -f "$_HD_LIB" ] || { echo "ERROR: demo.sh: $_HD_LIB is missing from this engine checkout -- the files the hooks themselves need are derived through it and must not be guessed. Refusing." >&2; exit 1; }
+# shellcheck source=lib/hook-dependencies.sh
+. "$_HD_LIB"
+if ! _DEMO_HOOK_DEPS="$(richos_hook_dependency_closure "$REPO_ROOT")"; then
+    echo "ERROR: demo.sh: could not derive what the registered hooks depend on (rc $?). Refusing rather than building a sample repo whose hooks start and do nothing." >&2
+    exit 1
+fi
+while IFS= read -r _dep; do
+    [ -n "$_dep" ] || continue
+    case " ${DEMO_FILES[*]} " in
+        *" $_dep "*) continue ;;
+    esac
+    DEMO_FILES+=("$_dep")
+done <<HOOK_DEPS_EOF
+$_DEMO_HOOK_DEPS
+HOOK_DEPS_EOF
+
 DEMO_MISSING=""
 for rel in "${DEMO_FILES[@]}"; do
     if [ -f "$REPO_ROOT/$rel" ]; then
