@@ -220,6 +220,7 @@ RUNNERS=(
     scripts/hooks/by-reference.test.sh       # sandboxes CLAUDE_CONFIG_DIR at the call
     scripts/lib/global-state-witness.test.sh # this file: fake HOME and a sandbox
     scripts/hooks/install-retire-reconciler.test.sh # sandbox CLAUDE_CONFIG_DIR + fake HOME + RICHOS_LAUNCH_AGENTS_DIR, launchctl shimmed
+    scripts/hooks/hook-staleness.test.sh      # section 14: sandboxes CLAUDE_CONFIG_DIR at the call, and its engine copy lives under mktemp, which install.sh classifies as EPHEMERAL and withholds the pointer from
 )
 UNPROTECTED=""
 for f in "${RUNNERS[@]}"; do

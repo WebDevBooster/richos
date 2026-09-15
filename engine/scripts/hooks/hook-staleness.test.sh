@@ -663,6 +663,112 @@ else
     bad "13  notice reaches both audiences" "($CHAN13)"
 fi
 
+# ===========================================================================
+# 14. THE SEATED SURFACE IS GENERATED, NOT MAINTAINED
+#
+# Case 11 above asserts the two surfaces carry identical sets. Until
+# 2026-09-15 the only thing keeping that true was every hook author
+# remembering to hand-edit a 500-line JSON file, and it had already drifted:
+# measured across 76 entries, 74 were an exact transform of the plugin table
+# INCLUDING timeouts and the two that were not were drift, not intent
+# (session-start-escalations.sh carried a timeout the real table does not).
+# scripts/hooks/install.sh now DERIVES the seated `hooks` key from
+# hooks/hooks.json, so case 11 cannot go red for a forgotten edit again.
+#
+# These cases live here, beside the assertion they protect, rather than in a
+# suite of their own — and they also give install.sh its first coverage:
+# `ci-affected-units.sh --paths scripts/hooks/install.sh` selected ZERO suites
+# before this section existed, so the script that mints every sha256 sidecar
+# was changed by nobody's test.
+# ===========================================================================
+
+# A sandbox that IS an engine: install.sh takes its repo root from its own
+# ../.., so the whole tree is copied rather than stubbed. mktemp lands under
+# /var/folders, which install.sh classifies as EPHEMERAL and therefore never
+# mints the operator's engine pointer from; CLAUDE_CONFIG_DIR is redirected as
+# a second, independent guarantee of the same thing.
+make_engine_sandbox() {
+    local root
+    root="$(mktemp -d -t hook-staleness-engine.XXXXXX)"
+    SANDBOXES+=("$root")
+    cp -R "$ENGINE_ROOT/." "$root/" 2>/dev/null || true
+    mkdir -p "$root/fake-config"
+    printf '%s' "$root"
+}
+
+# Register a fixture hook in the sandbox's PLUGIN table only.
+seed_fixture_registration() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys, collections
+path, cmd = sys.argv[1:3]
+d = json.load(open(path, encoding="utf-8"), object_pairs_hook=collections.OrderedDict)
+d["hooks"].setdefault("Stop", []).append(
+    {"hooks": [{"type": "command", "command": cmd}]})
+open(path, "w", encoding="utf-8").write(json.dumps(d, indent=2) + "\n")
+PY
+}
+
+seated_names() {   # seated_names <settings file> <basename> -> count
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+path, name = sys.argv[1:3]
+d = json.load(open(path, encoding="utf-8"))
+n = sum(1 for es in d.get("hooks", {}).values() for e in es
+        for h in (e.get("hooks") or []) if name in h.get("command", ""))
+print(n)
+PY
+}
+
+FIXTURE="zz-fixture-generated-surface.sh"
+
+# --- 14a. the whole point: one edit, in the registration, and nothing else ---
+E1="$(make_engine_sandbox)"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$E1/scripts/hooks/$FIXTURE"
+chmod +x "$E1/scripts/hooks/$FIXTURE"
+seed_fixture_registration "$E1/hooks/hooks.json" "bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/$FIXTURE"
+SEATED_BEFORE="$(seated_names "$E1/.claude/settings.local.json" "$FIXTURE")"
+CLAUDE_CONFIG_DIR="$E1/fake-config" bash "$E1/scripts/hooks/install.sh" >"$E1/install.out" 2>&1
+INSTALL_RC=$?
+SEATED_AFTER="$(seated_names "$E1/.claude/settings.local.json" "$FIXTURE")"
+if [ "$INSTALL_RC" -eq 0 ] && [ "$SEATED_BEFORE" = "0" ] && [ "$SEATED_AFTER" = "1" ]; then
+    ok "14a install.sh seats a newly registered hook — one edit, in hooks.json, and no hand-edit of the settings surface"
+else
+    bad "14a install.sh seats a newly registered hook" \
+        "(rc=$INSTALL_RC before=$SEATED_BEFORE after=$SEATED_AFTER: $(tail -2 "$E1/install.out" | tr '\n' ' '))"
+fi
+
+# --- 14b. NEGATIVE CONTROL -------------------------------------------------
+# 14a would pass identically if the seated surface named the fixture for some
+# reason of its own. The same mutation WITHOUT install.sh must leave the
+# surfaces disagreeing, which is also the exact red case 11 used to produce.
+E2="$(make_engine_sandbox)"
+seed_fixture_registration "$E2/hooks/hooks.json" "bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/$FIXTURE"
+if [ "$(seated_names "$E2/.claude/settings.local.json" "$FIXTURE")" = "0" ]; then
+    ok "14b without install.sh the same registration is NOT seated — 14a's pass is caused by the generator"
+else
+    bad "14b negative control" "the fixture was seated with no generator run — 14a proves nothing"
+fi
+
+# --- 14c. FAIL LOUD, NEVER GUESS ------------------------------------------
+# A command that does not carry the plugin-root placeholder has a shape the
+# transform does not know. Seating a guessed translation would wire a hook at
+# a path that does not exist, and the seated surface's whole job is to be an
+# accurate description of the registration. install.sh must refuse and must
+# leave the file untouched — asserted by sha256, not by eye.
+E3="$(make_engine_sandbox)"
+seed_fixture_registration "$E3/hooks/hooks.json" "bash /somewhere/else/$FIXTURE"
+SUM_BEFORE="$(shasum -a 256 <"$E3/.claude/settings.local.json")"
+CLAUDE_CONFIG_DIR="$E3/fake-config" bash "$E3/scripts/hooks/install.sh" >"$E3/install.out" 2>&1
+RC3=$?
+SUM_AFTER="$(shasum -a 256 <"$E3/.claude/settings.local.json")"
+if [ "$RC3" -ne 0 ] && [ "$SUM_BEFORE" = "$SUM_AFTER" ] \
+   && grep -q "do not carry the plugin-root placeholder" "$E3/install.out"; then
+    ok "14c an untranslatable registration is REFUSED by name and the seated surface is left byte-identical"
+else
+    bad "14c untranslatable registration refused" \
+        "(rc=$RC3 changed=$([ "$SUM_BEFORE" = "$SUM_AFTER" ] && echo no || echo yes))"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "hook-staleness: $PASS/$PASS cases pass"
