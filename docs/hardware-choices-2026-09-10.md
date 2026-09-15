@@ -7,8 +7,8 @@ HARDCODED INTO THE APP??? WHEN WILL THE APP START BEING INTELLIGENT AND PICK THI
 ACTUAL HARDWARE WHERE IT IS INSTALLED???"*
 
 The instance he found — which whisper model runs — was fixed and landed the same day at `c1df6f24`
-(`app/crates/richos-voice/src/hardware.rs`, `tools/richos-service/lib/hardware.js`,
-`tools/richos-service/lib/model-costs.json`). **The word that governs this document is
+(`richos/app/crates/richos-voice/src/hardware.rs`, `richos/tools/richos-service/lib/hardware.js`,
+`richos/tools/richos-service/lib/model-costs.json`). **The word that governs this document is
 PERMANENTLY**, so it is not about that instance. It is the enumeration of the class, and
 [the check that refuses the next member](#part-2--the-check) is Part 2 below.
 
@@ -29,7 +29,7 @@ grep -rn 'sysctl\|vm_stat\|host_statistics\|os\.cpus\|os\.totalmem\|os\.freemem\
 available_parallelism\|num_cpus\|default_input_device\|default_output_device\|default_input_config\|\
 default_output_config\|parse_backends\|parseBackends\|installed_voices\|system_profiler\|hw\.memsize\|\
 process\.arch\|os\.platform' \
-  app/crates/*/src tools/richos-service/lib tools/richos-service/bin app/ui app/src-tauri/src \
+  app/crates/*/src richos/tools/richos-service/lib richos/tools/richos-service/bin richos/app/ui richos/app/src-tauri/src \
   --include=*.rs --include=*.js | grep -v node_modules | grep -v '/target/'
 ```
 
@@ -38,11 +38,11 @@ string `sysctl-read` inside a `sandbox-exec` profile). The result that matters i
 
 | tree | sites that ask the machine anything |
 |---|---|
-| `app/crates/richos-voice/src/` | 25 |
-| `tools/richos-service/lib/` | 6 |
-| **`app/crates/richos-core/src/`** | **0** |
-| **`app/src-tauri/src/`** | **0** |
-| **`app/ui/`** | **0** |
+| `richos/app/crates/richos-voice/src/` | 25 |
+| `richos/tools/richos-service/lib/` | 6 |
+| **`richos/app/crates/richos-core/src/`** | **0** |
+| **`richos/app/src-tauri/src/`** | **0** |
+| **`richos/app/ui/`** | **0** |
 
 Every one of the 31 is in the voice/transcription stack, and 16 of those are `hardware.rs` — the
 module written this morning. **The Tauri shell, which owns the window, the updater and the entire
@@ -99,8 +99,8 @@ Part 2 matters more than this list.
 <a id="d1"></a>
 ### D1 — whisper decode threads: `-t 4`, in both decoders
 
-**Where.** `app/crates/richos-voice/src/stt.rs:244-245` and
-`tools/richos-service/lib/config.js:596,601`.
+**Where.** `richos/app/crates/richos-voice/src/stt.rs:244-245` and
+`richos/tools/richos-service/lib/config.js:596,601`.
 
 **What it is.** Both paths pin the decode thread count to 4. Both give the same reason:
 
@@ -121,8 +121,8 @@ worth doing — it cannot be flipped by a formula bump, which is exactly why `-f
 does not turn the number into a decision, and the comment reads as though it does.
 
 Second, **the signal that would decide it correctly is already read on every single run and thrown
-away.** `app/crates/richos-voice/src/toolchain.rs:262 pub fn parse_backends(stderr: &str)` and
-`tools/richos-service/lib/toolchain.js:206` both parse whisper-cli's own `load_backend:` startup
+away.** `richos/app/crates/richos-voice/src/toolchain.rs:262 pub fn parse_backends(stderr: &str)` and
+`richos/tools/richos-service/lib/toolchain.js:206` both parse whisper-cli's own `load_backend:` startup
 lines, which name each ggml compute backend the binary actually `dlopen`'d:
 
 ```
@@ -179,7 +179,7 @@ quietly. **Naming it honestly: D1 is diagnosed and priced, not repaired.**
 <a id="d2"></a>
 ### D2 — the window opens at a size chosen for a screen, without asking about the screen
 
-**Where.** `app/src-tauri/tauri.conf.json:14-15`:
+**Where.** `richos/app/src-tauri/tauri.conf.json:14-15`:
 
 ```json
 "width": 1400,
@@ -189,7 +189,7 @@ quietly. **Naming it honestly: D1 is diagnosed and priced, not repaired.**
 "center": true
 ```
 
-**What it is.** A fixed initial window size. `app/src-tauri/src/` contains **zero** calls that ask
+**What it is.** A fixed initial window size. `richos/app/src-tauri/src/` contains **zero** calls that ask
 the machine anything (see the method sweep above), and nothing reads monitor geometry before the
 window is created.
 
@@ -231,9 +231,9 @@ one of the three screens on his desk today, RichOS opens with 320 points of itse
 **REPAIRED — 2026-09-10, and this note is part of the record rather than a replacement for it.**
 The verdict above stands as it was measured; what follows is what was done about it.
 
-`app/src-tauri/src/window_geometry.rs` derives the size and position from the work area of the
-display the window opens on. `app/src-tauri/src/main.rs::read_displays` is the first code in
-`app/src-tauri/src/` that asks the host anything, which retires the **0** in this document's own
+`richos/app/src-tauri/src/window_geometry.rs` derives the size and position from the work area of the
+display the window opens on. `richos/app/src-tauri/src/main.rs::read_displays` is the first code in
+`richos/app/src-tauri/src/` that asks the host anything, which retires the **0** in this document's own
 method table for that tree. The constant is demoted to a *preference*: a ceiling on a display big
 enough to hold it, and the last resort when no display can be read at all. Quoted as the code
 computes them, on the three displays measured above:
@@ -245,7 +245,7 @@ computes them, on the three displays measured above:
 ```
 
 `1032 = 1080 − 2 × 24` (a 24 pt margin per side). Reproduce with
-`cargo run --example window_placement` from `app/src-tauri` — it reads the real panels and opens no
+`cargo run --example window_placement` from `richos/app/src-tauri` — it reads the real panels and opens no
 window.
 
 **The `unverified:` line above stops mattering, which is better than answering it.** Whatever a
@@ -259,7 +259,7 @@ time he chooses.
 <a id="d3"></a>
 ### D3 — a 2 GiB disk budget on a machine whose disk was never measured
 
-**Where.** `app/crates/richos-core/src/journal.rs:94-96`:
+**Where.** `richos/app/crates/richos-core/src/journal.rs:94-96`:
 
 ```rust
 pub const RAW_RETENTION_DAYS: u64 = 14;
@@ -272,7 +272,7 @@ pub const RAW_MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 machine anything.
 
 **Why it is a defect and not merely a default.** The same repository already does this correctly,
-120 lines of unrelated code away: `tools/richos-service/lib/model-fetch.js:84` calls
+120 lines of unrelated code away: `richos/tools/richos-service/lib/model-fetch.js:84` calls
 `fs.statfsSync(dir)` and refuses a model download that would not fit
 (`model-integrity.js:217 diskPreflight`). **One half of the product asks how much disk there is and
 the other half does not**, and the half that does not is the one that writes continuously.
@@ -295,7 +295,7 @@ looking at the hardware, and a non-technical CEO will never open that config.
 <a id="d4"></a>
 ### D4 — the echo canceller searches half a second, because a desk was measured
 
-**Where.** `app/crates/richos-voice/src/aec.rs:170-172`:
+**Where.** `richos/app/crates/richos-voice/src/aec.rs:170-172`:
 
 ```rust
 /// Longest bulk delay the estimator will look for.
@@ -337,7 +337,7 @@ any headset's latency is to report when the winning lag lands at the boundary.
 <a id="d5"></a>
 ### D5 — the hardware resolver has a bypass, held shut by convention
 
-**Where.** `tools/richos-service/lib/transcribe.js:165` and `:239`:
+**Where.** `richos/tools/richos-service/lib/transcribe.js:165` and `:239`:
 
 ```js
 const modelId = opts.model || DEFAULT_MODEL;
@@ -350,7 +350,7 @@ resolver would have demoted.
 
 **Live today?** No. Both callers pass it: `pipeline.js:110` resolves the tier and `pipeline.js:323`
 forwards `{ model, extraArgs: decodeArgs }`. Verified by enumerating callers —
-`grep -rn 'transcribeClips\|transcribeChannel' tools/richos-service/{lib,bin}` returns two call
+`grep -rn 'transcribeClips\|transcribeChannel' richos/tools/richos-service/{lib,bin}` returns two call
 sites and both pass `model`.
 
 **Why it is still on the list.** The property "the resolver is never bypassed" currently holds
@@ -412,7 +412,7 @@ and only the Metal half is measured.
 <a id="i2"></a>
 ### I2 — ffmpeg `-threads`, default auto: **the vendor default is the hardware-resolving one**
 
-`tools/richos-service/lib/normalize.js:215,235,273,297` invoke ffmpeg without `-threads`. ffmpeg's
+`richos/tools/richos-service/lib/normalize.js:215,235,273,297` invoke ffmpeg without `-threads`. ffmpeg's
 default is `auto`, which derives its thread count from the host at run time. **Here the vendor
 default is the only option in the list that asks the machine**, and pinning it would replace a
 hardware-resolved value with a constant — the defect this whole document is about, introduced in
@@ -488,7 +488,7 @@ fixes above should copy.
 
 ## Part 2 — the check
 
-Fixing this list changes nothing about next month. `engine/scripts/hardware-choice-check.py` is the
+Fixing this list changes nothing about next month. `richos/engine/scripts/hardware-choice-check.py` is the
 check that refuses the next member of the class: a hardware-dependent choice must either be
 resolved at run time or carry a declaration, at the site, saying why a fixed value is correct —
 
@@ -505,7 +505,7 @@ and `--strict` exists with nothing passing it. It independently rediscovered D1 
 and D3; it does not find D4 or D5, so its recall against this enumeration is 3 of 5.
 
 It needs **no hook and no session restart**: `ci-units.sh` discovers `*.test.sh` from disk, so
-`engine/scripts/hardware-choice-check.test.sh` (14 cases) runs on every push to main and on the
+`richos/engine/scripts/hardware-choice-check.test.sh` (14 cases) runs on every push to main and on the
 daily cron the moment it lands.
 
 The corpus, the per-shape rates, the three design changes it forced — including a false negative on

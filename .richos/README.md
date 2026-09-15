@@ -22,7 +22,7 @@ and three declaration dotfiles were three of eleven rows. They are one row now.
 ## The names did not change
 
 The declaration is still called `.publication-boundary` — that is the string
-every guard names in its refusals, the string `engine/README.md` teaches an
+every guard names in its refusals, the string `richos/engine/README.md` teaches an
 adopter, and the string the completeness check derives its own subject list
 from. Only the directory moved, and the leading dot came off on the way in,
 because a hidden file inside a hidden directory is one nobody browsing here
@@ -30,7 +30,7 @@ would ever see.
 
 ## The root form still works
 
-`engine/scripts/lib/declaration-path.sh` is the one place that resolves a
+`richos/engine/scripts/lib/declaration-path.sh` is the one place that resolves a
 declaration, and it looks here first and at the repository root second. Any
 repository that adopted this engine while these files lived at the root keeps
 working, untouched — `femcboost` carries a root `.row-currency` right now.
@@ -52,7 +52,7 @@ next guard invocation refuses by name instead. Nothing else in this directory
 is any of the resolver's business.
 
 A declaration adopting this directory moves its stem from `DECL_FOREIGN_STEMS`
-to `DECL_ADOPTED_STEMS` in `engine/scripts/lib/declaration-path.sh`, in the same
+to `DECL_ADOPTED_STEMS` in `richos/engine/scripts/lib/declaration-path.sh`, in the same
 edit that makes it call `decl_find`. Neither list can silently fall behind:
-`engine/scripts/publication-completeness.sh` derives every declaration this
+`richos/engine/scripts/publication-completeness.sh` derives every declaration this
 engine ships out of shipped source and fails if one appears in neither.

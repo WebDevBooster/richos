@@ -9,7 +9,7 @@ default — is not decided in this directory.
 
 ## Its relationship to the settings rig beside it
 
-[`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10/) settled every `whisper-cli`
+[`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10) settled every `whisper-cli`
 flag on `large-v3-turbo` and pinned the toolchain. Its §6 says the one row that could plausibly
 differ for a quantized model is `-fa`, because flash attention interacts with numeric precision,
 and that if the default moves to q5_0 the `nofa` row should be re-run and nothing else.

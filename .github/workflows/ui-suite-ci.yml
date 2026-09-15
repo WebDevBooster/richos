@@ -1,7 +1,7 @@
 name: ui-suite-ci
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# Read by engine/scripts/lib/ci-surface.py, which judges every workflow on six
+# Read by richos/engine/scripts/lib/ci-surface.py, which judges every workflow on six
 # axes and treats a MISSING declaration as a finding rather than a pass.
 #
 # THE BUDGET IS ARGUED FROM THIS WORKFLOW'S OWN SHARDED RUNS, not from its
@@ -50,7 +50,7 @@ name: ui-suite-ci
 # the number is no longer in this sentence: `run.js` discovers them from disk, so the count
 # is a fact about the directory and writing it here makes a second copy that goes stale.
 #
-# `app/ui/tests/` is the only coverage the CEO's actual screen has — the timeline renderer,
+# `richos/app/ui/tests/` is the only coverage the CEO's actual screen has — the timeline renderer,
 # the correction desk, the feedback channel's privacy guarantee, the affordance rule, the
 # 10,000-item scale promise, and the shell that assembles them. `app-spine-ci.yml` next to
 # this file covers the Rust spine and stops at the wire. `engine-self-verify.yml` covers the
@@ -91,7 +91,7 @@ name: ui-suite-ci
 # WHAT IT DELIBERATELY DOES NOT COVER, named rather than skipped:
 #   - NOTHING, since 2026-09-04. realbytes.js used to be named here and allowed to skip,
 #     because nobody knew whether a fresh `macos-latest` image could afford the `cargo run
-#     --example timeline_payload` behind it — the detached `app/src-tauri` workspace with the
+#     --example timeline_payload` behind it — the detached `richos/app/src-tauri` workspace with the
 #     entire webview dependency tree, estimated at a 1.3 GB build and roughly a quarter of an
 #     hour. The estimate was the reason for the allowance and it was never measured.
 #
@@ -150,7 +150,7 @@ name: ui-suite-ci
 # (44 failures against 16 successes in the last 60), on three suites: affordances.js, which had
 # a removed button's id typed into it in five places; contrast.js, whose absolute whole-page
 # node floors tripped on an unrelated removal from the shell; and docs-claims.js, which was
-# right, and caught app/README.md claiming 196 richos-voice tests where the tree has 210.
+# right, and caught richos/app/README.md claiming 196 richos-voice tests where the tree has 210.
 #
 # HOW LONG IT TAKES, MEASURED, AND WHY THE MATRIX IS FIVE WIDE. The arithmetic is written
 # down where the decision was made, so whoever revisits it is not estimating.
@@ -160,14 +160,14 @@ name: ui-suite-ci
 # last N that buys anything". By 2026-09-10 there were 31 suites, the serial cost had gone from
 # 20m34s to 1792s, and the last N that buys anything was 7. Every sentence in it was true when
 # written. A table of durations is a measurement with a date on it, which is exactly what
-# `app/ui/tests/suite-weights.tsv` now is — one line per suite, re-derivable by command, rather
+# `richos/app/ui/tests/suite-weights.tsv` now is — one line per suite, re-derivable by command, rather
 # than prose that has to be remembered.
 #
 # THE SERIAL BASELINE, run 34435558131 (2026-09-10, 31 suites): job 30m28s, of which the single
 # suite step is 1792s and the whole rest of the job is 24s — checkout 7s, toolchain 1s, `npm ci`
 # 9s with WebKit out of the image cache, nushell 5s, the WebKit probe 1s.
 #
-# THE PACKING, from `app/ui/tests/suite-weights.tsv` — every weight a receipt from run
+# THE PACKING, from `richos/app/ui/tests/suite-weights.tsv` — every weight a receipt from run
 # 34448209503, the first green sharded pass, so they are ONE run's numbers and comparable with
 # each other. Runner serial total 2155s; heaviest suite `splash.js` at 305s.
 # `node run.js --plan=<N>` prints any of these:
@@ -260,30 +260,30 @@ on:
     paths:
       # Every input the suites actually read. This is the one typed list in the file and it
       # is unavoidable — a path filter is YAML, there is nowhere to derive it from. It is
-      # wider than app/ui because docs-claims.js joins app/README.md and app/STREAMING.md to
+      # wider than richos/app/ui because docs-claims.js joins richos/app/README.md and richos/app/STREAMING.md to
       # the Rust tree they describe, and scale.js and steering.js read constants out of
-      # app/src-tauri/src. A miss here costs a run that should have happened, so it errs wide.
+      # richos/app/src-tauri/src. A miss here costs a run that should have happened, so it errs wide.
       #
-      # THE LAST TWO ARE NOT app/ AT ALL, and that is deliberate. `vouch-template.js` joins the
+      # THE LAST TWO ARE NOT richos/app/ AT ALL, and that is deliberate. `vouch-template.js` joins the
       # message the pull-request trust gate sends a stranger — a heredoc inside
       # `vouch-pr.yml` — to the evidence file that claims to record it. A filter that stopped at
-      # `app/` would leave the one suite that watches those two files unrun on every commit that
+      # `richos/app/` would leave the one suite that watches those two files unrun on every commit that
       # touches either of them, which is the whole defect it was written to end.
-      - "app/ui/**"
-      - "app/README.md"
-      - "app/STREAMING.md"
-      - "app/crates/**"
-      - "app/src-tauri/src/**"
+      - "richos/app/ui/**"
+      - "richos/app/README.md"
+      - "richos/app/STREAMING.md"
+      - "richos/app/crates/**"
+      - "richos/app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
       - ".github/workflows/vouch-pr.yml"
       - "docs/verification/pr-trust-gate-2026-09-05/**"
   pull_request:
     paths:
-      - "app/ui/**"
-      - "app/README.md"
-      - "app/STREAMING.md"
-      - "app/crates/**"
-      - "app/src-tauri/src/**"
+      - "richos/app/ui/**"
+      - "richos/app/README.md"
+      - "richos/app/STREAMING.md"
+      - "richos/app/crates/**"
+      - "richos/app/src-tauri/src/**"
       - ".github/workflows/ui-suite-ci.yml"
       - ".github/workflows/vouch-pr.yml"
       - "docs/verification/pr-trust-gate-2026-09-05/**"
@@ -312,7 +312,7 @@ jobs:
   #
   # `run.js --shard=i/N` packs the SAME inventory it has always discovered from disk —
   # longest-first, deterministic — and runs one slice of it. Nothing here names a suite, so a
-  # suite added to `app/ui/tests/` joins a shard on the commit that adds it, exactly as it
+  # suite added to `richos/app/ui/tests/` joins a shard on the commit that adds it, exactly as it
   # already joined the serial run.
   #
   # `fail-fast: false` ON PURPOSE. The default cancels the siblings the moment one shard goes
@@ -333,7 +333,7 @@ jobs:
         shard: [1, 2, 3, 4, 5]
     defaults:
       run:
-        working-directory: app/ui/tests
+        working-directory: richos/app/ui/tests
     env:
       # THE POINT OF THE WHOLE EXERCISE, asserted rather than assumed. Empty is falsy, so
       # `loadPlaywright()` skips the override and resolves `playwright` from this directory's
@@ -412,7 +412,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ui-receipts-${{ matrix.shard }}
-          path: app/ui/tests/receipts/
+          path: richos/app/ui/tests/receipts/
           if-no-files-found: error
           retention-days: 7
 
@@ -420,7 +420,7 @@ jobs:
   # COVERAGE — the only job here that makes a claim about the DIRECTORY.
   #
   # Twelve green ticks are twelve statements. This is the one that says "every suite in
-  # app/ui/tests ran, at this commit, and here is what each one checked" — the sentence the
+  # richos/app/ui/tests ran, at this commit, and here is what each one checked" — the sentence the
   # header at the top of this file promised and that a matrix, on its own, cannot make.
   #
   # `if: always()` because a red shard is exactly when the full picture is worth having, and
@@ -433,7 +433,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: app/ui/tests
+        working-directory: richos/app/ui/tests
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -455,7 +455,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ui-receipts-*
-          path: app/ui/tests/receipts
+          path: richos/app/ui/tests/receipts
 
       # The reconciliation. Refuses unless the union of receipts EQUALS the discovered
       # inventory, every receipt carries this checkout's commit, no suite is receipted twice,

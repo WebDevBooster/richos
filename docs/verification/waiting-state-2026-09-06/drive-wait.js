@@ -29,7 +29,7 @@
 const path = require("path");
 const fs = require("fs");
 
-const UI = path.resolve(__dirname, "..", "..", "..", "app", "ui");
+const UI = path.resolve(__dirname, "..", "..", "..", "richos", "app", "ui");
 const args = process.argv.slice(2);
 const pwArg = (args.find((a) => a.startsWith("--pw=")) || "").slice(5);
 const OUT = args.find((a) => !a.startsWith("--")) || path.join(__dirname, "frames");

@@ -13,7 +13,7 @@ So a row whose reason is "this is the default" is acceptable **only** where the 
 proves it is on disk. Every such row below cites the run.
 
 - The rig, the corpora and their limits: [`README.md`](README.md)
-- The runs: [`measurements/`](measurements/) — `shortcall-sweep.txt`, `longform.txt`,
+- The runs: [`measurements/`](measurements) — `shortcall-sweep.txt`, `longform.txt`,
   `name-hits.txt`, `identical-to-baseline.txt`, `dictation-probe.txt`, `rig-validation.txt`
 - The real command lines: `measurements/raw/*/*.argv*.json`, recorded by the shim from the process
   that ran, never transcribed from source

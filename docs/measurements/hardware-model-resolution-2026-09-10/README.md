@@ -4,8 +4,8 @@ Companion to [`hardware-model-resolution.md`](hardware-model-resolution.md), whi
 this rig exists to support. Read that first; this file is what each tool does and how to re-run it.
 
 **This is a MEASUREMENT of a scope the two rigs beside it do not cover.**
-[`../whisper-model-choice-2026-09-10/`](../whisper-model-choice-2026-09-10/) put two models head to
-head at call length and at 92 minutes; [`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10/)
+[`../whisper-model-choice-2026-09-10/`](../whisper-model-choice-2026-09-10) put two models head to
+head at call length and at 92 minutes; [`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10)
 settled every `whisper-cli` flag. Neither measured **one conversational utterance**, and neither
 measured `small.en` at all — which is the model the live voice path has hardcoded. Nothing here
 changes a flag, a pin, or the CEO decision page §10.

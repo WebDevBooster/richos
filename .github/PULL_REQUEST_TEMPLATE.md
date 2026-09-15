@@ -25,11 +25,11 @@ Name the checks you actually ran and paste the result. "Should be fine" is the
 sentence this section exists to replace.
 
   cd app && cargo test --locked -p richos-core
-  cd app/src-tauri && cargo check --locked
-  bash app/scripts/run-tests.sh                     # macOS only
-  cd app/ui/tests && npm install && npm test
-  bash engine/scripts/run-all-tests.sh              # slow: allow the better part of an hour
-  bash engine/scripts/publication-completeness.sh --root .
+  cd richos/app/src-tauri && cargo check --locked
+  bash richos/app/scripts/run-tests.sh                     # macOS only
+  cd richos/app/ui/tests && npm install && npm test
+  bash richos/engine/scripts/run-all-tests.sh              # slow: allow the better part of an hour
+  bash richos/engine/scripts/publication-completeness.sh --root .
 
 The workflows that run here are path-filtered, so a pull request can
 legitimately finish with no tick at all, and two of the five are disabled for
@@ -49,6 +49,6 @@ whether main is red for the same job. Either way, say what you ran locally.
 ### Only if this touches dependencies
 
 - [ ] The `Cargo.lock` for that workspace is regenerated and committed.
-- [ ] `app/scripts/dependency-license-inventory.sh --check` passes.
+- [ ] `richos/app/scripts/dependency-license-inventory.sh --check` passes.
 - [ ] Anything newly vendored carries its upstream license file and a row in
       `docs/legal/THIRD-PARTY-NOTICES.md`.

@@ -21,7 +21,7 @@ import sys
 LEDGER = os.path.expanduser("~/.claude/state/worktree-ledger.jsonl")
 TXROOT = os.path.expanduser("~/.claude/state/worktree-transactions")
 ENGINE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "engine")
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "richos", "engine")
 
 
 def load(path):

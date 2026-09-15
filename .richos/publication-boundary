@@ -34,7 +34,7 @@
 # with a one-line pointer.
 #
 # THE RULE IS STATED ONCE, and not here, because a mode signal in two places is
-# one that drifts: engine/CLAUDE.md.template, "Writing for a Repository That
+# one that drifts: richos/engine/CLAUDE.md.template, "Writing for a Repository That
 # PUBLISHES — the same doctrine, in two modes". This file is the SIGNAL; that
 # section is the RULE. Read it before writing the next paragraph into this tree.
 #

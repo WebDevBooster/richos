@@ -10,23 +10,23 @@
 #
 # THE THREE SETS, and why they are three:
 #
-#   1. EMBEDDED FRONTEND — `app/src-tauri/build.rs` stages `app/ui` into the directory
+#   1. EMBEDDED FRONTEND — `richos/app/src-tauri/build.rs` stages `richos/app/ui` into the directory
 #      `tauri.conf.json` names as `build.frontendDist`, minus the top-level names in
 #      `UI_NOT_SHIPPED`. `tauri-codegen` then walks that directory filtered on nothing but
 #      `is_dir()` and brotli-compresses every file into the executable. So the set is
-#      `app/ui` minus those names, at any depth, INCLUDING dotfiles and anything untracked
+#      `richos/app/ui` minus those names, at any depth, INCLUDING dotfiles and anything untracked
 #      that happens to be sitting there.
 #
-#   2. COMPILED RUST — `app/src-tauri/src` plus the two path crates it depends on. Only
+#   2. COMPILED RUST — `richos/app/src-tauri/src` plus the two path crates it depends on. Only
 #      code that survives comment-stripping and `#[cfg(test)]` removal can reach a release
 #      binary, which is what `rust-shipped-strings.py` next to this file computes.
 #
-#   3. ENGINE ASSET — what `app/scripts/make-engine-asset.sh` packages, which the customer
+#   3. ENGINE ASSET — what `richos/app/scripts/make-engine-asset.sh` packages, which the customer
 #      downloads from the GitHub release. It is not inside RichOS.app, but it lands on the
 #      same stranger's machine, so it is in scope.
 #
 #      THE RULE CHANGED ON 2026-09-04, AND THIS FOLLOWED IT. The script used to archive ALL
-#      of `engine/` with no exclusions, and that was a finding in its own right: on main, 119
+#      of `richos/engine/` with no exclusions, and that was a finding in its own right: on main, 119
 #      gitignored files went into the download, among them fifteen
 #      `.claude/state/agent-definitions-*.snapshot` carrying a session UUID and the operator's
 #      absolute home path. The script now builds from `git ls-files`, so the shipped set is
@@ -35,7 +35,7 @@
 #      wrong set is a sweep whose empty cells mean nothing.
 #
 # Exit status is always 0: this reports, it does not gate. The gate on the built bundle is
-# `app/scripts/lib/no_host_paths.py`, run by `package-app.sh` before it signs.
+# `richos/app/scripts/lib/no_host_paths.py`, run by `package-app.sh` before it signs.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -51,20 +51,20 @@ row()  { printf '  %-34s %s\n' "$1" "$2"; }
 # ---------------------------------------------------------------------------
 # Set 1 — the embedded frontend, derived from build.rs
 # ---------------------------------------------------------------------------
-DIST="$(sed -n 's/.*"frontendDist"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' app/src-tauri/tauri.conf.json)"
+DIST="$(sed -n 's/.*"frontendDist"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' richos/app/src-tauri/tauri.conf.json)"
 # UI_NOT_SHIPPED, read out of build.rs rather than retyped, so this cannot drift from it.
-EXCL="$(sed -n 's/^const UI_NOT_SHIPPED.*= &\[\(.*\)\];$/\1/p' app/src-tauri/build.rs | tr -d '" ' | tr ',' '\n')"
+EXCL="$(sed -n 's/^const UI_NOT_SHIPPED.*= &\[\(.*\)\];$/\1/p' richos/app/src-tauri/build.rs | tr -d '" ' | tr ',' '\n')"
 
 prune=()
 while IFS= read -r name; do
   [ -n "$name" ] || continue
-  prune+=(-path "app/ui/$name" -o)
+  prune+=(-path "richos/app/ui/$name" -o)
 done <<< "$EXCL"
-find app/ui -mindepth 1 \( "${prune[@]:0:${#prune[@]}-1}" \) -prune -o -type f -print \
+find richos/app/ui -mindepth 1 \( "${prune[@]:0:${#prune[@]}-1}" \) -prune -o -type f -print \
   | LC_ALL=C sort > "$TMP/embedded.txt"
 
 rule "SET 1 — embedded frontend"
-echo "  frontendDist   : $DIST   (build.rs stages app/ui into it, then Tauri embeds it)"
+echo "  frontendDist   : $DIST   (build.rs stages richos/app/ui into it, then Tauri embeds it)"
 echo "  UI_NOT_SHIPPED : $(echo "$EXCL" | tr '\n' ' ')"
 echo "  files          : $(wc -l < "$TMP/embedded.txt" | tr -d ' ')"
 echo "  bytes          : $(tr '\n' '\0' < "$TMP/embedded.txt" | xargs -0 stat -f '%z' | awk '{s+=$1} END {print s}')"
@@ -73,7 +73,7 @@ sed 's/^/    /' "$TMP/embedded.txt"
 # ---------------------------------------------------------------------------
 # Set 2 — the Rust that survives into a release binary
 # ---------------------------------------------------------------------------
-find app/src-tauri/src app/crates/richos-core/src app/crates/richos-voice/src \
+find richos/app/src-tauri/src richos/app/crates/richos-core/src richos/app/crates/richos-voice/src \
      -type f -name '*.rs' | LC_ALL=C sort > "$TMP/rust.txt"
 # shellcheck disable=SC2046
 python3 "$(dirname "${BASH_SOURCE[0]}")/rust-shipped-strings.py" $(cat "$TMP/rust.txt") > "$TMP/rust-shipped.txt"
@@ -91,10 +91,10 @@ echo "  lines after stripping comments and #[cfg(test)] : $(wc -l < "$TMP/rust-s
 git -C "$REPO" ls-files engine | LC_ALL=C sort > "$TMP/engine.txt"
 rule "SET 3 — engine release asset"
 if [ ! -s "$TMP/engine.txt" ]; then
-  echo "  REFUSING: git tracks nothing under engine/ — an empty set would report an empty sweep." >&2
+  echo "  REFUSING: git tracks nothing under richos/engine/ — an empty set would report an empty sweep." >&2
   exit 2
 fi
-echo "  files : $(wc -l < "$TMP/engine.txt" | tr -d ' ')   (what git tracks under engine/, which is what ships)"
+echo "  files : $(wc -l < "$TMP/engine.txt" | tr -d ' ')   (what git tracks under richos/engine/, which is what ships)"
 
 # ---------------------------------------------------------------------------
 # The categories
@@ -119,14 +119,14 @@ hits() {
 # this record was written and are asserted before any category is reported.
 positive_control() {
   local bad=0
-  if ! grep -rq 'g-p-67c804d0' engine/tools/gpt-exporter/content.js; then
-    echo "  SKIP: the control string is gone from engine/tools/gpt-exporter/content.js;" >&2
+  if ! grep -rq 'g-p-67c804d0' richos/engine/tools/gpt-exporter/content.js; then
+    echo "  SKIP: the control string is gone from richos/engine/tools/gpt-exporter/content.js;" >&2
     echo "        re-point positive_control at something that IS present." >&2
     return 0
   fi
-  printf 'engine/tools/gpt-exporter/content.js\n' > "$TMP/control.txt"
+  printf 'richos/engine/tools/gpt-exporter/content.js\n' > "$TMP/control.txt"
   [ -n "$(hits "$TMP/control.txt" -e 'g-p-[0-9a-f]\{16,\}')" ] || { echo "  CONTROL FAILED: hits() finds nothing in a file that contains a match." >&2; bad=1; }
-  printf 'engine/tools/gpt-exporter/LICENSE\n' > "$TMP/control.txt"
+  printf 'richos/engine/tools/gpt-exporter/LICENSE\n' > "$TMP/control.txt"
   [ -n "$(hits "$TMP/control.txt" -e 'Alex Booster')" ] || { echo "  CONTROL FAILED: hits() finds no personal name in the copyright line." >&2; bad=1; }
   [ "$bad" = 0 ] && echo "  control: hits() finds both known-present strings — an empty category below is a real empty."
   return "$bad"
@@ -164,16 +164,16 @@ sweep_set() {
   # not look", which is the failure the positive_control above exists to prevent for every
   # other row.
   local np_checker np_verdict
-  np_checker="$REPO/engine/scripts/named-persons.sh"
+  np_checker="$REPO/richos/engine/scripts/named-persons.sh"
   if [ ! -x "$np_checker" ]; then
-    np_verdict="NOT RUN — the checker is missing at engine/scripts/named-persons.sh"
+    np_verdict="NOT RUN — the checker is missing at richos/engine/scripts/named-persons.sh"
   else
     np_verdict="$(tr '\n' '\0' < "$list" \
-      | python3 "$REPO/engine/scripts/lib/named-persons.py" --scan-file-list 2>/dev/null \
+      | python3 "$REPO/richos/engine/scripts/lib/named-persons.py" --scan-file-list 2>/dev/null \
       | tr '\t' ' ' | tr '\n' '; ')"
     case "$np_verdict" in
       CLEAN*)  np_verdict="none  (a real empty: the deny-list loaded and matched nothing)" ;;
-      ABSENT*) np_verdict="NOT CHECKED — no deny-list on this machine. Run engine/scripts/named-persons.sh --doctor" ;;
+      ABSENT*) np_verdict="NOT CHECKED — no deny-list on this machine. Run richos/engine/scripts/named-persons.sh --doctor" ;;
       BROKEN*) np_verdict="NOT CHECKED — $np_verdict" ;;
     esac
   fi
@@ -201,5 +201,5 @@ rule "BUILT BUNDLES on this machine (class evidence, NOT evidence about HEAD)"
 for b in "$HOME"/.richos-signing/rebuild-survival/builds/*/RichOS.app; do
   [ -d "$b" ] || continue
   echo "  $b"
-  python3 app/scripts/lib/no_host_paths.py "$b" 2>&1 | sed 's/^/    /' | head -8
+  python3 richos/app/scripts/lib/no_host_paths.py "$b" 2>&1 | sed 's/^/    /' | head -8
 done

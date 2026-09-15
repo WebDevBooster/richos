@@ -1,7 +1,7 @@
 name: windows-companion-ci
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# See richos/engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
 # Measured 2026-09-10 over the last 11 runs: min 3s, median 61s, p90 75s,
 # max 81s. The 3s is run #2, which failed at startup and is exactly the shape
 # the HOLLOW axis watches for — it is not evidence of a fast job. The ceiling
@@ -13,7 +13,7 @@ name: windows-companion-ci
 
 # THE FILE THAT TWO README LINES HAVE BEEN CITING SINCE 2026-08-24.
 #
-# `tools/richos-service/companion-windows/README.md` said, twice, that a GitHub
+# `richos/tools/richos-service/companion-windows/README.md` said, twice, that a GitHub
 # Actions workflow at exactly this path compiles the companion on a real
 # `windows-latest` runner — once as the load-bearing first reason for choosing
 # C#/.NET over C++/WinRT ("when the only correctness gate before the CEO is
@@ -74,17 +74,17 @@ name: windows-companion-ci
 # mix/failover, coordination parsing — is the maximum surface a non-capturing
 # host can test, which is exactly why the companion is split in two. Real
 # capture is closed by the CEO on his own machine per
-# `tools/richos-service/companion-windows/WINDOWS-TEST-PROTOCOL.md`; its macOS
+# `richos/tools/richos-service/companion-windows/WINDOWS-TEST-PROTOCOL.md`; its macOS
 # peer is `companion-macos/MACOS-TEST-PROTOCOL.md`.
 
 on:
   push:
     paths:
-      - "tools/richos-service/companion-windows/**"
+      - "richos/tools/richos-service/companion-windows/**"
       - ".github/workflows/windows-companion-ci.yml"
   pull_request:
     paths:
-      - "tools/richos-service/companion-windows/**"
+      - "richos/tools/richos-service/companion-windows/**"
       - ".github/workflows/windows-companion-ci.yml"
   # So the gate can be demanded on a SHA without touching the tree — the first
   # green run has to be attributable to a commit somebody names.
@@ -99,7 +99,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        working-directory: tools/richos-service/companion-windows
+        working-directory: richos/tools/richos-service/companion-windows
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

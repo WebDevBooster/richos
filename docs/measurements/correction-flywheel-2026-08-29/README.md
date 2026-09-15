@@ -65,7 +65,7 @@ tools/rounds.sh <workDir> <richos>/tools/richos-service/lib "$RICHOS_WER_TOOLS"
 ```
 
 or one round at a time with
-`tools/flywheel.mjs <libDir> <corpusDir> <runsDir> <prevTag> <model> <mc> <newTag>`, followed by the
+`richos/tools/flywheel.mjs <libDir> <corpusDir> <runsDir> <prevTag> <model> <mc> <newTag>`, followed by the
 harness's own `consistency.mjs`.
 
 Full round-by-round detail, including every ask and what it scored:
@@ -152,12 +152,12 @@ reasoning about the code:
    abbreviations are now refused outright, with the reason stated. `learn-term` remains the override,
    so a customer genuinely called August is still teachable by explicit instruction.
 
-Beyond the corpus, the doctrine itself is asserted in `tools/richos-service/test/run.js`: no route
+Beyond the corpus, the doctrine itself is asserted in `richos/tools/richos-service/test/run.js`: no route
 out of `reviewSent` carries a learn; `confirm` is the only answer that yields a pair; `decline`
 learns nothing and is asked again on the very next repeat; `never` is permanent and inspectable; and
 `great` → `Grant` — the single most dangerous pair in the system — is asked and never learned.
 
-Reproduce: `tools/precision.mjs <libDir> <corpusDir> <runsDir> <tag> <model> <mc>`.
+Reproduce: `richos/tools/precision.mjs <libDir> <corpusDir> <runsDir> <tag> <model> <mc>`.
 Detail: [`results/precision.txt`](results/precision.txt).
 
 ---
@@ -195,7 +195,7 @@ One writer, one sweeper: open-wispr only ever appends, and the local service's `
 hourly. That is what keeps eviction an `unlink` of a whole day file rather than a rewrite of the
 CEO's speech, and a pass that removes anything says what it removed and why.
 
-Reproduce: `tools/retention-cost.mjs <libDir> <dictationWavDir>`, where the WAV directory is the
+Reproduce: `richos/tools/retention-cost.mjs <libDir> <dictationWavDir>`, where the WAV directory is the
 one `tools/dictation-bias.mjs` writes.
 
 ---
@@ -244,7 +244,7 @@ human statement and is exactly as safe, but is not the mini-HUD §7 describes.
 >
 > **And the "heard" side does not exist on his machine yet.** `~/.config/open-wispr/` holds
 > `config.json`, `hud-backups`, `models` and `recordings` — and no `dictation-journal`. The
-> journal is written by patch 3 (`tools/richos-hud/dictation-flywheel.patch`), which is built and
+> journal is written by patch 3 (`richos/tools/richos-hud/dictation-flywheel.patch`), which is built and
 > documented but is not what is installed. Until it is, the trigger reads an empty directory and
 > is silent by construction. **Nothing about this work should be read as the loop turning on his
 > machine.**

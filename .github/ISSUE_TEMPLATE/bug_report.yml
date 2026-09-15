@@ -27,10 +27,10 @@ body:
     attributes:
       label: Which part
       options:
-        - The application (app/)
-        - The engine — hooks, guards, skills (engine/)
-        - The companion tools (tools/)
-        - Packaging, signing or the updater (app/scripts/, src-tauri/)
+        - The application (richos/app/)
+        - The engine — hooks, guards, skills (richos/engine/)
+        - The companion tools (richos/tools/)
+        - Packaging, signing or the updater (richos/app/scripts/, src-tauri/)
         - Documentation
         - I am not sure
     validations:

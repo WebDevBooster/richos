@@ -10,7 +10,7 @@ measurement that replaces the constant with a rule, and it changes the answer in
 nobody predicted — including whoever wrote the brief for this work, and including me.
 
 **It does not touch the CEO decision page §10, and it does not touch
-[`../whisper-model-choice-2026-09-10/`](../whisper-model-choice-2026-09-10/).** Those record what
+[`../whisper-model-choice-2026-09-10/`](../whisper-model-choice-2026-09-10).** Those record what
 the two call-path models COST and that stands; every figure of theirs quoted below is quoted, not
 re-derived. What changes here is that the choice stops being made once, by hand, for a machine
 nobody has.
@@ -74,7 +74,7 @@ these rows and the transcript column is in the raw output to prove it rather tha
 **The argv is `stt.rs::decode_args(None)` copied verbatim** — `-l en -t 4 -fa -np -nt -mc 0` —
 plus the `-m`/`-f` its caller adds. Not one flag is this rig's invention, and no flag here is
 whisper.cpp's own default taken on trust: each was settled in
-[`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10/) §7 and is pinned explicitly
+[`../whisper-settings-2026-09-10/`](../whisper-settings-2026-09-10) §7 and is pinned explicitly
 in `decode_args` precisely so a Homebrew bump cannot flip it. **This work adds no flag and
 changes no flag.** It changes which `-m` argument gets chosen, and nothing else.
 
@@ -108,7 +108,7 @@ utterance of the day actually costs.
 
 **Read the two bold rows again.** `q5_0` — the more accurate model, the one the call path ships,
 the one a "low-RAM host" was supposedly being protected from — peaks **8,945,664 B lower** than
-`small.en`. The tier table in `tools/richos-service/lib/config.js` calls `small.en` the
+`small.en`. The tier table in `richos/tools/richos-service/lib/config.js` calls `small.en` the
 *"FALLBACK for weak / non-Apple-Silicon / low-RAM hosts."* On the low-RAM axis that sentence is
 measurably false: it is the more expensive of the two. It is a fallback for a **slow** host, and
 that is a different claim needing a different measurement, which is section 3.

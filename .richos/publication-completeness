@@ -2,7 +2,7 @@
 #
 # `.publication-boundary` declares that this repository gets published, and it
 # switches on BOTH contracts: the leak guards (may this leave?) and
-# engine/scripts/publication-completeness.sh (is everything that must be there,
+# richos/engine/scripts/publication-completeness.sh (is everything that must be there,
 # there, and usable by someone who has only the public repo?). This file adds
 # no adoption switch and no thresholds. It carries deliberate, committed,
 # reviewable exemptions and nothing else.
@@ -33,20 +33,20 @@
 # document describing the adopter's. These four trees are the latter, and each
 # is template material by construction rather than by opinion:
 #
-#   engine/reference/      Its own README already says so, in prose: "Cross-file
+#   richos/engine/reference/      Its own README already says so, in prose: "Cross-file
 #                          path references still point at the original layout and
 #                          will not resolve here — that is expected for reference
 #                          material." This line makes that existing declaration
 #                          machine-readable; it grants no new license.
-#   engine/skills/         Skills instruct an agent working in the ADOPTER's repo
+#   richos/engine/skills/         Skills instruct an agent working in the ADOPTER's repo
 #                          (`scripts/railway-api.sh`), name files a skill's own
 #                          run creates (`.claude/product-marketing-context.md`,
 #                          `ceo-wiki/wiki/vision-and-positioning.md`), and cite
 #                          UPSTREAM provenance for vendored skills
 #                          (`skills/taste-skill/SKILL.md` @ 72e2995).
-#   engine/.claude/agents/ Agent definitions are the adopter's team. They name
+#   richos/engine/.claude/agents/ Agent definitions are the adopter's team. They name
 #                          the adopter's own entry points (`scripts/preflight.sh`).
-#   engine/qa-audits/      EXAMPLE_AUDIT.md is a shape to copy; its evidence
+#   richos/engine/qa-audits/      EXAMPLE_AUDIT.md is a shape to copy; its evidence
 #                          screenshots are the adopter's, taken during their audit.
 #
 # THE COST, stated rather than discovered: a genuinely dangling citation inside
@@ -107,7 +107,7 @@
 # reasoning as the second group: they were true on the day, rewriting them would
 # falsify the only thing they are for, and restoring the code to satisfy them
 # would be worse. Exact files.
-CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/ app/ORCHESTRATION-REVIEW.md app/URBAN-P5-RESPONSE.md docs/reviews/sage-fable-r4-owned-outcome-2026-09-09.md docs/reviews/sage-fable-r6-owned-outcome-2026-09-09.md docs/verification/owned-outcome/RESULTS-7.md docs/verification/owned-outcome/REVIEW.md docs/verification/owned-outcome/REVISION-3.md docs/verification/owned-outcome/evidence-r7/review-r6.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-05_21.40.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md docs/plans/worktree-spec-2026-09-11.md docs/verification/certification-frank-2026-09-10.md docs/verification/certification-sage-round2-2026-09-10.md docs/verification/reclaim-round-13-zach-fable-fix2-2026-09-10.md engine/docs/worktree-reclaim-round-10-2026-09-10.md engine/docs/worktree-reclaim-round-11-2026-09-10.md"
+CITATION_EXEMPT="richos/engine/reference/ richos/engine/skills/ richos/engine/.claude/agents/ richos/engine/qa-audits/ richos/app/ORCHESTRATION-REVIEW.md richos/app/URBAN-P5-RESPONSE.md docs/reviews/sage-fable-r4-owned-outcome-2026-09-09.md docs/reviews/sage-fable-r6-owned-outcome-2026-09-09.md docs/verification/owned-outcome/RESULTS-7.md docs/verification/owned-outcome/REVIEW.md docs/verification/owned-outcome/REVISION-3.md docs/verification/owned-outcome/evidence-r7/review-r6.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-05_21.40.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_02.05.md docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-06_03.00.md docs/plans/worktree-spec-2026-09-11.md docs/verification/certification-frank-2026-09-10.md docs/verification/certification-sage-round2-2026-09-10.md docs/verification/reclaim-round-13-zach-fable-fix2-2026-09-10.md richos/engine/docs/worktree-reclaim-round-10-2026-09-10.md richos/engine/docs/worktree-reclaim-round-11-2026-09-10.md"
 # ---------------------------------------------------------------------------
 # A FIFTH GROUP CAME AND WENT (2026-09-12). The round-6 measurement record
 # (docs/verification/round6-measurement-2026-09-12.md) cited the private

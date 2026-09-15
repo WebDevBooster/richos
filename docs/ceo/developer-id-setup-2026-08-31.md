@@ -18,7 +18,7 @@ You do not need to understand any of the words below. Follow the steps.
 
 ## Before you start — the file the tooling made for you
 
-`app/scripts/make-signing-csr.sh` generates the file Apple will ask you to upload, and prints
+`richos/app/scripts/make-signing-csr.sh` generates the file Apple will ask you to upload, and prints
 its path when it finishes. By default it lands at:
 
 ```
@@ -137,7 +137,7 @@ never tested the thing that breaks. So once there is a signed build, the sequenc
 install it, grant the microphone and accessibility, then install the *next* one and check
 that Rich still hears you **without asking for anything**.
 
-There is a harness for it (`app/scripts/rebuild-survival.sh`) and it will do everything it
+There is a harness for it (`richos/app/scripts/rebuild-survival.sh`) and it will do everything it
 can automatically. It cannot see whether a permission dialog appeared on your screen. That
 last part is you, and it takes about thirty seconds.
 

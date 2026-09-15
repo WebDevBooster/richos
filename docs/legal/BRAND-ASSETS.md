@@ -39,24 +39,24 @@ here, and third-party work under its own terms.
 | Path | What it is |
 |---|---|
 | `.github/images/richos-banner.jpg` | The project banner on the repository front page |
-| `app/icon-source/richos-icon.svg` | The application icon, vector master |
-| `app/icon-source/richos-icon-1024.png` | The application icon, raster master |
-| `app/icon-source/preview/richos-icon-1024.png` | Icon preview renders |
-| `app/icon-source/preview/richos-icon-128.png` | Icon preview renders |
-| `app/icon-source/preview/richos-icon-32.png` | Icon preview renders |
-| `app/icon-source/preview/richos-icon-16.png` | Icon preview renders |
-| `app/src-tauri/icons/icon.icns` | Generated macOS icon |
-| `app/src-tauri/icons/icon.ico` | Generated Windows icon |
-| `app/src-tauri/icons/icon.png` | Generated icon |
-| `app/src-tauri/icons/32x32.png` | Generated icon |
-| `app/src-tauri/icons/128x128.png` | Generated icon |
+| `richos/app/icon-source/richos-icon.svg` | The application icon, vector master |
+| `richos/app/icon-source/richos-icon-1024.png` | The application icon, raster master |
+| `richos/app/icon-source/preview/richos-icon-1024.png` | Icon preview renders |
+| `richos/app/icon-source/preview/richos-icon-128.png` | Icon preview renders |
+| `richos/app/icon-source/preview/richos-icon-32.png` | Icon preview renders |
+| `richos/app/icon-source/preview/richos-icon-16.png` | Icon preview renders |
+| `richos/app/src-tauri/icons/icon.icns` | Generated macOS icon |
+| `richos/app/src-tauri/icons/icon.ico` | Generated Windows icon |
+| `richos/app/src-tauri/icons/icon.png` | Generated icon |
+| `richos/app/src-tauri/icons/32x32.png` | Generated icon |
+| `richos/app/src-tauri/icons/128x128.png` | Generated icon |
 | `app/src-tauri/icons/128x128@2x.png` | Generated icon |
-| `app/ui/assets/rich-hand.png` | The Rich Hand avatar artwork |
-| `tools/richos-extension/icons/icon16.png` | The RichOS mark, browser-extension icon |
-| `tools/richos-extension/icons/icon48.png` | The RichOS mark, browser-extension icon |
-| `tools/richos-extension/icons/icon128.png` | The RichOS mark, browser-extension icon |
+| `richos/app/ui/assets/rich-hand.png` | The Rich Hand avatar artwork |
+| `richos/tools/richos-extension/icons/icon16.png` | The RichOS mark, browser-extension icon |
+| `richos/tools/richos-extension/icons/icon48.png` | The RichOS mark, browser-extension icon |
+| `richos/tools/richos-extension/icons/icon128.png` | The RichOS mark, browser-extension icon |
 
-`app/icon-source/README.md` is **not** excluded. It is documentation about how
+`richos/app/icon-source/README.md` is **not** excluded. It is documentation about how
 the icons are produced and it stays under the AGPL like every other document
 here. The exclusion is the artwork, not the prose about the artwork.
 
@@ -69,10 +69,10 @@ geometry of the RichOS mark and wordmark:
 
 | File | Constant | What it encodes |
 |---|---|---|
-| `app/ui/splash.js` | `LOGO` | The RichOS mark, `viewBox 0 0 744 744`, two paths |
-| `app/ui/splash.js` | `WORDMARK` | The v3.5 wordmark, `viewBox 0 0 3299.1 754.5`, seven paths |
-| `app/ui/home.js` | `MARK_SVG` | The same v3.5 wordmark, as inline SVG markup |
-| `app/ui/index.html` | `#rail-wordmark` | The same v3.5 wordmark again, as an inline `<svg>` element with `viewBox 0 0 3299.1 754.5` |
+| `richos/app/ui/splash.js` | `LOGO` | The RichOS mark, `viewBox 0 0 744 744`, two paths |
+| `richos/app/ui/splash.js` | `WORDMARK` | The v3.5 wordmark, `viewBox 0 0 3299.1 754.5`, seven paths |
+| `richos/app/ui/home.js` | `MARK_SVG` | The same v3.5 wordmark, as inline SVG markup |
+| `richos/app/ui/index.html` | `#rail-wordmark` | The same v3.5 wordmark again, as an inline `<svg>` element with `viewBox 0 0 3299.1 754.5` |
 
 They are named by constant or element id rather than by line number because line
 numbers move and a legal boundary that drifts with an unrelated edit is not a
@@ -161,7 +161,7 @@ reasons, extraction becomes free and should be taken then.
 ## Where this is referenced from
 
 - `docs/legal/LICENSING.md` — the licensing overview points here for scope.
-- `engine/LICENSING.md` — the engine's own terms point here for the same reason.
+- `richos/engine/LICENSING.md` — the engine's own terms point here for the same reason.
 - `.github/README.md` — the project front page should link here alongside the
   license and the third-party notices. That link belongs to the README rewrite
   tracked as section 4 of the 2026-09-04 pre-publication audit; this file is

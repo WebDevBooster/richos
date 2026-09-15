@@ -8,7 +8,7 @@ Author: Sage (software architect). Worktree `richos-wt/sage-fable-lc1`, written 
 Inputs reviewed:
 
 - `richos-hq/docs/plans/land-cost-plan-2026-09-09.md` (commit `7ff4a7ad`, 2026-09-09 20:42)
-- `richos/docs/measurements/integrity-suite-cost-2026-09-04/README.md`
+- `docs/measurements/integrity-suite-cost-2026-09-04/README.md`
 
 ## 1. The CEO's question first: has this not already been solved?
 

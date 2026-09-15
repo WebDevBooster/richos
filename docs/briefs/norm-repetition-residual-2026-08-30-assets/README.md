@@ -7,11 +7,11 @@ CEO's own webinar recording, gitignored at `docs/reference/local/`; this reposit
 (`.publication-boundary` at the root). Everything under `measurements/` is offsets, counts and
 verdicts. The one place speech IS quoted anywhere in this work is sample C, which is macOS `say`
 TTS of an invented script and was already committed in full as
-`tools/richos-service/test/fixtures/captured-hallucinations.js`.
+`richos/tools/richos-service/test/fixtures/captured-hallucinations.js`.
 
 Every path inside the scripts points at this session's scratchpad; repoint `SP` to re-run elsewhere.
 
-## `tools/`
+## `richos/tools/`
 
 | File | Purpose |
 |---|---|

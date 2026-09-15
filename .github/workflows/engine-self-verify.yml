@@ -1,7 +1,7 @@
 name: engine-self-verify
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# Read by engine/scripts/lib/ci-surface.py, which judges every workflow on six
+# Read by richos/engine/scripts/lib/ci-surface.py, which judges every workflow on six
 # axes and treats a missing declaration as a finding.
 #
 # THE SKIP LINE BELOW IS THE POINT OF THIS BLOCK. On 2026-09-10 the founder's
@@ -48,22 +48,22 @@ name: engine-self-verify
 #
 # GitHub Actions discovers workflows ONLY in a `.github/workflows/` directory
 # at the REPOSITORY ROOT. Until 2026-08-29 this repository's only copy lived at
-# `engine/.github/workflows/engine-self-verify.yml` — correct as a template for
+# `richos/engine/.github/workflows/engine-self-verify.yml` — correct as a template for
 # an adopter who copies the engine's contents to THEIR root, and completely
 # inert here. It had never executed once: `gh run list` returned nothing at all.
 # Not broken. Unreachable. That is the same defect the engine's own test runner
 # exists to end, one level out: a correct rule with nothing enforcing it.
 #
 # WHAT IT VERIFIES is deliberately NOT written down here. Both this file and the
-# adopter template call `engine/scripts/ci-verify.sh` and `ci-shard.sh`, which
+# adopter template call `richos/engine/scripts/ci-verify.sh` and `ci-shard.sh`, which
 # are the only places the steps and the unit inventory are written — because two
 # YAML files each spelling out the same seven steps is a typed inventory in a
 # different costume, and this engine does not keep those.
 #
-# THE ENGINE LIVES IN A SUBDIRECTORY HERE (`engine/`), because this repository
+# THE ENGINE LIVES IN A SUBDIRECTORY HERE (`richos/engine/`), because this repository
 # also carries the product that loads it by reference. Hence
 # `working-directory: engine`. An adopter who vendored the engine at their root
-# drops that line; the template under `engine/.github/` already has it dropped.
+# drops that line; the template under `richos/engine/.github/` already has it dropped.
 #
 # WHAT THIS RUN CANNOT COVER, stated rather than skipped: the integrity probe's
 # BY-REFERENCE layer set (BR1-BR10). Those layers verify that an operator's
@@ -72,7 +72,7 @@ name: engine-self-verify
 # synthesize it on a runner. They are exercised instead by
 # `scripts/hooks/by-reference.test.sh`, which builds that two-root topology from
 # scratch and which the unit inventory discovers automatically. See
-# `engine/docs/ci-portability-notes.md`.
+# `richos/engine/docs/ci-portability-notes.md`.
 #
 # =========================================================================================
 # 2026-09-10 — THE TRIGGERS ARE BACK, AND WHAT HAD TO EXIST FIRST
@@ -83,7 +83,7 @@ name: engine-self-verify
 # 2026-09-06T19:36:26+01:00 (verified with `gh workflow list --all`, id 345224407); only the
 # triggers were still missing, so the gate could be demanded by hand and could not fire on
 # its own. The full history of how that happened, who switched what off and what was measured
-# at each step, is kept in `engine/docs/ci-sharding.md` rather than here, because this file
+# at each step, is kept in `richos/engine/docs/ci-sharding.md` rather than here, because this file
 # had grown to 200 lines of history above 30 lines of workflow.
 #
 # THE REASON THE TRIGGERS COULD NOT SIMPLY GO BACK was never that they would not work. It was
@@ -104,7 +104,7 @@ name: engine-self-verify
 #      where `affected` is correctly skipped.
 #
 #   2. THE FULL PASS, SHARDED, WITH ITS COVERAGE PROVEN. 123 minutes serial becomes ~16
-#      across twelve shards, and the arithmetic is in `engine/scripts/ci-units.sh`. Splitting
+#      across twelve shards, and the arithmetic is in `richos/engine/scripts/ci-units.sh`. Splitting
 #      a pass introduces a failure the serial runner never had — a shard that runs FEWER units
 #      than it was given still exits 0 — so every unit writes a receipt and the `coverage` job
 #      refuses unless the receipts union to the whole inventory, at ONE commit, with no unit
@@ -122,12 +122,12 @@ name: engine-self-verify
 # finding, and both were proven by execution to be contract regressions:
 # `shell-worktree-sparse.test.sh` passed 21/21 at `6472bb60^` and failed 6 at `4f01e5c7`;
 # `terminalize-agent-worktrees.test.sh` passed 42/42 at `2afb9703^` and failed 11. Neither commit
-# updated the suite it invalidated. They went into `engine/scripts/lib/ci-known-red.tsv` with the
+# updated the suite it invalidated. They went into `richos/engine/scripts/lib/ci-known-red.tsv` with the
 # commit, the failing cases and a 14-day expiry; `zach-opus-cr2` re-specified both and landed at
 # `b4945c11`; and the rows were then deleted NOT because anybody remembered them but because that
 # table's own negative control failed the run over them — a declared unit that PASSES is a row
 # that is now a lie. Twelve days of tolerance granted, fourteen hours used. The table is empty
-# and its rules are kept. See `engine/docs/ci-sharding.md`.
+# and its rules are kept. See `richos/engine/docs/ci-sharding.md`.
 
 on:
   # Back on 2026-09-10. Every push and every pull request gets the fast
@@ -168,7 +168,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # plan — the shard matrix and the affected unit list, both DERIVED
   # ---------------------------------------------------------------------------
-  # The shard count is declared once, in engine/scripts/ci-units.sh, and read
+  # The shard count is declared once, in richos/engine/scripts/ci-units.sh, and read
   # here. It is deliberately not a number typed into this YAML: a matrix length
   # that disagrees with the planner is a set of units nothing runs.
   plan:
@@ -189,7 +189,7 @@ jobs:
 
       - name: Derive the shard plan from the engine, never from this file
         id: derive
-        working-directory: engine
+        working-directory: richos/engine
         run: |
           SHARDS="$(scripts/ci-units.sh shard-count)"
           MATRIX="$(scripts/ci-units.sh matrix "$SHARDS")"
@@ -207,7 +207,7 @@ jobs:
 
       - name: Which units can this diff affect
         id: affected
-        working-directory: engine
+        working-directory: richos/engine
         run: |
           # Skipped when the full pass is running: the mapping walks every suite
           # for every changed path, which is not free, and nothing consumes the
@@ -313,7 +313,7 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.affected_matrix) }}
     defaults:
       run:
-        working-directory: engine
+        working-directory: richos/engine
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -371,7 +371,7 @@ jobs:
           path: /tmp/receipts
           merge-multiple: true
       - name: The affected shards must cover exactly what the diff selected
-        working-directory: engine
+        working-directory: richos/engine
         run: |
           if [ "${{ needs.plan.outputs.run_full }}" = "true" ]; then
             echo "The FULL pass is running on this ref, so the diff-scoped gate was skipped."
@@ -402,7 +402,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        working-directory: engine
+        working-directory: richos/engine
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -465,7 +465,7 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     defaults:
       run:
-        working-directory: engine
+        working-directory: richos/engine
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -519,7 +519,7 @@ jobs:
           path: /tmp/receipts
           merge-multiple: true
       - name: The shards' union must equal the planned inventory
-        working-directory: engine
+        working-directory: richos/engine
         run: |
           echo "shards job result: ${{ needs.shards.result }}"
           # --emit-weights is passed unconditionally. The finding it answers is

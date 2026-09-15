@@ -10,7 +10,7 @@
 // light, and in LIGHT it never cleared the floor at any point of its cycle. The `--live-mark`
 // rows are the replacement, at full opacity in both themes.
 const path = require("path");
-const C = require(path.resolve(__dirname, "..", "..", "..", "app", "ui", "tests", "lib", "contrast.js"));
+const C = require(path.resolve(__dirname, "..", "..", "..", "richos", "app", "ui", "tests", "lib", "contrast.js"));
 
 const GROUND = { dark: { r: 12, g: 19, b: 34, a: 1 }, light: { r: 234, g: 230, b: 221, a: 1 } };
 // `--accent` as `.tl-pulse` used it (the OLD mark), and `--live-mark` (the new one).

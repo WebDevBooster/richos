@@ -29,7 +29,7 @@ const http = require("http");
 // raw/red-before.txt and is the only reason the green one is worth reading.
 const UI_DIR = process.env.RICHOS_UI_DIR
   ? path.resolve(process.env.RICHOS_UI_DIR)
-  : path.resolve(__dirname, "..", "..", "..", "..", "app", "ui");
+  : path.resolve(__dirname, "..", "..", "..", "..", "richos", "app", "ui");
 const OUT_DIR = process.env.RICHOS_OUT_DIR
   ? path.resolve(process.env.RICHOS_OUT_DIR)
   : path.resolve(__dirname, "..", "raw");

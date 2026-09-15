@@ -64,7 +64,7 @@ registry is empty, RichOS asks, and it writes your answer here.
 ```
 
 That example is not typed out here twice. It is `EXAMPLE_ENTITY_REGISTRY_JSON` in
-`app/crates/richos-core/src/entity.rs`, and a test parses that exact string — so a documented
+`richos/app/crates/richos-core/src/entity.rs`, and a test parses that exact string — so a documented
 example the parser would reject cannot survive a build.
 
 | field | required | what it is |
@@ -157,7 +157,7 @@ same list first-run provisioning creates the corpus partitions from.
 
 ## Related
 
-- `app/crates/richos-core/src/entity.rs` — the scope boundary itself, and the loader.
-- `app/crates/richos-core/examples/fresh_user_first_run.rs` — a runnable walk through a
+- `richos/app/crates/richos-core/src/entity.rs` — the scope boundary itself, and the loader.
+- `richos/app/crates/richos-core/examples/fresh_user_first_run.rs` — a runnable walk through a
   profile with no configuration reaching a working conversation.
   `cargo run -p richos-core --example fresh_user_first_run`

@@ -77,7 +77,7 @@ included later revocation, a real typed answer, peer and hook claims of approval
 a programmatic answer, mixed-source context and an unrelated pending decision.
 Source and executable hashes remained unchanged during the corpus.
 
-Inputs, original outputs and identities are in [semantic/](evidence-r4/semantic/).
+Inputs, original outputs and identities are in [semantic/](evidence-r4/semantic).
 This establishes registration behavior, not native execution completion.
 
 ## Real-provider desktop execution

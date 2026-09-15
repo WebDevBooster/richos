@@ -21,10 +21,10 @@ independent places so that no single cleanup can destroy them.
 
 Branched from `28f07ab53a3d`. Touches four files:
 
-- `app/crates/richos-core/src/doctrine.rs` — merges cleanly
-- `app/README.md` — **conflicts**
-- `app/crates/richos-core/doctrine/inner-doctrine.md` — **conflicts**
-- `app/crates/richos-core/tests/action_ledger_tests.rs` — **conflicts**
+- `richos/app/crates/richos-core/src/doctrine.rs` — merges cleanly
+- `richos/app/README.md` — **conflicts**
+- `richos/app/crates/richos-core/doctrine/inner-doctrine.md` — **conflicts**
+- `richos/app/crates/richos-core/tests/action_ledger_tests.rs` — **conflicts**
 
 ## Why it does not just merge
 

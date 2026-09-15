@@ -13,7 +13,7 @@
         "name": "RichOS"
       },
       "category": "orchestration",
-      "source": "./engine"
+      "source": "./richos/engine"
     }
   ]
 }

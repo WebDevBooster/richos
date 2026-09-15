@@ -1,7 +1,7 @@
 name: app-voice-ci
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# See richos/engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
 # Measured 2026-09-10 over the last 25 runs: min 45s, median 125s, p90 165s,
 # max 192s. The ceiling is roughly twice the p90. This one is a macOS runner
 # and its variance is genuinely wider than the ubuntu jobs', which is why its
@@ -187,13 +187,13 @@ name: app-voice-ci
 # M4 the whole thing is 44 s cold, and a runner adds a cold registry fetch of about 40 crates
 # plus slower cores, which should put it in the low single-digit minutes against the 20 below.
 #
-# THE PATH FILTER IS SCOPED, and `app/crates/richos-core/**` is in it on purpose rather than
+# THE PATH FILTER IS SCOPED, and `richos/app/crates/richos-core/**` is in it on purpose rather than
 # by copy-paste. `cargo test -p richos-voice` compiles the crate's examples, and
 # `examples/voice_loop.rs` binds richos-core's `native`, `ledger`, `spine` and `stream` APIs.
 # A change to richos-core can therefore break this build while app-spine-ci.yml stays green,
 # because that job never compiles anything in this crate. Leaving core out would have made
 # the filter cheaper and the gate walkable — the same defect app-spine-ci.yml fixed on
-# 2026-09-04 by adding `app/Cargo.lock` to its own paths.
+# 2026-09-04 by adding `richos/app/Cargo.lock` to its own paths.
 #
 # ===========================================================================================
 # WHAT THIS RUN HAS NEVER DONE
@@ -208,22 +208,22 @@ name: app-voice-ci
 on:
   push:
     paths:
-      - "app/crates/richos-voice/**"
+      - "richos/app/crates/richos-voice/**"
       # Not decoration: `cargo test -p richos-voice` builds examples/voice_loop.rs, which
       # binds richos-core's API. See "WHAT THIS COSTS" above.
-      - "app/crates/richos-core/**"
-      - "app/Cargo.toml"
+      - "richos/app/crates/richos-core/**"
+      - "richos/app/Cargo.toml"
       # The lockfile is an input, and `--locked` below turns it into something this job can
       # REFUSE. A `cargo update` touches the lock and nothing else; without this line that
       # commit passes by never reaching the only macOS job that judges it.
-      - "app/Cargo.lock"
+      - "richos/app/Cargo.lock"
       - ".github/workflows/app-voice-ci.yml"
   pull_request:
     paths:
-      - "app/crates/richos-voice/**"
-      - "app/crates/richos-core/**"
-      - "app/Cargo.toml"
-      - "app/Cargo.lock"
+      - "richos/app/crates/richos-voice/**"
+      - "richos/app/crates/richos-core/**"
+      - "richos/app/Cargo.toml"
+      - "richos/app/Cargo.lock"
       - ".github/workflows/app-voice-ci.yml"
   # So the gate can be demanded on a SHA without touching the tree — the first green run has
   # to be attributable to a commit somebody names.
@@ -238,7 +238,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: app
+        working-directory: richos/app
     env:
       # A first red run should be diagnosable from the log alone rather than from a re-run.
       RUST_BACKTRACE: "1"
@@ -319,13 +319,13 @@ jobs:
 
       # THE GATE. Unit tests, both integration suites, and the doctests. `--locked` is the
       # point of the flag rather than a flourish: it makes this job REFUSE a run that would
-      # have to resolve a version dynamically, which is what turns `app/Cargo.lock` from
+      # have to resolve a version dynamically, which is what turns `richos/app/Cargo.lock` from
       # decoration into an input. A red run reading "the lock file needs to be updated" means
       # a manifest changed without its lockfile in the same commit; the fix is `cargo update
-      # -p <crate>` in `app/` and committing the result, never dropping the flag.
+      # -p <crate>` in `richos/app/` and committing the result, never dropping the flag.
       #
-      # The count is deliberately not written here. `app/README.md` states it, and
-      # `app/ui/tests/docs-claims.js` holds that statement to the tree by counting `#[test]`
+      # The count is deliberately not written here. `richos/app/README.md` states it, and
+      # `richos/app/ui/tests/docs-claims.js` holds that statement to the tree by counting `#[test]`
       # off disk — so the authoritative copy has a checker and a copy in this comment would
       # not. app-spine-ci.yml removed its own count for the same reason after it was wrong
       # three times in a week.

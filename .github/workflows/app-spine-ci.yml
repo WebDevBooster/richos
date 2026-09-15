@@ -1,7 +1,7 @@
 name: app-spine-ci
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# Read by engine/scripts/lib/ci-surface.py, which judges every workflow in
+# Read by richos/engine/scripts/lib/ci-surface.py, which judges every workflow in
 # every governed repository on six axes and treats a MISSING declaration as a
 # finding. What each means, and why absence is never a pass, is in that file's
 # header. Measured 2026-09-10 over the last 30 runs: min 52s, median 88s,
@@ -9,19 +9,19 @@ name: app-spine-ci
 # never to fire on ordinary variance, low enough that a doubling gets noticed
 # while it is still a doubling. The job's own timeout-minutes is 20.
 # ci-budget: 5m
-# ci-evidence: `cargo test --locked -p richos-core` runs the crate's own suite, and --locked makes app/Cargo.lock an input this job can REFUSE rather than silently accept
+# ci-evidence: `cargo test --locked -p richos-core` runs the crate's own suite, and --locked makes richos/app/Cargo.lock an input this job can REFUSE rather than silently accept
 # ---------------------------------------------------------------------------
 
 # THE PRODUCT'S OWN TESTS HAVE NEVER BEEN RUN BY ANY TOOLING.
 #
-# `app/README.md` has documented `cargo test -p richos-core` as the spine's gate
+# `richos/app/README.md` has documented `cargo test -p richos-core` as the spine's gate
 # since the crate existed, and it is real — no network, no native dependencies, a
 # couple of seconds. THE COUNT IS DELIBERATELY NOT WRITTEN HERE ANY MORE. It was
 # 342 when this file was written, 375 by the end of that day, and 696 on
 # 2026-09-04 after the entity registry stopped being compiled in; three numbers
-# in a week, in a comment nothing checks. `app/ui/tests/docs-claims.js` holds the
+# in a week, in a comment nothing checks. `richos/app/ui/tests/docs-claims.js` holds the
 # count to the tree wherever a DOCUMENT states it, so the authoritative copy
-# lives in `app/README.md` and this file names the command instead of the
+# lives in `richos/app/README.md` and this file names the command instead of the
 # arithmetic. But `grep -rn "cargo test"` across this
 # repository's scripts and workflows returns README prose and nothing else. The
 # two workflows that existed verified the ENGINE and the Windows companion. The
@@ -35,7 +35,7 @@ name: app-spine-ci
 # would have been exactly that kind of check — four careful assertions about an
 # absence, in a file no tool opened.
 #
-# WHY NOT ADD IT TO engine/scripts/ci-verify.sh, which would have been fewer
+# WHY NOT ADD IT TO richos/engine/scripts/ci-verify.sh, which would have been fewer
 # files. Because the engine is copied wholesale by adopters who do not have this
 # product in their tree, and a step that runs `cargo test -p richos-core` would
 # be broken for every one of them. The engine verifies the engine. This verifies
@@ -76,7 +76,7 @@ name: app-spine-ci
 #     `docs/verification/voice-ci-2026-09-05/`. It is corrected here rather than
 #     left standing because a document whose subject moved is the defect this
 #     directory keeps paying for.
-#   - app/src-tauri. A deliberately detached workspace with the whole webview
+#   - richos/app/src-tauri. A deliberately detached workspace with the whole webview
 #     dependency tree behind it, kept out of the spine's test path on purpose.
 #   - The live ACP round-trip, which needs a signed-in `claude` CLI.
 #   - THE POSITIVE HALF OF THE ANTHROPIC SIGNATURE PIN, which this job printed
@@ -99,22 +99,22 @@ name: app-spine-ci
 on:
   push:
     paths:
-      - "app/crates/richos-core/**"
-      - "app/Cargo.toml"
+      - "richos/app/crates/richos-core/**"
+      - "richos/app/Cargo.toml"
       # THE LOCKFILE IS AN INPUT, so a change to it has to be able to start the
-      # only job that judges it. `--locked` below turns `app/Cargo.lock` into a
+      # only job that judges it. `--locked` below turns `richos/app/Cargo.lock` into a
       # thing this job can REFUSE, and a `cargo update` touches the lock and
       # nothing else — without this line that commit passes CI by never
       # reaching it. Tracked since 2026-09-04; added here the same day, because
       # a gate you can walk around is the shape of defect this repository keeps
       # paying for.
-      - "app/Cargo.lock"
+      - "richos/app/Cargo.lock"
       - ".github/workflows/app-spine-ci.yml"
   pull_request:
     paths:
-      - "app/crates/richos-core/**"
-      - "app/Cargo.toml"
-      - "app/Cargo.lock"
+      - "richos/app/crates/richos-core/**"
+      - "richos/app/Cargo.toml"
+      - "richos/app/Cargo.lock"
       - ".github/workflows/app-spine-ci.yml"
   # So the gate can be demanded on a SHA without touching the tree — the first
   # green run has to be attributable to a commit somebody names.
@@ -129,7 +129,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: app
+        working-directory: richos/app
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -138,7 +138,7 @@ jobs:
       # and no third-party action in the chain.
       #
       # EVERY cargo step below passes --locked, and that is the point of the step
-      # rather than a flourish. `app/Cargo.lock` was gitignored until 2026-09-04,
+      # rather than a flourish. `richos/app/Cargo.lock` was gitignored until 2026-09-04,
       # so this job resolved 108 packages to whatever was current on the morning
       # it ran and a green run said nothing about the versions anybody else would
       # get. The lockfile is now tracked; --locked is what makes this job REFUSE a
@@ -147,7 +147,7 @@ jobs:
       #
       # A red run here reading "the lock file needs to be updated" means a
       # manifest changed without its lockfile in the same commit. The fix is
-      # `cargo update -p <crate>` (or a plain build) in `app/` and committing the
+      # `cargo update -p <crate>` (or a plain build) in `richos/app/` and committing the
       # resulting `Cargo.lock` — never dropping the flag.
       - name: Toolchain
         run: |

@@ -3,7 +3,7 @@ name: packaging-ci
 # THE SIGNING SCRIPTS HAD NO GATE, AND SIGNING IS THE ONE THING THAT IS WRONG FOR
 # WEEKS BEFORE ANYBODY FINDS OUT.
 #
-# `app/scripts/package-app.sh` decides how RichOS is signed, whether it is
+# `richos/app/scripts/package-app.sh` decides how RichOS is signed, whether it is
 # notarized, and whether the CEO's microphone permission survives the next build.
 # Until this file existed, the only thing that ever ran it was a person deciding to
 # cut a release — which is the last possible moment to discover that a refusal
@@ -11,7 +11,7 @@ name: packaging-ci
 # browser suites and the engine; between them there was nothing pointed at the
 # release path.
 #
-# WHAT IT ACTUALLY RUNS. `app/scripts/run-tests.sh`, which discovers every
+# WHAT IT ACTUALLY RUNS. `richos/app/scripts/run-tests.sh`, which discovers every
 # `*.test.sh` in that directory from disk. The step list is deliberately not spelled
 # out here: two places naming the same set is the typed-inventory defect in YAML,
 # and this repository has now paid for that five times.
@@ -131,46 +131,46 @@ name: packaging-ci
 # suite growing from eleven minutes to twenty is disagreed with.
 # ci-budget: 15m
 #
-# WHAT MAKES ITS GREEN LOAD-BEARING. `app/scripts/run-tests.sh` discovers every
+# WHAT MAKES ITS GREEN LOAD-BEARING. `richos/app/scripts/run-tests.sh` discovers every
 # `*.test.sh` beside it FROM DISK — there is no list in this YAML to fall out of
 # step — refuses an empty inventory with exit 2 rather than reporting "all 0
 # suites passed", and prints the corpus it judged. Its closing line on run
 # 34772213352, quoted rather than described:
 #
-#   === app/scripts: 8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh ===
+#   === richos/app/scripts: 8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh ===
 #
 # The one gap is NAMED because the harness refuses to hide it: an undeclared
 # gap is red, and a declaration whose suite has started answering is ALSO red,
 # so the allowance cannot outlive the host limitation that earned it. A suite
 # that printed `FAIL <case>` is counted failed no matter what any declaration
 # says. That is a green somebody can read the size of.
-# ci-evidence: app/scripts/run-tests.sh discovers every *.test.sh beside it from disk (no list in this YAML to drift), refuses an empty inventory with exit 2 rather than "all 0 suites passed", and prints the corpus it judged — run 34772213352 closed with "8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh", where an undeclared gap is red AND a declaration whose suite has started answering is red, so the green states its own size and its own hole
+# ci-evidence: richos/app/scripts/run-tests.sh discovers every *.test.sh beside it from disk (no list in this YAML to drift), refuses an empty inventory with exit 2 rather than "all 0 suites passed", and prints the corpus it judged — run 34772213352 closed with "8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh", where an undeclared gap is red AND a declaration whose suite has started answering is red, so the green states its own size and its own hole
 # ---------------------------------------------------------------------------
 
 on:
   # THE TRIGGERS ARE BACK, AND THE PATH LIST IS THE ONE TYPED THING IN THIS FILE.
   # A path filter is YAML and there is nowhere to derive it from — `ui-suite-ci.yml` says
-  # the same about its own. So it errs WIDE: all of `app/`, because these suites read the
+  # the same about its own. So it errs WIDE: all of `richos/app/`, because these suites read the
   # scripts, the manifests, the plists, the capabilities and the frontend exclusion list,
   # and a miss here costs a run that should have happened. The engine entries are narrow
-  # and named: `make-release.sh` derives the asset name from `engine/VERSION` and runs
+  # and named: `make-release.sh` derives the asset name from `richos/engine/VERSION` and runs
   # `named-persons.sh` as the release's last gate before any artifact exists.
   push:
     paths:
-      - "app/**"
-      - "engine/VERSION"
-      - "engine/scripts/named-persons.sh"
-      - "engine/scripts/lib/named-persons.sh"
-      - "engine/scripts/lib/named-persons.py"
+      - "richos/app/**"
+      - "richos/engine/VERSION"
+      - "richos/engine/scripts/named-persons.sh"
+      - "richos/engine/scripts/lib/named-persons.sh"
+      - "richos/engine/scripts/lib/named-persons.py"
       - "LICENSE"
       - ".github/workflows/packaging-ci.yml"
   pull_request:
     paths:
-      - "app/**"
-      - "engine/VERSION"
-      - "engine/scripts/named-persons.sh"
-      - "engine/scripts/lib/named-persons.sh"
-      - "engine/scripts/lib/named-persons.py"
+      - "richos/app/**"
+      - "richos/engine/VERSION"
+      - "richos/engine/scripts/named-persons.sh"
+      - "richos/engine/scripts/lib/named-persons.sh"
+      - "richos/engine/scripts/lib/named-persons.py"
       - "LICENSE"
       - ".github/workflows/packaging-ci.yml"
   # So the gate can still be demanded on a named SHA. It could not be while the workflow
@@ -250,8 +250,8 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/tauri-cli/cargo-tauri" "$HOME/.cargo/bin/cargo-tauri"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           # Proven, not assumed: cargo has to be able to REACH it as a subcommand, which is
-          # how every caller in app/scripts invokes it.
+          # how every caller in richos/app/scripts invokes it.
           PATH="$HOME/.cargo/bin:$PATH" cargo tauri --version
 
-      - name: app/scripts suites
-        run: bash app/scripts/run-tests.sh
+      - name: richos/app/scripts suites
+        run: bash richos/app/scripts/run-tests.sh

@@ -33,7 +33,7 @@ HQ = "/Users/alex/ab/richos-hq"
 # Resolved from this file, never typed: run inside a worktree it must
 # measure THAT tree's predicate, or the number is about code nobody has.
 PREDICATE = str(pathlib.Path(__file__).resolve().parents[3]
-                / "engine" / "scripts" / "lib" / "row-currency.py")
+                / "richos" / "engine" / "scripts" / "lib" / "row-currency.py")
 REC = "wiki/open-items.md"
 
 spec = importlib.util.spec_from_file_location("rc", PREDICATE)

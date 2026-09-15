@@ -68,7 +68,7 @@ against that upstream rather than carried forward.
 `docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` is the inventory of what is
 COMPILED IN: every Rust package the tracked lockfiles resolve, with its
 version, its declared license and whether it reaches a macOS binary. It is
-generated from the lockfiles by `app/scripts/dependency-license-inventory.sh`
+generated from the lockfiles by `richos/app/scripts/dependency-license-inventory.sh`
 and keyed to their sha256, so it describes a graph anybody can reproduce. Two
 documents rather than one because provenance is hand-verified and a resolved
 graph is derived, and a file that mixes the two invites the derived half to be
@@ -79,14 +79,14 @@ trusted as far as the hand-checked half.
 | Context | Path | How it gets there |
 |---|---|---|
 | This repository | `LICENSE` | Committed. Canonical. Never edited. |
-| The standalone engine release asset | `LICENSE`, at the top of the archive's engine directory | Copied at packaging time by `app/scripts/make-engine-asset.sh`, then read back out of the built archive and compared to the canonical file before the build is accepted |
+| The standalone engine release asset | `LICENSE`, at the top of the archive's engine directory | Copied at packaging time by `richos/app/scripts/make-engine-asset.sh`, then read back out of the built archive and compared to the canonical file before the build is accepted |
 
 There is exactly **one** committed copy of the license text. A second committed
 copy is a file that can drift from the canonical one with nothing to catch it,
 which is why the engine asset's copy is produced by packaging and verified,
 rather than checked in and trusted.
 
-`app/scripts/make-engine-asset.test.sh` is the gate: it builds the archive,
+`richos/app/scripts/make-engine-asset.test.sh` is the gate: it builds the archive,
 opens it, and refuses if the license text is missing, if it is not
 byte-identical to the root file, if the third-party notices are absent, or if
 any bundled third-party directory has lost its own license file.
@@ -98,7 +98,7 @@ any bundled third-party directory has lost its own license file.
 - `docs/legal/THIRD-PARTY-NOTICES.md` — bundled third-party work and its terms.
 - `docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md` — the generated per-package
   inventory of every compiled Rust dependency, keyed to the lockfile digests.
-- `engine/LICENSING.md` — the same story scoped to the engine, which is
+- `richos/engine/LICENSING.md` — the same story scoped to the engine, which is
   distributed on its own and therefore has to be able to answer for itself.
 
 ## For anyone adding code or a dependency

@@ -76,15 +76,15 @@ there is more than one line of development to support.
 
 Anything in this repository that a RichOS user relies on:
 
-- **The application** (`app/`) — the Tauri shell, the `richos-core` runtime
-  spine, and the voice pipeline. The update path in `app/src-tauri/src/updates.rs`
+- **The application** (`richos/app/`) — the Tauri shell, the `richos-core` runtime
+  spine, and the voice pipeline. The update path in `richos/app/src-tauri/src/updates.rs`
   is the highest-value target in the tree: it is what stands between a manifest
   URL and code running on somebody's Mac.
-- **The engine** (`engine/`) — hooks, guards, the installer and the skills it
+- **The engine** (`richos/engine/`) — hooks, guards, the installer and the skills it
   ships. A guard that can be made to pass while doing nothing is a real finding,
   not a cosmetic one.
-- **The companion tools** (`tools/`).
-- **The packaging and signing path** (`app/scripts/`).
+- **The companion tools** (`richos/tools/`).
+- **The packaging and signing path** (`richos/app/scripts/`).
 
 Reports about the *absence* of a protection are welcome. So are reports about a
 check that fires green while verifying nothing — that class of defect has cost
@@ -96,7 +96,7 @@ Reporting these is not useful, because they are already written down. They are
 listed so nobody spends an evening on them.
 
 - **No release exists yet for the updater to find.**
-  `app/src-tauri/tauri.conf.json` points at this repository's GitHub Releases,
+  `richos/app/src-tauri/tauri.conf.json` points at this repository's GitHub Releases,
   and until the first release is published that URL answers 404. Every
   downloaded byte is verified against a compiled-in minisign public key before
   anything is installed, so an update that cannot be verified is refused rather
@@ -141,7 +141,7 @@ found, because both fetch code that then runs:
 
 - **First-run setup downloads Anthropic's own installer** from
   `https://claude.ai/install.sh` and runs it
-  (`app/crates/richos-core/src/setup.rs`). RichOS never rewrites, re-signs or
+  (`richos/app/crates/richos-core/src/setup.rs`). RichOS never rewrites, re-signs or
   nests that binary. The URL is a constant in the source; nothing chooses it at
   runtime.
 - **The engine asset is fetched from a compile-time pin.** `RICHOS_ENGINE_URL`,

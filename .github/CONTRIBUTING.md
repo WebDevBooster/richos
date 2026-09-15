@@ -135,30 +135,30 @@ of this.
 
 ### Run the checks that exist
 
-The authoritative build-and-test documentation is `app/README.md`; this is the
+The authoritative build-and-test documentation is `richos/app/README.md`; this is the
 short path, not a second copy of it.
 
 ```sh
 # The runtime spine. Seconds, no network, no native dependencies.
-cd app && cargo test --locked -p richos-core
+(cd richos/app && cargo test --locked -p richos-core)
 
 # The Tauri shell. A detached workspace with its own lockfile.
-cd app/src-tauri && cargo check --locked
+(cd richos/app/src-tauri && cargo check --locked)
 
 # The packaging and signing suites. macOS only, and they say so rather
 # than skipping on other platforms.
-bash app/scripts/run-tests.sh
+bash richos/app/scripts/run-tests.sh
 
 # The browser suites for the frontend.
-cd app/ui/tests && npm install && npm test
+(cd richos/app/ui/tests && npm ci && npm test)
 
 # The engine's own suites. Be warned: this is not a quick check —
 # the contract-integrity suite alone runs for the better part of an hour.
-bash engine/scripts/run-all-tests.sh
+bash richos/engine/scripts/run-all-tests.sh
 ```
 
-**`--locked` is not optional and not decoration.** Both `app/Cargo.lock` and
-`app/src-tauri/Cargo.lock` are tracked, and the flag makes cargo *refuse* to
+**`--locked` is not optional and not decoration.** Both `richos/app/Cargo.lock` and
+`richos/app/src-tauri/Cargo.lock` are tracked, and the flag makes cargo *refuse* to
 resolve a version dynamically instead of quietly doing it. If a command fails
 with "the lock file needs to be updated", the fix is to update and commit the
 lockfile, never to drop the flag.
@@ -172,8 +172,8 @@ Three things belong in the same commit:
 3. a regenerated dependency inventory:
 
 ```sh
-app/scripts/dependency-license-inventory.sh          # regenerate
-app/scripts/dependency-license-inventory.sh --check  # must pass
+richos/app/scripts/dependency-license-inventory.sh          # regenerate
+richos/app/scripts/dependency-license-inventory.sh --check  # must pass
 ```
 
 The generator **refuses** to produce a document if a new package declares no
@@ -194,7 +194,7 @@ that directory saying how.
 ### If your change adds or removes a file the documentation cites
 
 ```sh
-bash engine/scripts/publication-completeness.sh --root .
+bash richos/engine/scripts/publication-completeness.sh --root .
 ```
 
 It fails on a document that cites a file the published tree does not contain.
@@ -248,4 +248,4 @@ from.
 - `.github/workflows/vouch-pr.yml` — the workflow that enforces it, and its own
   account of how it fails.
 - `.github/workflows/README.md` — which workflows run, which do not, and why.
-- `app/README.md` — the application's own build, layout and test documentation.
+- `richos/app/README.md` — the application's own build, layout and test documentation.

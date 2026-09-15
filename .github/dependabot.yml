@@ -26,13 +26,13 @@
 #   |                              |   "conflicting-dependencies": [] }        |
 #
 # One open alert, GHSA-wrw7-89jp-8q8g, medium, against
-# `app/src-tauri/Cargo.lock`. Measured with `gh api repos/WebDevBooster/richos/
+# `richos/app/src-tauri/Cargo.lock`. Measured with `gh api repos/WebDevBooster/richos/
 # dependabot/alerts`.
 #
 # WE DO NOT CONTROL THAT VERSION. glib 0.18.5 is not a direct dependency and is
 # not in any Cargo.toml here. It arrives underneath Tauri v2's LINUX backend —
 # every one of these pins it at the 0.18 line, read out of
-# app/src-tauri/Cargo.lock:
+# richos/app/src-tauri/Cargo.lock:
 #
 #   gtk 0.18.2   gdk 0.18.2   gdkx11 0.18.2   gdk-pixbuf 0.18.5
 #   atk 0.18.2   cairo-rs 0.18.5   pango 0.18.3   gio 0.18.4
@@ -72,7 +72,7 @@
 # REVIEW TRIGGER, so this cannot quietly become permanent: when Tauri v2 moves
 # to the gtk-rs 0.20 generation, DELETE the ignore entry below and let
 # Dependabot raise the update. Check with
-# `cargo tree -i glib` in app/src-tauri, or simply notice that
+# `cargo tree -i glib` in richos/app/src-tauri, or simply notice that
 # `latest-resolvable-version` in a future run is no longer 0.18.5.
 # ===========================================================================
 # THE DECLARATIONS `ci-status.sh` READS FOR dynamic/dependabot/dependabot-updates
@@ -106,12 +106,12 @@ version: 2
 updates:
   # Rust — the Tauri shell. This is the tree the open alert is in.
   #
-  # It is a DELIBERATELY DETACHED nested workspace (app/Cargo.toml's comment
+  # It is a DELIBERATELY DETACHED nested workspace (richos/app/Cargo.toml's comment
   # explains why: the heavy webview tree must never gate `cargo test -p
   # richos-core`), so it needs its own entry. A single entry at `/app` would
   # not see it.
   - package-ecosystem: cargo
-    directory: /app/src-tauri
+    directory: /richos/app/src-tauri
     schedule:
       interval: weekly
       day: monday
@@ -138,18 +138,18 @@ updates:
   # native-dependency-free, and the one `app-spine-ci.yml` gates with
   # `cargo test --locked -p richos-core`.
   - package-ecosystem: cargo
-    directory: /app
+    directory: /richos/app
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
 
   # Rust — the user-update crate. A detached lock file of its own
-  # (app/crates/richos-user-update/Cargo.lock) and NOT a member of app/'s
+  # (richos/app/crates/richos-user-update/Cargo.lock) and NOT a member of richos/app/'s
   # workspace, whose members list is exactly ["crates/richos-core",
   # "crates/richos-voice"]. The entry above would therefore never reach it.
   - package-ecosystem: cargo
-    directory: /app/crates/richos-user-update
+    directory: /richos/app/crates/richos-user-update
     schedule:
       interval: weekly
       day: monday
@@ -159,7 +159,7 @@ updates:
   # an omission that is not written down is indistinguishable from an oversight,
   # and the whole point of this file is that nothing here is left to a default.
   #
-  # tools/native-claude-stdio/ has its own Cargo.lock and its own detached
+  # richos/tools/native-claude-stdio/ has its own Cargo.lock and its own detached
   # [workspace] table, and its first line reads:
   #
   #   # SPIKE ONLY — not a workspace member, not shipped, not built by any gate.

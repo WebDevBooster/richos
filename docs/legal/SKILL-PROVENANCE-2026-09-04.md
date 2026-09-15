@@ -1,6 +1,6 @@
-# Skill provenance — `engine/skills/`, 2026-09-04
+# Skill provenance — `richos/engine/skills/`, 2026-09-04
 
-`engine/skills/` holds **27 skills**. Six were already documented in
+`richos/engine/skills/` holds **27 skills**. Six were already documented in
 `docs/legal/THIRD-PARTY-NOTICES.md` as third-party. This pass answers the
 question the other twenty-one left open: **for each of the 27, did RichOS write
 it?**
@@ -32,7 +32,7 @@ Four independent methods. Each row below says which one settled it.
 2. **Arrival history in the two repositories that actually hold it.** This
    repository's git history **cannot answer provenance for anything predating
    2026-08-20** — the history was rewritten on 2026-08-29, and the oldest
-   surviving commit is `2e82948`, the `git mv kit/ -> engine/` rename, which
+   surviving commit is `2e82948`, the `git mv kit/ -> richos/engine/` rename, which
    introduces 80 skill files in one move. The real record lives in two other
    trees on the owner's machine: the product repository `femcboost`, where most
    of these skills first landed between 2026-03 and 2026-08, and the
@@ -123,8 +123,8 @@ existing notices row stands as written.
 |---|---|---|---|
 | `android-native-dev` | RichOS-authored | high | Arrived `femcboost` `ba305f55b` (2026-04-11), "add native mobile skills and update agent definitions for Andy, Isaac, and Quint" — authored alongside the roles that use it. Exported to the engine as **ship-scrubbed**: it carried product-name literals that were mapped to `${APP_ROOT}` and `orchestration.config`, and a stale `jj` reference was repointed at `using-git-worktrees`. A vendored skill does not contain your product's name. Verbatim search of its distinctive prose: no public copy. |
 | `appium-vision-mobile-testing` | RichOS-authored | high | Same arrival commit and same scrubbing history. "Appium is the robot hand, not the tester." — no public copy. |
-| `bootstrap-interview` | RichOS-authored | high | The only one of the 27 with **no history in the product repository at all**. It was written in the orchestration-kit repository: `172f8ee` (2026-07-14), "Ship Item A: skills/bootstrap-interview/SKILL.md — the 20-minute bootstrap", with `references/portable-interview-prompt.md` following the same day in `4d3810d`. Its subject matter is this engine's own adoption flow (`CLAUDE.md`, `orchestration.config`, Dean, `ceo-wiki/`). `engine/skills/README.md` records it as "as-is (engine-authored)". No public copy. |
-| `health-data-sync-contracts` | RichOS-authored | high | Arrived `femcboost` `ba305f55b` (2026-04-11). Named in `engine/skills/README.md`'s 2026-07-14 correction as one of three files that still carried **source-product role vocabulary** ("coach" and "client") and had to be genericized — evidence of in-house authorship that no external skill could produce. No public copy. |
+| `bootstrap-interview` | RichOS-authored | high | The only one of the 27 with **no history in the product repository at all**. It was written in the orchestration-kit repository: `172f8ee` (2026-07-14), "Ship Item A: skills/bootstrap-interview/SKILL.md — the 20-minute bootstrap", with `references/portable-interview-prompt.md` following the same day in `4d3810d`. Its subject matter is this engine's own adoption flow (`CLAUDE.md`, `orchestration.config`, Dean, `ceo-wiki/`). `richos/engine/skills/README.md` records it as "as-is (engine-authored)". No public copy. |
+| `health-data-sync-contracts` | RichOS-authored | high | Arrived `femcboost` `ba305f55b` (2026-04-11). Named in `richos/engine/skills/README.md`'s 2026-07-14 correction as one of three files that still carried **source-product role vocabulary** ("coach" and "client") and had to be genericized — evidence of in-house authorship that no external skill could produce. No public copy. |
 | `ios-native-dev` | RichOS-authored | high | Same arrival commit and scrubbing history as `android-native-dev`. No public copy of its description or body. |
 | `live-app-assessment` | RichOS-authored | high | Arrived `femcboost` `0e400875d` (2026-03-31) in a commit that adds this engine's own advisor-role skills. Also named in the 2026-07-14 correction as having carried product role vocabulary. "This skill is not QA. It does not turn the agent into a release gate..." — no public copy. |
 | `mobile-qa-reporting-and-device-matrix` | RichOS-authored | high | Arrived `femcboost` `ba305f55b` (2026-04-11); ship-scrubbed for one product-name literal. Cross-references `appium-vision-mobile-testing`, a sibling that **does** exist here — the inverse of the dangling-sibling signal. No public copy. |

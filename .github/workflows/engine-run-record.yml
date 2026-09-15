@@ -1,7 +1,7 @@
 name: engine-run-record
 
 # --- CI-SURFACE DECLARATIONS -----------------------------------------------
-# See engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
+# See richos/engine/scripts/lib/ci-surface.py; a missing declaration is a finding.
 # RE-DERIVED FROM REAL RUNS on 2026-09-14, as the placeholder it replaces asked
 # to be. It had been `10m`, copied from this job's own timeout-minutes because
 # the file was a few hours old and there was nothing to measure — a ceiling
@@ -47,7 +47,7 @@ name: engine-run-record
 # every commit — a workflow with `on: push` fires once per PUSH, and five
 # commits pushed together correctly produce one run. The reasoning, the grace
 # window and the fallback predicate are all in
-# `engine/scripts/ci-run-record-check.sh`, which is runnable by hand.
+# `richos/engine/scripts/ci-run-record-check.sh`, which is runnable by hand.
 #
 # WHY IT DOES NOT LIVE INSIDE engine-self-verify.yml, which is the obvious place
 # and is wrong: if that workflow's run was the one dropped, a job inside it did
@@ -78,7 +78,7 @@ name: engine-run-record
 # it fetched reached back only to 07:09:05Z, so every push before that was
 # reported as having no run. Both of these sat on page 2, which nothing asked
 # for. It was not detecting dropped runs; it was reporting the edge of its own
-# pagination. Fixed in engine/scripts/ci-run-record-check.sh (it now pages until
+# pagination. Fixed in richos/engine/scripts/ci-run-record-check.sh (it now pages until
 # the run list is exhausted) and in lib/ci-run-records.py (a push the run list
 # does not provably cover is UNCOVERED and exits 2, never MISSING).
 #
@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Every push to main must have a run record
-        working-directory: engine
+        working-directory: richos/engine
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
