@@ -55,7 +55,18 @@ printf -- '---\nname: dev\n---\nbody\n' > "$REPO/.claude/agents/dev.md"
 # and a declared root must be an adopted one — the resolver will not quietly
 # substitute a different repository for a root somebody named. So the hermetic
 # sandbox has to carry the marker, exactly as a real governed repo does.
-printf 'CREATOR_TEAMMATE="dean"\nENABLE_QA_INSTALL_FRESH_GATE=0\n' > "$REPO/orchestration.config"
+printf 'CREATOR_TEAMMATE="dean"\nENABLE_QA_INSTALL_FRESH_GATE=0\nQA_ROLE_AGENTS="quint ray kai"\n' > "$REPO/orchestration.config"
+
+# --- two repositories, because reachability is a fact about the filesystem ---
+# The 2026-09-15 inversion silences a dispatch whose declared workspace lives in
+# a DIFFERENT repository from the one whose app the contract protects: such a
+# dispatch cannot render this app, and no prose is needed to say so. Proving
+# that needs two real git repositories, so the sandbox root is one and OTHERREPO
+# is the other. Both are hermetic; neither is the engine.
+git init -q "$REPO" 2>/dev/null || true
+OTHERREPO="$SANDBOX/otherrepo"
+mkdir -p "$OTHERREPO"
+git init -q "$OTHERREPO" 2>/dev/null || true
 
 # run_case <name> <expected-exit> <json> [qa_gate]
 run_case() {
@@ -351,6 +362,137 @@ run_case "gate ON: forged bypass inside code fence still blocks" 2 \
     "$(json_agent $'Audit the render on the emulator.\n```\ndata-contract-bypass: fake reason inside fence\n```')" 1
 run_case "gate ON: forged bypass in blockquote still blocks" 2 \
     "$(json_agent $'Audit the render on the emulator.\n> data-contract-bypass: fake reason in quote')" 1
+
+# --- 5b. THE 2026-09-15 INVERSION -------------------------------------------
+#
+# The six cases above all predate the inversion and all still hold: every one
+# of them names a runtime (`emulator`) or names none at all. What changed is
+# the DEFAULT for everything else. Replayed over 968 real spawn prompts, the
+# old predicate fired 78 times, cited the script 0 times and was waived or
+# refused 78 times — so the case that paid was always the app-free one.
+#
+# THE SILENT SIDE IS THE LARGER HALF, and it is the half that keeps this gate
+# alive: a blocking gate over prose dies by false positive (g11/g12/g13), and
+# this one had reached 486 recorded waivers before it was re-specified.
+run_case "gate ON: platform noun without runtime evidence is SILENT" 0 \
+    "$(json_agent 'Audit the app onboarding copy for dialect compliance and verify the wording.')" 1
+run_case "gate ON: discussing install-fresh itself is SILENT (the self-trip)" 0 \
+    "$(json_agent 'Re-specify the install-fresh dispatch gate; audit its waiver ledger. You test nothing.')" 1
+# A cross-repo payload must also satisfy checks 4 and 6 (isolation + the ack
+# contract), or its exit code would report THEIR verdict and these two cases
+# would pass for a reason that has nothing to do with reachability.
+XREPO_EXTRA='{"isolation":"worktree"}'
+XREPO_ACK='no-inflight-ack: fixture payload, this spawn is never made.'
+run_case "gate ON: workspace in ANOTHER repository is SILENT" 0 \
+    "$(json_agent "cross-repo-worktree: $OTHERREPO
+$XREPO_ACK
+Audit the render on the emulator harness in that engine's own test suite." "$XREPO_EXTRA")" 1
+run_case "gate ON: workspace in THIS repository still blocks" 2 \
+    "$(json_agent "cross-repo-worktree: $REPO
+$XREPO_ACK
+Audit the Home screen render on the emulator and screenshot it." "$XREPO_EXTRA")" 1
+# The deciding evaluation happens BEFORE the workspace exists (spawn.sh runs
+# every guard first and creates nothing until they all pass), so the absent-path
+# branch is the one that runs in life, not the git comparison.
+run_case "gate ON: not-yet-created workspace in another repository is SILENT" 0 \
+    "$(json_agent "cross-repo-worktree: $SANDBOX/not-created-yet
+$XREPO_ACK
+Audit the render on the emulator in that repository's own harness." "$XREPO_EXTRA")" 1
+run_case "gate ON: not-yet-created workspace UNDER this repo still blocks" 2 \
+    "$(json_agent "cross-repo-worktree: $REPO/.claude/worktrees/agent-notyet
+$XREPO_ACK
+Audit the Home screen render on the emulator and screenshot it." "$XREPO_EXTRA")" 1
+run_case "gate ON: QA-role dispatch with only a weak app signal still blocks" 2 \
+    "$(json_agent 'Audit the Home screen of the app and report what you see.' '{"subagent_type":"quint"}')" 1
+run_case "gate ON: non-QA role with the same weak signal is SILENT" 0 \
+    "$(json_agent 'Audit the Home screen of the app and report what you see.' '{"subagent_type":"dev"}')" 1
+run_case "gate ON: bare BUILD_SHA render task still blocks" 2 \
+    "$(json_agent 'Verify the app renders the canonical values and record its BUILD_SHA.')" 1
+
+# --- 5c. MUTANTS: every clause of the inverted predicate is load-bearing -----
+#
+# A test that passes both before and after a change proves nothing about the
+# change. These mutate ONE clause of the new predicate at a time in a copy of
+# the hook and assert that a named case above FLIPS. If a mutant leaves every
+# verdict intact, the clause it broke is decoration and the suite that covered
+# it was theater.
+#
+# Deliberately NOT a separate scripts/hooks/*.mutation.sh file: the guard-count
+# metric the CEO is watching is a directory listing of scripts/hooks/*.sh, and
+# a new harness there would raise the number this work exists to lower.
+#
+# The mutant lives NEXT TO the hook, not in the sandbox: the hook resolves its
+# own libraries from its directory, so a copy anywhere else would fail for a
+# reason that has nothing to do with the mutation. The name is dot-prefixed and
+# PID-stamped so no `*.sh` inventory (census, registration completeness) can see
+# it, and the EXIT trap removes it even on a failed case.
+MUTANT_HOOK="$SCRIPT_DIR/.mutant-verify-agent-prompt.$$.sh"
+trap 'rm -rf "$SANDBOX" "$MUTANT_HOOK"' EXIT
+
+# run_mutant <name> <sed-expr> <expected-exit> <json>
+run_mutant() {
+    local name="$1" sedexpr="$2" expected="$3" json="$4" actual
+    sed "$sedexpr" "$HOOK" > "$MUTANT_HOOK"
+    chmod +x "$MUTANT_HOOK"
+    if cmp -s "$MUTANT_HOOK" "$HOOK"; then
+        printf '  FAIL  mutant %s did not change the hook (sed matched nothing)\n' "$name"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    printf '%s' "$json" \
+      | V8_TEAMS_DIR_OVERRIDE="$SANDBOX/teams" \
+        VERIFY_REPO_ROOT_OVERRIDE="$REPO" \
+        VERIFY_QA_GATE_OVERRIDE=1 \
+        "$BASH_BIN" "$MUTANT_HOOK" >/dev/null 2>&1
+    actual=$?
+    if [ "$actual" -eq "$expected" ]; then
+        printf '  PASS  mutant %s is load-bearing (exit %s)\n' "$name" "$actual"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  mutant %s NOT load-bearing (expected exit %s, got %s)\n' "$name" "$expected" "$actual"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# M1 — runtime evidence forced ON: the silenced platform-noun case must go back
+#      to being refused. Proves APP_RUNTIME_RE is what silences it.
+run_mutant "M1 evidence-always-true re-refuses the app-free brief" \
+    's/^    QA_GATE_EVIDENCE=0$/    QA_GATE_EVIDENCE=1/' 2 \
+    "$(json_agent 'Audit the app onboarding copy for dialect compliance and verify the wording.')"
+# M2 — runtime evidence forced OFF (and the role clause with it): a real native
+#      QA dispatch stops being refused. Proves the RETAINED protection runs
+#      through this clause and nothing else.
+run_mutant "M2 evidence-always-false drops the native-QA refusal" \
+    's/^      QA_GATE_EVIDENCE=1$/      QA_GATE_EVIDENCE=0/; s/^        if \[ "\$_role" = "\$SUBAGENT_TYPE" \]; then QA_GATE_EVIDENCE=1; break; fi$/        :/' 0 \
+    "$(json_agent 'Audit the Home screen render on the emulator and screenshot it.')"
+# M3 — reachability forced OFF: an app dispatch in THIS repository stops being
+#      refused. Proves the reachability clause is not silently always-true.
+run_mutant "M3 reachable-always-false drops the same-repo refusal" \
+    's/^    QA_GATE_REACHABLE=1$/    QA_GATE_REACHABLE=0/' 0 \
+    "$(json_agent 'Audit the Home screen render on the emulator and screenshot it.')"
+# M4 — reachability never falsified: the cross-repository dispatch is refused
+#      again. Proves the cross-repo silence comes from the git comparison and
+#      not from some other accident of the prompt.
+run_mutant "M4 reachable-never-false re-refuses the cross-repo dispatch" \
+    's/^            QA_GATE_REACHABLE=0$/            :/' 2 \
+    "$(json_agent "cross-repo-worktree: $OTHERREPO
+$XREPO_ACK
+Audit the render on the emulator harness in that engine's own test suite." "$XREPO_EXTRA")"
+# M5 — the QA-role clause removed: the weak-signal QA dispatch stops being
+#      refused. Proves QA_ROLE_AGENTS carries real protection, not decoration.
+run_mutant "M5 role-clause-removed drops the QA-role refusal" \
+    's/^        if \[ "\$_role" = "\$SUBAGENT_TYPE" \]; then QA_GATE_EVIDENCE=1; break; fi$/        :/' 0 \
+    "$(json_agent 'Audit the Home screen of the app and report what you see.' '{"subagent_type":"quint"}')"
+# M6 — the absent-path branch neutered: the not-yet-created cross-repo workspace
+#      is refused again. This is the branch that decides in life, and M4 cannot
+#      see it (M4 mutates the git-comparison branch, which only runs for a
+#      workspace that already exists).
+run_mutant "M6 absent-path-branch-removed re-refuses the uncreated workspace" \
+    's|^            /\*) QA_GATE_REACHABLE=0 ;;$|            /*) : ;;|' 2 \
+    "$(json_agent "cross-repo-worktree: $SANDBOX/not-created-yet
+$XREPO_ACK
+Audit the render on the emulator in that repository's own harness." "$XREPO_EXTRA")"
+rm -f "$MUTANT_HOOK"
 
 # --- python3 missing from PATH -> BLOCKS (fail-closed), loud stderr ---
 # Mirrors the automation QA's repro: with no python3 resolvable on PATH, the gate must

@@ -29,6 +29,14 @@
 #                                  advanced "identity-or-refuse" tier; enable
 #                                  only if you adopt a device/install-fresh
 #                                  pipeline (see reference/advanced-tier/).
+#                                  RE-SPECIFIED 2026-09-15: it now fires only
+#                                  on a dispatch that can REACH this repo's app
+#                                  and names an app RUNTIME (or is a QA role).
+#                                  App-free work passes in silence and declares
+#                                  nothing — 78 fires → 11 over 968 real
+#                                  prompts, none of the 67 silenced ones app
+#                                  work. The measurement and the reason it had
+#                                  to move: the long comment at check 5.
 #   6. ack-contract-missing      — a spawn that gets a worktree must carry the
 #                                  in-flight ack contract in its PROMPT (the
 #                                  helper name OR the ack path), or an auditable
@@ -159,6 +167,12 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${INSTALL_FRESH_SCRIPTS:=android-install-fresh.sh ios-install-fresh.sh}"
 : "${QA_TRIGGER_RE:=(\btest\b|\baudit\b|\bverify\b|\bQA\b|\brender\b|\bscreenshot\b|install-fresh)}"
 : "${LOCAL_APP_CONTEXT_RE:=(install-fresh|emulator|simulator|the app|local app|BUILD_SHA)}"
+# APP_RUNTIME_RE / QA_ROLE_AGENTS — the two halves of the 2026-09-15 inversion
+# (see check 5). RUNTIME is evidence the dispatch will EXERCISE a built app;
+# QA_ROLE_AGENTS are the roles whose job IS the app, for whom naming an app
+# surface at all is evidence enough.
+: "${APP_RUNTIME_RE:=(\badb\b|simctl|xcrun|xcodebuild|\./gradlew|[Ee]mulator|[Ss]imulator|\.apk\b|\.ipa\b|BUILD_SHA|client-data-check|MainActivity|HomeView|HomeScreen|Health[[:space:]]*Connect|HealthKit|on[- ]device|physical device|installed[[:space:]]+app|home[ -]?state)}"
+: "${QA_ROLE_AGENTS:=}"
 # Test/per-invocation override for the opt-in gate toggle.
 [ -n "${VERIFY_QA_GATE_OVERRIDE:-}" ] && ENABLE_QA_INSTALL_FRESH_GATE="$VERIFY_QA_GATE_OVERRIDE"
 
@@ -413,9 +427,113 @@ STRIP_PY
 # Any spawn that tests / audits / renders / captures the LOCAL APP must either
 # (a) cite an install-fresh script as a precondition or (b) opt out with an
 # auditable `data-contract-bypass:` line. Runs ONLY when the gate is enabled.
+#
+# --- THE 2026-09-15 INVERSION, AND THE MEASUREMENT THAT ORDERED IT ----------
+#
+# This gate used to fire on (a loose QA verb) AND (a loose platform noun), and
+# that put it on the WRONG SIDE of its own predicate: the common case — a
+# dispatch that never goes near the app — was the one made to pay, in a typed
+# paragraph of justification, every single time.
+#
+# Replayed over every Agent spawn prompt recoverable from this machine's
+# session transcripts (968 prompts, 51 transcripts, 2026-08-01 → 2026-09-15;
+# scripts/hooks/data-contract.corpus.md has the method and the commands):
+#
+#     the gate fired on                       78 prompts
+#     of those, cited an install-fresh script  0
+#     of those, carried a bypass line         69   (88.5% of fires)
+#     of those, were REFUSED outright          9   (each retried with a bypass)
+#
+# Not one of the 78 was a dispatch that tests or renders the app. The
+# satisfaction path — cite the script — was taken ZERO times, because the
+# prompts that tripped the gate were never app work in the first place. A gate
+# whose escape hatch is its only exit is charging a toll, and this project's
+# own record says habitual waiving is how a guard dies (g11/g12/g13).
+#
+# Worse, it tripped on ITSELF: `install-fresh` sits in BOTH regexes but is not
+# what INSTALL_FRESH_SCRIPTS accepts, so merely DISCUSSING the contract was an
+# automatic refusal — 29 of the 78 fires matched their app-context on that one
+# word. The brief that ordered this fix was refused by this gate for quoting
+# the gate, and the only way through was the hatch taken 486 times.
+#
+# So the default moves to the other side. Silence is now the default, and the
+# case that must produce evidence is the one that touches the app:
+#
+#   REACHABILITY  the dispatch must be able to reach this repository's app at
+#                 all. A `cross-repo-worktree:` line naming a workspace in a
+#                 DIFFERENT repository is structural proof it cannot — that is
+#                 a fact about the filesystem, not a claim in prose. 38% of
+#                 dispatches measured (370/968) are exactly this. Undecidable
+#                 (no git, path gone) is treated as reachable: fail closed.
+#   EVIDENCE      the prompt must name an app RUNTIME (APP_RUNTIME_RE: adb,
+#                 simctl, the emulator, the Simulator, an .apk, BUILD_SHA, a
+#                 screen class) — naming a platform is not exercising an app —
+#                 OR be a dispatch to a role whose job IS the app
+#                 (QA_ROLE_AGENTS), for whom any app surface is evidence.
+#
+# The predicate is a STRICT NARROWING of the old one (both original conjuncts
+# are still required), so it cannot fire where the old gate was silent: 0 new
+# fires across the 968. Fires drop 78 → 11, i.e. −85.9%, and every one of the
+# 67 silenced fires is a prompt that was bypassed or refused-then-bypassed in
+# life. The protection is unchanged for real app work, and the test suite
+# mutates each clause to prove that a dispatch which DOES render the app is
+# still refused without its citation.
 if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
+  # Cheap regex conjuncts first; the reachability probe shells out to git and
+  # only runs on a prompt that has already matched both.
+  QA_GATE_APPLIES=0
   if printf '%s' "$PROMPT" | grep -iE >/dev/null "$QA_TRIGGER_RE" \
      && printf '%s' "$PROMPT" | grep -E >/dev/null "$LOCAL_APP_CONTEXT_RE"; then
+    # EVIDENCE: an app runtime named, or a role whose job is the app.
+    QA_GATE_EVIDENCE=0
+    if printf '%s' "$PROMPT" | grep -E >/dev/null "$APP_RUNTIME_RE"; then
+      QA_GATE_EVIDENCE=1
+    fi
+    if [ "$QA_GATE_EVIDENCE" -eq 0 ] && [ -n "$QA_ROLE_AGENTS" ]; then
+      for _role in $QA_ROLE_AGENTS; do
+        if [ "$_role" = "$SUBAGENT_TYPE" ]; then QA_GATE_EVIDENCE=1; break; fi
+      done
+    fi
+    # REACHABILITY: a workspace in another repository cannot touch this app.
+    QA_GATE_REACHABLE=1
+    if [ "$QA_GATE_EVIDENCE" -eq 1 ]; then
+      XREPO_PATH="$(printf '%s' "$(sanitized_prompt)" \
+        | grep -oE '^[[:space:]]*cross-repo-worktree:[[:space:]]*[^[:space:]]+' \
+        | sed -n '1p' | sed -E 's/.*cross-repo-worktree:[[:space:]]*//')" || XREPO_PATH=""
+      if [ -n "$XREPO_PATH" ]; then
+        if [ -d "$XREPO_PATH" ] && command -v git >/dev/null 2>&1; then
+          XREPO_COMMON="$(git -C "$XREPO_PATH" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+          ENTITY_COMMON="$(git -C "$ENTITY_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+          if [ -n "$XREPO_COMMON" ] && [ -n "$ENTITY_COMMON" ] && [ "$XREPO_COMMON" != "$ENTITY_COMMON" ]; then
+            QA_GATE_REACHABLE=0
+          fi
+        else
+          # THE WORKSPACE USUALLY DOES NOT EXIST YET WHEN THIS RUNS, and a clause
+          # that needed it to exist would be inert exactly where it matters:
+          # spawn.sh evaluates every PreToolUse[Agent] guard BEFORE it creates
+          # anything ("creates the isolated workspace only once nothing can
+          # refuse it"), so at the deciding evaluation the path is a promise,
+          # not a directory. Measured: requiring -d leaves 33 of the 78 historical
+          # fires standing; deciding the absent path leaves 11.
+          #
+          # An absolute path OUTSIDE this repository is another repository's
+          # workspace — a workspace for THIS repository is either already there
+          # (branch above) or lives under this root. Anything else (relative,
+          # empty, malformed) stays reachable: fail closed.
+          case "$XREPO_PATH" in
+            "$ENTITY_ROOT"/*) : ;;
+            /*) QA_GATE_REACHABLE=0 ;;
+            *) : ;;
+          esac
+        fi
+      fi
+    fi
+    if [ "$QA_GATE_EVIDENCE" -eq 1 ] && [ "$QA_GATE_REACHABLE" -eq 1 ]; then
+      QA_GATE_APPLIES=1
+    fi
+  fi
+
+  if [ "$QA_GATE_APPLIES" -eq 1 ]; then
 
     # Bypass detection runs against a SANITIZED copy of the prompt: fenced
     # code, HTML comments, blockquotes, and indented code blocks are stripped
