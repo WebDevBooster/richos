@@ -370,15 +370,22 @@ fi
 # checked and the key ignored: delete a line and the dispatcher stays wired,
 # hashed and executable while running sixteen rules where it ran seventeen, and
 # the sixteen that do run all pass.
-if [ -f "$MANIFEST.sha256" ] \
-   && [ "$(cut -d' ' -f1 < "$MANIFEST.sha256")" = "$(shasum -a 256 "$MANIFEST" | cut -d' ' -f1)" ]; then
+# A clean checkout has no generated sidecars. Exercise the installer in a
+# disposable copy, removing any copied sidecar so stale output cannot pass.
+INSTALL_ENGINE="$SANDBOX/install-engine"
+mkdir -p "$INSTALL_ENGINE" "$SANDBOX/install-home"
+cp -R "$ENGINE_ROOT/." "$INSTALL_ENGINE/"
+INSTALLED_MANIFEST="$INSTALL_ENGINE/scripts/hooks/dispatch-pretooluse.manifest"
+rm -f "$INSTALLED_MANIFEST.sha256"
+if HOME="$SANDBOX/install-home" CLAUDE_CONFIG_DIR="$SANDBOX/install-home/.claude" \
+   RICHOS_ENTITY_ROOT="$INSTALL_ENGINE" bash "$INSTALL_ENGINE/scripts/hooks/install.sh" \
+   >"$SANDBOX/install.log" 2>&1 \
+   && [ -f "$INSTALLED_MANIFEST.sha256" ] \
+   && [ "$(cut -d' ' -f1 < "$INSTALLED_MANIFEST.sha256")" = "$(shasum -a 256 "$INSTALLED_MANIFEST" | cut -d' ' -f1)" ]; then
     ok "D21b the manifest is sidecar-hashed by install.sh and matches"
-elif grep -q 'dispatch-pretooluse\.manifest' "$SCRIPT_DIR/install.sh" 2>/dev/null; then
-    bad "D21b the manifest is sidecar-hashed by install.sh and matches" \
-        "install.sh names it but $MANIFEST.sha256 is absent or stale — run scripts/hooks/install.sh"
 else
-    bad "D21b the manifest is sidecar-hashed by install.sh and matches" \
-        "install.sh does not hash $MANIFEST, so a deleted rule line leaves no trace"
+    bad "D21b the installer did not produce a matching manifest sidecar"
+    sed 's/^/       /' "$SANDBOX/install.log"
 fi
 
 STANDALONE_BAD=""
@@ -446,6 +453,8 @@ fi
 # caller gets one unless it has asked for it and knows its call is momentary.
 FS_OUT="$(bash -c '
 set -uo pipefail
+unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT
+cd "'"$SANDBOX"'"
 . "'"$ENGINE_ROOT"'/scripts/lib/resolve-roots.sh"
 C="'"$SANDBOX"'/rc"; mkdir -p "$C"
 cp "'"$ENGINE_ROOT"'/orchestration.config" "$C/orchestration.config"
