@@ -216,9 +216,13 @@ jobs:
           # silently does not run.
           if [ "${{ steps.derive.outputs.run_full }}" = "true" ]; then
             echo "full pass on this ref — the diff-scoped mapping is not computed"
-            echo "count=0" >> "$GITHUB_OUTPUT"
-            echo "affected_matrix=[]" >> "$GITHUB_OUTPUT"
+            # One block, one redirect. Three separate `>>` to the same file was
+            # the only actionlint finding left in any workflow of any governed
+            # repository (SC2129), and leaving one is how a lint run stops being
+            # something anyone reads to completion.
             {
+              echo "count=0"
+              echo "affected_matrix=[]"
               echo "units<<AFFECTED_EOF"
               echo "AFFECTED_EOF"
             } >> "$GITHUB_OUTPUT"
@@ -523,8 +527,38 @@ jobs:
           # re-measuring it was a sentence telling a person to go and do
           # arithmetic over twelve job logs. Now the run produces the finished
           # file and says which rows moved; committing it is the whole job.
+          #
+          # THE VERDICT IS CAPTURED AND RE-EMITTED, not left in a step log.
+          # `✗ ci-receipts: this run does NOT certify d2664cdbf4` was printed on
+          # run #216 and nobody was told — it went to stderr inside a collapsed
+          # step of a job somebody would have had to open. A certification that
+          # silently fails to certify is the same defect as a scanner reporting
+          # clean over an empty corpus: the exit code was right and the sentence
+          # that mattered was somewhere nobody reads.
+          set +e
           scripts/ci-shard.sh --verify-receipts /tmp/receipts \
-                              --emit-weights /tmp/ci-unit-weights.measured.tsv
+                              --emit-weights /tmp/ci-unit-weights.measured.tsv \
+                              > /tmp/coverage.out 2>&1
+          COVER_RC=$?
+          set -e
+          cat /tmp/coverage.out
+          # ANNOTATIONS appear on the run's own summary page and against the
+          # commit, which is where somebody deciding whether to land is already
+          # looking. The step summary carries the same verdict for the same
+          # reason. Braced rather than repeated `>>` — shellcheck SC2129, and
+          # it keeps the block atomic.
+          {
+            echo "### engine-self-verify coverage"
+            echo ""
+            echo '```'
+            cat /tmp/coverage.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COVER_RC" -ne 0 ]; then
+            echo "::error::THE RECEIPTS DO NOT CERTIFY THIS COMMIT. $(grep -m1 'does NOT certify' /tmp/coverage.out || echo 'see the coverage step for which units are missing, red, or at a different commit')"
+            exit "$COVER_RC"
+          fi
+          echo "::notice::$(grep -m1 'planned unit(s) ran' /tmp/coverage.out || echo 'coverage verified')"
           # The receipts can only certify what they contain. A shards job that
           # did not itself succeed is reported separately, so a green coverage
           # line can never stand in for a red suite.
