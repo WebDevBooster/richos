@@ -723,6 +723,30 @@ fi
 kill "$WRITER" "$RUNNER" >/dev/null 2>&1
 wait "$WRITER" "$RUNNER" >/dev/null 2>&1
 
+# SESSION START FINDS THE TRANSCRIPT BY ITSELF. It never reads the payload (see
+# LO49), so it has nothing but CLAUDE_PROJECT_DIR -- and this is the path that
+# actually runs in production every morning. HOME is redirected at the
+# invocation so the discovery looks inside the sandbox instead of the
+# operator's own ~/.claude/projects; the fixture repositories carry local
+# user.name/user.email, so git is unaffected by it.
+SLUG="$(printf '%s' "$SEAT" | sed 's|[/.]|-|g')"
+mkdir -p "$SANDBOX/home/.claude/projects/$SLUG"
+cp "$HOOK_T" "$SANDBOX/home/.claude/projects/$SLUG/discovered.jsonl"
+rm -f "$SEAT/.claude/state/left-off."*.state
+set +e
+HOUT="$(HOME="$SANDBOX/home" CLAUDE_PROJECT_DIR="$SEAT" \
+        bash "$HOOK" --event SessionStart --now "$NOW" < /dev/null 2>/dev/null)"
+HRC=$?
+set -e
+CTX8="$(printf '%s' "$HOUT" | python3 -c 'import json,sys
+try: print(((json.load(sys.stdin).get("hookSpecificOutput") or {}).get("additionalContext") or ""))
+except Exception: pass' 2>/dev/null)"
+if [ "$HRC" = "0" ] && printf '%s' "$CTX8" | grep -q "MARKER-A-DIFFERENT-LAST-WORD"; then
+    ok "LO50 SessionStart finds the project's newest transcript with no payload and no argument"
+else
+    bad "LO50 SessionStart discovers its own transcript" "rc $HRC ctx: $(printf '%s' "$CTX8" | head -c 200)"
+fi
+
 # ===========================================================================
 # 7. THE MUTATION HARNESS
 # ===========================================================================

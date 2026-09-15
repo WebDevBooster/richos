@@ -165,4 +165,13 @@ mutant reads-stdin-at-session-start "LO49" "$H" \
     'if [ "$REPORT_ONLY" != "1" ]; then' \
     "SessionStart would block on an inherited pipe nobody closes, which is a hung session start rather than a missing report."
 
+# --- 11. SESSION START FINDS ITS OWN TRANSCRIPT ---------------------------
+# SessionStart reads no payload by design, so discovery is the ONLY way it can
+# find the conversation he left off in. Without it the morning case -- a new
+# session opened after a night away -- is silent.
+mutant no-transcript-discovery "LO50" "$H" \
+    '        TRANSCRIPT="$(ls -t "$CANDIDATE_DIR"/*.jsonl 2>/dev/null | head -1 || true)"' \
+    '        TRANSCRIPT=""' \
+    "SessionStart could never find a transcript, so the report would be silent in exactly the case it was built for: a fresh session the morning after."
+
 mutation_end
