@@ -91,12 +91,31 @@
 #                                        large diff, through the same planner
 #                                        the full pass uses.
 #   options: --receipt <path>  --verbose  --allow-empty  --shards <n>
+#            --emit-weights <path>  (with --verify-receipts) write the measured
+#                                   cost of every unit in the format
+#                                   lib/ci-unit-weights.tsv expects
 #
 # Exit codes:
 #   0  every unit reached its expected verdict (KNOWN-RED counts as reached)
-#   1  a unit failed, leaked, was declared-red-but-passed, or is past expiry;
-#      or --verify-receipts found the union incomplete
+#   1  a unit failed, leaked, TIMED OUT, was declared-red-but-passed, or is past
+#      expiry; or --verify-receipts found the union incomplete
 #   2  usage, discovery, or a precondition (no units, unreadable engine)
+#
+# ===========================================================================
+# EVERY UNIT RUNS UNDER A DEADLINE, AND THE PLAN REPORTS ITS OWN STALENESS
+# ===========================================================================
+# Two things were missing here until 2026-09-15 and they were the same
+# omission wearing two hats: nothing measured a unit against what the plan
+# expected of it.
+#
+#   * no unit had a time limit, so a hang became an anonymous job cancellation
+#     forty minutes later. See `run_with_deadline` for the ceiling and the
+#     arithmetic behind it. A unit that overruns is `TIMED-OUT` — its own
+#     verdict, because "never finished" and "finished wrong" send the reader to
+#     different files.
+#   * nothing noticed when a unit's real cost left its recorded weight behind,
+#     so the packer kept believing a 2811.7 s suite cost 60 s and that suite was
+#     the wall clock of every push for days. See `report_weight_drift`.
 # ===========================================================================
 
 set -uo pipefail
@@ -105,6 +124,162 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNITS_SH="$SCRIPT_DIR/ci-units.sh"
 KNOWN_RED="$ENGINE_ROOT/scripts/lib/ci-known-red.tsv"
+WEIGHTS_TSV="$ENGINE_ROOT/scripts/lib/ci-unit-weights.tsv"
+
+# ---------------------------------------------------------------------------
+# THE PER-UNIT DEADLINE — so a hung unit is NAMED, not waited out
+# ---------------------------------------------------------------------------
+# Until 2026-09-15 this script ran every unit with no ceiling of any kind. The
+# only bound was the workflow's `timeout-minutes` on the whole job, so a unit
+# that hung took the entire shard down forty or sixty minutes later with
+# `##[error]The operation was canceled.` and nothing at all about WHICH unit
+# was stuck. That is the shape of red that gets waived rather than read.
+#
+# THE CEILING IS DERIVED FROM THE UNIT'S OWN WEIGHT, NOT TYPED AS A CONSTANT.
+# Measured on run 34945072758, the inventory spans 0.2 s
+# (`ledger-prune-sandbox.test.sh`) to 2811.7 s (`workspace-spec-fourteen.
+# test.sh`) — a factor of fourteen thousand. One global number is either
+# useless for the small units or fires constantly on the big one. So the
+# deadline is `max(FLOOR, weight x FACTOR)`, capped at MAX, and
+# `lib/ci-unit-weights.tsv` already carries the weight.
+#
+# THE THREE NUMBERS, and the arithmetic rather than a preference:
+#
+#   FACTOR 3   a weight is a measurement with a date, and the same harness has
+#              honestly measured 381 s and 1500 s on different hardware under
+#              different load (see the weights file's own header). Anything
+#              tighter than 3x would fire on a loaded runner, and a deadline
+#              that fires on healthy runs is a deadline somebody disables.
+#   FLOOR 900  fifteen minutes. Below this the multiple is meaningless: 3x a
+#              0.2 s unit is 0.6 s, which would kill it for being scheduled.
+#   MAX 3600   sixty minutes, and this one is a CONSEQUENCE, not a taste. The
+#              deadline is only useful if it fires BEFORE the job's own
+#              `timeout-minutes`, because the whole point is to name the unit
+#              instead of losing the job anonymously. engine-self-verify's
+#              `shards` job is 75 minutes, so 60 leaves the shard time to
+#              report, write its receipt and upload it.
+#
+# A TIMED-OUT UNIT IS A FAILURE WITH ITS OWN VERDICT, never a skip and never
+# folded into FAIL. `TIMED-OUT` says the unit did not reach a verdict; `FAIL`
+# says it reached one and it was wrong. Collapsing them would let a hang be
+# diagnosed as a broken assertion, which is the wrong file to go and read.
+#
+# OVERRIDE for a deliberate local run: CI_SHARD_UNIT_TIMEOUT=<seconds>, or 0 to
+# disable the deadline entirely. Never set in the workflow.
+UNIT_TIMEOUT_FACTOR="${CI_SHARD_TIMEOUT_FACTOR:-3}"
+UNIT_TIMEOUT_FLOOR="${CI_SHARD_TIMEOUT_FLOOR:-900}"
+UNIT_TIMEOUT_MAX="${CI_SHARD_TIMEOUT_MAX:-3600}"
+
+deadline_for() { # <weight-seconds> -> seconds
+    python3 - "$1" "$UNIT_TIMEOUT_FACTOR" "$UNIT_TIMEOUT_FLOOR" "$UNIT_TIMEOUT_MAX" <<'PY'
+import sys
+try:
+    w = float(sys.argv[1] or 0)
+except ValueError:
+    w = 0.0
+factor, floor, cap = float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4])
+print(int(min(cap, max(floor, w * factor))))
+PY
+}
+
+# Run argv with a wall-clock deadline, portably. Returns the command's exit
+# status, or 124 when the deadline was reached — the same code GNU `timeout`
+# uses, so a reader who knows that tool is not surprised by this one.
+#
+# WHY THIS IS NOT `timeout(1)`. It is GNU coreutils. It is on `ubuntu-latest`
+# and it is NOT on this project's development machines — verified here on
+# 2026-09-15: `which timeout gtimeout` found neither on darwin 24.6.0. A
+# deadline that exists only on the runner is a behavior the engineer cannot
+# reproduce before pushing, which is the environment-parity failure this
+# project has a standing rule about.
+#
+# STDIN IS /dev/null, DELIBERATELY AND ON BOTH SIDES. A background job in a
+# non-interactive shell already gets /dev/null on most shells, so making it
+# explicit is what keeps a local run and a runner run the same execution
+# rather than two. A unit that wants to read stdin would hang in CI today.
+run_with_deadline() { # <seconds> <logfile> <argv...>
+    local _limit="$1" _log="$2"; shift 2
+    if [ "${_limit:-0}" -le 0 ]; then
+        "$@" >"$_log" 2>&1 </dev/null
+        return $?
+    fi
+    "$@" >"$_log" 2>&1 </dev/null &
+    local _pid=$! _waited=0 _rc=0
+    while kill -0 "$_pid" 2>/dev/null; do
+        if [ "$_waited" -ge "$_limit" ]; then
+            kill -TERM "$_pid" 2>/dev/null
+            # A suite that ignores TERM still has to go; three seconds is
+            # enough for a bash trap to run its own cleanup first, which is
+            # what leaves the sandbox removable.
+            local _g=0
+            while [ "$_g" -lt 3 ] && kill -0 "$_pid" 2>/dev/null; do sleep 1; _g=$((_g + 1)); done
+            kill -KILL "$_pid" 2>/dev/null
+            wait "$_pid" 2>/dev/null
+            return 124
+        fi
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    wait "$_pid"; _rc=$?
+    return "$_rc"
+}
+
+# ---------------------------------------------------------------------------
+# WEIGHT DRIFT — the packing data reports its own staleness
+# ---------------------------------------------------------------------------
+# `lib/ci-unit-weights.tsv` went stale silently and stayed stale, and it cost
+# more wall clock than anything else in this system. Measured: 32 of the
+# inventory's 137 units carried no row and were packed at DEFAULT_WEIGHT = 60 s;
+# one of them, `scripts/workspace-spec-fourteen.test.sh`, actually takes
+# 2811.7 s. Forty-seven times. The packer put it in a shard with eleven other
+# units and that shard was the wall clock of every push — 3146 s on run #216,
+# 3262 s on #212, against 194-1015 s for every other shard.
+#
+# NOBODY WAS NEGLIGENT. The file's own header says how to re-measure, and the
+# coverage job's closing line said `re-pack against measured cost with: ...
+# (durations above)` — where there were no durations above. Re-measuring meant
+# a person downloading twelve job logs and doing arithmetic, and a maintenance
+# task that needs a human eye is a maintenance task that does not happen. That
+# is a defect in the design, not in the maintainer.
+#
+# SO THE MEASUREMENT REPORTS ITSELF, at the moment it is taken, in the line the
+# reader is already looking at, carrying the exact replacement row. There is no
+# arithmetic left to do and nothing to remember.
+#
+# IT IS A REPORT AND NOT A FAILURE, deliberately. A wrong weight costs
+# wall-clock balance and cannot make a green wrong — nothing it changes is what
+# is verified. Failing the build on it would make every legitimately slower run
+# a red build, and a gate that cries about balance is a gate that gets waived,
+# which is how the last three guards in this project died.
+#
+# THE THRESHOLD is `measured > 2x weight AND measured > weight + 60s`, and BOTH
+# clauses are load-bearing. The multiple alone would print a line for every
+# 0.3 s unit that took 0.7 s once; the absolute alone would stay silent while a
+# 200 s unit doubled. Together they name only a drift that could actually move
+# a unit between shards. Sixty seconds is the smallest imbalance worth a
+# reader's attention when the whole serial pass is 7723 s across 12 shards.
+#
+# Declared as overridable constants for the same reason the deadline's are:
+# a number that decides what gets printed should be readable and testable
+# without editing the script that uses it.
+DRIFT_FACTOR="${CI_SHARD_DRIFT_FACTOR:-2}"
+DRIFT_FLOOR="${CI_SHARD_DRIFT_FLOOR:-60}"
+
+report_weight_drift() { # <unit-id> <measured-seconds> <planned-weight>
+    python3 - "$1" "$2" "$3" "$DRIFT_FACTOR" "$DRIFT_FLOOR" <<'PY'
+import sys
+uid, measured, weight = sys.argv[1], float(sys.argv[2] or 0), float(sys.argv[3] or 0)
+factor, floor = float(sys.argv[4]), float(sys.argv[5])
+if weight <= 0:
+    sys.exit(0)
+if measured > weight * factor and measured > weight + floor:
+    print("        WEIGHT-DRIFT  planned %.1fs, measured %.1fs (%.1fx). The shard plan is built "
+          "from the planned number, so this unit is in the wrong shard."
+          % (weight, measured, measured / weight))
+    print("        Replacement row for lib/ci-unit-weights.tsv:")
+    print("          %s\t%.1f\t<this-run-id>" % (uid, measured))
+PY
+}
 
 C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YEL=$'\033[33m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 
@@ -118,6 +293,7 @@ ONLY_UNITS=""
 UNITS_FILE=""
 RECEIPT=""
 VERIFY_DIR=""
+EMIT_WEIGHTS=""
 LIST_ONLY=0
 VERBOSE=0
 ALLOW_EMPTY=0
@@ -136,6 +312,7 @@ while [ "$#" -gt 0 ]; do
         --units-file) [ "$#" -ge 2 ] || die "--units-file needs a path"; UNITS_FILE="$2"; shift 2 ;;
         --receipt) [ "$#" -ge 2 ] || die "--receipt needs a path"; RECEIPT="$2"; shift 2 ;;
         --verify-receipts) [ "$#" -ge 2 ] || die "--verify-receipts needs a directory"; VERIFY_DIR="$2"; shift 2 ;;
+        --emit-weights) [ "$#" -ge 2 ] || die "--emit-weights needs a path"; EMIT_WEIGHTS="$2"; shift 2 ;;
         --list) LIST_ONLY=1; shift ;;
         --verbose|-v) VERBOSE=1; shift ;;
         --allow-empty) ALLOW_EMPTY=1; shift ;;
@@ -225,8 +402,14 @@ if [ -n "$VERIFY_DIR" ]; then
     else
         bash "$UNITS_SH" units | cut -f1 | LC_ALL=C sort > "$PLAN_FILE" || die "could not read the planned inventory"
     fi
+    # --weights and --emit-weights are passed UNCONDITIONALLY, not behind a
+    # flag the workflow has to remember. The whole finding they answer is that
+    # an opt-in maintenance step does not get opted into.
+    RW_ARGS=(--plan "$PLAN_FILE")
+    [ -f "$WEIGHTS_TSV" ] && RW_ARGS+=(--weights "$WEIGHTS_TSV")
+    [ -n "$EMIT_WEIGHTS" ] && RW_ARGS+=(--emit-weights "$EMIT_WEIGHTS")
     find "$VERIFY_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | xargs -0 cat 2>/dev/null \
-        | python3 "$SCRIPT_DIR/lib/ci-receipts.py" verify --plan "$PLAN_FILE"
+        | python3 "$SCRIPT_DIR/lib/ci-receipts.py" verify "${RW_ARGS[@]}"
     exit $?
 fi
 
@@ -331,6 +514,11 @@ while IFS= read -r id; do
     [ -n "$id" ] || continue
     i=$((i + 1))
     EXPECT_RC="$(awk -F'\t' -v want="$id" '$1 == want { print $3; exit }' "$ALL_UNITS")"
+    # Column 4 is the weight the PACKER used for this unit. It is read here so
+    # the deadline and the drift report are both stated against the same number
+    # the plan was built from, rather than against a second copy of it.
+    WEIGHT="$(awk -F'\t' -v want="$id" '$1 == want { print $4; exit }' "$ALL_UNITS")"
+    DEADLINE="${CI_SHARD_UNIT_TIMEOUT:-$(deadline_for "${WEIGHT:-0}")}"
     LOG="$LOG_DIR/$i.log"
     printf '  [%3s/%3s] %-72s ' "$i" "$N_SEL" "$id"
 
@@ -347,7 +535,7 @@ while IFS= read -r id; do
     while IFS= read -r tok; do ARGV+=("$tok"); done < <(bash "$UNITS_SH" cmd "$id" | tr '\t' '\n')
 
     START="$(python3 -c 'import time; print(time.time())')"
-    "${ARGV[@]}" >"$LOG" 2>&1
+    run_with_deadline "$DEADLINE" "$LOG" "${ARGV[@]}"
     RC=$?
     END="$(python3 -c 'import time; print(time.time())')"
     SECS="$(python3 -c "print(round($END - $START, 1))")"
@@ -356,7 +544,12 @@ while IFS= read -r id; do
     TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
 
     VERDICT=""
-    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ]; then
+    if [ "$RC" -eq 124 ] && [ "${DEADLINE:-0}" -gt 0 ]; then
+        # FIRST, and ahead of the canary: a unit killed mid-flight has almost
+        # certainly left residue, so the leak canary would fire too and the
+        # report would name the wrong defect. The hang is the finding.
+        VERDICT="TIMED-OUT"
+    elif [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ]; then
         VERDICT="CANARY-BLIND"
     elif [ -n "$TOUCHED" ]; then
         VERDICT="RECORD-TOUCHED"
@@ -388,7 +581,16 @@ while IFS= read -r id; do
         PASS)
             printf '%sPASS%s %ss\n' "$C_GREEN" "$C_RESET" "$SECS"
             PASSED=$((PASSED + 1))
+            report_weight_drift "$id" "$SECS" "${WEIGHT:-0}"
             [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
+            ;;
+        TIMED-OUT)
+            printf '%sFAIL%s %ss — DEADLINE (%ss) reached, killed\n' "$C_RED" "$C_RESET" "$SECS" "$DEADLINE"
+            FAILED=$((FAILED + 1))
+            FAIL_LINES+=("$id — did not finish within its ${DEADLINE}s deadline and was killed. Its planned weight is ${WEIGHT:-unknown}s (lib/ci-unit-weights.tsv); either it hung, or it has grown past 3x its measurement and the weight is now wrong. The last lines of its output are above.")
+            printf '        NO VERDICT WAS REACHED — this unit did not fail an assertion, it never finished.\n'
+            printf '        Its final output before the kill:\n'
+            tail -25 "$LOG" | sed 's/^/          /'
             ;;
         KNOWN-RED)
             printf '%sKNOWN-RED%s %ss (expires %s)\n' "$C_YEL" "$C_RESET" "$SECS" "$(kr_field "$id" 3)"

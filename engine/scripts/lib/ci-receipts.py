@@ -71,7 +71,85 @@ def emit():
     return 0
 
 
-def verify(plan_path):
+def reweigh(ran, weights_path, emit_path):
+    """The whole-run answer to 'is lib/ci-unit-weights.tsv still true?'.
+
+    THE PROBLEM THIS REPLACES was a sentence. The closing line of verify() used
+    to read `re-pack against measured cost with: ci-receipts.py verify ...
+    (durations above)`, and there were no durations above. Re-measuring was
+    therefore a person downloading twelve job logs and doing arithmetic, so
+    nobody did it, so 32 of 137 units sat at DEFAULT_WEIGHT for days while one
+    of them — 2811.7 s against a 60 s assumption — was the wall clock of every
+    push.
+
+    A MAINTENANCE STEP THAT NEEDS A HUMAN EYE IS A MAINTENANCE STEP THAT DOES
+    NOT HAPPEN. So this writes the finished file. The reader downloads an
+    artifact and commits it; there is no arithmetic left and nothing to
+    remember.
+
+    It never changes an exit code. A weight cannot make a green wrong — it
+    decides only which machine runs what — and a coverage job that went red
+    over packing balance would be waived within a week.
+    """
+    planned = {}
+    if weights_path:
+        try:
+            with open(weights_path, encoding="utf-8") as fh:
+                for ln in fh:
+                    if ln.startswith("#") or "\t" not in ln:
+                        continue
+                    parts = ln.rstrip("\n").split("\t")
+                    try:
+                        planned[parts[0]] = float(parts[1])
+                    except (IndexError, ValueError):
+                        continue
+        except OSError as exc:
+            # NOT silent. An unreadable weights file means this report saw
+            # nothing, and "no drift found" over an empty table is exactly the
+            # hollow green this whole file exists to refuse.
+            print("  weights: %s could not be read (%s) — NO drift check was performed."
+                  % (weights_path, exc.__class__.__name__))
+            return
+
+    measured = {u: float(recs[0].get("seconds") or 0) for u, recs in ran.items()}
+
+    if emit_path:
+        try:
+            with open(emit_path, "w", encoding="utf-8") as fh:
+                fh.write("# MEASURED on this run. Every unit that ran, in the format\n"
+                         "# lib/ci-unit-weights.tsv expects. Replace the rows in that file\n"
+                         "# with these and update the run id in its header.\n")
+                for uid in sorted(measured):
+                    fh.write("%s\t%.1f\tmeasured\n" % (uid, measured[uid]))
+            print("  wrote the measured weights of all %d unit(s) to %s" % (len(measured), emit_path))
+        except OSError as exc:
+            print("  could not write %s (%s)" % (emit_path, exc.__class__.__name__))
+
+    if not planned:
+        return
+    drift = []
+    for uid, secs in measured.items():
+        w = planned.get(uid)
+        if w is None:
+            if secs > 120:
+                drift.append((secs, uid, None))
+            continue
+        if w > 0 and secs > w * 2 and secs > w + 60:
+            drift.append((secs, uid, w))
+    if not drift:
+        print("  weights: every unit finished within 2x its planned weight — the shard plan is current.")
+        return
+    drift.sort(reverse=True)
+    print("  WEIGHTS ARE STALE: %d unit(s) cost materially more than the plan assumed, so they are\n"
+          "  in the wrong shards. This does not change what was verified, only where it ran:" % len(drift))
+    for secs, uid, w in drift[:12]:
+        if w is None:
+            print("    %8.1fs  %-62s NO ROW (packed at DEFAULT_WEIGHT)" % (secs, uid))
+        else:
+            print("    %8.1fs  %-62s planned %.1fs (%.1fx)" % (secs, uid, w, secs / w))
+
+
+def verify(plan_path, weights_path=None, emit_path=None):
     try:
         with open(plan_path, encoding="utf-8") as fh:
             plan = {ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")}
@@ -173,9 +251,9 @@ def verify(plan_path):
               % (len(known_red), ", ".join(known_red)))
     print("  serial cost %.0f s across %d shard(s); longest shard %.0f s (%.1f min)."
           % (total_secs, len(by_shard), max(by_shard.values()), max(by_shard.values()) / 60.0))
-    # The measurement, printed where the next person re-packing the shards will
-    # find it: these are the numbers lib/ci-unit-weights.tsv should carry.
-    print("  re-pack against measured cost with: ci-receipts.py verify ... (durations above)")
+    # The measurement, turned into the finished file rather than into advice
+    # about producing one. See reweigh().
+    reweigh(ran, weights_path, emit_path)
     return 0
 
 
@@ -186,9 +264,22 @@ def main(argv):
     if argv[0] == "emit":
         return emit()
     if argv[0] == "verify":
-        if len(argv) >= 3 and argv[1] == "--plan":
-            return verify(argv[2])
-        sys.stderr.write("ci-receipts.py verify needs --plan <file>\n")
+        plan = weights = emit_to = None
+        rest = argv[1:]
+        while rest:
+            if rest[0] == "--plan" and len(rest) >= 2:
+                plan, rest = rest[1], rest[2:]
+            elif rest[0] == "--weights" and len(rest) >= 2:
+                weights, rest = rest[1], rest[2:]
+            elif rest[0] == "--emit-weights" and len(rest) >= 2:
+                emit_to, rest = rest[1], rest[2:]
+            else:
+                sys.stderr.write("ci-receipts.py verify: unrecognized argument %r\n" % rest[0])
+                return 2
+        if plan:
+            return verify(plan, weights, emit_to)
+        sys.stderr.write("ci-receipts.py verify needs --plan <file> "
+                         "[--weights <tsv>] [--emit-weights <path>]\n")
         return 2
     sys.stderr.write("ci-receipts.py: unknown subcommand %r\n" % argv[0])
     return 2

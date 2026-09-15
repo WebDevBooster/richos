@@ -439,6 +439,129 @@ else
 fi
 rm -f "$KR"
 
+# ---------------------------------------------------------------------------
+# S19 — THE PER-UNIT DEADLINE. A unit that never finishes is NAMED and FAILS.
+# ---------------------------------------------------------------------------
+# Before 2026-09-15 a hung unit had no ceiling at all: it took the shard down
+# at the workflow's `timeout-minutes` with `The operation was canceled.` and
+# nothing about WHICH unit was stuck.
+#
+# THE FIXTURE HANGS ON PURPOSE AND THE DEADLINE IS ONE SECOND, so this case
+# cannot pass because the unit happened to be fast. The first attempt at this
+# test used a real 2.1 s unit with a 1 s deadline and reported PASS — the unit
+# finished in 1.0 s on a warm cache and the deadline never fired. An
+# indeterminate negative test is worse than none: it reports the feature works.
+printf '#!/usr/bin/env bash\nsleep 120\n' > "$E/scripts/lib/hangs.test.sh"
+chmod +x "$E/scripts/lib/hangs.test.sh"
+
+T0="$(python3 -c 'import time; print(time.time())')"
+RC="$(CI_SHARD_UNIT_TIMEOUT=1 run_shard --only-units scripts/lib/hangs.test.sh \
+        --receipt "$SANDBOX/hang.jsonl")"
+T1="$(python3 -c 'import time; print(time.time())')"
+ELAPSED="$(python3 -c "print(int($T1 - $T0))")"
+
+if [ "$RC" = "1" ] && grep -q 'DEADLINE' "$SANDBOX/out"; then
+    ok "S19  a unit that never finishes is KILLED at its deadline and FAILS the shard"
+else
+    bad "S19  rc=$RC — a hung unit did not fail the shard; the job would have died anonymously instead"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# The unit sleeps 120 s. If the deadline did not actually kill it, this case
+# could only have finished by waiting for it — so the clock is the proof that
+# the kill happened, independent of anything the script printed about itself.
+if [ "$ELAPSED" -lt 30 ]; then
+    ok "S19b the kill is real: the 120 s unit was reaped in ${ELAPSED}s, not waited out"
+else
+    bad "S19b the shard took ${ELAPSED}s on a 120 s unit with a 1 s deadline — nothing was killed"
+fi
+
+if grep -q '"verdict":"TIMED-OUT"' "$SANDBOX/hang.jsonl" 2>/dev/null; then
+    ok "S19c the receipt says TIMED-OUT, not FAIL — 'never finished' and 'finished wrong' are different reports"
+else
+    bad "S19c the receipt does not carry the TIMED-OUT verdict: $(cat "$SANDBOX/hang.jsonl" 2>/dev/null)"
+fi
+
+# A hung unit must NOT be excusable by the known-red table. A declaration says
+# "this unit fails in a known way", which is a claim about a verdict it
+# REACHED; a hang reaches none, and letting the table swallow it would turn a
+# declared entry into an unbounded permit to block the pipeline.
+printf 'scripts/lib/hangs.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\thangs\n' "$FUT" > "$KR"
+RC="$(CI_SHARD_UNIT_TIMEOUT=1 run_shard --only-units scripts/lib/hangs.test.sh)"
+if [ "$RC" = "1" ]; then
+    ok "S19d a KNOWN-RED declaration does not excuse a HANG — a hang reaches no verdict to declare"
+else
+    bad "S19d rc=$RC — the known-red table swallowed a hang, making it an unbounded permit"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$KR"
+
+# ---------------------------------------------------------------------------
+# S20 — WEIGHT DRIFT reports itself, with the replacement row.
+# ---------------------------------------------------------------------------
+# The packing data went stale silently and cost more wall clock than anything
+# else in this system: 32 of 137 units carried no weight row, one of them
+# actually costing 2811.7 s against the 60 s the packer assumed.
+cat > "$E/scripts/lib/ci-unit-weights.tsv" <<'W'
+# test fixture
+scripts/lib/slow.test.sh	1.0	fixture
+W
+printf '#!/usr/bin/env bash\nsleep 4\nexit 0\n' > "$E/scripts/lib/slow.test.sh"
+chmod +x "$E/scripts/lib/slow.test.sh"
+# CI_SHARD_DRIFT_FLOOR is lowered from its declared 60 s so this case costs
+# four seconds instead of seventy. The FACTOR is left at its real value, so
+# what is being tested is the live comparison and the live output, not a
+# special path. The default floor gets its own case immediately below.
+RC="$(CI_SHARD_DRIFT_FLOOR=1 run_shard --only-units scripts/lib/slow.test.sh)"
+if [ "$RC" = "0" ] && grep -q 'WEIGHT-DRIFT' "$SANDBOX/out" \
+   && grep -q 'Replacement row' "$SANDBOX/out" \
+   && grep -q 'scripts/lib/slow.test.sh	4' "$SANDBOX/out"; then
+    ok "S20  a unit that costs far more than its recorded weight PRINTS the replacement row, measured"
+else
+    bad "S20  rc=$RC — drift went unreported, so the plan can rot silently again"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# AND IT IS A REPORT, NOT A FAILURE. A weight decides which machine runs a
+# unit, never whether it passed. A coverage job that went red over packing
+# balance is a coverage job that gets waived, which is how the last three
+# guards in this project died.
+#
+# The `grep` is repeated rather than inherited from the case above on purpose:
+# asserting only `rc=0` would also pass on a build where drift is never
+# detected at all, which is the exact shape of "a negative test that passes for
+# the wrong reason" this project keeps a note about.
+if [ "$RC" = "0" ] && grep -q 'WEIGHT-DRIFT' "$SANDBOX/out"; then
+    ok "S20b drift is REPORTED and does not fail the shard — a wrong weight cannot make a green wrong"
+else
+    bad "S20b drift either failed the shard (rc=$RC) or was not detected; balance is not correctness"
+fi
+
+# THE DEFAULT FLOOR IS REAL. The case above lowers it, so without this one a
+# build whose declared floor had drifted to 6000 s would still show S20 green.
+RC="$(run_shard --only-units scripts/lib/slow.test.sh)"
+if [ "$RC" = "0" ] && ! grep -q 'WEIGHT-DRIFT' "$SANDBOX/out"; then
+    ok "S20a at the DECLARED floor the same 4x drift is silent — 3 s of imbalance is not worth a line"
+else
+    bad "S20a the declared 60 s floor did not suppress a 3 s drift; the report will be noise"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
+# The quiet clause: a unit within its weight must print nothing at all, or a
+# hundred lines of noise bury the one that matters.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$E/scripts/lib/ontime.test.sh"
+chmod +x "$E/scripts/lib/ontime.test.sh"
+printf 'scripts/lib/ontime.test.sh\t120.0\tfixture\n' >> "$E/scripts/lib/ci-unit-weights.tsv"
+RC="$(run_shard --only-units scripts/lib/ontime.test.sh)"
+if [ "$RC" = "0" ] && ! grep -q 'WEIGHT-DRIFT' "$SANDBOX/out"; then
+    ok "S20c a unit inside its weight says nothing — the report stays readable"
+else
+    bad "S20c a well-behaved unit printed a drift line; the report will be read as noise"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/hangs.test.sh" "$E/scripts/lib/slow.test.sh" \
+      "$E/scripts/lib/ontime.test.sh" "$E/scripts/lib/ci-unit-weights.tsv"
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-shard tests: all $PASS passed ==="
