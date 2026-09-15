@@ -27,6 +27,7 @@
 
 import os from 'node:os';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -36,11 +37,30 @@ import { fileURLToPath } from 'node:url';
  */
 export const PRODUCT_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
 
-/** Is `p` inside `root`? */
+/** Resolve existing ancestors before checking a path that may not exist yet. */
+function canonicalPath(target) {
+  let ancestor = path.resolve(target);
+  const missing = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(ancestor), ...missing);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      // A dangling symlink is not a missing directory. Its destination cannot
+      // be verified, so refuse it instead of treating its name as a safe path.
+      if (fs.lstatSync(ancestor, { throwIfNoEntry: false })) throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      missing.unshift(path.basename(ancestor));
+      ancestor = parent;
+    }
+  }
+}
+
+/** Is `p` physically inside `root`, including through symlinked ancestors? */
 function isInside(p, root) {
-  const a = path.resolve(p);
-  const b = path.resolve(root);
-  return Boolean(b) && (a === b || a.startsWith(b + path.sep));
+  const relative = path.relative(canonicalPath(root), canonicalPath(p));
+  return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 }
 
 /** Google-owned API hosts the client is allowed to reach directly. Nothing else is permitted. */
@@ -95,7 +115,7 @@ export function assertLocalTokenLocation(target) {
   if (target.backend === 'file') {
     const p = path.resolve(target.filePath || '');
     const home = os.homedir();
-    if (!p.startsWith(home + path.sep)) {
+    if (!isInside(p, home) || canonicalPath(p) === canonicalPath(home)) {
       throw new Error(`privacy invariant: refusing token file outside the user's home: ${p}`);
     }
     // The docblock above has always said "never a repo file", but "under home" did not enforce it:

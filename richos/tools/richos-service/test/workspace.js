@@ -330,6 +330,61 @@ test('privacy: grouped product protects outer docs and .richos as well as produc
   }
 });
 
+test('privacy: symlinked checkout aliases cannot receive evidence or tokens', () => {
+  const tmp = fs.mkdtempSync(path.join(os.homedir(), '.richos-privacy-test-'));
+  const saved = { ...process.env };
+  try {
+    const alias = path.join(tmp, 'checkout');
+    fs.symlinkSync(REPO_ROOT, alias, 'junction');
+    const target = path.join(alias, 'docs', 'new-private-directory', 'nested');
+    process.env.RICHOS_DROP_ZONE = target;
+    process.env.RICHOS_WORKSPACE_ZONE = target;
+    assert.throws(() => dropZone(), /inside the RichOS product repo/);
+    assert.throws(() => workspaceZone(), /inside the RichOS product repo/);
+    assert.throws(() => assertLocalTokenLocation({ backend: 'file', filePath: target }), /inside the RichOS product repo/);
+    assert.throws(() => assertEvidenceOutsideProductRepo(path.join(REPO_ROOT, 'docs', 'new-private-directory'), alias), /inside the RichOS product repo/);
+  } finally {
+    process.env = saved;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('privacy: legitimate external symlinks and not-yet-created directories remain usable', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-privacy-test-'));
+  try {
+    const external = path.join(tmp, 'external');
+    fs.mkdirSync(external);
+    const alias = path.join(tmp, 'alias');
+    fs.symlinkSync(external, alias, 'junction');
+    const target = path.join(alias, 'new', 'nested');
+    assert.equal(assertEvidenceOutsideProductRepo(target), target);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('privacy: token paths cannot escape home through a symlink', () => {
+  const tmp = fs.mkdtempSync(path.join(os.homedir(), '.richos-privacy-test-'));
+  try {
+    const alias = path.join(tmp, 'outside-home');
+    fs.symlinkSync(path.parse(os.homedir()).root, alias, 'junction');
+    assert.throws(() => assertLocalTokenLocation({ backend: 'file', filePath: path.join(alias, 'new-token.json') }), /outside the user's home/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('privacy: an unresolved symlink fails closed', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-privacy-test-'));
+  try {
+    const alias = path.join(tmp, 'dangling');
+    fs.symlinkSync(path.join(tmp, 'missing'), alias, 'junction');
+    assert.throws(() => assertEvidenceOutsideProductRepo(path.join(alias, 'new', 'nested')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('privacy: PROBE - the same evidence path outside the product repo is accepted', () => {
   const outside = path.join(os.tmpdir(), 'richos-evidence-probe');
   assert.equal(assertEvidenceOutsideProductRepo(outside, REPO_ROOT), path.resolve(outside));
