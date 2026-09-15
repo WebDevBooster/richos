@@ -73,7 +73,7 @@ Restore only after a new explicit instruction from the owner:
    owned-state caches are invalidated by the changed pause policy.
 4. Refresh the shared watcher so old red records are replaced with current
    readings. Its coverage high-water mark grows when RichOS returns.
-5. Update this record and the root CLAUDE.md, then verify a fresh session.
+5. Update this record, then verify a fresh session.
 
 Do not blindly overwrite newer files with the backups. Review source changes
 against the current tree. The pause support can remain installed when the
