@@ -103,7 +103,19 @@ case "$MODE" in
     # roster is the operator's, the decision about who is on it is the
     # operator's, and a tool that silently expanded a deny-list would be adding
     # people to a blocklist nobody reviewed.
-    [ -n "$HQ" ] || HQ="$(cd "$HERE/../.." 2>/dev/null && pwd)/../richos-hq"
+    if [ -z "$HQ" ]; then
+        TOP="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -z "$TOP" ]; then
+            echo "named-persons.sh --seed: cannot discover HQ outside a Git checkout. Pass --hq <path-to-the-private-record>." >&2
+            exit 2
+        fi
+        # The script may live in a linked worktree or beneath grouped sources.
+        # HQ is beside the main checkout, not beside this script's ancestors.
+        # shellcheck source=./lib/resolve-main-checkout.sh
+        . "$HERE/lib/resolve-main-checkout.sh"
+        MAIN="$(resolve_main_checkout "$HERE" "$TOP")"
+        HQ="$(dirname "$MAIN")/richos-hq"
+    fi
     ENT="$HQ/ceo/entities.json"
     if [ ! -f "$ENT" ]; then
         echo "named-persons.sh --seed: no entity record at $ENT" >&2
