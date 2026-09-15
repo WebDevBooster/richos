@@ -12,9 +12,27 @@
 #
 #     gh api repos/WebDevBooster/richos/actions/jobs/<id>/logs   (all 12 shards)
 #
-# EVERY unit in the inventory is here. The run measured 137 units and the
-# inventory is 137 units, so for the first time this file has no gaps and
-# nothing falls back to DEFAULT_WEIGHT.
+# COVERAGE, AND ITS DATE. That run measured 137 units against an inventory of
+# 137 — no gaps, nothing falling back to DEFAULT_WEIGHT. Then main moved the
+# same afternoon (0e9f5fcf, two new hooks) and the inventory became 138. The
+# one row that measurement could not contain is
+# `scripts/hooks/left-off.test.sh`, and it is below with its own provenance:
+# measured locally at 120.4 s, TWICE the 60 s the packer would have assumed.
+#
+# That is worth reading twice, because it is this file's whole thesis
+# happening in real time. A unit landed, was packed at a number nobody had
+# checked, and the drift report named it with its replacement row inside two
+# minutes of the commit:
+#
+#   [  1/  1] scripts/hooks/left-off.test.sh    PASS 120.4s
+#         WEIGHT-DRIFT  planned 60.0s, measured 120.4s (2.0x).
+#         Replacement row for lib/ci-unit-weights.tsv:
+#           scripts/hooks/left-off.test.sh	120.4	<this-run-id>
+#
+# Coverage is therefore a CLAIM WITH A DATE, exactly like every number here.
+# It was complete at d2664cdb and it will go incomplete again at the next
+# suite anyone adds. What is now guaranteed is not that it is complete — it is
+# that it SAYS SO when it is not.
 #
 #   137 units, 7723 s serial. The largest, and they are what set the
 #   wall clock:
@@ -158,6 +176,7 @@ scripts/hooks/hook-staleness.test.sh	5.5	linux-run-34945072758
 scripts/hooks/inflight-ack-durability.test.sh	4.6	linux-run-34945072758
 scripts/hooks/inflight-notify.test.sh	9.8	linux-run-34945072758
 scripts/hooks/install-retire-reconciler.test.sh	8.3	linux-run-34945072758
+scripts/hooks/left-off.test.sh	120.4	darwin-local-2026-09-15
 scripts/hooks/lifecycle-payload-transport.test.sh	6.6	linux-run-34945072758
 scripts/hooks/long-payload.test.sh	3.9	linux-run-34945072758
 scripts/hooks/mechanical-findings.test.sh	4.6	linux-run-34945072758
