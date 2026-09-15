@@ -60,6 +60,17 @@
 #   68/68  .claude/settings.local.json               <- hook-staleness case 11
 #   68/68  scripts/hooks/contract-integrity-probe.sh <- by-reference BR2
 #   68/68  scripts/hooks/engine-status.test.sh       <- engine-status case 1b
+#
+# OF THOSE FOUR, ONLY TWO ARE STILL TYPED BY A HUMAN. The first is the
+# registration, which is the trigger rather than a demand. The second is
+# GENERATED from the first by install.sh since 2026-09-15, so its demand is
+# satisfied by running a command; the reader stays because the generated file
+# is committed and a commit made without running the generator still reaches
+# `main` with the surfaces disagreeing. The remaining two are typed on purpose
+# and deriving them is a different piece of work (contract-integrity-probe.sh
+# L393-402 argues why BR_EXPECTED must NOT be derived: a table derived from the
+# thing it checks asserts nothing). Anyone reading this to size a retirement of
+# the guard above should start there and not here.
 #   ----------------------------------------- unanimity cliff -----------
 #   41/68  scripts/hooks/contract-integrity.test.sh
 #   41/68  README.md
@@ -437,17 +448,29 @@ structural = {}
 if SETTINGS_REL in INVENTORIES:
     seated = parse_hooks_json(read_file(SETTINGS_REL), SETTINGS_REL)
 
+    # THE FIX FOR THIS ONE IS A COMMAND, NOT AN EDIT — since 2026-09-15 the
+    # seated surface is GENERATED from hooks/hooks.json by install.sh (see its
+    # "GENERATE the seated surface" step), so the only correct way to satisfy
+    # this reader is to run the generator. Telling an author to hand-add the
+    # entry would be asking them to re-type what a script derives, and the next
+    # install.sh run would overwrite it anyway. The demand stays because the
+    # generated file is COMMITTED: a hook registered and committed without
+    # running install.sh still reaches `main` with the surfaces disagreeing,
+    # which is the red hook-staleness case 11 has always produced.
     def settings_has(name, rec):
         got = seated.get(name)
         if not got:
-            return False, ("add it to %s on %s — hook-staleness case 11 parses "
-                           "BOTH surfaces and fails on 'surfaces disagree: "
-                           "only-plugin=[%s]'"
-                           % (SETTINGS_REL, "|".join(sorted(rec["events"])), name))
+            return False, ("run scripts/hooks/install.sh and commit the result — "
+                           "%s is GENERATED from hooks/hooks.json and does not yet "
+                           "carry %s on %s. Do not hand-edit it; hook-staleness "
+                           "case 11 parses BOTH surfaces and fails on 'surfaces "
+                           "disagree: only-plugin=[%s]'"
+                           % (SETTINGS_REL, name, "|".join(sorted(rec["events"])), name))
         missing_ev = sorted(rec["events"] - got["events"])
         if missing_ev:
             return False, ("it is seated in %s but NOT on %s — case 11 compares "
-                           "(script, event) PAIRS, not names"
+                           "(script, event) PAIRS, not names. Re-run "
+                           "scripts/hooks/install.sh rather than editing the file."
                            % (SETTINGS_REL, "|".join(missing_ev)))
         return True, ""
     structural[SETTINGS_REL] = settings_has
