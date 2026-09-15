@@ -110,12 +110,43 @@ def in_scope(rel):
     return rel.startswith("scripts/") and not is_scaffold(rel)
 
 
+def dispatch_manifest(eng):
+    """{chain key: [rule basenames]} from scripts/hooks/dispatch-pretooluse.manifest.
+
+    Empty when the engine has no dispatcher, which is every engine before
+    2026-09-15 and every engine that never adopts one.
+    """
+    out = {}
+    path = os.path.join(eng, "scripts/hooks/dispatch-pretooluse.manifest")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#") and "|" in line:
+                    key, module = line.split("|", 1)
+                    out.setdefault(key.strip(), []).append(module.strip())
+    except OSError:
+        pass
+    return out
+
+
 def registered_hooks(eng):
+    # THE DISPATCHER'S RULES ARE REGISTERED HOOKS FOR THIS PURPOSE, and getting
+    # that wrong has one symptom and it is not a missing name. This function
+    # SEEDS the dependency closure, so a rule left out of the seed set takes its
+    # whole dependency subtree with it — scripts/lib/inflight.py,
+    # scripts/lib/ceo-todos.sh, scripts/hook-registration-completeness.sh — and
+    # every sandbox this engine's suites build is then missing what those rules
+    # reach for. Measured: with the seed set unexpanded,
+    # contract-integrity.test.sh SC1 failed naming
+    # guard-hook-registration-commits.sh, which is the exact omission SC1's own
+    # header records from 2026-09-14, arriving through a new door.
     try:
         with open(os.path.join(eng, "hooks/hooks.json"), encoding="utf-8") as fh:
             doc = json.load(fh)
     except Exception:
         raise SystemExit(2)
+    manifest = dispatch_manifest(eng)
     found = set()
     hooks = doc.get("hooks", {})
     if isinstance(hooks, dict):
@@ -134,6 +165,10 @@ def registered_hooks(eng):
                     for m in re.findall(
                             r"scripts/hooks/([A-Za-z0-9._+-]+\.(?:sh|py))", cmd):
                         found.add(m)
+                    hit = re.search(
+                        r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
+                    if hit:
+                        found.update(manifest.get(hit.group(1), []))
     if not found:
         raise SystemExit(2)
     return found
