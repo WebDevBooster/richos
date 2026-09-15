@@ -1524,19 +1524,207 @@ set +e; run_install_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
 emit_case "6.install-source-missing-rc-2" 2 "$rc"
 rm -rf "$ROOT"
 
-# Case 7 — install.sh NEVER rewrites the canonical settings.local.json (it only
-# migrates settings.json + refreshes sidecars). The committed source, including
-# its $CLAUDE_PROJECT_DIR placeholders, is left byte-identical.
+# Case 7 — install.sh may write the `hooks` KEY of the canonical
+# settings.local.json, and NOTHING ELSE about that file.
+#
+# ===========================================================================
+# WHY THIS CASE CHANGED, 2026-09-15, AND WHY THE OLD ONE WAS NOT WRONG
+# ===========================================================================
+# It used to assert that install.sh leaves settings.local.json BYTE-IDENTICAL.
+# That was correct for every install.sh that had ever existed, and `3b76bf86`
+# ("The seated hook surface is derived from the registration, not retyped")
+# deliberately ended it: the seated surface's `hooks` key is now GENERATED from
+# hooks/hooks.json, because it was a 500-line hand-maintained second copy of a
+# table already in the tree, 74 of whose 76 entries were an exact transform of
+# it and whose other two were drift rather than intent.
+#
+# So this suite was asserting a property install.sh no longer has, on purpose,
+# and `main` was red for a contradiction rather than for a defect. The case is
+# OBSOLETE, not violated — and the fix is not to delete it or to weaken it to
+# "install.sh may write", which would stop protecting the thing it was written
+# to protect.
+#
+# THE EVIDENCE THIS REPLACEMENT IS BUILT ON, measured rather than assumed. A
+# plain copy of the real engine, install.sh run over it: output `✓ seated hook
+# surface already matches hooks/hooks.json`, and the before/after diff of
+# settings.local.json IDENTICAL. The generator is a no-op against a correct
+# tree. This SANDBOX differs because build_sandbox_template synthesizes an
+# approximate settings.local.json while copying the REAL hooks/hooks.json, so
+# the two disagree by construction. Dumping both sides of that write:
+#
+#   top-level keys before: env, hooks, worktree
+#   top-level keys after : env, hooks, worktree      (none added, none removed)
+#   keys whose value changed: hooks                  (env and worktree untouched)
+#
+# and the `hooks` change was a CORRECTION — the fixture had no UserPromptSubmit
+# event at all and fewer PreToolUse/PostToolUse/SessionStart groups than the
+# registration it is supposed to mirror.
+#
+# ===========================================================================
+# THE REPLACEMENT IS STRICTLY STRONGER THAN WHAT IT REPLACES
+# ===========================================================================
+# The old case pinned one property: nothing changes. This pins five, and a
+# future install.sh that rewrites anything OTHER than the generated hooks key
+# still fails here:
+#
+#   7a  the key SET is unchanged — install.sh may not add or drop a key.
+#   7b  every key except `hooks` is deep-equal. `env.CLAUDE_CODE_EXPERIMENTAL_
+#       AGENT_TEAMS` and `worktree.baseRef` are called out in this engine's own
+#       doctrine as being as load-bearing as any hook; an install.sh that
+#       reformatted them away would have been invisible to "byte-identical
+#       except hooks" stated loosely, and is caught here by name.
+#   7c  the $CLAUDE_PROJECT_DIR placeholders SURVIVE. This is the specific
+#       property the old case's comment named, and it is the one a generator is
+#       most likely to break: writing a resolved absolute path produces a file
+#       that works on the machine that generated it and nowhere else.
+#   7d  the generated hooks AGREE with hooks/hooks.json — the same script set,
+#       derived from the registration rather than from a list typed here, so a
+#       generator that silently dropped a hook fails. Compared as SETS OF
+#       SCRIPT NAMES and not as strings, deliberately: re-implementing the
+#       transform here would make this case agree with install.sh by
+#       construction, which is the shape of test that cannot fail.
+#   7e  it is IDEMPOTENT. A second run changes nothing. Without this a
+#       non-deterministic generator would leave every checkout dirty after
+#       every install and nothing would say so.
 ROOT="$(make_sandbox)"
-BEFORE="$(shasum -a 256 "$ROOT/.claude/settings.local.json" | awk '{print $1}')"
-"$ROOT/scripts/hooks/install.sh" >/dev/null
-AFTER="$(shasum -a 256 "$ROOT/.claude/settings.local.json" | awk '{print $1}')"
-if [ "$BEFORE" = "$AFTER" ]; then
-    PASS=$((PASS+1)); printf '  PASS  7.canonical-source-untouched-by-install\n'
+cp "$ROOT/.claude/settings.local.json" "$ROOT/settings.before.json"
+"$ROOT/scripts/hooks/install.sh" >/dev/null 2>&1
+cp "$ROOT/.claude/settings.local.json" "$ROOT/settings.after1.json"
+"$ROOT/scripts/hooks/install.sh" >/dev/null 2>&1
+cp "$ROOT/.claude/settings.local.json" "$ROOT/settings.after2.json"
+C7_OUT="$(python3 - "$ROOT" <<'PY'
+import json, os, sys
+
+root = sys.argv[1]
+
+
+def load(name):
+    with open(os.path.join(root, name), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+before, after1, after2 = load("settings.before.json"), load("settings.after1.json"), \
+    load("settings.after2.json")
+with open(os.path.join(root, "hooks", "hooks.json"), encoding="utf-8") as fh:
+    plugin = json.load(fh)
+
+bad = []
+
+# 7a — the key set.
+if set(before) != set(after1):
+    bad.append("install.sh changed the KEY SET of settings.local.json: added %s, removed %s"
+               % (sorted(set(after1) - set(before)), sorted(set(before) - set(after1))))
+
+# 7b — everything except `hooks` is untouched.
+for key in sorted(set(before) | set(after1)):
+    if key == "hooks":
+        continue
+    if before.get(key) != after1.get(key):
+        bad.append("install.sh rewrote %r, which is NOT the generated hooks key. Only `hooks` is "
+                   "derived; every other key is committed source." % key)
+
+
+def commands(doc):
+    out = []
+    for entries in (doc.get("hooks") or {}).values():
+        for group in entries:
+            for hook in group.get("hooks") or []:
+                if hook.get("command"):
+                    out.append(hook["command"])
+    return out
+
+
+# 7c — the placeholder survives, and no absolute path leaks in.
+#
+# APPLIED ONLY TO COMMANDS THAT INVOKE A SCRIPT. Not every registered hook is a
+# script invocation — several are inline `echo '{"hookSpecificOutput":...}'`
+# one-liners that carry no path at all and correctly have no placeholder. The
+# first version of this check asserted the placeholder on EVERY command and
+# failed on one of those, which is a test failing for a reason that is not a
+# defect. The property being protected is narrower and exact: wherever a hook
+# names a script under scripts/hooks, that path is reached through
+# $CLAUDE_PROJECT_DIR and never through a resolved one.
+for cmd in commands(after1):
+    for tok in cmd.split():
+        if "scripts/hooks/" not in tok:
+            continue
+        if not tok.startswith("$CLAUDE_PROJECT_DIR") and "$CLAUDE_PROJECT_DIR" not in tok:
+            bad.append("a generated hook reaches a script WITHOUT the $CLAUDE_PROJECT_DIR "
+                       "placeholder, so it is pinned to one machine: %s" % tok[:120])
+            break
+    if bad and bad[-1].startswith("a generated hook reaches"):
+        break
+for cmd in commands(after1):
+    if root in cmd:
+        bad.append("a generated hook command RESOLVED the placeholder to this checkout's absolute "
+                   "path, which would not work anywhere else: %s" % cmd[:120])
+        break
+
+
+# 7d — the generated set agrees with the registration it is derived from.
+def scripts_of(cmds):
+    return {os.path.basename(tok) for cmd in cmds for tok in cmd.split()
+            if tok.endswith(".sh") or tok.endswith(".py")}
+
+
+seated, registered = scripts_of(commands(after1)), scripts_of(commands(plugin))
+if seated != registered:
+    bad.append("the generated hooks do not agree with hooks/hooks.json — missing from the seated "
+               "surface: %s; present there but not registered: %s"
+               % (sorted(registered - seated) or "none", sorted(seated - registered) or "none"))
+
+# 7e — idempotent.
+#
+# THE DIFFERENCE IS PRINTED, not just asserted. "not idempotent" sends the
+# reader back to run the thing again by hand to find out what moved, and a
+# 130-second suite is a bad instrument for that. The keys that differ are
+# named here, where the failure already is.
+if after1 != after2:
+    moved = []
+    h1, h2 = after1.get("hooks") or {}, after2.get("hooks") or {}
+    for ev in sorted(set(h1) | set(h2)):
+        if h1.get(ev) != h2.get(ev):
+            moved.append("hooks.%s (%d -> %d matcher group(s))"
+                         % (ev, len(h1.get(ev) or []), len(h2.get(ev) or [])))
+    for key in sorted(set(after1) | set(after2)):
+        if key != "hooks" and after1.get(key) != after2.get(key):
+            moved.append(key)
+    bad.append("install.sh is NOT idempotent: a second run changed settings.local.json again, so "
+               "every checkout would be left dirty by every install. What moved: %s"
+               % (", ".join(moved) or "nothing this check can name"))
+
+print("\n".join(bad))
+PY
+)"
+if [ -z "$C7_OUT" ]; then
+    PASS=$((PASS+1)); printf '  PASS  7.install-writes-only-the-generated-hooks-key\n'
 else
-    FAIL=$((FAIL+1)); FAIL_NAMES+=("7.canonical-source-untouched-by-install"); printf '  FAIL  7.canonical-source-untouched-by-install  (install.sh mutated settings.local.json)\n'
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("7.install-writes-only-the-generated-hooks-key")
+    printf '  FAIL  7.install-writes-only-the-generated-hooks-key\n'
+    printf '%s\n' "$C7_OUT" | sed 's/^/          /'
 fi
 rm -rf "$ROOT"
+
+# Case 7m — and case 7 above can still FAIL, clause by clause.
+#
+# The moment a case stops asserting one thing and starts asserting five, it
+# also becomes much easier to write in a way that cannot fail — and a case that
+# flags nothing passes on every build, looks like coverage, and is worth less
+# than no case because it REPORTS coverage that is not there. The harness
+# extracts case 7's own assertion block out of this file and drives it over
+# fixtures that violate exactly one clause each, with a positive control so an
+# assertion that refused everything could not pass itself off as thorough.
+#
+# Under a second, because it needs no sandbox: the clauses are about the
+# CONTENT of the file install.sh writes, and content can be crafted.
+C7M_LOG="$(mktemp -t case7-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/contract-integrity-case7.mutation.sh" >"$C7M_LOG" 2>&1; rc=$?; set -e
+emit_case "7m.install-write-scope-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    diag_or_tail "$(grep -E '^ *(FAIL|PASS)|^=== |NOT load-bearing|FATAL' "$C7M_LOG" \
+        | grep -vE '^ *PASS' || true)" "$(cat "$C7M_LOG" 2>/dev/null || true)"
+fi
+rm -f "$C7M_LOG"
 
 # ---------------------------------------------------------------------------
 # Layer M — registration uniqueness (the double-fire root-fix)
