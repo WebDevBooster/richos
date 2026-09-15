@@ -23,6 +23,18 @@
 #     PreToolUse[Bash] chain, one call:   14 bash + 37 python3 + 36 git
 #                                       = 30 ms  +  542 ms   + 152 ms
 #
+# AND WHAT IT COSTS NOW, the same call counted the same way — the dispatcher
+# plus the two entries below that are deliberately not rules:
+#
+#     PreToolUse[Bash] chain, one call:    3 bash + 19 python3 +  8 git
+#
+#     serial work,   median of 7 runs:  1203 ms -> 397 ms
+#     parallel wall, median of 7 runs:   310 ms -> 254 ms
+#
+# `unverified:` whether the host runs its registered entries concurrently. Both
+# numbers are given because the answer decides which one matters, and measuring
+# it would mean registering a probe hook on the operator's live session.
+#
 # Bash process startup is 4% of the apparatus cost. The other 96% is python3
 # and git, and TWO OF EVERY THREE python3 forks and FOUR OF EVERY FOUR git
 # forks were the same two questions asked twelve times over one identical
