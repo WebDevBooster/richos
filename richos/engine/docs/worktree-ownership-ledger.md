@@ -262,7 +262,7 @@ effects. Under `REAP_WORKTREES_ROOT` the two wrappers pin them inside the
 sandbox automatically.
 
 Suites: `scripts/lib/worktree-ledger.test.sh` (24), the reaper's suite (28, removed
-2026-09-11), `scripts/create-teammate-worktree.test.sh` (16), plus the extended
+2026-09-11), `mega-lander/tests/create-teammate-worktree.test.sh` (16), plus the extended
 guard, detector, lifecycle, removal and wrapper suites. Every verdict-shaped
 case is two-sided, and every suite was turned red by a source mutation before
 it was trusted.
