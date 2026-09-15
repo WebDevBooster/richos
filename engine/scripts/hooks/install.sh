@@ -3,14 +3,29 @@
 # install.sh — establish the SINGLE canonical hook-registration source and
 #               refresh the hook content-hash manifests.
 #
-# CANONICAL SOURCE (single-registration root-fix): hooks are registered in
-# exactly ONE file, `.claude/settings.local.json` (committed, force-added — see
-# .gitignore). It carries every hook stanza using `$CLAUDE_PROJECT_DIR` as the
-# repo-root placeholder, which Claude Code expands when it runs the hook
-# command — so the committed file wires enforcement on a fresh clone with ZERO
-# install step. (The engine keeps the `.sha256` manifest sidecars gitignored and
-# regenerated here, so a fresh clone still runs install.sh once to mint the
-# sidecars the integrity probe's Layer B/C/K hashing needs.)
+# CANONICAL SOURCE — CORRECTED 2026-09-15, and the correction is the reason
+# this script now generates rather than merely validates.
+#
+# This header used to say hooks are registered in exactly ONE file,
+# `.claude/settings.local.json`. That was true of the SEATED engine and it
+# stopped being the whole truth on 2026-08-28, when the engine became loadable
+# BY REFERENCE. There are two surfaces, for the two installation modes
+# contract-integrity-probe.sh names:
+#
+#   hooks/hooks.json             the plugin table. This is what the host loads
+#                                and what actually fires in every working
+#                                session. THE SOURCE OF TRUTH.
+#   .claude/settings.local.json  the seated surface: the same table expressed
+#                                with `$CLAUDE_PROJECT_DIR`, which the probe's
+#                                Layers A-Q audit when the subject repository
+#                                IS the engine. DERIVED from the first, here.
+#
+# Both are committed and force-added (see .gitignore). The `.sha256` manifest
+# sidecars stay gitignored and are regenerated here, so a fresh clone still
+# runs install.sh once to mint what the probe's Layer B/C/K hashing needs.
+#
+# The doctrine line that mattered survives unchanged: THERE IS ONE PLACE A
+# HUMAN WRITES A REGISTRATION, and it is hooks/hooks.json.
 #
 # THE DOUBLE-FIRE BUG THIS SCRIPT NOW PREVENTS: the PRE-fix install.sh wrote a
 # SECOND settings file, `.claude/settings.json` (gitignored), holding a
@@ -27,6 +42,10 @@
 #      worktree.baseRef == "head") — refuse loudly if either is missing, never
 #      proceed on a broken source (the "ghost team" incident; probe Layers I/J
 #      re-check this independently).
+#   1b. GENERATE the seated surface's `hooks` key from hooks/hooks.json, so the
+#      two surfaces cannot disagree and no hook author hand-edits 500 lines of
+#      JSON again. Idempotent; refuses rather than guesses on a command shape
+#      it does not know.
 #   2. MIGRATE / DE-DUPLICATE: if a stale `.claude/settings.json` exists, strip
 #      its `hooks` key. If the hook-stripped remainder is a pure duplicate of
 #      `.claude/settings.local.json` (minus hooks) — the state the old install.sh
@@ -139,6 +158,163 @@ if problems:
                       "\"Critical configuration\" section), then re-run install.sh.\n")
     sys.exit(2)
 PY
+
+# --- GENERATE the seated surface's hook stanzas from the registration ------
+# settings.local.json's `hooks` key is DERIVED, here, from hooks/hooks.json.
+# Nobody hand-edits it again.
+#
+# ===========================================================================
+# WHY THIS STEP EXISTS
+# ===========================================================================
+# The engine has two hook surfaces and they are not alternatives — they serve
+# the two installation modes contract-integrity-probe.sh names:
+#
+#   BY REFERENCE  hooks/hooks.json, read by the host when the plugin loads.
+#                 This is what actually fires in every working session on this
+#                 machine. Probe layers BR* audit it.
+#   SEATED        .claude/settings.local.json, which the probe's Layers A-Q
+#                 audit when the subject repository IS the engine.
+#
+# The second was maintained BY HAND, by every hook author, in a 500-line JSON
+# file, and it had to agree with the first entry-for-entry or hook-staleness
+# case 11 went red on `main` with "surfaces disagree". It was one of the four
+# inventories hook-registration-completeness.sh demands, and the only one whose
+# content is mechanically derivable from another file in the same tree.
+#
+# Measured on 2026-09-15 before this step was written (zach-opus-surface2): of
+# 76 entries, 74 were already an exact transform of the plugin table including
+# timeouts, and the two that were not were both drift rather than intent —
+# session-start-escalations.sh carried a timeout the real table does not, and
+# shell-evidence.sh differed only in shell quoting. A surface that is 97% a
+# copy and 3% undocumented divergence is not a second opinion; it is a stale
+# copy with a maintenance bill.
+#
+# THE TRANSFORM, stated once so it can be checked:
+#
+#   bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/x.sh   (plugin: the host expands
+#                                                    CLAUDE_PLUGIN_ROOT)
+#        ->  $CLAUDE_PROJECT_DIR/scripts/hooks/x.sh (seated: the host expands
+#                                                    CLAUDE_PROJECT_DIR to the
+#                                                    repo, which IS the engine)
+#
+# Event, matcher, entry grouping and timeout are carried across untouched.
+#
+# WHY THIS CANNOT DOUBLE-FIRE ANYTHING. REPO_ROOT is this script's own
+# ../.., so the file written is ALWAYS the engine's own settings.local.json
+# and never an adopting repository's. That distinction is the whole safety
+# argument: measured live on 2026-09-15, the host does NOT dedupe a hook
+# registered on two surfaces — the same command seated in both fired twice on
+# one tool call — and this file's own header records the settings.json instance
+# of that bug. A generator that wrote the engine's guards into an adopter's
+# settings would re-create it at a larger scale.
+#
+# FAIL LOUD, NEVER GUESS: a registered command that does not carry the plugin
+# root placeholder has a shape this transform does not know, and writing a
+# guessed translation of it would seat a hook that points nowhere. This aborts
+# and names the command instead.
+GEN_ACTION="$(python3 - "$SOURCE" "$REPO_ROOT/hooks/hooks.json" <<'PY'
+import json, os, re, sys, collections
+
+src_path, plugin_path = sys.argv[1:3]
+
+try:
+    with open(plugin_path, "r", encoding="utf-8") as f:
+        plugin = json.load(f)
+except Exception as e:
+    sys.stderr.write("ERROR: install.sh: cannot read the registration surface "
+                     "%s: %s\n" % (plugin_path, e))
+    sys.stderr.write("       The seated surface is derived from it; with no "
+                     "source there is nothing honest to write.\n")
+    sys.exit(2)
+
+def seat(cmd):
+    """The transform. One shape in, one shape out, or a loud refusal (None).
+
+    THE INLINE CASE IS NOT AN EXCEPTION TO THE RULE, IT IS THE RULE APPLIED.
+    One registered entry runs no script at all — the knowledge-verification
+    notice is a literal `echo '{...}'`. It names no path, so there is nothing
+    to re-root, and the correct seated form is the identical string. It is
+    recognized by what it lacks (no plugin root, no script path) rather than
+    by matching its text, so a second inline hook needs no edit here and a
+    script-bearing command can never fall into this branch by accident.
+    """
+    if cmd.startswith('bash "${CLAUDE_PLUGIN_ROOT}/'):
+        return '"$CLAUDE_PROJECT_DIR/' + cmd[len('bash "${CLAUDE_PLUGIN_ROOT}/'):]
+    if cmd.startswith("bash ${CLAUDE_PLUGIN_ROOT}/"):
+        return "$CLAUDE_PROJECT_DIR/" + cmd[len("bash ${CLAUDE_PLUGIN_ROOT}/"):]
+    if cmd.startswith("bash $CLAUDE_PLUGIN_ROOT/"):
+        return "$CLAUDE_PROJECT_DIR/" + cmd[len("bash $CLAUDE_PLUGIN_ROOT/"):]
+    if "CLAUDE_PLUGIN_ROOT" in cmd:
+        return None          # references the plugin root in a shape not known
+    if re.search(r"[A-Za-z0-9._-]+\.(?:sh|py)\b", cmd):
+        return None          # names a script by some other path — never guess
+    return cmd               # inline: no path, so no re-rooting to do
+
+
+generated = collections.OrderedDict()
+unknown = []
+for event, entries in (plugin.get("hooks") or {}).items():
+    out_entries = []
+    for entry in entries:
+        out_hooks = []
+        for h in (entry.get("hooks") or []):
+            cmd = h.get("command", "")
+            seated = seat(cmd)
+            if seated is None:
+                unknown.append("%s: %s" % (event, cmd))
+                continue
+            new = collections.OrderedDict()
+            new["type"] = h.get("type", "command")
+            new["command"] = seated
+            if "timeout" in h:
+                new["timeout"] = h["timeout"]
+            out_hooks.append(new)
+        if not out_hooks:
+            continue
+        out_entry = collections.OrderedDict()
+        if entry.get("matcher"):
+            out_entry["matcher"] = entry["matcher"]
+        out_entry["hooks"] = out_hooks
+        out_entries.append(out_entry)
+    if out_entries:
+        generated[event] = out_entries
+
+if unknown:
+    sys.stderr.write("ERROR: install.sh: %d registered command(s) do not carry "
+                     "the plugin-root placeholder this transform knows:\n" % len(unknown))
+    for u in unknown:
+        sys.stderr.write("  - %s\n" % u)
+    sys.stderr.write("       Refusing to guess a seated translation. Either "
+                     "register it as `bash ${CLAUDE_PLUGIN_ROOT}/<path>` or "
+                     "teach seat() the new shape, deliberately.\n")
+    sys.exit(2)
+
+with open(src_path, "r", encoding="utf-8") as f:
+    settings = json.load(f, object_pairs_hook=collections.OrderedDict)
+
+if settings.get("hooks") == generated:
+    print("current")
+    sys.exit(0)
+
+settings["hooks"] = generated
+tmp = src_path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+os.replace(tmp, src_path)
+print("regenerated")
+PY
+)"
+
+case "$GEN_ACTION" in
+    current)
+        echo "✓ seated hook surface already matches hooks/hooks.json" ;;
+    regenerated)
+        echo "✓ regenerated .claude/settings.local.json hook stanzas from hooks/hooks.json — commit the change" ;;
+    *)
+        echo "ERROR: seated-surface generation returned unexpected action: '$GEN_ACTION'" >&2
+        exit 1 ;;
+esac
 
 # --- Migrate / de-duplicate settings.json --------------------------------
 # settings.json is gitignored and, post-fix, must NEVER carry hook stanzas.
