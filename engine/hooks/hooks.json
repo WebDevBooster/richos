@@ -162,28 +162,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-main-checkout-writes.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/scan-secrets.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-publication-writes.sh",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-named-persons-writes.sh",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-dialect.sh",
-            "timeout": 10
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch-pretooluse.sh Write",
+            "timeout": 40
           }
         ]
       },
@@ -212,63 +192,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-interactive-prompt.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-bash-main-writes.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-inflight-notify.sh",
-            "timeout": 25
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-worktree-removal.sh",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-publication-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-named-persons-commands.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ceo-todos-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-completeness-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-row-currency-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-vendoring-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-hook-registration-commits.sh",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ci-red-lands.sh",
-            "timeout": 25
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch-pretooluse.sh Bash",
+            "timeout": 60
           },
           {
             "type": "command",
