@@ -9,12 +9,25 @@ import sys
 import tempfile
 
 source = Path(sys.argv[1]).resolve().parents[2]
+# dispatch-pretooluse.manifest is in this list because it is a REGISTRATION
+# SURFACE: since 2026-09-15 seventeen guards are wired by one line each there
+# rather than by an entry in hooks.json, and session-evidence.test.py's
+# inventory comparison reads it. A sandbox without it makes that comparison see
+# seventeen declared-but-unregistered guards and fail the baseline before a
+# single mutation has been applied.
 files = ['engine/hooks/hooks.json', 'app/scripts/rust-test-summary.py'] + [
     'engine/scripts/hooks/' + n for n in ('session-evidence.test.py', 'shell-evidence.py',
-    'shell-evidence.sh', 'contract-integrity-probe.sh', 'commit-ceo-inputs.py', 'notice-ceo-inputs-unheld.sh', 'turn-manifest.py')]
+    'shell-evidence.sh', 'contract-integrity-probe.sh', 'commit-ceo-inputs.py', 'notice-ceo-inputs-unheld.sh', 'turn-manifest.py',
+    'dispatch-pretooluse.manifest')]
 mutations = [
  ('plugin hook absent from managed inventory', 'engine/scripts/hooks/contract-integrity-probe.sh',
   'shell-evidence.sh|PreToolUse', '', 'test_real_wrapper_and_registration'),
+ # The same property on the other registration surface. A guard switched off by
+ # deleting its manifest line has to be as visible as one switched off by
+ # deleting its hooks.json entry, or the manifest is a place enforcement can go
+ # quiet with nothing to say so.
+ ('dispatcher rule absent from the manifest', 'engine/scripts/hooks/dispatch-pretooluse.manifest',
+  'Bash|guard-ci-red-lands.sh', '', 'test_real_wrapper_and_registration'),
  ('shell failures hidden', 'engine/scripts/hooks/shell-evidence.py', 'set -e -o pipefail', 'set +e +o pipefail',
   'test_original_failures_are_reproduced_and_fixed_in_bash_and_zsh'),
  ('notifications treated as handovers', 'engine/scripts/hooks/commit-ceo-inputs.py',

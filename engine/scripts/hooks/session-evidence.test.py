@@ -93,6 +93,29 @@ class SessionEvidence(unittest.TestCase):
         registered = {(re.search(r'scripts/hooks/([a-z0-9_.+-]+\.sh)', h['command']).group(1), event)
                       for event, groups in config['hooks'].items() for group in groups
                       for h in group['hooks'] if re.search(r'scripts/hooks/([a-z0-9_.+-]+\.sh)', h.get('command', ''))}
+        # A registered `dispatch-pretooluse.sh <key>` stands for every rule
+        # scripts/hooks/dispatch-pretooluse.manifest gives that key, on the
+        # dispatcher's own event — which is where each of those seventeen rules
+        # was registered before 2026-09-15. This is a THIRD independent reading
+        # of the registration (the probe's BR2 and hook-staleness.test.sh hold
+        # the other two), so it implements the rule rather than asking the
+        # shared library, and the manifest is parsed here in four lines.
+        manifest = {}
+        manifest_path = HOOKS / 'dispatch-pretooluse.manifest'
+        if manifest_path.exists():
+            for line in manifest_path.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith('#') and '|' in line:
+                    key, module = line.split('|', 1)
+                    manifest.setdefault(key.strip(), []).append(module.strip())
+        for event, groups in config['hooks'].items():
+            for group in groups:
+                for h in group['hooks']:
+                    hit = re.search(r'scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)',
+                                    h.get('command', ''))
+                    if hit:
+                        for module in manifest.get(hit.group(1), []):
+                            registered.add((module, event))
         self.assertEqual(declared, registered, 'every registered hook must be inventoried on its actual event')
 
     def test_task_notification_does_not_become_a_handover(self):
