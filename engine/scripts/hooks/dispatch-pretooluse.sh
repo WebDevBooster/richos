@@ -288,6 +288,15 @@ for _dsp_m in $_DSP_MODULES; do
     fi
 
     _dsp_pid="$(cat "$_dsp_slot.pid" 2>/dev/null || true)"
+    if [ -z "$_dsp_pid" ]; then
+        # The fork left no pid — the shell could not start the subshell at all,
+        # which under resource pressure is a real outcome and not a theoretical
+        # one. There is no status to read, so there is no verdict: announce it
+        # and carry on, the same treatment an absent module gets.
+        printf '%s\n' "ERROR: dispatch-pretooluse.sh: rule module '$_dsp_m' left no process status — it could not be started. THAT RULE DID NOT EVALUATE THIS CALL; every other rule in the ${_DSP_CHAIN_KEY} chain ran normally and their verdicts stand. $_DSP_TAG" >&2
+        [ -f "$_dsp_slot.err" ] && cat "$_dsp_slot.err" >&2
+        continue
+    fi
     wait "$_dsp_pid"
     _dsp_rc=$?
 
