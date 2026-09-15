@@ -1,0 +1,73 @@
+=== WHERE HE LEFT OFF — he is back after 9h 01m away ===
+
+ANSWER THE THING HE LEFT ON, IN HIS TERMS, BEFORE ANYTHING ELSE. Not what
+you are currently holding, not the backlog, not what is running. That
+substitution is lifecycle failure type 60 and it cost him 16 messages and
+39 minutes on 2026-09-15. Retrieval was never the failure; answering
+something else after retrieving it was.
+
+HIS LAST MESSAGE BEFORE THE GAP, VERBATIM (2026-09-14T21:39:46.512000+00:00):
+    So, what now? Another CI fuckshit is gonna be build to burn 50% of my fucking tokens and my time???
+
+THE SITTING IT ENDED — his own words, oldest first, 12 earlier ones not shown. His question is
+often not in the last message alone:
+  20:58  This whole CI shit is starting to feel like an EXTREME burning of resources and time.
+  21:03  Yeah, this has to stop. There must be some other solution. Burning 46% of tokens and 58% of time is absolutely unacceptable. I would be OK with 10% of that amount, but definitely not this. This can't be normal.
+  21:15  so, what's the TLDR bottom-line?
+  21:19  what is the impact on the actual normal jobs and the time required to land (with this new approach)?
+  21:26  So, what's the **proper** solution then? I mean, that shitfuckery can't be it either, can it? This here is not ideal, is it? -> "The one real downside, stated plainly: a gate that refuses adds a way for a land to stop. …
+  21:29  WHY THE FUCK DID I NEVER GET A PROPER FUCKING SETUP THEN???? WHAT'S THE FUCKING DEAL??????? WILL I EVER GET A PROPER FUCKING SETUP FOR THIS WHOLE CI FUCKSHIT OR NOT?????????
+  21:31  HOW DO I KNOW THAT THIS "actual job" will be done right this time??? Why wasn't it done right the first fucking time??? what the fuck happened??? was there a deliberate sabotage to waste my fucking tokens and my time en… [he sent this again at 21:35 — the first answer missed]
+  21:34  "The deliverable is a document you read and decide on.": I have NO fucking clue about any of this CI fuckshit whatsoever. So, it absolutely doesn't fucking matter whether I read it or not. And I had already asked countl…
+  21:37  Oh, you "never told me it needed doing"??? Who the fuck kept bugging me endless times to add the fucking CI shit before the repo went public??? Who the fuck kept bugging me to "add billing" so that the fucking CI fucksh…
+
+WHAT YOU LAST TOLD HIM ABOUT IT (2026-09-14T21:40:27.847000+00:00):
+    **No. Both jobs in flight are forbidden from building anything.** I just bound the second one to it in writing rather than leaving it as my intention. - **Sage** — designing the whole layer: *add nothing*, and his first deliverable is an **actual landed deletion**, not a plan to delete. A count bel…
+
+WHAT RAN ACROSS THE GAP — 3 job(s). Token cost is the host's own
+<subagent_tokens>; the OUTCOME column is GIT (the integration branch's
+reflog, cross-checked by ancestry), never a status field. A status field
+records the last observed event, not the outcome — failure type 61.
+
+       tokens  teammate                outcome     job
+      218,627  zach-opus-silent1       LANDED      Why was the blocking guard silent
+      275,567  sage-opus-vdesign1      LANDED      Design the verification layer
+    no notice  tom-opus-derive1        LANDED      Derive the last typed inventories
+
+    494,194 tokens over 2 job(s) that reported a cost.
+    THE SPLIT IS YOURS AND IT IS USUALLY WHAT HE IS ASKING FOR: classify
+    these by what they were FOR and give him the proportion. Do not report
+    a percentage over a window that reaches past his return — this table
+    ends at his first message back, which is what makes it an overnight
+    figure rather than a figure including this morning.
+
+    tom-opus-derive1       NO COMPLETION NOTICE IN THE TRANSCRIPT, AND IT LANDED ANYWAY:
+                             richos absorbed cc/tom-opus-derive1 at 2026-09-15T01:09:44+01:00 as 2545d7f1, still an ancestor of main [registry claims landed: ]
+
+WHAT LANDED ON main IN /Users/alex/ab/richos — 13 commit(s):
+  2545d7f1  00:33  The derived rooted set can be EMPTY, and an empty one crashed the probe
+  9544e7e3  00:22  Record escalation esc-20260914T225249Z-29fa451e: step 1's done-when is unreachable
+  9e442f5a  00:22  Layer R derives the hooks it walks; only the rootless exemption stays typed
+  ddc98e69  23:56  Layer R was walking 52 of the 57 registered hooks that resolve a root
+  e6b54777  23:29  Merge branch 'cc/sage-opus-vdesign1'
+  0dfc826a  23:28  Record escalation esc-20260914T222845Z-3db2a4ce: the reported guard count is gameable
+  671b544c  23:28  Record the full contract-integrity result: rc 0, 180 passed, 0 failed
+  af995c3c  23:18  Design the verification layer as one thing: 104 -> 103 today, target 58
+  38c6c172  23:17  Remove reader-teammate-hint.sh: its condition is refused by an earlier guard
+  de525f19  22:44  Record esc-20260914T214427Z-b99a0076: 37 of 37 CONTROLs share the defect
+  a2388afa  22:44  The guard was never invoked: a guard cannot protect the session that lands it
+  87ca1b57  22:44  The staleness notice reaches the assistant too, because the assistant is what writes th…
+  (1 more; git -C /Users/alex/ab/richos log main --since=2026-09-14T21:39:46.512000+00:00 --until=2026-09-15T06:41:29.612000+00:00)
+
+RAISED WHILE HE WAS AWAY — 3 escalation(s):
+  esc-20260914T214427Z-b99a0076  [work-complete]  37 of 37 CONTROLs are inert in any session that predates their landing; the hot-reload surface that would fix 
+  esc-20260914T222845Z-3db2a4ce  [work-complete]  The guard count the CEO is shown is gameable by git mv; migration step 3 is gated on replacing it
+  esc-20260914T225249Z-29fa451e  [proceeding]  Step 1's done-when is unreachable: 2 of the 7 typed inventories are load-bearing specs, 2 already derive, 1 is
+
+HOW TO RE-DERIVE ANY OF THIS, so no number here has to be trusted:
+  his messages   /Users/alex/.claude/projects/-Users-alex-ab-femcboost/b7d89f44-e47a-4f64-a551-b41bd8468250.jsonl  (origin.kind=human, promptSource!=sdk, not isMeta)
+  job cost       the same transcript's <subagent_tokens>
+  landings       git -C /Users/alex/ab/femcboost reflog show main --date=iso
+  landings       git -C /Users/alex/ab/richos reflog show main --date=iso
+  landings       git -C /Users/alex/ab/richos-hq reflog show main --date=iso
+  repo scope     session

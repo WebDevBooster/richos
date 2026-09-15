@@ -1,0 +1,19 @@
+Every job notification carrying a token cost, from his last pre-gap message onward.
+Source: the session transcript's own <subagent_tokens>; dispatch time from the
+Agent tool_use that opened the job.
+
+  finished 2026-09-14T21:45:16Z  dispatched 2026-09-14T21:25:58Z    218,627  zach-opus-silent1      Why was the blocking guard silent
+  finished 2026-09-14T22:29:15Z  dispatched 2026-09-14T21:30:53Z    275,567  sage-opus-vdesign1     Design the verification layer
+  finished 2026-09-15T06:57:38Z  dispatched 2026-09-15T06:43:17Z    139,931  tom-opus-r9fix1        Fix the cross-repo test fixture
+
+WINDOW A -- the honest overnight window: 21:39:46Z (his last message) ->
+            06:41:29Z (his return, 'TLDR, plain English')
+  2 job(s), 494,194 tokens
+
+WINDOW B -- the window the 22% figure came from: the same start, and NO END,
+            evaluated at 07:11:37Z when the command was run
+  3 job(s), 634,125 tokens
+
+  IN B AND NOT IN A: tom-opus-r9fix1 (139,931 tokens, 'Fix the cross-repo test fixture')
+    dispatched 2026-09-15T06:43:17Z, which is 1m31s AFTER his 06:41:29Z return.
+    22% = 139,931 / 634,125. Remove it and the repair share of the overnight window is 0%.
