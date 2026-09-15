@@ -164,7 +164,7 @@ RC=0
 run_probe() {
     local sb="$1"
     set +e
-    OUT="$(HOME="$sb/home" RICHOS_ENTITY_ROOT="$sb/entity" \
+    OUT="$(HOME="$sb/home" CLAUDE_CONFIG_DIR="$sb/home/.claude" RICHOS_ENTITY_ROOT="$sb/entity" \
         "$sb/engine/scripts/hooks/contract-integrity-probe.sh" 2>&1)"
     RC=$?
     set -e
@@ -232,7 +232,7 @@ else
     bad "0c.by-reference-install-does-not-run-the-seated-layers" "seated Layer A ran under a by-reference engine"
 fi
 set +e
-SEATED_OUT="$(HOME="$SB/home" RICHOS_ENTITY_ROOT="$SB/engine" \
+SEATED_OUT="$(HOME="$SB/home" CLAUDE_CONFIG_DIR="$SB/home/.claude" RICHOS_ENTITY_ROOT="$SB/engine" \
     "$SB/engine/scripts/hooks/contract-integrity-probe.sh" 2>&1)"
 SEATED_RC=$?
 set -e
