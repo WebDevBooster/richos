@@ -563,6 +563,52 @@ for f in scripts/lib/named-persons.sh scripts/lib/named-persons.py; do
     fi
 done
 
+# Default seed discovery follows the main checkout, including from worktrees.
+# Only synthetic entities are used; no operator HQ is read by these cases.
+SEED_PARENT="$SCRATCH/seed space"
+SEED_REPO="$SEED_PARENT/product"
+SEED_SCRIPTS="$SEED_REPO/richos/engine/scripts"
+mkdir -p "$SEED_SCRIPTS/lib" "$SEED_PARENT/richos-hq/ceo"
+cp "$FRONTEND" "$SEED_SCRIPTS/"
+cp "$ENGINE_ROOT/scripts/lib/"named-persons.{sh,py} \
+   "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$SEED_SCRIPTS/lib/"
+python3 - "$SEED_PARENT/richos-hq/ceo/entities.json" "$F_FULL" <<'PY'
+import json, sys
+with open(sys.argv[1], 'w') as stream:
+    json.dump({'entities': [{'type': 'person', 'canonical': sys.argv[2]}]}, stream)
+PY
+git -C "$SEED_REPO" init -q
+git -C "$SEED_REPO" add -A
+git -C "$SEED_REPO" commit -qm "synthetic seed fixture"
+OUT="$(bash "$SEED_SCRIPTS/named-persons.sh" --seed 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -Fq "# name: $F_FULL"; then
+    ok "(s) grouped checkout discovers sibling HQ by default"
+else
+    bad "(s) grouped checkout could not seed from sibling HQ (exit $rc)"
+fi
+SEED_WORKTREE="$SCRATCH/linked-worktree"
+git -C "$SEED_REPO" worktree add -q --detach "$SEED_WORKTREE"
+OUT="$(bash "$SEED_WORKTREE/richos/engine/scripts/named-persons.sh" --seed 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -Fq "# name: $F_FULL"; then
+    ok "(s) linked worktree discovers HQ beside its main checkout"
+else
+    bad "(s) linked worktree could not seed from main checkout's sibling HQ (exit $rc)"
+fi
+git -C "$SEED_REPO" worktree remove "$SEED_WORKTREE"
+mv "$SEED_PARENT/richos-hq" "$SEED_PARENT/explicit-hq"
+OUT="$(bash "$SEED_SCRIPTS/named-persons.sh" --seed --hq "$SEED_PARENT/explicit-hq" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -Fq "# name: $F_FULL"; then
+    ok "(s) explicit HQ override still works"
+else
+    bad "(s) explicit HQ override failed (exit $rc)"
+fi
+OUT="$(bash "$SEED_SCRIPTS/named-persons.sh" --seed 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$OUT" | grep -Fq 'Pass --hq'; then
+    ok "(s) missing sibling HQ reports how to supply its location"
+else
+    bad "(s) missing sibling HQ did not give an actionable refusal (exit $rc)"
+fi
+
 rm -rf "$SB" "$SB_NO"
 
 echo ""
