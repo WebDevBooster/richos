@@ -69,6 +69,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The registration question has ONE answer in this engine, and it is not a
+# grep: seventeen guards are wired by scripts/hooks/dispatch-pretooluse.manifest
+# rather than by an entry of their own. hook_enforced_on_surface asks whether
+# the surface causes the guard to RUN, which is the property this case is about.
+# shellcheck source=../lib/registered-hooks.sh
+. "$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+
 
 WRITE_HOOK="$SCRIPT_DIR/guard-named-persons-writes.sh"
 CMD_HOOK="$SCRIPT_DIR/guard-named-persons-commands.sh"
@@ -513,12 +520,12 @@ else bad "(r) --tree returned $rc over a tree carrying a listed name"; fi
 # (p) REGISTRATION — four surfaces, or the engine ships a guard nobody loads.
 # ---------------------------------------------------------------------------
 for g in guard-named-persons-writes.sh guard-named-persons-commands.sh; do
-    if grep -q "$g" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
+    if hook_enforced_on_surface "$ENGINE_ROOT/hooks/hooks.json" "$g"; then
         ok "(p) $g registered in hooks/hooks.json (plugin surface)"
     else
         bad "(p) $g NOT registered in hooks/hooks.json"
     fi
-    if grep -q "$g" "$ENGINE_ROOT/.claude/settings.local.json" 2>/dev/null; then
+    if hook_enforced_on_surface "$ENGINE_ROOT/.claude/settings.local.json" "$g"; then
         ok "(p) $g registered in .claude/settings.local.json (seated surface)"
     else
         bad "(p) $g NOT registered in .claude/settings.local.json"

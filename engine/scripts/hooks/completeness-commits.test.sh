@@ -60,6 +60,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The registration question has ONE answer in this engine, and it is not a
+# grep: seventeen guards are wired by scripts/hooks/dispatch-pretooluse.manifest
+# rather than by an entry of their own. hook_enforced_on_surface asks whether
+# the surface causes the guard to RUN, which is the property this case is about.
+# shellcheck source=../lib/registered-hooks.sh
+. "$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+
 
 # Declare the root under test, for the reason publication-boundary.test.sh
 # states: run from a session seated elsewhere the guard would resolve THAT
@@ -420,12 +427,12 @@ echo "--- (i) registration: a guard the host will actually load"
 # A guard on disk is not enforcement. Both surfaces are asserted because the
 # engine ships two and Layer R's R4 exists because they can silently diverge.
 G="guard-completeness-commits.sh"
-if grep -q "$G" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
+if hook_enforced_on_surface "$ENGINE_ROOT/hooks/hooks.json" "$G"; then
     ok "registered in the plugin hook table (hooks/hooks.json)"
 else
     bad "NOT registered in hooks/hooks.json — a by-reference engine would never run it"
 fi
-if grep -q "$G" "$ENGINE_ROOT/.claude/settings.local.json" 2>/dev/null; then
+if hook_enforced_on_surface "$ENGINE_ROOT/.claude/settings.local.json" "$G"; then
     ok "registered in the seated hook table (.claude/settings.local.json)"
 else
     bad "NOT registered in .claude/settings.local.json — a seated engine would never run it"
