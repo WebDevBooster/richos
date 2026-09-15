@@ -376,23 +376,24 @@ case_exit "V15. a broken registry also refuses a REPORTING verdict" \
 if [ -n "${RICHOS_MUTATION_INNER:-}" ]; then
     echo "  (V8-V12 skipped inside a mutation sandbox — they are about the SHIPPED tree)"
 else
-    REPO_TOP="$(cd "$ENGINE_ROOT/.." && pwd -P)"
+    SHIPPED_SKILLS="$ENGINE_ROOT/skills"
     CHECKOUT_ROOT="$(git -C "$ENGINE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
-    if [ "$CHECKOUT_ROOT" = "$ENGINE_ROOT" ] \
-       || { [ -z "$CHECKOUT_ROOT" ] && [ "$ENGINE_ROOT" != "$REPO_TOP/engine" ]; }; then
+    REPO_TOP="$CHECKOUT_ROOT"
+    if [ "$CHECKOUT_ROOT" = "$ENGINE_ROOT" ] || [ -z "$CHECKOUT_ROOT" ]; then
         # An adopter copies engine/ to its own root, without RichOS's parent
         # registry. Exercise the actual shipped skill paths under an explicit
         # isolated registry instead of guessing that absent provenance exempts
         # them. RichOS checkouts continue exercising their REAL registry.
         REPO_TOP="$SANDBOX/shipped-skill-registry"
+        SHIPPED_SKILLS="$REPO_TOP/engine/skills"
         mkvendrepo "$REPO_TOP" \
             'REDISTRIBUTABLE_PATHS="engine/skills"' \
             "engine/skills/copywriting${TABX}third-party${TABX}MIT${TABX}2025 Corey Haines${TABX}coreyhaines31/marketingskills${TABX}68f5eaf64e85${TABX}2026-03-04${TABX}certain${TABX}test fixture${TABX}docs/fixture-provenance.md" \
             "engine/skills/landing-page-taste${TABX}third-party${TABX}MIT${TABX}2026 Leonxlnx${TABX}Leonxlnx/taste-skill${TABX}72e299530e2e${TABX}2026-08-23${TABX}certain${TABX}test fixture${TABX}docs/fixture-provenance.md" \
             "engine/skills/rich-lander${TABX}richos${TABX}AGPL-3.0-only${TABX}RichOS${TABX}-${TABX}-${TABX}2026${TABX}high${TABX}test fixture${TABX}docs/fixture-provenance.md"
         for skill_file in copywriting/references/natural-transitions.md landing-page-taste/SKILL.md rich-lander/SKILL.md; do
-            mkdir -p "$REPO_TOP/engine/skills/$(dirname "$skill_file")"
-            cp "$ENGINE_ROOT/skills/$skill_file" "$REPO_TOP/engine/skills/$skill_file" \
+            mkdir -p "$SHIPPED_SKILLS/$(dirname "$skill_file")"
+            cp "$ENGINE_ROOT/skills/$skill_file" "$SHIPPED_SKILLS/$skill_file" \
                 || { echo "FATAL: missing shipped skill $skill_file" >&2; exit 1; }
         done
         mkdir -p "$REPO_TOP/docs/legal"
@@ -402,9 +403,9 @@ else
         exit 1
     fi
     case_exit "V8. THE DAMAGED FILE accepts upstream's own spelling" \
-        0 Write "$REPO_TOP/engine/skills/copywriting/references/natural-transitions.md" "$BRITISH"
+        0 Write "$SHIPPED_SKILLS/copywriting/references/natural-transitions.md" "$BRITISH"
     case_exit "V9. the SECOND damaged file (landing-page-taste) too" \
-        0 Write "$REPO_TOP/engine/skills/landing-page-taste/SKILL.md" "$BRITISH"
+        0 Write "$SHIPPED_SKILLS/landing-page-taste/SKILL.md" "$BRITISH"
 
     # RE-VENDORING VERBATIM. Not the same assertion as V8: this is the WHOLE
     # upstream file, the bytes the 2026-08-30 sweep replaced. Pin it with its
@@ -421,14 +422,14 @@ import json, sys
 print(json.dumps({"tool_name": "Write", "tool_input": {
     "file_path": sys.argv[1],
     "content": open(sys.argv[2], encoding="utf-8").read()}}))' \
-            "$REPO_TOP/engine/skills/copywriting/references/natural-transitions.md" "$UP")"
+            "$SHIPPED_SKILLS/copywriting/references/natural-transitions.md" "$UP")"
         printf '%s' "$UPJSON" | "$HOOK" >/dev/null 2>&1
         [ $? -eq 0 ] && ok "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
                      || bad "V10. RE-VENDORING the file VERBATIM from upstream succeeds" \
                             "the guard that caused the divergence still forbids the repair"
         # The complete fixture must actually activate dialect enforcement on
         # our own material, rather than pass because it no longer exercises it.
-        FIRSTPARTY_JSON="$(python3 - "$REPO_TOP/engine/skills/rich-lander/SKILL.md" "$UP" <<'FIRSTPARTY_PAYLOAD'
+        FIRSTPARTY_JSON="$(python3 - "$SHIPPED_SKILLS/rich-lander/SKILL.md" "$UP" <<'FIRSTPARTY_PAYLOAD'
 import json, sys
 print(json.dumps({"tool_name": "Write", "tool_input": {
     "file_path": sys.argv[1], "content": open(sys.argv[2], encoding="utf-8").read()}}))
@@ -444,7 +445,7 @@ FIRSTPARTY_PAYLOAD
     fi
 
     case_exit "V11. a RichOS-authored skill in the real tree is still blocked" \
-        2 Write "$REPO_TOP/engine/skills/rich-lander/SKILL.md" "$BRITISH"
+        2 Write "$SHIPPED_SKILLS/rich-lander/SKILL.md" "$BRITISH"
 
     # DOCUMENTING THE DIVERGENCE, in the tree's own legal record. The third
     # direction, and the one that was refused twice.
