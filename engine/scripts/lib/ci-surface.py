@@ -226,6 +226,18 @@ def parse_duration(text):
 # distinction is made structurally: a declaration must start at the beginning
 # of a line, optionally indented, with `#` and then the keyword.
 
+# GENERATED WORKFLOWS AND THE FILES THAT CONFIGURE THEM.
+#
+# GitHub synthesizes some workflows, so they have no source in the checkout to
+# carry a declaration. Several of them DO have a configuration file that is in
+# the checkout and that decides what they do, and that file is where a reviewer
+# already looks. This is a NAMED MAPPING rather than a heuristic: a generated
+# workflow not listed here stays UNKNOWABLE with its reason, which is the
+# honest answer, instead of being matched against a guessed path.
+GENERATED_WORKFLOW_CONFIG = {
+    "dynamic/dependabot/": ".github/dependabot.yml",
+}
+
 DECL_RE = re.compile(r"^[ \t]*#[ \t]*ci-(budget-since|budget|skip|evidence|cadence)[ \t]*:[ \t]*(.*?)[ \t]*$", re.M)
 
 # A YAML block scalar opener: `run: |`, `script: >-`, `run: |2+` and so on.
@@ -1545,6 +1557,33 @@ def collect(repos, branch, api, runs_n, blind, now):
         # that DO need one are UNKNOWABLE with the reason stated.
         for w in unbacked:
             w = dict(w)
+            # A GENERATED WORKFLOW HAS NO FILE, BUT IT MAY STILL HAVE A
+            # CONFIGURATION FILE, AND THAT IS WHERE ITS DECLARATIONS BELONG.
+            #
+            # `dynamic/dependabot/dependabot-updates` is synthesized by GitHub,
+            # so there is no workflow source to carry `# ci-budget:` and
+            # `# ci-evidence:` and both axes read UNKNOWABLE with that reason.
+            # The reason was true and the conclusion was too strong: the thing
+            # that DOES decide what that workflow does is `.github/
+            # dependabot.yml`, it is in the checkout, and it is exactly where a
+            # reviewer looks. Reading declarations from it costs one file read
+            # and turns two permanent UNKNOWABLEs into answers somebody wrote.
+            #
+            # Deliberately a NAMED MAPPING and not a guess: a generated
+            # workflow whose configuration file this table does not know about
+            # stays UNKNOWABLE, with its reason, rather than being matched
+            # against some heuristic path.
+            cfg_decls, cfg_path = None, None
+            for prefix, rel in GENERATED_WORKFLOW_CONFIG.items():
+                if (w.get("path") or "").startswith(prefix):
+                    cand = os.path.join(root, rel)
+                    try:
+                        with open(cand, encoding="utf-8") as fh:
+                            cfg_decls = parse_declarations(fh.read())
+                        cfg_path = rel
+                    except OSError:
+                        cfg_decls, cfg_path = None, None
+                    break
             runs_doc, _e = api.get("repos/%s/actions/workflows/%d/runs?branch=%s&per_page=%d"
                                    % (slug, w["id"], branch, runs_n))
             runs = (runs_doc or {}).get("workflow_runs", [])
@@ -1561,8 +1600,25 @@ def collect(repos, branch, api, runs_n, blind, now):
             entry["latest_run"] = completed[0].get("run_number") if completed else None
             entry["latest_conclusion"] = completed[0].get("conclusion") if completed else None
             entry["latest_started"] = completed[0].get("run_started_at") if completed else None
+            if cfg_decls:
+                entry["declarations"] = cfg_decls
+                entry["declared_in"] = cfg_path
             judge(entry, entry["declarations"], entry["triggers"], w, runs, None, branch, None, now)
             for a in ("slow", "hollow"):
+                # Only where the configuration file did NOT answer. A
+                # declaration that was read and judged must not be overwritten
+                # by the blanket "there is no file to carry one".
+                if cfg_decls and entry["axes"].get(a, {}).get("verdict") not in (None, "UNDECLARED"):
+                    continue
+                if cfg_decls:
+                    entry["axes"][a] = {
+                        "verdict": "UNDECLARED",
+                        "detail": "GitHub generates this workflow (`%s`) and its configuration file "
+                                  "%s IS in the checkout and was read, but carries no `# ci-%s:` "
+                                  "line. The place to write one is that file."
+                                  % (w.get("path"), cfg_path,
+                                     "budget" if a == "slow" else "evidence")}
+                    continue
                 entry["axes"][a] = {
                     "verdict": "UNKNOWABLE",
                     "detail": "GitHub generates this workflow (`%s`); there is no file in the checkout "

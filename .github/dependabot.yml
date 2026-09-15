@@ -1,0 +1,190 @@
+# dependabot.yml — RichOS declares its own dependency-update surface.
+#
+# ===========================================================================
+# WHY THIS FILE EXISTS AT ALL
+# ===========================================================================
+# Until 2026-09-15 there was no `.github/dependabot.yml` in this repository and
+# Dependabot was running anyway, on GitHub's implicit defaults, entirely
+# unconfigured. That is a standing CEO rule broken by omission rather than by
+# choice: NEVER use a third party's DEFAULTS for anything unless they have been
+# proven to be the best option. Nobody had chosen the ecosystems, the
+# directories, the cadence or the limits — they were simply whatever GitHub
+# picks when you say nothing.
+#
+# It also went RED on its second run and stayed red for eleven days with nobody
+# looking, which is the more visible half of the same omission.
+#
+# ===========================================================================
+# THE RED, AND WHY IT IS A TRUE RED THAT WE CANNOT FIX
+# ===========================================================================
+# Run 33901300900 (`dynamic/dependabot/dependabot-updates` #2, 2026-09-04)
+# failed, and the log says exactly why:
+#
+#   | security_update_not_possible | { "dependency-name": "glib",              |
+#   |                              |   "latest-resolvable-version": "0.18.5",  |
+#   |                              |   "lowest-non-vulnerable-version": "0.20.0", |
+#   |                              |   "conflicting-dependencies": [] }        |
+#
+# One open alert, GHSA-wrw7-89jp-8q8g, medium, against
+# `app/src-tauri/Cargo.lock`. Measured with `gh api repos/WebDevBooster/richos/
+# dependabot/alerts`.
+#
+# WE DO NOT CONTROL THAT VERSION. glib 0.18.5 is not a direct dependency and is
+# not in any Cargo.toml here. It arrives underneath Tauri v2's LINUX backend —
+# every one of these pins it at the 0.18 line, read out of
+# app/src-tauri/Cargo.lock:
+#
+#   gtk 0.18.2   gdk 0.18.2   gdkx11 0.18.2   gdk-pixbuf 0.18.5
+#   atk 0.18.2   cairo-rs 0.18.5   pango 0.18.3   gio 0.18.4
+#   soup3 0.5.0  webkit2gtk 2.0.2  javascriptcore-rs 1.1.2  libappindicator 0.9.0
+#
+# glib 0.20 requires the gtk-rs 0.20 generation. Tauri decides when that
+# happens; no change in this repository can make 0.20 resolvable, which is
+# precisely what Dependabot reported. A red that no commit here can clear is
+# not a check, it is a decoration that teaches people to ignore crosses — the
+# same sentence richos-hq's own .github/workflows/README.md was written to say.
+#
+# AND THE CODE IS NOT IN ANYTHING WE SHIP. The gtk stack is Tauri's Linux
+# webview backend. This repository packages macOS (`packaging-ci.yml` runs on
+# `macos-latest`; its header explains at length why there is no Linux answer to
+# what it tests) and a Windows companion (`windows-companion-ci.yml`). There is
+# no Linux packaging job in any workflow in this repository. The vulnerable
+# code is therefore present in a lock file and compiled into no artifact any
+# user receives.
+#
+# THAT LAST PARAGRAPH IS AN ARGUMENT FOR DISMISSING THE ALERT AND IT IS NOT
+# MINE TO ACT ON. Dismissing a security alert on a public repository is a risk
+# acceptance, not a build fix, and it would stop being true the day somebody
+# adds a Linux target. It is raised for decision rather than taken quietly.
+# What this file does is make the situation DECLARED instead of silent.
+#
+# ===========================================================================
+# THE `ignore` BELOW IS DELIBERATELY NARROW, AND ITS LIMIT IS STATED
+# ===========================================================================
+# It suppresses attempts to move glib across the major line that cannot
+# resolve. GitHub's own documentation is not unambiguous about whether `ignore`
+# also suppresses SECURITY updates as opposed to version updates — two readings
+# of two different pages disagreed — so this is written as the honest thing it
+# is: certain to be correct for version updates, unverified for security
+# updates. It is not the load-bearing part of the disposition and it is not
+# presented as one. The alert's own state is.
+#
+# REVIEW TRIGGER, so this cannot quietly become permanent: when Tauri v2 moves
+# to the gtk-rs 0.20 generation, DELETE the ignore entry below and let
+# Dependabot raise the update. Check with
+# `cargo tree -i glib` in app/src-tauri, or simply notice that
+# `latest-resolvable-version` in a future run is no longer 0.18.5.
+# ===========================================================================
+# THE DECLARATIONS `ci-status.sh` READS FOR dynamic/dependabot/dependabot-updates
+# ===========================================================================
+# That workflow has no source file, so its slow and hollow axes read UNKNOWABLE
+# — "there is no file in the checkout to carry a declaration". True, and too
+# strong: THIS file decides what that workflow does and it is in the checkout,
+# so as of 2026-09-15 ci-surface.py reads its declarations from here.
+#
+# WALL CLOCK: both runs on record are ~50 s (33900052388 and 33901300900,
+# 2026-09-04, `gh api repos/WebDevBooster/richos/actions/workflows/350381100/
+# runs`). Almost all of that is pulling the updater container image, which is
+# GitHub's to make faster and not ours. 10m is loose on purpose: the cost here
+# is dominated by image pull and registry latency, neither of which this
+# repository controls, and a ceiling that fires on a slow registry is a
+# ceiling that gets ignored.
+# ci-budget: 10m
+#
+# WHAT ITS GREEN WOULD BE WORTH, stated honestly including what it is NOT.
+# This workflow asserts nothing about our code. It is an agent that opens pull
+# requests, and its exit code answers one question only: did the updater run to
+# completion over the manifests declared in this file. That is a real question
+# — it was RED for eleven days precisely because the answer was no — but a
+# green here means "the update attempt completed", never "the dependencies are
+# safe". What makes the attempt load-bearing is that the surface it runs over
+# is declared below rather than inherited from GitHub's defaults, and that all
+# four Cargo.lock files in the tree are accounted for by name, with the one
+# deliberate omission written out and argued.
+# ci-evidence: this workflow asserts nothing about the repository's code — it is an updater whose exit code answers only "did the update attempt complete over the declared manifests", which is a real question because it answered NO for eleven days (security_update_not_possible on glib, run 33901300900); what makes that attempt worth anything is that its surface is DECLARED in this file rather than inherited from GitHub's defaults, and that every one of the four Cargo.lock files `find . -name Cargo.lock -not -path "*/target/*"` returns is accounted for by name, including the one deliberately excluded with its reason
+version: 2
+updates:
+  # Rust — the Tauri shell. This is the tree the open alert is in.
+  #
+  # It is a DELIBERATELY DETACHED nested workspace (app/Cargo.toml's comment
+  # explains why: the heavy webview tree must never gate `cargo test -p
+  # richos-core`), so it needs its own entry. A single entry at `/app` would
+  # not see it.
+  - package-ecosystem: cargo
+    directory: /app/src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    # Five, not the default. The number is a claim about how much review this
+    # repository can absorb in a week, and the honest answer for a project with
+    # one reviewer is "a few". An unbounded queue of open PRs is the shape that
+    # gets ignored wholesale, which costs more than a slow update cadence.
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the whole gtk-rs generation rather than twelve. These crates
+      # move together by construction — see the version list above, where every
+      # one of them sits on 0.18 — so twelve separate PRs would be twelve
+      # copies of one decision, and each would fail to build alone.
+      gtk-rs:
+        patterns: ["gtk*", "gdk*", "glib*", "gio*", "pango*", "cairo-rs", "atk*",
+                   "soup3", "webkit2gtk*", "javascriptcore-rs*"]
+    ignore:
+      - dependency-name: glib
+        update-types: ["version-update:semver-major"]
+        # See the REVIEW TRIGGER above. Tauri v2 pins the gtk-rs 0.18
+        # generation; 0.20 cannot resolve from this tree today.
+
+  # Rust — the runtime spine and the voice pipeline. Separate workspace,
+  # native-dependency-free, and the one `app-spine-ci.yml` gates with
+  # `cargo test --locked -p richos-core`.
+  - package-ecosystem: cargo
+    directory: /app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # Rust — the user-update crate. A detached lock file of its own
+  # (app/crates/richos-user-update/Cargo.lock) and NOT a member of app/'s
+  # workspace, whose members list is exactly ["crates/richos-core",
+  # "crates/richos-voice"]. The entry above would therefore never reach it.
+  - package-ecosystem: cargo
+    directory: /app/crates/richos-user-update
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # THE FOURTH CARGO TREE IS DELIBERATELY ABSENT, and this paragraph is why —
+  # an omission that is not written down is indistinguishable from an oversight,
+  # and the whole point of this file is that nothing here is left to a default.
+  #
+  # tools/native-claude-stdio/ has its own Cargo.lock and its own detached
+  # [workspace] table, and its first line reads:
+  #
+  #   # SPIKE ONLY — not a workspace member, not shipped, not built by any gate.
+  #
+  # Nothing builds it, nothing ships it, and no workflow gates it. Update PRs
+  # against a spike are review cost with no risk reduction behind them. If it
+  # ever becomes something a gate builds, add it here in the same commit.
+  #
+  # Enumerated rather than assumed: `find . -name Cargo.lock -not -path
+  # "*/target/*"` returns exactly four paths, and all four are accounted for
+  # above.
+
+  # The GitHub Actions this repository's own CI runs on. Named explicitly
+  # because these are the dependencies with the shortest path to executing
+  # arbitrary code in a job that holds a token, and because every workflow here
+  # already pins its actions BY COMMIT SHA rather than by a movable tag —
+  # which is the right call and also the thing that stops a tag from silently
+  # delivering an update. Pinned SHAs need something to move them, and this is
+  # that something.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
