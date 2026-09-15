@@ -329,7 +329,7 @@ HR_REPO="$(git -C "$HR_ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
 # inventories to be missing from, and the question is answered by the same two
 # files the predicate resolves the engine with.
 HR_ADOPTED=0
-for _c in "$HR_REPO/engine" "$HR_REPO"; do
+for _c in "$HR_REPO/richos/engine" "$HR_REPO/engine" "$HR_REPO"; do
     if [ -f "$_c/hooks/hooks.json" ] && [ -f "$_c/scripts/lib/registered-hooks.sh" ]; then
         HR_ADOPTED=1; break
     fi
