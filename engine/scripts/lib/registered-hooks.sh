@@ -80,6 +80,179 @@
 #   2  present but unparseable, or parseable and registering no script at all
 #      (with [event]: no script registered on that event)
 #   3  [event] was requested and python3 is unavailable — cannot filter
+# ===========================================================================
+# THE DISPATCHER IS EXPANDED INTO THE RULES IT RUNS
+# ===========================================================================
+# scripts/hooks/dispatch-pretooluse.sh is ONE registered command that runs N
+# rule modules in one process, named in scripts/hooks/dispatch-pretooluse.manifest.
+# Seventeen guards moved out of hooks/hooks.json and into that manifest on
+# 2026-09-15.
+#
+# WHY THE INVENTORY MUST STILL NAME THEM. Every consumer of this library is
+# asking a question about ENFORCEMENT, not about process count: is this guard
+# present on disk, executable, hash-matched, carrying the root bootstrap,
+# acknowledged by the suite that watches the registration for drift. A guard
+# that runs as a dispatcher module is enforcing exactly as much as one that runs
+# as its own process — and if the inventory stopped naming it, deleting its line
+# from the manifest would turn enforcement off with NOTHING going red. That is
+# the ratchet running backwards: the manifest would be a second, unwatched
+# registration surface, which is the defect this whole library was written about
+# (a typed list drifting twice in two days, 13/13 and 14/14 over stale
+# inventories).
+#
+# So the answer to "what does the host load?" is: the dispatcher, AND every rule
+# the manifest gives it. One derivation, in one place, and every consumer keeps
+# the question it was already asking.
+#
+# _rh_dispatch_modules <hooks.json> [event]
+#   Prints the rule-module basenames the dispatcher is registered to run, on the
+#   given event or on any event. Prints NOTHING (rc 0) when the dispatcher is not
+#   registered or the manifest is absent — the caller's own list is then the
+#   whole answer, which is the pre-dispatcher behavior exactly.
+_RH_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# _rh_manifest_for <hooks.json> — the dispatcher manifest that governs this
+# surface, or nothing. Same candidate order as the python path uses, for the
+# same reason: the derived path is right for the shipped layout and wrong for
+# every sandbox, and this library's own directory is the answer for a hook
+# table that names this engine's dispatcher without carrying a tree of its own.
+_rh_manifest_for() {
+    local f="$1" hj_dir c
+    hj_dir="$(cd "$(dirname "$f")" 2>/dev/null && pwd)" || return 1
+    for c in "$(dirname "$hj_dir")/scripts/hooks/dispatch-pretooluse.manifest" \
+             "$hj_dir/scripts/hooks/dispatch-pretooluse.manifest" \
+             "$_RH_LIB_DIR/../hooks/dispatch-pretooluse.manifest"; do
+        if [ -f "$c" ]; then printf '%s' "$c"; return 0; fi
+    done
+    return 1
+}
+
+# The python3-free path of _rh_dispatch_modules. See the comment at its call
+# site for why "return nothing" was not an option.
+_rh_dispatch_modules_textscan() {
+    local f="$1" mf key
+    mf="$(_rh_manifest_for "$f")" || return 0
+    for key in $(grep -o 'dispatch-pretooluse\.sh[[:space:]][A-Za-z][A-Za-z]*' "$f" 2>/dev/null \
+                 | awk '{print $2}' | LC_ALL=C sort -u); do
+        awk -F'|' -v k="$key" '
+            /^[[:space:]]*#/ {next}
+            NF>1 && $1==k {gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); if ($2 != "") print $2}
+        ' "$mf"
+    done | LC_ALL=C sort -u
+}
+
+_rh_dispatch_modules() {
+    local f="${1:-}" event="${2:-}"
+    [ -n "$f" ] && [ -f "$f" ] || return 0
+    if ! command -v python3 >/dev/null 2>&1; then
+        # NO SILENT UNDER-COUNT WITHOUT python3. Returning nothing here would
+        # hand engine-status.sh a full, reassuring "54/54 guards" over an
+        # inventory missing seventeen of them — which is the 14/14 defect this
+        # whole file was written about, rebuilt. Caught by engine-status.test.sh
+        # cases 6a and 6b, which run the banner with python3 removed from PATH.
+        #
+        # The text scan is a weaker parser, exactly as the one in
+        # registered_hook_scripts is, and weaker in the same direction: it would
+        # also match a chain key mentioned in a description string, which
+        # OVER-counts rather than under-counts. It cannot filter by event, so a
+        # narrowed request gets the whole set — the narrowed form already
+        # REFUSES without python3 (rc 3) rather than degrade, so that path
+        # never reaches here.
+        _rh_dispatch_modules_textscan "$f"
+        return 0
+    fi
+    python3 -c '
+import json, os, re, sys
+f, want, libdir = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(f, encoding="utf-8") as fh:
+        doc = json.load(fh)
+except Exception:
+    raise SystemExit(0)
+
+# WHERE THE MANIFEST IS, and why this is a LIST rather than one path.
+# The obvious answer — <engine>/hooks/hooks.json, so <engine> is two levels up —
+# is right for the shipped layout and wrong for every sandbox. hook-staleness.
+# test.sh builds a bare hooks.json in a scratch directory and asks this library
+# what it registers; with one derived path the answer came back missing every
+# dispatcher rule, and case 6 went red reporting scan-secrets.sh as a guard that
+# had just landed. Caught by that suite, which is what it is for.
+# Last candidate is THIS LIBRARY own directory: scripts/lib/../hooks is the
+# shipped manifest, which is the right answer for any hook table that names this
+# engine own dispatcher and does not carry a tree of its own.
+_cands = [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(f))),
+                 "scripts", "hooks", "dispatch-pretooluse.manifest"),
+    os.path.join(os.path.dirname(os.path.abspath(f)),
+                 "scripts", "hooks", "dispatch-pretooluse.manifest"),
+    os.path.join(libdir, "..", "hooks", "dispatch-pretooluse.manifest"),
+]
+manifest = ""
+for _c in _cands:
+    if os.path.isfile(_c):
+        manifest = _c
+        break
+
+keys = set()
+hooks = doc.get("hooks", {})
+if isinstance(hooks, dict):
+    for event, entries in hooks.items():
+        if want and event != want:
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for h in entry.get("hooks", []) or []:
+                if not isinstance(h, dict):
+                    continue
+                cmd = h.get("command", "")
+                if not isinstance(cmd, str):
+                    continue
+                m = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
+                if m:
+                    keys.add(m.group(1))
+if not keys:
+    raise SystemExit(0)
+out = set()
+try:
+    with open(manifest, encoding="utf-8") as mh:
+        for line in mh:
+            line = line.strip()
+            if not line or line.startswith("#") or "|" not in line:
+                continue
+            k, mod = line.split("|", 1)
+            if k.strip() in keys:
+                out.add(mod.strip())
+except OSError:
+    raise SystemExit(0)
+for name in sorted(out):
+    print(name)
+' "$f" "$event" "$_RH_LIB_DIR" 2>/dev/null || true
+}
+
+# hook_enforced_on_surface <surface-json> <script-basename>
+#
+# "Does this surface cause that guard to run?" — rc 0 yes, rc 1 no.
+#
+# THE QUESTION IS ENFORCEMENT, NOT SPELLING. Eight guard suites used to answer it
+# with `grep -q <name> hooks.json`, which was exact while every guard was its own
+# registration and became wrong the moment seventeen of them moved behind
+# dispatch-pretooluse.sh. Each of those eight would have reported a guard that
+# runs on every single tool call as NOT REGISTERED — eight red suites over
+# working enforcement, which is the false alarm that teaches a reader to stop
+# believing the check.
+#
+# Works on EITHER surface: hooks/hooks.json and .claude/settings.local.json have
+# the same shape, and since step 2 the second is generated from the first.
+hook_enforced_on_surface() { # <surface json> <script basename>
+    local f="${1:-}" g="${2:-}"
+    [ -n "$f" ] && [ -f "$f" ] && [ -n "$g" ] || return 1
+    grep -q "scripts/hooks/$g" "$f" 2>/dev/null && return 0
+    _rh_dispatch_modules "$f" | grep -qxF "$g" 2>/dev/null
+}
+
 registered_hook_scripts() {
     local f="${1:-}"
     local event="${2:-}"
@@ -118,6 +291,8 @@ for name in sorted(found):
         rc=$?
         [ "$rc" -eq 0 ] || return 2
         [ -n "$out" ] || return 2
+        out="$(printf '%s\n%s\n' "$out" "$(_rh_dispatch_modules "$f" "$event")" \
+               | grep -v '^$' | LC_ALL=C sort -u)"
         printf '%s\n' "$out"
         return 0
     fi
@@ -167,6 +342,16 @@ for name in sorted(found):
     fi
 
     [ -n "$out" ] || return 2
+    # The dispatcher's rules are part of the answer — see the header above.
+    # With no python3 the expansion returns nothing and the dispatcher's rules
+    # are missing from the inventory. That is an UNDER-count, which the text
+    # scan's own comment above says it must never produce; but the alternative
+    # is a text scan of the manifest that cannot tell which chain keys are
+    # actually registered, i.e. a guessed association. The honest form is the
+    # one that costs a check, not the one that invents a row, and BR2's
+    # independent parse cross-checks this answer either way.
+    out="$(printf '%s\n%s\n' "$out" "$(_rh_dispatch_modules "$f")" \
+           | grep -v '^$' | LC_ALL=C sort -u)"
     printf '%s\n' "$out"
 }
 
@@ -214,9 +399,39 @@ registered_hook_rows() {
     command -v python3 >/dev/null 2>&1 || return 2
 
     out="$(python3 -c '
-import json, re, sys
+import json, os, re, sys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
+
+# The dispatcher expands into its rules, each inheriting the dispatcher own
+# event and matcher — which is exactly where each rule was registered before
+# 2026-09-15. See the header above for why the inventory must still name them,
+# and _rh_dispatch_modules for why the manifest is LOOKED FOR rather than
+# derived from one path.
+_f = os.path.abspath(sys.argv[1])
+_cands = [
+    os.path.join(os.path.dirname(os.path.dirname(_f)), "scripts", "hooks",
+                 "dispatch-pretooluse.manifest"),
+    os.path.join(os.path.dirname(_f), "scripts", "hooks",
+                 "dispatch-pretooluse.manifest"),
+    os.path.join(sys.argv[2], "..", "hooks", "dispatch-pretooluse.manifest"),
+]
+manifest = {}
+for _c in _cands:
+    if not os.path.isfile(_c):
+        continue
+    try:
+        with open(_c, encoding="utf-8") as mh:
+            for line in mh:
+                line = line.strip()
+                if not line or line.startswith("#") or "|" not in line:
+                    continue
+                k, mod = line.split("|", 1)
+                manifest.setdefault(k.strip(), []).append(mod.strip())
+    except OSError:
+        manifest = {}
+    break
+
 rows = set()
 hooks = doc.get("hooks", {})
 if isinstance(hooks, dict):
@@ -237,9 +452,13 @@ if isinstance(hooks, dict):
                     continue
                 for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
                     rows.add("%s\t%s\t%s" % (event, matcher, m))
+                d = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
+                if d:
+                    for mod in manifest.get(d.group(1), []):
+                        rows.add("%s\t%s\t%s" % (event, matcher, mod))
 for row in sorted(rows):
     print(row)
-' "$f" 2>/dev/null)"
+' "$f" "$_RH_LIB_DIR" 2>/dev/null)"
     rc=$?
     [ "$rc" -eq 0 ] || return 2
 
