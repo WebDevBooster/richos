@@ -226,7 +226,7 @@ def parse_duration(text):
 # distinction is made structurally: a declaration must start at the beginning
 # of a line, optionally indented, with `#` and then the keyword.
 
-DECL_RE = re.compile(r"^[ \t]*#[ \t]*ci-(budget|skip|evidence|cadence)[ \t]*:[ \t]*(.*?)[ \t]*$", re.M)
+DECL_RE = re.compile(r"^[ \t]*#[ \t]*ci-(budget-since|budget|skip|evidence|cadence)[ \t]*:[ \t]*(.*?)[ \t]*$", re.M)
 
 # A YAML block scalar opener: `run: |`, `script: >-`, `run: |2+` and so on.
 BLOCK_OPEN_RE = re.compile(r"^(\s*)(?:-\s+)?[\w.\-]+\s*:\s*[|>][+-]?\d*\s*(?:#.*)?$")
@@ -274,7 +274,8 @@ SKIP_SPLIT_RE = re.compile(r"^(?P<job>[^\u2014:]+?)\s*(?:\u2014|--|:)\s*(?P<reas
 def parse_declarations(source):
     """Return {'budget': str|None, 'skips': {job: reason}, 'evidence': str|None,
     'cadence': str|None, 'malformed': [str]}."""
-    out = {"budget": None, "skips": {}, "evidence": None, "cadence": None, "malformed": []}
+    out = {"budget": None, "budget_since": None, "skips": {}, "evidence": None,
+           "cadence": None, "malformed": []}
     for kw, rest in DECL_RE.findall(strip_block_scalars(source)):
         rest = rest.strip()
         if kw == "budget":
@@ -282,6 +283,22 @@ def parse_declarations(source):
                 out["malformed"].append("ci-budget: %r is not a duration (use 45m, 1800s, 2h)" % rest)
             else:
                 out["budget"] = rest
+        elif kw == "budget-since":
+            # A RUN NUMBER, because a budget describes a DESIGN and a workflow
+            # can be redesigned. See the slow axis for the case that forced it.
+            m = re.match(r"^#?(\d+)\b(?:\s*[—:-]+\s*(?P<why>.+))?$", rest)
+            if not m:
+                out["malformed"].append(
+                    "ci-budget-since: %r is not a run number. The form is "
+                    "`# ci-budget-since: <run-number> — <what changed>`." % rest)
+            elif not (m.groupdict().get("why") or "").strip():
+                # The number alone would be a silent way to discard history.
+                out["malformed"].append(
+                    "ci-budget-since: %r gives a run number with no reason. Discarding earlier "
+                    "runs is exactly how a slow workflow stops being reported, so the reason is "
+                    "not optional." % rest)
+            else:
+                out["budget_since"] = (int(m.group(1)), m.group("why").strip())
         elif kw == "skip":
             m = SKIP_SPLIT_RE.match(rest)
             if not m:
@@ -973,9 +990,55 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
         ax["slow"] = ("UNKNOWABLE", "budget %s declared; no completed run on %s to measure against"
                       % (decls["budget"], branch))
     else:
-        pairs = [(r, dur(r)) for r in completed[:8]]
+        # A BUDGET DESCRIBES A DESIGN, AND A WORKFLOW CAN BE REDESIGNED.
+        #
+        # On 2026-09-15 ui-suite-ci read OVER BUDGET — "run #76 took 40m33s
+        # against a declared ceiling of 25m" — and every word of that was true
+        # and none of it described this workflow. Runs #66-#78 are the SERIAL
+        # job; from #82 the sharded one, and every sharded run on record is
+        # 488-872 s, comfortably inside the same 25m. The last-eight window
+        # simply straddled the change, so the old design's cost was being
+        # reported as the new design's. Measured:
+        #
+        #   #87 488s  #86 748s  #85 597s  #84 706s  #83 872s  #82 613s
+        #   #78 1880s #76 2433s #72 1673s #70 1978s #69 2035s #68 2054s
+        #
+        # THE WRONG FIXES ARE BOTH AVAILABLE AND BOTH BAD: raising the ceiling
+        # to 45m to silence it would pin the budget to behavior that no longer
+        # exists, and waiting for the window to roll leaves a standing finding
+        # that teaches the reader to skim. A finding nobody can act on is how a
+        # real one gets missed.
+        #
+        # So the workflow may DECLARE which of its runs its budget describes.
+        # The reason is mandatory (see parse_declarations) because discarding
+        # history is precisely how a genuinely slow workflow stops being
+        # reported, and a bare number would make that free. The declaration is
+        # quoted in the verdict so the reader sees what was excluded and why.
+        since = decls.get("budget_since")
+        judged = completed
+        since_note = ""
+        stillborn = None
+        if since:
+            n, why = since
+            kept = [r for r in completed if (r.get("run_number") or 0) >= n]
+            dropped = len(completed) - len(kept)
+            if not kept:
+                # NEVER silently fall back to the full history: a declaration
+                # naming a run that has not happened yet would otherwise read
+                # as though it were in force.
+                stillborn = (
+                    "`# ci-budget-since: %d` names a run that has not happened on %s yet, so there "
+                    "is nothing this budget describes. Either the number is wrong or the redesign "
+                    "has not shipped. Declared reason: %s" % (n, branch, why))
+            else:
+                judged = kept
+                since_note = ("; runs before #%d excluded by `# ci-budget-since` (%d of the window): %s"
+                              % (n, dropped, why)) if dropped else ""
+        pairs = [] if stillborn else [(r, dur(r)) for r in judged[:8]]
         pairs = [(r, d) for r, d in pairs if d is not None]
-        if not pairs:
+        if stillborn:
+            ax["slow"] = ("UNDECLARED", stillborn)
+        elif not pairs:
             ax["slow"] = ("UNKNOWABLE",
                           "budget %s declared; no run carried usable timestamps" % decls["budget"])
         else:
@@ -984,18 +1047,18 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
             if worst > budget_s:
                 ax["slow"] = ("FINDING",
                               "OVER BUDGET: run #%s took %s against a declared ceiling of %s (%.0f%% of "
-                              "budget). Most recent run: %s."
+                              "budget). Most recent run: %s.%s"
                               % (worst_run.get("run_number"), human_duration(worst), decls["budget"],
-                                 100.0 * worst / budget_s, human_duration(newest)))
+                                 100.0 * worst / budget_s, human_duration(newest), since_note))
             elif worst > budget_s * 0.8:
                 ax["slow"] = ("FINDING",
                               "APPROACHING BUDGET: run #%s took %s, %.0f%% of the declared %s. A budget "
-                              "is a ceiling to notice BEFORE it is crossed, not after."
+                              "is a ceiling to notice BEFORE it is crossed, not after.%s"
                               % (worst_run.get("run_number"), human_duration(worst),
-                                 100.0 * worst / budget_s, decls["budget"]))
+                                 100.0 * worst / budget_s, decls["budget"], since_note))
             else:
-                ax["slow"] = ("OK", "%s worst of last %d, ceiling %s"
-                              % (human_duration(worst), len(pairs), decls["budget"]))
+                ax["slow"] = ("OK", "%s worst of last %d, ceiling %s%s"
+                              % (human_duration(worst), len(pairs), decls["budget"], since_note))
 
     # ---------------------------------------------------------------- 3 SKIPPED
     if jobs is None:
@@ -1490,7 +1553,8 @@ def collect(repos, branch, api, runs_n, blind, now):
                      "workflow": os.path.basename(w.get("path", "")) or w.get("name"),
                      "path": None, "state": w.get("state"),
                      "unbacked": w.get("path"),
-                     "declarations": {"budget": None, "skips": {}, "evidence": None, "malformed": []},
+                     "declarations": {"budget": None, "budget_since": None, "skips": {},
+                                      "evidence": None, "malformed": []},
                      "triggers": {"parsed": False, "events": [], "push_paths": [], "cron": [],
                                   "reason": "no file in the checkout to read triggers from"}}
             completed = [r for r in runs if r.get("status") == "completed"]
@@ -1658,6 +1722,55 @@ def self_test():
           [{"name": "a", "conclusion": "success"}], "main", None, now)
     want("a 30-minute run against a 4-minute budget is a FINDING",
          e["axes"]["slow"]["verdict"], "FINDING")
+
+    # --- ci-budget-since: a budget declares which DESIGN it describes --------
+    # The case that forced it: ui-suite-ci read OVER BUDGET on run #76's 40m33s
+    # while every run of its CURRENT sharded design was inside the ceiling. The
+    # old design's cost was being reported as the new design's.
+    d = parse_declarations("# ci-budget: 25m\n# ci-budget-since: 82 — sharding landed, "
+                           "the runs before it are the serial job\n")
+    want("a run number with a reason is read", d["budget_since"][0], 82)
+    want("and the reason is carried, because it is quoted in the verdict",
+         d["budget_since"][1].startswith("sharding landed"), True)
+
+    # NEGATIVE CONTROL. A bare number would be a free way to discard history,
+    # which is exactly how a genuinely slow workflow stops being reported.
+    d = parse_declarations("# ci-budget: 25m\n# ci-budget-since: 82\n")
+    want("a run number with NO reason declares nothing", d["budget_since"], None)
+    want("and the refusal is named rather than silent", len(d["malformed"]), 1)
+
+    slow_old = {"status": "completed", "conclusion": "success", "run_number": 70,
+                "run_started_at": _iso(now, -3600), "updated_at": _iso(now, -1800), "id": 70}
+    fast_new = {"status": "completed", "conclusion": "success", "run_number": 90,
+                "run_started_at": _iso(now, -300), "updated_at": _iso(now, -240), "id": 90}
+    jobs1 = [{"name": "a", "conclusion": "success"}]
+
+    e = {}
+    judge(e, {"budget": "25m", "skips": {}, "evidence": "x" * 20}, push,
+          {"state": "active", "_total_count": 2}, [fast_new, slow_old], jobs1, "main", None, now)
+    want("without the declaration the old design's run still fails the budget",
+         e["axes"]["slow"]["verdict"], "FINDING")
+
+    e = {}
+    judge(e, {"budget": "25m", "budget_since": (82, "sharding landed"), "skips": {},
+              "evidence": "x" * 20},
+          push, {"state": "active", "_total_count": 2}, [fast_new, slow_old], jobs1, "main", None, now)
+    want("with it, only runs of the declared design are judged",
+         e["axes"]["slow"]["verdict"], "OK")
+    want("and the verdict SAYS what it excluded, so nothing is dropped quietly",
+         "excluded by" in e["axes"]["slow"]["detail"], True)
+
+    # NEGATIVE CONTROL. A declaration naming a run that has not happened must
+    # never read as though it were in force — that would silence the axis
+    # entirely on a typo.
+    e = {}
+    judge(e, {"budget": "25m", "budget_since": (999, "not shipped yet"), "skips": {},
+              "evidence": "x" * 20},
+          push, {"state": "active", "_total_count": 2}, [fast_new, slow_old], jobs1, "main", None, now)
+    want("a since-run that has never happened is UNDECLARED, not a silent pass",
+         e["axes"]["slow"]["verdict"], "UNDECLARED")
+    want("and the other axes are still judged — the slow axis does not abort the entry",
+         e["axes"]["red"]["verdict"], "OK")
 
     e = {}
     judge(e, {"budget": None, "skips": {}, "evidence": None}, push,

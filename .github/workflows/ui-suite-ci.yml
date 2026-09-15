@@ -23,6 +23,24 @@ name: ui-suite-ci
 # thing worth catching — a regression to the ~30m serial behavior trips it.
 # The job's own timeout-minutes is 45.
 # ci-budget: 25m
+#
+# AND THE BUDGET SAYS WHICH RUNS IT DESCRIBES, added 2026-09-15. Everything
+# above was argued from the sharded design and it was right; what it could not
+# say was that the runs it would be CHECKED against still included the serial
+# job. So `ci-status.sh` reported "OVER BUDGET: run #76 took 40m33s against a
+# declared ceiling of 25m" — true, and about a workflow that no longer exists.
+# Measured with
+# `gh api 'repos/WebDevBooster/richos/actions/workflows/ui-suite-ci.yml/runs?branch=main&per_page=30'`:
+#
+#   sharded   #87 488s  #86 748s  #85 597s  #84 706s  #83 872s  #82 613s
+#   serial    #78 1880s #76 2433s #72 1673s #70 1978s #69 2035s #68 2054s
+#
+# Every sharded run is inside this ceiling with room; every serial run is over
+# it. Raising the ceiling to 45m to silence the finding would have pinned the
+# budget to behavior that was deliberately removed, and waiting for the window
+# to roll would have left a standing finding nobody could act on — which is how
+# a reader learns to skim past the one that matters.
+# ci-budget-since: 82 — sharding landed; runs up to #78 are the serial job this design replaced, 1673-2433s against 488-872s for every sharded run since
 # ci-evidence: the `coverage` job refuses unless the union of every shard's receipts EQUALS the suite inventory discovered from disk, all at ONE commit, none duplicated, each having run at least the checks its own source declares — so a green here names all 31 suites rather than counting green ticks
 # ---------------------------------------------------------------------------
 

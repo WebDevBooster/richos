@@ -115,6 +115,37 @@ name: packaging-ci
 # machinery, in one place, where a reviewer reads it — and the day the compiler becomes
 # reachable from a public checkout, DELETING this line is not optional: a declaration whose
 # suite has started answering turns the build red until it is removed.
+#
+# ---------------------------------------------------------------------------
+# THE DECLARATIONS `ci-status.sh` READS
+# ---------------------------------------------------------------------------
+# Absent until 2026-09-15, which is why this workflow read UNDECLARED on the
+# slow and hollow axes. Both numbers below are measured, not chosen.
+#
+# WALL CLOCK on main, over the 15 completed runs the API returns
+# (`gh api 'repos/WebDevBooster/richos/actions/workflows/packaging-ci.yml/runs?branch=main&per_page=30'`):
+# the seven GREEN runs span 252 s to 690 s, median 448 s. The failing runs are
+# faster, not slower — they fail early — so the ceiling is set off the green
+# side, which is the only side that describes a healthy run. 15m is the 690 s
+# worst green plus 30%: enough for a slow macOS runner, tight enough that a
+# suite growing from eleven minutes to twenty is disagreed with.
+# ci-budget: 15m
+#
+# WHAT MAKES ITS GREEN LOAD-BEARING. `app/scripts/run-tests.sh` discovers every
+# `*.test.sh` beside it FROM DISK — there is no list in this YAML to fall out of
+# step — refuses an empty inventory with exit 2 rather than reporting "all 0
+# suites passed", and prints the corpus it judged. Its closing line on run
+# 34772213352, quoted rather than described:
+#
+#   === app/scripts: 8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh ===
+#
+# The one gap is NAMED because the harness refuses to hide it: an undeclared
+# gap is red, and a declaration whose suite has started answering is ALSO red,
+# so the allowance cannot outlive the host limitation that earned it. A suite
+# that printed `FAIL <case>` is counted failed no matter what any declaration
+# says. That is a green somebody can read the size of.
+# ci-evidence: app/scripts/run-tests.sh discovers every *.test.sh beside it from disk (no list in this YAML to drift), refuses an empty inventory with exit 2 rather than "all 0 suites passed", and prints the corpus it judged — run 34772213352 closed with "8 of 9 suites passed — 149 checks — 1 could not run on this host: gui-boot.test.sh", where an undeclared gap is red AND a declaration whose suite has started answering is red, so the green states its own size and its own hole
+# ---------------------------------------------------------------------------
 
 on:
   # THE TRIGGERS ARE BACK, AND THE PATH LIST IS THE ONE TYPED THING IN THIS FILE.
