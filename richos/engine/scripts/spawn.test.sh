@@ -32,7 +32,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SPAWN="$SCRIPT_DIR/spawn.sh"
-WS_PY="$SCRIPT_DIR/lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../mega-lander/workspaces.py"
 
 PASS=0
 FAIL=0

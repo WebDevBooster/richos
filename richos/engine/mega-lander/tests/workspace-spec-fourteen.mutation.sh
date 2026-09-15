@@ -37,19 +37,19 @@
 # fourteen did not ask, and what the census of every sentence then found. Each
 # carries its R-/S- label like the rest; the report counts them per point.
 #
-# Run directly: scripts/workspace-spec-fourteen.mutation.sh
+# Run directly: mega-lander/tests/workspace-spec-fourteen.mutation.sh
 # Exit 0 = every property is proven load-bearing.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
-. "$SCRIPT_DIR/lib/mutation-harness.sh"
-mutation_begin "the fourteen checks of the workspace spec" "scripts/workspace-spec-fourteen.test.sh"
+. "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
+mutation_begin "the fourteen checks of the workspace spec" "mega-lander/tests/workspace-spec-fourteen.test.sh"
 
-W="scripts/lib/workspaces.py"
+W="mega-lander/workspaces.py"
 G="scripts/hooks/guard-worktree-removal.sh"
-C="scripts/create-teammate-worktree.sh"
+C="mega-lander/create-teammate-worktree.sh"
 U="scripts/lib/unlanded-branches.py"
 Q="scripts/hooks/guard-unresolved-claims.py"
 

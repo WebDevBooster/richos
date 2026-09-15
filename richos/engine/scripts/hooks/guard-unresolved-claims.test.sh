@@ -67,7 +67,7 @@ FAIL=0
 
 SANDBOX="$(mktemp -d -t guard-unresolved-claims.XXXXXX)"
 # THE WORKSPACE REGISTRY IS A SANDBOX ONE. The gate asks
-# scripts/lib/workspaces.py which branch this work integrates on (point 14),
+# mega-lander/workspaces.py which branch this work integrates on (point 14),
 # and this suite RECORDS one for its fixture repository -- which must never
 # reach the operator's real ~/.claude/state registry.
 export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces-registry"
@@ -174,7 +174,7 @@ UNPUSHED_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 # The gate used to carry its own INTEGRATION_REFS tuple -- main, master,
 # origin/main, origin/master, HEAD -- which is an answer of its own, and on a
 # repository whose work integrates on a dev branch it refused truthful
-# "integrated" claims. It now asks scripts/lib/workspaces.py, so this fixture
+# "integrated" claims. It now asks mega-lander/workspaces.py, so this fixture
 # records the branch exactly as Rich does. With nothing recorded the gate
 # ABSTAINS into "unknown", which is its silent verdict, so the recording is
 # what makes every "landed" case below test the gate rather than the

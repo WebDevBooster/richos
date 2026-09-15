@@ -1004,7 +1004,7 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min, ledger_rows=())
 # --------------------------------------------------------------------------
 def _recorded_integration_tip(root):
     """(tip, how) — the tip of the branch RECORDED as the one this body of work
-    integrates on, asked of scripts/lib/workspaces.py.
+    integrates on, asked of mega-lander/workspaces.py.
 
     Loading the library by path is a duplicated LOADER, not a duplicated
     ANSWER: there is one implementation of the question.
@@ -1015,7 +1015,7 @@ def _recorded_integration_tip(root):
     would silence the notice entirely. So it falls back to HEAD and RECORDS
     that it did, in a field the caller reports -- a named guess is a different
     thing from an unnamed one."""
-    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander", "workspaces.py")
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("workspaces_answer", lib)

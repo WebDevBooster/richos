@@ -44,7 +44,7 @@
 # WHY IT DOES NOT REMOVE ANYTHING
 # ===========================================================================
 # Because the workspace spec (docs/plans/worktree-spec-2026-09-11.md) allows
-# exactly two deleters — land and discard, scripts/workspaces.sh — and this is
+# exactly two deleters — land and discard, mega-lander/workspaces.sh — and this is
 # neither. It REPORTS.
 #
 # Self-test:  scripts/land-completeness.sh --self-test
@@ -295,7 +295,7 @@ if not quiet and not as_json:
         w("  WHAT TO DO. Each line above is one land that pushed and stopped. The terminal steps\n")
         w("  of the land sequence are collect, remove, resolve:\n\n")
         w("      engine/scripts/collect-worktree-artifacts.sh <worktree>\n")
-        w("      engine/scripts/workspaces.sh land <agent>   (or: discard <agent> --reason '...')\n")
+        w("      engine/mega-lander/workspaces.sh land <agent>   (or: discard <agent> --reason '...')\n")
         w("      (workspaces.sh status names the agent; land and discard are the only deleters)\n\n")
         w("  If one of them is retained ON PURPOSE, that is a first-class answer and the only\n")
         w("  thing wrong with it is leaving it unsaid — retained silently is the defect this\n")

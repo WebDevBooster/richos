@@ -14,7 +14,7 @@
 #       because spending it is the founder's call and not a script's.
 #   containers.sh reap --workspace <path> [--dry-run]
 #       remove the containers that DECLARE that workspace as their owner.
-#       This is what the workspace deleter calls (scripts/lib/workspaces.py,
+#       This is what the workspace deleter calls (mega-lander/workspaces.py,
 #       _delete) when a workspace lands or is discarded. Running it by hand
 #       against a LIVE workspace removes nothing and says so.
 #   containers.sh label-args

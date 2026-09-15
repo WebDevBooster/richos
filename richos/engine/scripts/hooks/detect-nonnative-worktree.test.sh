@@ -622,5 +622,5 @@ echo "=== detect-nonnative-worktree tests: all $PASS passed ==="
 
 # This suite's former mutation harness exercised the transaction binder, which
 # was removed with the store (docs/plans/worktree-spec-2026-09-11.md); binding
-# is now scripts/lib/workspaces.py's and is mutated by workspaces.mutation.sh.
+# is now mega-lander/workspaces.py's and is mutated by workspaces.mutation.sh.
 exit 0

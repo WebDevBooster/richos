@@ -5,7 +5,7 @@
 # nothing asking whether it works.
 #
 # Each case builds a throwaway repository in the shape the runner expects — a
-# git toplevel with engine/scripts/lib/workspaces.py and docs/verification/ —
+# git toplevel with engine/mega-lander/workspaces.py and docs/verification/ —
 # and puts synthetic probes in it. Nothing here touches the real tree, the real
 # probes, or the operator's registry: the registry is redirected into the
 # sandbox (RICHOS_WORKSPACES_DIR) and the integration branch is RECORDED there,
@@ -102,8 +102,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUNNER="$SCRIPT_DIR/workspace-probes.py"
-LIB="$SCRIPT_DIR/lib/workspaces.py"
+RUNNER="$SCRIPT_DIR/../workspace-probes.py"
+LIB="$SCRIPT_DIR/../workspaces.py"
 
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -125,14 +125,14 @@ GIT_ID_EMAIL="$(git config --get user.email 2>/dev/null || true)"
 GIT_ID_NAME="$(git config --get user.name 2>/dev/null || true)"
 
 R="$SANDBOX/repo"
-mkdir -p "$R/engine/scripts/lib" "$R/docs/verification"
+mkdir -p "$R/engine/mega-lander" "$R/docs/verification"
 git -C "$R" init -q -b main
 [ -n "$GIT_ID_EMAIL" ] && git -C "$R" config user.email "$GIT_ID_EMAIL"
 [ -n "$GIT_ID_NAME" ]  && git -C "$R" config user.name "$GIT_ID_NAME"
 git -C "$R" config commit.gpgsign false
 git -C "$R" config core.hooksPath "$SANDBOX/nohooks"
-cp "$RUNNER" "$R/engine/scripts/"
-cp "$LIB" "$R/engine/scripts/lib/"
+cp "$RUNNER" "$R/engine/mega-lander/"
+cp "$LIB" "$R/engine/mega-lander/"
 # Bytecode is never part of a commit here. Python writes __pycache__/ beside a
 # library it imports; the runner itself no longer does (sys.dont_write_bytecode),
 # and the fixture ignores it too, so `git add -A` in a reviewer's commit can
@@ -191,11 +191,11 @@ printf '# the suite manifest\ndocs/verification/certification-alice-green.probe.
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "the fixture" >/dev/null 2>&1
 
-python3 "$R/engine/scripts/lib/workspaces.py" integration --repo "$R" --branch main --why "the suite's body of work" >/dev/null 2>&1 \
+python3 "$R/engine/mega-lander/workspaces.py" integration --repo "$R" --branch main --why "the suite's body of work" >/dev/null 2>&1 \
     || { echo "FATAL: the sandbox could not record its integration branch" >&2; exit 1; }
 git -C "$R" checkout -q -b cc/engineer                # THE BRANCH UNDER TEST
 
-run() { OUT="$(python3 "$R/engine/scripts/workspace-probes.py" "$@" 2>&1)"; RC=$?; }
+run() { OUT="$(python3 "$R/engine/mega-lander/workspace-probes.py" "$@" 2>&1)"; RC=$?; }
 
 # A RETIREMENT IN THE SHAPE A REAL ONE HAS: written on its AUTHOR'S own branch
 # from main, committed there, LANDED on main by Rich, and merged into the branch
@@ -312,7 +312,7 @@ git -C "$R" branch -D cc/frank-review >/dev/null 2>&1
 git -C "$R" checkout -q -b cc/bob-bundled main
 printf 'certification-bob-red.probe.py\tbob\tobsolete, says the commit that also rewrites the library\n' \
     > "$R/$TSV"
-printf '\n# a change to the library in the very same commit\n' >> "$R/engine/scripts/lib/workspaces.py"
+printf '\n# a change to the library in the very same commit\n' >> "$R/engine/mega-lander/workspaces.py"
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "fix the library and retire the probe it fails" >/dev/null 2>&1
 git -C "$R" checkout -q main
@@ -423,11 +423,11 @@ fi
 
 # --- W8: --at tests THAT COMMIT's library, not the tree's -------------------
 AT_BEFORE="$(git -C "$R" rev-parse HEAD)"
-printf 'def nothing():\n    return 0\n' > "$R/engine/scripts/lib/workspaces.py"
+printf 'def nothing():\n    return 0\n' > "$R/engine/mega-lander/workspaces.py"
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" commit -q -m "a library without the rule" >/dev/null 2>&1
 AT_HOLLOW="$(git -C "$R" rev-parse HEAD)"
-git -C "$R" checkout -q "$AT_BEFORE" -- engine/scripts/lib/workspaces.py
+git -C "$R" checkout -q "$AT_BEFORE" -- engine/mega-lander/workspaces.py
 git -C "$R" commit -q -am "restore the library" >/dev/null 2>&1
 run --tree-only --only alice --at "$AT_HOLLOW"
 W8_RED=$RC

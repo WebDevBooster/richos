@@ -327,7 +327,7 @@ def trunk_of(repo):
     Loading the library by path is a duplicated LOADER, not a duplicated
     ANSWER: there is one implementation of the question and it is
     workspaces.py's."""
-    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander", "workspaces.py")
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("workspaces_answer", lib)

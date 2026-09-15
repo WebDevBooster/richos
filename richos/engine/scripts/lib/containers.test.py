@@ -413,7 +413,7 @@ def _spec_suite():
     two copies would be two sandboxes disagreeing about the same state."""
     if not _SPEC_SUITE:
         import importlib.util
-        path = os.path.join(HERE, "workspaces.test.py")
+        path = os.path.join(HERE, "..", "..", "mega-lander", "tests", "workspaces.test.py")
         spec = importlib.util.spec_from_file_location("workspaces_spec_suite", path)
         mod = importlib.util.module_from_spec(spec)
         sys.modules["workspaces_spec_suite"] = mod

@@ -51,7 +51,7 @@ declare_config() {
     } >"$1/orchestration.config"
 }
 
-SPEC_REAL='starting a teammate | scripts/spawn.sh | scripts/prepare-agent-spawn.py scripts/create-teammate-worktree.sh'
+SPEC_REAL='starting a teammate | scripts/spawn.sh | scripts/prepare-agent-spawn.py mega-lander/create-teammate-worktree.sh'
 SURFACES_REAL='CLAUDE.md skills/*/SKILL.md scripts/hooks/engine-status.sh'
 
 echo "entrypoint-currency-lint.test.sh"
@@ -291,7 +291,7 @@ declare_config "$SBE" "$SPEC_REAL" "$SURFACES_REAL"
 SBG="$(sandbox)"          # stands in for a governed repository
 printf 'PROTECTED_PATHS="src"\n' >"$SBG/orchestration.config"
 cat >"$SBG/CLAUDE.md" <<'GOV'
-Rich creates every one with scripts/create-teammate-worktree.sh <repo> <name>.
+Rich creates every one with mega-lander/create-teammate-worktree.sh <repo> <name>.
 GOV
 OUT="$("$LINT" --root "$SBG" --engine "$SBE" 2>&1)"; RC=$?
 if [ "$RC" -eq 1 ]; then

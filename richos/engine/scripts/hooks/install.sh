@@ -452,8 +452,8 @@ HOOK_FILES+=(
     # guard, the lock-out and the Stop gate take their whole answer from the
     # registry. A tampered copy would leave every one of them wired, hashed,
     # executable and deciding from something nobody verifies.
-    "$REPO_ROOT/scripts/lib/workspaces.py"
-    "$REPO_ROOT/scripts/workspaces.sh"
+    "$REPO_ROOT/mega-lander/workspaces.py"
+    "$REPO_ROOT/mega-lander/workspaces.sh"
     # The model-tier parser. guard-worktree-isolation.sh sources it to decide
     # clause 6 (is this explicit model: override a move DOWN the declared
     # capability order?), and a trimmed or inverted copy would leave the guard
@@ -626,7 +626,7 @@ HOOK_FILES+=(
     # and the one command that creates and registers a cc/ workspace.
     "$REPO_ROOT/scripts/lib/worktree-ledger.py"
     "$REPO_ROOT/scripts/lib/completion-proof.py"
-    "$REPO_ROOT/scripts/create-teammate-worktree.sh"
+    "$REPO_ROOT/mega-lander/create-teammate-worktree.sh"
     # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
     # reason rather than the reaper's: it is not documentation, it IS the
     # decision. guard-dialect.sh blocks a write on nothing but what this file
@@ -897,7 +897,7 @@ fi
 # (docs/plans/worktree-spec-2026-09-11.md) has exactly two events — a workspace
 # is registered when its agent is spawned, and deleted when its work is landed
 # or discarded — and the only deleters are that land and discard and their
-# automatic retry (scripts/workspaces.sh). The reconciler is not on the page,
+# automatic retry (mega-lander/workspaces.sh). The reconciler is not on the page,
 # and its code is gone; a job still loaded under launchd would run a file that
 # no longer exists, or an old copy that still does.
 #

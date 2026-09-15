@@ -9,10 +9,10 @@ set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
-. "$SCRIPT_DIR/lib/mutation-harness.sh"
-mutation_begin "create-teammate-worktree" "scripts/create-teammate-worktree.test.sh"
+. "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
+mutation_begin "create-teammate-worktree" "mega-lander/tests/create-teammate-worktree.test.sh"
 
-F="scripts/create-teammate-worktree.sh"
+F="mega-lander/create-teammate-worktree.sh"
 
 mutant create-without-registration "C17" "$F" \
     '    refuse "the workspace could not be registered, so it was not created: ${_reg_err#workspaces: REFUSED — }"' \

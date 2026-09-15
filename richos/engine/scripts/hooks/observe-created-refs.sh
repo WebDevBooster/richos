@@ -25,7 +25,7 @@
 # is what keys the window, and it is why this hook passes the WHOLE payload
 # through rather than the agent id alone: an agent's own calls overlap, so one
 # slot per agent lost a window every time two were open at once, and a ref
-# created in the second was attributed to nobody. See scripts/lib/workspaces.py,
+# created in the second was attributed to nobody. See mega-lander/workspaces.py,
 # "ONE WINDOW PER TOOL CALL, KEYED BY THE CALL".
 #
 # THE PRE HALF ALREADY EXISTED AND THE POST HALF DID NOT, which is the whole
@@ -33,7 +33,7 @@
 # agent's own workspace path) until 2026-09-12 — and possession left the stray
 # (`git branch spare` checks nothing out), the side branch (committed to and
 # switched away from) and the borrowed branch (pre-existing, merely checked out,
-# then deleted by a discard). scripts/lib/workspaces.py carries the four filters
+# then deleted by a discard). mega-lander/workspaces.py carries the four filters
 # that keep co-occurrence in time from being mistaken for authorship.
 #
 # IT RECORDS A FACT AND NEVER REFUSES ANYTHING. Exit 0 always, on every path:
@@ -127,7 +127,7 @@ else
     exit 0
 fi
 
-LIB="$SCRIPT_DIR/../lib/workspaces.py"
+LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$LIB" ]; then
     echo "NOTICE: observe-created-refs.sh: python3 or $LIB is unavailable — a branch this agent created was NOT recorded against it (docs/plans/worktree-spec-2026-09-11.md, points 3, 10). Restore the engine." >&2
     exit 0

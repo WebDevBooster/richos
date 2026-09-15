@@ -61,7 +61,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENGINE="$(cd "$HERE/.." && pwd)"
+ENGINE="$(cd "$HERE/../.." && pwd)"
 HOOKS="$ENGINE/scripts/hooks"
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -227,8 +227,8 @@ for k in sys.argv[2].split("."):
     cur = cur.get(k) if isinstance(cur, dict) else None
 print("" if cur is None else (json.dumps(cur) if isinstance(cur,(dict,list)) else cur))' "$1" "$2" 2>/dev/null; }
 quarantine_dirs() { find "$T" -maxdepth 4 \( -iname '*retired*' -o -iname '*quarantin*' \) 2>/dev/null; }
-WS="$ENGINE/scripts/workspaces.sh"
-CREATE="$ENGINE/scripts/create-teammate-worktree.sh"
+WS="$ENGINE/mega-lander/workspaces.sh"
+CREATE="$ENGINE/mega-lander/create-teammate-worktree.sh"
 ws() { RICHOS_SESSION_ID="$CUR_SID" "$WS" "$@"; }
 
 start_session "sess-fourteen-1111"
@@ -299,7 +299,7 @@ sub "C14.8 an agent's own workspace branch (cc/) is refused as an integration br
 # (the payload carries its id) the Bash guard refuses both, the way it refuses `claude -w`.
 AGENT_ANY="ad1d1d1d1d1d1d1d1"
 agent_bash_guard "$AGENT_ANY" "$WS integration --repo $DEV --branch wip --why 'a new body of work, says the engineer'"; r1=$?
-agent_bash_guard "$AGENT_ANY" "python3 $ENGINE/scripts/lib/workspaces.py integration --repo $DEV --branch dev/work --correct --why 'moved by the engineer'"; r2=$?
+agent_bash_guard "$AGENT_ANY" "python3 $ENGINE/mega-lander/workspaces.py integration --repo $DEV --branch dev/work --correct --why 'moved by the engineer'"; r2=$?
 sub "C14.9 an AGENT's call recording or correcting the integration branch is refused by the Bash guard (exits $r1 $r2), naming point 14" \
     "[ $r1 -eq 2 ] && [ $r2 -eq 2 ] && grep -q 'point 14' '$T/bash.err'" "$(cat "$T/bash.err")"
 bash_guard "$WS integration --repo $DEV --branch dev/work --why 're-stated by Rich'"; r3=$?
@@ -1033,7 +1033,7 @@ sub "C5.5 NOTHING ELSE: a reply to the CEO that does not name the pending work i
 # shape — the gate itself is asked in C5.2, C5.4, C5.10 and C5.16 — because the one
 # allowance is spent by every positive answer and twelve shapes cannot each spend it.
 person() { # <jsonl-file> -> True/False from _turn_started_by_person
-    python3 - "$ENGINE/scripts/lib/workspaces.py" "$1" <<'PY'
+    python3 - "$ENGINE/mega-lander/workspaces.py" "$1" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ws", sys.argv[1]); ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
 print(ws._turn_started_by_person(sys.argv[2]))
@@ -1150,7 +1150,7 @@ A1="$(jget "$REC" deletion.attempts)"
 sub "C13.1 the land is recorded ($rc, landed) and the deletion FAILED on the held file: attempt 1, workspace still there, retry scheduled" \
     "[ $rc -eq 0 ] && [ \"\$(jget '$REC' disposition.kind)\" = landed ] && [ \"$A1\" = 1 ] && [ -e '$NPK' ] && [ -n \"\$(jget '$REC' deletion.next_at)\" ]" "hold=$HOLD attempts=$A1 $(jget "$REC" deletion)"
 sub "C13.2 the CEO does NOT hear of it yet (no 'TELL THE CEO' at attempt 1)" "! grep -q 'TELL THE CEO' '$T/stop.out' '$T/stop.err'" "$(cat "$T/stop.out")"
-STATED="$(sed -n 's/^RETRY_TELL_CEO_AFTER = int(os.environ.get("RICHOS_WORKSPACES_RETRY_TELL_CEO", "\([0-9]*\)")).*/\1/p' "$ENGINE/scripts/lib/workspaces.py")"
+STATED="$(sed -n 's/^RETRY_TELL_CEO_AFTER = int(os.environ.get("RICHOS_WORKSPACES_RETRY_TELL_CEO", "\([0-9]*\)")).*/\1/p' "$ENGINE/mega-lander/workspaces.py")"
 subagent_stop "anothersubrun0001"                          # hook events, no command: each one retries what is due
 subagent_stop "anothersubrun0002"
 A3="$(jget "$REC" deletion.attempts)"

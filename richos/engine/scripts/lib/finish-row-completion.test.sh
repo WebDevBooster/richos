@@ -26,7 +26,7 @@
 # finish signals as "advisory, never decisive". A workspace is deleted only
 # when its work is landed or discarded (docs/plans/worktree-spec-2026-09-11.md),
 # never on a finish row. F5 is that boundary, asserted. The assignment is read
-# from the workspace registry (scripts/lib/workspaces.py); until 2026-09-11 it
+# from the workspace registry (mega-lander/workspaces.py); until 2026-09-11 it
 # was read from the transaction store, which was removed.
 #
 # ===========================================================================

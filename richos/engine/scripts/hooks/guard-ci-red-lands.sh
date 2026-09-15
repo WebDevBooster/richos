@@ -424,7 +424,7 @@ REPO_ROOT="$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
 # for this work? None of them is allowed its own answer, and none of them
 # assumes main."
 if [ -z "$WATCHED_BRANCH" ]; then
-    _WS_LIB="$SCRIPT_DIR/../workspaces.sh"
+    _WS_LIB="$SCRIPT_DIR/../../mega-lander/workspaces.sh"
     if [ -x "$_WS_LIB" ] || [ -f "$_WS_LIB" ]; then
         WATCHED_BRANCH="$(bash "$_WS_LIB" integration-branch --repo "$REPO_ROOT" 2>/dev/null \
                           | cut -f1 || true)"

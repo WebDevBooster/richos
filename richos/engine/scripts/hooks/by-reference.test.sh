@@ -78,6 +78,7 @@ make_sandbox() {
     mkdir -p "$sb/engine" "$sb/entity/.claude/agents" "$sb/home/.claude/plugins" "$sb/.claude-plugin"
 
     cp -R "$SRC_ENGINE/scripts"        "$sb/engine/scripts"
+    cp -R "$SRC_ENGINE/mega-lander" "$sb/engine/mega-lander"
     cp -R "$SRC_ENGINE/.claude"        "$sb/engine/.claude"
     cp -R "$SRC_ENGINE/.claude-plugin" "$sb/engine/.claude-plugin"
     cp -R "$SRC_ENGINE/hooks"          "$sb/engine/hooks"

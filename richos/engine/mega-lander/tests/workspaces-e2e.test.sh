@@ -26,7 +26,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENGINE="$(cd "$HERE/.." && pwd)"
+ENGINE="$(cd "$HERE/../.." && pwd)"
 HOOKS="$ENGINE/scripts/hooks"
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -108,7 +108,7 @@ commit_in() { # <path> <file>
 }
 has_branch() { git -C "$1" rev-parse --verify --quiet "refs/heads/$2" >/dev/null; }
 listed() { local l; l="$(git -C "$1" worktree list --porcelain)"; printf "%s\n" "$l" | grep -xF "worktree $2" >/dev/null; }
-WS="$ENGINE/scripts/workspaces.sh"
+WS="$ENGINE/mega-lander/workspaces.sh"
 
 echo "=== E1 spawn -> register -> commit -> finish -> land -> gone ==="
 start_session "sess-e2e-one-1111"
@@ -169,7 +169,7 @@ stop_gate; rc=$?
 check "E2.7 nothing pending: the turn may end" "[ $rc -eq 0 ]" "$(cat "$T/stop.err")"
 
 echo "=== E3 a cross-repository agent with two workspaces ==="
-RICHOS_SESSION_ID="$CUR_SID" bash "$ENGINE/scripts/create-teammate-worktree.sh" "$OTHER" zach-opus-e3 >"$T/create.out" 2>&1; rc=$?
+RICHOS_SESSION_ID="$CUR_SID" bash "$ENGINE/mega-lander/create-teammate-worktree.sh" "$OTHER" zach-opus-e3 >"$T/create.out" 2>&1; rc=$?
 CC3="$T/other-wt/zach-opus-e3"
 check "E3.1 create-teammate-worktree.sh registered and created a cc/ workspace (point 1)" \
     "[ $rc -eq 0 ] && has_branch '$OTHER' cc/zach-opus-e3 && [ -d '$CC3' ]" "$(cat "$T/create.out")"

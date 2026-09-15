@@ -3,7 +3,7 @@
 # guard-worktree-removal.test.sh — regression tests for the worktree-removal
 # guard, scripts/hooks/guard-worktree-removal.sh (PreToolUse[Bash], blocking).
 # Under docs/plans/worktree-spec-2026-09-11.md the only deleters are a land and
-# a discard (scripts/workspaces.sh); the guard refuses, with no override, every
+# a discard (mega-lander/workspaces.sh); the guard refuses, with no override, every
 # raw command that creates or deletes what only those events may (S* below).
 #
 # GUARD coverage (classification / precision):
@@ -42,7 +42,7 @@
 # The removal HELPER this suite used to exercise (remove-agent-worktree.sh and
 # its ENTITY-lock liveness rules, H1-H7) is deleted: under the spec a workspace
 # is deleted by a land or a discard and by nothing else, and those are proven
-# by scripts/lib/workspaces.test.sh.
+# by mega-lander/tests/workspaces.test.sh.
 #
 # registry-write-exempt: every `workspaces.sh land|discard|status` string in this
 # file is PAYLOAD handed to the guard under test, never executed, so this suite
@@ -160,9 +160,9 @@ run_case "d2 rm -rf a REAL linked worktree top level -> block" 2 \
     "$(bash_payload "rm -rf $REAL_WT")"
 
 run_case "e  workspaces.sh land -> allow" 0 \
-    "$(bash_payload "scripts/workspaces.sh land dev-abc")"
+    "$(bash_payload "mega-lander/workspaces.sh land dev-abc")"
 run_case "e2 workspaces.sh discard via bash prefix -> allow" 0 \
-    "$(bash_payload "bash ~/.claude/richos-engine/scripts/workspaces.sh discard dev-abc --reason 'superseded by dev-abd' --not-ceo-ordered 'the lead chose this'")"
+    "$(bash_payload "bash ~/.claude/richos-engine/mega-lander/workspaces.sh discard dev-abc --reason 'superseded by dev-abd' --not-ceo-ordered 'the lead chose this'")"
 
 run_case "f  worktree-remove-ack override -> allow" 0 \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc  # worktree-remove-ack: agent confirmed dead, unlocked wt')"
@@ -203,8 +203,8 @@ run_case "b3 negated dry-run override cannot bypass" 2 "$(bash_payload 'git work
 run_case "b4 absolute Git prune cannot bypass" 2 "$(bash_payload '/usr/bin/git worktree prune')"
 run_case "b5 quoted Git and prune cannot bypass" 2 "$(bash_payload "'/usr/bin/git' 'worktree' 'prune'")"
 run_case "b6 relative Git prune cannot bypass" 2 "$(bash_payload './bin/git -C /repo worktree prune')"
-run_case "b8 workspaces.sh cannot authorize a later prune" 2 "$(bash_payload 'scripts/workspaces.sh status; git worktree prune')"
-run_case "b9 workspaces.sh cannot authorize a later raw worktree remove" 2 "$(bash_payload "scripts/workspaces.sh status; git -C $MAINREPO worktree remove $REAL_WT")"
+run_case "b8 workspaces.sh cannot authorize a later prune" 2 "$(bash_payload 'mega-lander/workspaces.sh status; git worktree prune')"
+run_case "b9 workspaces.sh cannot authorize a later raw worktree remove" 2 "$(bash_payload "mega-lander/workspaces.sh status; git -C $MAINREPO worktree remove $REAL_WT")"
 run_case "b7 cross-repo quoted-path prune cannot bypass" 2 "$(bash_payload "git -C '/repo with spaces' worktree prune")"
 run_case "g2b absolute read-only worktree list -> allow" 0 "$(bash_payload '/usr/bin/git worktree list --porcelain -z')"
 run_case "g3 git branch -D non-worktree branch -> allow" 0 "$(bash_payload 'git branch -D feature-login')"
@@ -346,7 +346,7 @@ run_case_msg "h2 a spec refusal names land and discard as the only deleters" 'Th
     "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT")"
 run_case_msg "h2b ...and the land command itself" 'workspaces.sh land <agent>' \
     "$(bash_payload "git -C $MAINREPO worktree remove $AGENT_WT")"
-run_case_msg "h3 block message names the engine's workspaces.sh path" "$TMPROOT/entity/scripts/workspaces.sh" \
+run_case_msg "h3 block message names the engine's workspaces.sh path" "$TMPROOT/entity/mega-lander/workspaces.sh" \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
 run_case_msg "h4 block message names the ack override" 'worktree-remove-ack:' \
     "$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc')"
@@ -423,18 +423,19 @@ fi
 agent_payload() { # <command-string> — a Bash PreToolUse payload from an AGENT's call
     python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","agent_id":"aabc123def456789","tool_input":{"command":sys.argv[1]}}))' "$1"
 }
-cp "$SRC_DIR/../lib/workspaces.py" "$TMPROOT/entity/scripts/lib/"
+mkdir -p "$TMPROOT/entity/mega-lander"
+cp "$SRC_DIR/../../mega-lander/workspaces.py" "$TMPROOT/entity/mega-lander/"
 export RICHOS_WORKSPACES_DIR="$TMPROOT/ws"; mkdir -p "$RICHOS_WORKSPACES_DIR"
-if ! python3 "$TMPROOT/entity/scripts/lib/workspaces.py" integration --repo "$MAINREPO" --branch main --why "the suite's body of work" >/dev/null 2>&1; then
+if ! python3 "$TMPROOT/entity/mega-lander/workspaces.py" integration --repo "$MAINREPO" --branch main --why "the suite's body of work" >/dev/null 2>&1; then
     printf '  FAIL  RG0 the sandbox could not record its integration branch\n'; FAIL=$((FAIL + 1))
 fi
 run_case "RG1 agent: workspaces.sh integration --branch -> refused" 2 \
-    "$(agent_payload "scripts/workspaces.sh integration --repo $MAINREPO --branch wip --why 'a new body of work, says the engineer'")"
+    "$(agent_payload "mega-lander/workspaces.sh integration --repo $MAINREPO --branch wip --why 'a new body of work, says the engineer'")"
 run_case "RG2 agent: workspaces.py integration --correct -> refused" 2 \
-    "$(agent_payload "python3 scripts/lib/workspaces.py integration --repo $MAINREPO --branch main --correct --why 'moved by the engineer'")"
+    "$(agent_payload "python3 mega-lander/workspaces.py integration --repo $MAINREPO --branch main --correct --why 'moved by the engineer'")"
 run_case "RG3 lead: the same recording -> allow" 0 \
-    "$(bash_payload "scripts/workspaces.sh integration --repo $MAINREPO --branch main --why 're-stated by Rich'")"
-run_case "RG4 agent: workspaces.sh status (records nothing) -> allow" 0 "$(agent_payload "scripts/workspaces.sh status")"
+    "$(bash_payload "mega-lander/workspaces.sh integration --repo $MAINREPO --branch main --why 're-stated by Rich'")"
+run_case "RG4 agent: workspaces.sh status (records nothing) -> allow" 0 "$(agent_payload "mega-lander/workspaces.sh status")"
 run_case "RG5 agent: git branch -f <recorded> HEAD -> refused" 2 "$(agent_payload "git -C $MAINREPO branch -f main HEAD")"
 run_case "RG6 agent: git update-ref refs/heads/<recorded> -> refused" 2 "$(agent_payload "git -C $MAINREPO update-ref refs/heads/main HEAD")"
 run_case "RG7 agent: git push . HEAD:<recorded> -> refused" 2 "$(agent_payload "git -C $MAINREPO push . HEAD:main")"

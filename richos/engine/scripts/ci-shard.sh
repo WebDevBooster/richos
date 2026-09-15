@@ -230,7 +230,7 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
 # `lib/ci-unit-weights.tsv` went stale silently and stayed stale, and it cost
 # more wall clock than anything else in this system. Measured: 32 of the
 # inventory's 137 units carried no row and were packed at DEFAULT_WEIGHT = 60 s;
-# one of them, `scripts/workspace-spec-fourteen.test.sh`, actually takes
+# one of them, `mega-lander/tests/workspace-spec-fourteen.test.sh`, actually takes
 # 2811.7 s. Forty-seven times. The packer put it in a shard with eleven other
 # units and that shard was the wall clock of every push — 3146 s on run #216,
 # 3262 s on #212, against 194-1015 s for every other shard.

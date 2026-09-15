@@ -12,7 +12,7 @@
 #    lock-out already exists and stays."                          (point 9)
 #
 # FINISHED is the page's definition and nothing else (points 11 and 12), read
-# from scripts/lib/workspaces.py: the platform's own end-of-run signal is
+# from mega-lander/workspaces.py: the platform's own end-of-run signal is
 # recorded and Rich had not paused the agent before it — or it ended after
 # handing in its work — or its session has ended (it recorded its end, or its
 # process no longer exists, read from the operating system). A PAUSED agent is
@@ -217,11 +217,11 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${SEAL_READONLY_TOOLS:=$SEAL_READONLY_TOOLS_FALLBACK}"
 : "${SEAL_WAIT_SECONDS:=5}"
 
-WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if [ ! -f "$WS_PY" ]; then
     [ "$PKIND" = "LEAD" ] && exit 0
     is_readonly_tool "$TOOL_NAME" "$SEAL_READONLY_TOOLS" && exit 0
-    deny_cannot_evaluate "scripts/lib/workspaces.py is missing at $WS_PY" "$TOOL_NAME" "$AGENT_ID"
+    deny_cannot_evaluate "mega-lander/workspaces.py is missing at $WS_PY" "$TOOL_NAME" "$AGENT_ID"
 fi
 
 # The payload travels on stdin, never in the environment: a large payload

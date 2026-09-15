@@ -4,8 +4,8 @@
 # property at a time. Invoked by guard-sealed-worktree.test.sh; the loop is
 # scripts/lib/mutation-harness.sh. Case ids (G03 etc.) are the ones that suite
 # prints on both PASS and FAIL. The verdict itself (finished, paused,
-# registered) is scripts/lib/workspaces.py's and is mutated by
-# scripts/lib/workspaces.mutation.sh; this harness mutates what THIS file does
+# registered) is mega-lander/workspaces.py's and is mutated by
+# mega-lander/tests/workspaces.mutation.sh; this harness mutates what THIS file does
 # with each verdict.
 
 set -uo pipefail
@@ -63,7 +63,7 @@ mutant worktree-session-allowed "G15" "$G" \
     "a claude --worktree session could work (point 3)."
 
 mutant fail-open-without-registry "G16" "$G" \
-    '    deny_cannot_evaluate "scripts/lib/workspaces.py is missing at $WS_PY" "$TOOL_NAME" "$AGENT_ID"' \
+    '    deny_cannot_evaluate "mega-lander/workspaces.py is missing at $WS_PY" "$TOOL_NAME" "$AGENT_ID"' \
     '    exit 0' \
     "an engine missing its registry would let every worker write, finished or not."
 

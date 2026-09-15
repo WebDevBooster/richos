@@ -92,7 +92,7 @@ def _load(name, path):
     return mod
 
 
-W = _load("richos_workspaces", os.path.join(HERE, "workspaces.py"))
+W = _load("richos_workspaces", os.path.join(HERE, "..", "..", "mega-lander", "workspaces.py"))
 PREPARE = _load("richos_prepare_agent_spawn",
                 os.path.join(ENGINE, "scripts", "prepare-agent-spawn.py"))
 PROV = _load("richos_brief_provenance",
@@ -665,7 +665,7 @@ def main(argv):
     mine = not os.path.exists(W.agent_path(W.named_key(session, args["name"])))
     created = None
     if planned:
-        cmd = [os.path.join(ENGINE, "scripts", "create-teammate-worktree.sh"), repo, args["name"],
+        cmd = [os.path.join(ENGINE, "mega-lander", "create-teammate-worktree.sh"), repo, args["name"],
                "--dir", planned[0]["path"], "--session", session]
         if args["base"]:
             cmd += ["--base", args["base"]]

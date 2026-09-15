@@ -834,7 +834,7 @@ python3 - "$GUARD" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = 'C7_ERR="$(printf ' + "'%s'" + ' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?'
+old = 'C7_ERR="$(printf ' + "'%s'" + ' "$INPUT" | python3 "$SCRIPT_DIR/../../mega-lander/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?'
 assert old in s, "clause 7 registration anchor not found"
 open(p, "w", encoding="utf-8").write(s.replace(old, 'C7_ERR=""', 1))
 PY

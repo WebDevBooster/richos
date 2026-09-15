@@ -28,11 +28,11 @@
 #
 # THE WORKSPACE SPEC (docs/plans/worktree-spec-2026-09-11.md) is part of the
 # managed set: workspace-lifecycle.sh on its six events, guard-workspace-gate.sh
-# on Stop, and the registry (scripts/lib/workspaces.py) with its one command
-# (scripts/workspaces.sh), the only code that deletes a workspace. Every
+# on Stop, and the registry (mega-lander/workspaces.py) with its one command
+# (mega-lander/workspaces.sh), the only code that deletes a workspace. Every
 # fixture carries them with minted sidecars so probe Layer Q has something to
-# assert. Their behavior lives in scripts/lib/workspaces.test.sh and
-# scripts/workspaces-e2e.test.sh; this harness covers wiring plus the tamper,
+# assert. Their behavior lives in mega-lander/tests/workspaces.test.sh and
+# mega-lander/tests/workspaces-e2e.test.sh; this harness covers wiring plus the tamper,
 # retired-deleter and functional-canary axes Layer Q is responsible for.
 #
 # The harness builds an isolated sandbox per case (a committed-fresh-clone
@@ -397,8 +397,8 @@ ALL_ROOT_SCRIPTS=(
     # REFUSES a file-capable spawn it cannot register there, and
     # guard-worktree-removal.sh names the command as the only way a workspace is
     # deleted, so Layers Q and S verify both and every sandbox must carry both.
-    scripts/lib/workspaces.py
-    scripts/workspaces.sh
+    mega-lander/workspaces.py
+    mega-lander/workspaces.sh
     # The root-resolution contract is a managed, sidecar-hashed file: it is not
     # a hook, and it decides something no hook can second-guess — which
     # repository every guard is protecting.
@@ -464,7 +464,7 @@ ALL_ROOT_SCRIPTS=(
     # before it is created (points 1, 3), and the spawn guard's refusal names
     # it — a gate with no escape route models a wall.
     scripts/lib/worktree-ledger.py
-    scripts/create-teammate-worktree.sh
+    mega-lander/create-teammate-worktree.sh
     # The jurisdiction predicate — and it was MISSING from this list, silently,
     # for as long as the list has existed. scan-secrets.sh and guard-dialect.sh
     # both REFUSE TO START without it, by exiting 2, and Layer K's canary
@@ -664,6 +664,7 @@ gen_sidecars() {
 copy_root_scripts() {
     local root="$1" s
     for s in "${ALL_ROOT_SCRIPTS[@]}"; do
+        mkdir -p "$root/$(dirname "$s")"
         cp "$REAL_REPO_ROOT/$s" "$root/$s"
         chmod +x "$root/$s"
     done
@@ -2580,14 +2581,14 @@ fi  # _section — P
 # q_mutate_registry <root> <old> <new> — edit the sandbox registry and re-mint
 # its sidecar, so only the FUNCTIONAL canary can see the change.
 q_mutate_registry() {
-    python3 - "$1/scripts/lib/workspaces.py" "$2" "$3" <<'PY'
+    python3 - "$1/mega-lander/workspaces.py" "$2" "$3" <<'PY'
 import sys
 p, old, new = sys.argv[1:4]
 s = open(p).read()
 assert s.count(old) == 1, "registry anchor drifted — this mutation no longer mutates anything: %r" % old
 open(p, "w").write(s.replace(old, new))
 PY
-    shasum -a 256 "$1/scripts/lib/workspaces.py" | awk '{print $1}' > "$1/scripts/lib/workspaces.py.sha256"
+    shasum -a 256 "$1/mega-lander/workspaces.py" | awk '{print $1}' > "$1/mega-lander/workspaces.py.sha256"
 }
 
 if _section Q; then
@@ -2738,7 +2739,7 @@ rm -rf "$ROOT"
 # Case 44 — THE REGISTRY tampered. It is the only code that deletes a
 # workspace, and it lives outside scripts/hooks/.
 ROOT="$(make_sandbox)"
-printf '\n# tamper — no longer matches the minted sidecar\n' >> "$ROOT/scripts/lib/workspaces.py"
+printf '\n# tamper — no longer matches the minted sidecar\n' >> "$ROOT/mega-lander/workspaces.py"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "44.registry-tampered-fails-layerQ" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'Q. registry content hash mismatch'; then
@@ -2750,7 +2751,7 @@ rm -rf "$ROOT"
 
 # Case 44b — the registry's sidecar MISSING entirely must be loud, not silent.
 ROOT="$(make_sandbox)"
-rm -f "$ROOT/scripts/lib/workspaces.py.sha256"
+rm -f "$ROOT/mega-lander/workspaces.py.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "44b.registry-sidecar-missing-fails-layerQ" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'Q. registry manifest missing'; then
@@ -2805,11 +2806,11 @@ rm -rf "$ROOT"
 # the two that do not live under scripts/hooks/.
 ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/hooks/workspace-lifecycle.sh.sha256" "$ROOT/scripts/hooks/guard-workspace-gate.sh.sha256" \
-      "$ROOT/scripts/lib/workspaces.py.sha256" "$ROOT/scripts/workspaces.sh.sha256"
+      "$ROOT/mega-lander/workspaces.py.sha256" "$ROOT/mega-lander/workspaces.sh.sha256"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
 MINTED=1
 for f in "$ROOT/scripts/hooks/workspace-lifecycle.sh" "$ROOT/scripts/hooks/guard-workspace-gate.sh" \
-         "$ROOT/scripts/lib/workspaces.py" "$ROOT/scripts/workspaces.sh"; do
+         "$ROOT/mega-lander/workspaces.py" "$ROOT/mega-lander/workspaces.sh"; do
     [ -f "$f.sha256" ] || MINTED=0
     [ "$(shasum -a 256 "$f" | awk '{print $1}')" = "$(awk 'NR==1{print $1}' "$f.sha256" 2>/dev/null)" ] || MINTED=0
 done
@@ -2825,7 +2826,7 @@ rm -rf "$ROOT"
 # Case 48 — the registry's OWN suite (a test per numbered point) passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
 C48_LOG="$(mktemp -t workspace-registry-suite.XXXXXX)"
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../lib/workspaces.test.sh" >"$C48_LOG" 2>&1; rc=$?; set -e
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces.test.sh" >"$C48_LOG" 2>&1; rc=$?; set -e
 emit_case "48.workspace-registry-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$C48_LOG" | sed 's/^/        /' || true
@@ -2930,7 +2931,7 @@ rm -rf "$ROOT"
 # Case 53 — the end-to-end demonstration through the real hooks passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
 C53_LOG="$(mktemp -t workspace-e2e-suite.XXXXXX)"
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../workspaces-e2e.test.sh" >"$C53_LOG" 2>&1; rc=$?; set -e
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces-e2e.test.sh" >"$C53_LOG" 2>&1; rc=$?; set -e
 emit_case "53.workspace-spec-end-to-end-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$C53_LOG" | sed 's/^/        /' || true
@@ -3000,11 +3001,11 @@ rm -rf "$ROOT"
 
 # S4 — THE PAIR SPLIT. The guard is perfect; the one command it names is gone.
 # This is the case the layer exists for and the one a hooks-directory-shaped
-# sweep would miss entirely: scripts/workspaces.sh is not a hook and does not
+# sweep would miss entirely: mega-lander/workspaces.sh is not a hook and does not
 # live in scripts/hooks/. A guard whose only way through does not exist stops
 # being a gate and becomes a prompt to reach for a raw removal.
 ROOT="$(make_sandbox)"
-rm -f "$ROOT/scripts/workspaces.sh"
+rm -f "$ROOT/mega-lander/workspaces.sh"
 set +e; S_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "S4.sanctioned-helper-missing-fails" 2 "$rc"
 if printf '%s' "$S_OUT" | grep -q 'the sanctioned command is MISSING'; then

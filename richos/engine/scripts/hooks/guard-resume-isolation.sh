@@ -252,7 +252,7 @@ esac
 # docs/plans/worktree-spec-2026-09-11.md, points 9 and 11: "a finished agent
 # never writes again"; "An agent Rich pauses ... is not finished: it keeps its
 # workspaces, is not locked out, and resumes." Both come from ONE record — the
-# workspace registry (scripts/lib/workspaces.py), keyed by this session and the
+# workspace registry (mega-lander/workspaces.py), keyed by this session and the
 # teammate's name (names are unique within a session by clause 3 of the spawn
 # guard). So:
 #
@@ -267,7 +267,7 @@ esac
 #                    "No question of whether an agent is still alive").
 #   unregistered  -> not a workspace-owning teammate of this session; the checks
 #                    below decide, unchanged.
-_WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+_WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if [ -f "$_WS_PY" ] && [ -n "$SESSION_ID" ]; then
   WS_VERDICT="$(python3 "$_WS_PY" --session "$SESSION_ID" recipient --name "$TO" 2>/dev/null || printf 'unknown\tthe registry could not be read')"
   WKIND="$(printf '%s' "$WS_VERDICT" | sed -n '1p' | cut -f1)"

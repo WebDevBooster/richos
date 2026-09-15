@@ -330,13 +330,13 @@ def live_workspace_paths():
     could not be established, and the sweep then protects everything: an
     unreadable record is a reason to keep your hands still.
     """
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander")
     if here not in sys.path:
         sys.path.insert(0, here)
     try:
-        import workspaces  # noqa: F401  (same directory, guarded by __main__)
+        import workspaces  # noqa: F401  (Mega Lander, guarded by __main__)
     except Exception as e:                                  # pragma: no cover
-        return set(), False, "scripts/lib/workspaces.py could not be read (%s)" % e
+        return set(), False, "mega-lander/workspaces.py could not be read (%s)" % e
     paths = set()
     try:
         for rec in workspaces.all_agents():

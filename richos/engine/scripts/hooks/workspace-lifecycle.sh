@@ -3,7 +3,7 @@
 # workspace-lifecycle.sh — RECORDS THE FACTS THE WORKSPACE SPEC NAMES. NEVER BLOCKS.
 #
 # The page: docs/plans/worktree-spec-2026-09-11.md. The mechanism:
-# scripts/lib/workspaces.py. Registered on:
+# mega-lander/workspaces.py. Registered on:
 #
 #   SessionStart              the session records itself — process number AND
 #                             process start time (point 12); a session that is a
@@ -102,7 +102,7 @@ else
     exit 0
 fi
 
-LIB="$SCRIPT_DIR/../lib/workspaces.py"
+LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$LIB" ]; then
     echo "NOTICE: workspace-lifecycle.sh: python3 or $LIB is unavailable — this workspace fact was NOT recorded (docs/plans/worktree-spec-2026-09-11.md). Restore the engine." >&2
     exit 0

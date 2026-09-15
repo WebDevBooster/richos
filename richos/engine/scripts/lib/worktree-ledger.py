@@ -39,7 +39,7 @@ entire job.
 
   registered   a worktree has an owner. Written at PostToolUse[Agent] by
                detect-nonnative-worktree.sh (beside the spawned-names append)
-               and by scripts/create-teammate-worktree.sh (cross-repo). Carries
+               and by mega-lander/create-teammate-worktree.sh (cross-repo). Carries
                teammate, agent_id, session_id, session_pid, pid_start, repo,
                worktree, branch, class (native|hand-rolled).
   terminated   a POSITIVE, WITNESSED termination of an agent: its native
@@ -67,7 +67,7 @@ transcript index survives for repository ELIGIBILITY reporting only. (The
 transaction store that once held a worker's authoritative member set was
 removed on 2026-09-11 with every deleter the CEO's workspace spec does not
 have; docs/plans/worktree-spec-2026-09-11.md. A worker's workspaces are the
-workspace registry's now, scripts/lib/workspaces.py, and this ledger decides
+workspace registry's now, mega-lander/workspaces.py, and this ledger decides
 nothing destructive.) Then, per exact-path registration:
 
     a `terminated` record exists for the agent ........... NOT-ALIVE (witnessed)
@@ -284,7 +284,7 @@ def assignment_workspaces(session_id, agent_id, teammate=""):
     # is not a teammate name and is not used as one.
     try:
         here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location("ledger_workspaces", os.path.join(here, "workspaces.py"))
+        spec = importlib.util.spec_from_file_location("ledger_workspaces", os.path.join(here, "..", "..", "mega-lander", "workspaces.py"))
         ws = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ws)
         key = ws.key_for_id(agent_id) if agent_id else ""
@@ -885,7 +885,7 @@ def registrations(records, worktree=None, names=(), repo=None, match_names=False
 
 def prepared_records(records, session_id=None, teammate=None, worktree=None, repo=None):
     """`prepared` records — the authoritative creation-time membership written
-    by scripts/create-teammate-worktree.sh. Every filter given must match
+    by mega-lander/create-teammate-worktree.sh. Every filter given must match
     EXACTLY; nothing here is a prefix, a basename or a convention."""
     wt = norm_path(worktree) if worktree else ""
     rp = norm_path(repo) if repo else ""
@@ -911,7 +911,7 @@ def bound_members(session_id, agent_id):
     workspace spec does not have (docs/plans/worktree-spec-2026-09-11.md), so
     there is no such set here any more: always empty, and never a fallback to a
     registration, a name, a branch or a transcript. A workspace's deletion is
-    scripts/workspaces.sh's alone."""
+    mega-lander/workspaces.sh's alone."""
     return []
 
 

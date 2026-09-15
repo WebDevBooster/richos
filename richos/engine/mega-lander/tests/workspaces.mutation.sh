@@ -3,17 +3,17 @@
 # workspaces.mutation.sh — PROVES the workspace spec's suite CAN FAIL, one point
 # at a time. Invoked by workspaces.test.sh; the loop is mutation-harness.sh.
 # Every mutant removes ONE rule of docs/plans/worktree-spec-2026-09-11.md from
-# scripts/lib/workspaces.py in a throwaway copy of the engine and names the
+# mega-lander/workspaces.py in a throwaway copy of the engine and names the
 # test, named after its point, that must go red.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=mutation-harness.sh
-. "$SCRIPT_DIR/mutation-harness.sh"
-mutation_begin "workspaces.py (the CEO's workspace spec)" "scripts/lib/workspaces.test.sh"
+. "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
+mutation_begin "workspaces.py (the CEO's workspace spec)" "mega-lander/tests/workspaces.test.sh"
 
-W="scripts/lib/workspaces.py"
+W="mega-lander/workspaces.py"
 
 mutant p01-non-cc-accepted "test_point_01_every_non_native_workspace_is_named_cc" "$W" \
     '    if not (branch or "").startswith(CC_PREFIX):{NL}        raise SpecError("branch %r is not named cc/' \

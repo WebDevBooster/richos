@@ -504,10 +504,10 @@ rm -rf "$BG"
 # (t) A FINISHED AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH; A PAUSED ONE IS NOT
 # (docs/plans/worktree-spec-2026-09-11.md, points 9 and 11). The recipient is
 # registered, bound and ended through the real workspace registry
-# (scripts/lib/workspaces.py), pinned inside the sandbox with a session process
+# (mega-lander/workspaces.py), pinned inside the sandbox with a session process
 # of this suite's own.
 # =========================================================================
-WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 RICHOS_SESSION_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
@@ -580,5 +580,5 @@ echo "=== guard-resume-isolation tests: all $PASS passed ==="
 
 # The mutation harness for this guard is guard-resume-isolation.mutation.sh
 # (run by contract-integrity.test.sh). The finished/paused verdict itself is
-# scripts/lib/workspaces.py's, mutated by workspaces.mutation.sh.
+# mega-lander/workspaces.py's, mutated by workspaces.mutation.sh.
 exit 0

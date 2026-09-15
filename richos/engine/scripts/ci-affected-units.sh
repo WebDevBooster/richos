@@ -187,9 +187,9 @@ while IFS= read -r p; do
         add_suite_units "$REL" "$p"; MATCHED=1
     fi
 
-    # 2. a sibling suite
+    # 2. a sibling suite, including a feature-local tests/ directory
     STEM="${REL%.*}"
-    for cand in "$STEM.test.sh" "$REL.test.sh"; do
+    for cand in "$STEM.test.sh" "$REL.test.sh" "$(dirname "$REL")/tests/$(basename "$STEM").test.sh"; do
         if grep -qxF "$cand" "$SUITES"; then
             add_suite_units "$cand" "$p"; MATCHED=1
         fi

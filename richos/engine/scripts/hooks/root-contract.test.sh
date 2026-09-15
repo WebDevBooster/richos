@@ -93,6 +93,7 @@ mkdir -p "$ENGINE"
 # tests while the shipped one fails, which is the same wrong-reason pass this
 # suite exists to prevent.
 cp -R "$SRC_ENGINE/scripts" "$ENGINE/scripts"
+cp -R "$SRC_ENGINE/mega-lander" "$ENGINE/mega-lander"
 cp -R "$SRC_ENGINE/.claude" "$ENGINE/.claude"
 cp -R "$SRC_ENGINE/.claude-plugin" "$ENGINE/.claude-plugin"
 cp "$SRC_ENGINE/orchestration.config" "$ENGINE/orchestration.config"
@@ -208,7 +209,7 @@ fi
 # read clause 7's refusal and report it as the model clause blocking a truthful
 # spawn.
 export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
-python3 "$SRC_ENGINE/scripts/lib/workspaces.py" --entity "$SESSREPO" --session deadbeef-0000 \
+python3 "$SRC_ENGINE/mega-lander/workspaces.py" --entity "$SESSREPO" --session deadbeef-0000 \
     integration --repo "$SESSREPO" --branch main --why "the root-contract suite's body of work" >/dev/null
 SPAWN() { # <subagent_type> <name> [model] [prompt]
     local st="$1" nm="$2" md="${3:-}" pr="${4:-}"

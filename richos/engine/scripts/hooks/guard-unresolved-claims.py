@@ -610,7 +610,7 @@ INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")
 
 
 def _recorded_integration_refs(root):
-    """THE ONE ANSWER FIRST, asked of scripts/lib/workspaces.py (point 14):
+    """THE ONE ANSWER FIRST, asked of mega-lander/workspaces.py (point 14):
     "Every part of the system that needs to know whether work has landed asks
     the same question: is it in the branch recorded for this work? None of them
     is allowed its own answer, and none of them assumes main."
@@ -625,7 +625,7 @@ def _recorded_integration_refs(root):
     to main. Loading the library by path is a duplicated LOADER, not a
     duplicated ANSWER."""
     lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "lib", "workspaces.py")
+                       "..", "mega-lander", "workspaces.py")
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
@@ -1473,7 +1473,7 @@ def main():
             out.append("")
             out.append("  Run the merge, or say where the work actually is. Confirm with:")
             out.append("      git -C %s merge-base --is-ancestor %s "
-                       "$(engine/scripts/workspaces.sh integration-branch --repo %s | cut -f1)"
+                       "$(engine/mega-lander/workspaces.sh integration-branch --repo %s | cut -f1)"
                        % (repo, sha, repo))
         else:
             out.append("  %s is reachable from %s in %s and from no remote-tracking" % (sha, ref, repo))

@@ -16,7 +16,7 @@
 #
 # The brief for this row was explicit that a test which removes a directory it
 # made in /tmp is not a proof. So the removal here is done by the engine's OWN
-# sanctioned deleter -- since 2026-09-11 that is `scripts/workspaces.sh
+# sanctioned deleter -- since 2026-09-11 that is `mega-lander/workspaces.sh
 # discard` (docs/plans/worktree-spec-2026-09-11.md: a land or a discard deletes
 # every workspace and branch an agent has, and nothing else deletes one) -- the
 # same command the orchestrator runs, against a real linked worktree of a real
@@ -72,9 +72,9 @@ cannot_run() {
 
 command -v git      >/dev/null 2>&1 || cannot_run "git is not on PATH."
 command -v python3  >/dev/null 2>&1 || cannot_run "python3 is not on PATH."
-WORKSPACES="$ENGINE_ROOT/scripts/workspaces.sh"
-WS_PY="$ENGINE_ROOT/scripts/lib/workspaces.py"
-[ -f "$WORKSPACES" ] && [ -f "$WS_PY" ] || cannot_run "the sanctioned deleter (scripts/workspaces.sh and scripts/lib/workspaces.py) is missing — this suite's whole point is a REAL removal, and it will not fake one."
+WORKSPACES="$ENGINE_ROOT/mega-lander/workspaces.sh"
+WS_PY="$ENGINE_ROOT/mega-lander/workspaces.py"
+[ -f "$WORKSPACES" ] && [ -f "$WS_PY" ] || cannot_run "the sanctioned deleter (mega-lander/workspaces.sh and mega-lander/workspaces.py) is missing — this suite's whole point is a REAL removal, and it will not fake one."
 [ -f "$ENGINE_ROOT/scripts/inflight-ack.sh" ]  || cannot_run "scripts/inflight-ack.sh is missing."
 [ -f "$ENGINE_ROOT/scripts/lib/inflight.py" ]  || cannot_run "scripts/lib/inflight.py is missing."
 

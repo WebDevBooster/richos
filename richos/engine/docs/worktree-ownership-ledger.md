@@ -12,7 +12,7 @@ both — that is its entire job.
 
 The CEO's workspace spec (`docs/plans/worktree-spec-2026-09-11.md`) replaced the
 machinery this page describes. Registration is the workspace registry's
-(`scripts/lib/workspaces.py`), deletion is its land and discard, and nothing
+(`mega-lander/workspaces.py`), deletion is its land and discard, and nothing
 reads this ledger to create, keep or delete a workspace. The reaper, the
 transaction store and the reconciler named below were removed on 2026-09-11;
 what follows is kept as the contract of the rows the remaining reporters read,
@@ -63,7 +63,7 @@ The full account, with the command or `file:line` behind every claim, is
 | Record | Written by | Carries |
 |---|---|---|
 | `registered` | `scripts/hooks/detect-nonnative-worktree.sh` (PostToolUse[Agent], beside the `spawned-names.log` append) | teammate, agent id (from the async-launch acknowledgement), session id, **session pid + `ps` start time** (from the native lock line, else `CLAUDE_PID`), the native worktree path and branch; a `cwd` spawn's hand-rolled path with its repository and branch; every `cross-repo-worktree: <path>` prompt line |
-| `registered` | `scripts/create-teammate-worktree.sh` | the same, for a cross-repository worktree it created and seeded, keyed by exact path |
+| `registered` | `mega-lander/create-teammate-worktree.sh` | the same, for a cross-repository worktree it created and seeded, keyed by exact path |
 | `terminated` | the reaper (gate 1 and on removal) and the removal helper — both removed 2026-09-11 — and `worktree-ledger.py judge-batch` | a POSITIVE, WITNESSED termination: the native worktree observed registered-and-unlocked or stale-locked by a dead pid, or removed after that verdict. Once per agent id. **Never** a verdict that rested on absence. |
 | `finished` | `teammate-idle-handoff.sh`, `task-completed-handoff.sh`, `worker-ended-handoff.sh` | an ADVISORY per-agent signal (TeammateIdle / TaskCompleted / SubagentStop) keyed to agent id and worktree path |
 
@@ -205,7 +205,7 @@ failures together. On refusal it exits 1 and leaves nothing behind.
 The helper it calls is still callable on its own, and still accepted:
 
 ```
-scripts/create-teammate-worktree.sh <repo> <teammate-name> [--dir p] [--base ref]
+mega-lander/create-teammate-worktree.sh <repo> <teammate-name> [--dir p] [--base ref]
 ```
 
 creates `<main>-wt/<name>` on branch `<name>` from HEAD, seeds every

@@ -124,7 +124,7 @@
 #         that keeps native isolation in the session repo AND names the
 #         cross-repo tree) must pass the same check -> else BLOCKED; whether it
 #         was registered for THIS session and THIS teammate is clause 7's
-#         question (the workspace registry, scripts/lib/workspaces.py).
+#         question (the workspace registry, mega-lander/workspaces.py).
 #     4d. A prompt that INSTRUCTS the teammate to run `git worktree add` is
 #         BLOCKED: that is the improvisation this clause ends. The audited
 #         escape hatch is a `hand-roll-ack: <reason>` prompt line, logged to
@@ -501,7 +501,7 @@ else:
               "rationale this gate exists to refuse: on 2026-09-02 an engine-wide "
               "audit went to a generic built-in because a roster teammate would "
               "have needed a worktree created first. Creating one is a single call "
-              "to scripts/create-teammate-worktree.sh, or one isolation:\"worktree\" "
+              "to mega-lander/create-teammate-worktree.sh, or one isolation:\"worktree\" "
               "parameter. Being quicker to dispatch is never a reason to staff work "
               "to a non-teammate." % speed.group(0))
     else:
@@ -552,7 +552,7 @@ if [ "$NEEDS_STAFFING_HATCH" -eq 1 ]; then
         echo "    roster: ${ROSTER_HINT}"
       fi
       echo "  Needing a worktree first is NOT a reason to reach for a generic agent —"
-      echo "  $ENGINE_ROOT/scripts/create-teammate-worktree.sh creates and registers one in a single call."
+      echo "  $ENGINE_ROOT/mega-lander/create-teammate-worktree.sh creates and registers one in a single call."
       echo ""
       echo "  FIX (only when no roster teammate genuinely fits): add ONE live prompt line"
       echo "      generic-agent: <why no roster teammate fits this work>"
@@ -600,7 +600,7 @@ fi
 for a in $READONLY_ALLOWLIST; do
   if [ "$SUBAGENT_TYPE" = "$a" ]; then
     RO_RC=0
-    RO_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" register-readonly 2>&1 >/dev/null)" || RO_RC=$?
+    RO_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../../mega-lander/workspaces.py" --entity "$ENTITY_ROOT" register-readonly 2>&1 >/dev/null)" || RO_RC=$?
     if [ "$RO_RC" -ne 0 ]; then
       {
         echo "=== Teammate-spawn guard: BLOCKED (clause 7 — registration at spawn) ==="
@@ -635,7 +635,7 @@ fi
 # point 1) and not a codex/ one (point 2); prints the reason for a refusal on
 # stdout otherwise. Whether it is registered FOR THIS SPAWN — this session,
 # this teammate — is clause 7's question, answered by the workspace registry
-# (scripts/lib/workspaces.py register-spawn).
+# (mega-lander/workspaces.py register-spawn).
 registered_teammate_worktree() {
   local p="$1" top common gitdir br
   [ -n "$p" ] || { printf 'no path given'; return 1; }
@@ -664,7 +664,7 @@ registered_teammate_worktree() {
 # does the thing that produced the refusal. ONE command first; the manual
 # route is still named because it is still accepted, and nothing about what
 # this guard blocks changed with the wording.
-HELPER_HINT="do all of it in ONE command —  <engine>/scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>  creates and REGISTERS the tree, assembles the payload, and evaluates every PreToolUse[Agent] guard from every surface BEFORE anything exists, reporting all failures together. By hand it is  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
+HELPER_HINT="do all of it in ONE command —  <engine>/scripts/spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>  creates and REGISTERS the tree, assembles the payload, and evaluates every PreToolUse[Agent] guard from every surface BEFORE anything exists, reporting all failures together. By hand it is  <engine>/mega-lander/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
 
 # A DRY EVALUATION'S *PLANNED* WORKSPACES (see clause 7g). scripts/spawn.sh
 # evaluates this guard BEFORE it creates anything, precisely so that a brief
@@ -673,7 +673,7 @@ HELPER_HINT="do all of it in ONE command —  <engine>/scripts/spawn.sh <teammat
 # has no answer for it — the same shape as clause 7a, and the same resolution:
 # the answerable question one step earlier (does its repository resolve, is its
 # branch free, is its path absent and creatable?) is asked instead, by
-# `check-spawn` in scripts/lib/workspaces.py, so there is ONE answer in ONE
+# `check-spawn` in mega-lander/workspaces.py, so there is ONE answer in ONE
 # place. Nothing here is skipped for a workspace that is NOT planned, and a
 # live call can never be dry (it carries a tool_use_id).
 DRY_PLANNED="$(printf '%s' "$INPUT" | python3 -c '
@@ -725,7 +725,7 @@ case "$ISOLATION" in
           "$MAIN_CHECKOUT_MARKER"
       } >>"$LOG_DIR/main-checkout-runs.log" 2>/dev/null || true
     else
-      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by scripts/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
+      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by mega-lander/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
     fi
     ;;
 esac
@@ -982,7 +982,7 @@ fi
 # ---------------------------------------------------------------------------
 # CLAUSE 7 — REGISTRATION AT SPAWN (docs/plans/worktree-spec-2026-09-11.md).
 # Every clause above is satisfied; before this call may run it is REGISTERED
-# in the workspace registry (scripts/lib/workspaces.py register-spawn), and:
+# in the workspace registry (mega-lander/workspaces.py register-spawn), and:
 #   "If registration fails, the spawn does not happen."            (point 3)
 # The registration also carries point 5:
 #   "while any finished agent's work is neither landed nor discarded, Rich can
@@ -993,7 +993,7 @@ fi
 # `continues: <name>` prompt line naming the pending agent (points 5, 7).
 #   7a. every `cross-repo-worktree:` path must be a cc/ workspace registered for
 #       THIS session and THIS teammate when it was created
-#       (scripts/create-teammate-worktree.sh), still on its registered branch;
+#       (mega-lander/create-teammate-worktree.sh), still on its registered branch;
 #   7b. a file-capable Agent call with run_in_background: false is refused;
 #   7c. the lifecycle components registration depends on must be present — the
 #       registry, the lifecycle hook that records the platform's facts, and the
@@ -1007,7 +1007,7 @@ fi
 #       C7_VERB for why it cannot be used to skip a registration.
 # ---------------------------------------------------------------------------
 C7_PROBLEMS=()
-for _c in "scripts/lib/workspaces.py" "scripts/hooks/workspace-lifecycle.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
+for _c in "mega-lander/workspaces.py" "scripts/hooks/workspace-lifecycle.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
   [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's workspaces could not be registered, finished or locked out. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
 done
 for _c in "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/workspace-lifecycle.sh"; do
@@ -1056,7 +1056,7 @@ fi
 if [ "${#C7_PROBLEMS[@]}" -eq 0 ]; then
   # `set -e` is on: the failing substitution must not end the script silently.
   C7_RC=0
-  C7_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?
+  C7_ERR="$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../../mega-lander/workspaces.py" --entity "$ENTITY_ROOT" "$C7_VERB" 2>&1 >/dev/null)" || C7_RC=$?
   if [ "$C7_RC" -ne 0 ]; then
     C7_PROBLEMS+=("${C7_ERR:-the registration could not be written (exit $C7_RC)}")
   fi

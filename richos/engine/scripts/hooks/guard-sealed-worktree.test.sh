@@ -25,7 +25,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/guard-sealed-worktree.sh"
-WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 unset CLAUDE_PROJECT_DIR RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID
 
 PASS=0

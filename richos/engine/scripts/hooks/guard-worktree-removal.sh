@@ -6,8 +6,8 @@
 #   "1) spawned/workspace registered 2) landed/workspace to be deleted. What
 #    the hell else is there needed to be?"   — docs/plans/worktree-spec-2026-09-11.md
 #
-# A workspace is CREATED by scripts/create-teammate-worktree.sh, which registers
-# it first, and DELETED by scripts/workspaces.sh land|discard (and that
+# A workspace is CREATED by mega-lander/create-teammate-worktree.sh, which registers
+# it first, and DELETED by mega-lander/workspaces.sh land|discard (and that
 # command's own automatic retry), which stops every process the agent started
 # and deletes every workspace and branch it has, together. Nothing else creates
 # or deletes one, and codex/ is never touched.
@@ -884,7 +884,7 @@ if AGENT:
         break
 
 
-# The sanctioned command: scripts/workspaces.sh (land / discard) is the only
+# The sanctioned command: mega-lander/workspaces.sh (land / discard) is the only
 # thing that deletes a workspace. It cannot authorize a separate raw
 # destructive command in the same shell payload.
 helper = bool(re.search(r"(?:^|[\s;&|(])(?:\S*/)?workspaces\.sh\b", scan))
@@ -905,7 +905,7 @@ PYEOF
 # limit on Linux. A failed classifier must never become an unevaluated pass.
 # The library path travels in the environment so rule 6b can ask the registry
 # which branches are recorded; the payload itself never does.
-export WTR_WORKSPACES_LIB="$SCRIPT_DIR/../lib/workspaces.py"
+export WTR_WORKSPACES_LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if ! RESULT="$(python3 -c "$_WTR_CLASSIFIER" <<<"$INPUT")"; then
     echo "ERROR: guard-worktree-removal.sh: payload classifier failed; refusing unevaluated operation" >&2
     exit 2
@@ -941,9 +941,9 @@ case "$RESULT_KIND" in
             echo "  is created, and deleted when its work is landed or discarded — every"
             echo "  workspace and branch the agent has, together, after its processes are"
             echo "  stopped. Those are the only deleters, and codex/ is never touched:"
-            echo "    create:  $ENGINE_ROOT/scripts/create-teammate-worktree.sh <repo> <name>"
-            echo "    land:    $ENGINE_ROOT/scripts/workspaces.sh land <agent>"
-            echo "    discard: $ENGINE_ROOT/scripts/workspaces.sh discard <agent> --reason '...'"
+            echo "    create:  $ENGINE_ROOT/mega-lander/create-teammate-worktree.sh <repo> <name>"
+            echo "    land:    $ENGINE_ROOT/mega-lander/workspaces.sh land <agent>"
+            echo "    discard: $ENGINE_ROOT/mega-lander/workspaces.sh discard <agent> --reason '...'"
             echo "  There is no override for this refusal."
             echo "$HOOK_TAG"
         } >&2
@@ -954,7 +954,7 @@ case "$RESULT_KIND" in
             echo "=== Worktree-removal guard: BLOCKED ==="
             echo "  This Bash command removes a git worktree ($REASONS) that is not an"
             echo "  agent's workspace. If it is an agent's, land or discard it instead:"
-            echo "    $ENGINE_ROOT/scripts/workspaces.sh land|discard <agent>"
+            echo "    $ENGINE_ROOT/mega-lander/workspaces.sh land|discard <agent>"
             echo ""
             echo "  Deliberate removal of a worktree that is not the system's (logged): add a"
             echo "    worktree-remove-ack: <why this removal is safe>"

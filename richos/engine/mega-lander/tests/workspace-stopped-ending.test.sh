@@ -39,7 +39,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENGINE="$(cd "$HERE/.." && pwd)"
+ENGINE="$(cd "$HERE/../.." && pwd)"
 HOOKS="$ENGINE/scripts/hooks"
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -78,8 +78,8 @@ printf '[user]\n\tname = stopped\n\temail = stopped@example.invalid\n[init]\n\td
 unset RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID CLAUDE_PROJECT_DIR RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT RICHOS_SESSION_PID RICHOS_PROJECTS_DIR 2>/dev/null || true
 export SEAL_WAIT_SECONDS=0 RICHOS_WORKSPACES_SPAWN_WINDOW=0 RICHOS_WORKSPACES_STOP_GRACE=1 RICHOS_WORKSPACES_RETRY_BASE=0
 STORE="$CLAUDE_CONFIG_DIR/state/workspaces"
-WS="$ENGINE/scripts/workspaces.sh"
-CREATE="$ENGINE/scripts/create-teammate-worktree.sh"
+WS="$ENGINE/mega-lander/workspaces.sh"
+CREATE="$ENGINE/mega-lander/create-teammate-worktree.sh"
 
 new_repo() {
     mkdir -p "$1" && git init -q -b main "$1"

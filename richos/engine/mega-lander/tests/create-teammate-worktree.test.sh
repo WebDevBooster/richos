@@ -10,14 +10,14 @@
 # sandbox and the session is a process of the suite's own, so no case can touch
 # the operator's record.
 #
-# Run directly: scripts/create-teammate-worktree.test.sh
+# Run directly: mega-lander/tests/create-teammate-worktree.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HELPER="$SCRIPT_DIR/create-teammate-worktree.sh"
-WS_PY="$SCRIPT_DIR/lib/workspaces.py"
+HELPER="$SCRIPT_DIR/../create-teammate-worktree.sh"
+WS_PY="$SCRIPT_DIR/../workspaces.py"
 
 PASS=0
 FAIL=0

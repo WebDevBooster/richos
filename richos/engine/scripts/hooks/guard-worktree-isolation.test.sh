@@ -96,7 +96,7 @@ TEST_SID="deadbeef-0000-4000-8000-000000000000"
 # a runner, in a worktree and on a contributor's clone. An agent's own workspace
 # branch (cc/, worktree-) is refused by record_integration by name, so those are
 # never candidates.
-WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 ws_record_integration() { # <repo> <why>
     local repo="$1" why="$2" main b picked=""
     main="$(git -C "$repo" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
@@ -460,7 +460,9 @@ c6_case "a broken declaration is NOT announced on model:inherit" 0 "" \
 C6NOLIB="$(mktemp -d -t guard-c6-nolib.XXXXXX)"
 mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/workspaces.py" "$C6NOLIB/scripts/lib/"
+mkdir -p "$C6NOLIB/mega-lander"
+cp "$SCRIPT_DIR/../../mega-lander/workspaces.py" "$C6NOLIB/mega-lander/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$C6NOLIB/scripts/lib/"
 cp "$SCRIPT_DIR/workspace-lifecycle.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$C6NOLIB/scripts/hooks/"
 chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh" "$C6NOLIB/scripts/hooks/workspace-lifecycle.sh" "$C6NOLIB/scripts/hooks/guard-sealed-worktree.sh"
 c6_config "fable > opus > sonnet > haiku"
@@ -670,7 +672,7 @@ rm -rf "$REUSE_TEAMS"
 # calls the registry first); a spawn naming one must be the spawn it was
 # registered for; codex/ is never worked in; creating anything else is refused.
 # Every refusal below sits beside the pass that differs from it in one fact.
-WS_PY="$SCRIPT_DIR/../lib/workspaces.py"
+WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 CR="$(cd "$(mktemp -d -t guard-isolation-crossrepo.XXXXXX)" && pwd -P)"
 CR_REPO="$CR/other"
 mkdir -p "$CR_REPO"
@@ -899,13 +901,14 @@ cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$NOTX/"
 cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$NOTX/.claude/agents/" 2>/dev/null || true
 chmod +x "$NOTX/scripts/hooks/"*.sh
 NOTX_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-notx1' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$NOTX" "$NOTX/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$NOTX_OUT" | grep -qF 'lifecycle component MISSING: scripts/lib/workspaces.py'; then
+if [ "$rc" -eq 2 ] && printf '%s' "$NOTX_OUT" | grep -qF 'lifecycle component MISSING: mega-lander/workspaces.py'; then
     PASS=$((PASS + 1)); printf '  PASS  Q18  a file-capable spawn with the workspace registry MISSING -> BLOCKED, naming it (fail-closed)\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q18  missing lifecycle component (exit %s): %s\n' "$rc" "${NOTX_OUT:0:200}"
 fi
 # (q18c) the lock-out present but not executable -> refused; (q18d) healthy -> allowed
-cp "$SCRIPT_DIR/../lib/workspaces.py" "$NOTX/scripts/lib/"
+mkdir -p "$NOTX/mega-lander"
+cp "$SCRIPT_DIR/../../mega-lander/workspaces.py" "$NOTX/mega-lander/"
 chmod -x "$NOTX/scripts/hooks/guard-sealed-worktree.sh"
 NOTX_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk2' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$NOTX" "$NOTX/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$NOTX_OUT" | grep -qF 'lifecycle component NOT EXECUTABLE: scripts/hooks/guard-sealed-worktree.sh'; then
@@ -1046,7 +1049,9 @@ cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/script
 # workspaces.py is in this list because a read-only spawn is now REGISTERED
 # before it is exempted (point 9's lock-out finds an agent through its
 # registration), and a guard that cannot register refuses the spawn — point 3.
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$SCRIPT_DIR/../lib/workspaces.py" "$M9/scripts/lib/" 2>/dev/null || true
+mkdir -p "$M9/mega-lander"
+cp "$SCRIPT_DIR/../../mega-lander/workspaces.py" "$M9/mega-lander/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
 {
     printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
     printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'
@@ -1127,5 +1132,5 @@ echo "=== guard-worktree-isolation tests: all $PASS passed ==="
 
 # This suite's mutation harness (guard-worktree-isolation.mutation.sh) is run
 # by contract-integrity.test.sh; clause 7's registration rules themselves are
-# mutated by scripts/lib/workspaces.mutation.sh.
+# mutated by mega-lander/tests/workspaces.mutation.sh.
 exit 0

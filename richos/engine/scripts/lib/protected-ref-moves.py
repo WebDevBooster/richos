@@ -4,7 +4,7 @@
 ===========================================================================
 WHY THIS FILE EXISTS
 ===========================================================================
-On 2026-09-14 `_restore_protected_refs` in scripts/lib/workspaces.py stopped
+On 2026-09-14 `_restore_protected_refs` in mega-lander/workspaces.py stopped
 moving a protected ref back. It had moved `refs/heads/main` in /Users/alex/ab/
 richos three times in one night — the second and third twelve seconds apart, in
 opposite directions, while the lead was landing (docs/verification/
@@ -128,11 +128,11 @@ import time
 # drift surface that would otherwise be a copy of `state_dir()` going stale in
 # a second file. `event()` comes from the same import, so this file adds no
 # second writer to the log it reads.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander"))
 try:
     import workspaces  # noqa: E402
 except Exception as _e:  # reported, never guessed around
-    sys.stderr.write("protected-ref-moves: scripts/lib/workspaces.py could not be "
+    sys.stderr.write("protected-ref-moves: mega-lander/workspaces.py could not be "
                      "imported (%s), so the store that holds every protected-ref "
                      "finding cannot be located.\n" % _e)
     sys.exit(2)

@@ -79,19 +79,20 @@ _mutant_body() {
     # THE STATE-CLAIM ARM DOES NOT EXIST IN A SANDBOX WITHOUT THESE TWO, and
     # without them eighteen of the twenty mutants below were green for a reason
     # that had nothing to do with their mutation. The gate asks point 14's
-    # recorded branch through scripts/lib/workspaces.py, loaded by path relative
+    # recorded branch through mega-lander/workspaces.py, loaded by path relative
     # to the guard — absent, `_recorded_integration_refs` returns () and every
     # "integrated" claim ABSTAINS into the silent verdict. The suite's own
-    # fixture records that branch through scripts/workspaces.sh — absent, the
+    # fixture records that branch through mega-lander/workspaces.sh — absent, the
     # recording is swallowed by its `|| true`. So z1, z1b, z6 and zq1-zq4 were
     # red in EVERY sandbox before a single property was removed: a mutant whose
     # witness is one of those was killed by the missing file, and the two whose
     # witness is a NEGATIVE assertion (z2b, z3b — "a true claim was NOT refused")
     # could never go red, because a gate that refuses nothing satisfies them.
     # Those two are the ones that reported the whole thing.
-    cp "$ENGINE_ROOT/scripts/lib/workspaces.py" "$dir/scripts/lib/"
-    cp "$ENGINE_ROOT/scripts/workspaces.sh" "$dir/scripts/"
-    chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/workspaces.sh"
+    mkdir -p "$dir/mega-lander"
+    cp "$ENGINE_ROOT/mega-lander/workspaces.py" "$dir/mega-lander/"
+    cp "$ENGINE_ROOT/mega-lander/workspaces.sh" "$dir/mega-lander/"
+    chmod +x "$dir/scripts/hooks/"*.sh "$dir/mega-lander/workspaces.sh"
 
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"

@@ -62,6 +62,7 @@ ENTITY="$SANDBOX/entity"
 
 mkdir -p "$ENGINE" "$ENTITY"
 cp -R "$SRC_ENGINE/scripts" "$ENGINE/scripts"
+cp -R "$SRC_ENGINE/mega-lander" "$ENGINE/mega-lander"
 cp -R "$SRC_ENGINE/hooks"   "$ENGINE/hooks"
 cp "$SRC_ENGINE/orchestration.config" "$ENGINE/orchestration.config"
 cp "$SRC_ENGINE/VERSION" "$ENGINE/VERSION" 2>/dev/null || printf '0.0.0-test\n' >"$ENGINE/VERSION"

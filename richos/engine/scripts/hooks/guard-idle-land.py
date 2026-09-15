@@ -463,11 +463,11 @@ def _git(repo, *args, **kw):
 
 def _recorded_integration_branch(repo):
     """The branch RECORDED as the one this body of work integrates on, or "" --
-    asked of scripts/lib/workspaces.py, which is the only implementation of the
+    asked of mega-lander/workspaces.py, which is the only implementation of the
     question (point 14). Loading it by path is a duplicated LOADER, not a
     duplicated ANSWER."""
     lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "lib", "workspaces.py")
+                       "..", "mega-lander", "workspaces.py")
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("workspaces_answer", lib)

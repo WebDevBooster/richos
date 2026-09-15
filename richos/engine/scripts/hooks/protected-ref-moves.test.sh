@@ -353,7 +353,8 @@ rm -f "$O"
 # see it.
 MUT="$MIRROR/scripts/hooks/mutant.sh"
 cp "$ENGINE_ROOT/scripts/lib/protected-ref-moves.py" "$MIRROR/scripts/lib/"
-cp "$ENGINE_ROOT/scripts/lib/workspaces.py" "$MIRROR/scripts/lib/"
+mkdir -p "$MIRROR/mega-lander"
+cp "$ENGINE_ROOT/mega-lander/workspaces.py" "$MIRROR/mega-lander/"
 sed 's/^\( *\)stop_notice_abnormal_recurring .*$/\1echo "=== PROTECTED REF MOVED: $LINE ===" >\&2/' \
     "$NOTICE" > "$MUT"
 drive "$MUT" "aaaa0012-0000-4000-8000-000000000000"

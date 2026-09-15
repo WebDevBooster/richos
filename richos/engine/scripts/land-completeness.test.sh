@@ -113,7 +113,7 @@ REAL_REGISTRY="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/workspaces"
 # ===========================================================================
 # mkrepo() below records each fixture repository's integration branch, which is
 # point 14's requirement of anyone starting a body of work. state_dir() in
-# scripts/lib/workspaces.py resolves RICHOS_WORKSPACES_DIR, else
+# mega-lander/workspaces.py resolves RICHOS_WORKSPACES_DIR, else
 # ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/workspaces -- and this suite set the
 # first variable for the LEDGER only. So every run wrote four records reading
 #
@@ -377,9 +377,11 @@ mkdir -p "$BROKEN/scripts/lib"
 # integrates on (point 14), and this case breaks the LIVENESS module on
 # purpose. Without it the checker would abstain for the wrong reason and
 # the case would pass without testing anything.
-for f in land-completeness.py worktree-ledger.py worktree-transactions.py workspaces.py; do
+for f in land-completeness.py worktree-ledger.py; do
     cp "$SCRIPT_DIR/lib/$f" "$BROKEN/scripts/lib/"
 done
+mkdir -p "$BROKEN/mega-lander"
+cp "$SCRIPT_DIR/../mega-lander/workspaces.py" "$BROKEN/mega-lander/"
 printf 'raise ImportError("liveness deliberately unloadable")\n' \
     > "$BROKEN/scripts/lib/agent-liveness.py"
 D="$(python3 "$BROKEN/scripts/lib/land-completeness.py" --repo "$R" 2>/dev/null \

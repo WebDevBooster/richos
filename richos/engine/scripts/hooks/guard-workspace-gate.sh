@@ -7,7 +7,7 @@
 #                                   — docs/plans/worktree-spec-2026-09-11.md
 #
 # This is the turn-end half. The start-new-work half is the spawn guard
-# (guard-worktree-isolation.sh clause 7 calls the same scripts/lib/workspaces.py
+# (guard-worktree-isolation.sh clause 7 calls the same mega-lander/workspaces.py
 # register-spawn). Both read one list, and both land automatically, first,
 # every finished agent whose work is already in main (point 4).
 #
@@ -158,10 +158,10 @@ if [ -f "$_UE_LIB" ]; then
     fi
 fi
 
-LIB="$SCRIPT_DIR/../lib/workspaces.py"
+LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"
 if ! command -v python3 >/dev/null 2>&1 || [ ! -f "$LIB" ]; then
     stop_notice_abnormal "cannot-run" \
-        "WORKSPACE GATE IS OFF: python3 or scripts/lib/workspaces.py is unavailable. Point 5 of the workspace spec is not enforced until the engine is restored. $HOOK_TAG"
+        "WORKSPACE GATE IS OFF: python3 or mega-lander/workspaces.py is unavailable. Point 5 of the workspace spec is not enforced until the engine is restored. $HOOK_TAG"
     exit 0
 fi
 

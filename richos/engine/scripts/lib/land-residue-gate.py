@@ -7,7 +7,7 @@ carried on the command line, and answers whether this land proceeds.
     --repo <path>       the repository the land is about to go into
     --branch <name>     the branch it lands into. OMIT IT and the branch
                         RECORDED for this body of work is asked of
-                        scripts/lib/workspaces.py (point 14). The old
+                        mega-lander/workspaces.py (point 14). The old
                         default of `main` was this gate keeping its own
                         answer to "has this work landed".
     --command <text>    the command line, for the acknowledgement
@@ -274,8 +274,8 @@ def main(argv=None):
         w("       engine/scripts/collect-worktree-artifacts.sh %s\n" % it["path"])
         # The only deleters are the workspace spec's land and discard
         # (docs/plans/worktree-spec-2026-09-11.md); they take the agent.
-        w("       engine/scripts/workspaces.sh status      # the agent that has %s\n" % it["path"])
-        w("       engine/scripts/workspaces.sh land <agent>   (or: discard <agent> --reason '...')\n")
+        w("       engine/mega-lander/workspaces.sh status      # the agent that has %s\n" % it["path"])
+        w("       engine/mega-lander/workspaces.sh land <agent>   (or: discard <agent> --reason '...')\n")
     w("\n")
     w("  2. SAY WHY IT IS KEPT. Add one comment to the command, naming EACH item:\n\n")
     w("       git merge ...   # land-residue-ack: %s — <why this is kept>\n\n"

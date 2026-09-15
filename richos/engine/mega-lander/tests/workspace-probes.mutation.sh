@@ -17,18 +17,18 @@
 # POSITIVE CONTROL`. The alternative — renaming the cases — would break the ids
 # a reviewer's certification already cites.
 #
-# Run directly: scripts/workspace-probes.mutation.sh
+# Run directly: mega-lander/tests/workspace-probes.mutation.sh
 # Exit 0 = every property is proven load-bearing.
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=lib/mutation-harness.sh
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
-mutation_begin "the probe runner's gate" "scripts/workspace-probes.test.sh"
+mutation_begin "the probe runner's gate" "mega-lander/tests/workspace-probes.test.sh"
 
-P="scripts/workspace-probes.py"
+P="mega-lander/workspace-probes.py"
 
 # --- 1. A TYPED NAME IS NOT AUTHORITY -------------------------------------
 # Route 2 as both reviewers reproduced it: the party failing the probe types the

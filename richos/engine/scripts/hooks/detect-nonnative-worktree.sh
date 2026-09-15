@@ -323,7 +323,7 @@ fi
 # --- BINDING IS NOT THIS HOOK'S JOB ANY MORE --------------------------------
 # The spawn's agent id and the native workspace the platform created for it
 # are registered by workspace-lifecycle.sh on this same PostToolUse[Agent]
-# event (scripts/lib/workspaces.py bind_agent; docs/plans/
+# event (mega-lander/workspaces.py bind_agent; docs/plans/
 # worktree-spec-2026-09-11.md, points 3 and 6). This hook detects and records
 # the spawned name; it registers and deletes nothing.
 

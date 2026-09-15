@@ -211,7 +211,7 @@ git -C "$ENTITY" worktree lock "$WT_EMPTY" >/dev/null 2>&1
 # Round 8, item 6 (2026-09-13). The lock's pid is the SESSION's, shared by every
 # agent of that session, so a terminal agent inside a living session read ALIVE
 # from its session's lock (round 7 §10). The workspace registry
-# (scripts/lib/workspaces.py, finished_state — point 11 of the CEO's page) is
+# (mega-lander/workspaces.py, finished_state — point 11 of the CEO's page) is
 # what decides "finished", and a finished record decides NOT-ALIVE whatever the
 # lock says. The registry here is a sandbox store; the record is built with the
 # library's own helpers and carries the platform's end-of-run signal.
@@ -223,7 +223,7 @@ git -C "$ENTITY" worktree lock \
 export RICHOS_WORKSPACES_DIR="$SANDBOX/ws"
 mkdir -p "$RICHOS_WORKSPACES_DIR"
 registry_record() { # <agent-id> <name> finished|running
-    python3 - "$ENGINE_ROOT/scripts/lib/workspaces.py" "$1" "$2" "$3" <<'PY'
+    python3 - "$ENGINE_ROOT/mega-lander/workspaces.py" "$1" "$2" "$3" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
 ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)

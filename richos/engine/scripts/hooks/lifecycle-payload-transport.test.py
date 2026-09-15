@@ -46,7 +46,7 @@ class PayloadTransport(unittest.TestCase):
         self.env['RICHOS_SESSION_PID'] = str(self.session_proc.pid)
 
     def registry(self):
-        spec = importlib.util.spec_from_file_location('lpt_workspaces', ENGINE / 'scripts/lib/workspaces.py')
+        spec = importlib.util.spec_from_file_location('lpt_workspaces', ENGINE / 'mega-lander/workspaces.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
@@ -161,7 +161,7 @@ class PayloadTransport(unittest.TestCase):
         # default branch name from whatever git is configured with.
         branch = subprocess.run(['git', '-C', str(self.entity), 'symbolic-ref', '--short', 'HEAD'],
                                 env=self.env, capture_output=True, text=True, check=True).stdout.strip()
-        subprocess.run([shutil.which('python3'), str(ENGINE / 'scripts/lib/workspaces.py'),
+        subprocess.run([shutil.which('python3'), str(ENGINE / 'mega-lander/workspaces.py'),
                         '--entity', str(self.entity), '--session', SID, 'integration',
                         '--repo', str(self.entity), '--branch', branch,
                         '--why', "the transport fixture's body of work"],
@@ -170,7 +170,7 @@ class PayloadTransport(unittest.TestCase):
         spawn = {'hook_event_name': 'PreToolUse', 'session_id': SID, 'tool_use_id': 'tool-large', 'tool_name': 'Agent',
                  'cwd': str(self.entity), 'tool_input': {'name': 'dev-opus-large', 'subagent_type': 'dev',
                                                          'isolation': 'worktree', 'prompt': 'Implement the task.'}}
-        subprocess.run([shutil.which('python3'), str(ENGINE / 'scripts/lib/workspaces.py'), '--entity', str(self.entity),
+        subprocess.run([shutil.which('python3'), str(ENGINE / 'mega-lander/workspaces.py'), '--entity', str(self.entity),
                         'register-spawn'], input=json.dumps(spawn), text=True, capture_output=True,
                        env=self.env, check=True, timeout=30)
         subprocess.run(['git', '-C', str(self.entity), 'worktree', 'add', '-qb', 'worktree-agent-agent0large0001', str(native)],

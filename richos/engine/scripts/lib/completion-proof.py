@@ -2,7 +2,7 @@
 """Committed proof for the TaskCompleted workflow.
 
 A worker's task is completed only when every workspace it has — its
-registration in scripts/lib/workspaces.py — is committed and clean. This is a
+registration in mega-lander/workspaces.py — is committed and clean. This is a
 cooperative engine invariant, not a same-user security sandbox. It deletes
 nothing: the workspace spec's land and discard decide deletion
 (docs/plans/worktree-spec-2026-09-11.md).
@@ -78,7 +78,7 @@ def git(path,*args, allowed=(0,)):
 def text(path,*args): return git(path,*args).stdout.decode('utf-8').strip()
 
 def integration_ref(repo):
-    """THE ONE ANSWER, asked of scripts/lib/workspaces.py and kept nowhere here.
+    """THE ONE ANSWER, asked of mega-lander/workspaces.py and kept nowhere here.
 
     Point 14: "Every part of the system that needs to know whether work has
     landed asks the same question: is it in the branch recorded for this work?
@@ -94,7 +94,7 @@ def integration_ref(repo):
 
     Loading the library by path is a duplicated LOADER, not a duplicated
     ANSWER."""
-    lib=Path(__file__).resolve().parent/'workspaces.py'
+    lib=Path(__file__).resolve().parent/'../../mega-lander/workspaces.py'
     try:
         spec=importlib.util.spec_from_file_location('workspaces_answer',lib)
         ws=importlib.util.module_from_spec(spec);spec.loader.exec_module(ws)
@@ -164,7 +164,7 @@ def clean_tree(path,head,reclaimable=True):
     # terminal members present on the operator's machine that day were held by
     # exactly this line (docs/worktree-reclaim-round-10-2026-09-10.md, P1).
     # What happens to ignored bytes is decided at LAND time (the workspace
-    # spec's point 8, scripts/lib/workspaces.py). The digest below is over
+    # spec's point 8, mega-lander/workspaces.py). The digest below is over
     # TRACKED entries only, so an ignored file never changes a proof.
     if git(path,'ls-files','--others','--exclude-standard','-z').stdout:
         raise CompletionError('Commit intended deliverables, remove disposable local copies/build output or preserve needed non-Git data before completing; do not add secrets to Git')
@@ -261,7 +261,7 @@ def prove_member(member):
     #
     # The integration fact is still established and still recorded, because the
     # question it answers is real; it is just a different question, asked by a
-    # different caller at a different time: landing (scripts/lib/workspaces.py
+    # different caller at a different time: landing (mega-lander/workspaces.py
     # land) requires every tip to be in main; finishing a task does not.
     integration=integration_ref(repo);main=direct(repo,integration)
     proof={'version':1,'original_path':str(path),'repo':str(repo),'common':str(common),'admin':str(admin),
@@ -445,10 +445,10 @@ def workspace_members(cwd):
     return [{'path':str(path),'repo':canonical[0],'branch':rows[str(path)].get('branch','')}]
 
 def registration(sid, owner):
-    """The worker's registration in the workspace registry (scripts/lib/workspaces.py;
+    """The worker's registration in the workspace registry (mega-lander/workspaces.py;
     docs/plans/worktree-spec-2026-09-11.md, points 3, 6, 10): every workspace it
     has, recorded when it was spawned. None when the task owner has none."""
-    spec=importlib.util.spec_from_file_location('completion_workspaces', HERE/'workspaces.py')
+    spec=importlib.util.spec_from_file_location('completion_workspaces', HERE/'../../mega-lander/workspaces.py')
     ws=importlib.util.module_from_spec(spec);spec.loader.exec_module(ws)
     if not owner:return None,ws
     return ws.load_agent(ws.named_key(sid,owner)),ws

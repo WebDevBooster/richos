@@ -174,6 +174,7 @@ mutation_copy_engine() { # <dest> <src-engine-root>
     [ -d "$src/scripts/hooks" ] && [ -f "$src/orchestration.config" ] || return 1
     mkdir -p "$dir/.claude"
     cp -R "$src/scripts" "$dir/scripts" || return 1
+    cp -R "$src/mega-lander" "$dir/mega-lander" || return 1
     cp -R "$src/hooks" "$dir/hooks" || return 1
     cp "$src/orchestration.config" "$dir/orchestration.config" || return 1
     [ -f "$src/.claude/settings.local.json" ] && cp "$src/.claude/settings.local.json" "$dir/.claude/"

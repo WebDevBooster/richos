@@ -122,16 +122,17 @@ cp "$GUARD" "$FAKE_ENGINE/scripts/hooks/"
 # means these cases run against the configuration that actually ships rather
 # than against a copy with a section quietly disabled. land-residue-gate.py
 # loads land-completeness.py, which loads worktree-ledger.py, which loads
-# agent-liveness.py and worktree-transactions.py.
+# agent-liveness.py.
 # workspaces.py and workspaces.sh come too: the guard asks THEM which branch it
 # watches (point 14, "none of them assumes main"), so a copy without them would
 # exercise the abstention on every case instead of the gate.
 for f in resolve-roots.sh git-jurisdiction.sh unevaluated-notice.sh \
          land-residue-gate.py land-completeness.py worktree-ledger.py \
-         agent-liveness.py worktree-transactions.py workspaces.py; do
+         agent-liveness.py; do
     cp "$SCRIPT_DIR/../lib/$f" "$FAKE_ENGINE/scripts/lib/"
 done
-cp "$SCRIPT_DIR/../workspaces.sh" "$FAKE_ENGINE/scripts/"
+mkdir -p "$FAKE_ENGINE/mega-lander"
+cp "$SCRIPT_DIR/../../mega-lander/"{workspaces.py,workspaces.sh} "$FAKE_ENGINE/mega-lander/"
 # AND THE REGISTRY IS A SANDBOX ONE, for the reason the ledger below is.
 export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces-registry"
 # AND ITS LEDGER IS A SANDBOX ONE. Without this the suite would judge ownership
@@ -171,7 +172,7 @@ STUB
 #
 # GATE_BRANCH IS THE CALLER NAMING THE BRANCH, which point 14 allows and which
 # is a different thing from the guard assuming one: the guard's own default is
-# now empty and it asks scripts/lib/workspaces.py. Every case below is about
+# now empty and it asks mega-lander/workspaces.py. Every case below is about
 # something else, and the fixture repository is deliberately UNBORN (R5), so it
 # cannot carry a recorded branch at all. R17 and R18 empty this and test the
 # resolution and the abstention directly.
@@ -425,7 +426,7 @@ fi
 
 # R17: record dev/work and the same red land is REFUSED — the gate is watching
 # the branch this work integrates on, which is not main.
-bash "$FAKE_ENGINE/scripts/workspaces.sh" integration --repo "$DEVREPO" \
+bash "$FAKE_ENGINE/mega-lander/workspaces.sh" integration --repo "$DEVREPO" \
     --branch dev/work --why "the ci-red gate fixture" >/dev/null 2>&1
 run red "$DEVREPO" "$G merge --no-ff worktree-agent-x"
 if [ "$RC" -eq 2 ]; then

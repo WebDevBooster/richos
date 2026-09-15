@@ -67,7 +67,7 @@ SWEEP="$ENGINE_ROOT/scripts/lib/unlanded-branches.py"
 NOTICE="$SCRIPT_DIR/notice-unlanded-branches.sh"
 CLAIMS="$SCRIPT_DIR/guard-unresolved-claims.sh"
 LINT="$ENGINE_ROOT/scripts/unlanded-branches-lint.sh"
-WORKSPACES="$ENGINE_ROOT/scripts/workspaces.sh"
+WORKSPACES="$ENGINE_ROOT/mega-lander/workspaces.sh"
 
 PASS=0
 FAIL=0

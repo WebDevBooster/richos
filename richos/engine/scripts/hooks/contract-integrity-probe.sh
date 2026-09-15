@@ -169,7 +169,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # while looking in a repository that never had one.
 #
 #   ENGINE_ROOT   VERSION, scripts/hooks/*.sh, scripts/lib/*,
-#                 scripts/workspaces.sh             — what the engine SHIPS
+#                 mega-lander/workspaces.sh             — what the engine SHIPS
 #   ENTITY_ROOT   .claude/settings*.json, orchestration.config, the
 #                 PROTECTED_PATHS canary            — what the engine GOVERNS
 _RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
@@ -732,7 +732,7 @@ MT_Q_EOF
             mt_env() { env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" \
                            RICHOS_WORKSPACES_DIR="$MT_SB/ws" RICHOS_SESSION_PID="$MT_SESS_PID" \
                            GIT_CONFIG_GLOBAL=/dev/null "$@"; }
-            mt_env python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$MT_SB/entity" \
+            mt_env python3 "$ENGINE_ROOT/mega-lander/workspaces.py" --entity "$MT_SB/entity" \
                 --session mt-canary-0000 integration --repo "$MT_SB/entity" --branch main \
                 --why "the model-tier canary's body of work" >/dev/null 2>&1 || MT_SB_OK=0
             mt_spawn() { # <name> <model>
@@ -3576,7 +3576,7 @@ fi
 # docs/plans/worktree-spec-2026-09-11.md, the CEO's workspace spec, has two
 # events: a workspace is registered when its agent is spawned, and every
 # workspace and branch it has is deleted when its work is landed or discarded.
-# scripts/lib/workspaces.py implements it; workspace-lifecycle.sh records the
+# mega-lander/workspaces.py implements it; workspace-lifecycle.sh records the
 # platform's facts on six events; guard-workspace-gate.sh is the Stop half of
 # point 5. Until 2026-09-11 this layer proved a SessionStart reaper and a nightly
 # reconciler; both are gone, and so are the in-event terminal reclaim, the
@@ -3593,8 +3593,8 @@ fi
 #   Q7  the retired nightly reconciler is not loaded under launchd (macOS, the
 #       operator's own account only; a sandboxed run cannot see it and says so).
 Q_OK=1
-CANONICAL_WS_LIB="$REPO_ROOT/scripts/lib/workspaces.py"
-CANONICAL_WS_CLI="$REPO_ROOT/scripts/workspaces.sh"
+CANONICAL_WS_LIB="$REPO_ROOT/mega-lander/workspaces.py"
+CANONICAL_WS_CLI="$REPO_ROOT/mega-lander/workspaces.sh"
 CANONICAL_WS_HOOK="$REPO_ROOT/scripts/hooks/workspace-lifecycle.sh"
 CANONICAL_WS_GATE="$REPO_ROOT/scripts/hooks/guard-workspace-gate.sh"
 
@@ -3712,7 +3712,7 @@ if [ "$Q_OK" -eq 1 ] && command -v git >/dev/null 2>&1 && command -v mktemp >/de
             # testing the operator step it skipped. One command, exactly as Rich
             # runs it, and it is part of what this canary proves: the recording
             # has to work for the spawn to be registered at all.
-            q_env python3 "$ENGINE_ROOT/scripts/lib/workspaces.py" --entity "$Q_ENT" \
+            q_env python3 "$ENGINE_ROOT/mega-lander/workspaces.py" --entity "$Q_ENT" \
                 --session probe-ws-0001 integration --repo "$Q_ENT" --branch main \
                 --why "the integrity probe's workspace canary" >/dev/null 2>&1 || Q_SB=0
             q_hook guard-worktree-isolation.sh "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"probe-ws-0001\",\"tool_use_id\":\"tu-probe\",\"tool_name\":\"Agent\",\"cwd\":\"$Q_ENT\",\"tool_input\":{\"name\":\"zach-opus-probe\",\"subagent_type\":\"zach\",\"isolation\":\"worktree\",\"prompt\":\"probe\"}}"
@@ -3843,7 +3843,7 @@ fi
 # read, AND the sanctioned command is installed (HARD gate) ---
 #
 # THE PAIR: guard-worktree-removal.sh (PreToolUse[Bash], blocking) and
-#           scripts/workspaces.sh (land and discard — the ONLY deleters,
+#           mega-lander/workspaces.sh (land and discard — the ONLY deleters,
 #           docs/plans/worktree-spec-2026-09-11.md). The guard refuses every raw
 #           `git worktree remove` / `prune` / `add`, every `branch -D` of an
 #           agent's branch and every `rm -r` of a workspace, and names the
@@ -3857,7 +3857,7 @@ fi
 # call — useless, and worse than absent, because it gets disabled. Both arms run.
 S_OK=1
 CANONICAL_WTREMOVAL_HOOK="$REPO_ROOT/scripts/hooks/guard-worktree-removal.sh"
-CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/scripts/workspaces.sh"
+CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/mega-lander/workspaces.sh"
 
 WTREMOVAL_WIRED_CMD=""
 WTREMOVAL_WIRED_N=0
@@ -3994,7 +3994,7 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
        -> the workspace lifecycle hook, its Stop gate or the registry has been
           unwired, gutted or altered. Restore them:
             git checkout -- .claude/settings.local.json hooks/hooks.json \\
-            scripts/lib/workspaces.py scripts/workspaces.sh \\
+            mega-lander/workspaces.py mega-lander/workspaces.sh \\
             scripts/hooks/workspace-lifecycle.sh scripts/hooks/guard-workspace-gate.sh
           then: scripts/hooks/install.sh
 

@@ -220,10 +220,10 @@ m_reaper_single_root() {
 import sys
 p = sys.argv[1] + "/scripts/hooks/workspace-lifecycle.sh"
 s = open(p).read()
-old = '''LIB="$SCRIPT_DIR/../lib/workspaces.py"'''
+old = '''LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"'''
 if old not in s:
     raise SystemExit(1)
-new = '''LIB="$ENTITY_ROOT/scripts/lib/workspaces.py"'''
+new = '''LIB="$ENTITY_ROOT/mega-lander/workspaces.py"'''
 open(p, "w").write(s.replace(old, new))
 PY
 }

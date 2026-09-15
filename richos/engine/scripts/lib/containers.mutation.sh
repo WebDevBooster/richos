@@ -25,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/mutation-harness.sh"
 
 C="scripts/lib/containers.py"
-W="scripts/lib/workspaces.py"
+W="mega-lander/workspaces.py"
 # THE SUITE ITSELF IS A MUTATION TARGET, and that is not a category error. The
 # suite is a program that starts real containers, so "it leaves the machine as
 # it found it" is one of its properties, exactly like the properties it checks

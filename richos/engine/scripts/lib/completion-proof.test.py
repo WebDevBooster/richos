@@ -14,7 +14,7 @@ HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('completion_proof',HERE/'completion-proof.py')
 proof=importlib.util.module_from_spec(spec);spec.loader.exec_module(proof)
 HOOK=HERE.parent/'hooks/task-completed-handoff.sh'
-wspec=importlib.util.spec_from_file_location('completion_test_workspaces',HERE/'workspaces.py')
+wspec=importlib.util.spec_from_file_location('completion_test_workspaces',HERE/'../../mega-lander/workspaces.py')
 ws=importlib.util.module_from_spec(wspec);wspec.loader.exec_module(ws)
 
 class Completion(unittest.TestCase):

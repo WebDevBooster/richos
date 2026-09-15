@@ -95,7 +95,7 @@ disagree:
                   living session read ALIVE from its session's lock (round 7
                   §10, brief-audit-frank-round8 §6).
   workspace-registry
-                  DECIDES "finished": scripts/lib/workspaces.py finished_state,
+                  DECIDES "finished": mega-lander/workspaces.py finished_state,
                   the CEO's own definition (docs/plans/worktree-spec-2026-09-11.md
                   point 11 — the platform's recorded end-of-run signal, not
                   paused; or its session has ended, point 12). A record that
@@ -394,7 +394,7 @@ def _normalize(target):
 
 
 def _registry_says(agent_id):
-    """What the workspace registry (scripts/lib/workspaces.py, the spec's own
+    """What the workspace registry (mega-lander/workspaces.py, the spec's own
     store) records for this agent id: {"finished", "paused", "why", "name"},
     or None when it has no record of the id or cannot be read. Read-only.
 
@@ -405,7 +405,7 @@ def _registry_says(agent_id):
         return None
     try:
         import importlib.util
-        lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+        lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander", "workspaces.py")
         if not os.path.isfile(lib):
             return None
         spec = importlib.util.spec_from_file_location("al_workspaces", lib)
@@ -439,7 +439,7 @@ def resolve(entity_root, target):
         "decides": "whether the AGENT is finished (docs/plans/worktree-spec-2026-09-11.md, point 11)",
         "says": (("FINISHED" if reg["finished"] else ("PAUSED" if reg["paused"] else "RUNNING"))
                  if reg else "no record of this agent"),
-        "detail": (reg["why"] if reg else "scripts/lib/workspaces.py has no record for this id; "
+        "detail": (reg["why"] if reg else "mega-lander/workspaces.py has no record for this id; "
                                           "the lock alone answers"),
     }
     if reg:

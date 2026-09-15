@@ -344,7 +344,7 @@ def integration_branch(repo):
     Loading the library by path is duplicated across the consumers. That is a
     duplicated LOADER, not a duplicated ANSWER: there is still exactly one
     implementation of the question, and it is workspaces.py's."""
-    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspaces.py")
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mega-lander", "workspaces.py")
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("workspaces_answer", lib)
@@ -567,7 +567,7 @@ if __name__ == "__main__":
     ap.add_argument("--repo", required=True)
     ap.add_argument("--main", default="",
                     help="the branch to measure against. Omit it and the branch RECORDED for "
-                         "this body of work is asked of scripts/lib/workspaces.py (point 14); "
+                         "this body of work is asked of mega-lander/workspaces.py (point 14); "
                          "there is no default of 'main' and never was one that was right.")
     ap.add_argument("--ledger", default=None)
     a = ap.parse_args()

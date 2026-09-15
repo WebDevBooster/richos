@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hook-dependencies.py — the predicate behind scripts/lib/hook-dependencies.sh.
 
-Prints one engine-relative path per line: every file under scripts/ that a
+Prints one engine-relative path per line: every file under scripts/ or mega-lander/ that a
 registered hook needs, transitively, and that is not itself a registered hook.
 
     hook-dependencies.py <engine-dir>
@@ -112,9 +112,9 @@ def is_scaffold(rel):
 
 
 def in_scope(rel):
-    """Code and data under scripts/. Configuration and record files are the
+    """Code and data under scripts/ and mega-lander/. Configuration and record files are the
     consumer's own to synthesize — see the wrapper's SCOPE section."""
-    return rel.startswith("scripts/") and not is_scaffold(rel)
+    return rel.startswith(("scripts/", "mega-lander/")) and not is_scaffold(rel)
 
 
 def dispatch_manifest(eng):
@@ -200,7 +200,7 @@ def resolve(eng, index, tok, owner_rel):
     cands = []
     if body.startswith(("../", "./")):
         cands.append(os.path.join(owner_dir, body))
-    elif body.startswith(("scripts/", "hooks/")):
+    elif body.startswith(("scripts/", "hooks/", "mega-lander/")):
         cands.append(os.path.join(eng, body))
         if expanded:
             cands.append(os.path.join(owner_dir, body))

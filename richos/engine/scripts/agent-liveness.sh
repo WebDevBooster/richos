@@ -7,7 +7,7 @@
 #
 # THE LOCK proves the SESSION that took it is running (its pid is the session's,
 # shared by every agent of that session). THE WORKSPACE REGISTRY
-# (scripts/lib/workspaces.py) proves the AGENT is FINISHED, by the CEO's own
+# (mega-lander/workspaces.py) proves the AGENT is FINISHED, by the CEO's own
 # definition (docs/plans/worktree-spec-2026-09-11.md, point 11). A finished
 # record decides NOT-ALIVE whatever the lock says. Until round 8 (2026-09-13)
 # this header called the lock "the ONLY authoritative liveness signal", and a

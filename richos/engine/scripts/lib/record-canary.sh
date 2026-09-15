@@ -63,7 +63,7 @@
 #        names of the `session-*` entries and of their immediate children —
 #        never contents, which the live session's own logs churn.
 #   <config>/state/workspaces/             THE WORKSPACE REGISTRY
-#        (scripts/lib/workspaces.py). Witness: the names of its session and
+#        (mega-lander/workspaces.py). Witness: the names of its session and
 #        agent records and every events.jsonl line, by content hash. A suite
 #        that registers, lands or discards against it is writing the record
 #        the Stop gate and the lock-out decide from (added 2026-09-11, the day

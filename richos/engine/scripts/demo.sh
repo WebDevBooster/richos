@@ -369,8 +369,8 @@ DEMO_FILES+=(
     # about the demo. (Until 2026-09-11 this slot held the reaper, the
     # transaction store, the nightly reconciler and the removal helper, all
     # removed with every deleter the spec does not have.)
-    "scripts/lib/workspaces.py"
-    "scripts/workspaces.sh"
+    "mega-lander/workspaces.py"
+    "mega-lander/workspaces.sh"
     # The interactive-prompt shape table. guard-interactive-prompt.sh refuses
     # to start without it, so a sample repo missing it would ship a buyer an
     # engine whose newest blocking guard is dead on arrival — while the probe's
@@ -429,7 +429,7 @@ DEMO_FILES+=(
     # workspace is registered before it is created (points 1, 3), and the
     # route the spawn guard's refusal names.
     "scripts/lib/worktree-ledger.py"
-    "scripts/create-teammate-worktree.sh"
+    "mega-lander/create-teammate-worktree.sh"
     # Cosmetic but buyer-facing: without it Beat 7's probe banner opens with
     # "richos-engine (VERSION file absent)", which reads to someone evaluating
     # the engine like a broken install rather than a sample repo the demo built
@@ -669,7 +669,7 @@ git -C "$SAMPLE_ROOT" commit -q -m "Initial sample product"
 # exited 2, and a buyer running it sight-unseen saw "6/7 beats passed — the
 # enforcement machinery has a problem". This is the lead's own one command,
 # run where he runs it: before the first spawn.
-python3 "$SAMPLE_ROOT/scripts/lib/workspaces.py" --entity "$SAMPLE_ROOT" \
+python3 "$SAMPLE_ROOT/mega-lander/workspaces.py" --entity "$SAMPLE_ROOT" \
     --session demo0000-0000-4000-8000-000000000000 integration \
     --repo "$SAMPLE_ROOT" --branch main --why "the demo's body of work" >/dev/null
 

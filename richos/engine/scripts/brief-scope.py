@@ -187,7 +187,7 @@ def _load_workspaces():
     """workspaces.py owns where the state lives; this file never duplicates that
     knowledge, because a second inventory of one registration is failure type X."""
     import importlib.util
-    path = os.path.join(HERE, "lib", "workspaces.py")
+    path = os.path.join(HERE, "..", "mega-lander", "workspaces.py")
     spec = importlib.util.spec_from_file_location("richos_workspaces_bs", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
