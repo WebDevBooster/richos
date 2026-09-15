@@ -27,6 +27,27 @@
 // the defect and not a busy laptop. Measured and baseline figures are named at each one.
 // Full sweeps: `docs/verification/timeline-scale-2026-08-30/`, tool `lib/scale-bench.js`.
 //
+// AND THAT PARAGRAPH WAS NOT ENOUGH, WHICH IS WORTH SAYING HERE RATHER THAN ONLY AT THE TWO
+// SITES. It was written for "a busy laptop" and the runner is not one: seventeen runs of this
+// suite on `macos-latest`, same code, read 443-932ms for first paint against a 900ms ceiling
+// and 38-101ms for a structural change against a 90ms one. An order of magnitude of headroom
+// was claimed; measured against the worst run, the ceilings stood at 0.97x and 0.89x of it —
+// that is, BELOW the worst observation, INSIDE their own distributions. Both went through on a
+// commit whose whole diff was two files under `docs/verification/`. So the rule is sharper now:
+//
+//   A WALL-CLOCK MILLISECOND COUNT IS NOT A GATE IN THIS FILE. It is measured and printed on
+//   every run, and it gates only when an env var supplies the number — `RICHOS_FRAME_BUDGET_MS`,
+//   `RICHOS_FIRST_PAINT_BUDGET_MS`, `RICHOS_STRUCT_BUDGET_MS` — which is how the CEO's own Mac
+//   or any machine with GPU compositing still gets the absolute answer.
+//
+//   WHAT GATES IN CI IS WHAT DIVIDES THE MACHINE OUT: node identity, byte-identical markup,
+//   zero DOM writes, a count of mounted sections, a fast path against the scan it replaced,
+//   and RATIOS between two arms measured in the same page family in the same minute.
+//
+// The two exceptions are named where they sit and both are JS-only costs with real headroom
+// on the same seventeen runs: the JS half of a structural change (4-9ms against 20) and the
+// model projection (3-17ms against 20, and now the median of five samples rather than one).
+//
 // THE SECOND NUMBER IS NOT IN THIS FILE, AND THAT IS SAID OUT LOUD RATHER THAN LEFT TO A
 // READER. The 10,000-entity index is `run_search` in `app/src-tauri/src/main.rs`, a
 // different component in a different language; its test is the Rust one named in check 10,
@@ -59,10 +80,28 @@ const ITEMS = TURNS * PER_TURN;
 // signatures, DOM construction — is what turn reuse removed, and it is the one that
 // regresses if reuse ever breaks. The rest is WebKit re-measuring a 1,000-child flex column
 // when one child changes height, which is a floor imposed by mounting every turn (and
-// mounting every turn is the NO PAGINATION rule, so it stays). Two budgets, because one
-// number would hide which half moved.
+// mounting every turn is the NO PAGINATION rule, so it stays). Two numbers, because one would
+// hide which half moved — and, since 2026-09-15, only one of the two is a GATE.
 const BUDGET_STRUCT_JS_MS = 20; // measured  2ms | baseline ~60ms of the 257
-const BUDGET_STRUCT_MS = 90; // measured 22ms | baseline 257ms
+// AND THE TOTAL IS OFF THE GATE, 2026-09-15, for the reason the paragraph above already gives:
+// the rest of it is WebKit re-measuring a 1,000-child flex column, which is a fact about the
+// machine. `BUDGET_STRUCT_MS = 90` asserted it anyway. Seventeen runs of this suite on
+// `macos-latest`, same code, sorted — `gh api repos/WebDevBooster/richos/actions/runs/<id>/logs`:
+//
+//   total  38 40 45 45 49 52 53 58 60 60 67 67 68 70 71 99 101      <- budget was 90
+//   JS      4  5  5  5  5  6  6  6  6  6  7  8  9  9  9             <- budget is 20
+//
+// The ceiling sat inside the distribution and went through it twice: run 34458859801 read 101
+// on 2026-09-10 and run 34971100374 read 99 on 2026-09-15, the second of them a
+// `workflow_dispatch` of a commit whose whole diff was two files under `docs/verification/`.
+// The JS column — the half turn reuse actually removed, and the half that regresses if reuse
+// ever breaks — never got past 9 against its 20, on the same runs, on the same machines.
+//
+// So the JS half stays the gate, check 3 keeps asserting the same property by node identity,
+// and the total is printed on every run and asserted only on request:
+//
+//     RICHOS_STRUCT_BUDGET_MS=90 node scale.js
+const STRUCT_BUDGET_MS = Number(process.env.RICHOS_STRUCT_BUDGET_MS || 0);
 // THE FRAME-RATE NUMBER IS OFF THE GATE, AND THIS IS WHERE IT WENT. It is not deleted, it
 // is not loosened, and it is not asserted on a machine whose speed nobody controls:
 //
@@ -101,7 +140,48 @@ const BUDGET_FRAME_RATIO = 5;
 // tiles it had already rasterized. That is what it was really measuring when it read 20ms
 // against the big arm's 68ms on the runner, and it is why the ratio arm did not save the check.
 const CONTROL_TURNS = 120;
-const BUDGET_FIRST_PAINT_MS = 900; // measured 265ms | baseline 278ms
+// FIRST PAINT USED TO BE AN ABSOLUTE NUMBER HERE — `BUDGET_FIRST_PAINT_MS = 900` — AND IT HAD
+// BEEN A COIN FLIP FOR FIVE DAYS. It read 265ms on the machine it was written on. This is what
+// the SAME code read on `macos-latest`, one figure per run, oldest first, pulled with
+// `gh api repos/WebDevBooster/richos/actions/runs/<id>/logs` over seventeen runs of this suite:
+//
+//   764 625 712 607 720 565 735 744 891 457 597 443 568 834 932 781 874
+//
+// The ceiling sat INSIDE that distribution. Run 34458859801 read 891 on 2026-09-10 — 99.0% of
+// it — and nobody saw the near miss because that run was already red on the structural total
+// below (101ms against 90), which is its own entry in this story. Run 34966364532
+// read 932 and turned the whole workflow red on a commit whose entire diff was two new files
+// under `docs/verification/`. Run 34970135120 was a `workflow_dispatch` of THAT SAME SHA
+// thirty-nine minutes later: 781ms, green. A second dispatch of the same SHA, run 34971100374,
+// read 874. One commit, three runs, 932 / 781 / 874 — the check was measuring the runner and
+// reporting it as the timeline.
+//
+// SO IT GETS THE REPAIR CHECK 7 ALREADY HAS, the same shape for the same reason: a control arm
+// in the same page family, interleaved, compared as a RATIO, with the absolute figure printed
+// on every run and asserted only when somebody asks for it on hardware where the answer means
+// something —
+//
+//     RICHOS_FIRST_PAINT_BUDGET_MS=900 node scale.js
+//
+// THE CONTROL IS HALF THE THREAD, not the 120 turns check 7 uses, and that is measured rather
+// than tidy. The measurement ends with two `requestAnimationFrame`s, a fixed toll of whole
+// frames that is about a fifth of a 500-turn paint and about half of a 120-turn one; a control
+// small enough for the toll to dominate makes the RATIO move with the machine, which is the
+// defect being removed. Measured here idle, then with the whole process tree pinned to the
+// efficiency cores by `taskpolicy -b` — a 2.5x slower control arm:
+//
+//   control 120 turns   idle 6.29 6.17 6.04 5.98   throttled 2.78
+//   control 250 turns   idle 3.30                  throttled 2.44
+//   control 500 turns   idle 1.99 1.98 1.93 1.88   throttled 1.63 1.60 1.56
+//
+// Half the thread is the only one of the three whose ratio survives the machine changing under
+// it. A cost proportional to history reads 2.0 there, and a quadratic one reads 4.0.
+const CONTROL_PAINT_TURNS = TURNS / 2;
+const BUDGET_FIRST_PAINT_RATIO = 3;
+// The absolute figure, kept and named. It is a measurement of the machine, so it is printed on
+// every run and gates only on request; 900 is the old ceiling and the value to pass on real
+// hardware.
+const FIRST_PAINT_BUDGET_MS = Number(process.env.RICHOS_FIRST_PAINT_BUDGET_MS || 0);
 // Set BELOW the baseline on purpose. 34ms is what the tree measured before this work
 // (apply 15 + turnsOf 19); a budget of 60 would have passed on the very code it exists to
 // catch, which is a check that cannot fail. 20ms is 10x the measured figure and still well
@@ -145,6 +225,41 @@ async function seed(page, snapshot) {
     return { applyMs, turnsOfMs, turns: model.turnOrder.length, items: model.items.size };
   }, snapshot);
 }
+
+/// ONE MEASUREMENT, USED BY BOTH ARMS — so "the same measurement" is a fact about the code
+/// rather than a claim in a comment, the rule `SCROLL_SRC` below already follows. Runs inside
+/// the page, against whatever snapshot it is handed, on a page `seed()` has already warmed:
+/// fonts resolved, stylesheet applied, one full render paid for. An arm measured cold against
+/// an arm measured warm is not a ratio.
+///
+/// `sections` comes back with the timings because the title's first clause is "opening the
+/// thread PAINTS", and a render that mounted nothing is fast.
+const FIRST_PAINT_SRC = async (snap) => {
+  const messages = document.getElementById("messages");
+  const conv = document.getElementById("conversation");
+  const model = window.RichTimeline.createModel();
+  window.RichTimeline.bind(model, snap.entityId, snap.threadId, snap.bindingRevision);
+  const a0 = performance.now();
+  window.RichTimeline.applySnapshot(model, snap);
+  const applyMs = performance.now() - a0;
+  const p0 = performance.now();
+  window.RichTimeline.turnsOf(model);
+  const turnsOfMs = performance.now() - p0;
+  const opts = Object.assign({}, window.__opts, {
+    isExpanded: (id) => window.RichTimeline.isTurnExpanded(model, id),
+  });
+  messages.innerHTML = "";
+  const f0 = performance.now();
+  window.RichTimeline.render(model, messages, opts);
+  void conv.scrollHeight;
+  await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+  return {
+    applyMs: applyMs,
+    turnsOfMs: turnsOfMs,
+    firstPaintMs: performance.now() - f0,
+    sections: messages.querySelectorAll(":scope > .tl-turn").length,
+  };
+};
 
 /// ONE MOTION, USED BY BOTH ARMS AND BY THE STRUCTURAL DRAG — so "the same motion" is a fact
 /// about the code rather than a claim in a comment. Runs inside the page.
@@ -281,15 +396,20 @@ async function main() {
       `the JS half of a structural change at ${ITEMS} items took ${r.js.toFixed(0)}ms ` +
         `(budget ${BUDGET_STRUCT_JS_MS}ms) — the thread is being REBUILT rather than reused`
     );
-    assert(
-      r.median <= BUDGET_STRUCT_MS,
-      `a structural change at ${ITEMS} items took ${r.median.toFixed(0)}ms (budget ${BUDGET_STRUCT_MS}ms, ` +
-        `baseline before this work 257ms) — the whole thread is being rebuilt again`
-    );
+    if (STRUCT_BUDGET_MS > 0) {
+      assert(
+        r.median <= STRUCT_BUDGET_MS,
+        `a structural change at ${ITEMS} items took ${r.median.toFixed(0)}ms ` +
+          `(gated at ${STRUCT_BUDGET_MS}ms by RICHOS_STRUCT_BUDGET_MS, baseline before this work 257ms)`
+      );
+    }
     return (
-      `median of 5: ${r.median.toFixed(0)}ms total, ${r.js.toFixed(0)}ms of it JS ` +
-      `(budgets ${BUDGET_STRUCT_MS}/${BUDGET_STRUCT_JS_MS}ms; baseline 257ms total). ` +
-      `The remainder is WebKit re-measuring ${TURNS} mounted flex children.`
+      `median of 5: ${r.js.toFixed(0)}ms of JS (budget ${BUDGET_STRUCT_JS_MS}ms; baseline ~60ms of the 257), ` +
+      `${r.median.toFixed(0)}ms total on THIS machine` +
+      (STRUCT_BUDGET_MS > 0
+        ? ` (gated at ${STRUCT_BUDGET_MS}ms by RICHOS_STRUCT_BUDGET_MS)`
+        : " — not gated here; `RICHOS_STRUCT_BUDGET_MS=90 node scale.js` on real hardware gates it") +
+      `. The remainder is WebKit re-measuring ${TURNS} mounted flex children.`
     );
   });
 
@@ -534,40 +654,81 @@ async function main() {
   });
 
   await run.check("opening the thread paints, and the projection is not quadratic", async () => {
-    const r = await page.evaluate(async (snap) => {
-      const messages = document.getElementById("messages");
-      const conv = document.getElementById("conversation");
-      const model = window.RichTimeline.createModel();
-      window.RichTimeline.bind(model, snap.entityId, snap.threadId, snap.bindingRevision);
-      const a0 = performance.now();
-      window.RichTimeline.applySnapshot(model, snap);
-      const applyMs = performance.now() - a0;
-      const p0 = performance.now();
-      window.RichTimeline.turnsOf(model);
-      const turnsOfMs = performance.now() - p0;
-      const opts = Object.assign({}, window.__opts, {
-        isExpanded: (id) => window.RichTimeline.isTurnExpanded(model, id),
-      });
-      messages.innerHTML = "";
-      const f0 = performance.now();
-      window.RichTimeline.render(model, messages, opts);
-      void conv.scrollHeight;
-      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-      return { applyMs, turnsOfMs, firstPaintMs: performance.now() - f0 };
-    }, snapshot);
+    const half = await openFixture(browser, { width: 1280, height: 900 });
+    const halfSnapshot = makeSnapshot(CONTROL_PAINT_TURNS, PER_TURN);
+    await seed(half, halfSnapshot);
+
+    // FIVE PASSES A SIDE, INTERLEAVED, MEDIAN EACH SIDE — check 7's rule for check 7's reason
+    // (a ratio built from one sample a side is a ratio built from two coin flips, and
+    // interleaving means a machine that gets busy halfway gets busy for both arms), and FIVE
+    // rather than check 7's three because the spread was measured at both, on this machine,
+    // with nothing else changed:
+    //
+    //   three passes, eleven runs   1.70 1.92 1.95 1.99 2.01 2.06 2.07 2.12 2.13 2.20 2.26
+    //   five passes, six runs       1.94 1.95 1.98 1.98 1.99 1.99
+    //
+    // Five costs about a second in a suite that takes 35s on the runner and it takes the
+    // spread from 1.33x to 1.03x, which is what puts real daylight under the 3x budget.
+    const PASSES = 5;
+    const big = [];
+    const ctrl = [];
+    for (let i = 0; i < PASSES; i++) {
+      big.push(await page.evaluate(FIRST_PAINT_SRC, snapshot));
+      ctrl.push(await half.evaluate(FIRST_PAINT_SRC, halfSnapshot));
+    }
+    await half.close();
+    const mid = (rs) => rs.slice().sort((a, b) => a.firstPaintMs - b.firstPaintMs)[Math.floor(rs.length / 2)];
+    const r = mid(big);
+    const c = mid(ctrl);
+
+    // THE WORD "PAINTS" IN THE TITLE, ASSERTED RATHER THAN TIMED. Two arms that both rendered
+    // nothing have a ratio of 1.0 and would sail through everything below this line.
+    assertEqual(r.sections, TURNS, "the big arm did not mount the whole thread");
+    assertEqual(c.sections, CONTROL_PAINT_TURNS, "the control arm did not mount its thread");
+
+    const ratio = r.firstPaintMs / Math.max(c.firstPaintMs, 0.001);
+    const proportional = TURNS / CONTROL_PAINT_TURNS;
+    const said =
+      `first paint ${r.firstPaintMs.toFixed(0)}ms over ${TURNS} turns against ` +
+      `${c.firstPaintMs.toFixed(0)}ms over ${CONTROL_PAINT_TURNS}, ${PASSES} interleaved passes a side — ` +
+      `${proportional.toFixed(0)}x the thread costs ${ratio.toFixed(2)}x the paint ` +
+      `(budget ${BUDGET_FIRST_PAINT_RATIO}x; proportional reads ${proportional.toFixed(1)}x, ` +
+      `quadratic ${(proportional * proportional).toFixed(1)}x)`;
+    assert(ratio <= BUDGET_FIRST_PAINT_RATIO, `opening the thread costs more than its length: ${said}`);
+
+    // THE PROJECTION STAYS AN ABSOLUTE NUMBER, and that is a decision rather than an oversight.
+    // A control arm was tried here too and it does not survive contact with the quantity: at
+    // 1,000 turns the projection reads 2-4ms and at 500 it reads 1-2ms, so the ratio comes out
+    // 1.50, 3.00, 3.00 over three benches of five passes — `performance.now()` resolution and
+    // JIT noise, not a measurement. Measured, and the reason this one is not converted.
+    //
+    // WHAT IT IS INSTEAD is the MEDIAN of the passes rather than one sample. Seventeen runs on
+    // `macos-latest` read 3 6 6 7 7 7 8 8 9 9 9 9 11 12 12 17 against a budget of 20, and the
+    // 17 is a single-sample outlier of exactly the kind five passes and a median remove. The
+    // budget is deliberately BELOW the 34ms baseline (a budget of 60 would pass on the very
+    // code this exists to catch), so there is no room to widen it, and the honest response to
+    // a noisy sample is to take a better sample.
+    const projection = big
+      .map((x) => x.applyMs + x.turnsOfMs)
+      .sort((a, b) => a - b)[Math.floor(PASSES / 2)];
     assert(
-      r.firstPaintMs <= BUDGET_FIRST_PAINT_MS,
-      `first paint at ${ITEMS} items took ${r.firstPaintMs.toFixed(0)}ms (budget ${BUDGET_FIRST_PAINT_MS}ms)`
-    );
-    assert(
-      r.applyMs + r.turnsOfMs <= BUDGET_PROJECTION_MS,
-      `model + projection took ${(r.applyMs + r.turnsOfMs).toFixed(0)}ms (budget ${BUDGET_PROJECTION_MS}ms, ` +
+      projection <= BUDGET_PROJECTION_MS,
+      `model + projection took ${projection.toFixed(0)}ms (budget ${BUDGET_PROJECTION_MS}ms, ` +
         `baseline 34ms) — a per-item scan over the turn list is back`
     );
-    return (
-      `first paint ${r.firstPaintMs.toFixed(0)}ms (budget ${BUDGET_FIRST_PAINT_MS}); ` +
-      `apply ${r.applyMs.toFixed(0)}ms + turnsOf ${r.turnsOfMs.toFixed(0)}ms (budget ${BUDGET_PROJECTION_MS}, was 34ms)`
-    );
+
+    // THE ABSOLUTE NUMBER, KEPT AND NAMED — check 7's closing paragraph, applied here.
+    const abs =
+      `${r.firstPaintMs.toFixed(0)}ms absolute on THIS machine` +
+      (FIRST_PAINT_BUDGET_MS > 0
+        ? ` (gated at ${FIRST_PAINT_BUDGET_MS}ms by RICHOS_FIRST_PAINT_BUDGET_MS)`
+        : " — not gated here; `RICHOS_FIRST_PAINT_BUDGET_MS=900 node scale.js` on real hardware gates it") +
+      `; model + projection ${projection.toFixed(0)}ms, median of ${PASSES} ` +
+      `(budget ${BUDGET_PROJECTION_MS}, was 34ms)`;
+    if (FIRST_PAINT_BUDGET_MS > 0) {
+      assert(r.firstPaintMs <= FIRST_PAINT_BUDGET_MS, `first paint at ${ITEMS} items: ${abs}`);
+    }
+    return said + `\n          ${abs}`;
   });
 
   await run.check("§9.2's steering cue: the fast predicate agrees with the scan it replaced", async () => {
@@ -814,3 +975,62 @@ main().then((f) => process.exit(f ? 1 : 0));
 // once it is gross. The absolute 60fps claim is no longer gated anywhere in CI; it is
 // measured and printed on every run, and `RICHOS_FRAME_BUDGET_MS=30 node scale.js` on
 // hardware with GPU compositing is what turns it back into a gate.
+
+// ---------------------------------------------------------------------------------------
+// THE MUTATION RUNS BEHIND CHECKS 2 AND 8, 2026-09-15
+// ---------------------------------------------------------------------------------------
+//
+// Same rule as the section above: a check that goes green by asserting less is worse than the
+// red one it replaced, so each of these was run by breaking the thing it guards in the SHIPPED
+// source (`app/ui/timeline.js`), then restoring it. All on this machine, WebKit, 1280x900.
+// The clean baseline it is read against is `2x the thread costs 1.94-1.99x the paint` over six
+// runs, and `3ms of JS` / `2-3ms model + projection`.
+//
+//  1. A PER-TURN POSITIONAL SCAN over the turn list in `render()` — `for (const other of
+//     turns) { if (other.turnId === turn.turnId) break; pos++; }`. Textbook O(n^2), and
+//     NOTHING WENT RED: 1.99x and 1.94x, first paint 385ms and 375ms against a clean 374ms.
+//     This is the most useful of the six and it is recorded first for that reason — 10^6
+//     trivial comparisons is about a millisecond, and this paint costs 0.32ms PER TURN in DOM
+//     construction and layout. A quadratic term small enough to hide inside that is also small
+//     enough not to matter, and no arrangement of budgets in this file will ever see it.
+//
+//  2. THE SAME NESTED SCAN, ONE `turnSignature` PER PAIR — a dedupe written as a nested loop.
+//     First paint 380 -> 958-1072ms, and it sits ON the 3x bite point: at three passes a side
+//     it read 2.77x (GREEN) and 3.14x (red), and at the five this file now uses, 3.02x (red).
+//     Recorded as a boundary rather than as a pass — a regression this size is caught here
+//     most of the time and not every time. Check 2 takes it every time regardless: the JS half
+//     of a structural change went to 607ms against its 20ms budget.
+//
+//  3. THE SAME SCAN, THREE SIGNATURES PER PAIR. First paint 380 -> 1757-2406ms and the ratio
+//     3.51x and 3.86x at three passes, 3.55x at five — RED every time. That is where the bite
+//     point actually is: a super-linear cost that roughly triples the time to open the CEO's
+//     thread. Run again with the whole process tree on the efficiency cores (`taskpolicy -b`,
+//     a 2.5x slower machine): 2406ms against the control's 694ms, 3.47x, still RED. That run
+//     is the point of the whole change — the gate survives the machine changing under it,
+//     which the 900ms ceiling it replaces did not.
+//
+//  4. `render()` MOUNTING ONLY THE NEWEST 200 TURNS — `turnsOf(model).slice(-200)`, the "make
+//     it fast by rendering fewer turns" regression. Check 8 red on its own structural arm,
+//     `the big arm did not mount the whole thread`, which is the arm added with this change:
+//     before it, two arms that both rendered nothing would have had a ratio of 1.0 and sailed
+//     through. Checks 1, 3, 5, 7 and 9 red too, which is correct — they own that property.
+//
+//  5. `turnIndex` BUILT WITH `ids.indexOf(ids[i])` — the projection's own O(n^2). GREEN
+//     everywhere, for mutation 1's reason: 10^6 cheap comparisons against a 20ms budget.
+//
+//  6. `turnIndex` BUILT BY SCANNING `model.items` PER TURN — a genuine per-item scan over the
+//     turn list, the defect the projection budget names. Model + projection 2-3ms -> 33-41ms,
+//     RED on its own message. So the 20ms budget still bites after being changed from one
+//     sample to the median of five.
+//
+// AND THE TWO OPT-IN GATES WERE RUN RED TOO, because a knob that does nothing is worse than no
+// knob. `RICHOS_FIRST_PAINT_BUDGET_MS=1 node scale.js` -> `first paint at 10000 items: 397ms
+// absolute on THIS machine (gated at 1ms ...)`. `RICHOS_STRUCT_BUDGET_MS=1 node scale.js` ->
+// `a structural change at 10000 items took 30ms (gated at 1ms ...)`.
+//
+// WHAT IS NOT COVERED, SAID PLAINLY. The ratio only sees costs that grow FASTER than the
+// thread. A regression that makes every turn 30% more expensive to paint moves both arms
+// equally and the ratio does not move at all — that one is the absolute figure's job, it is
+// printed on every run, and `RICHOS_FIRST_PAINT_BUDGET_MS=900 node scale.js` on real hardware
+// is what turns it back into a gate. The same sentence the frame budget above already carries,
+// for the same reason, and it is the price of a number that does not lie on a shared runner.
