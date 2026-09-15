@@ -179,9 +179,13 @@ UNPUSHED_SHA="$(claim_fixture_sha "$(git -C "$ENTITY" rev-parse HEAD)")"
 # ABSTAINS into "unknown", which is its silent verdict, so the recording is
 # what makes every "landed" case below test the gate rather than the
 # abstention. Case z7 is the abstention itself.
-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/workspaces.sh" integration \
+"$SCRIPT_DIR/../../mega-lander/workspaces.sh" integration \
     --repo "$ENTITY" --branch "$DEFAULT_BRANCH" \
-    --why "the guard-unresolved-claims fixture" >/dev/null 2>&1 || true
+    --why "the guard-unresolved-claims fixture" >"$SANDBOX/integration.log" 2>&1 || {
+    echo "  FAIL  fixture.integration-branch-could-not-be-recorded"
+    cat "$SANDBOX/integration.log"
+    exit 1
+}
 
 # A value present in TWO spellings, one of which a claim will not name.
 printf -- '--mark: #9C7C34;\n' > "$ENTITY/docs/style.css"
