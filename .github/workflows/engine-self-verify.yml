@@ -13,13 +13,33 @@ name: engine-self-verify
 # declaration a tool reads and prints back is. An undeclared skip is now a
 # finding, and this is the line that stops this one being one.
 #
-# WALL CLOCK, measured 2026-09-10 over the last 30 runs: min 64s, median 719s,
-# p90 5683s, max 8178s (#84, 2h16m, 2026-09-06). The p90 and the max are all
-# FAILING runs — a failing shard runs to its 60-minute job timeout — while the
-# most recent green (#100) is 961s. The ceiling is therefore set off the green
-# side and not off the p90, deliberately: a budget sized to accommodate the
-# worst failure would never fire, which is a budget that exists to be met.
-# ci-budget: 40m
+# WALL CLOCK, re-measured 2026-09-15. The 2026-09-10 reading below this one was
+# honest and it was taken before the workspace-spec suites entered the
+# inventory, so it described a pass that no longer exists:
+#
+#   2026-09-10, last 30 runs: min 64s, median 719s, p90 5683s, max 8178s. The
+#   p90 and max were all FAILING runs; the most recent green (#100) was 961s,
+#   and 40m was set off the green side deliberately — a budget sized to
+#   accommodate the worst failure never fires.
+#
+# 2026-09-15, run #216 end to end (`gh api .../runs/34945072758/jobs`): 63m47s,
+# GREEN shards apart from one real assertion failure. The old 40m ceiling was
+# therefore breached on every full run and had stopped carrying information.
+#
+# The new number is the FLOOR plus what runs around it, not a round figure:
+#
+#   2811.7 s   scripts/workspace-spec-fourteen.test.sh — the largest
+#              INDIVISIBLE unit, so no shard count goes below it
+#    ~180 s    checkout, python, git identity, receipt upload
+#    ~120 s    the coverage job's download and verify
+#   -------
+#    ~52 min   expected wall clock for a full green pass
+#
+# 60m is that plus 15% headroom. It is above the floor and BELOW the 75-minute
+# job ceiling, so a breach of this budget is still a finding rather than a
+# cancellation. It comes DOWN when that suite is sectioned; it is not a target
+# to grow into.
+# ci-budget: 60m
 # ci-skip: affected — the fast per-diff gate. When `shards` runs (main, dispatch, schedule) the whole inventory is verified, the affected set is a subset of it by construction, and `affected-coverage` proves that union rather than asserting it. Its skip on those runs means the STRONGER check ran, and this workflow is red if that stronger check did not.
 # ci-evidence: the shard plan and the affected set are both DERIVED from the engine at run time (scripts/ci-units.sh, scripts/ci-affected-units.sh), never typed here, and `coverage` fails unless the receipts from every shard union to exactly the declared inventory — so a green cannot mean "the units it happened to know about passed"
 # ---------------------------------------------------------------------------
@@ -411,11 +431,25 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_full == 'true'
     runs-on: ubuntu-latest
-    # 60 rather than the old 150: the longest shard is bounded by the largest
-    # indivisible unit, reconcile-terminal-worktrees.test.sh at 940 s on this
-    # hardware, so ~16 minutes is the expected wall clock and 60 is 3.7x it.
-    # Re-promise this against the measured longest shard, not against a guess.
-    timeout-minutes: 60
+    # 75, and the arithmetic rather than a preference. The comment here used to
+    # say the longest shard was bounded by reconcile-terminal-worktrees.test.sh
+    # at 940 s, "so ~16 minutes is the expected wall clock and 60 is 3.7x it".
+    # That was true when written and had been overtaken: measured on run #216
+    # with `gh api repos/WebDevBooster/richos/actions/runs/34945072758/jobs`,
+    # the longest shard took 3146 s — 52.4 minutes, 87% of the ceiling this
+    # number was set to be 3.7x of.
+    #
+    # The floor is the largest INDIVISIBLE unit, which is now
+    # scripts/workspace-spec-fourteen.test.sh at 2811.7 s (46.9 min). No shard
+    # count can go below it. `ci-shard.sh` gives every unit a deadline capped at
+    # 3600 s, and that deadline is only useful if it fires BEFORE this one — the
+    # point of it is to NAME the stuck unit instead of losing the job
+    # anonymously. So: 3600 s unit deadline < 4500 s job ceiling, with 15
+    # minutes for the shard to report, write its receipt and upload it.
+    #
+    # This comes DOWN, not up, when that suite is sectioned. Re-promise it
+    # against the measured longest shard, never against a guess.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       # Never all twelve at once. GitHub Free allows 20 concurrent jobs
@@ -484,7 +518,13 @@ jobs:
         working-directory: engine
         run: |
           echo "shards job result: ${{ needs.shards.result }}"
-          scripts/ci-shard.sh --verify-receipts /tmp/receipts
+          # --emit-weights is passed unconditionally. The finding it answers is
+          # that the packing data went stale for days while the instruction for
+          # re-measuring it was a sentence telling a person to go and do
+          # arithmetic over twelve job logs. Now the run produces the finished
+          # file and says which rows moved; committing it is the whole job.
+          scripts/ci-shard.sh --verify-receipts /tmp/receipts \
+                              --emit-weights /tmp/ci-unit-weights.measured.tsv
           # The receipts can only certify what they contain. A shards job that
           # did not itself succeed is reported separately, so a green coverage
           # line can never stand in for a red suite.
@@ -492,3 +532,15 @@ jobs:
             echo "::error::the shard jobs did not all succeed (${{ needs.shards.result }}) — the union above is complete, but at least one unit inside it is red"
             exit 1
           fi
+      - name: Upload the measured weights
+        # ALWAYS: a run whose shards went red still measured every unit that
+        # ran, and a stale plan is most worth fixing on the days CI is already
+        # unhappy. `if-no-files-found: warn` because a run that never reached
+        # the verify step legitimately has nothing to upload, and turning that
+        # into a second red would report the wrong defect.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-unit-weights-measured
+          path: /tmp/ci-unit-weights.measured.tsv
+          if-no-files-found: warn
