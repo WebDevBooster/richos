@@ -236,7 +236,12 @@ except Exception:
 # Returns via a VARIABLE, never stdout — see the USAGE note in the header for
 # why a `$(...)` capture would silently discard the status the caller branches
 # on.
-resolve_entity_root() {
+#
+# THE REAL WORK IS HERE; `resolve_entity_root` BELOW IS A MEMOIZING WRAPPER.
+# Nothing in this function changed when the wrapper was added, and the wrapper
+# is INERT unless a caller sets _RR_MEMO_ENABLE=1. Read the wrapper's own
+# comment for why one caller wants it and why nobody else should.
+_rr_resolve_entity_root_uncached() {
     local payload="${1:-}"
     local cand norm src
     local cands="" srcs=""
@@ -392,6 +397,62 @@ resolve_entity_root() {
     RICHOS_ROOT_SOURCE=""
     RICHOS_ROOT_REASON="No candidate root carries ${RICHOS_ADOPTION_MARKER}, so this repository has not adopted the engine. Guards stand down here; nothing is being enforced. Adopt by committing an ${RICHOS_ADOPTION_MARKER} at the repository root."
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# resolve_entity_root [payload_json]   — the public entry point
+# ---------------------------------------------------------------------------
+# Identical to _rr_resolve_entity_root_uncached in every observable way, with
+# one addition that is OFF BY DEFAULT: when _RR_MEMO_ENABLE is set to 1, the
+# answer to a repeated identical question is served from the previous answer
+# instead of being recomputed.
+#
+# WHY THIS EXISTS. Answering "which repository does this call govern?" costs
+# one python3 fork and up to four git forks — measured 2026-09-15 at 14.64 ms
+# and 4.23 ms respectively on macOS 24.6.0. Twelve PreToolUse[Bash] guards each
+# asked it, about ONE payload, on every shell call: 12 python3 and 48 git forks
+# to reach the same answer twelve times. scripts/hooks/dispatch-pretooluse.sh
+# now runs those twelve as subshells of one process, so it can ask once, up
+# front, and let every rule inherit the answer.
+#
+# WHY IT IS OFF BY DEFAULT, AND MUST STAY OFF. The answer depends on the
+# FILESYSTEM — which directories exist and which carry the adoption marker —
+# and the memo key cannot see the filesystem. Inside one tool call that is
+# safe: the call has not run yet, so nothing it does can have moved a root.
+# Across a long-lived process it is not: a test suite that builds a fixture
+# tree, asks, rebuilds it differently and asks again would be handed the first
+# answer. root-contract.test.sh does exactly that. So the memo is opt-in, one
+# caller opts in, and every existing caller is byte-for-byte unaffected.
+#
+# The key carries everything other than the filesystem that can change the
+# answer: the payload, the working directory, and the three environment
+# variables the resolution consults.
+resolve_entity_root() {
+    local _rr_key
+    if [ "${_RR_MEMO_ENABLE:-0}" != "1" ]; then
+        _rr_resolve_entity_root_uncached "${1:-}"
+        return $?
+    fi
+    _rr_key="${1:-}"$'\x1f'"$PWD"$'\x1f'"${RICHOS_ENTITY_ROOT:-}"$'\x1f'"${RICHOS_ENGINE_ROOT:-}"$'\x1f'"${CLAUDE_PROJECT_DIR:-}"$'\x1f'"${CLAUDE_PLUGIN_ROOT:-}"
+    if [ "${_RR_MEMO_KEY+set}" = "set" ] && [ "$_RR_MEMO_KEY" = "$_rr_key" ]; then
+        RICHOS_ENTITY_ROOT_RESOLVED="$_RR_MEMO_ROOT"
+        RICHOS_ROOT_STATUS="$_RR_MEMO_STATUS"
+        RICHOS_ROOT_SOURCE="$_RR_MEMO_SOURCE"
+        RICHOS_ROOT_TRIED="$_RR_MEMO_TRIED"
+        RICHOS_ROOT_REASON="$_RR_MEMO_REASON"
+        RICHOS_ROOT_UNGOVERNED_ENCLOSING="$_RR_MEMO_ENCLOSING"
+        return "$_RR_MEMO_RC"
+    fi
+    _rr_resolve_entity_root_uncached "${1:-}"
+    _RR_MEMO_RC=$?
+    _RR_MEMO_KEY="$_rr_key"
+    _RR_MEMO_ROOT="${RICHOS_ENTITY_ROOT_RESOLVED:-}"
+    _RR_MEMO_STATUS="${RICHOS_ROOT_STATUS:-}"
+    _RR_MEMO_SOURCE="${RICHOS_ROOT_SOURCE:-}"
+    _RR_MEMO_TRIED="${RICHOS_ROOT_TRIED:-}"
+    _RR_MEMO_REASON="${RICHOS_ROOT_REASON:-}"
+    _RR_MEMO_ENCLOSING="${RICHOS_ROOT_UNGOVERNED_ENCLOSING:-}"
+    return "$_RR_MEMO_RC"
 }
 
 # ---------------------------------------------------------------------------

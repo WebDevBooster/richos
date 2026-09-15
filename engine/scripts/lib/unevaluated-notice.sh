@@ -142,7 +142,34 @@
 # good payload from a bad one, and announcing "unreadable" on no evidence would
 # be a claim this file cannot support — the exact defect it exists to remove,
 # pointed the other way. Guards that need python3 already say so themselves.
+#
+# MEMO, OFF BY DEFAULT. With _UE_MEMO_ENABLE=1 a repeated identical payload is
+# answered from the previous answer rather than by forking python3 again. This
+# function is a pure function of its argument — it reads no file, no clock and
+# no environment — so unlike the root resolver the memo has no correctness
+# caveat at all; it is opt-in only so that no existing caller's behavior can
+# change by accident. One caller opts in: scripts/hooks/dispatch-pretooluse.sh,
+# which runs twelve rules against ONE payload in one process and would
+# otherwise pay twelve python3 forks (14.64 ms each, measured 2026-09-15) to
+# answer "is this JSON?" twelve times about the same bytes.
 richos_payload_unreadable() { # <raw payload>  ->  0 = unreadable (+ reason), 1 = readable
+    local payload="${1-}"
+    if [ "${_UE_MEMO_ENABLE:-0}" = "1" ] && [ "${_UE_MEMO_KEY+set}" = "set" ] \
+       && [ "$_UE_MEMO_KEY" = "$payload" ]; then
+        [ -n "$_UE_MEMO_REASON" ] && printf '%s' "$_UE_MEMO_REASON"
+        return "$_UE_MEMO_RC"
+    fi
+    if [ "${_UE_MEMO_ENABLE:-0}" = "1" ]; then
+        _UE_MEMO_KEY="$payload"
+        _UE_MEMO_REASON="$(_ue_payload_unreadable_uncached "$payload")"
+        _UE_MEMO_RC=$?
+        [ -n "$_UE_MEMO_REASON" ] && printf '%s' "$_UE_MEMO_REASON"
+        return "$_UE_MEMO_RC"
+    fi
+    _ue_payload_unreadable_uncached "$payload"
+}
+
+_ue_payload_unreadable_uncached() { # <raw payload>  ->  0 = unreadable (+ reason), 1 = readable
     local payload="${1-}"
     if [ -z "$payload" ]; then
         printf 'empty'
