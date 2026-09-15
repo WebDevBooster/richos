@@ -2262,6 +2262,17 @@ fi
 # seated route able to see it, because this expectation was a typed list of
 # eight and the answer it should have given was nine.
 #
+# AMENDED 2026-09-15, because half of that sentence changed meaning and a
+# comment that overstates a check is worse than no comment. The seated file is
+# now GENERATED from the plugin table by scripts/hooks/install.sh, so the two
+# no longer disagree because somebody forgot a hand edit — the only way they
+# can disagree is a registration COMMITTED WITHOUT RUNNING THE GENERATOR, which
+# is the same red with a one-command fix. This layer is still not a tautology
+# by the rule stated at the top of this file: at check time it reads two
+# different committed files and never re-runs the generator. What it is not,
+# and never honestly was, is an INDEPENDENT second opinion — a hand-typed copy
+# of the same intent was never independent evidence either.
+#
 # ORDER is load-bearing for the first four and only the first four. That intent
 # is typed once, as AGENT_CHAIN_STRUCTURAL_PREFIX in scripts/lib/registered-
 # hooks.sh, and applied below through agent_chain_order_violations. The
