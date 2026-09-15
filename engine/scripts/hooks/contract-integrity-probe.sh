@@ -1136,6 +1136,14 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # (a declared guard that is not wired) and registration -> spec (a wired
     # guard nobody declared). One direction alone is how a real guard ran for
     # two days uncounted by anything.
+    #
+    # ONE LINE PER REGISTRATION, NOT PER SCRIPT. dispatch-pretooluse.sh appears
+    # TWICE on PreToolUse because it is registered twice — once under the `Bash`
+    # matcher and once under `Write|Edit|MultiEdit|NotebookEdit`. The rules it
+    # runs are named in scripts/hooks/dispatch-pretooluse.manifest and are still
+    # listed here individually: BR2's parse expands the dispatcher into them, so
+    # a rule deleted from the manifest arrives here as NOT registered, exactly as
+    # a rule deleted from hooks.json used to.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
 workspace-lifecycle.sh|SessionStart
@@ -1162,6 +1170,8 @@ guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+dispatch-pretooluse.sh|PreToolUse
+dispatch-pretooluse.sh|PreToolUse
 shell-evidence.sh|PreToolUse
 guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
@@ -1254,7 +1264,7 @@ if isinstance(n, str):
         emit_fail "BR2. plugin hook table MISSING: $BR_PLUGIN_HOOKS. The manifest alone registers nothing — this file is where the guards are wired for a plugin-loaded engine. Every guard would be present on disk and none of them would ever run."
     else
         BR_HOOKS_ROWS="$(python3 -c '
-import json, sys
+import json, os, re, sys
 try:
     d = json.load(open(sys.argv[1], encoding="utf-8"))
 except Exception:
@@ -1262,6 +1272,25 @@ except Exception:
 hooks = d.get("hooks", {})
 if not isinstance(hooks, dict):
     sys.exit(1)
+
+# THE DISPATCHER EXPANDS INTO ITS RULES, and this parse implements that rule
+# INDEPENDENTLY — it reads the manifest itself rather than asking
+# scripts/lib/registered-hooks.sh, because BR2 exists to disagree with that
+# library when the library is wrong. Each rule gets a row carrying the
+# dispatcher own event and matcher, which is where that rule was registered
+# before 2026-09-15. The dispatcher own rows are KEPT as well: it is the single
+# point of failure for seventeen guards, so its presence, its event and its
+# sha256 must still be checked like any other registered script.
+manifest = {}
+_m = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[1]))),
+                  "scripts", "hooks", "dispatch-pretooluse.manifest")
+if os.path.isfile(_m):
+    for line in open(_m, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "|" in line:
+            k, mod = line.split("|", 1)
+            manifest.setdefault(k.strip(), []).append(mod.strip())
+
 for event, entries in hooks.items():
     if not isinstance(entries, list):
         continue
@@ -1272,7 +1301,12 @@ for event, entries in hooks.items():
         for h in entry.get("hooks", []) or []:
             if not isinstance(h, dict):
                 continue
-            print("\t".join([event, str(matcher), str(h.get("command", ""))]))
+            cmd = str(h.get("command", ""))
+            print("\t".join([event, str(matcher), cmd]))
+            hit = re.search(r"(\S*scripts/hooks/)dispatch-pretooluse\.sh\s+(\S+)", cmd)
+            if hit:
+                for mod in manifest.get(hit.group(2), []):
+                    print("\t".join([event, str(matcher), hit.group(1) + mod]))
 ' "$BR_PLUGIN_HOOKS" 2>/dev/null || true)"
         if [ -z "$BR_HOOKS_ROWS" ]; then
             emit_fail "BR2. plugin hook table unparseable or registers nothing: $BR_PLUGIN_HOOKS"
@@ -1295,13 +1329,27 @@ for event, entries in hooks.items():
                 # events the managed set declares for this script, so it can
                 # never be a typed number that falls behind.
                 _declared_events="$(printf '%s\n' "$BR_EXPECTED" | awk -F'|' -v s="$_script" '$1==s' | grep -c . || true)"
+                # ...and how many of those declarations are ON THIS EVENT. The
+                # two numbers are different the moment a script is declared on
+                # more than one event (workspace-lifecycle.sh: six) or more than
+                # once on ONE event (dispatch-pretooluse.sh: twice on PreToolUse,
+                # under two different matchers).
+                _declared_here="$(printf '%s\n' "$BR_EXPECTED" | awk -F'|' -v s="$_script" -v e="$_event" '$1==s && $2==e' | grep -c . || true)"
                 if [ "$_count" -eq 0 ]; then
                     BR2_PROBLEMS="$BR2_PROBLEMS $_script(NOT registered)"
                     BR2_OK=0
                 elif [ "$_count" -gt "$_declared_events" ]; then
                     BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered ${_count}x for ${_declared_events} declared event(s) -> double-fire)"
                     BR2_OK=0
-                elif [ "$_on_event" -ne 1 ]; then
+                # ONE PER DECLARED REGISTRATION, not literally one. A script is
+                # allowed to be registered more than once on ONE event when the
+                # managed set declares it that way — dispatch-pretooluse.sh is
+                # registered on PreToolUse twice, under the `Bash` matcher and
+                # under the `Write|Edit|...` matcher, which is two different
+                # tools and therefore not the additive double-fire this is
+                # guarding against. Registering it a THIRD time still trips the
+                # `_count -gt _declared_events` arm above.
+                elif [ "$_on_event" -ne "$_declared_here" ]; then
                     BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered, but not exactly once on $_event)"
                     BR2_OK=0
                 fi
@@ -2033,17 +2081,73 @@ emit_pass "A. .claude/settings.local.json present (canonical hook source)"
 EXTRACT_PY="$(mktemp -t contract-integrity-extract.XXXXXX.py)"
 trap 'rm -f "$EXTRACT_PY"' EXIT
 cat >"$EXTRACT_PY" <<'PY'
-import json, sys
+import json, os, re, sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     data = json.load(f)
 hooks = data.get("hooks", {})
+
+# --- THE DISPATCHER IS EXPANDED INTO THE RULES IT RUNS ---------------------
+# scripts/hooks/dispatch-pretooluse.sh is ONE registered command that runs N
+# rule modules in one process. Every functional layer below asks "is guard X
+# wired on this matcher?" and answers it by comparing a wired command's path
+# against the guard's canonical path. Left alone, those layers would report
+# seven correctly-enforced guards as NOT WIRED, because their names moved out
+# of the registration and into the dispatcher's manifest.
+#
+# So the expansion happens HERE, once, at the single point where every layer's
+# view of the registration is built — not seven times in seven layers. A rule
+# named in the manifest produces exactly the row it produced when it was
+# registered on its own, so no layer below knows or needs to know that the
+# shape changed. A rule the manifest does NOT name produces no row and is
+# reported NOT WIRED, which is still the truth.
+#
+# The manifest is read from the SAME directory as the wired dispatcher, so a
+# probe run against some other checkout reads that checkout's manifest.
+_DISPATCH_RE = re.compile(r"(\S*scripts/hooks/dispatch-pretooluse\.sh)\s+(\S+)")
+
+
+def expand(cmd):
+    m = _DISPATCH_RE.search(cmd or "")
+    if not m:
+        return [cmd]
+    wired_path, chain_key = m.group(1), m.group(2)
+    resolved = wired_path
+    for var, val in (("$CLAUDE_PROJECT_DIR", sys.argv[2]),
+                     ("${CLAUDE_PROJECT_DIR}", sys.argv[2]),
+                     ("$CLAUDE_PLUGIN_ROOT", sys.argv[2]),
+                     ("${CLAUDE_PLUGIN_ROOT}", sys.argv[2])):
+        resolved = resolved.replace(var, val)
+    hooks_dir = os.path.dirname(resolved)
+    manifest = os.path.join(hooks_dir, "dispatch-pretooluse.manifest")
+    rows = []
+    try:
+        with open(manifest, encoding="utf-8") as mh:
+            for line in mh:
+                line = line.strip()
+                if not line or line.startswith("#") or "|" not in line:
+                    continue
+                key, module = line.split("|", 1)
+                if key.strip() != chain_key:
+                    continue
+                rows.append(cmd.replace(m.group(0),
+                                        wired_path.replace("dispatch-pretooluse.sh",
+                                                           module.strip())))
+    except OSError:
+        # No manifest: emit the dispatcher row unchanged. Every layer that
+        # wants a specific guard then reports it NOT WIRED, which is exactly
+        # what a missing manifest means — the dispatcher refuses to run at all.
+        return [cmd]
+    return rows or [cmd]
+
+
 pre = hooks.get("PreToolUse", [])
 for entry in pre:
     matcher = entry.get("matcher", "")
     for h in entry.get("hooks", []):
         cmd = h.get("command", "")
         # Print TAB-separated rows: matcher\tcommand
-        print(f"{matcher}\t{cmd}")
+        for one in expand(cmd):
+            print(f"{matcher}\t{one}")
 # Stop is a DIFFERENT EVENT, not a matcher, and it was not extracted here at
 # all -- so the two BLOCKING guards that live on it had no functional layer,
 # only an entry in the registration inventory. A guard that is registered and
@@ -2053,7 +2157,9 @@ for entry in hooks.get("Stop", []):
         print(f"<event:Stop>\t{h.get('command','')}")
 PY
 
-WIRED="$(python3 "$EXTRACT_PY" "$SETTINGS" 2>/dev/null || true)"
+# $2 is the root the seated surface's $CLAUDE_PROJECT_DIR resolves to; the
+# extractor needs it only to locate the dispatcher's manifest on disk.
+WIRED="$(python3 "$EXTRACT_PY" "$SETTINGS" "$ENGINE_ROOT" 2>/dev/null || true)"
 GUARD_CMD="$(printf '%s\n' "$WIRED" | awk -F'\t' '$1 ~ /Write/ && $1 ~ /Edit/ {print $2; exit}')"
 
 # ALL commands under the Write|Edit matcher (Layer B only cares about the
