@@ -32,7 +32,14 @@ SCAFFOLD = (".test.sh", ".test.py", ".mutation.sh")
 # scripts/lib/worktree-ledger.py.
 EXPANSION = (r'(?:(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?'
              r'|\$\([^()]*(?:\([^()]*\)[^()]*)*\))/)+')
-BODY = r'[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*\.(?:sh|py|json|tsv|dict|md|txt)'
+# `manifest` joined this list on 2026-09-15 for the same reason `dict` is on it:
+# scripts/hooks/dispatch-pretooluse.manifest is DATA a registered hook reaches
+# for and cannot run without, exactly as guard-dialect.sh cannot run without
+# dialect-en-US.dict. Left off, every sandbox this engine builds carried a
+# dispatcher with no manifest — which fails LOUD (the dispatcher refuses) rather
+# than quietly, but fails in ten suites at once for a reason none of them names.
+BODY = (r'[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*'
+        r'\.(?:sh|py|json|tsv|dict|md|txt|manifest)')
 WHOLE_TOKEN = re.compile(r'^' + EXPANSION + r'?' + BODY + r'$')
 LEADING_EXPANSION = re.compile(r'^' + EXPANSION)
 
