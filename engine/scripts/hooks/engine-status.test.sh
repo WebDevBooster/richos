@@ -151,8 +151,30 @@ echo ""
 # method deliberately unlike the shipped one (a text scan, not a JSON parse):
 # two independent readings of the registration surface must agree.
 # ===========================================================================
-REGISTERED_LIST="$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" \
-    | sed 's|.*/||' | LC_ALL=C sort -u)"
+#
+# THE TEXT SCAN IMPLEMENTS THE DISPATCHER RULE TOO, independently. Since
+# 2026-09-15 a registered `dispatch-pretooluse.sh <key>` stands for every rule
+# scripts/hooks/dispatch-pretooluse.manifest gives that key, and those rules are
+# enforcing exactly as much as they were when each had its own entry. A reading
+# that skipped them would be a SECOND method that disagrees with the shipped one
+# for a reason that is not drift — which is the false alarm this file exists to
+# stop producing. The manifest is read here with `sed`, sharing nothing with
+# scripts/lib/registered-hooks.sh, so the two readings stay independent.
+_es_dispatch_rules() { # <hooks.json> -> the rule basenames its dispatcher runs
+    local hj="$1" mf key
+    mf="$(dirname "$(dirname "$hj")")/scripts/hooks/dispatch-pretooluse.manifest"
+    [ -f "$mf" ] || return 0
+    for key in $(grep -o 'dispatch-pretooluse\.sh [A-Za-z]*' "$hj" 2>/dev/null \
+                 | awk '{print $2}' | LC_ALL=C sort -u); do
+        awk -F'|' -v k="$key" '
+            /^[[:space:]]*#/ {next}
+            NF>1 && $1==k {gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); print $2}
+        ' "$mf"
+    done
+}
+REGISTERED_LIST="$(printf '%s\n%s\n' \
+    "$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" | sed 's|.*/||')" \
+    "$(_es_dispatch_rules "$HOOKS_JSON")" | grep -v '^$' | LC_ALL=C sort -u)"
 REGISTERED_N="$(printf '%s\n' "$REGISTERED_LIST" | grep -c .)"
 # The announcer is deliberately excluded from a count of GUARDS: it guards
 # nothing, and its own term could never be unsatisfied (no announcer, no
@@ -707,6 +729,7 @@ notice-claim-capability.sh
 notice-protected-ref-moves.sh
 guard-ci-turn-gate.sh
 detect-nonnative-worktree.sh
+dispatch-pretooluse.sh
 engine-status.sh
 guard-agent-state-claims.sh
 guard-bash-main-writes.sh
@@ -864,21 +887,68 @@ restore
 # nothing, and must not inflate the count. Deriving from a directory listing
 # instead of from hooks.json would get this wrong (and would have hidden the
 # original defect completely, since the file was always present).
+#
+# THE TARGET IS A DIRECTLY-REGISTERED SCRIPT, and that is not incidental. This
+# case used to unwire scan-secrets.sh, which stopped being a hooks.json entry on
+# 2026-09-15 when it became a rule of dispatch-pretooluse.sh — the mutation went
+# on applying cleanly and changed nothing, and the case went red testing a
+# surface its target no longer lives on. Case 4d below unwires a rule from the
+# surface it DOES live on.
 python3 - "$HOOKS_JSON" <<'PY'
 import json, sys
 p = sys.argv[1]
 with open(p, encoding="utf-8") as fh:
     d = json.load(fh)
+found = False
 for entries in d["hooks"].values():
     for entry in entries:
-        entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "scan-secrets.sh" not in h.get("command", "")]
+        keep = [h for h in entry.get("hooks", [])
+                if "guard-workflow-ban.sh" not in h.get("command", "")]
+        if len(keep) != len(entry.get("hooks", [])):
+            found = True
+        entry["hooks"] = keep
+if not found:
+    sys.stderr.write("4c: guard-workflow-ban.sh is not registered in hooks.json\n")
+    sys.exit(3)
 with open(p, "w", encoding="utf-8") as fh:
     json.dump(d, fh, indent=2)
 PY
 banner
 expect_fraction "4c  a guard UNWIRED from hooks.json leaves the count (present on disk, loads nothing): ${EXPECT_MINUS}/${EXPECT_MINUS}" "${EXPECT_MINUS}/${EXPECT_MINUS}"
 restore
+
+# 4d — the same property, on the other registration surface. A rule deleted from
+# scripts/hooks/dispatch-pretooluse.manifest stops running exactly as completely
+# as one deleted from hooks.json, and the fraction has to say so. Without this
+# case the manifest would be a place a guard can be switched off while the banner
+# goes on reporting a full, reassuring fraction — which is the 14/14 defect this
+# whole file was written about, rebuilt on a new surface.
+#
+# `restore` puts hooks.json back and knows nothing about the manifest, so this
+# case restores its own file. It cost cases 6a and 6b a full hour before that
+# was noticed: they read 70/70 against an expected 71/71, and the missing guard
+# was the one THIS case had removed and never put back — a mutation leaking
+# forward into every later case, which is the same class of defect as the
+# silently-skipped rule the whole change is about.
+MANIFEST_FILE="$ENGINE/scripts/hooks/dispatch-pretooluse.manifest"
+if [ -f "$MANIFEST_FILE" ] && grep -q '^Write|scan-secrets\.sh$' "$MANIFEST_FILE"; then
+    cp "$MANIFEST_FILE" "$SANDBOX/manifest.pristine"
+    grep -v '^Write|scan-secrets\.sh$' "$MANIFEST_FILE" > "$SANDBOX/manifest.cut"
+    cp "$SANDBOX/manifest.cut" "$MANIFEST_FILE"
+    banner
+    expect_fraction "4d  a rule UNWIRED from the dispatcher manifest leaves the count (${EXPECT_MINUS}/${EXPECT_MINUS})" "${EXPECT_MINUS}/${EXPECT_MINUS}"
+    cp "$SANDBOX/manifest.pristine" "$MANIFEST_FILE"
+    restore
+    # The restore is asserted, not assumed: a case that leaves the sandbox
+    # changed makes every case after it test something nobody wrote.
+    if grep -q '^Write|scan-secrets\.sh$' "$MANIFEST_FILE"; then
+        ok "4d2 the manifest mutation is put back, so later cases see the shipped inventory"
+    else
+        bad "4d2 the manifest mutation is put back" "Write|scan-secrets.sh is still missing from $MANIFEST_FILE"
+    fi
+else
+    bad "4d  a rule UNWIRED from the dispatcher manifest leaves the count" "Write|scan-secrets.sh is not in $MANIFEST_FILE — the case cannot run, which is not a pass"
+fi
 
 # ===========================================================================
 # 5. NO REASSURING NUMBER WHEN THE INVENTORY CANNOT BE READ.
