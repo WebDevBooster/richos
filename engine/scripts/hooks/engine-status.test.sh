@@ -690,7 +690,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # subsumed; the ordering makes it unreachable. Removing it cost edits in 13
 # files, which is the measurement that motivated docs/verification/
 # verification-layer-design-2026-09-14.md.
+# left-off-report.sh, ADDED 2026-09-15 — SessionStart + UserPromptSubmit, and
+# the only entry here that refuses nothing. When he comes back after a gap it
+# puts his own last pre-gap message, and what happened across the gap as GIT
+# reports it, in front of the assistant before he asks. Lifecycle failure types
+# 60 and 61: he returned after nine hours, asked "TLDR, plain English", was
+# answered about something else, and it took sixteen messages and thirty-nine
+# minutes to get one line that two commands produce in a second.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+left-off-report.sh
 guard-brief-scope.sh
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh

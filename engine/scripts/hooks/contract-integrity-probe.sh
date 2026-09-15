@@ -1145,6 +1145,7 @@ snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
 session-start-escalations.sh|SessionStart
 session-start-ci-surface.sh|SessionStart
+left-off-report.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
@@ -1211,6 +1212,7 @@ guard-agent-state-claims.sh|Stop
 guard-idle-land.sh|Stop
 guard-stated-actions.sh|Stop
 commit-ceo-inputs.sh|UserPromptSubmit
+left-off-report.sh|UserPromptSubmit
 notice-ceo-inputs-unheld.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a

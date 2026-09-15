@@ -1,5 +1,5 @@
 {
-  "description": "The RichOS engine's orchestration guards, registered exactly as the engine registers them for a session seated in its own repo — same events, same matchers, same order, same timeouts — but invoked through ${CLAUDE_PLUGIN_ROOT} so they run from wherever the engine actually lives.",
+  "description": "The RichOS engine's orchestration guards, registered exactly as the engine registers them for a session seated in its own repo \u2014 same events, same matchers, same order, same timeouts \u2014 but invoked through ${CLAUDE_PLUGIN_ROOT} so they run from wherever the engine actually lives.",
   "hooks": {
     "SessionStart": [
       {
@@ -66,6 +66,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-ci-surface.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/left-off-report.sh --event SessionStart",
+            "timeout": 15
           }
         ]
       }
@@ -88,6 +93,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-ceo-inputs.sh",
             "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/left-off-report.sh --event UserPromptSubmit",
+            "timeout": 15
           }
         ]
       }
