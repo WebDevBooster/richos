@@ -70,6 +70,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # no hooks.json, and 18 cases failed in a way that at least announced itself
 # loudly (cp errors) rather than passing over an empty corpus.
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The registration question has ONE answer in this engine, and it is not a
+# grep: seventeen guards are wired by scripts/hooks/dispatch-pretooluse.manifest
+# rather than by an entry of their own. hook_enforced_on_surface asks whether
+# the surface causes the guard to RUN, which is the property this case is about.
+# shellcheck source=../lib/registered-hooks.sh
+. "$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+
 
 # Declare the subject, for the reason spelled out in guard-definition-drift.
 # test.sh: run from a session seated in some other repository these hooks would
@@ -199,17 +206,38 @@ fi
 # DERIVED, NOT TYPED: the count in the baseline must equal what an independent
 # reading of the same surface produces. A typed list of 14 where the
 # registration held 15 is the drift that started this whole sequence.
+# The independent parse implements the SAME DECLARED RULE, independently —
+# including the one added on 2026-09-15: a registered dispatch-pretooluse.sh
+# stands for every rule its manifest gives it, on the dispatcher's own event and
+# matcher. Copying the library's answer instead would make this a tautology; not
+# implementing the rule at all would make it a permanent false alarm. So the
+# manifest is read here, directly, by code that shares nothing with
+# scripts/lib/registered-hooks.sh.
 INDEP_N="$(python3 -c '
-import json, re, sys
+import json, os, re, sys
 d = json.load(open(sys.argv[1]))
+manifest = {}
+mpath = os.path.join(sys.argv[2], "scripts", "hooks", "dispatch-pretooluse.manifest")
+if os.path.isfile(mpath):
+    for line in open(mpath, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "|" in line:
+            k, mod = line.split("|", 1)
+            manifest.setdefault(k.strip(), []).append(mod.strip())
 rows = set()
 for ev, entries in d.get("hooks", {}).items():
     for e in entries:
+        matcher = e.get("matcher", "") or "-"
         for h in e.get("hooks", []) or []:
-            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", h.get("command", "")):
-                rows.add((ev, e.get("matcher", "") or "-", m))
+            cmd = h.get("command", "")
+            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                rows.add((ev, matcher, m))
+            hit = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
+            if hit:
+                for mod in manifest.get(hit.group(1), []):
+                    rows.add((ev, matcher, mod))
 print(len(rows))
-' "$R1/hooks.json")"
+' "$R1/hooks.json" "$ENGINE_ROOT")"
 if [ "$REAL_ROWS" -eq "$INDEP_N" ]; then
     ok "1c  the baseline is DERIVED: $REAL_ROWS rows, matching an independent parse of the same surface"
 else
@@ -272,7 +300,7 @@ fi
 _SENTINELS="zz-fixture-never-registered.sh zz-fixture-second-never-registered.sh"
 _SENT_BAD=""
 for _s in $_SENTINELS; do
-    if grep -q "$_s" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
+    if hook_enforced_on_surface "$ENGINE_ROOT/hooks/hooks.json" "$_s"; then
         _SENT_BAD="$_SENT_BAD $_s"
     fi
 done
