@@ -364,6 +364,23 @@ fi
 # Each rule is still a standalone script. That is not decoration: it is what
 # keeps every rule's own test suite meaningful, and what makes a rule debuggable
 # without the dispatcher in the way.
+# THE MANIFEST DECIDES WHICH GUARDS RUN, so it is DATA the install has to hash —
+# the same argument scripts/lib/dialect-en-US.dict carries in install.sh, at a
+# wider blast radius. A hashed dispatcher over an unhashed manifest is the lock
+# checked and the key ignored: delete a line and the dispatcher stays wired,
+# hashed and executable while running sixteen rules where it ran seventeen, and
+# the sixteen that do run all pass.
+if [ -f "$MANIFEST.sha256" ] \
+   && [ "$(cut -d' ' -f1 < "$MANIFEST.sha256")" = "$(shasum -a 256 "$MANIFEST" | cut -d' ' -f1)" ]; then
+    ok "D21b the manifest is sidecar-hashed by install.sh and matches"
+elif grep -q 'dispatch-pretooluse\.manifest' "$SCRIPT_DIR/install.sh" 2>/dev/null; then
+    bad "D21b the manifest is sidecar-hashed by install.sh and matches" \
+        "install.sh names it but $MANIFEST.sha256 is absent or stale — run scripts/hooks/install.sh"
+else
+    bad "D21b the manifest is sidecar-hashed by install.sh and matches" \
+        "install.sh does not hash $MANIFEST, so a deleted rule line leaves no trace"
+fi
+
 STANDALONE_BAD=""
 for m in $SHIPPED_MODULES; do
     bash "$SCRIPT_DIR/$m" < "$PAYLOAD" >/dev/null 2>&1

@@ -634,6 +634,16 @@ HOOK_FILES+=(
     # green no-op that looks exactly like a clean record — the same silent
     # degradation every entry above exists to make impossible.
     "$REPO_ROOT/scripts/lib/dialect-en-US.dict"
+    # The PreToolUse rule manifest. The dialect vocabulary's argument, at the
+    # widest blast radius in this list: dispatch-pretooluse.sh decides WHICH
+    # GUARDS RUN on nothing but what this file says. Seventeen of them, on every
+    # shell call and every write. A line quietly deleted leaves the dispatcher
+    # wired, hashed, executable and running sixteen rules where it ran
+    # seventeen — and the sixteen that do run all pass, so the call looks clean.
+    # Hashing the dispatcher and not its manifest would be hashing the lock and
+    # ignoring the key, which is the phrase four entries above this one already
+    # use about smaller keys than this.
+    "$REPO_ROOT/scripts/hooks/dispatch-pretooluse.manifest"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops
