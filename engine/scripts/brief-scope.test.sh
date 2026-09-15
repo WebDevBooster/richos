@@ -7,23 +7,62 @@
 # RICHOS_WORKSPACES_DIR is redirected into a mktemp directory for the whole run,
 # and every repository is a fixture made by this file.
 #
-# THE ACCEPTANCE CASE IS THE REAL ROUND-9 BRIEF, byte for byte, read from
-# richos-hq at the commit that carries it. A suite that tests this mechanism on
-# a brief written to be caught is a suite that proves nothing — the whole claim
-# is that it would have stopped the round that was actually dispatched.
+# THE ACCEPTANCE CASE IS THE REAL ROUND-9 BRIEF, byte for byte. A suite that
+# tests this mechanism on a brief written to be caught is a suite that proves
+# nothing — the whole claim is that it would have stopped the round that was
+# actually dispatched.
 #
-# Exit 0 only when every case passes.
+# THOSE BYTES ARE VENDORED, at scripts/fixtures/brief-scope/, AND PINNED BY
+# sha256 BELOW. Until 2026-09-15 this file read them through an absolute path
+# into richos-hq — another repository, on the operator's laptop. That path is on
+# no CI runner, so the eight acceptance cases here did not merely fail there,
+# they never ran: engine-self-verify #214 on 2545d7f1, shard 4/12, reported
+# "43 passed, 2 failed" where this machine reported 51 passed, and the mutation
+# harness lost M1 (spec-satisfied-removed) with it, because its sentinel S20 is
+# one of those eight — "1 property(ies) NOT proven load-bearing, 10 proven".
+#
+# WHY A COPY IS THE RIGHT ANSWER HERE AND NOT A COMPROMISE. The claim is
+# historical: the brief AS DISPATCHED on 2026-09-13 was refused. A live read
+# cannot carry that claim, because an edit in the other repository silently
+# changes what the acceptance case proves, and nothing would say so. Frozen
+# bytes under a checked hash are the correct witness for a claim about the
+# past — identity rather than location, which is what the freshness contract
+# asks for in the first place.
+#
+# WHAT KEEPS THE COPY HONEST, and this is the half the existing precedent got
+# wrong. richos already vendors the CEO's spec page at
+# docs/plans/worktree-spec-2026-09-11.md, and round 9's own brief says of that
+# copy: its sha256 "sits in a comment", so "nothing verifies it automatically —
+# which is exactly why an edit to it would go unnoticed". So here the hash is an
+# ASSERTION and not a comment. S19pin runs on every runner and every laptop, and
+# a fixture edited by anyone turns this suite red. The cross-repo re-check
+# (S19src) can only run where richos-hq is; where it cannot, it prints a NOT RUN
+# line and is counted apart from the passes, never silently skipped.
+#
+# Exit 0 only when every case passes. A NOT RUN is not a pass and not a failure:
+# it is reported as itself.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$HERE/brief-scope.py"
 GUARD="$HERE/hooks/guard-brief-scope.sh"
 
-PASS=0; FAIL=0
+# THE VENDORED ACCEPTANCE FIXTURE AND ITS IDENTITY. See the header: the bytes
+# are the round-9 brief as dispatched, the hash is asserted at S19pin, and
+# R9_SOURCE is provenance only — nothing load-bearing ever reads it.
+R9="$HERE/fixtures/brief-scope/round9-brief-2026-09-13.md"
+R9_SHA256="76c8eb46b09f9238b714fe6e5b9322a75f8e8611c2612e62dff307b0d7dea16e"
+R9_SOURCE="/Users/alex/ab/richos-hq/docs/plans/round9-brief-2026-09-13.md"
+
+PASS=0; FAIL=0; NOTRUN=0
 ok()   { printf '      ok   %s\n' "$1"; PASS=$((PASS+1)); }
 # Two spaces after FAIL: the shared mutation harness matches "FAIL  <case id>",
 # and a one-space line makes every mutant report "red, but not at the named case".
 bad()  { printf '      FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '           %s\n' "$(printf '%s' "$2" | head -c 900 | tr '\n' '|')"; FAIL=$((FAIL+1)); }
+# A case that COULD NOT RUN says so in its own column and is counted on its own.
+# It is never folded into PASS: "it passed because it never ran" is the exact
+# failure this file exists to make impossible.
+notrun() { printf '      NOT RUN  %s\n' "$1"; [ -n "${2:-}" ] && printf '               %s\n' "$2"; NOTRUN=$((NOTRUN+1)); }
 want() { # <label> <expected-rc> <expected-substring-or-empty> <actual-rc> <actual-out>
     if [ "$2" != "$4" ]; then bad "$1  (wanted exit $2, got $4)" "$5"; return; fi
     if [ -n "$3" ] && ! printf '%s' "$5" | grep -q -- "$3"; then
@@ -235,33 +274,61 @@ want "S18b a guard that cannot find its library exits 0 but is AUDIBLE" 0 "did N
 
 echo ""
 echo "=== 9  ACCEPTANCE: the real round-9 brief, byte for byte ==="
-R9="/Users/alex/ab/richos-hq/docs/plans/round9-brief-2026-09-13.md"
-if [ -f "$R9" ]; then
-    # The state round 9 was dispatched into, as round 9's own brief states it:
-    # "the fourteen read 14 green, 0 red". Recorded here from a run in that shape.
-    rm -f "$VERDICT" "$VERDICT.history.jsonl"
-    record_verdict "$(git -C "$REPO" rev-parse main)"      # no arguments: 14 green, 0 red
-    run_check "$R9"
-    want "S19 THE ROUND-9 BRIEF IS REFUSED" 2 "NO-ANCHOR" "$RC" "$OUT"
-    want "S19b and the refusal says nothing is red" 2 "every point is green" "$RC" "$OUT"
 
-    # And with the anchor its author would have had to write for its one item
-    # that touches the spec at all — item 2, which is about point 2:
-    { echo "scope: fx-001"; echo "serves: point 2 - a codex/ ref deleted by an agent is restored"; cat "$R9"; } >"$T/r9-anchored.md"
-    run_check "$T/r9-anchored.md"
-    want "S20 anchored to point 2, it is refused because point 2 is recorded green" 2 "SPEC-SATISFIED" "$RC" "$OUT"
-    want "S20b and it hands over the CEO's question" 2 "measures complete" "$RC" "$OUT"
-
-    # THE HONEST HALF: if point 2 had been recorded RED, this mechanism lets the
-    # whole of round 9 item 2 through, prescribed design and all. Nothing here
-    # reads a design.
-    rm -f "$VERDICT" "$VERDICT.history.jsonl"
-    record_verdict "$(git -C "$REPO" rev-parse main)" 2
-    run_check "$T/r9-anchored.md"
-    want "S21 THE MISS, ASSERTED: with point 2 red, round 9 item 2 passes untouched" 0 "point 2 named" "$RC" "$OUT"
+# THE FIXTURE'S IDENTITY IS ASSERTED, NEVER ASSUMED. This is the case that makes
+# a vendored copy honest instead of a second source of truth, and it runs in
+# every environment — which is precisely what the engine's other vendored copy
+# (docs/plans/worktree-spec-2026-09-11.md, hash in a comment) does not have.
+if [ ! -f "$R9" ]; then
+    bad "S19pin the vendored round-9 brief is missing" "expected at $R9 — the acceptance fixture ships with the engine and is not optional"
 else
-    bad "S19 the round-9 brief is not at $R9" "acceptance case could not run"
+    R9_LIVE="$(shasum -a 256 "$R9" | awk '{print $1}')"
+    if [ "$R9_LIVE" = "$R9_SHA256" ]; then
+        ok "S19pin the vendored round-9 brief is byte-for-byte the dispatched one"
+    else
+        bad "S19pin the vendored round-9 brief has been EDITED" "pinned $R9_SHA256, on disk $R9_LIVE — these bytes are a frozen record of what was dispatched on 2026-09-13. Do not refresh them to match anything; find out what changed them."
+    fi
 fi
+
+# THE CROSS-REPO PROVENANCE RE-CHECK, and the one thing in this file that is
+# allowed not to run. richos-hq is a different repository on the operator's
+# machine; on a runner it is absent and no design makes it present. So when it
+# cannot run it SAYS SO and is counted apart from the passes. It is a drift
+# alarm and not a correctness condition — nothing below depends on it, because
+# S19pin has already fixed the bytes every case below runs against.
+if [ -f "$R9_SOURCE" ]; then
+    if cmp -s "$R9" "$R9_SOURCE"; then
+        ok "S19src the vendored copy still matches the one in richos-hq"
+    else
+        bad "S19src the vendored copy and richos-hq's have DIVERGED" "a brief that was already dispatched has been edited after the fact. The fixture is the record of what was sent and stays as it is; the question is what changed $R9_SOURCE."
+    fi
+else
+    notrun "S19src cross-repo provenance re-check (vendored copy vs richos-hq)" \
+           "$R9_SOURCE is not on this machine. Every acceptance case below still RAN, against bytes pinned by sha256 at S19pin."
+fi
+
+# The state round 9 was dispatched into, as round 9's own brief states it:
+# "the fourteen read 14 green, 0 red". Recorded here from a run in that shape.
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$(git -C "$REPO" rev-parse main)"      # no arguments: 14 green, 0 red
+run_check "$R9"
+want "S19 THE ROUND-9 BRIEF IS REFUSED" 2 "NO-ANCHOR" "$RC" "$OUT"
+want "S19b and the refusal says nothing is red" 2 "every point is green" "$RC" "$OUT"
+
+# And with the anchor its author would have had to write for its one item
+# that touches the spec at all — item 2, which is about point 2:
+{ echo "scope: fx-001"; echo "serves: point 2 - a codex/ ref deleted by an agent is restored"; cat "$R9"; } >"$T/r9-anchored.md"
+run_check "$T/r9-anchored.md"
+want "S20 anchored to point 2, it is refused because point 2 is recorded green" 2 "SPEC-SATISFIED" "$RC" "$OUT"
+want "S20b and it hands over the CEO's question" 2 "measures complete" "$RC" "$OUT"
+
+# THE HONEST HALF: if point 2 had been recorded RED, this mechanism lets the
+# whole of round 9 item 2 through, prescribed design and all. Nothing here
+# reads a design.
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$(git -C "$REPO" rev-parse main)" 2
+run_check "$T/r9-anchored.md"
+want "S21 THE MISS, ASSERTED: with point 2 red, round 9 item 2 passes untouched" 0 "point 2 named" "$RC" "$OUT"
 
 echo ""
 echo "=== 10  §6 WHO CHOOSES THE MECHANISM — the retry rule and the counter-stamp ==="
@@ -344,27 +411,27 @@ fi
 # verdicts. S21 keeps asserting that a FIRST-time-red point lets it through; this
 # asserts that once the measurement has failed to move, the same brief is refused
 # until it says whose design it is carrying.
-if [ -f "$R9" ]; then
-    rm -f "$VERDICT" "$VERDICT.history.jsonl"
-    record_verdict "$(git -C "$REPO" rev-parse main)" 2
-    record_verdict "$(git -C "$REPO" rev-parse main)" 2
-    run_check "$T/r9-anchored.md"
-    want "S31 THE ROUND-9 BRIEF, on a retry, is REFUSED for its undeclared design" 2 "DESIGN-UNDECLARED" "$RC" "$OUT"
-    want "S31b and the refusal names round 9's own reviewer-authored prescription" 2 "adversarial reviewer's own" "$RC" "$OUT"
+rm -f "$VERDICT" "$VERDICT.history.jsonl"
+record_verdict "$(git -C "$REPO" rev-parse main)" 2
+record_verdict "$(git -C "$REPO" rev-parse main)" 2
+run_check "$T/r9-anchored.md"
+want "S31 THE ROUND-9 BRIEF, on a retry, is REFUSED for its undeclared design" 2 "DESIGN-UNDECLARED" "$RC" "$OUT"
+want "S31b and the refusal names round 9's own reviewer-authored prescription" 2 "adversarial reviewer's own" "$RC" "$OUT"
 
-    # And the honest half of §6, asserted so it cannot quietly become a claim of
-    # coverage: a lead who writes `design: open` and prescribes anyway is NOT
-    # refused. Nothing here reads the prose, so the prescription in the body
-    # survives; what it no longer carries is unchallenged authority.
-    { echo "design: open"; cat "$T/r9-anchored.md"; } >"$T/r9-open.md"
-    run_check "$T/r9-open.md"
-    want "S32 THE RESIDUE, ASSERTED: design: open + a prescription in the body still passes" 0 "design: open on point 2" "$RC" "$OUT"
-else
-    bad "S31 the round-9 brief is not at $R9" "acceptance case could not run"
-fi
+# And the honest half of §6, asserted so it cannot quietly become a claim of
+# coverage: a lead who writes `design: open` and prescribes anyway is NOT
+# refused. Nothing here reads the prose, so the prescription in the body
+# survives; what it no longer carries is unchallenged authority.
+{ echo "design: open"; cat "$T/r9-anchored.md"; } >"$T/r9-open.md"
+run_check "$T/r9-open.md"
+want "S32 THE RESIDUE, ASSERTED: design: open + a prescription in the body still passes" 0 "design: open on point 2" "$RC" "$OUT"
 
 echo ""
-echo "=== brief-scope tests: $PASS passed, $FAIL failed ==="
+if [ "$NOTRUN" -gt 0 ]; then
+    echo "=== brief-scope tests: $PASS passed, $FAIL failed, $NOTRUN NOT RUN (named above) ==="
+else
+    echo "=== brief-scope tests: $PASS passed, $FAIL failed ==="
+fi
 
 # --- THE MUTATION HARNESS ---------------------------------------------------
 # Every green case above is evidence of nothing until it has been watched going
