@@ -368,6 +368,9 @@ say_hang 9h session-start-ceo-ask.sh
 # It reads the watch's cache files and never stdin; asserted here rather than
 # assumed, because 9j went red in CI the day it was registered without this line.
 say_hang 9k session-start-ci-surface.sh
+# Match the registered event argument: this hook also handles Stop, whose
+# stdin behavior is different. Both closed and never-closed stdin are checked.
+say_hang 9n left-off-report.sh --event SessionStart
 
 # 9i NEGATIVE — the partner to 9d, and the reason 9g cannot be satisfied by
 # simply never reading stdin: snapshot-enforcing-hooks.sh must STILL take its
@@ -391,7 +394,7 @@ fi
 # scripts/lib/registered-hooks.sh exists: a hand-maintained inventory of what
 # is covered drifts, and a coverage claim over a stale inventory is exactly the
 # hole 9f and 9g fell through.
-COVERED="engine-status.sh workspace-lifecycle.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh session-start-ci-surface.sh"
+COVERED="engine-status.sh workspace-lifecycle.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh session-start-ci-surface.sh left-off-report.sh"
 # Read the SHIPPED registration surface, not the sandbox copy: the sandbox
 # engine is assembled from scripts/ and .claude*/ and deliberately has no
 # hooks/hooks.json, and the claim being made here is about what the host
