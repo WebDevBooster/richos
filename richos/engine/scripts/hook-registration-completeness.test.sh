@@ -523,6 +523,29 @@ else
 fi
 
 # ===========================================================================
+# Grouped product checkouts must reach the same predicate through the guard.
+# Commit the relocation first so the baseline has the same engine prefix.
+R15="$SANDBOX/grouped"; make_fixture "$R15"
+mkdir -p "$R15/richos"
+mv "$R15/engine" "$R15/richos/engine"
+git -C "$R15" add -A
+git -C "$R15" add -f richos/engine/.claude/settings.local.json
+git -C "$R15" commit -qm "group product sources"
+register "$R15/richos" "guard-new-thing.sh" 1
+OUT="$(grun "$R15" "git commit -m 'wire the new guard'")"; RC=$?
+if [ "$RC" = "2" ] && printf '%s' "$OUT" | grep -q "REFUSING THIS commit"; then
+    ok "H9  grouped checkout refuses an incomplete registration"
+else
+    bad "H9  grouped checkout bypassed enforcement, rc=$RC" "$OUT"
+fi
+complete "$R15/richos" "guard-new-thing.sh" 1
+OUT="$(grun "$R15" "git commit -m 'wire the complete guard'")"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "H10 grouped checkout accepts a complete registration"
+else
+    bad "H10 grouped checkout refused complete inventories, rc=$RC" "$OUT"
+fi
+
 # I — LOAD-BEARING: the negatives fail when the mechanism is removed
 # ===========================================================================
 # A negative test with no positive probe passes for the wrong reason. Each
