@@ -54,27 +54,43 @@ if ! python3 "$CENSUS" --engine-root "$ENGINE_ROOT" --format json > "$JSON" 2>"$
 fi
 
 # --- C1 --------------------------------------------------------------------
-# The population, derived on both sides from hooks.json and required to agree.
+# The population includes direct registrations and the dispatcher's modules.
+# Parse command arguments independently and compare identities, not only counts.
 C1="$(ENGINE_ROOT="$ENGINE_ROOT" JSON="$JSON" python3 -c '
-import json, os, re
+import json, os, shlex
 doc = json.load(open(os.environ["JSON"]))
 hooks = json.load(open(os.path.join(os.environ["ENGINE_ROOT"], "hooks", "hooks.json")))["hooks"]
+modules = {}
+manifest = os.path.join(os.environ["ENGINE_ROOT"], "scripts", "hooks", "dispatch-pretooluse.manifest")
+with open(manifest) as stream:
+    for line in stream:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        chain, name = line.strip().split("|")
+        modules.setdefault(chain.strip(), []).append(name.strip())
 regs, scripts = 0, set()
 for event, matchers in hooks.items():
     for m in matchers:
         for hk in m.get("hooks", []):
             regs += 1
-            mm = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/(\S+?)(?:\"|\s|$)", hk.get("command", ""))
-            scripts.add(mm.group(1).rstrip("\"") if mm else "<inline>")
+            argv = shlex.split(hk.get("command", ""))
+            entry = next((a for a in argv if a.startswith("${CLAUDE_PLUGIN_ROOT}/")), None)
+            name = os.path.basename(entry) if entry else "<inline echo in hooks.json>"
+            scripts.add(name)
+            if name == "dispatch-pretooluse.sh":
+                chain = argv[argv.index(entry) + 1]
+                children = modules[chain]
+                regs += len(children)
+                scripts.update(children)
 named = {r["check"] for r in doc["checks"]}
 if doc["registrations"] != regs:
     print("registrations %d != %d" % (doc["registrations"], regs))
-elif len(named) != len(scripts):
-    print("checks %d != %d" % (len(named), len(scripts)))
+elif named != scripts:
+    print("check identities differ: missing=%s extra=%s" % (sorted(scripts - named), sorted(named - scripts)))
 else:
     print("ok %d registrations, %d checks" % (regs, len(scripts)))' 2>&1)"
 case "$C1" in
-    ok\ *) ok "C1   population matches hooks.json exactly ($C1)" ;;
+    ok\ *) ok "C1   population matches hooks.json and dispatcher modules exactly ($C1)" ;;
     *)     bad "C1   $C1" ;;
 esac
 
