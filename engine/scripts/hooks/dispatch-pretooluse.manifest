@@ -1,0 +1,44 @@
+# dispatch-pretooluse.manifest — the rules each PreToolUse chain runs, in order.
+#
+# Format:  <chain-key>|<script basename>
+#
+# ORDER IS THE ORDER hooks.json REGISTERED THEM. It decides the order refusals
+# are read back in, which is the only thing order can decide here: every module
+# runs on every call regardless of what any other module returns, exactly as
+# the host ran the separate registrations.
+#
+# These are the SAME FILES that used to be registered individually. They were
+# not moved and not edited; they are simply no longer spawned one process each.
+# A module stays independently runnable — `bash scripts/hooks/<module> < payload`
+# still works and is what each module's own test suite does.
+#
+# TWO SCRIPTS THAT BELONG TO THESE EVENTS ARE DELIBERATELY NOT HERE:
+#   shell-evidence.sh      an input transformer (returns updatedInput), not a
+#                          rule; still registered on PreToolUse[Bash] directly.
+#   guard-sealed-worktree.sh  registered on the EMPTY matcher, so it governs
+#                          every tool. Listing it under Bash-or-Write would
+#                          narrow what it protects.
+#
+# ADDING A RULE: add the line here and nothing else. It does NOT go into
+# hooks.json — the dispatcher is what hooks.json registers. Removing a rule is
+# the same edit backwards, which is the point: the design this implements was
+# written because removing a hook cost seventeen edits and adding one cost two.
+
+Bash|guard-interactive-prompt.sh
+Bash|guard-bash-main-writes.sh
+Bash|guard-inflight-notify.sh
+Bash|guard-worktree-removal.sh
+Bash|guard-publication-commits.sh
+Bash|guard-named-persons-commands.sh
+Bash|guard-ceo-todos-commits.sh
+Bash|guard-completeness-commits.sh
+Bash|guard-row-currency-commits.sh
+Bash|guard-vendoring-commits.sh
+Bash|guard-hook-registration-commits.sh
+Bash|guard-ci-red-lands.sh
+
+Write|guard-main-checkout-writes.sh
+Write|scan-secrets.sh
+Write|guard-publication-writes.sh
+Write|guard-named-persons-writes.sh
+Write|guard-dialect.sh

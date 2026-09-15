@@ -91,6 +91,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The registration question has ONE answer in this engine, and it is not a
+# grep: seventeen guards are wired by scripts/hooks/dispatch-pretooluse.manifest
+# rather than by an entry of their own. hook_enforced_on_surface asks whether
+# the surface causes the guard to RUN, which is the property this case is about.
+# shellcheck source=../lib/registered-hooks.sh
+. "$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+
 
 # Declare the root under test: run from a session seated elsewhere the guard
 # would resolve THAT repository, find no adoption marker, stand down, and every
@@ -1619,10 +1626,10 @@ fi
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads
 # ---------------------------------------------------------------------------
 G=guard-row-currency-commits.sh
-grep -q "$G" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null \
+hook_enforced_on_surface "$ENGINE_ROOT/hooks/hooks.json" "$G" \
     && ok "$G registered in hooks/hooks.json (plugin surface)" \
     || bad "$G NOT registered in hooks/hooks.json"
-grep -q "$G" "$ENGINE_ROOT/.claude/settings.local.json" 2>/dev/null \
+hook_enforced_on_surface "$ENGINE_ROOT/.claude/settings.local.json" "$G" \
     && ok "$G registered in .claude/settings.local.json (seated surface)" \
     || bad "$G NOT registered in .claude/settings.local.json"
 grep -q "^${G}|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \

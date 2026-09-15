@@ -201,6 +201,25 @@ def registrations(engine_root):
     path = os.path.join(engine_root, "hooks", "hooks.json")
     with open(path) as fh:
         doc = json.load(fh)
+    # THE DISPATCHER IS A REGISTRATION OF ITS RULES, NOT A CHECK OF ITS OWN.
+    # Since 2026-09-15 seventeen guards run as modules of
+    # scripts/hooks/dispatch-pretooluse.sh rather than as their own entries. A
+    # census that read only hooks.json reported CONTROL 36 -> 20 the day that
+    # landed: sixteen blocking controls vanishing from the number this file
+    # exists to produce, while every one of them still refused every call it
+    # refused the day before. The census's whole subject is "does a finding
+    # change what happens?", and the answer for those sixteen did not change.
+    manifest_path = os.path.join(engine_root, "scripts", "hooks",
+                                 "dispatch-pretooluse.manifest")
+    manifest = {}
+    if os.path.isfile(manifest_path):
+        with open(manifest_path) as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#") and "|" in line:
+                    key, module = line.split("|", 1)
+                    manifest.setdefault(key.strip(), []).append(module.strip())
+
     rows = []
     for event, matchers in doc["hooks"].items():
         for m in matchers:
@@ -210,6 +229,11 @@ def registrations(engine_root):
                 mm = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/(\S+?)(?:\"|\s|$)", cmd)
                 rel = mm.group(1).rstrip('"') if mm else None
                 rows.append((event, matcher, rel, cmd))
+                hit = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
+                if hit:
+                    for module in manifest.get(hit.group(1), []):
+                        rows.append((event, matcher,
+                                     "scripts/hooks/" + module, cmd))
     if not rows:
         raise SystemExit("check-census.py: hooks/hooks.json yielded NO "
                          "registration — the parser is broken, not the engine")

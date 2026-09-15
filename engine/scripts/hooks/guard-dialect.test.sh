@@ -29,6 +29,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+# The registration question has ONE answer in this engine, and it is not a
+# grep: seventeen guards are wired by scripts/hooks/dispatch-pretooluse.manifest
+# rather than by an entry of their own. hook_enforced_on_surface asks whether
+# the surface causes the guard to RUN, which is the property this case is about.
+# shellcheck source=../lib/registered-hooks.sh
+. "$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+
 
 # Declare the governed repository rather than inheriting the launching
 # session's — same reasoning as scan-secrets.test.sh: run from a session seated
@@ -254,11 +261,11 @@ grep -q '\. "\$_RR_LIB"' "$HOOK" \
     && ok "E1. guard-dialect.sh sources the root-resolution contract" \
     || bad "E1. guard-dialect.sh sources the root-resolution contract"
 
-grep -q 'guard-dialect\.sh' "$ENGINE_ROOT/hooks/hooks.json" \
+hook_enforced_on_surface "$ENGINE_ROOT/hooks/hooks.json" guard-dialect.sh \
     && ok "E2. registered on the plugin surface (hooks/hooks.json)" \
     || bad "E2. registered on the plugin surface (hooks/hooks.json)"
 
-grep -q 'guard-dialect\.sh' "$ENGINE_ROOT/.claude/settings.local.json" \
+hook_enforced_on_surface "$ENGINE_ROOT/.claude/settings.local.json" guard-dialect.sh \
     && ok "E3. registered on the seated surface (.claude/settings.local.json)" \
     || bad "E3. registered on the seated surface (.claude/settings.local.json)"
 

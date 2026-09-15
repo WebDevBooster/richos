@@ -309,7 +309,7 @@ python3 - "$SB/engine/hooks/hooks.json" <<'PY'
 import copy, json, sys
 p = sys.argv[1]
 d = json.load(open(p))
-TARGET = "guard-bash-main-writes.sh"
+TARGET = "shell-evidence.sh"
 found = False
 for entry in d["hooks"]["PreToolUse"]:
     if entry.get("matcher") != "Bash":
@@ -325,7 +325,56 @@ if not found:
 json.dump(d, open(p, "w"), indent=2)
 PY
 run_probe "$SB"
-expect_only_layer_failed "2c.BR2-guard-registered-twice" "BR2" "guard-bash-main-writes.sh(registered 2x"
+expect_only_layer_failed "2c.BR2-guard-registered-twice" "BR2" "shell-evidence.sh(registered 2x"
+rm -rf "$SB"
+
+# THE SAME DOUBLE-FIRE, ARRIVING THROUGH THE DISPATCHER'S MANIFEST.
+#
+# Since 2026-09-15 seventeen guards are wired by one line each in
+# scripts/hooks/dispatch-pretooluse.manifest rather than by an entry in
+# hooks.json. That file is therefore a REGISTRATION SURFACE, and every property
+# BR2 holds hooks.json to has to hold there too — otherwise the manifest is the
+# unwatched second surface this whole library exists to prevent. Duplicating a
+# rule line runs that rule twice per tool call, which is the additive-merge
+# double-fire wearing a different hat.
+SB="$(make_sandbox)"
+python3 - "$SB/engine/scripts/hooks/dispatch-pretooluse.manifest" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().splitlines()
+TARGET = "Bash|guard-vendoring-commits.sh"
+if TARGET not in lines:
+    sys.stderr.write("2c2: %s is not in the dispatcher manifest\n" % TARGET)
+    sys.exit(3)
+out = []
+for line in lines:
+    out.append(line)
+    if line == TARGET:
+        out.append(line)
+open(p, "w", encoding="utf-8").write("\n".join(out) + "\n")
+PY
+run_probe "$SB"
+expect_only_layer_failed "2c2.BR2-manifest-rule-listed-twice" "BR2" "guard-vendoring-commits.sh(registered 2x"
+rm -rf "$SB"
+
+# ...and the other direction: a rule DELETED from the manifest is a guard that
+# stops running, and it must arrive here as NOT registered, exactly as a guard
+# deleted from hooks.json used to. This is the case that makes the manifest
+# safe to be a registration surface at all.
+SB="$(make_sandbox)"
+python3 - "$SB/engine/scripts/hooks/dispatch-pretooluse.manifest" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().splitlines()
+TARGET = "Write|guard-named-persons-writes.sh"
+if TARGET not in lines:
+    sys.stderr.write("2c3: %s is not in the dispatcher manifest\n" % TARGET)
+    sys.exit(3)
+open(p, "w", encoding="utf-8").write(
+    "\n".join(l for l in lines if l != TARGET) + "\n")
+PY
+run_probe "$SB"
+expect_only_layer_failed "2c3.BR2-manifest-rule-deleted" "BR2" "guard-named-persons-writes.sh(NOT registered)"
 rm -rf "$SB"
 
 # Chain order. The isolation guard must refuse a bad spawn before the later
