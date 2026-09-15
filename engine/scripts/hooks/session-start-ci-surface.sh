@@ -53,8 +53,13 @@ STATE_DIR="${CI_SURFACE_STATE_DIR:-$HOME/.claude/state/ci-surface}"
 CI_SURFACE_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 command -v python3 >/dev/null 2>&1 || exit 0
 
-NOTICE="$(STATE_DIR="$STATE_DIR" python3 - <<'PY' 2>/dev/null || true
+# A standing operator instruction prevents resumed conversations restarting CI work.
+python3 "$CI_SURFACE_SCRIPTS/lib/ci_pause.py" --session-context
+
+NOTICE="$(STATE_DIR="$STATE_DIR" CI_LIB_DIR="$CI_SURFACE_SCRIPTS/lib" python3 - <<'PY' 2>/dev/null || true
 import glob, json, os, sys
+sys.path.insert(0, os.environ["CI_LIB_DIR"])
+from ci_pause import pause_for
 from datetime import datetime, timezone
 
 state_dir = os.environ["STATE_DIR"]
@@ -93,6 +98,8 @@ for p in sorted(glob.glob(os.path.join(state_dir, "red-*.json"))):
         with open(p, encoding="utf-8") as f:
             doc = json.load(f)
     except Exception:
+        continue
+    if pause_for(doc.get("repo", "")) or doc.get("state") == "paused":
         continue
     if doc.get("state") == "red":
         for r in doc.get("red", []):

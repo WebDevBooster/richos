@@ -618,6 +618,11 @@ PROBE_JSON="$(python3 "$RED_PROBE" --repo "$SLUG" --branch "$WATCHED_BRANCH" \
 
 STATE="$(printf '%s' "$PROBE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state","unknown"))' 2>/dev/null || echo unknown)"
 
+if [ "$STATE" = "paused" ]; then
+    # The land-completeness check above still runs. Only CI stands down.
+    exit 0
+fi
+
 if [ "$STATE" = "clear" ]; then
     exit 0
 fi

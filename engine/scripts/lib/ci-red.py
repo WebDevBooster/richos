@@ -57,6 +57,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_pause import paused_verdict
 from datetime import datetime, timezone
 
 STATE_DIR = os.path.join(os.path.expanduser("~"), ".claude", "state", "ci-surface")
@@ -102,6 +104,9 @@ def write_cache(doc):
 
 def probe(slug, branch, timeout):
     """One call. Returns the document, or None with a reason on stderr."""
+    paused = paused_verdict(slug, branch)
+    if paused:
+        return paused, None
     path = "repos/%s/actions/runs?branch=%s&per_page=100" % (slug, branch)
     try:
         p = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=timeout)
@@ -185,6 +190,12 @@ def main(argv=None):
     ap.add_argument("--refresh", action="store_true", help="ignore the cache and read live")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+
+    paused = paused_verdict(args.repo, args.branch)
+    if paused:
+        print(json.dumps(paused, indent=2) if args.json else
+              "CI PAUSED for %s: %s" % (paused["repo"], paused["reason"]))
+        return 0
 
     doc = None if args.refresh else read_cache(args.repo, args.branch, args.max_age_seconds)
     if doc is not None and not doc.get("too_old"):

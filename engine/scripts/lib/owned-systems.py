@@ -118,6 +118,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_pause import pause_for
 import time
 
 DEFAULT_TIMEOUT = 45
@@ -497,6 +499,7 @@ def record_disposition(entity_root, session_id, system, how, reason, agent=""):
 def sweep(entity_root, engine_root, decl_path, systems):
     at = now()
     results = []
+    ci_pause = pause_for(entity_root)
     for sysrec in systems:
         rec = {
             "id": sysrec["id"],
@@ -504,6 +507,11 @@ def sweep(entity_root, engine_root, decl_path, systems):
             "why": sysrec["why"],
             "match": sysrec["match"],
         }
+        if sysrec["id"] == "ci" and ci_pause:
+            rec.update({"status": "PAUSED", "via": "operator-pause", "exit": None,
+                        "evidence": [ci_pause["reason"]]})
+            results.append(rec)
+            continue
         jur = sysrec["jurisdiction"].strip()
         if jur:
             jcmd = expand(jur, entity_root, engine_root)
@@ -585,6 +593,7 @@ def load_or_sweep(entity_root, engine_root, refresh, ttl):
             "no owned-systems declaration was found under %s or %s (key "
             "OWNED_SYSTEMS_DECLARATION in orchestration.config)"
             % (entity_root, engine_root))
+    ci_pause = pause_for(entity_root)
     cache_path = state_path(entity_root, VERDICT_NAME)
     if not refresh:
         cached = _read_json(cache_path, None)
@@ -594,7 +603,7 @@ def load_or_sweep(entity_root, engine_root, refresh, ttl):
                 same = float(cached.get("declaration_mtime", -1)) == os.path.getmtime(decl)
             except (OSError, TypeError, ValueError):
                 fresh, same = False, False
-            if fresh and same:
+            if fresh and same and cached.get("ci_pause") == ci_pause:
                 cached["from_cache"] = True
                 return cached
     systems = parse_declaration(decl)
@@ -603,6 +612,7 @@ def load_or_sweep(entity_root, engine_root, refresh, ttl):
         doc["declaration_mtime"] = os.path.getmtime(decl)
     except OSError:
         doc["declaration_mtime"] = -1
+    doc["ci_pause"] = ci_pause
     doc["from_cache"] = False
     _write_json(cache_path, doc)
     return doc
@@ -631,8 +641,11 @@ def render(doc):
     standing = ordered_standing(doc)
     for r in doc["systems"]:
         mark = {HEALTHY: "ok      ", UNHEALTHY: "UNHEALTHY", UNKNOWN: "UNKNOWN ",
-                "OUT-OF-JURISDICTION": "n/a     "}[r["status"]]
+                "PAUSED": "PAUSED  ", "OUT-OF-JURISDICTION": "n/a     "}[r["status"]]
         lines.append("  [%s] %-13s %s" % (mark, r["id"], r["title"]))
+        if r["status"] == "PAUSED":
+            lines.append("      intentionally paused: " + "; ".join(r.get("evidence", [])))
+            continue
         if r["status"] == "OUT-OF-JURISDICTION":
             lines.append("      not present in this repository (jurisdiction line did not hold)")
             continue
@@ -647,7 +660,10 @@ def render(doc):
             lines.append("      why  : %s" % r["why"])
     lines.append("")
     if not standing:
-        lines.append("  Every system in jurisdiction is healthy.")
+        if any(r["status"] == "PAUSED" for r in doc["systems"]):
+            lines.append("  No active system is standing; paused systems were not checked.")
+        else:
+            lines.append("  Every system in jurisdiction is healthy.")
     else:
         lines.append("  %d system(s) standing. Oldest first: %s" % (
             len(standing), ", ".join(r["id"] for r in standing)))

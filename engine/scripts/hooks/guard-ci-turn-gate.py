@@ -147,6 +147,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from ci_pause import pause_for
 import time
 from datetime import datetime, timezone
 
@@ -859,6 +861,8 @@ def evaluate(payload, budget):
                            "branch": p.get("branch") or "", "at": p.get("at")}
 
     notices = []
+    if cannot and not pushes and pause_for(payload.get("cwd") or os.getcwd()):
+        return 0, "", ""
     if cannot and not pushes:
         # Nothing to judge AND no way to look. Say so once per session: a turn
         # that ended without this check having run must not look like a turn
@@ -899,6 +903,9 @@ def evaluate(payload, budget):
     for key, push in targets:
         remote = push.get("remote") or "origin"
         root, slug, err = repo_facts(push["dir"], remote, budget, facts_cache)
+        if slug and pause_for(slug):
+            # Keep the push history for restoration; do not read CI or demand an ack.
+            continue
         if err:
             permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue

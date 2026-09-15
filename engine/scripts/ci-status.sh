@@ -156,6 +156,14 @@ else:
                    ", ".join("%s %d" % (k, v) for k, v in sorted(per.items(), key=lambda t: -t[1])),
                    ("; %d further reading(s) UNJUDGED" % unjudged) if unjudged else ""))
 
+paused = doc.get("paused_repositories", [])
+if paused:
+    names = ", ".join(r["slug"] for r in paused)
+    if not nrepos:
+        sentence = "CI PAUSED for %s. No verification verdict is being requested." % names
+    else:
+        sentence += " Monitoring PAUSED for %s; excluded from those counts." % names
+
 if mode == "sentence":
     print(sentence)
     # The one-line form carries the SAME exit code as the full report. A
@@ -168,6 +176,8 @@ if mode == "sentence":
 print("=" * 100)
 print("CI SURFACE — %s — branch %s" % (doc["generated_at"], doc["branch"]))
 print("=" * 100)
+for r in paused:
+    print("  PAUSED %-35s %s" % (r["slug"], r["reason"]))
 for r in doc.get("repositories", []):
     print("  %-42s %s  (%s)" % (r["slug"], r["root"], r["source"]))
 print()

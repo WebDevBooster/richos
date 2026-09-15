@@ -699,6 +699,8 @@ HOOK_FILES+=(
     # the only record that a red workflow was waved past, and a copy that
     # dropped the reason floor would turn a decision into a keystroke.
     "$REPO_ROOT/scripts/hooks/guard-ci-turn-gate.py"
+    # Shared operator pause policy used by CI gates and reports.
+    "$REPO_ROOT/scripts/lib/ci_pause.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

@@ -281,6 +281,7 @@ ENG2="$NB/hq/engine"
 mkdir -p "$ENG2/scripts/lib" "$SANDBOX/bin" "$SANDBOX/home2/.claude/state"
 cp "$WATCH" "$ENG2/scripts/"
 cp "$REAL_SURFACE" "$ENG2/scripts/lib/"
+cp "$SCRIPT_DIR/lib/ci_pause.py" "$ENG2/scripts/lib/"
 cp "$ENG/scripts/ci-status.sh" "$ENG2/scripts/"
 cp "$ENG/scripts/lib/ci-red.py" "$ENG2/scripts/lib/"
 # A ledger that EXISTS, and an engine root that RESOLVES: the absence of either

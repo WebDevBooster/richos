@@ -150,6 +150,8 @@ import os
 import re
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_pause import pause_for
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -2060,6 +2062,17 @@ def main(argv=None):
                           "blind": list(blind)}, indent=2))
         return 2
 
+    paused_repos = []
+    active_repos = []
+    for root, slug, source in repos:
+        pause = pause_for(slug)
+        if pause:
+            paused_repos.append({"slug": slug, "root": root, "reason": pause["reason"],
+                                 "since": pause.get("since")})
+        else:
+            active_repos.append((root, slug, source))
+    repos = active_repos
+
     mode = args.cache_mode or ("off" if args.no_cache else "use")
     api = Api(offline=args.offline, cache_ttl=args.cache_ttl, cache_mode=mode,
               timeout=args.timeout, retries=args.retries)
@@ -2072,6 +2085,7 @@ def main(argv=None):
         "branch": args.branch,
         "repositories": [{"slug": s, "root": r, "source": src} for r, s, src in repos],
         "workflows": entries,
+        "paused_repositories": paused_repos,
         "blind": list(blind),
         "api": api.report(),
         "counts": {"repositories": len(repos), "workflows": len(entries), "findings": findings},
