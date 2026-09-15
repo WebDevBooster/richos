@@ -1,0 +1,68 @@
+=== dispatch-pretooluse.sh — the runner shape ===
+
+--- A. the chain runs, and its verdict is the set's verdict ---
+  PASS  D1  all rules allow -> exit 0, and the chain is SILENT
+  PASS  D2  one rule blocks -> exit 2, and its refusal reaches stderr verbatim
+  PASS  D3  TWO rules block -> BOTH refusals are reported, not just the first
+  PASS  D4  refusals are reported in MANIFEST ORDER, which is registration order
+  PASS  D5  a NON-blocking rule's notice still reaches stderr, and does not block
+
+--- B. one rule failing must not take the others down ---
+  PASS  D6  a MISSING rule module is named as not-evaluated, and every sibling still runs
+  PASS  D6b a MISSING rule does not block by itself — it has no verdict, only an announcement
+  PASS  D7  a rule exiting 1 is ANNOUNCED as not-evaluated, is NOT a block, and siblings run
+  PASS  D8  a rule exiting 127 is named with its code, and a sibling's block still stands
+
+--- C. the shared address space does not leak ---
+  PASS  D9  a rule's SHELL OPTIONS do not reach the next rule
+  PASS  D10 a rule's VARIABLES do not reach the next rule
+  PASS  D11 a rule's exit ends the RULE, never the chain — later rules still run
+
+--- D. every rule gets the same payload, on its own stdin ---
+  PASS  D12 every rule reads the SAME payload, byte-for-byte, on its own stdin
+
+--- E. stdout is an envelope, and two envelopes are not one envelope ---
+  PASS  D13 ONE rule writing stdout has its envelope forwarded verbatim
+  PASS  D14 TWO rules writing stdout -> one VALID envelope naming the collision, never invalid JSON
+
+--- F. the dispatcher refuses rather than guesses ---
+  PASS  D15 NO chain key -> exit 2 naming the problem, never a silent pass
+  PASS  D16 a chain key the manifest does not name -> exit 2, never an empty silent chain
+  PASS  D17 a MISSING manifest -> exit 2 saying every rule is unevaluated
+
+--- G. the SHIPPED manifest and the SHIPPED registration agree ---
+  PASS  D18 every rule the shipped manifest names is present on disk (17 rules)
+  PASS  D19 no rule is BOTH a dispatcher module and its own registration (no double execution)
+  PASS  D20 every chain key hooks.json passes the dispatcher exists in the manifest (2 registrations)
+  PASS  D21b the manifest is sidecar-hashed by install.sh and matches
+  PASS  D21 every rule is still independently runnable as its own process (rc 0 or 2)
+
+--- H. the chassis memos: inert by default, exact when enabled ---
+  PASS  D22 with the memo OFF (the default) two different payloads get two different answers
+  PASS  D23 with the memo ON a repeat gives the SAME root, status and source as the uncached answer
+  PASS  D24 the memo is KEYED: a different payload is recomputed, never served the previous answer
+  PASS  D26 OFF by default means the FILESYSTEM is still consulted every time, which no memo key can cover
+  PASS  D25 the payload-readability memo returns the same answer AND the same rc, cached or not
+
+=== 28 passed, 0 failed ===
+
+=== THE PreToolUse RUNNER: every property, proven load-bearing by removing it ===
+  PASS  block-not-propagated — removing it turns "D2" red  [19.4s]
+  PASS  first-block-wins — removing it turns "D3" red  [19.7s]
+  PASS  missing-module-silent — removing it turns "D6" red  [22.4s]
+  PASS  missing-module-blocks — removing it turns "D6b" red  [22.1s]
+  PASS  oddrc-silent — removing it turns "D7" red  [13.4s]
+  PASS  oddrc-blocks — removing it turns "D7" red  [12.9s]
+  PASS  options-leak — removing it turns "D9" red  [7.3s]
+  PASS  no-subshell — removing it turns "D11" red  [6.9s]
+  PASS  payload-truncated — removing it turns "D12" red  [6.4s]
+  PASS  stdout-concatenated — removing it turns "D14" red  [6.4s]
+  PASS  no-key-passes — removing it turns "D15" red  [6.1s]
+  PASS  empty-chain-passes — removing it turns "D16" red  [6.0s]
+  PASS  no-manifest-passes — removing it turns "D17" red  [7.9s]
+  PASS  memo-always-on — removing it turns "D26" red  [7.9s]
+  PASS  memo-unkeyed — removing it turns "D24" red  [10.1s]
+  PASS  ue-memo-loses-reason — removing it turns "D25" red  [9.7s]
+  [16 mutant(s), 2 at a time, wall 1m34.0s, slowest 22.5s missing-module-silent, 1.9x serial]
+
+=== mutation: all 16 properties proven load-bearing ===

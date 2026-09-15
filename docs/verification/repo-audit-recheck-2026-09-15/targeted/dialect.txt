@@ -1,0 +1,131 @@
+=== A. POSITIVES — it blocks ===
+  PASS  A1. Write: 'colour' in prose is blocked
+  PASS  A2. Edit: 'behaviour' is blocked
+  PASS  A3. MultiEdit: one dirty edit among clean ones
+  PASS  A4. NotebookEdit: 'defence' is blocked
+  PASS  A5. 'judgement' is blocked
+  PASS  A6. 'whilst' is blocked
+  PASS  A7. 'towards' is blocked
+  PASS  A8. 'analysed' is blocked
+  PASS  A9. 'catalogue' is blocked
+  PASS  A10. 'artefacts' is blocked
+  PASS  A11. 'organisation' is blocked
+  PASS  A12. 'grey' in a .md file is blocked
+  PASS  A13. suggestion is re-cased: Colour -> Color
+  PASS  A14. suggestion is re-cased: LICENCE -> LICENSE
+  PASS  A15. the block names the file it refused
+  PASS  A16. the block names the declared-exemption route
+  PASS  A17. 'CEO queue' is blocked
+  PASS  A18. "CEO's queue" is blocked
+  PASS  A19. the queue block names CEO-TODOs as the fix
+
+=== B. NEGATIVES — it does not cry wolf ===
+  PASS  B1. clean American prose passes
+  PASS  B2. American 'license' is never flagged
+  PASS  B3. camelCase identifier 'colourPicker'
+  PASS  B4. snake_case identifier 'text_colour'
+  PASS  B5. CSS custom property '--brand-colour'
+  PASS  B6. a path token containing 'licence'
+  PASS  B7. a URL containing 'licence'
+  PASS  B8. inline code span `colour`
+  PASS  B9. blockquote line (quoted external material)
+  PASS  B10. fenced code block
+  PASS  B11. declared 'dialect-exempt: <reason>'
+  PASS  B12. a BARE 'dialect-exempt:' exempts nothing
+  PASS  B13. 'grey' in a .css file is a legal CSS color
+  PASS  B14. 'grey' in a .scss file
+  PASS  B15. captured evidence under wiki/raw/
+  PASS  B16. captured transcript under docs/cold-open/
+  PASS  B16b. a QUALIFIED evidence dir: license-snapshots/
+  PASS  B16c. ...but 'raw-notes/' is still prose, not raw
+  PASS  B17. a .log run output
+  PASS  B18. a .jsonl corpus
+  PASS  B19. anything under node_modules/
+  PASS  B20. vendor LICENSE.md
+  PASS  B21. vendor NOTICE
+  PASS  B22. package-lock.json
+  PASS  B23. the guard's own dictionary
+  PASS  B24. legacy '.ceo-queue' file name (identifier)
+  PASS  B25. 'ceo_queue' identifier
+  PASS  B26. rename narration: 'called the CEO queue'
+  PASS  B27. rename narration: 'renamed the CEO queue'
+  PASS  B28. 'analyses' is already American
+  PASS  B29. 'dialogue' is American too
+  PASS  B30. 'practice' the noun
+  PASS  B31. 'cancellation' keeps its double L
+  PASS  B32. 'controlled' keeps its double L
+  PASS  B33. 'surprise'/'advertise' are -ise in both
+  PASS  B34. a non-Write/Edit tool is ignored
+  PASS  B36. 'enrollment'/'enrolled' are ALREADY American
+  PASS  B37. ...but British 'enrolment' is blocked
+  PASS  B35. malformed payload fails OPEN (exit 0)
+
+=== C. THE 'queue' COLLOCATION — reported, never blocked ===
+  PASS  C1. 'the queue' near CEO is REPORTED, not blocked
+  PASS  C2. ...and the report says why it was not blocked
+  PASS  C3. 'his queue' with no CEO/TODO context is clean
+  PASS  C4. a hard finding + a soft one still exits 2
+
+=== D. CONFIGURATION AND FAILURE MODES ===
+  PASS  D1. blank DIALECT_TARGET is a SILENT no-op (exit 0, no stderr)
+  PASS  D2. a foreign DIALECT_TARGET is an ANNOUNCED no-op, never a pretend enforcement
+  PASS  D3. DIALECT_SCAN_ALLOWLIST exempts a literal substring
+  PASS  D4. DIALECT_EXEMPT_PATHS exempts a path substring
+  PASS  D5. a missing dictionary is FAIL-CLOSED (exit 2)
+  PASS  D6. a missing python3 is FAIL-CLOSED (exit 2)
+
+=== E. STRUCTURE — the guard is wired, hashed, and single-sourced ===
+  PASS  E1. guard-dialect.sh sources the root-resolution contract
+  PASS  E2. registered on the plugin surface (hooks/hooks.json)
+  PASS  E3. registered on the seated surface (.claude/settings.local.json)
+  PASS  E4. the dictionary is sidecar-hashed by install.sh
+  PASS  E5. the vocabulary lives in exactly one file
+
+=== V. VENDORED MATERIAL — whose prose is this? ===
+  PASS  V1. a file recorded as third-party is left alone
+  PASS  V2. a file recorded as origin=richos is STILL checked
+  PASS  V3. an UNRECORDED path under skills/ is still checked
+  PASS  V4. an ungoverned path is still checked
+  PASS  V5. a MODIFICATIONS notice INSIDE a vendored dir is exempt
+  PASS  V13. a vendored file draws no CEO-TODOs note either
+  PASS  V14. ...and our own file still draws one (the note is not simply gone)
+  PASS  V6. a DECLARED but unreadable registry is fail-closed
+  PASS  V7. ...and it says the registry is why
+  PASS  V15. a broken registry also refuses a REPORTING verdict
+  PASS  V8. THE DAMAGED FILE accepts upstream's own spelling
+  PASS  V9. the SECOND damaged file (landing-page-taste) too
+  PASS  V10. RE-VENDORING the file VERBATIM from upstream succeeds
+  PASS  V10b. the SAME upstream bytes are refused for first-party material
+  PASS  V11. a RichOS-authored skill in the real tree is still blocked
+  PASS  V12. quoting a foreign spelling in the notices document is possible
+
+=== running the mutation harness ===
+=== the dialect guard: every property, proven load-bearing by removing it ===
+  PASS  refuses-to-refuse — removing it turns A1.  red
+  PASS  empty-vocabulary — removing it turns A1.  red
+  PASS  nodict-passes — removing it turns D5.  red
+  PASS  bare-marker-exempts — removing it turns B12.  red
+  PASS  no-ceo-queue-rule — removing it turns A17.  red
+  PASS  soft-queue-blocks — removing it turns C1.  red
+  PASS  no-identifier-exemption — removing it turns B5.  red
+  PASS  no-fence-exemption — removing it turns B10.  red
+  PASS  no-blockquote-exemption — removing it turns B9.  red
+  PASS  no-inline-code-exemption — removing it turns B8.  red
+  PASS  no-evidence-path-exemption — removing it turns B15.  red
+  PASS  no-vendor-legal-exemption — removing it turns B20.  red
+  PASS  no-ext-exempt — removing it turns B13.  red
+  PASS  no-rename-narration — removing it turns B26.  red
+  PASS  no-word-boundaries — removing it turns B3.  red
+  PASS  no-vendored-exemption — removing it turns V1.  red
+  PASS  no-vendored-exemption-on-soft — removing it turns V13.  red
+  PASS  vendored-exemption-ignores-origin — removing it turns V2.  red
+  PASS  vendored-broken-fails-open — removing it turns V15.  red
+  PASS  analysis-is-british — removing it turns B28.  red
+  PASS  enrollment-is-british — removing it turns B36.  red
+  [21 mutant(s), 2 at a time, wall 6m54.2s, slowest 1m08.1s enrollment-is-british, 1.8x serial]
+
+
+  21/21 properties proven load-bearing
+
+
+  89/89 cases passed

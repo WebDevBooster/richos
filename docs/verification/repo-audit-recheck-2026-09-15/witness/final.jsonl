@@ -1,0 +1,3 @@
+{"expected_rc":0,"rc":0,"seconds":12.2,"sha":"fb94f088d54774cfa4580086c1da915d3b3f99f1","shard":0,"shards":12,"unit":"scripts/hooks/install-retire-reconciler.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":52.5,"sha":"fb94f088d54774cfa4580086c1da915d3b3f99f1","shard":0,"shards":12,"unit":"scripts/hooks/waiver-repetition.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":6.1,"sha":"fb94f088d54774cfa4580086c1da915d3b3f99f1","shard":0,"shards":12,"unit":"scripts/lib/global-state-witness.test.sh","verdict":"PASS"}
