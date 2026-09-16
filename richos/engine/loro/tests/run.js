@@ -1346,9 +1346,9 @@ test('writer: a JSONL-promoted record is superseded by rewriting ONE line, byte-
 });
 
 test('writer: a ref that names PROSE is refused with the file to open (the escape hatch)', () => {
-  const corpus = loadCorpus({ root: FIX_ACME, now: NOW });
+  const corpus = loadCorpus({ root: REPO_ROOT, now: NOW });
   assert.throws(
-    () => correctRecord({ corpus, corpusRoot: { root: FIX_ACME, layout: 'repo' }, ref: 'wiki:pricing.md#discount-authority', why: 'w', now: NOW }),
+    () => correctRecord({ corpus, corpusRoot: { root: REPO_ROOT, layout: 'repo' }, ref: 'wiki:pricing.md#discount-authority', why: 'w', now: NOW }),
     /PROSE section/,
   );
 });
