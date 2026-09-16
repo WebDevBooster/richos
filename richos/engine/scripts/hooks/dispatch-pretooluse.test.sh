@@ -201,6 +201,75 @@ else
 fi
 
 echo
+# Exit-zero stderr is hidden by the host. Require one visible JSON envelope.
+for broken in t-absent-module.sh t-rc1.sh t-rc127.sh; do
+    mkmanifest "Bash|$broken"
+    run Bash
+    if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert sys.argv[1] in d["systemMessage"]; assert "DID NOT EVALUATE" in d["systemMessage"]; assert "hookSpecificOutput" not in d' "$broken" 2>/dev/null; then
+        ok "D7b $broken is visible in the host systemMessage without inventing a verdict"
+    else
+        bad "D7b $broken has no valid visible failure notice (rc=$RC out=$OUT)"
+    fi
+done
+
+w t-envelope.sh 'cat >/dev/null; echo '\''{"systemMessage":"KEEP-ME","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","additionalContext":"KEEP-CONTEXT"}}'\''; exit 0'
+mkmanifest 'Bash|t-absent-module.sh' 'Bash|t-rc1.sh' 'Bash|t-envelope.sh'
+run Bash
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert all(x in d["systemMessage"] for x in ["KEEP-ME", "t-absent-module.sh", "t-rc1.sh"]); assert d["hookSpecificOutput"] == {"hookEventName":"PreToolUse", "permissionDecision":"ask", "additionalContext":"KEEP-CONTEXT"}' 2>/dev/null; then
+    ok "D7c failures merge into one envelope preserving sibling control and context"
+else
+    bad "D7c failures lost sibling output (rc=$RC out=$OUT)"
+fi
+
+# Remove the pid record to exercise the no-start report branch deterministically.
+cp "$SBD/dispatch-pretooluse.sh" "$SANDBOX/original-dispatcher"
+python3 - "$SBD/dispatch-pretooluse.sh" <<'PYINNER'
+import pathlib, sys
+p=pathlib.Path(sys.argv[1]); s=p.read_text()
+s=s.replace('printf \'%s\\n\' "$!" > "$_dsp_slot.pid"', ': omitted-pid')
+p.write_text(s)
+PYINNER
+mkmanifest 'Bash|t-pass.sh'
+run Bash
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "t-pass.sh" in d["systemMessage"]; assert "could not be started" in d["systemMessage"]' 2>/dev/null; then
+    ok "D7d a rule without a process status gets a visible failure notice"
+else
+    bad "D7d a rule without a process status is invisible (rc=$RC out=$OUT)"
+fi
+cp "$SANDBOX/original-dispatcher" "$SBD/dispatch-pretooluse.sh"
+
+mkmanifest 'Bash|t-absent-module.sh' 'Bash|t-stdout.sh' 'Bash|t-stdout2.sh'
+run Bash
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "2 rules" in d["systemMessage"]; assert "t-absent-module.sh" in d["systemMessage"]' 2>/dev/null; then
+    ok "D7e a stdout collision does not swallow a failure notice"
+else
+    bad "D7e a stdout collision swallowed a failure notice (out=$OUT)"
+fi
+
+w t-invalid.sh 'cat >/dev/null; echo not-json; exit 0'
+mkmanifest 'Bash|t-rc1.sh' 'Bash|t-invalid.sh'
+run Bash
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "invalid hook output" in d["systemMessage"]; assert "t-rc1.sh" in d["systemMessage"]' 2>/dev/null; then
+    ok "D7f malformed sibling stdout cannot suppress the failure notice"
+else
+    bad "D7f malformed sibling stdout suppressed the failure notice (out=$OUT)"
+fi
+
+python3 - "$SBD/dispatch-pretooluse.sh" <<'PYINNER'
+import pathlib, sys
+p=pathlib.Path(sys.argv[1]); s=p.read_text()
+s=s.replace('if python3 - "$_DSP_WORK"', 'if false && python3 - "$_DSP_WORK"')
+p.write_text(s)
+PYINNER
+mkmanifest 'Bash|t-absent-module.sh' 'Bash|t-rc1.sh'
+run Bash
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "t-absent-module.sh" in d["systemMessage"]; assert "t-rc1.sh" in d["systemMessage"]; assert "\n" in d["systemMessage"]' 2>/dev/null; then
+    ok "D7g a broken JSON encoder still produces a valid visible notice"
+else
+    bad "D7g a broken JSON encoder silenced the failure notice (out=$OUT)"
+fi
+cp "$SANDBOX/original-dispatcher" "$SBD/dispatch-pretooluse.sh"
+
 echo "--- C. the shared address space does not leak ---"
 
 # t-leak.sh turns on `set -u` and exports a variable. t-needs-defaults.sh then

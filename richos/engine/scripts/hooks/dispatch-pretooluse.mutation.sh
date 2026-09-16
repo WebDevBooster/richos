@@ -89,6 +89,17 @@ mutant oddrc-blocks "D7" "$D" \
             printf' \
     "one rule crashing would refuse the tool call, so a bug in any of seventeen rules would stop the whole session rather than being reported."
 
+# Visible diagnostics and preservation of a sibling verdict are separate contracts.
+mutant failures-stderr-only "D7b" "$D" \
+    'if [ -s "$_DSP_WORK/failures" ]; then' \
+    'if false; then' \
+    "failed rules would again be invisible to the operator because exit-zero stderr is hidden."
+
+mutant failure-discards-sibling "D7c" "$D" \
+    '    result = json.loads(raw) if raw else {}' \
+    '    result = {}' \
+    "a failure notice would erase a sibling rule permission decision and additional context."
+
 # --- 6. THE SUBSHELL IS THE ISOLATION --------------------------------------
 mutant options-leak "D9" "$D" \
     '        set +e +u +o pipefail' \
