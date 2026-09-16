@@ -13,9 +13,14 @@ web UI), local-first, single-machine, **no relay**. Built to the system architec
 - The RichOS front-end notes (v1 CEO-only / single-machine / no-relay; BYO-Anthropic;
   Rich-organized topic threads over one shared ledger/loro).
 
-This scaffold delivers **front-end Phase 1.1–1.2 + the P1.4 continuity FOUNDATION**:
-a working "talk to Rich" loop through the real native path, a crash-safe conversation +
-action ledger, a multi-thread data model, and the re-prime seam.
+The 1.2.0 plumbing candidate connects Loro, ECS, Mega Lander and ASS Kicker from
+`richos/engine/` through an app-owned coordination profile. It includes explicit
+repository registration, durable work and review receipts, scoped action decisions,
+external private knowledge storage and delivered component runtimes. Personal
+working context is not bundled. See the [runtime contract](../../docs/architecture/app-engine-runtime.md),
+[work contract](../../docs/architecture/desktop-work.md) and
+[current verification limits](../../docs/verification/desktop-work-2026-09-16.md).
+Installed acceptance and release publication remain separate gates.
 
 ## Who reads every string in here
 
@@ -39,7 +44,7 @@ conversation-UX brief.
 
 `richos/tools/` holds supporting utilities (the extension, the transcription service, the
 dictation HUD). This is the **primary product delivery surface** — the system architecture
-calls it "the RichOS DESKTOP APP," a peer of `richos/engine/` and `loro/`, not a tool. So it
+calls it "the RichOS DESKTOP APP," a peer of `richos/engine/`. Loro is now an engine component. So it
 lives under the product folder at `richos/app/`.
 
 ## Layout
@@ -50,7 +55,7 @@ richos/app/
   crates/richos-core/        the runtime SPINE — UI-agnostic, fully unit-tested
     src/native.rs            the COMPUTE-LEASE client: stream-json stdio to the native
                               `claude` binary. No adapter, no Node, no npm (§16). Carries
-                              the auto-approve seam (`decide_permission`), the loud
+                              the scoped permission desk, the loud
                               startup handshake, and the between-turn lane
     src/entity.rs            the ENTITY scope + privacy boundary (ECS §3.2-3.4): validated
                               entity ids, the PER-USER registry (read from `entities.json` in

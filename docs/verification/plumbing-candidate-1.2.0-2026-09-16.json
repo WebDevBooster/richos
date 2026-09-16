@@ -3,17 +3,17 @@
   "date": "2026-09-16",
   "app_version": "1.2.0",
   "engine_version": "1.2.0",
-  "app_source_revision": "c72e0a80",
-  "engine_source_revision": "b561bf5c",
+  "app_source_revision": "df55c2fc",
+  "engine_source_revision": "df55c2fc",
   "app_archive": {
     "name": "RichOS.app.tar.gz",
-    "sha256": "cc9601910fd02a08c300fe40e7da59fcfd41091b9d62f0c67afef3c6cd7a18da",
-    "bytes": 10889848
+    "sha256": "88703c39e0586b1cc89faa9df9a43b983f0e1c881a4fa1030a71ad2f9e688999",
+    "bytes": 10894148
   },
   "engine_archive": {
     "name": "richos-engine-1.2.0.tar.gz",
-    "sha256": "3ac3382746075d60bf9b07aed3aec87a19d0f8e7cb9bf8ea1c54bc74b0c04902",
-    "bytes": 119357278
+    "sha256": "588770acf7ea297589e40a26fd066543dbb60ad60182fd8a6f5b48c849ccac12",
+    "bytes": 119357625
   },
   "compatibility_manifest_sha256": "08e752eaddbcfec17ed1e79f4c3fcb10b5f7fc4f445b4c0865866e59e3d4b537",
   "platform_tested": "macOS 15.6 arm64",
@@ -29,5 +29,8 @@
   "composed_desktop_journey": "pending",
   "public_engine_url_available": "not established; asset not published by this work",
   "publication": "not published",
-  "personal_context_migration": "not performed"
+  "personal_context_migration": "not performed",
+  "app_executable_sha256": "e726d82c0d6a9d9bbaa95623ff643e7d1866beb67ffa156c856b7bf0d94b502c",
+  "natural_assignment_no_manual_approvals": "passed against extracted engine: two repositories, independent reviews, canonical cleanup and verified obligation completion; zero manual requests",
+  "loro_ecs_extracted_candidate": "passed: append, supersede, historical read and two idempotent confirmed receipts; zero ECS knowledge writes"
 }

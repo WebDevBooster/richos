@@ -36,17 +36,24 @@ the extracted candidate's runtimes and components.
 
 ## Automated evidence
 
-- The full core run passed 1,020 ordinary tests and five documentation tests;
-  four opt-in/helper cases remained ignored. Later affected library checks passed
-  all 551 library cases, with one ignored, and the Tauri suite passed all 98 cases.
-- Eleven desktop dispatch/review/integration cases passed. They include dirty
+- The full core run passed 1,022 ordinary tests and five documentation tests;
+  four opt-in/helper cases remained ignored. This includes 552 library cases,
+  with one library helper ignored. The Tauri suite passed all 98 cases.
+- Thirteen desktop dispatch/review/integration cases passed. They include dirty
   checkout preservation, cross-session continuation, failure after fast-forward,
   partial cleanup, rejection followed by a corrected review and crash recovery
-  after ECS closes an obligation but before its local receipt is saved.
+  after ECS closes an obligation but before its local receipt is saved. Native
+  reviewer handback tests require successful delivery, exact identity/commit and
+  a settled reviewer; malformed or failed reports cannot reuse a passing verdict.
+  A later extension of the command-format check passed its focused regression.
 - The canonical Mega Lander suite passed all 76 cases with delivered Python and
-  Git. Review-chain cleanup still uses canonical eligibility checks.
+  Git. The additional mutation sweep was stopped and is not claimed as passing.
+  Review-chain cleanup still uses canonical eligibility checks.
 - Eighteen ECS cases passed, including scoped import and confirmed Loro receipt
   recovery. Five desktop hook cases and seven evidence projection cases passed.
+- ASS Kicker passed 47 provenance cases, 53 scope cases, 49 stated-action cases
+  and seven relocation cases. Its 11 scope mutations and 32 stated-action mutations
+  were killed at their intended assertions with passing intact controls.
 - The isolated GUI boot harness passed 29 cases. It used copied public components,
   delivered runtimes, an empty launch environment and a stub provider. This is
   useful boot evidence, not a clean OS or live desktop journey.
@@ -59,7 +66,8 @@ the extracted candidate's runtimes and components.
 
 Live and fault tests found defects in background dispatch payloads, target versus
 coordination paths, inherited Git configuration, nested Python bytecode writes,
-continued-work identity, cleanup retries and rejected-review cleanup. Those
+continued-work identity, cleanup retries, rejected-review cleanup and the native
+reviewer handback path. Those
 failures were fixed and affected checks repeated. Failed runs are not counted as
 passing capabilities.
 
@@ -90,9 +98,32 @@ proof includes ordinary permission handling without routine repeated approvals,
 Stop/resume and revision steering through the UI, component refusal paths,
 installed legacy upgrade/import cases and final artifact provenance.
 
-The current permission desk makes exact, turn-bound decisions and rejects stopped
-or stale requests. A fixture that approves every request does not prove that this
-meets the ordinary authorized-action requirement. That remains an explicit gate.
+The native profile now requests automatic permission classification with default
+protections retained, explicit current-company repositories and thread workspaces.
+It refuses visible work if the provider does not report automatic mode. The exact,
+turn-bound decision desk remains for requests the provider cannot approve.
+
+An audit of the earlier successful natural-assignment run found 27 synthetic
+permission approvals: 24 Bash, one Read and two integrate requests. That run did not
+meet ordinary-action acceptance. The stricter live probe refuses all manual requests.
+It exposed non-classifiable variable-based Git commands and commit-message command
+substitution. App input validation now catches those forms before permission checks;
+it does not execute replacements or grant permission. The roles use direct paths
+and literal Git arguments. Denied native actions remain denied.
+
+The live permission-boundary probe passed: direct Git checks needed no approval,
+and a deliberately complex read-only loop reached the exact-action desk and was
+denied without execution or automatic retry.
+
+The final natural-assignment probe passed against the extracted engine identified
+in the candidate manifest. With every manual request configured to be refused, it
+completed both repositories, obtained independent reviews, integrated locally,
+removed eligible workspaces and closed the shared obligation through verified
+receipts. The manual-request count was exactly zero. Successful native reviewer
+handbacks and their observed ends were retained separately. The final extracted
+candidate also passed the actual Loro/ECS correction and receipt-projection probe.
+These are real-provider/component checks, not the installed desktop UI journey.
+Installed UI acceptance remains pending.
 
 No private working context was migrated, live engine pointer activated, public
 branch pushed, release published or remote CI enabled. Local ad-hoc signing is
