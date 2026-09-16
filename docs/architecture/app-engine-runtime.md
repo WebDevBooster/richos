@@ -106,8 +106,11 @@ request cannot revive a stopped turn.
 
 Claude Code 2.1.273 permits direct Git checks automatically but routes some compound
 shell forms to a `safetyCheck` with `classifier_approvable: false`. The shipped roles
-use direct commands and literal target paths for routine checks. They do not retry
-a denied action through another command. The opt-in `work_roundtrip --permissions`
+use direct commands and literal target paths for routine checks. A PreToolUse
+format check rejects shell-variable Git targets before permission evaluation;
+it neither executes a replacement nor grants approval. A corrected command still
+passes the normal provider checks. A denied permission is not retried through
+another command. The opt-in `work_roundtrip --permissions`
 probe checks direct commands and an intentionally denied compound command. The
 `RICHOS_PROBE_NO_MANUAL=1` natural-assignment probe rejects any manual request.
 Provider availability and future behavior still require the installed release gate.

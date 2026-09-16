@@ -52,7 +52,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   let simple=spine.submit_prompt(&format!("Use Bash to run git -C {:?} status --short --branch, then run git -C {:?} log --oneline -3. These are local read-only checks in my connected project. Report the result. If refused, stop rather than retry.",root.0.join("first project"),root.0.join("first project")),Source::Text)?;
   eprintln!("Direct command response: {}",spine.ledger().turn(&simple).unwrap().assistant_text);
   assert!(approval_counts.lock().unwrap().is_empty(),"routine direct commands required manual permission");
-  let turn=spine.submit_prompt(&format!("Use Bash to run this exact read-only shell command once: B={:?}; for r in \"first project\" \"second project\"; do echo \"== $r\"; git -C \"$B/$r\" status --short --branch; git -C \"$B/$r\" log --oneline -3; git -C \"$B/$r\" ls-files; git -C \"$B/$r\" remote -v; done. Both are my connected local projects. Report the result. If refused, stop rather than retry.",root.0),Source::Text)?;
+  let turn=spine.submit_prompt(&format!("Use Bash to run this exact read-only shell command once: for p in {:?} {:?}; do /bin/ls -ld \"$p\"; done. Both are my connected local projects. Report the result. If refused, stop rather than retry.",root.0.join("first project"),root.0.join("second project")),Source::Text)?;
   eprintln!("Permission probe response: {}",spine.ledger().turn(&turn).unwrap().assistant_text);
   finished.store(true,Ordering::SeqCst);responder.join().unwrap();
   assert_eq!(*approval_counts.lock().unwrap(),std::collections::BTreeMap::from([("Bash".to_string(),1)]),"one compound-command safety check should reach the exact-action desk");

@@ -62,6 +62,7 @@ def handle(payload):
     work = load("richos_desktop_work", ENGINE / "mega-lander/app.py")
     if event == "PreToolUse":
         run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-sealed-worktree.sh")], payload)
+        work.validate_shell_target(payload)
         context = work.worker_context(active, payload)
         if context: print(json.dumps(context))
     if event == "PreToolUse" and payload.get("tool_name") == "Agent":

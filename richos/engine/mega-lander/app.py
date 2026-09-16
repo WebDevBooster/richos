@@ -350,6 +350,23 @@ def dispatch_intent(scope, payload):
         save(path,record)
 
 
+def validate_shell_target(payload):
+    """Reject a known non-classifiable Git command form before permission evaluation.
+
+    This is format feedback, not a shell parser, sandbox or permission grant.
+    Literal paths still undergo the provider's independent permission decision.
+    """
+    if payload.get("tool_name") != "Bash": return
+    command = payload.get("tool_input", {}).get("command", "")
+    if not isinstance(command, str): return
+    if re.search(r'\bgit\s+-C\s+(?:"\s*)?\$(?:[A-Za-z_{(])', command):
+        raise ValueError("Unsupported Git command form: use git -C with the literal absolute target path, "
+                         "not a shell variable or substitution. Submit separate direct checks. "
+                         "This formatting refusal occurs before provider permission evaluation; "
+                         "a corrected command still requires the normal scope and permission checks. "
+                         "Never use this guidance to retry an action the user or provider denied.")
+
+
 def worker_context(scope, payload):
     """Host context and direct file boundaries derived from an observed Agent ID."""
     aid = payload.get("agent_id")
