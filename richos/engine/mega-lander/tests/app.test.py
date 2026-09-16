@@ -160,6 +160,8 @@ class DesktopWork(unittest.TestCase):
         self.assertTrue(pending["work_integrated"])
         self.assertTrue(pending["cleanup_pending"])
         self.assertTrue(target.exists())
+        with self.assertRaisesRegex(ValueError,"cleanup"):
+            self.call("complete",{"obligation_id":"fixture-task","worker_ids":[worker["id"]]})
         result=self.call("integrate",args)
         self.assertTrue(result["work_integrated"]);self.assertFalse(result["obligation_closed"])
         self.assertEqual(result["cleanup_pending"],[])
@@ -171,6 +173,48 @@ class DesktopWork(unittest.TestCase):
         with contextlib.closing(store.connect()) as conn:
             row=conn.execute("SELECT status FROM ecs_work_units WHERE external_id=?",(worker["id"],)).fetchone()
             self.assertEqual(row["status"],"completed")
+            review_row=conn.execute("SELECT status FROM ecs_work_units WHERE external_id=?",(reviewer["id"],)).fetchone()
+            self.assertEqual(review_row["status"],"completed")
+        completion={"obligation_id":"fixture-task","worker_ids":[worker["id"]]}
+        with self.assertRaisesRegex(ValueError,"every final worker"):
+            self.call("complete",{**completion,"worker_ids":[reviewer["id"]]})
+        with self.assertRaisesRegex(ValueError,"every final worker"):
+            self.call("complete",{**completion,"worker_ids":[worker["id"],reviewer["id"]]})
+        original_execute=self.app.ECS.execute
+        def crash_after_close(root,request):
+            answer=original_execute(root,request)
+            if request["command"]=="complete-obligation":
+                raise RuntimeError("synthetic crash after completion commit")
+            return answer
+        with patch.object(self.app.ECS,"execute",side_effect=crash_after_close):
+            with self.assertRaisesRegex(RuntimeError,"synthetic crash"):
+                self.call("complete",completion)
+        # A new visible turn retries the original intent after ECS committed.
+        old_binding=self.scope["binding"]
+        binding=original_execute(self.root/"ecs",{"protocol":1,"command":"bind",
+            "scope":{**{k:v for k,v in old_binding.items() if k!="revision"},"turn_id":"completion-retry"},
+            "expected_revision":old_binding["revision"],"source_ref":"ledger:thread-a:completion-retry","request_id":"completion-retry"})["binding"]
+        self.scope["binding"]=binding;self.scope_path.write_text(json.dumps(self.scope))
+        completed=self.call("complete",completion)
+        self.assertTrue(completed["obligation_closed"])
+        self.assertFalse(completed["published"])
+        self.assertEqual(self.call("complete",completion),completed)
+        item=original_execute(self.root/"ecs",{"protocol":1,"command":"inspect","binding":binding,"query":{"item_id":"fixture-task"}})["item"]
+        self.assertEqual(item["status"],"completed")
+        with contextlib.closing(store.connect()) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM ecs_events WHERE event_type='continuity.item_closed'").fetchone()[0],1)
+        self.scope["actions_allowed"]=False;self.scope_path.write_text(json.dumps(self.scope))
+        with self.assertRaisesRegex(ValueError,"visible app turn"):self.call("complete",completion)
+
+    def test_completion_refuses_prepared_and_unreviewed_work(self):
+        worker=self.call("prepare",self.args)
+        args={"obligation_id":"fixture-task","worker_ids":[worker["id"]]}
+        with self.assertRaisesRegex(ValueError,"unresolved execution"):self.call("complete",args)
+        self.start_fixture_worker(worker,"unfinished")
+        self.finish_fixture_worker("unfinished")
+        with self.assertRaisesRegex(ValueError,"cleanup"):self.call("complete",args)
+        item=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect","binding":self.scope["binding"],"query":{"item_id":"fixture-task"}})["item"]
+        self.assertNotEqual(item["status"],"completed")
 
     def test_another_thread_cannot_read_or_dispatch_through_this_provider(self):
         ready=self.call("prepare",self.args)

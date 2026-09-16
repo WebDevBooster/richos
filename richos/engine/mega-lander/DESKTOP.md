@@ -36,7 +36,11 @@ For an authorized implementation assignment:
    the user's authorization. A verified local commit is not a published result.
 7. Reconcile every repository and requirement in the assignment before reporting
    the overall outcome. Completing one work unit does not close the broader ECS
-   obligation. Report a partial result or unresolved condition plainly.
+   obligation. Once all requirements of a code assignment are satisfied, call
+   `richos_work.complete` with the obligation and every final worker receipt.
+   It refuses unresolved execution, omitted workers or missing review/integration
+   evidence. Do not use it for unrelated business outcomes. Report partial results
+   and unresolved conditions plainly.
 
 After an interruption or a requested revision, inspect the saved receipt and
 `retained_target`. Preserve unfinished files. If dirty work needs a checkpoint

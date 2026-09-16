@@ -81,7 +81,7 @@ def execute(state_root, request):
             identity.update(file.read_bytes())
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
@@ -140,6 +140,28 @@ def execute(state_root, request):
                 raise ScopeError("observation receipt belongs to another scope")
             result = {"observed": True, "work": json.loads(event["payload_json"]),
                       "source_ref": event["source_ref"], "expected_revision": event["expected_revision"]}
+    elif command == "complete-obligation":
+        # Host-only: every final implementation must have actual review, Git and
+        # cleanup evidence. A model checkpoint cannot certify this transition.
+        import importlib.util
+        spec=importlib.util.spec_from_file_location("richos_completed_work",Path(__file__).resolve().parents[2]/"mega-lander/app.py")
+        work=importlib.util.module_from_spec(spec);spec.loader.exec_module(work)
+        identity=required(request,"completion_id")
+        receipt=work.verify_completion({"binding":binding},identity)
+        payload={"item_id":receipt["obligation_id"],"status":"completed","evidence_ref":receipt["evidence_ref"]}
+        key="app-complete:"+identity
+        existing=store.existing_event(key)
+        if existing:
+            if (existing["entity_id"] != context["entity_id"] or existing["thread_id"] != context["thread_id"]
+                    or json.loads(existing["payload_json"]) != payload or existing["source_ref"] != receipt["source_ref"]
+                    or existing["expected_revision"] != receipt["expected_revision"]):
+                raise ScopeError("completion receipt does not match its original scope or evidence")
+        else:
+            store.append("continuity.item_closed",entity_id=context["entity_id"],thread_id=context["thread_id"],
+                session_id=context["session_id"],active_context_revision=context["revision"],
+                actor_kind="authority_adapter",actor_id="richos-provider-v1",source_ref=receipt["source_ref"],
+                idempotency_key=key,expected_revision=receipt["expected_revision"],payload=payload)
+        result={"obligation_closed":True,"obligation_id":receipt["obligation_id"],"evidence_ref":receipt["evidence_ref"]}
     elif command in ("observe", "verified-work"):
         # Host-issued observations only. The app translates provider facts;
         # generic checkpoints cannot impersonate a task authority.

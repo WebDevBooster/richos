@@ -166,13 +166,17 @@ def refresh(record):
 def project(scope, path, record):
     """Durable outbox: retry the exact pending ECS request after a partial failure."""
     status = {"prepared":"created", "dispatching":"assigned", "running":"started", "blocked":"blocked", "integrated":"completed"}.get(record["status"], "unknown")
-    projection = json.dumps([status, record.get("agent_id"), record.get("end_observation")], sort_keys=True)
+    if record["status"] == "run-ended" and record["request"]["role"] == "reviewer" and record.get("review_observation", {}).get("valid"):
+        status = "completed"  # The review was performed; its verdict may still refuse integration.
+    if record.get("workspace_disposition", {}).get("kind") == "continued":
+        status = "cancelled"  # This attempt was superseded, not the parent assignment.
+    projection = json.dumps([status, record.get("agent_id"), record.get("end_observation"), record.get("review_observation"), record.get("workspace_disposition")], sort_keys=True)
     if record.get("ecs_projection") == projection: return
     if not record.get("ecs_pending"):
         wid = work_unit_identity("richos-provider-v1", record["id"], scope["binding"]["entity_id"])
         offset, revision = 0, None
         while True:
-            page = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100}})
+            page = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100,"include_closed":True}})
             found = next((r for r in page["records"] if r["work_unit_id"] == wid), None)
             if found: revision = found["revision"]; break
             if page["next_offset"] is None: break
@@ -407,6 +411,15 @@ def verification_evidence(scope, identity):
     """Read durable host receipts and Git again, including after interrupted cleanup."""
     root=folder(scope)
     worker=read_record(root,identity)
+    if worker["request"]["role"] == "reviewer":
+        observed=worker.get("review_observation",{})
+        report=observed.get("report") or {}
+        if (refresh(worker)["status"] != "run-ended" or not observed.get("valid")
+                or observed.get("provider_agent_id") != worker.get("agent_id")
+                or report.get("commit") != worker.get("review_target",{}).get("commit")
+                or report.get("verdict") not in ("passed","changes-requested")):
+            raise ValueError("review completion requires the actual independent reviewer's observed report")
+        return f"review:{worker['id']}:{report['commit']}:{report['verdict']}:{observed['message_sha256']}"
     integration=worker.get("integration",{})
     reviewer=read_record(root,integration.get("reviewer_id"))
     observed=reviewer.get("review_observation",{})
@@ -489,9 +502,76 @@ def integrate(scope_path,scope,args):
             except Exception as error: failures.append(str(error)[-4000:])
         worker["integration"]["cleanup_pending"]=failures
         save(path,worker); project(scope,path,worker)
+        project(scope,root/(reviewer["id"]+".json"),reviewer)
         return {"work_integrated":True,"commit":worker["integration"]["commit"],
             "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
             "obligation_closed":False,"published":False}
+
+
+def completion_path(scope, identity):
+    if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{64}", identity):
+        raise ValueError("invalid completion identity")
+    return folder(scope) / ("completion-" + identity + ".receipt")
+
+
+def completion_evidence(scope, obligation, worker_ids):
+    rows = [refresh(record) for _, record in receipts(folder(scope))
+            if record["request"]["obligation_id"] == obligation]
+    if any(record["status"] in ("preparing", "prepared", "dispatching", "running", "unknown") for record in rows):
+        raise ValueError("this assignment still has unresolved execution; reconcile it before completion")
+    workers = [record for record in rows if record["request"]["role"] == "worker"]
+    continued = {record["continuation"]["worker_id"] for record in workers if record.get("continuation")}
+    final = [record for record in workers if record["id"] not in continued]
+    if not final or sorted(record["id"] for record in final) != worker_ids:
+        raise ValueError("completion must include every final worker for this assignment, without unrelated receipts")
+    evidence = []
+    for record in final:
+        if record.get("integration", {}).get("cleanup_pending") != []:
+            raise ValueError("finish the assignment's pending workspace cleanup before completion")
+        evidence.append(verification_evidence(scope, record["id"]))
+    return sorted(evidence)
+
+
+def verify_completion(scope, identity):
+    receipt = bounded(completion_path(scope, identity))
+    if receipt.get("schema") != 1 or any(receipt["binding"][key] != scope["binding"][key] for key in ("entity_id", "thread_id")):
+        raise ValueError("completion receipt has an unsupported schema or different scope")
+    evidence = completion_evidence(scope, receipt["obligation_id"], receipt["worker_ids"])
+    if receipt["evidence"] != evidence:
+        raise ValueError("completion evidence changed; reconcile the assignment")
+    return receipt
+
+
+def complete(scope_path, scope, args):
+    if set(args) != {"obligation_id", "worker_ids"}:
+        raise ValueError("completion requires an obligation and its complete final worker set")
+    obligation = text(args, "obligation_id")
+    ids = args["worker_ids"]
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(not isinstance(i, str) or not re.fullmatch(r"[a-f0-9]{64}", i) for i in ids) or len(set(ids)) != len(ids):
+        raise ValueError("worker_ids must contain one to fifty distinct work receipt identities")
+    ids = sorted(ids)
+    instruction = scope.get("user_instruction", {}).get("ledger_ref")
+    if not instruction: raise ValueError("completion requires the current visible user turn")
+    identity = hashlib.sha256(json.dumps([obligation, ids], separators=(",", ":")).encode()).hexdigest()
+    with locked(scope):
+        evidence = completion_evidence(scope, obligation, ids)
+        path = completion_path(scope, identity)
+        if path.exists():
+            receipt = verify_completion(scope, identity)
+        else:
+            item = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"inspect", "binding":scope["binding"], "query":{"item_id":obligation}})["item"]
+            if item["status"] not in ("accepted", "active", "pending", "blocked"):
+                raise ValueError("only an open assignment can be completed with new evidence")
+            receipt = {"schema":1, "binding":scope["binding"], "obligation_id":obligation,
+                "worker_ids":ids, "evidence":evidence, "expected_revision":item["revision"],
+                "source_ref":instruction, "evidence_ref":"app-completion:"+identity, "verified":False}
+            save(path, receipt)
+        read_scope(scope_path)
+        result = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"complete-obligation",
+            "binding":scope["binding"], "completion_id":identity})
+        receipt["verified"] = True
+        save(path, receipt)
+        return {**result, "evidence":evidence, "published":False}
 
 
 def call(scope_path, name, args):
@@ -500,6 +580,7 @@ def call(scope_path, name, args):
     if name == "repositories": return {"repositories":repositories(scope)}
     if name == "prepare": return prepare(scope_path,scope,args)
     if name == "integrate": return integrate(scope_path,scope,args)
+    if name == "complete": return complete(scope_path,scope,args)
     if name == "inspect":
         if set(args) - {"offset","limit"}: raise ValueError("unsupported inspection fields")
         offset,limit = args.get("offset",0),args.get("limit",20)
@@ -513,6 +594,7 @@ def call(scope_path, name, args):
 
 
 TOOLS = [
+    {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["obligation_id","worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
     {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal.","inputSchema":{"type":"object","properties":{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
