@@ -21,6 +21,7 @@ scripts/hooks/*.sha256
 scripts/*.sha256
 scripts/lib/*.sha256
 mega-lander/*.sha256
+ass-kicker/*.sha256
 
 # Native isolation worktrees — CONTENTS ignored (each is a live git worktree,
 # created/removed by the orchestrator's land sequence, never committed here),

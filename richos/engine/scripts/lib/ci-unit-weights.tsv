@@ -104,8 +104,8 @@
 # Columns:  unit-id <TAB> seconds <TAB> source
 #
 gates/unmanaged-assignment/lib/harness.test.sh	0.4	linux-run-34945072758
-scripts/brief-provenance.test.sh	2.6	linux-run-34945072758
-scripts/brief-scope.test.sh	22.7	linux-run-34945072758
+ass-kicker/tests/brief-provenance.test.sh	2.6	linux-run-34945072758
+ass-kicker/tests/brief-scope.test.sh	22.7	linux-run-34945072758
 scripts/check-census.test.sh	0.9	linux-run-34945072758
 scripts/ci-affected-units.test.sh	4.8	linux-run-34945072758
 scripts/ci-run-record-check.test.sh	1.4	linux-run-34945072758
@@ -166,7 +166,7 @@ scripts/hooks/guard-main-checkout-writes.test.sh	1.8	linux-run-34945072758
 scripts/hooks/guard-model-ceiling.test.sh	68.9	linux-run-34945072758
 scripts/hooks/guard-resume-isolation.test.sh	10.8	linux-run-34945072758
 scripts/hooks/guard-sealed-worktree.test.sh	36.9	linux-run-34945072758
-scripts/hooks/guard-stated-actions.test.sh	7.1	linux-run-34945072758
+ass-kicker/tests/guard-stated-actions.test.sh	7.1	linux-run-34945072758
 scripts/hooks/guard-stop-live-work.test.sh	2.4	linux-run-34945072758
 scripts/hooks/guard-unresolved-claims.test.sh	13.6	linux-run-34945072758
 scripts/hooks/guard-vendoring-commits.test.sh	42.4	linux-run-34945072758

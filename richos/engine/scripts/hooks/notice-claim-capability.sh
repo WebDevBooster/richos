@@ -115,7 +115,7 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROV="$SCRIPT_DIR/../brief-provenance.py"
+PROV="$SCRIPT_DIR/../../ass-kicker/brief-provenance.py"
 
 # THE SURFACE LIST, DECLARED ONCE. Both readers below use this and only this: the bash fast
 # path and the python path resolver. It was two literals for about twenty minutes, and the

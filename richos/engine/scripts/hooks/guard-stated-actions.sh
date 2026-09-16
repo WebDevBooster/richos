@@ -85,7 +85,7 @@ HOOK_TAG="(hook: scripts/hooks/guard-stated-actions.sh)"
 # --- self-test dispatch ---------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
     _SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    exec bash "$_SELF_DIR/guard-stated-actions.test.sh"
+    exec bash "$_SELF_DIR/../../ass-kicker/tests/guard-stated-actions.test.sh"
 fi
 
 # --- ROOT RESOLUTION -------------------------------------------------------
@@ -244,7 +244,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-ANALYZER="$SCRIPT_DIR/guard-stated-actions.py"
+ANALYZER="$SCRIPT_DIR/../../ass-kicker/guard-stated-actions.py"
 if [ ! -f "$ANALYZER" ]; then
     stop_notice_abnormal "no-analyzer" \
         "STATED-ACTIONS GATE — NOT RUNNING: the analyzer is missing at $ANALYZER, so turns are ending unchecked this session. An unchecked turn is not a clean one. $HOOK_TAG"

@@ -29,6 +29,12 @@ orchestrator is Rich; the agents are his AI workers.
 [Mega Lander](mega-lander/README.md) manages agent workspaces across repositories,
 from registration through landing or discard and automatic cleanup.
 
+## Agent reliability
+
+[ASS Kicker](ass-kicker/README.md) groups checks on agent briefs and reported
+actions with their tests and an expanding [failure catalog](ass-kicker/coverage.md).
+The catalog distinguishes tested interventions from unresolved failure classes.
+
 ## 60-second proof — watch it work before you set anything up
 
 Don't take the rest of this README on faith. Run one command:
@@ -213,6 +219,7 @@ left out. What ships here is only what transfers to any project:
 
 | Piece | Path | What it is |
 |---|---|---|
+| ASS Kicker | `ass-kicker/` | Brief provenance annotation, specification-based dispatch checks and stated-action analysis, with tests and explicit coverage limits. Existing hooks remain platform adapters |
 | Mechanical hooks | `scripts/hooks/` | Worktree-isolation guard (incl. structural no-name-reuse), resume-isolation guard, definition-drift guard pair, workspace lifecycle (the workspace spec: registration at spawn, land and discard as the only deleters — `mega-lander/workspaces.sh`), spawn-content verifier, reader/creator hints, secrets scanner, durable idle/task handoff loggers, contract-integrity probe + self-test suites, `install.sh` generator |
 | PreToolUse runner | `scripts/hooks/dispatch-pretooluse.sh` + `scripts/hooks/dispatch-pretooluse.manifest` | ONE registered script where `PreToolUse[Bash]` had twelve guards and `PreToolUse[Write\|Edit\|MultiEdit\|NotebookEdit]` had five. The rules are those same seventeen files, unmoved and unedited, named in a manifest and still independently runnable as their own processes. **The win is not that bash is cheap to start.** Measured 2026-09-15 with counting shims on `PATH`: one shell call cost **14 bash + 37 python3 + 36 git** processes, and bash startup was 4% of it — two of every three python3 forks and all of the git forks were twelve guards asking the same two questions (*which repository governs this call?* and *does this payload parse?*) about one identical payload. One process answers them once and hands the answers to every rule; the same call now costs **3 bash + 19 python3 + 8 git** — the dispatcher plus the two entries that are deliberately not rules. Serial work for one shell call, median of 7: **1203 ms → 397 ms**. `unverified:` whether the host runs its registered entries concurrently; measured side by side, the parallel medians are 310 ms → 254 ms, so the win is 3x if it runs them serially and 18% if it runs them all at once. Each rule runs in its own forked subshell with bash's default options restored, so an `exit` ends the RULE and never the chain, and nothing a rule sets can reach a sibling. A rule that is missing, or exits anything but 0 or 2, is **announced by name as not having evaluated the call** while every sibling still runs — a rule that did not run is never reported as a rule that found nothing. `shell-evidence.sh` (an `updatedInput` transformer, not a rule) and `guard-sealed-worktree.sh` (registered on the EMPTY matcher, so it governs every tool) stay registered on their own. Adding or removing a rule is one line in the manifest, which is the asymmetry this step exists to remove. Suite: `dispatch-pretooluse.test.sh` (27 cases) + `dispatch-pretooluse.mutation.sh` (16 mutants) |
 | Resume-isolation guard | `scripts/hooks/guard-resume-isolation.sh` | Blocks a `SendMessage` that would RESUME a completed/removed teammate (the spawn-side guard never fires on a resume) — a file-bearing follow-up must spawn fresh in a new isolated worktree; a `resume-ack:` line is the audited escape hatch for a safe pure-question resume. Pairs with the spawn guard's structural no-name-reuse to kill live-vs-ghost ambiguity |
@@ -282,6 +289,7 @@ orphan folders:
 │                                  on every push/PR. MUST end up at your
 │                                  REPOSITORY ROOT — Actions discovers
 │                                  workflows nowhere else (see "CI" below)
+├── ass-kicker/                  — agent reliability checks, coverage and tests
 ├── assets/                      — vendored static assets (fonts, logos, sounds,
 │                                  images) — local-only by convention
 ├── ceo-briefings/                — committed sprint/milestone briefs (shipped,

@@ -66,10 +66,10 @@ PYEOF
 # build <dir> — an engine subtree the suite can run against, unmutated.
 build() {
     local dir="$1"
-    mkdir -p "$dir/scripts/hooks"
+    mkdir -p "$dir/scripts/hooks" "$dir/ass-kicker"
     cp "$ENGINE_ROOT/scripts/hooks/notice-claim-capability.sh" \
        "$ENGINE_ROOT/scripts/hooks/notice-claim-capability.test.sh" "$dir/scripts/hooks/"
-    cp "$ENGINE_ROOT/scripts/brief-provenance.py" "$dir/scripts/"
+    cp "$ENGINE_ROOT/ass-kicker/brief-provenance.py" "$dir/ass-kicker/"
     chmod +x "$dir/scripts/hooks/"*.sh
 }
 
@@ -90,7 +90,7 @@ CTRL_N="$(grep -c '  PASS' "$CTRL/out.txt")"
 printf '  CONTROL  unmutated sandbox: %s cases pass, 0 fail — kills below are real\n\n' "$CTRL_N"
 
 HOOK_REL="scripts/hooks/notice-claim-capability.sh"
-PROV_REL="scripts/brief-provenance.py"
+PROV_REL="ass-kicker/brief-provenance.py"
 
 # mutant <name> <expected-failing-case> <rel-file> <old> <new> <why>
 mutant() {

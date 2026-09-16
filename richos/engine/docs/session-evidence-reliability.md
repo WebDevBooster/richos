@@ -50,7 +50,7 @@ Verification:
   and Zsh, tests argument preservation and inspects real ingress ledger output.
 - `scripts/hooks/ceo-inputs.test.sh` checks existing handover safety and recovery.
 - `scripts/hooks/turn-manifest.test.sh` includes its seven negative controls.
-- `scripts/hooks/guard-stated-actions.test.sh` checks the manifest consumer.
+- `ass-kicker/tests/guard-stated-actions.test.sh` checks the manifest consumer.
 - `scripts/hooks/unevaluated-payload.test.sh` checks every registered hook.
 
 The seven focused negative controls in `session-evidence.mutation.sh` restore each

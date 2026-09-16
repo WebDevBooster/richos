@@ -94,6 +94,7 @@ mkdir -p "$ENGINE"
 # suite exists to prevent.
 cp -R "$SRC_ENGINE/scripts" "$ENGINE/scripts"
 cp -R "$SRC_ENGINE/mega-lander" "$ENGINE/mega-lander"
+cp -R "$SRC_ENGINE/ass-kicker" "$ENGINE/ass-kicker"
 cp -R "$SRC_ENGINE/.claude" "$ENGINE/.claude"
 cp -R "$SRC_ENGINE/.claude-plugin" "$ENGINE/.claude-plugin"
 cp "$SRC_ENGINE/orchestration.config" "$ENGINE/orchestration.config"

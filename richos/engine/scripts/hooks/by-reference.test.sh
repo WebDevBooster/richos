@@ -79,6 +79,7 @@ make_sandbox() {
 
     cp -R "$SRC_ENGINE/scripts"        "$sb/engine/scripts"
     cp -R "$SRC_ENGINE/mega-lander" "$sb/engine/mega-lander"
+    cp -R "$SRC_ENGINE/ass-kicker" "$sb/engine/ass-kicker"
     cp -R "$SRC_ENGINE/.claude"        "$sb/engine/.claude"
     cp -R "$SRC_ENGINE/.claude-plugin" "$sb/engine/.claude-plugin"
     cp -R "$SRC_ENGINE/hooks"          "$sb/engine/hooks"

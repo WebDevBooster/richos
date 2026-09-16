@@ -19,7 +19,7 @@
 # Every mutant is a copy of the engine subtree under a temp dir. Nothing here
 # touches the real tree.
 #
-# Run directly: scripts/hooks/stated-actions.mutation.sh
+# Run directly: ass-kicker/tests/stated-actions.mutation.sh
 # Run by:       scripts/hooks/contract-integrity.test.sh (case SA2)
 # Exit 0 = every property is proven load-bearing.
 
@@ -64,27 +64,39 @@ PYEOF
 mut_pool_init
 MUT_WALL_T0="$(sw_now_ms)"
 
-_mutant_body() {
-    local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
-    local dir="$SANDBOX/$name"
-    mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib"
+build() {
+    local dir="$1"
+    mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib" "$dir/ass-kicker/tests"
+    cp "$ENGINE_ROOT/ass-kicker/guard-stated-actions.py" "$dir/ass-kicker/"
+    cp "$ENGINE_ROOT/ass-kicker/tests/guard-stated-actions.test.sh" "$dir/ass-kicker/tests/"
     cp "$ENGINE_ROOT/scripts/hooks/guard-stated-actions.sh" \
-       "$ENGINE_ROOT/scripts/hooks/guard-stated-actions.py" \
-       "$ENGINE_ROOT/scripts/hooks/guard-stated-actions.test.sh" \
        "$ENGINE_ROOT/scripts/hooks/turn-manifest.py" \
        "$ENGINE_ROOT/scripts/hooks/guard-idle-land.py" "$dir/scripts/hooks/"
     cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
     chmod +x "$dir/scripts/hooks/"*.sh
+}
 
+# A missing relocation dependency must not count as a killed mutant.
+build "$SANDBOX/control"
+if ! bash "$SANDBOX/control/ass-kicker/tests/guard-stated-actions.test.sh" >"$SANDBOX/control/out.txt" 2>&1; then
+    echo "FATAL: the intact stated-actions sandbox is red; mutation results would be meaningless." >&2
+    cat "$SANDBOX/control/out.txt" >&2
+    exit 1
+fi
+
+_mutant_body() {
+    local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
+    local dir="$SANDBOX/$name"
+    build "$dir"
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
         sed 's/^/          /' "$dir/mutate.err"
         return 1
     fi
 
-    bash "$dir/scripts/hooks/guard-stated-actions.test.sh" >"$dir/out.txt" 2>&1
+    bash "$dir/ass-kicker/tests/guard-stated-actions.test.sh" >"$dir/out.txt" 2>&1
     local rc=$?
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
@@ -111,7 +123,7 @@ mutant() {
 echo "=== stated-actions gate: every property, proven load-bearing by removing it ==="
 
 H="scripts/hooks/guard-stated-actions.sh"
-P="scripts/hooks/guard-stated-actions.py"
+P="ass-kicker/guard-stated-actions.py"
 
 # --- 1. IT BLOCKS ----------------------------------------------------------
 mutant does-not-block "a." "$P" \

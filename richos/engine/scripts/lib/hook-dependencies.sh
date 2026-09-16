@@ -120,7 +120,7 @@
 # hooks reach scripts/lib/worktree-ledger.py). What remains resolves:
 #
 #   ../x, ./x            relative to the referring file's own directory
-#   scripts/…, hooks/…, mega-lander/…   relative to the engine root
+#   scripts/…, hooks/…, mega-lander/…, ass-kicker/…   relative to the engine root
 #   bare basename        the referring file's own directory, else a UNIQUE
 #                        basename match in the engine — which is how a .sh half
 #                        reaches its sibling .py half ("$LIB_DIR/ceo-todos.py")
@@ -132,7 +132,7 @@
 # ===========================================================================
 # SCOPE, AND WHAT IS DELIBERATELY NOT IN IT
 # ===========================================================================
-# The closure covers CODE AND DATA UNDER scripts/ AND mega-lander/. Configuration and record
+# The closure covers CODE AND DATA UNDER scripts/, mega-lander/ AND ass-kicker/. Configuration and record
 # files are excluded even when a hook genuinely reads them — orchestration.config
 # is the worked example: both consumers of this library write their own, with
 # values chosen for what they are demonstrating, and copying the engine's over
@@ -169,7 +169,7 @@ _HOOK_DEPENDENCIES_SH_SOURCED=1
 
 # richos_hook_dependency_closure <engine-dir>
 #
-# Prints one engine-relative path per line, sorted: every file under scripts/ or mega-lander/
+# Prints one engine-relative path per line, sorted: every file under scripts/, mega-lander/ or ass-kicker/
 # that a registered hook needs, transitively, and that is not itself a
 # registered hook.
 richos_hook_dependency_closure() {

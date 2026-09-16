@@ -671,7 +671,10 @@ HOOK_FILES+=(
     # hashed and intact while deciding nothing itself — the wrapper would start,
     # announce nothing, and exit 0 on every turn that stated an action it never
     # took, which is the failure the CEO named seven times in one day.
-    "$REPO_ROOT/scripts/hooks/guard-stated-actions.py"
+    "$REPO_ROOT/ass-kicker/guard-stated-actions.py"
+    # Canonical ASS Kicker predicates consumed by spawn and the brief hooks.
+    "$REPO_ROOT/ass-kicker/brief-provenance.py"
+    "$REPO_ROOT/ass-kicker/brief-scope.py"
     # The waiver-repetition analyzer. Same argument as guard-idle-land.py
     # directly above, one notch weaker because this wrapper reports rather
     # than blocks: it decides nothing itself, so an unhashed copy is the file

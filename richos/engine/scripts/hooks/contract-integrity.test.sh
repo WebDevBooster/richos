@@ -2028,6 +2028,7 @@ make_git_main() {
 /.claude/worktrees/
 scripts/hooks/*.sha256
 scripts/*.sha256
+ass-kicker/*.sha256
 GI
     git -C "$root" init -q -b main
     # NO local identity override. These throwaway fixtures inherit the
@@ -3670,7 +3671,7 @@ if _section SA; then
 # unrun mutant refuses nothing. Output KEPT on failure, for CL2's reason.
 # Output KEPT on failure, with case 40's filter and for its reason.
 SA1_LOG="$(mktemp -t stated-actions-suite.XXXXXX)"
-set +e; "$SCRIPT_DIR/guard-stated-actions.test.sh" >"$SA1_LOG" 2>&1; rc=$?; set -e
+set +e; "$SCRIPT_DIR/../../ass-kicker/tests/guard-stated-actions.test.sh" >"$SA1_LOG" 2>&1; rc=$?; set -e
 emit_case "SA1.stated-actions-gate-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$SA1_LOG" | sed 's/^/        /' || true
@@ -3685,7 +3686,7 @@ rm -f "$SA1_LOG"
 # times. The anchor also dropped the `why` continuation and the closing
 # `x N/M properties are NOT load-bearing` line on an ordinary failure.
 SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
-set +e; "$SCRIPT_DIR/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
+set +e; "$SCRIPT_DIR/../../ass-kicker/tests/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
 emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$SA2_LOG" | sed 's/^/        /' || true

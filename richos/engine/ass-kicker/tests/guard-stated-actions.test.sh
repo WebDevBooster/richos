@@ -2,7 +2,7 @@
 #
 # guard-stated-actions.test.sh — regression tests for the Stop-time gate that
 # refuses a turn whose REPORT does not match its ACTIONS
-# (scripts/hooks/guard-stated-actions.sh + .py).
+# (scripts/hooks/guard-stated-actions.sh + ass-kicker/guard-stated-actions.py).
 #
 # THE REAL FAILURES ARE REPLAYED HERE BY SHAPE, WITH THE REAL SENTENCES.
 #   The two ARM 1 sentences are the lead's own words from 2026-09-02 and are
@@ -64,12 +64,14 @@
 #   RECORD
 #     (z)  an observation line is appended
 #
-# Run directly: scripts/hooks/guard-stated-actions.test.sh
+# Run directly: ass-kicker/tests/guard-stated-actions.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_ROOT="$(cd "$TEST_DIR/../.." && pwd)"
+SCRIPT_DIR="$ENGINE_ROOT/scripts/hooks"
 HOOK="$SCRIPT_DIR/guard-stated-actions.sh"
 unset CLAUDE_PROJECT_DIR
 
@@ -440,8 +442,9 @@ run_hook "-" "$ZACH"
 # the right reason (see stop-hook-visibility.test.sh on why a bare temp dir
 # proves nothing).
 MIRROR="$SANDBOX/mirror"
-mkdir -p "$MIRROR/scripts/hooks" "$MIRROR/scripts/lib"
-cp "$SCRIPT_DIR/guard-stated-actions.sh" "$SCRIPT_DIR/guard-stated-actions.py" \
+mkdir -p "$MIRROR/scripts/hooks" "$MIRROR/scripts/lib" "$MIRROR/ass-kicker"
+cp "$ENGINE_ROOT/ass-kicker/guard-stated-actions.py" "$MIRROR/ass-kicker/"
+cp "$SCRIPT_DIR/guard-stated-actions.sh" \
    "$SCRIPT_DIR/turn-manifest.py" "$SCRIPT_DIR/guard-idle-land.py" "$MIRROR/scripts/hooks/"
 cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
    "$SCRIPT_DIR/../lib/stop-hook-notice.sh" "$MIRROR/scripts/lib/"
