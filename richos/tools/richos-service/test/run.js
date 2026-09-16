@@ -286,7 +286,10 @@ for (const command of ['run', 'retranscribe']) {
       fs.symlinkSync(session, alias, 'junction');
       const cli = path.join(tools, 'richos-service/bin/richos-service.js');
       const env = { ...process.env, HOME: path.join(root, 'home'), LORO_CORPUS: path.join(root, 'corpus') };
-      for (const target of [session, alias]) {
+      const alternateCase = path.join(root, 'PRODUCT/docs/session');
+      const targets = [session, alias];
+      if (fs.existsSync(alternateCase)) targets.push(alternateCase);
+      for (const target of targets) {
         const result = spawnSync(process.execPath, [cli, command, target, '--zone', external, '--model', 'small.en'],
           { env, encoding: 'utf8', timeout: 10000 });
         assert.match(result.stderr, /privacy invariant/);
