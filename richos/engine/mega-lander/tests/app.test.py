@@ -206,6 +206,34 @@ class DesktopWork(unittest.TestCase):
         self.scope["actions_allowed"]=False;self.scope_path.write_text(json.dumps(self.scope))
         with self.assertRaisesRegex(ValueError,"visible app turn"):self.call("complete",completion)
 
+    def test_rejected_review_then_continuation_cleans_the_complete_review_chain(self):
+        worker=self.call("prepare",self.args)
+        target=self.start_fixture_worker(worker,"wrong-worker")
+        (target/"result.txt").write_text("WRONG")
+        self.app.git(target,"add","result.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Incorrect fictional result")
+        wrong=self.app.git(target,"rev-parse","HEAD");self.finish_fixture_worker("wrong-worker")
+        reviewer=self.call("prepare",{**self.args,"request_id":"reject-review","role":"reviewer","review_of":worker["id"],"title":"Review result","brief":"Verify the fictional requirement."})
+        rejected_target=self.start_fixture_worker(reviewer,"reject-reviewer")
+        self.finish_fixture_worker("reject-reviewer","RICHOS_REVIEW "+json.dumps({"commit":wrong,"verdict":"changes-requested","checks":["result is WRONG, expected FICTIONAL"]}))
+        with self.assertRaisesRegex(ValueError,"passing review"):
+            self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.assertFalse((self.repo/"result.txt").exists())
+        revised=self.call("prepare",{**self.args,"request_id":"revise-result","continue_of":worker["id"]})
+        revised_target=self.start_fixture_worker(revised,"correct-worker")
+        (revised_target/"result.txt").write_text("FICTIONAL")
+        self.app.git(revised_target,"add","result.txt")
+        self.app.git(revised_target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Correct fictional result")
+        correct=self.app.git(revised_target,"rev-parse","HEAD");self.finish_fixture_worker("correct-worker")
+        final_review=self.call("prepare",{**self.args,"request_id":"final-review","role":"reviewer","review_of":revised["id"],"title":"Review corrected result","brief":"Verify the corrected requirement."})
+        final_target=self.start_fixture_worker(final_review,"accept-reviewer")
+        self.finish_fixture_worker("accept-reviewer","RICHOS_REVIEW "+json.dumps({"commit":correct,"verdict":"passed","checks":["result is FICTIONAL"]}))
+        result=self.call("integrate",{"worker_id":revised["id"],"reviewer_id":final_review["id"]})
+        self.assertEqual(result["cleanup_pending"],[])
+        for path in (target,rejected_target,revised_target,final_target):self.assertFalse(path.exists(),str(path))
+        self.assertEqual((self.repo/"result.txt").read_text(),"FICTIONAL")
+        self.assertTrue(self.call("complete",{"obligation_id":"fixture-task","worker_ids":[revised["id"]]})["obligation_closed"])
+
     def test_completion_refuses_prepared_and_unreviewed_work(self):
         worker=self.call("prepare",self.args)
         args={"obligation_id":"fixture-task","worker_ids":[worker["id"]]}

@@ -7,8 +7,9 @@ impl Drop for Scratch{fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args:Vec<_>=std::env::args_os().skip(1).collect();
  if args.first().is_some_and(|a|a=="--onboarding-mcp"){richos_core::onboarding_tools::run_stdio(&PathBuf::from(&args[1]))?;return Ok(());}
- if !(args.len()==2 || (args.len()==3 && args[2]=="--natural")){return Err("usage: work_roundtrip ENGINE DELIVERED_RUNTIME [--natural]".into());}
- let natural=args.len()==3;
+ if !(args.len()==2 || (args.len()==3 && (args[2]=="--natural" || args[2]=="--revision"))){return Err("usage: work_roundtrip ENGINE DELIVERED_RUNTIME [--natural|--revision]".into());}
+ let natural=args.len()==3 && args[2]=="--natural";
+ let revision=args.len()==3 && args[2]=="--revision";
  let engine=std::fs::canonicalize(&args[0])?;
  let root=Scratch(std::env::temp_dir().join(format!("richos work {}",uuid::Uuid::new_v4())));
  let data=root.0.join("app data");std::fs::create_dir_all(data.join("corpus/ceo/records"))?;
@@ -69,10 +70,13 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   finished.store(true,Ordering::SeqCst);responder.join().unwrap();drop(spine);
   println!("{}",serde_json::json!({"natural_language_assignment":true,"two_repositories_integrated":true,"independent_reviews_verified":true,"canonical_cleanup_verified":true,"parent_obligation_completed":true,"installed_acceptance":false}));return Ok(());
  }
- for (index, name) in ["first project", "second project"].iter().enumerate() {
+ let projects:&[&str]=if revision { &["first project"] } else { &["first project","second project"] };
+ for (index, name) in projects.iter().enumerate() {
  let repo=std::fs::canonicalize(root.0.join(name))?;
  let prompt=format!("This is a disposable product integration test. Do exactly these operations. First use the continuity checkpoint tool to accept one commitment id marker-task, title Create the fictional marker. Then use richos_work.repositories to confirm the two connected repositories. Use richos_work.prepare with request_id marker-worker, obligation_id marker-task, repo {}, integration main, role worker and title Create fictional marker. Its brief must explicitly name the returned cross-repository target as the implementation directory (the native coordination worktree is not the target) and require the worker to create marker.txt containing exactly FICTIONAL in its assigned target worktree, read it, then commit only marker.txt using git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false commit. No publication or other changes are authorized. Submit the returned agent_payload to Agent exactly, without reconstructing it or changing any field, and use TaskOutput with block:true to wait for that actual worker result. Call richos_work.inspect and report what actually happened. Do not implement the file yourself, integrate it or mark the assignment complete. Use only the described MCP tools, Agent and TaskOutput. Do not end by promising an action you have not taken.",repo.display());
  let prompt=prompt.replace("marker-task", &format!("marker-task-{index}")).replace("marker-worker", &format!("marker-worker-{index}"));
+ let prompt=if revision {prompt.replace("containing exactly FICTIONAL", "containing exactly WRONG")} else {prompt};
+ let expected=if revision {"WRONG"} else {"FICTIONAL"};
  let turn=spine.submit_prompt(&prompt,Source::Text)?;
  let mut receipts=Vec::new();
  for partition in std::fs::read_dir(data.join("engine-state/work-receipts"))?{
@@ -85,10 +89,10 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  if receipt["status"]!="run-ended"{eprintln!("receipt state: {}\nlast response: {}",receipt,spine.ledger().turn(&turn).unwrap().assistant_text);}
  assert_eq!(receipt["status"],"run-ended","provider run did not end");assert!(receipt["agent_id"].is_string());
  let target=data.join("engine-state/target-worktrees").join(receipt["name"].as_str().unwrap());
- assert_eq!(std::fs::read_to_string(target.join("marker.txt"))?.trim(),"FICTIONAL");assert!(!repo.join("marker.txt").exists());
+ assert_eq!(std::fs::read_to_string(target.join("marker.txt"))?.trim(),expected);assert!(!repo.join("marker.txt").exists());
  let head=std::process::Command::new(&runtime.git).arg("-C").arg(&target).args(["show","HEAD:marker.txt"]).output()?;
  if !head.status.success(){eprintln!("Git verification failed: {}\nProvider report: {}",String::from_utf8_lossy(&head.stderr),spine.ledger().turn(&turn).unwrap().assistant_text);}
- assert!(head.status.success());assert_eq!(String::from_utf8(head.stdout)?.trim(),"FICTIONAL");
+ assert!(head.status.success());assert_eq!(String::from_utf8(head.stdout)?.trim(),expected);
  let binding=bridge.request("current",serde_json::json!({}))?["binding"].clone();
  let records=bridge.request("inspect",serde_json::json!({"binding":binding,"query":{"section":"work"}}))?;
  let observed=records["records"].as_array().unwrap().iter().find(|r|r["external_id"]==receipt["id"]).expect("worker observation");assert_ne!(observed["status"],"completed");
@@ -101,13 +105,29 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  assert_ne!(fresh.session_id(),session);spine.attach_lease(Box::new(fresh));
  let review_prompt=format!("The fictional worker's commit is ready. Its worker receipt is {}. Prepare an independent reviewer using richos_work.prepare: request_id marker-review, obligation_id marker-task, repo {}, integration main, role reviewer, review_of that worker receipt, title Review fictional marker. Require checking the exact prepared commit and confirming marker.txt contains exactly FICTIONAL with no other changes, without editing or creating commits. Submit the exact returned agent_payload to Agent once and wait through TaskOutput block:true. Then use richos_work.inspect. If the host captured a passing review, I authorize richos_work.integrate with this worker_id and the actual reviewer_id to fast-forward local main and perform canonical workspace cleanup. No publication. Report only verified results. Do not use Bash or write files yourself; use the work MCP tools, Agent and TaskOutput.",receipt["id"].as_str().unwrap(),repo.display());
  let review_prompt=review_prompt.replace("marker-task", &format!("marker-task-{index}")).replace("marker-review", &format!("marker-review-{index}"));
+ let review_prompt=if revision {format!("Review the saved worker {} in {} independently against this success condition: marker.txt must contain exactly FICTIONAL. The fixture currently contains a deliberate defect. First obtain and observe the independent review of that existing commit. If the reviewer requests changes, continue the saved worker with the specific correction, obtain a fresh independent review of the corrected commit, integrate locally and clean up all eligible workspaces. Close the assignment only from verified evidence. I authorize that revision and local integration. Do not publish. Complete the cycle without asking me to operate internal tools or IDs.",receipt["id"].as_str().unwrap(),repo.display())}else{review_prompt};
  let reviewed=spine.submit_prompt(&review_prompt,Source::Text)?;
- let updated:serde_json::Value=serde_json::from_slice(&std::fs::read(data.join("engine-state/work-receipts").join(std::fs::read_dir(data.join("engine-state/work-receipts"))?.next().unwrap()?.file_name()).join(format!("{}.json",receipt["id"].as_str().unwrap())))?)?;
+ let mut updated:serde_json::Value=serde_json::from_slice(&std::fs::read(data.join("engine-state/work-receipts").join(std::fs::read_dir(data.join("engine-state/work-receipts"))?.next().unwrap()?.file_name()).join(format!("{}.json",receipt["id"].as_str().unwrap())))?)?;
+ if revision {
+  let partition=data.join("engine-state/work-receipts").join(std::fs::read_dir(data.join("engine-state/work-receipts"))?.next().unwrap()?.file_name());
+  let mut rejected=false;let mut continued=false;
+  for file in std::fs::read_dir(partition)? {
+   let path=file?.path();if !path.extension().is_some_and(|e|e=="json"){continue;}
+   let record:serde_json::Value=serde_json::from_slice(&std::fs::read(path)?)?;
+   if record["review_observation"]["report"]["verdict"]=="changes-requested" {rejected=true;}
+   if record["continuation"]["worker_id"]==receipt["id"] {updated=record.clone();continued=true;}
+   assert!(!data.join("engine-state/target-worktrees").join(record["name"].as_str().unwrap()).exists(),"an old review or worker workspace was left behind");
+  }
+  assert!(rejected && continued,"the real rejection and revision cycle was not observed");
+  let binding=bridge.request("current",serde_json::json!({}))?["binding"].clone();
+  let item=bridge.request("inspect",serde_json::json!({"binding":binding,"query":{"item_id":receipt["request"]["obligation_id"]}}))?;
+  assert_eq!(item["item"]["status"],"completed");
+ }
  if updated["integration"]["verified"]!=true {eprintln!("Review/integration report: {}\nReceipt: {}",spine.ledger().turn(&reviewed).unwrap().assistant_text,updated);}
  assert_eq!(updated["integration"]["verified"],true,"actual review/integration did not finish");
  assert_eq!(updated["integration"]["cleanup_pending"],serde_json::json!([]));
  assert_eq!(std::fs::read_to_string(repo.join("marker.txt"))?.trim(),"FICTIONAL");assert!(!target.exists());
  }
  finished.store(true,Ordering::SeqCst);responder.join().unwrap();
- println!("{}",serde_json::json!({"two_repositories_integrated":true,"real_worker_dispatched":true,"worker_commit_verified":true,"target_main_untouched_before_integration":true,"ecs_completion_not_inferred_from_exit":true,"fresh_provider_recovered_work":true,"real_reviewer_observed":true,"reviewed_commit_integrated":true,"canonical_cleanup_verified":true,"host_user_instruction_attested":true,"installed_acceptance":false}));drop(spine);Ok(())
+ println!("{}",serde_json::json!({"two_repositories_integrated":!revision,"rejected_review_revised_and_verified":revision,"real_worker_dispatched":true,"worker_commit_verified":true,"target_main_untouched_before_integration":true,"ecs_completion_not_inferred_from_exit":true,"fresh_provider_recovered_work":true,"real_reviewer_observed":true,"reviewed_commit_integrated":true,"canonical_cleanup_verified":true,"host_user_instruction_attested":true,"installed_acceptance":false}));drop(spine);Ok(())
 }

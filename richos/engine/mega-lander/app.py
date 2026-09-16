@@ -492,8 +492,24 @@ def integrate(scope_path,scope,args):
             save(path,worker)
         # Cleanup remains canonical Mega Lander. Its result is separate from Git
         # integration; partial cleanup never rolls back a verified target commit.
+        # A revision can leave earlier review workspaces outside the worker's
+        # canonical continuation chain. Include those reviews in the same safe
+        # cleanup attempt, including a rejected review whose commit is now an
+        # ancestor of the integrated fix. Canonical land still decides eligibility.
+        ancestors={worker["id"]}
+        ancestor=worker
+        while ancestor.get("continuation"):
+            previous=ancestor["continuation"]["worker_id"]
+            if previous in ancestors or len(ancestors)>=50:
+                raise ValueError("invalid or excessive continuation chain; reconcile before cleanup")
+            ancestor=read_record(root,previous)
+            if any(ancestor["request"][key] != worker["request"][key] for key in ("obligation_id","repo","role")):
+                raise ValueError("continuation cleanup cannot cross its assignment or repository")
+            ancestors.add(previous)
+        reviews=[refresh(record) for _,record in receipts(root)
+            if record["request"]["role"]=="reviewer" and record.get("review_target",{}).get("worker_id") in ancestors]
         failures=[]
-        for record in (worker,reviewer):
+        for record in [worker,*reviews]:
             try:
                 read_scope(scope_path)
                 result = W.land(record["workspace_ref"],me=scope["binding"]["session_id"])
@@ -502,7 +518,8 @@ def integrate(scope_path,scope,args):
             except Exception as error: failures.append(str(error)[-4000:])
         worker["integration"]["cleanup_pending"]=failures
         save(path,worker); project(scope,path,worker)
-        project(scope,root/(reviewer["id"]+".json"),reviewer)
+        for reviewed in reviews:
+            project(scope,root/(reviewed["id"]+".json"),reviewed)
         return {"work_integrated":True,"commit":worker["integration"]["commit"],
             "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
             "obligation_closed":False,"published":False}
