@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 
@@ -222,6 +222,53 @@ function tmp() {
 }
 
 const T0 = 1_700_000_000_000;
+
+group('pipeline storage boundary');
+for (const command of ['run', 'retranscribe']) {
+  test(`${command} rejects explicit product sessions and aliases before writing`, () => {
+    const root = tmp();
+    try {
+      const product = path.join(root, 'product');
+      const tools = path.join(product, 'richos/tools');
+      const source = path.resolve(import.meta.dirname, '../..');
+      for (const [component, entries] of [
+        ['richos-service', ['lib', 'bin', 'package.json']],
+        ['richos-extension', ['sync', 'core', 'package.json']],
+      ]) {
+        for (const entry of entries) {
+          fs.cpSync(path.join(source, component, entry), path.join(tools, component, entry), { recursive: true });
+        }
+      }
+      const session = path.join(product, 'docs/session');
+      const external = path.join(root, 'external');
+      const record = JSON.stringify({ schemaVersion: 2, sessionId: 'boundary-test', status: 'closed',
+        startedAt: 1, endedAt: 2, audio: { bytes: 0, parts: 0 } });
+      for (const dir of [session, external]) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'session.json'), record);
+      }
+      const alias = path.join(root, 'alias');
+      fs.symlinkSync(session, alias, 'junction');
+      const cli = path.join(tools, 'richos-service/bin/richos-service.js');
+      const env = { ...process.env, HOME: path.join(root, 'home'), LORO_CORPUS: path.join(root, 'corpus') };
+      for (const target of [session, alias]) {
+        const result = spawnSync(process.execPath, [cli, command, target, '--zone', external, '--model', 'small.en'],
+          { env, encoding: 'utf8', timeout: 10000 });
+        assert.match(result.stderr, /privacy invariant/);
+        assert.notEqual(result.status, 0);
+        assert.equal(fs.readFileSync(path.join(session, 'session.json'), 'utf8'), record);
+        assert.deepEqual(fs.readdirSync(session), ['session.json']);
+      }
+      const allowed = spawnSync(process.execPath, [cli, command, external, '--zone', external, '--model', 'small.en'],
+        { env, encoding: 'utf8', timeout: 10000 });
+      assert.doesNotMatch(allowed.stderr, /privacy invariant/);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(external, 'session.json'))).pipeline.status, 'anomaly');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 
 // ---------------------------------------------------------------------------------------
 group('capture->pipeline contract (schemaVersion 2) — surface-independence, no field lost');

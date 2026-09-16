@@ -44,6 +44,7 @@ import { guardDeletions, deletionWarnings, DELETION_GUARD_DEFAULTS } from './del
 import { guardSubstitution, substitutionWarnings, SUBSTITUTION_GUARD_DEFAULTS } from './substitution-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
+import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
 
 export const ARTIFACTS = { transcript: 'transcript.md', verification: 'verification.json' };
 
@@ -95,6 +96,8 @@ function writeRecord(sessionDir, record) {
  * @returns {{status: string, transcript?: string, verification?: object, problems?: string[], sessionId: string}}
  */
 export function runPipeline(sessionDir, opts = {}) {
+  // Explicit CLI sessions and direct callers must obey the same boundary as the drop zone.
+  sessionDir = assertEvidenceOutsideProductRepo(sessionDir, undefined, 'recordings and transcripts');
   const now = opts.now || Date.now();
   // P5 tiering: `tier` (quantized*|turbo|max|low-resource, * = default) or a raw `model` id both resolve here to a
   // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
