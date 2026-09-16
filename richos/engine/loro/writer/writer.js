@@ -303,8 +303,18 @@ export function supersedeRecord(opts) {
     );
   }
 
+  // A correction changes the belief, not the company that can retrieve it.
+  // Desktop Supersede requests intentionally have no partition argument. Keep
+  // unfiled records there too; promoted legacy records retain their company lane.
+  const relative = path.relative(opts.corpusRoot.root, found.file).split(path.sep).join('/');
+  const partition = found.record.company || (relative.startsWith('ceo/unfiled/') ? 'unfiled' : 'ceo');
+  const original = resolvePartition(opts.corpusRoot, partition);
+  if (opts.partition !== undefined && resolvePartition(opts.corpusRoot, opts.partition).partition !== original.partition) {
+    throw new RefusedError('loro write: supersede preserves the original partition. Moving a record requires a separate filing operation.');
+  }
   const created = appendRecord({
     ...opts,
+    partition,
     ref: opts.refSource || opts.ref,
     supersedes: opts.ref,
     dryRun: true,

@@ -1267,6 +1267,36 @@ test('writer: supersede links BOTH directions and drops the old record out of li
   });
 });
 
+test('writer: supersede preserves company, CEO and unfiled partitions and refuses an implicit move', () => {
+  withWritableCorpus((ctx) => {
+    for (const partition of ['northwind', 'ceo', 'unfiled']) {
+      const old = appendRecord({ corpusRoot: ctx.corpusRoot, partition, id: `old-${partition}`,
+        kind: 'fact', scope: 'org-shared', body: 'Fictional delivery uses the morning truck.', now: NOW });
+      const options = { corpusRoot: ctx.corpusRoot, corpus: ctx.corpus(), ref: old.ref,
+        id: `new-${partition}`, kind: 'fact', scope: 'org-shared', body: 'Fictional delivery uses the afternoon truck.', now: NOW };
+      const before = fs.readFileSync(old.file, 'utf8');
+      assert.throws(() => supersedeRecord({ ...options, partition: partition === 'ceo' ? 'northwind' : 'ceo' }),
+        /partition.*separate/i);
+      assert.equal(fs.readFileSync(old.file, 'utf8'), before);
+      const replacement = supersedeRecord(options);
+      assert.equal(path.dirname(replacement.file), path.dirname(old.file));
+      const fresh = ctx.corpus();
+      assert.equal(fresh.byId.get(replacement.ref).company, partition === 'northwind' ? 'northwind' : null);
+      assert.equal(fresh.byId.get(old.ref).supersededBy, replacement.ref);
+    }
+  });
+});
+
+test('writer: supersede accepts an explicit equivalent company partition', () => {
+  withWritableCorpus((ctx) => {
+    const old = appendRecord({ corpusRoot: ctx.corpusRoot, partition: 'northwind', id: 'old-company',
+      kind: 'fact', body: 'Fictional original fact.', now: NOW });
+    const replacement = supersedeRecord({ corpusRoot: ctx.corpusRoot, corpus: ctx.corpus(), ref: old.ref,
+      partition: 'companies/northwind', id: 'new-company', kind: 'fact', body: 'Fictional corrected fact.', now: NOW });
+    assert.equal(replacement.ref, 'rec:companies/northwind/records/new-company');
+  });
+});
+
 test('writer: supersede REFUSES an already-superseded record (no chains of dead records)', () => {
   withWritableCorpus((ctx) => {
     appendRecord({ corpusRoot: ctx.corpusRoot, id: 'a1', kind: 'fact', scope: 'org-shared', body: 'One.', now: NOW });
