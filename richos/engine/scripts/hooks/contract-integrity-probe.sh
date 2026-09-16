@@ -2162,7 +2162,7 @@ PY
 # $2 is the root the seated surface's $CLAUDE_PROJECT_DIR resolves to; the
 # extractor needs it only to locate the dispatcher's manifest on disk.
 WIRED="$(python3 "$EXTRACT_PY" "$SETTINGS" "$ENGINE_ROOT" 2>/dev/null || true)"
-GUARD_CMD="$(printf '%s\n' "$WIRED" | awk -F'\t' '$1 ~ /Write/ && $1 ~ /Edit/ {print $2; exit}')"
+GUARD_CMD="$(printf '%s\n' "$WIRED" | awk -F'\t' '!found && $1 ~ /Write/ && $1 ~ /Edit/ {print $2; found=1}')"
 
 # ALL commands under the Write|Edit matcher (Layer B only cares about the
 # FIRST entry above; Layer K below needs the full list since scan-secrets.sh
@@ -3188,8 +3188,8 @@ PY
 )"
 
 # Parse the verdict.
-SJSON_HOOK_TOTAL="$(printf '%s\n' "$UNIQ_PY" | awk -F'\t' '$1=="sjson_hook_total"{print $2; exit}')"
-RESUME_COUNT="$(printf '%s\n' "$UNIQ_PY" | awk -F'\t' '$1=="resume_count"{print $2; exit}')"
+SJSON_HOOK_TOTAL="$(printf '%s\n' "$UNIQ_PY" | awk -F'\t' '!found && $1=="sjson_hook_total"{print $2; found=1}')"
+RESUME_COUNT="$(printf '%s\n' "$UNIQ_PY" | awk -F'\t' '!found && $1=="resume_count"{print $2; found=1}')"
 
 M_OK=1
 # M1 — settings.json must carry NO hook stanzas (the additive double-fire root).

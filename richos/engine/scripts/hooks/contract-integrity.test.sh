@@ -3036,8 +3036,30 @@ rm -rf "$ROOT"
 fi  # _section — S
 
 if _section IP; then
+# A long, unrelated Read hook must not make the first-write-hook selector
+# terminate the whole probe with SIGPIPE. Exercise both a valid inventory and
+# a genuinely missing interactive guard against the same large input.
+pad_hook_inventory() {
+    python3 - "$1/.claude/settings.local.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["hooks"]["PreToolUse"].append({"matcher": "Read", "hooks": [
+    {"type": "command", "command": "true # " + "padding" * 10000}
+]})
+p.write_text(json.dumps(d))
+PY
+}
+ROOT="$(make_sandbox)"
+pad_hook_inventory "$ROOT"
+set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IP0.large-hook-inventory-passes" 0 "$rc"
+rm -rf "$ROOT"
+
 # IP1 — the guard is not wired at all.
 ROOT="$(make_sandbox)"
+pad_hook_inventory "$ROOT"
 python3 - "$ROOT/.claude/settings.local.json" <<'PY'
 import json, sys
 p = sys.argv[1]
