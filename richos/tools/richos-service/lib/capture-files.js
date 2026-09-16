@@ -4,7 +4,8 @@ import path from 'node:path';
 import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
 
 function component(value) {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9]/.test(value)
+    || /[<>:"/\\|?*\u0000-\u001f]/.test(value) || /[. ]$/.test(value)) {
     throw new Error('capture boundary: expected a single portable path component');
   }
   return value;
@@ -24,6 +25,9 @@ export function sessionDirectory(zone, sessionId) {
   const entry = fs.lstatSync(dir, { throwIfNoEntry: false });
   if (entry && (!entry.isDirectory() || entry.isSymbolicLink())) {
     throw new Error('capture boundary: session directory must not be a link');
+  }
+  if (entry && path.dirname(fs.realpathSync.native(dir)) !== root) {
+    throw new Error('capture boundary: session directory escapes the drop zone');
   }
   assertEvidenceOutsideProductRepo(dir);
   return dir;
