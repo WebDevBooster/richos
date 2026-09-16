@@ -3,12 +3,12 @@
   "date": "2026-09-16",
   "app_version": "1.2.0",
   "engine_version": "1.2.0",
-  "app_source_revision": "df55c2fc",
+  "app_source_revision": "9c9b383228a812fcb982a2db7f36a187b59815c1",
   "engine_source_revision": "df55c2fc",
   "app_archive": {
     "name": "RichOS.app.tar.gz",
-    "sha256": "88703c39e0586b1cc89faa9df9a43b983f0e1c881a4fa1030a71ad2f9e688999",
-    "bytes": 10894148
+    "sha256": "e245614950bfc5306c93c22ab7d46695bc391272504cd15d6d4daae88d6487cc",
+    "bytes": 10896332
   },
   "engine_archive": {
     "name": "richos-engine-1.2.0.tar.gz",
@@ -28,9 +28,10 @@
   "installed_acceptance": "pending",
   "composed_desktop_journey": "pending",
   "public_engine_url_available": "not established; asset not published by this work",
-  "publication": "not published",
+  "publication": "held: local candidate only; no public downloads or update distribution",
   "personal_context_migration": "not performed",
-  "app_executable_sha256": "e726d82c0d6a9d9bbaa95623ff643e7d1866beb67ffa156c856b7bf0d94b502c",
-  "natural_assignment_no_manual_approvals": "passed against extracted engine: two repositories, independent reviews, canonical cleanup and verified obligation completion; zero manual requests",
-  "loro_ecs_extracted_candidate": "passed: append, supersede, historical read and two idempotent confirmed receipts; zero ECS knowledge writes"
+  "app_executable_sha256": "a36c85cd5f771104a56e61a21d673dae1797cf1c3a52d9611c97bbc08506f432",
+  "natural_assignment_no_manual_approvals": "passed with final app core and extracted engine: two repositories, independent reviews, canonical cleanup and verified obligation completion; zero manual requests",
+  "loro_ecs_extracted_candidate": "passed: append, supersede, historical read and two idempotent confirmed receipts; zero ECS knowledge writes",
+  "worker_report_attribution": "passed: actual parented worker reports retained separately and absent from lead conversation; nested-result regression passed"
 }

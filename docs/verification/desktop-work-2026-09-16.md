@@ -17,8 +17,8 @@ A separate natural-language probe supplied a fictional Markdown backlog without
 tool names or internal IDs. Rich recorded one obligation, completed both
 repositories, obtained independent reviews, integrated locally, cleaned up and
 closed the parent obligation through host-verified receipts. This also passed
-against an extracted engine archive. The probe's permission responder supplies
-synthetic fixture approvals. It does not certify the desktop permission UX.
+against an extracted engine archive. Earlier runs used synthetic fixture approvals. The stricter mode described below
+refuses every manual request. Neither mode certifies the installed permission UX.
 
 The opt-in entry point is `richos/app/crates/richos-core/examples/work_roundtrip.rs`.
 Its default mode checks process replacement; `--natural` checks the ordinary
@@ -36,8 +36,8 @@ the extracted candidate's runtimes and components.
 
 ## Automated evidence
 
-- The full core run passed 1,022 ordinary tests and five documentation tests;
-  four opt-in/helper cases remained ignored. This includes 552 library cases,
+- The full core run passed 1,023 ordinary tests and five documentation tests;
+  four opt-in/helper cases remained ignored. This includes 553 library cases,
   with one library helper ignored. The Tauri suite passed all 98 cases.
 - Thirteen desktop dispatch/review/integration cases passed. They include dirty
   checkout preservation, cross-session continuation, failure after fast-forward,
@@ -67,7 +67,10 @@ the extracted candidate's runtimes and components.
 Live and fault tests found defects in background dispatch payloads, target versus
 coordination paths, inherited Git configuration, nested Python bytecode writes,
 continued-work identity, cleanup retries, rejected-review cleanup and the native
-reviewer handback path. Those
+reviewer handback path. A final transcript audit also found worker narration
+misattributed to the lead. The provider adapter now keeps parented worker frames
+out of lead text and completion state, while retaining attributed reports in the
+work journal. A real-pipe regression reproduced the failure before the fix. Those
 failures were fixed and affected checks repeated. Failed runs are not counted as
 passing capabilities.
 
@@ -115,12 +118,14 @@ The live permission-boundary probe passed: direct Git checks needed no approval,
 and a deliberately complex read-only loop reached the exact-action desk and was
 denied without execution or automatic retry.
 
-The final natural-assignment probe passed against the extracted engine identified
-in the candidate manifest. With every manual request configured to be refused, it
+The final natural-assignment probe used app core `9c9b3832` with the extracted
+engine identified in the candidate manifest and passed. With every manual request configured to be refused, it
 completed both repositories, obtained independent reviews, integrated locally,
 removed eligible workspaces and closed the shared obligation through verified
 receipts. The manual-request count was exactly zero. Successful native reviewer
-handbacks and their observed ends were retained separately. The final extracted
+handbacks and their observed ends were retained separately. Actual worker reports
+retained their parent IDs in the work journal and were absent from the lead
+conversation. The final extracted
 candidate also passed the actual Loro/ECS correction and receipt-projection probe.
 These are real-provider/component checks, not the installed desktop UI journey.
 Installed UI acceptance remains pending.
@@ -129,3 +134,6 @@ No private working context was migrated, live engine pointer activated, public
 branch pushed, release published or remote CI enabled. Local ad-hoc signing is
 not notarization. An app pin for an unpublished engine URL is not a working
 public first-install release.
+
+Version 1.2.0 remains on an explicit release hold. Candidate assets stay local;
+public downloads and update distribution are not authorized.

@@ -44,6 +44,11 @@ Users describe their assignment; Rich owns internal obligation and receipt IDs.
 Saved work summaries are available in the conversation, with observed run ends,
 review verdicts and local integration kept distinct from whole-task completion.
 
+Provider messages with a non-null `parent_tool_use_id` belong to a worker. Their
+reports retain that attribution in the work journal and never become the lead's
+conversation text. Nested worker results cannot end the lead turn or reset its
+streaming state. Permission control messages still use the normal decision path.
+
 ## Review, integration and cleanup
 
 A reviewer names a worker receipt. Its worktree is based on the worker's actual
