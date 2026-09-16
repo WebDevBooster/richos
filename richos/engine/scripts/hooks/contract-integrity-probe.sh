@@ -145,6 +145,8 @@
 # Idempotent. Safe to run from any cwd.
 
 set -eo pipefail
+# Piped predicates must drain their input: grep -q can trigger SIGPIPE in
+# the producer and turn an existing match into a failure under pipefail.
 
 # Fail-closed, not fail-open: this probe leans on python3 for JSON extraction
 # (Layers B/C/F/G/H) AND for realpath resolution (realpath_of(), which is the
@@ -754,7 +756,7 @@ MT_Q_EOF
                 emit_fail "MT. CANARY DID NOT RUN — the sandbox repository (init, seed commit, or the point-14 recording) failed to build, so the two-sided tier check never executed. The declaration and the parser hash are verified; BEHAVIOR IS NOT."
             elif [ "$MT_DOWN_RC" -ne 2 ]; then
                 emit_fail "MT. the spawn guard did NOT refuse an override to a LOWER tier (opus-default teammate on sonnet: exit=$MT_DOWN_RC, expected 2). Clause 6 is not enforcing the declared order."
-            elif ! printf '%s' "$MT_DOWN_ERR" | grep -qF 'model-downgrade-ack:'; then
+            elif ! printf '%s' "$MT_DOWN_ERR" | grep -F >/dev/null 'model-downgrade-ack:'; then
                 emit_fail "MT. the spawn guard refused a lower-tier override but did NOT name the remedy line (model-downgrade-ack:) — a refusal that says only \"no\" gets routed around instead of obeyed."
             elif [ "$MT_UP_RC" -ne 0 ]; then
                 emit_fail "MT. the spawn guard REFUSED a SAME-TIER override (opus-default teammate on fable: exit=$MT_UP_RC, expected 0). It is not enforcing the order, it is refusing everything or refusing to start — exit 2 is ambiguous, which is why this canary is two-sided."
@@ -923,9 +925,9 @@ MC_Q_EOF
 
         if [ "$MC_OVER_RC" -ne 2 ]; then
             emit_fail "MC. the guard did NOT refuse a spawn one tier ABOVE the declared ceiling (opus ceiling, fable spawn: exit=$MC_OVER_RC, expected 2). The cost ceiling is declared and enforcing nothing."
-        elif ! printf '%s' "$MC_OVER_OUT" | grep -qF 'model-ceiling-ack:'; then
+        elif ! printf '%s' "$MC_OVER_OUT" | grep -F >/dev/null 'model-ceiling-ack:'; then
             emit_fail "MC. the guard refused an over-ceiling spawn but did NOT name the remedy line (model-ceiling-ack:) — the founder asked for acknowledge-OR-reconsider, and a refusal that offers neither gets routed around instead of obeyed."
-        elif ! printf '%s' "$MC_OVER_OUT" | grep -qF 'EVERYTHING DOWNSTREAM INHERITS'; then
+        elif ! printf '%s' "$MC_OVER_OUT" | grep -F >/dev/null 'EVERYTHING DOWNSTREAM INHERITS'; then
             emit_fail "MC. the over-ceiling refusal no longer carries the ONE-OFF test. It is the whole instruction: the note has to REACH the reader, not be pointed at."
         elif [ "$MC_AT_RC" -ne 0 ]; then
             emit_fail "MC. the guard REFUSED a spawn AT the ceiling (opus ceiling, opus spawn: exit=$MC_AT_RC, expected 0). It is not enforcing a ceiling, it is refusing everything or refusing to start — exit 2 is ambiguous, which is why this canary has more than one side."
@@ -933,7 +935,7 @@ MC_Q_EOF
             emit_fail "MC. a spawn AT the ceiling was allowed but NOT SILENTLY (output: ${MC_AT_OUT:0:160}). A ceiling that comments on the normal case is a nag, and a nag is how a guard becomes something to disable."
         elif [ "$MC_NONE_RC" -ne 0 ]; then
             emit_fail "MC. with NO ceiling declared the guard did not fail OPEN (exit=$MC_NONE_RC, expected 0). An undeclared ceiling must never wedge a dispatch — a guard that blocks over its own configuration is a guard that gets switched off."
-        elif ! printf '%s' "$MC_NONE_OUT" | grep -qF 'NOT DECLARED'; then
+        elif ! printf '%s' "$MC_NONE_OUT" | grep -F >/dev/null 'NOT DECLARED'; then
             emit_fail "MC. with NO ceiling declared the guard was SILENT. That is the arm a dead hook passes for free — an absent ceiling and an enforced one must never look the same."
         else
             if [ -n "$MC_DECLARED" ]; then
@@ -1417,7 +1419,7 @@ BR_ORDER_EOF
             BR2_UNDECLARED=""
             while IFS= read -r _reg; do
                 [ -n "$_reg" ] || continue
-                printf '%s\n' "$BR_EXPECTED" | cut -d'|' -f1 | grep -qxF "$_reg" \
+                printf '%s\n' "$BR_EXPECTED" | cut -d'|' -f1 | grep -xF >/dev/null "$_reg" \
                     || BR2_UNDECLARED="$BR2_UNDECLARED $_reg"
             done <<BR_EOF_REV
 $BR2_REGISTERED
