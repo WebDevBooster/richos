@@ -903,9 +903,8 @@ impl MachineryRecord {
             "chosen": chosen,
             "decisionReason": request.get("decision_reason"),
             "decisionReasonType": request.get("decision_reason_type"),
-            // Stated as an observation, exactly as §1.2 requires: this is what the client
-            // DID, not a policy this design introduces.
-            "auto": true,
+            // The native callback records the decision. It cannot infer whether
+            // the scoped desk or a validated host tool contract supplied it.
         });
         let (payload, truncated) = cap_payload(&detail);
         MachineryRecord {
@@ -919,7 +918,7 @@ impl MachineryRecord {
             tool_call_id: request.get("tool_use_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
             status: None,
             title,
-            summary: Some(format!("auto-approved: {chosen}")),
+            summary: Some(format!("permission decision: {chosen}")),
             locations: input_locations(request.get("input").unwrap_or(&Value::Null)),
             internal: false,
             payload,
@@ -1761,7 +1760,7 @@ mod tests {
     }
 
     #[test]
-    fn permission_requests_record_the_auto_approval_as_a_fact() {
+    fn permission_requests_record_the_decision_without_inventing_approval_origin() {
         // Verbatim `request` from `run9-rust-driven.jsonl:17`.
         let request = json!({
             "subtype":"can_use_tool","tool_name":"Write","display_name":"Write",
@@ -1779,7 +1778,9 @@ mod tests {
             Some("toolu_015USp34XWJGrGpgNY6TLvbV"),
             "links back to its tool call"
         );
-        assert_eq!(r.payload.as_ref().unwrap()["auto"], json!(true));
+        assert!(r.payload.as_ref().unwrap().get("auto").is_none());
+        let denied = MachineryRecord::from_permission_request(&request, "deny", "sess", 5);
+        assert_eq!(denied.summary.as_deref(), Some("permission decision: deny"));
         assert_eq!(r.payload.as_ref().unwrap()["chosen"], json!("allow"));
         // Richer than the shape it replaces, and the extra fact is RETAINED, not discarded.
         assert_eq!(

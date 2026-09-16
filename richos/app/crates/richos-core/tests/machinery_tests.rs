@@ -457,7 +457,7 @@ fn a_permission_request_is_recorded_as_an_observation_with_no_control_attached()
         .filter(|r| r.kind == MachineryKind::PermissionRequested)
         .collect();
     assert_eq!(perms.len(), 1);
-    assert_eq!(perms[0].payload.as_ref().unwrap()["auto"], json!(true));
+    assert!(perms[0].payload.as_ref().unwrap().get("auto").is_none());
     assert_eq!(perms[0].payload.as_ref().unwrap()["chosen"], json!("allow"));
     assert_eq!(perms[0].tool_call_id.as_deref(), Some("toolu_A"), "linked to its tool call");
 }
