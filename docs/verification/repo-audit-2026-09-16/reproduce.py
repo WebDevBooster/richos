@@ -118,6 +118,7 @@ def installer_probe(root):
     old, new, home = root / "old-host", root / "new-host", root / "browser-home"
     (home / "Library/Application Support/Google/Chrome").mkdir(parents=True)
     shutil.copytree(TOOLS / "richos-service/host", old)
+    (old / "native-host.js").write_text('console.log("AUDIT_NATIVE_HOST_READY");\n')
     env = dict(os.environ, HOME=str(home))
     exits = []
     for directory in (old, new):
@@ -131,6 +132,7 @@ def installer_probe(root):
         "install_exit_codes": exits,
         "launcher_kept_old_host_path": str(old / "native-host.js") in launcher,
         "launch_exit": result.returncode,
+        "host_ready": "AUDIT_NATIVE_HOST_READY" in result.stdout,
         "missing_old_host_module": "Cannot find module" in result.stderr
                                    and str(old / "native-host.js") in result.stderr,
     }

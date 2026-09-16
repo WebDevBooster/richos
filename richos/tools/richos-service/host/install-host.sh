@@ -26,9 +26,13 @@ NODE_BIN="$(command -v node || true)"
 if [ -z "$UNINSTALL" ]; then
   [ -n "$EXT_ID" ] || { echo "usage: ./install-host.sh <chrome-extension-id> [--uninstall]" >&2; exit 1; }
   [ -n "$NODE_BIN" ] || { echo "node not found on PATH" >&2; exit 1; }
-  # Bake absolute paths into the launcher and make it executable.
-  sed -e "s#__NODE_BIN__#$NODE_BIN#g" -e "s#__HOST_JS__#$HOST_JS#g" \
-    "$HERE/richos-host-launcher.sh" > "$HERE/.richos-host-launcher.resolved.sh"
+  # Generate afresh: the previous launcher may already contain paths from another install.
+  "$NODE_BIN" - "$NODE_BIN" "$HOST_JS" "$HERE/.richos-host-launcher.resolved.sh" <<'JS'
+const fs = require('node:fs');
+const [node, host, output] = process.argv.slice(2);
+const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+fs.writeFileSync(output, `#!/bin/sh\nNODE_BIN=${quote(node)}\nHOST_JS=${quote(host)}\nexec "$NODE_BIN" "$HOST_JS"\n`);
+JS
   mv "$HERE/.richos-host-launcher.resolved.sh" "$LAUNCHER"
   chmod +x "$LAUNCHER" "$HOST_JS"
 fi
@@ -65,8 +69,14 @@ echo "$BASES" | while IFS= read -r base; do
     continue
   fi
   mkdir -p "$dir"
-  sed -e "s#__LAUNCHER_PATH__#$LAUNCHER#g" -e "s#__EXTENSION_ID__#$EXT_ID#g" \
-    "$HERE/com.richos.host.json" > "$target"
+  "$NODE_BIN" - "$HERE/com.richos.host.json" "$LAUNCHER" "$EXT_ID" "$target" <<'JS'
+const fs = require('node:fs');
+const [template, launcher, extensionId, output] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(template, 'utf8'));
+manifest.path = launcher;
+manifest.allowed_origins = [`chrome-extension://${extensionId}/`];
+fs.writeFileSync(output, JSON.stringify(manifest, null, 2) + '\n');
+JS
   echo "installed $target"
   count=$((count + 1))
 done

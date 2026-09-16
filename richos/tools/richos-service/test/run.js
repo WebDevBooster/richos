@@ -223,6 +223,41 @@ function tmp() {
 
 const T0 = 1_700_000_000_000;
 
+
+group('native host installation');
+test('reinstall refreshes moved host and Node paths, including shell metacharacters', () => {
+  if (process.platform === 'win32') return; // The POSIX installer is macOS/Linux only.
+  const root = tmp();
+  try {
+    const home = path.join(root, 'home');
+    const browser = path.join(home, process.platform === 'darwin'
+      ? 'Library/Application Support/Google/Chrome' : '.config/google-chrome');
+    fs.mkdirSync(browser, { recursive: true });
+    let host = path.join(root, 'old-host');
+    fs.cpSync(path.resolve(import.meta.dirname, '../host'), host, { recursive: true });
+    fs.writeFileSync(path.join(host, 'native-host.js'), 'console.log("host-ready");\n');
+    const install = (dir, env) => execFileSync('sh', [path.join(dir, 'install-host.sh'), 'abcdefghijklmnopabcdefghijklmnop'],
+      { env, encoding: 'utf8', timeout: 10000 });
+    install(host, { ...process.env, HOME: home });
+    const moved = path.join(root, "new host '& # $literal");
+    fs.renameSync(host, moved);
+    host = moved;
+    const nodeDir = path.join(root, "new node '& # $literal");
+    fs.mkdirSync(nodeDir);
+    const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
+    fs.writeFileSync(path.join(nodeDir, 'node'), `#!/bin/sh\nexport RICHOS_TEST_NEW_NODE=yes\nexec ${quote(process.execPath)} "$@"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(host, 'native-host.js'), 'console.log("host-ready:" + process.env.RICHOS_TEST_NEW_NODE);\n');
+    const env = { ...process.env, HOME: home, PATH: nodeDir + path.delimiter + process.env.PATH };
+    install(host, env);
+    install(host, env); // Repeated installation remains valid.
+    const manifest = JSON.parse(fs.readFileSync(path.join(browser, 'NativeMessagingHosts/com.richos.host.json')));
+    assert.equal(manifest.path, path.join(host, 'richos-host-launcher.sh'));
+    assert.equal(execFileSync(manifest.path, [], { env: { ...process.env, HOME: home }, encoding: 'utf8' }).trim(), 'host-ready:yes');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 group('pipeline storage boundary');
 for (const command of ['run', 'retranscribe']) {
   test(`${command} rejects explicit product sessions and aliases before writing`, () => {
