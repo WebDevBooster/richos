@@ -8,6 +8,7 @@
  */
 
 import fs from 'node:fs';
+import { appendJsonLine } from './durable-jsonl.js';
 import { ingestLedgerPath } from './config.js';
 
 /**
@@ -39,6 +40,6 @@ export function alreadyLedgered(sessionId, runIndex, zone) {
 export function appendLedger(entry, zone) {
   const file = ingestLedgerPath(zone);
   if (alreadyLedgered(entry.sessionId, entry.runIndex, zone)) return { appended: false, path: file };
-  fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
+  appendJsonLine(file, entry);
   return { appended: true, path: file };
 }
