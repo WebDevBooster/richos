@@ -4,8 +4,8 @@ import path from 'node:path';
 
 import { parseFrontMatter, renderRecordFile, setFields } from '../lib/frontmatter.js';
 import { AUTHORITY_WEIGHT, KINDS, SCOPES, normalizeRecord, validateRecord } from '../lib/record.js';
-import { SOURCES } from '../lib/store.js';
-import { assertWritePath, makeWriteDirectory, writePrivateFile } from './storage.js';
+import { SOURCES, loadCorpus } from '../lib/store.js';
+import { assertWritePath, makeWriteDirectory, writePrivateFile, withWriteLock } from './storage.js';
 
 export class RefusedError extends Error {
   constructor(message, code = 5) {
@@ -121,6 +121,10 @@ export function isWidening(from, to) {
 }
 
 export function appendRecord(opts) {
+  return withWriteLock(opts.corpusRoot, () => appendRecordUnlocked(opts), opts);
+}
+
+function appendRecordUnlocked(opts) {
   const id = assertId(opts.id);
   const kind = assertKind(opts.kind);
   const scope = assertScope(opts.scope);
@@ -286,6 +290,12 @@ export function locate(opts) {
 }
 
 export function supersedeRecord(opts) {
+  return withWriteLock(opts.corpusRoot, () => supersedeRecordUnlocked({ ...opts,
+    corpus: loadCorpus({ ...opts.corpusRoot, now: opts.now }),
+  }), opts);
+}
+
+function supersedeRecordUnlocked(opts) {
   const found = locate({ ...opts, op: 'supersede' });
   assertWritePath(opts.corpusRoot, found.file);
   if (found.record.supersededBy) {
@@ -373,6 +383,12 @@ export function setJsonlField(text, id, changes) {
 }
 
 export function correctRecord(opts) {
+  return withWriteLock(opts.corpusRoot, () => correctRecordUnlocked({ ...opts,
+    corpus: loadCorpus({ ...opts.corpusRoot, now: opts.now }),
+  }), opts);
+}
+
+function correctRecordUnlocked(opts) {
 
   const found = resolveRef(opts);
   if (!String(opts.why || '').trim()) {
@@ -429,6 +445,10 @@ export const COMPANY_ROLES = ['owner', 'co-founder', 'advisor', 'investor', 'obs
 export const COMPANY_STATUSES = ['active', 'retired', 'merged'];
 
 export function createCompany(opts) {
+  return withWriteLock(opts.corpusRoot, () => createCompanyUnlocked(opts), opts);
+}
+
+function createCompanyUnlocked(opts) {
   const corpusRoot = opts.corpusRoot;
   const id = assertId(opts.id);
   const role = String(opts.role || 'owner').trim();

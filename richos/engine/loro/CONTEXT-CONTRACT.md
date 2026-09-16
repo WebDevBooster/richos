@@ -49,6 +49,14 @@ while retaining the old record and its reference. Widening scope requires the
 explicit `--widen-scope` flag. `--dry-run` previews without modifying the corpus.
 `--json` emits the writer receipt used by the app correction desk.
 
+Mutating commands share an OS-managed SQLite lock per corpus. They wait up to
+five seconds for another writer, then refuse with a retryable explanation.
+Corrections and replacements reload their record while holding the lock instead
+of trusting an earlier reader snapshot. The persistent `writer-lock.sqlite` file
+is coordination state, not a stale lock to delete. Process exit releases the
+lock automatically. Dry runs create no lock file. This serializes writers;
+it does not make two separate record files an atomic filesystem transaction.
+
 Prose sections and generated entity vocabulary are readable references but are
 not typed beliefs the writer can silently supersede. Those operations explain
 which source owns the content. Correcting a belief does not rewrite conversation

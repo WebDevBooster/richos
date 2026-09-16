@@ -4,7 +4,8 @@ import path from 'node:path';
 
 import { analyzeCoverage, relinkCandidates } from '../lib/coverage.js';
 import { RefusedError, bareMemId, memoryStoreFileFor, setJsonlField } from './writer.js';
-import { assertWritePath, writePrivateFile } from './storage.js';
+import { assertWritePath, writePrivateFile, withWriteLock } from './storage.js';
+import { loadCorpus } from '../lib/store.js';
 
 export const BASELINE_SCHEMA_VERSION = 1;
 
@@ -58,6 +59,10 @@ export function readBaseline(corpusRoot) {
 }
 
 export function writeBaseline(corpusRoot, analysis, opts = {}) {
+  return withWriteLock(corpusRoot, () => writeBaselineUnlocked(corpusRoot, analysis, opts), opts);
+}
+
+function writeBaselineUnlocked(corpusRoot, analysis, opts) {
   assertWritePath(corpusRoot, baselinePath(corpusRoot));
   const { baseline, file } = readBaseline(corpusRoot);
   const text = renderBaseline(analysis, baseline || {});
@@ -92,6 +97,11 @@ export function checkAgainstBaseline(analysis, baseline) {
 }
 
 export function applyRelinks(corpusRoot, corpus, repairs, opts = {}) {
+  return withWriteLock(corpusRoot, () => applyRelinksUnlocked(corpusRoot,
+    loadCorpus({ ...corpusRoot, now: opts.now }), repairs, opts), opts);
+}
+
+function applyRelinksUnlocked(corpusRoot, corpus, repairs, opts) {
   const applied = [];
   const skipped = [];
   const edits = new Map();
