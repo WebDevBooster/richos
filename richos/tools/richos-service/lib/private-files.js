@@ -6,13 +6,17 @@ import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
 export function privateDirectory(dir, root = dir) {
   const base = assertEvidenceOutsideProductRepo(root);
   const target = path.resolve(dir);
-  const relative = path.relative(base, target);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  fs.mkdirSync(base, { recursive: true });
+  const physicalBase = fs.realpathSync.native(base);
+  const escapes = (relative) => relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  let relative = path.relative(base, target);
+  // Accept both an explicit root alias and the physical paths returned by this helper.
+  if (escapes(relative)) relative = path.relative(physicalBase, target);
+  if (escapes(relative)) {
     throw new Error('storage boundary: directory escapes its root');
   }
   assertEvidenceOutsideProductRepo(target);
-  fs.mkdirSync(base, { recursive: true });
-  let current = fs.realpathSync.native(base);
+  let current = physicalBase;
   for (const part of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, part);
     const entry = fs.lstatSync(current, { throwIfNoEntry: false });

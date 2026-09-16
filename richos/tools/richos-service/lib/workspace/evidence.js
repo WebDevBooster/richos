@@ -20,27 +20,44 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { workspaceZone } from '../config.js';
 import { privateDirectory, privateFile, writePrivateFile } from '../private-files.js';
 
-/** Make a vendor-prefixed sourceItemId safe as a single path segment (no slashes/colons/dots leading). */
+/** Keep a readable prefix, with the full identity digest preventing sanitizer collisions. */
 export function safeId(sourceItemId) {
-  return String(sourceItemId || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_');
+  const id = String(sourceItemId ?? '');
+  const prefix = id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 48) || 'item';
+  return `${prefix}--${digest(id)}`;
 }
 
-/** A short, filesystem-safe token for a vendor etag — the rev discriminator within an item's dir. */
+function digest(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+/** ETags are opaque: punctuation and every character contribute to revision identity. */
 export function revToken(vendorEtag) {
-  const s = String(vendorEtag || 'noetag').replace(/[^A-Za-z0-9]/g, '');
-  return s ? s.slice(0, 24) : 'noetag';
+  return digest(vendorEtag ?? '');
 }
 
-/**
- * The directory for a specific (sourceItemId, vendorEtag) evidence version.
- * @param {import('./source-item.js').SourceItem} item
- * @param {string} [zone]
- * @returns {string}
- */
+function sameIdentity(stored, item) {
+  return stored.sourceItemId === item.sourceItemId && stored.vendor === item.vendor
+    && stored.source === item.source && stored.provenance?.vendorEtag === item.provenance.vendorEtag;
+}
+
+/** Existing citations retain their legacy location only when its full identity matches. */
 export function evidenceDir(item, zone = workspaceZone()) {
+  const legacyId = String(item.sourceItemId || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_');
+  const legacyEtag = String(item.provenance.vendorEtag || 'noetag').replace(/[^A-Za-z0-9]/g, '').slice(0, 24) || 'noetag';
+  const legacy = path.join(zone, item.vendor, item.source, legacyId, `rev-${legacyEtag}`);
+  if (fs.existsSync(path.join(legacy, 'item.json'))) {
+    const verified = privateDirectory(legacy, zone);
+    const file = privateFile(path.join(verified, 'item.json'), verified);
+    let stored;
+    try { stored = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* preserve damaged legacy evidence */ }
+    if (stored && sameIdentity(stored, item)) return legacy;
+  }
   return path.join(zone, item.vendor, item.source, safeId(item.sourceItemId), `rev-${revToken(item.provenance.vendorEtag)}`);
 }
 
@@ -56,29 +73,68 @@ export function evidenceLinkFor(item, zone, repoRoot) {
   return path.join(rel, 'item.json');
 }
 
-/**
- * Write a SourceItem + its governance record into the evidence zone. IMMUTABLE by convention: if the
- * rev dir already exists (same id + etag re-observed) it is a no-op write of identical bytes — never a
- * mutation of a prior version. Large body text goes to content.txt.
- *
- * @param {import('./source-item.js').SourceItem} item
- * @param {Object} governance the §5.1 metadata record
- * @param {string} [zone]
- * @returns {{dir:string, itemPath:string, written:boolean}}
- */
+/** Publish a complete revision once. Repeat observations never rewrite its evidence. */
 export function writeEvidence(item, governance, zone = workspaceZone()) {
-  const dir = privateDirectory(evidenceDir(item, zone), zone);
-  // Validate the entire write set before changing any evidence file.
-  for (const name of ['item.json', 'content.txt', 'governance.json']) {
-    privateFile(path.join(dir, name), dir);
+  const requested = evidenceDir(item, zone);
+  const parent = privateDirectory(path.dirname(requested), zone);
+  const dir = path.join(parent, path.basename(requested));
+  function validateDestination() {
+    const entry = fs.lstatSync(dir, { throwIfNoEntry: false });
+    if (entry && (!entry.isDirectory() || entry.isSymbolicLink())) {
+      throw new Error('storage boundary: revision directory must not be a link');
+    }
+    if (entry) {
+      privateDirectory(dir, zone);
+      for (const name of ['item.json', 'content.txt', 'governance.json']) {
+        privateFile(path.join(dir, name), dir);
+      }
+    }
   }
+  validateDestination();
   const itemPath = path.join(dir, 'item.json');
-  const alreadyThere = fs.existsSync(itemPath);
-  // Keep the heavy body out of item.json for cheap scanning; item.json references content.txt.
   const body = item.content.text || '';
   const stored = { ...item, content: { ...item.content, text: undefined, textFile: 'content.txt' } };
-  writePrivateFile(itemPath, `${JSON.stringify(stored, null, 2)}\n`);
-  writePrivateFile(path.join(dir, 'content.txt'), body);
-  writePrivateFile(path.join(dir, 'governance.json'), `${JSON.stringify(governance, null, 2)}\n`);
-  return { dir, itemPath, written: !alreadyThere };
+
+  function existing() {
+    // Fetched time changes on a repeat observation. The source evidence may not.
+    const material = (value) => {
+      const copy = JSON.parse(JSON.stringify(value));
+      if (copy.provenance) delete copy.provenance.fetchedAt;
+      return copy;
+    };
+    try {
+      const previous = JSON.parse(fs.readFileSync(privateFile(itemPath, dir), 'utf8'));
+      const text = fs.readFileSync(privateFile(path.join(dir, 'content.txt'), dir), 'utf8');
+      JSON.parse(fs.readFileSync(privateFile(path.join(dir, 'governance.json'), dir), 'utf8'));
+      if (!sameIdentity(previous, item) || text !== body
+        || !isDeepStrictEqual(material(previous), material(stored))) {
+        throw new Error('different contents for an existing source revision');
+      }
+    } catch (error) {
+      throw new Error(`evidence conflict at ${dir}: ${error.message}`);
+    }
+    return { dir, itemPath, written: false };
+  }
+
+  if (fs.existsSync(itemPath)) return existing();
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length) throw new Error(`evidence conflict at ${dir}: incomplete revision`);
+  const staging = fs.mkdtempSync(path.join(path.dirname(dir), '.evidence-'));
+  try {
+    writePrivateFile(path.join(staging, 'item.json'), `${JSON.stringify(stored, null, 2)}\n`);
+    writePrivateFile(path.join(staging, 'content.txt'), body);
+    writePrivateFile(path.join(staging, 'governance.json'), `${JSON.stringify(governance, null, 2)}\n`);
+    try {
+      validateDestination();
+      // Remove only an empty pre-existing revision directory; rmdir cannot erase evidence.
+      if (fs.existsSync(dir)) fs.rmdirSync(dir);
+      fs.renameSync(staging, dir);
+    } catch (error) {
+      // A concurrent writer may have published this exact revision first.
+      if (error.code === 'EEXIST' || error.code === 'ENOTEMPTY') return existing();
+      throw error;
+    }
+    return { dir, itemPath, written: true };
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
