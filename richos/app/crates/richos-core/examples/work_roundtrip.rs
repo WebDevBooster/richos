@@ -7,7 +7,8 @@ impl Drop for Scratch{fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args:Vec<_>=std::env::args_os().skip(1).collect();
  if args.first().is_some_and(|a|a=="--onboarding-mcp"){richos_core::onboarding_tools::run_stdio(&PathBuf::from(&args[1]))?;return Ok(());}
- if args.len()!=2{return Err("usage: work_roundtrip ENGINE DELIVERED_RUNTIME".into());}
+ if !(args.len()==2 || (args.len()==3 && args[2]=="--natural")){return Err("usage: work_roundtrip ENGINE DELIVERED_RUNTIME [--natural]".into());}
+ let natural=args.len()==3;
  let engine=std::fs::canonicalize(&args[0])?;
  let root=Scratch(std::env::temp_dir().join(format!("richos work {}",uuid::Uuid::new_v4())));
  let data=root.0.join("app data");std::fs::create_dir_all(data.join("corpus/ceo/records"))?;
@@ -37,6 +38,37 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
    std::thread::sleep(Duration::from_millis(20));
   }
  })};
+ if natural {
+  let backlog=root.0.join("fictional-backlog.md");
+  std::fs::write(&backlog,"# Fictional delivery\n\nCreate marker.txt containing exactly FICTIONAL in each connected project. No other project files should change. Verify the committed bytes, obtain independent review, integrate into each local main branch and clean up eligible workspaces. Never publish.\n")?;
+  let turn=spine.submit_prompt(&format!("Please complete the job in {} for both connected repositories. Treat it as one assignment. The backlog gives the success conditions. You may commit and integrate the changes locally. Do not publish anything.",backlog.display()),Source::Text)?;
+  let mut workers=Vec::new();
+  for partition in std::fs::read_dir(data.join("engine-state/work-receipts"))? {
+   for file in std::fs::read_dir(partition?.path())? {
+    let path=file?.path();if !path.extension().is_some_and(|e|e=="json"){continue;}
+    let receipt:serde_json::Value=serde_json::from_slice(&std::fs::read(path)?)?;
+    if receipt["request"]["role"]=="worker" {workers.push(receipt);}
+   }
+  }
+  eprintln!("Natural assignment response: {}",spine.ledger().turn(&turn).unwrap().assistant_text);
+  assert_eq!(workers.len(),2,"one actual implementation worker per repository");
+  let obligation=workers[0]["request"]["obligation_id"].clone();
+  for worker in &workers {
+   assert_eq!(worker["request"]["obligation_id"],obligation);
+   assert!(worker["agent_id"].is_string());
+   assert_eq!(worker["integration"]["verified"],true,"natural assignment did not reach verified integration");
+   assert_eq!(worker["integration"]["cleanup_pending"],serde_json::json!([]));
+   let repo=std::path::Path::new(worker["request"]["repo"].as_str().unwrap());
+   assert_eq!(std::fs::read_to_string(repo.join("marker.txt"))?.trim(),"FICTIONAL");
+   let committed=std::process::Command::new(&runtime.git).arg("-C").arg(repo).args(["show","main:marker.txt"]).output()?;
+   assert!(committed.status.success());assert_eq!(String::from_utf8(committed.stdout)?.trim(),"FICTIONAL");
+  }
+  let binding=bridge.request("current",serde_json::json!({}))?["binding"].clone();
+  let item=bridge.request("inspect",serde_json::json!({"binding":binding,"query":{"item_id":obligation}}))?;
+  assert_eq!(item["item"]["status"],"completed","parent assignment was not verified complete");
+  finished.store(true,Ordering::SeqCst);responder.join().unwrap();drop(spine);
+  println!("{}",serde_json::json!({"natural_language_assignment":true,"two_repositories_integrated":true,"independent_reviews_verified":true,"canonical_cleanup_verified":true,"parent_obligation_completed":true,"installed_acceptance":false}));return Ok(());
+ }
  for (index, name) in ["first project", "second project"].iter().enumerate() {
  let repo=std::fs::canonicalize(root.0.join(name))?;
  let prompt=format!("This is a disposable product integration test. Do exactly these operations. First use the continuity checkpoint tool to accept one commitment id marker-task, title Create the fictional marker. Then use richos_work.repositories to confirm the two connected repositories. Use richos_work.prepare with request_id marker-worker, obligation_id marker-task, repo {}, integration main, role worker and title Create fictional marker. Its brief must explicitly name the returned cross-repository target as the implementation directory (the native coordination worktree is not the target) and require the worker to create marker.txt containing exactly FICTIONAL in its assigned target worktree, read it, then commit only marker.txt using git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false commit. No publication or other changes are authorized. Submit the returned agent_payload to Agent exactly, without reconstructing it or changing any field, and use TaskOutput with block:true to wait for that actual worker result. Call richos_work.inspect and report what actually happened. Do not implement the file yourself, integrate it or mark the assignment complete. Use only the described MCP tools, Agent and TaskOutput. Do not end by promising an action you have not taken.",repo.display());
