@@ -686,8 +686,15 @@ impl MachineryRecord {
                             Vec::new(),
                             block,
                         ),
-                        // DROP 2 — already delivered as clean output.
-                        "text" => {}
+                        // Only the lead's text is clean conversation output. A native
+                        // worker's whole message remains attributed operational evidence.
+                        "text" => {
+                            if frame.get("parent_tool_use_id").is_some_and(|parent| !parent.is_null()) {
+                                let detail=serde_json::json!({"parent_tool_use_id":frame["parent_tool_use_id"],"block":block});
+                                push(MachineryKind::Unknown,None,None,"Worker report".into(),
+                                     summarize(block.get("text").and_then(Value::as_str).unwrap_or("")),Vec::new(),&detail);
+                            }
+                        }
                         other => push(
                             MachineryKind::Unknown,
                             None,

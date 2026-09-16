@@ -10,6 +10,19 @@ impl richos_core::machinery::MachineryObserver for PermissionTrace {
 }
 struct Scratch(PathBuf);
 impl Drop for Scratch{fn drop(&mut self){if std::env::var_os("RICHOS_PROBE_KEEP_FIXTURE").is_some(){eprintln!("Retained fictional fixture: {}",self.0.display());}else{let _=std::fs::remove_dir_all(&self.0);}}}
+fn verify_worker_attribution(spine: &Spine, thread: &str, turn: &str) {
+ let records=spine.machinery_journal().unwrap().read_thread(thread);
+ let reports:Vec<_>=records.iter().filter(|r|r.turn_id.as_deref()==Some(turn) && r.title=="Worker report").collect();
+ assert!(!reports.is_empty(),"actual worker reports were not preserved separately");
+ let visible=&spine.ledger().turn(turn).unwrap().assistant_text;
+ for report in reports {
+  let payload=report.payload.as_ref().expect("fictional report payload");
+  assert!(payload["parent_tool_use_id"].is_string());
+  if let Some(text)=payload["block"]["text"].as_str().filter(|s|s.len()>160) {
+   assert!(!visible.contains(text),"a whole worker report leaked into the lead conversation");
+  }
+ }
+}
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args:Vec<_>=std::env::args_os().skip(1).collect();
  if args.first().is_some_and(|a|a=="--onboarding-mcp"){richos_core::onboarding_tools::run_stdio(&PathBuf::from(&args[1]))?;return Ok(());}
@@ -68,6 +81,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
    assert!(output.status.success(),"could not commit the fictional backlog fixture");
   }
   let turn=spine.submit_prompt(&format!("Please complete the job in {} for both connected repositories. Treat it as one assignment. The backlog gives the success conditions. You may commit and integrate the changes locally. Do not publish anything.",backlog.display()),Source::Text)?;
+  verify_worker_attribution(&spine,&thread,&turn);
   let mut workers=Vec::new();
   for partition in std::fs::read_dir(data.join("engine-state/work-receipts"))? {
    for file in std::fs::read_dir(partition?.path())? {
@@ -93,7 +107,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   let item=bridge.request("inspect",serde_json::json!({"binding":binding,"query":{"item_id":obligation}}))?;
   assert_eq!(item["item"]["status"],"completed","parent assignment was not verified complete");
   finished.store(true,Ordering::SeqCst);responder.join().unwrap();eprintln!("Fixture permission requests by tool (refuse all: {no_manual}): {:?}",approval_counts.lock().unwrap());if no_manual {assert!(approval_counts.lock().unwrap().is_empty(),"ordinary work still needed a manual permission response");}drop(spine);
-  println!("{}",serde_json::json!({"natural_language_assignment":true,"two_repositories_integrated":true,"independent_reviews_verified":true,"canonical_cleanup_verified":true,"parent_obligation_completed":true,"installed_acceptance":false}));return Ok(());
+  println!("{}",serde_json::json!({"worker_reports_attributed_separately":true,"natural_language_assignment":true,"two_repositories_integrated":true,"independent_reviews_verified":true,"canonical_cleanup_verified":true,"parent_obligation_completed":true,"installed_acceptance":false}));return Ok(());
  }
  let projects:&[&str]=if revision { &["first project"] } else { &["first project","second project"] };
  for (index, name) in projects.iter().enumerate() {
@@ -103,6 +117,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let prompt=if revision {prompt.replace("containing exactly FICTIONAL", "containing exactly WRONG")} else {prompt};
  let expected=if revision {"WRONG"} else {"FICTIONAL"};
  let turn=spine.submit_prompt(&prompt,Source::Text)?;
+ verify_worker_attribution(&spine,&thread,&turn);
  let mut receipts=Vec::new();
  for partition in std::fs::read_dir(data.join("engine-state/work-receipts"))?{
   for file in std::fs::read_dir(partition?.path())?{
@@ -132,6 +147,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let review_prompt=review_prompt.replace("marker-task", &format!("marker-task-{index}")).replace("marker-review", &format!("marker-review-{index}"));
  let review_prompt=if revision {format!("Review the saved worker {} in {} independently against this success condition: marker.txt must contain exactly FICTIONAL. The fixture currently contains a deliberate defect. First obtain and observe the independent review of that existing commit. If the reviewer requests changes, continue the saved worker with the specific correction, obtain a fresh independent review of the corrected commit, integrate locally and clean up all eligible workspaces. Close the assignment only from verified evidence. I authorize that revision and local integration. Do not publish. Complete the cycle without asking me to operate internal tools or IDs.",receipt["id"].as_str().unwrap(),repo.display())}else{review_prompt};
  let reviewed=spine.submit_prompt(&review_prompt,Source::Text)?;
+ verify_worker_attribution(&spine,&thread,&reviewed);
  let mut updated:serde_json::Value=serde_json::from_slice(&std::fs::read(data.join("engine-state/work-receipts").join(std::fs::read_dir(data.join("engine-state/work-receipts"))?.next().unwrap()?.file_name()).join(format!("{}.json",receipt["id"].as_str().unwrap())))?)?;
  if revision {
   let partition=data.join("engine-state/work-receipts").join(std::fs::read_dir(data.join("engine-state/work-receipts"))?.next().unwrap()?.file_name());
@@ -153,6 +169,6 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  assert_eq!(updated["integration"]["cleanup_pending"],serde_json::json!([]));
  assert_eq!(std::fs::read_to_string(repo.join("marker.txt"))?.trim(),"FICTIONAL");assert!(!target.exists());
  }
- finished.store(true,Ordering::SeqCst);responder.join().unwrap();eprintln!("Synthetic permission approvals by tool: {:?}",approval_counts.lock().unwrap());
+ finished.store(true,Ordering::SeqCst);responder.join().unwrap();eprintln!("Synthetic permission approvals by tool: {:?}",approval_counts.lock().unwrap());if no_manual {assert!(approval_counts.lock().unwrap().is_empty(),"work needed a manual permission response");}
  println!("{}",serde_json::json!({"two_repositories_integrated":!revision,"rejected_review_revised_and_verified":revision,"real_worker_dispatched":true,"worker_commit_verified":true,"target_main_untouched_before_integration":true,"ecs_completion_not_inferred_from_exit":true,"fresh_provider_recovered_work":true,"real_reviewer_observed":true,"reviewed_commit_integrated":true,"canonical_cleanup_verified":true,"host_user_instruction_attested":true,"installed_acceptance":false}));drop(spine);Ok(())
 }

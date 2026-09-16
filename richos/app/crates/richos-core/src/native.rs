@@ -1198,6 +1198,14 @@ impl NativeClient {
             return;
         }
 
+        // Nested agent frames are operational evidence, never the lead's words,
+        // context watermark or terminal state. In particular, whole-message fallback
+        // must not promote worker narration when the lead has no active text stream.
+        if msg.get("parent_tool_use_id").is_some_and(|parent| !parent.is_null()) {
+            Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
+            return;
+        }
+
         // ---- the terminal frame --------------------------------------------------------
         if ty == "result" {
             let mut st = state.lock().unwrap();
@@ -2437,6 +2445,40 @@ done
         assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
         assert!(!client.reader_state.lock().unwrap().context_only);
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    #[test]
+    fn nested_worker_text_and_results_never_become_the_leads_conversation() {
+        let script = write_script("nested-worker-output", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"message_start"}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Lead"}}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":"worker-call","event":{"type":"message_start"}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":"worker-call","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"WORKER STREAM"}}}'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":"worker-call","message":{"content":[{"type":"text","text":"WORKER REPORT"}]}}'
+printf '%s\n' '{"type":"result","parent_tool_use_id":"worker-call","stop_reason":"worker_end"}'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Lead"}]}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":" done"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"message_start"}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":"worker-call","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"WORKER AGAIN"}}}'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Lead fallback"}]}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let client=NativeClient::spawn(&script,Path::new("/tmp"),&doctrine_fixture(),&skills_fixture()).unwrap();
+        let mut visible=String::new();let mut reports=Vec::new();
+        let reason=client.prompt("First fictional turn", &mut |item|match item {
+            TurnItem::Text{text,..}=>visible.push_str(text),
+            TurnItem::Machinery(record)=>reports.push(record),
+        }).unwrap();
+        assert_eq!(reason,"end_turn");assert_eq!(visible,"Lead done");
+        assert!(reports.iter().any(|r|r.title=="Worker report" && r.payload.as_ref().is_some_and(|p|p["parent_tool_use_id"]=="worker-call" && p["block"]["text"]=="WORKER REPORT")));
+        let mut fallback=String::new();
+        client.prompt("Second fictional turn", &mut |item|if let TurnItem::Text{text,..}=item{fallback.push_str(text)}).unwrap();
+        assert_eq!(fallback,"Lead fallback");
     }
 
     // ---- the permission seam -----------------------------------------------------------
