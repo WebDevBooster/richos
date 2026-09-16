@@ -33,7 +33,6 @@ use crate::reprime::{LoroContextCompiler, LoroTier, SliceRequest};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 /// The slice schema this build understands. `CONTEXT-CONTRACT.md` §2's forward-compat rule:
@@ -423,7 +422,7 @@ impl CorpusLanes {
     /// print it.
     pub fn probe(tools: &LoroTools, root: &LoroRoot) -> Result<Self, LoroError> {
         let (flag, path) = root.args();
-        let out = Command::new(tools.node())
+        let out = crate::runtime::interpreter_command(tools.node())
             .arg(tools.context_bin())
             .arg("corpus")
             .arg(flag)
@@ -1003,7 +1002,7 @@ impl CliContextCompiler {
         use std::process::Stdio;
 
         let argv = self.argv(req);
-        let mut child = match Command::new(self.tools.node())
+        let mut child = match crate::runtime::interpreter_command(self.tools.node())
             .args(&argv)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

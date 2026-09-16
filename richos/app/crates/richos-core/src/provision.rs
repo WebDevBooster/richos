@@ -540,7 +540,7 @@ fn create_company(tools_dir: Option<&Path>, root: &Path, id: &str, name: &str) -
         }
     }
     let node = crate::loro::resolve_node_bin(&paths);
-    let out = std::process::Command::new(&node)
+    let out = crate::runtime::interpreter_command(&node)
         .arg(&write_bin)
         .arg("create-company")
         .arg("--corpus")

@@ -141,6 +141,17 @@ impl EngineProfile {
         self.state.join("workspaces").join(partition)
     }
     pub fn configure(&self, command: &mut Command, session: &str, scope: &Path) {
+        crate::runtime::isolate_interpreter_environment(command);
+        // App bindings replace terminal component roots, test overrides and
+        // transcript discovery. The provider's account location is unchanged.
+        let inherited: Vec<_> = std::env::vars_os().map(|(key,_)|key)
+            .chain(command.get_envs().map(|(key,_)|key.to_owned())).collect();
+        for key in inherited {
+            let name = key.to_string_lossy();
+            if ["RICHOS_", "LORO_", "ECS_", "GIT_"].iter().any(|prefix|name.starts_with(prefix)) {
+                command.env_remove(key);
+            }
+        }
         command.env_remove("RICHOS_APP_ENTITY").env_remove("RICHOS_APP_THREAD");
         if let Some((entity, thread)) = &self.work_scope {
             command.env("RICHOS_APP_ENTITY", entity).env("RICHOS_APP_THREAD", thread);
@@ -164,6 +175,8 @@ impl EngineProfile {
             .env("RICHOS_ENGINE_ROOT", &self.engine).env("RICHOS_ENGINE_DIR", &self.engine)
             .env("RICHOS_ENTITY_ROOT", &self.coordination).env("CLAUDE_PROJECT_DIR", &self.coordination)
             .env("RICHOS_WORKSPACES_DIR", self.workspace_state())
+            .env("RICHOS_PROJECTS_DIR", self.state.join("platform-projects"))
+            .env("RICHOS_SESSIONS_DIR", self.state.join("platform-sessions"))
             .env("RICHOS_SA_ENTITY_ROOT", &self.coordination).env("RICHOS_SA_TEAMS_DIR", self.state.join("teams"))
             .env("RICHOS_SESSION_ID", session).env_remove("RICHOS_SESSION_PID")
             .env("RICHOS_SPAWN_HOOK_SOURCES", format!("app={}", self.plugin.join("spawn-preflight.json").display()));

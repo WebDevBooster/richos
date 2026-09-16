@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, thiserror::Error)]
@@ -100,7 +100,7 @@ impl EcsBridge {
         object.insert("command".into(), json!(command));
         let input = serde_json::to_vec(&fields).map_err(|e| EcsError(e.to_string()))?;
         if input.len() > 1024 * 1024 { return Err(EcsError("request exceeds 1 MiB".into())); }
-        let mut child = Command::new(&self.python)
+        let mut child = crate::runtime::interpreter_command(&self.python)
             .arg(self.component.join("bin/ecs")).arg("--state-root").arg(&self.state_root)
             .env_remove("ECS_HOME").env("PYTHONDONTWRITEBYTECODE", "1")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())

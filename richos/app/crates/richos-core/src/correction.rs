@@ -348,7 +348,7 @@ impl CliLoroWriter {
     }
 
     fn run(&self, verb: &str, extra: &[String], body: Option<&str>, dry_run: bool) -> Result<WriteOutput, CorrectionError> {
-        use std::process::{Command, Stdio};
+        use std::process::Stdio;
         let (root_flag, root_path) = self.root.args();
         let mut argv = vec![
             self.tools.write_bin().display().to_string(),
@@ -362,7 +362,7 @@ impl CliLoroWriter {
         }
         argv.extend(extra.iter().cloned());
 
-        let mut child = Command::new(self.tools.node())
+        let mut child = crate::runtime::interpreter_command(self.tools.node())
             .args(&argv)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

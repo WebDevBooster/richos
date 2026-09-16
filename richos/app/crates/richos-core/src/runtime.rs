@@ -112,6 +112,21 @@ impl EngineRuntime {
     }
 }
 
+/// Delivered interpreters must not import a launching terminal's modules or
+/// startup scripts. Credentials and ordinary OS settings are not copied here.
+pub fn isolate_interpreter_environment(command: &mut std::process::Command) {
+    for key in ["PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE",
+        "NODE_PATH", "NODE_OPTIONS", "BASH_ENV", "ENV"] {
+        command.env_remove(key);
+    }
+    command.env("PYTHONNOUSERSITE", "1").env("PYTHONDONTWRITEBYTECODE", "1");
+}
+pub fn interpreter_command(path: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(path);
+    isolate_interpreter_environment(&mut command);
+    command
+}
+
 /// Validate the delivered component set before activation. This establishes
 /// presence and compatible protocol identities, not behavioral acceptance.
 pub fn verify_engine(engine: &Path) -> Result<EngineRuntime, RuntimeError> {
