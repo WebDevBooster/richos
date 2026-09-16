@@ -102,7 +102,7 @@
 # ===========================================================================
 # OUTPUT: WHAT THE HOST SEES
 # ===========================================================================
-# Reproduces exactly what the host computed from the separate entries:
+# Preserves module verdicts and reports dispatcher failures on the host-visible channel:
 #
 #   exit code   2 if ANY module exited 2, else 0. Every module runs either way
 #               — the old shape ran all twelve regardless of what the first
@@ -115,7 +115,11 @@
 #               rule module writes to stdout on any of them. The one shape
 #               that would break — two modules emitting JSON objects that
 #               concatenate into invalid JSON — is detected and reported as a
-#               systemMessage rather than shipped as a broken envelope.
+#               systemMessage rather than shipped as a broken envelope. Missing,
+#               unstarted and crashed modules add a visible systemMessage. A
+#               single valid sibling envelope retains its other fields. If the
+#               JSON encoder fails, a Bash fallback reports the failure and
+#               explicitly announces any sibling output it cannot preserve.
 #
 # `shell-evidence.sh` is NOT a module here and stays registered on its own.
 # It is an input TRANSFORMER, not a guard: it returns `updatedInput` that
@@ -286,6 +290,7 @@ done
 _DSP_RC=0
 _DSP_STDOUT_EMITTERS=0
 _DSP_STDOUT=""
+: > "$_DSP_WORK/failures"
 _DSP_N=0
 for _dsp_m in $_DSP_MODULES; do
     _DSP_N=$((_DSP_N + 1))
@@ -295,6 +300,7 @@ for _dsp_m in $_DSP_MODULES; do
         # It never ran. Say so — once — and go on to the next rule. It does not
         # block, because a rule that did not evaluate the call has not refused
         # it; and it does not pass, because the line above says it did not run.
+        cat "$_dsp_slot.err" >> "$_DSP_WORK/failures"
         cat "$_dsp_slot.err" >&2
         continue
     fi
@@ -306,6 +312,7 @@ for _dsp_m in $_DSP_MODULES; do
         # one. There is no status to read, so there is no verdict: announce it
         # and carry on, the same treatment an absent module gets.
         printf '%s\n' "ERROR: dispatch-pretooluse.sh: rule module '$_dsp_m' left no process status — it could not be started. THAT RULE DID NOT EVALUATE THIS CALL; every other rule in the ${_DSP_CHAIN_KEY} chain ran normally and their verdicts stand. $_DSP_TAG" >&2
+        printf '%s\n' "Rule '$_dsp_m' could not be started. THAT RULE DID NOT EVALUATE THIS CALL." >> "$_DSP_WORK/failures"
         [ -f "$_dsp_slot.err" ] && cat "$_dsp_slot.err" >&2
         continue
     fi
@@ -323,6 +330,7 @@ for _dsp_m in $_DSP_MODULES; do
         2) _DSP_RC=2 ;;
         *)
             printf '%s\n' "ERROR: dispatch-pretooluse.sh: rule module '$_dsp_m' exited $_dsp_rc, which is neither 0 (allow) nor 2 (block). THAT RULE DID NOT EVALUATE THIS CALL and its verdict is unknown; every other rule in the ${_DSP_CHAIN_KEY} chain ran normally and their verdicts stand. $_DSP_TAG" >&2
+            printf '%s\n' "Rule '$_dsp_m' exited $_dsp_rc. THAT RULE DID NOT EVALUATE THIS CALL; its verdict is unknown." >> "$_DSP_WORK/failures"
             ;;
     esac
 done
@@ -331,10 +339,55 @@ if [ -n "$_DSP_STDOUT" ]; then
     if [ "$_DSP_STDOUT_EMITTERS" -gt 1 ]; then
         # Two JSON objects concatenated are not a JSON object. Say so instead of
         # shipping an envelope the host will silently drop.
-        printf '{"systemMessage":"%s"}\n' "dispatch-pretooluse.sh: ${_DSP_STDOUT_EMITTERS} rules in the ${_DSP_CHAIN_KEY} chain wrote to stdout on one call. Their outputs cannot be concatenated into one hook result and were NOT delivered. The rules themselves ran and their exit codes stand. Fix: give the chain a real merge, or take the stdout-emitting rule out of the chain."
-    else
-        printf '%s\n' "$_DSP_STDOUT"
+        _DSP_STDOUT="$(printf '{"systemMessage":"%s"}\n' "dispatch-pretooluse.sh: ${_DSP_STDOUT_EMITTERS} rules in the ${_DSP_CHAIN_KEY} chain wrote to stdout on one call. Their outputs cannot be concatenated into one hook result and were NOT delivered. The rules themselves ran and their exit codes stand. Fix: give the chain a real merge, or take the stdout-emitting rule out of the chain.")"
     fi
 fi
+
+# Exit-zero stderr does not reach the operator. Merge failure notices into the
+# one hook envelope, preserving a sibling's decision, context and other fields.
+if [ -s "$_DSP_WORK/failures" ]; then
+    printf '%s' "$_DSP_STDOUT" > "$_DSP_WORK/stdout"
+    if python3 - "$_DSP_WORK" > "$_DSP_WORK/merged" <<'PYMERGE'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+raw = (root / "stdout").read_text()
+notice = (root / "failures").read_text().strip()
+try:
+    result = json.loads(raw) if raw else {}
+    if not isinstance(result, dict):
+        raise ValueError("hook output is not an object")
+except (ValueError, TypeError):
+    result = {}
+    notice += "\nA sibling's invalid hook output could not be delivered: " + raw
+previous = result.get("systemMessage", "")
+result["systemMessage"] = (str(previous) + "\n" if previous else "") + notice
+print(json.dumps(result))
+PYMERGE
+    then
+        _DSP_STDOUT="$(cat "$_DSP_WORK/merged")"
+    else
+        # A broken Python must not silence the report of a broken rule. Quote
+        # control bytes in Bash too, since paths can contain tabs or newlines.
+        _dsp_notice="$(cat "$_DSP_WORK/failures")"
+        if [ -n "$_DSP_STDOUT" ]; then
+            _dsp_notice="$_dsp_notice Sibling output could not be merged because the JSON encoder failed; inspect the hook installation."
+        fi
+        _dsp_escaped=""
+        while [ -n "$_dsp_notice" ]; do
+            _dsp_c="${_dsp_notice:0:1}"
+            _dsp_notice="${_dsp_notice:1}"
+            case "$_dsp_c" in
+                '"') _dsp_c='\"' ;;
+                '\') _dsp_c='\\' ;;
+                *) if [[ "$_dsp_c" < $'\x20' ]]; then
+                       printf -v _dsp_c '\\u%04x' "'$_dsp_c"
+                   fi ;;
+            esac
+            _dsp_escaped="$_dsp_escaped$_dsp_c"
+        done
+        _DSP_STDOUT="$(printf '{"systemMessage":"%s"}' "$_dsp_escaped")"
+    fi
+fi
+[ -n "$_DSP_STDOUT" ] && printf '%s\n' "$_DSP_STDOUT"
 
 exit "$_DSP_RC"
