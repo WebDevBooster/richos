@@ -1,0 +1,33 @@
+{
+  "finding": "company partition lost on supersede",
+  "replacement": "rec:ceo/records/contract-corrected",
+  "betaItemsBefore": [],
+  "betaItemsAfter": [
+    {
+      "ref": "rec:ceo/records/contract-corrected",
+      "kind": "fact",
+      "kindInferred": false,
+      "title": "Fictional Alpha contract renewal is March, not February.",
+      "scope": "org-shared",
+      "company": null,
+      "score": 2.6769,
+      "truncated": false,
+      "provenance": {
+        "source": "records",
+        "path": "ceo/records/contract-corrected.md",
+        "anchor": null,
+        "link": null,
+        "method": "explicit_ceo_instruction",
+        "ref": "rec:companies/alpha/records/contract"
+      },
+      "confidence": 0.9
+    }
+  ]
+}
+{
+  "finding": "linked child escapes corpus",
+  "control": "usage: loro corpus root: refusing a corpus inside the RichOS product repo (/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-audit-proof-NdEwrK/product). The corpus is the CEO's private record and RichOS ships publicly — a corpus in the product repo is one commit away from being published. Put it outside the checkout (e.g. ~/RichOS/corpus). For the in-repo dogfood case use --root / LORO_ROOT, which says so out loud.",
+  "reportedFile": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-audit-proof-NdEwrK/linked-corpus/ceo/records/private-fact.md",
+  "physicalFile": "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-audit-proof-NdEwrK/product/docs/private-fact.md"
+}
+{"scratch":"/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-audit-proof-NdEwrK"}

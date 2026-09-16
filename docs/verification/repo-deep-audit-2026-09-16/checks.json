@@ -1,0 +1,152 @@
+{
+  "revision": "ef2f0c87f808951e1fd2da3802accb2c17ebc4c2",
+  "platform": "macOS arm64",
+  "checks": {
+    "core-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/core-test.log",
+      "sha256": "43cfc8919d1ebe37c95fab327b0298f603c3076e77bd459139256b8f665d8b84",
+      "passed": 1028,
+      "failed": 0,
+      "ignored": 4
+    },
+    "tauri-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/tauri-test.log",
+      "sha256": "0a58c49906a57b9fdb889e6d2f8f9c994da3cdfcb5a03748376058d921e5068a",
+      "passed": 98,
+      "failed": 0,
+      "ignored": 0
+    },
+    "voice-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/voice-test.log",
+      "sha256": "64a796e1c4ddfd4ed4d96bf613ddbc989c81eed5b234dc3a978817d6fe3d2eaf",
+      "passed": 225,
+      "failed": 0,
+      "ignored": 4
+    },
+    "updater-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/updater-test.log",
+      "sha256": "8c70551b87b9cec16e9d6510ab47a64067dcfbd01af94a6c90a0e7eda91839d2",
+      "passed": 38,
+      "failed": 0,
+      "ignored": 0,
+      "nested_subprocess_recheck": 1
+    },
+    "service-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/service-test.log",
+      "sha256": "a182551ef23b2a8d38e1a4d1cce0b301d9d9f17c7217a6ef60b51193e4db00ab",
+      "suite_summaries": [
+        {
+          "passed": 365,
+          "failed": 0
+        },
+        {
+          "passed": 87,
+          "failed": 4
+        }
+      ]
+    },
+    "workspace-retry": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/workspace-retry.log",
+      "sha256": "32d58955f14e4e49657417601afd8f8240d1e967d2c6cd0893eb56c53db92c88",
+      "suite_summaries": [
+        {
+          "passed": 91,
+          "failed": 0
+        }
+      ]
+    },
+    "extension-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/extension-test.log",
+      "sha256": "af65197112857f7974c1ef83e75b021c9267613bf95368295bfe1cc8f32551dd",
+      "suite_summaries": [
+        {
+          "passed": 66,
+          "failed": 0
+        }
+      ]
+    },
+    "ecs-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/ecs-test.log",
+      "sha256": "ac31a35714c455e5e53a5d17f4f5c910f3519095df6152ffad420172ec93be5a",
+      "tests": 18,
+      "ok": true
+    },
+    "loro-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/loro-test.log",
+      "sha256": "b8ac0f065ad8d486e5f6647db1352b93aad523a2924e4fef97922229318b51bb",
+      "suite_summaries": [
+        {
+          "passed": 205,
+          "failed": 0
+        }
+      ]
+    },
+    "work-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/work-test.log",
+      "sha256": "00104482368deaa9f45d1c31c3f7df602571ca7e460fbacf4930c4c5477935d4",
+      "tests": 13,
+      "ok": true
+    },
+    "evidence-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/evidence-test.log",
+      "sha256": "aeb8eab8eeb87c97d150804b54d470279b25d480780ccf79e9464381ccfc401a",
+      "tests": 7,
+      "ok": true
+    },
+    "supervisor-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/supervisor-test.log",
+      "sha256": "6468378e6100359f274ecdcde4e999b96c35563fc13ff1ea9eb9dc2a2dcd15ec",
+      "tests": 1,
+      "ok": true
+    },
+    "runtime-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/runtime-test.log",
+      "sha256": "77ecdaf76b0a4f9f157b08dc741287943417847cdfae17660c5fea600de76490",
+      "tests": 7,
+      "ok": true
+    },
+    "ui-permissions": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/ui-permissions.log",
+      "sha256": "a4f8796c5a4a9068f749bb2c2641fcfda48fa32abee2202c45db15aabcc03d41",
+      "checks_passed": 3,
+      "checks_failed": 0
+    },
+    "ui-work-summary": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/ui-work-summary.log",
+      "sha256": "56ea910639906cdd1530691110b819beb7f1b6673f70a1d54f320a5648ea59a9",
+      "checks_passed": 1,
+      "checks_failed": 0
+    },
+    "ui-repositories": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/ui-repositories.log",
+      "sha256": "9714bda0673258551955835fb3de553ba982c4bdb1083198554f20035ead6f63",
+      "checks_passed": 2,
+      "checks_failed": 0
+    },
+    "ui-provider-auth": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/ui-provider-auth.log",
+      "sha256": "600d0d60b43d0f69b07b2af4fc6c41f22e697c29556d37d37f1fcec6b5e2e457",
+      "checks_passed": 3,
+      "checks_failed": 0
+    },
+    "prior-fixes-test": {
+      "log": "/tmp/richos-deep-audit-p8mhq6/prior-fixes-test.log",
+      "sha256": "1db8fe2c3109c4b50d4fa6b05fd96d08105096cf37588c104983a5d7390e5fbe"
+    }
+  },
+  "syntax": {
+    "counts": {
+      ".py": 117,
+      ".sh": 360,
+      ".js": 162,
+      ".mjs": 17,
+      ".cjs": 0
+    },
+    "failures": {}
+  },
+  "notes": [
+    "Initial service run passed 365 service tests and failed 4 of 91 Workspace tests due to snapshot being outside HOME. Unchanged Workspace suite passed all 91 after copying source beneath a disposable HOME. Both attempts retained.",
+    "Loro runner passes 205 tests, then a separate relocation and physical-root-boundary probe.",
+    "Audit-specific native test was injected only in the disposable snapshot, then removed."
+  ]
+}
