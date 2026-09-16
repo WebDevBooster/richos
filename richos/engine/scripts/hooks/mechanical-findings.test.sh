@@ -36,6 +36,10 @@
 
 set -uo pipefail
 
+# Drain predicate input before returning. grep -q can close its pipe early and
+# turn a successful match into SIGPIPE from printf under pipefail. The
+# redirected grep predicates below keep the same patterns without that race.
+
 VERBOSE=0
 [ "${1:-}" = "--verbose" ] && VERBOSE=1
 
@@ -243,7 +247,7 @@ run_hook() { # -> HRC / HOUT ; from a forgotten ledger unless --remember
     HOUT="$(stop_payload | bash "$HOOK" 2>&1)"
     HRC=$?
 }
-spoke() { printf '%s' "$HOUT" | grep -q 'systemMessage'; }
+spoke() { printf '%s' "$HOUT" | grep >/dev/null 'systemMessage'; }
 lint() { # <args...> -> LRC / LOUT
     LOUT="$(bash "$LINT" "$APP" "$@" 2>&1)"
     LRC=$?
@@ -260,31 +264,31 @@ if [ "$LRC" -eq 1 ]; then ok "1a  a tree with defects makes the lint exit 1"
 else bad "1a  a tree with defects makes the lint exit 1" "rc=$LRC $LOUT"; fi
 say "1a" "$LOUT"
 
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_B"; then ok "1b  a suite skipped BY NAME in a workflow is found (b.test.sh)"
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_B"; then ok "1b  a suite skipped BY NAME in a workflow is found (b.test.sh)"
 else bad "1b  a suite skipped by name is found" "$LOUT"; fi
-if ! printf '%s' "$LOUT" | grep -q 'a.test.sh'; then ok "1c  CONTROL: a suite that is RUN, and named only in a comment near 'skip', is NOT reported"
+if ! printf '%s' "$LOUT" | grep >/dev/null 'a.test.sh'; then ok "1c  CONTROL: a suite that is RUN, and named only in a comment near 'skip', is NOT reported"
 else bad "1c  CONTROL: a.test.sh must not be reported" "$LOUT"; fi
 
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_X"; then ok "1d  a harness no script names is found (x.mutation.sh)"
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_X"; then ok "1d  a harness no script names is found (x.mutation.sh)"
 else bad "1d  x.mutation.sh must be found" "$LOUT"; fi
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_Z"; then ok "1e  a harness named ONLY IN A COMMENT is found (z.mutation.sh) — a comment is not a runner"
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_Z"; then ok "1e  a harness named ONLY IN A COMMENT is found (z.mutation.sh) — a comment is not a runner"
 else bad "1e  z.mutation.sh must be found" "$LOUT"; fi
-if ! printf '%s' "$LOUT" | grep -q 'y.mutation.sh'; then ok "1f  CONTROL: a harness a script actually invokes is NOT reported"
+if ! printf '%s' "$LOUT" | grep >/dev/null 'y.mutation.sh'; then ok "1f  CONTROL: a harness a script actually invokes is NOT reported"
 else bad "1f  CONTROL: y.mutation.sh must not be reported" "$LOUT"; fi
 
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_H2" && printf '%s' "$LOUT" | grep -q "NEW .*$K_H3"; then
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_H2" && printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_H3"; then
     ok "1g  a registered hook no test names is found (h2), and one named only in a test's COMMENT is found (h3)"
 else bad "1g  h2 and h3 must be found" "$LOUT"; fi
-if ! printf '%s' "$LOUT" | grep -q 'untested-hook:app/scripts/hooks/h1.sh'; then ok "1h  CONTROL: a hook a test names on a code line is NOT reported"
+if ! printf '%s' "$LOUT" | grep >/dev/null 'untested-hook:app/scripts/hooks/h1.sh'; then ok "1h  CONTROL: a hook a test names on a code line is NOT reported"
 else bad "1h  CONTROL: h1 must not be reported" "$LOUT"; fi
 
-if printf '%s' "$LOUT" | grep -qE 'ci-excluded-suite +[1-9][0-9]* subject' \
-   && printf '%s' "$LOUT" | grep -qE 'unrun-harness +[1-9][0-9]* subject' \
-   && printf '%s' "$LOUT" | grep -qE 'untested-hook +[1-9][0-9]* subject'; then
+if printf '%s' "$LOUT" | grep -E >/dev/null 'ci-excluded-suite +[1-9][0-9]* subject' \
+   && printf '%s' "$LOUT" | grep -E >/dev/null 'unrun-harness +[1-9][0-9]* subject' \
+   && printf '%s' "$LOUT" | grep -E >/dev/null 'untested-hook +[1-9][0-9]* subject'; then
     ok "1i  POSITIVE PROBE: every class reports how many subjects it examined, and none examined zero"
 else bad "1i  POSITIVE PROBE: per-class subject counts" "$LOUT"; fi
 
-if grep -q 'mechanical-findings.tmp' "$RECORD" 2>/dev/null || [ -f "$RECORD.mechanical-findings.tmp" ]; then
+if grep >/dev/null 'mechanical-findings.tmp' "$RECORD" 2>/dev/null || [ -f "$RECORD.mechanical-findings.tmp" ]; then
     bad "1j  report-only leaves no temp file behind"
 else ok "1j  report-only wrote nothing: the record is untouched and no temp file exists"; fi
 if vc "$HQ" diff --quiet -- wiki/open-items.md; then ok "1k  report-only: the record is byte-identical to HEAD"
@@ -295,7 +299,7 @@ else bad "1k  report-only must not modify the record"; fi
 # ===========================================================================
 lint --write
 say "2a" "$LOUT"
-if [ "$LRC" -eq 1 ] && printf '%s' "$LOUT" | grep -q '5 row(s) appended'; then
+if [ "$LRC" -eq 1 ] && printf '%s' "$LOUT" | grep >/dev/null '5 row(s) appended'; then
     ok "2a  --write appends one row per NEW finding (5) and says so"
 else bad "2a  --write appends 5 rows" "rc=$LRC $LOUT"; fi
 
@@ -303,11 +307,11 @@ N_ROWS="$(grep -c 'finding:' "$RECORD")"
 if [ "$N_ROWS" -eq 5 ]; then ok "2b  READ BACK OFF DISK: the record carries exactly 5 \`finding:\` rows"
 else bad "2b  the record carries 5 finding rows" "found $N_ROWS"; fi
 
-if grep -q "^| 3.3 | .*\`finding:$K_B\` | \*\*State:\*\* \`OPEN\` — \`app/scripts/hooks/b.test.sh\`@\`$(oid_of "$APP" scripts/hooks/b.test.sh)\`, \`app/.github/workflows/ci.yml\`@\`$(oid_of "$APP" .github/workflows/ci.yml)\` |$" "$RECORD"; then
+if grep >/dev/null "^| 3.3 | .*\`finding:$K_B\` | \*\*State:\*\* \`OPEN\` — \`app/scripts/hooks/b.test.sh\`@\`$(oid_of "$APP" scripts/hooks/b.test.sh)\`, \`app/.github/workflows/ci.yml\`@\`$(oid_of "$APP" .github/workflows/ci.yml)\` |$" "$RECORD"; then
     ok "2c  row 3.3 is the skipped suite: id allocated above 3.2, key inside, warrant pinning BOTH the suite and the workflow at their real HEAD object ids"
 else bad "2c  row 3.3's exact shape and stamps" "$(grep 'finding:ci' "$RECORD")"; fi
 
-if grep -q "^| 3.4 | .*\`finding:$K_X\` | \*\*State:\*\* \`OPEN\` — \`app/scripts/hooks/x.mutation.sh\`@\`$(oid_of "$APP" scripts/hooks/x.mutation.sh)\` |$" "$RECORD"; then
+if grep >/dev/null "^| 3.4 | .*\`finding:$K_X\` | \*\*State:\*\* \`OPEN\` — \`app/scripts/hooks/x.mutation.sh\`@\`$(oid_of "$APP" scripts/hooks/x.mutation.sh)\` |$" "$RECORD"; then
     ok "2d  row 3.4 is the unrun harness, stamped at the harness's own object id"
 else bad "2d  row 3.4's shape" "$(grep 'finding:unrun' "$RECORD" | head -1)"; fi
 
@@ -317,16 +321,16 @@ L33="$(grep -n '^| 3\.3 |' "$RECORD" | cut -d: -f1)"
 L37="$(grep -n '^| 3\.7 |' "$RECORD" | cut -d: -f1)"
 NOT_OPEN_LINE="$(grep -n '^## Deliberately NOT open' "$RECORD" | cut -d: -f1)"
 if [ "$L31" -lt "$L32" ] && [ "$L32" -lt "$L33" ] && [ "$L33" -lt "$L37" ] && [ "$L37" -lt "$NOT_OPEN_LINE" ] \
-   && [ "$L37" -eq "$((L32 + 5))" ] && sed -n "$((L37 + 1))p" "$RECORD" | grep -q '^$'; then
+   && [ "$L37" -eq "$((L32 + 5))" ] && sed -n "$((L37 + 1))p" "$RECORD" | grep >/dev/null '^$'; then
     ok "2e  rows are appended at the END of section 3's table — after 3.2, in order, before the next heading, with the table's blank line intact"
 else bad "2e  insertion position" "3.1@$L31 3.2@$L32 3.3@$L33 3.7@$L37 heading@$NOT_OPEN_LINE"; fi
 
-if grep -q "^| 3.1 | \*\*A hand-written open row.\*\* \*\*Blocked:\*\* the CEO — his call. | \*\*State:\*\* \`OPEN\` — \`hq/a.txt\`@\`$A_OID\` |$" "$RECORD" \
+if grep >/dev/null "^| 3.1 | \*\*A hand-written open row.\*\* \*\*Blocked:\*\* the CEO — his call. | \*\*State:\*\* \`OPEN\` — \`hq/a.txt\`@\`$A_OID\` |$" "$RECORD" \
    && [ "$(vc "$HQ" diff -- wiki/open-items.md | grep -c '^-|')" -eq 0 ]; then
     ok "2f  no existing row was edited, re-stamped or removed — the diff is additions only"
 else bad "2f  existing rows untouched" "$(vc "$HQ" diff -- wiki/open-items.md | grep '^-' | head -3)"; fi
 
-if grep -q 'not by a person' "$RECORD" && grep -q 'notice-mechanical-findings.sh' "$RECORD"; then
+if grep >/dev/null 'not by a person' "$RECORD" && grep >/dev/null 'notice-mechanical-findings.sh' "$RECORD"; then
     ok "2g  every written row says a machine wrote it, and which one"
 else bad "2g  rows name their writer"; fi
 
@@ -339,10 +343,10 @@ SUM2="$(cksum < "$RECORD")"
 if [ "$SUM1" = "$SUM2" ] && [ "$(grep -c 'finding:' "$RECORD")" -eq 5 ]; then
     ok "3a  a second --write over the same tree writes NOTHING: the record is byte-identical, still 5 rows"
 else bad "3a  identity: second write must add nothing" "$(grep -c 'finding:' "$RECORD") rows"; fi
-if printf '%s' "$LOUT" | grep -q '5 known' && printf '%s' "$LOUT" | grep -q '0 new'; then
+if printf '%s' "$LOUT" | grep >/dev/null '5 known' && printf '%s' "$LOUT" | grep >/dev/null '0 new'; then
     ok "3b  the second sweep reports every finding as KNOWN with its row id, none as new"
 else bad "3b  KNOWN not NEW" "$LOUT"; fi
-if printf '%s' "$LOUT" | grep -qE 'KNOWN +3\.3 '; then ok "3c  a KNOWN finding names the row that holds it (3.3)"
+if printf '%s' "$LOUT" | grep -E >/dev/null 'KNOWN +3\.3 '; then ok "3c  a KNOWN finding names the row that holds it (3.3)"
 else bad "3c  KNOWN names its row" "$LOUT"; fi
 
 # ===========================================================================
@@ -355,7 +359,7 @@ else bad "4a  row-currency-lint must accept the machine-written rows" "rc=$RCRC 
 
 UROUT="$(bash "$URLINT" "$HQ" 2>&1)"; URRC=$?
 say "4b" "$UROUT"
-if [ "$URRC" -eq 1 ] && printf '%s' "$UROUT" | grep -qE 'unblocked with nothing running for them: .*3\.3 3\.4 3\.5 3\.6 3\.7'; then
+if [ "$URRC" -eq 1 ] && printf '%s' "$UROUT" | grep -E >/dev/null 'unblocked with nothing running for them: .*3\.3 3\.4 3\.5 3\.6 3\.7'; then
     ok "4b  the UNSTARTED-ROW sweep names every written row as unstarted — the third link sees the second's output"
 else bad "4b  unstarted-rows-lint must name 3.3-3.7" "rc=$URRC $(printf '%s' "$UROUT" | tail -5)"; fi
 
@@ -366,10 +370,10 @@ write_ci no
 commit_all "$APP" "run b.test.sh in CI"
 lint --write
 say "5a" "$LOUT"
-if printf '%s' "$LOUT" | grep -qE 'GONE +3\.3 ' && printf '%s' "$LOUT" | grep -q '0 row(s) written' ; then
+if printf '%s' "$LOUT" | grep -E >/dev/null 'GONE +3\.3 ' && printf '%s' "$LOUT" | grep >/dev/null '0 row(s) written' ; then
     ok "5a  the exclusion fixed in the tree: row 3.3 is named GONE, nothing is written, nothing is edited"
 else bad "5a  GONE for 3.3" "$LOUT"; fi
-if grep -q "finding:$K_B" "$RECORD"; then ok "5b  the GONE row is NOT touched — closing it is a person's read of the sentence"
+if grep >/dev/null "finding:$K_B" "$RECORD"; then ok "5b  the GONE row is NOT touched — closing it is a person's read of the sentence"
 else bad "5b  GONE row must remain on the page"; fi
 
 write_ci yes
@@ -382,7 +386,7 @@ t = t.replace("| **State:** `OPEN` — `app/scripts/hooks/b.test.sh`", "| **Stat
 open(p, "w", encoding="utf-8").write(t)
 PYEOF
 lint
-if printf '%s' "$LOUT" | grep -qE 'CLOSED-BUT-PRESENT +3\.3 '; then
+if printf '%s' "$LOUT" | grep -E >/dev/null 'CLOSED-BUT-PRESENT +3\.3 '; then
     ok "5c  a row closed by hand while the finding is still in the tree is named as a CONTRADICTION, not rewritten"
 else bad "5c  CLOSED-BUT-PRESENT for 3.3" "$LOUT"; fi
 
@@ -393,18 +397,18 @@ reset_record
 printf '#!/usr/bin/env bash\n# x.mutation.sh\n# finding-exempt: run by hand only, it needs a live device\nexit 0\n' > "$APP/scripts/hooks/x.mutation.sh"
 commit_all "$APP" "declare x exempt"
 lint
-if ! printf '%s' "$LOUT" | grep -q "NEW .*$K_X" && printf '%s' "$LOUT" | grep -q 'EXEMPT.*x.mutation.sh.*live device'; then
+if ! printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_X" && printf '%s' "$LOUT" | grep >/dev/null 'EXEMPT.*x.mutation.sh.*live device'; then
     ok "6a  \`finding-exempt: <reason>\` in the subject removes the finding AND is reported with its reason"
 else bad "6a  exemption honored and reported" "$LOUT"; fi
 printf '#!/usr/bin/env bash\n# x.mutation.sh\n# finding-exempt:\nexit 0\n' > "$APP/scripts/hooks/x.mutation.sh"
 commit_all "$APP" "bare marker"
 lint
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_X"; then ok "6b  a BARE marker exempts nothing"
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_X"; then ok "6b  a BARE marker exempts nothing"
 else bad "6b  bare marker must not exempt" "$LOUT"; fi
 printf '#!/usr/bin/env bash\n# x.mutation.sh\n# finding-exempt: no\nexit 0\n' > "$APP/scripts/hooks/x.mutation.sh"
 commit_all "$APP" "short reason"
 lint
-if printf '%s' "$LOUT" | grep -q "NEW .*$K_X"; then ok "6c  a marker whose reason is two letters exempts nothing either"
+if printf '%s' "$LOUT" | grep >/dev/null "NEW .*$K_X"; then ok "6c  a marker whose reason is two letters exempts nothing either"
 else bad "6c  short reason must not exempt" "$LOUT"; fi
 printf '#!/usr/bin/env bash\n# x.mutation.sh — run by nothing\necho "usage: x.mutation.sh"\nexit 0\n' > "$APP/scripts/hooks/x.mutation.sh"
 commit_all "$APP" "restore x"
@@ -415,27 +419,27 @@ commit_all "$APP" "restore x"
 reset_record
 run_hook
 say "7a" "$HOUT"
-if spoke && printf '%s' "$HOUT" | grep -q 'WROTE 5 ROW' && printf '%s' "$HOUT" | grep -q '3.3 (ci-excluded-suite'; then
+if spoke && printf '%s' "$HOUT" | grep >/dev/null 'WROTE 5 ROW' && printf '%s' "$HOUT" | grep >/dev/null '3.3 (ci-excluded-suite'; then
     ok "7a  the turn ends with a notice that rows were WRITTEN, naming ids and keys"
 else bad "7a  the hook announces what it wrote" "$HOUT"; fi
 if [ "$HRC" -eq 0 ]; then ok "7b  it NOTICES, it does not block — exit 0"
 else bad "7b  exit 0" "rc=$HRC"; fi
 if [ "$(grep -c 'finding:' "$RECORD")" -eq 5 ]; then ok "7c  the hook itself wrote the 5 rows (not only the lint)"
 else bad "7c  hook writes rows" "$(grep -c 'finding:' "$RECORD")"; fi
-if printf '%s' "$HOUT" | grep -q 'UNCOMMITTED'; then ok "7d  the notice says the rows are uncommitted and whose repository they are in"
+if printf '%s' "$HOUT" | grep >/dev/null 'UNCOMMITTED'; then ok "7d  the notice says the rows are uncommitted and whose repository they are in"
 else bad "7d  notice says UNCOMMITTED" "$HOUT"; fi
 
 run_hook --remember
 if ! spoke; then ok "7e  the next turn, same tree, same rows: SILENT — known open rows are the unstarted sweep's to name"
 else bad "7e  silent on a stable state" "$HOUT"; fi
-if grep -q '^verdict:       FINDINGS' "$RECEIPT" 2>/dev/null && grep -q '^findings:      5  new 0  known 5' "$RECEIPT" 2>/dev/null; then
+if grep >/dev/null '^verdict:       FINDINGS' "$RECEIPT" 2>/dev/null && grep >/dev/null '^findings:      5  new 0  known 5' "$RECEIPT" 2>/dev/null; then
     ok "7f  POSITIVE PROBE: the receipt proves the silent turn SWEPT — 5 findings, all known"
 else bad "7f  receipt on the silent turn" "$(cat "$RECEIPT" 2>/dev/null | head -12)"; fi
 
 write_ci no
 commit_all "$APP" "fix b again"
 run_hook --remember
-if spoke && printf '%s' "$HOUT" | grep -q 'ROW(S) 3.3 describe a finding the sweep no longer produces'; then
+if spoke && printf '%s' "$HOUT" | grep >/dev/null 'ROW(S) 3.3 describe a finding the sweep no longer produces'; then
     ok "7g  the finding disappearing SPEAKS AGAIN, naming the row to close"
 else bad "7g  GONE speaks" "$HOUT"; fi
 run_hook --remember
@@ -444,7 +448,7 @@ else bad "7i  GONE announced once" "$HOUT"; fi
 write_ci yes
 commit_all "$APP" "exclude again"
 run_hook --remember
-if spoke && printf '%s' "$HOUT" | grep -q 'clear again'; then
+if spoke && printf '%s' "$HOUT" | grep >/dev/null 'clear again'; then
     ok "7j  the GONE condition ending is the end of a story the operator was told: one 'clear again' line"
 else bad "7j  recovery line after GONE" "$HOUT"; fi
 
@@ -453,7 +457,7 @@ mkdir -p "$SEAT"
 printf 'PROTECTED_PATHS="src"\n' > "$SEAT/orchestration.config"
 setup_repo "$SEAT"; commit_all "$SEAT" "seat"
 RICHOS_ENTITY_ROOT="$SEAT" run_hook
-if ! spoke && [ "$HRC" -eq 0 ] && grep -q '^verdict:       STOOD-DOWN' "$SEAT/.claude/state/mechanical-findings/last-sweep.txt" 2>/dev/null; then
+if ! spoke && [ "$HRC" -eq 0 ] && grep >/dev/null '^verdict:       STOOD-DOWN' "$SEAT/.claude/state/mechanical-findings/last-sweep.txt" 2>/dev/null; then
     ok "7h  a seat with no .row-currency STANDS DOWN silently, and its receipt says so"
 else bad "7h  stand-down is silent with a receipt" "$HOUT $(cat "$SEAT/.claude/state/mechanical-findings/last-sweep.txt" 2>/dev/null)"; fi
 
@@ -471,10 +475,10 @@ j = t.index("## Deliberately")
 open(p, "w", encoding="utf-8").write(t[:i] + "## 3. Buildable now\n\nno table here\n\n" + t[j:])
 PYEOF
 lint --write
-if [ "$LRC" -eq 2 ] && printf '%s' "$LOUT" | grep -q 'BROKEN'; then ok "8a  a record whose governed section has no table: lint exit 2, BROKEN, nothing written"
+if [ "$LRC" -eq 2 ] && printf '%s' "$LOUT" | grep >/dev/null 'BROKEN'; then ok "8a  a record whose governed section has no table: lint exit 2, BROKEN, nothing written"
 else bad "8a  no table -> BROKEN" "rc=$LRC $LOUT"; fi
 run_hook
-if spoke && printf '%s' "$HOUT" | grep -qi 'SWEPT NOTHING\|IS BROKEN'; then ok "8b  the hook says it swept nothing, on the channel the operator sees"
+if spoke && printf '%s' "$HOUT" | grep -i >/dev/null 'SWEPT NOTHING\|IS BROKEN'; then ok "8b  the hook says it swept nothing, on the channel the operator sees"
 else bad "8b  hook is loud when broken" "$HOUT"; fi
 cp "$SANDBOX/rec.keep" "$RECORD"
 
@@ -483,7 +487,7 @@ lint
 if [ "$LRC" -eq 2 ]; then ok "8c  the analyzer missing: lint exit 2 — never the same code as clean"
 else bad "8c  missing analyzer -> exit 2" "rc=$LRC"; fi
 run_hook
-if spoke && printf '%s' "$HOUT" | grep -q 'BROKEN'; then ok "8d  the analyzer missing: the hook announces it rather than ending the turn quietly"
+if spoke && printf '%s' "$HOUT" | grep >/dev/null 'BROKEN'; then ok "8d  the analyzer missing: the hook announces it rather than ending the turn quietly"
 else bad "8d  hook loud without analyzer" "$HOUT"; fi
 mv "$SANDBOX/py.hidden" "$ENG/scripts/lib/mechanical-findings.py"
 
@@ -491,10 +495,26 @@ reset_record
 LOCK="$(MF_RECORD_FILE="$RECORD" bash -c '. "$1"; mf_lock_dir' _ "$ENG/scripts/lib/mechanical-findings.sh")"
 mkdir -p "$LOCK"
 lint --write
-if printf '%s' "$LOUT" | grep -q 'WRITE REFUSED: another writer holds' && [ "$(grep -c 'finding:' "$RECORD")" -eq 0 ]; then
+if printf '%s' "$LOUT" | grep >/dev/null 'WRITE REFUSED: another writer holds' && [ "$(grep -c 'finding:' "$RECORD")" -eq 0 ]; then
     ok "8e  another writer holding the lock: the write is REFUSED and reported, nothing partial lands"
 else bad "8e  lock refuses the write" "$LOUT"; fi
 rmdir "$LOCK"
+
+# 9. A real sweep larger than a pipe buffer must still publish its notice and
+# persist the normal follow-up state. These are actual unreferenced harnesses,
+# so the analyzer and writer both participate in the regression.
+for n in $(seq 1 400); do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$APP/scripts/hooks/large-$n.mutation.sh"
+done
+commit_all "$APP" "large findings inventory"
+run_hook
+if [ "$HRC" -eq 0 ] && spoke && printf '%s' "$HOUT" | grep >/dev/null 'WROTE 405 ROW'; then
+    ok "9a  a large real sweep writes and announces all 405 findings"
+else bad "9a  large sweep reaches its notice" "rc=$HRC $HOUT"; fi
+run_hook --remember
+if [ "$HRC" -eq 0 ] && ! spoke && grep >/dev/null '^findings:      405  new 0  known 405' "$RECEIPT"; then
+    ok "9b  the large stable sweep is silent and records all 405 known findings"
+else bad "9b  large stable sweep reaches its receipt" "rc=$HRC $HOUT"; fi
 
 echo ""
 echo "  $PASS passed, $FAIL failed"

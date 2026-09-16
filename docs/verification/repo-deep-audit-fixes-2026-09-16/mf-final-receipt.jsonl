@@ -1,0 +1,2 @@
+{"expected_rc":3,"rc":3,"seconds":40.1,"sha":"1f0acf37930cd781890814b50f68f0b79b5f10c5","shard":0,"shards":12,"unit":"scripts/hooks/contract-integrity.test.sh:MF","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":3.0,"sha":"1f0acf37930cd781890814b50f68f0b79b5f10c5","shard":0,"shards":12,"unit":"scripts/hooks/mechanical-findings.test.sh","verdict":"PASS"}

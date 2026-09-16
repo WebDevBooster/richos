@@ -244,3 +244,9 @@ gh api -X PUT repos/WebDevBooster/richos/actions/permissions \
 Nothing in the tree needs to change first: as of the commit that added this
 section, every action reference under `.github/workflows/` is already a
 full-length SHA, so the policy would be satisfied on the day it is switched on.
+
+## Nightly releases
+
+Nightlies are triggered manually on the release Mac. There is no Actions nightly
+workflow or schedule. Signing keys stay local and existing CI can stay disabled.
+See [the local nightly runbook](../../richos/app/NIGHTLY.md).

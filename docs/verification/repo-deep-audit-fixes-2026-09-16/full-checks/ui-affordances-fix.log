@@ -1,0 +1,238 @@
+
+== the affordance rule — a state the user could change renders its control ==
+  PASS  NEGATIVE CONTROL: the scrape examined a real corpus, not an empty one
+          386 states derived from 15 shipped file(s) and the Rust bridge scrape
+  PASS  PART 0: the source list is DERIVED from the tree, and reaches every shipped script
+          21 shipped file(s) derived from index.html and the closure over it (15 ui, 2 preview-data, 4 style), reconciled against 21 .js/.css/.html on disk. The nine the typed list missed are all here, `updates.js` and `home/field-engine.js` among them.
+  PASS  PART 0: the widened list SEES states the old three-file list could not
+          68 state(s) are visible to this rule that were not: home.js 16, home/field-engine.js 7, permissions.js 4, repositories.js 7, settings-button.js 3, splash-library.js 2, splash.js 4, updates.js 23, work-summary.js 2. The §26 waiting sentence — "This update will activate next time RichOS opens"… — is one of them, and it is classified INFORMATIONAL because the control is REMOVED by ruling rather than merely missing.
+  PASS  PART 0: what the derived manifest does NOT cover, counted rather than described
+          386 state(s) in the inventory from 15 derived ui file(s) + 14 Rust file(s). NOT COVERED, and none of it is fixable by widening the file list: 222 label-shaped literal(s) below the 12-character/3-word prose floor (e.g. "RichOS", "Close navigation", "Entity areas"); 63 interpolated template literal(s), whose sentences are composed at run time; and every string that arrives as DATA over the bridge — composed in Rust or by the model — which no source-text scrape of any width can see.
+  PASS  PART 0 NEGATIVE CONTROL: the reconciliation refuses a short list, a missing role and a stale one
+          refused: a file on disk that nothing loads; a loaded file with no role; a role for a file nobody loads. Accepted the agreeing set.
+  PASS  PART 0: the GLSL filter drops shaders and nothing else, measured
+          14 GLSL literal(s) dropped, all 14 in home/field-engine.js, 0 elsewhere; 0 shaders left in the 386-state inventory.
+  FAIL  every derived state is classified, and every classification is a real state
+          NEW USER-VISIBLE STATE, NOT CLASSIFIED. Add a row to lib/state-registry.js saying whether the CEO can act on it. If he can, it needs a control in the same view.
+          expected []
+          actual   ["<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <label class=\"overlay-note\"><input id=\"repository-initialize\" type=\"checkbox\"> Initialize Git if this folder is empty</label> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>   <- repositories.js:8","<div class=\"overlay-panel overlay-panel--compact\"><h2 id=\"permission-title\" class=\"overlay-title\">Allow this action?</h2> <p id=\"permission-scope\" class=\"overlay-note\"></p><p id=\"permission-description\" class=\"overlay-note\"></p> <pre id=\"permission-input\" class=\"desk-preview\" style=\"max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere\"></pre> <p id=\"permission-status\" class=\"overlay-note\" role=\"status\">This permission applies only to this action.</p> <div class=\"desk-card-actions\"><button id=\"permission-deny\" class=\"desk-btn\" type=\"button\">Decline</button> <button id=\"permission-allow\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Allow action</button></div></div>   <- permissions.js:7","Account connection could not be verified. Try again.   <- main.js:3892","Add a company before connecting repositories.   <- repositories.js:44","Another conversation is working. Saved work will refresh when it settles.   <- richos/app/src-tauri/src/main.rs:2205","Anthropic Console (API billing)   <- index.html:715","Checking this repository…   <- repositories.js:63","Checking your account connection.   <- main.js:3902","Choose a company   <- repositories.js:36","Git initialized and repository connected.   <- repositories.js:67","No repositories connected.   <- repositories.js:29","Rich needs permission to run the action shown below.   <- permissions.js:32","Saved work is unavailable:   <- work-summary.js:7","Saved work unavailable   <- main.js:2811","Sign-in could not be cancelled. Try again.   <- main.js:3915","Sign-in could not start. Try again.   <- main.js:3910","The action's state could not be verified. Approval is unavailable.   <- permissions.js:35","The software is installed.   <- main.js:4059","This conversation has no company binding.   <- richos/app/src-tauri/src/main.rs:2206","This permission applies only to this action.   <- permissions.js:34","Work status is changing. Please try again.   <- richos/app/src-tauri/src/main.rs:2208","Worker state is not settled.   <- richos/app/src-tauri/src/main.rs:3313","You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.   <- richos/app/src-tauri/src/setup_view.rs:51","Your Anthropic account   <- main.js:3903","button, input, select   <- repositories.js:54","more saved records. Ask Rich about the assignment you want to continue.   <- work-summary.js:21","saved work records   <- main.js:2810"]
+  PASS  no duplicate rows, and every class is one of the declared buckets
+          ACTIONABLE 53, NEEDS-SOMEONE-ELSE 28, INFORMATIONAL 115, CONTROL 74, FRAGMENT 50, UNREACHABLE 12, NOT-RENDERED 29
+  PASS  THE RULE: every ACTIONABLE state names a control
+          53 ACTIONABLE states, each naming a control
+  PASS  every NEEDS-SOMEONE-ELSE state names the party, or names what explains it
+          19 name a party in the sentence, 9 are explained by a state beside them
+  PASS  no INFORMATIONAL state is secretly an instruction
+          115 INFORMATIONAL states, none issuing an instruction
+  PASS  [unknown-turn] 2 state(s) render with a usable control
+          state text asserted present; .tl-intervention--quiet button.tl-intervention-action -> button#resume:turn_ok.tl-intervention-action
+  PASS  [failed-turn] 2 state(s) render with a usable control
+          state text asserted present; .tl-intervention button.tl-intervention-action -> button#retry:turn_ok.tl-intervention-action
+  PASS  [voice-no-audio] 1 state(s) render with a usable control
+          state text asserted present; #voice-retry -> button#voice-retry.voice-retry
+  PASS  [working-turn] 2 state(s) render with a usable control
+          control-presence only (state needs live hardware); #stop -> button#stop, #send -> button#send
+  PASS  [thread-create-refused] 1 state(s) render with a usable control
+          state text asserted present; #send -> button#send
+  PASS  [not-connected] 2 state(s) render with a usable control
+          state text asserted present; #send -> button#send
+  PASS  [search-empty] 1 state(s) render with a usable control
+          state text asserted present; #search-input -> input#search-input.overlay-input
+  PASS  [shell] 6 state(s) render with a usable control
+          control-presence only (state needs live hardware); #talk-toggle -> button#talk-toggle
+  PASS  [rail-mark] 6 state(s) render with a usable control
+          control-presence only (state needs live hardware); .nav-thread -> button.nav-thread, .nav-group--unbound .nav-thread -> button.nav-thread
+  PASS  [setup-refused-engine] 1 state(s) render with a usable control
+          state text asserted present; #setup-go -> button#setup-go.desk-btn
+  PASS  [setup-refused-claude] 1 state(s) render with a usable control
+          state text asserted present; #setup-go -> button#setup-go.desk-btn
+  PASS  [setup-refused-both] 1 state(s) render with a usable control
+          state text asserted present; #setup-go -> button#setup-go.desk-btn
+  PASS  [unbound] 5 state(s) render with a usable control
+          state text asserted present; #unbound-new-thread -> button#unbound-new-thread.pane-action
+  PASS  [entity-view] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-off] 3 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-read-failed] 2 state(s) render with a usable control
+          state text asserted present; .desk-broke:not([hidden]) .desk-btn -> button#desk-loro-retry.desk-btn, #choose-company-btn -> button#choose-company-btn.composer-blocked-btn
+  PASS  [corrections-empty] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections] 9 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-loro-never] 3 state(s) render with a usable control
+          state text asserted present; .desk-suppressed:not([hidden]) .desk-btn--lift -> button.desk-btn, (no control by design), #desk-loro-suppressed-list .desk-btn--lift -> button.desk-btn
+  PASS  [corrections-written] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-write-failed] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-loro-declined] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-learned] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-already-knew] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-spoken-declined] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-spoken-never] 1 state(s) render with a usable control
+          state text asserted present; #desk-spoken-suppressed-list .desk-btn--lift -> button.desk-btn
+  PASS  [corrections-lifted] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-unavailable] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-choosing] 5 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-previewing] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-rated] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-declined-report] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-approved] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [company-unchosen] 4 state(s) render with a usable control
+          control-presence only (state needs live hardware); #choose-company-btn -> button#choose-company-btn.composer-blocked-btn, #entity-picker-list .picker-item -> button.picker-item, #entity-add-name -> input#entity-add-name.entity-add-input, (no control by design)
+  PASS  [company-none-registered] 4 state(s) render with a usable control
+          control-presence only (state needs live hardware); #entity-add-name -> input#entity-add-name.entity-add-input, #choose-company-btn -> button#choose-company-btn.composer-blocked-btn
+  PASS  [company-registry-unreadable] 2 state(s) render with a usable control
+          control-presence only (state needs live hardware); (no control by design)
+  FAIL  [setup-missing-both] 3 state(s) render with a usable control
+          the state does not render in this fixture: "You'll still need your own Anthropic account, and to sign in to it onc…"
+  PASS  [setup-missing-engine] 2 state(s) render with a usable control
+          state text asserted present; #setup-go -> button#setup-go.desk-btn
+  FAIL  [setup-finished] 2 state(s) render with a usable control
+          the state does not render in this fixture: "That's everything. I'm ready.…"
+  PASS  [setup-unpinned] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [memory-unprovisioned] 1 state(s) render with a usable control
+          state text asserted present; #memory-setup-go -> button#memory-setup-go.desk-btn
+  PASS  [memory-no-compiler] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [company-pinned-unresolved] 1 state(s) render with a usable control
+          control-presence only (state needs live hardware); (no control by design)
+  PASS  [techy-unreadable] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [techy-on] 3 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [techy-empty] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-failed] 1 state(s) render with a usable control
+          state text asserted present; #update-check -> button#update-check.update-btn
+  PASS  [updates-ready] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-waiting-ready] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-waiting-available] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-unconfigured] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-idle] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [updates-install-failed] 1 state(s) render with a usable control
+          state text asserted present; #update-check -> button#update-check.update-btn
+  PASS  [home-prefs] 1 state(s) render with a usable control
+          state text asserted present; #home-prefs-list input.home-prefs-label -> input.home-prefs-label
+  PASS  [home-prefs-no-entities] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [first-run-offer] 3 state(s) render with a usable control
+          state text asserted present; #first-run-start -> button#first-run-start.desk-btn, #first-run-later -> button#first-run-later.first-run-btn
+  PASS  [first-run-unusable] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [first-run-decline-refused] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [first-run-partial] 2 state(s) render with a usable control
+          state text asserted present; #first-run-start -> button#first-run-start.desk-btn
+  PASS  [opening-conversation] 1 state(s) render with a usable control
+          state text asserted present; #stop -> button#stop
+  PASS  [opening-stop-failed] 1 state(s) render with a usable control
+          state text asserted present; #stop -> button#stop
+  PASS  NEGATIVE CONTROL: the browser half examined a non-zero number of states
+          118 states asserted against the real DOM under WebKit
+  PASS  the §21 way out actually goes somewhere
+          #unbound-new-thread opens the §3.3 picker with 6 entities, defaulting to none
+  PASS  the settings menu carries the company, and choosing one writes it through
+          listed 7 option(s), chose Lumen Labs, block cleared, scope reads Lumen Labs
+  PASS  a company pinned outside the window is stated, never offered as a dead control
+          no control, states RichOS, and names whoever set RichOS up
+  PASS  a rail status mark can never render outside the control that acts on it
+          3/3 marks are inside the button that opens their thread
+  PASS  a refused send leaves no ghost bubble claiming the message went
+          bubble withdrawn, words restored verbatim, Send up
+  PASS  mock.js rehearses the SAME lease-down sentence the product ships
+          the const, the registry and the preview all carry one sentence
+  PASS  POSITIVE CONTROL: an ACTIONABLE state with no affordance IS flagged
+          flagged: ACTIONABLE state renders with NO control in the DOM at all.
+  PASS  POSITIVE CONTROL: a control that exists but is hidden IS flagged
+          flagged: ACTIONABLE state names a control that is in the DOM but NOT VISIBLE — a sentence pointing at something the CEO cannot see is worse than silence.
+  PASS  POSITIVE CONTROL: a paragraph dressed as a control IS flagged
+          flagged: the named control is not something anyone can press — no button, field, link or role=button matched.
+  PASS  POSITIVE CONTROL ON THE REAL UPDATE SURFACE: delete the control it names and the rule fails
+          on updates-failed, as shipped: button#update-check.update-btn; with #update-check removed: ACTIONABLE state renders with NO control in the DOM at all.
+  PASS  §26: a waiting update offers NO actionable control, on the real surface
+          updates-waiting-available: install hidden, relaunch absent, a role=note in their place; updates-waiting-ready: install hidden, relaunch absent, a role=note in their place
+  FAIL  POSITIVE CONTROL: an unclassified new state IS flagged
+          the drift comparator did not notice an unclassified state
+          expected ["A brand new thing the CEO must go and do."]
+          actual   ["<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <label class=\"overlay-note\"><input id=\"repository-initialize\" type=\"checkbox\"> Initialize Git if this folder is empty</label> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>","<div class=\"overlay-panel overlay-panel--compact\"><h2 id=\"permission-title\" class=\"overlay-title\">Allow this action?</h2> <p id=\"permission-scope\" class=\"overlay-note\"></p><p id=\"permission-description\" class=\"overlay-note\"></p> <pre id=\"permission-input\" class=\"desk-preview\" style=\"max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere\"></pre> <p id=\"permission-status\" class=\"overlay-note\" role=\"status\">This permission applies only to this action.</p> <div class=\"desk-card-actions\"><button id=\"permission-deny\" class=\"desk-btn\" type=\"button\">Decline</button> <button id=\"permission-allow\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Allow action</button></div></div>","Account connection could not be verified. Try again.","Add a company before connecting repositories.","Another conversation is working. Saved work will refresh when it settles.","Anthropic Console (API billing)","Checking this repository…","Checking your account connection.","Choose a company","Git initialized and repository connected.","No repositories connected.","Rich needs permission to run the action shown below.","Saved work is unavailable:","Saved work unavailable","Sign-in could not be cancelled. Try again.","Sign-in could not start. Try again.","The action's state could not be verified. Approval is unavailable.","The software is installed.","This conversation has no company binding.","This permission applies only to this action.","Work status is changing. Please try again.","Worker state is not settled.","You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.","Your Anthropic account","button, input, select","more saved records. Ask Rich about the assignment you want to continue.","saved work records","A brand new thing the CEO must go and do."]
+
+== part 5: heuristic second opinion — REPORT ONLY, and here is why ==
+  flagged 74, genuinely ACTIONABLE or NEEDS-SOMEONE-ELSE 48  ->  precision 64.9%, recall 59.3%
+  Roughly one flag in three is noise and it misses nearly half the real ones, so it does
+  NOT fail the run. A check that cries wolf is deleted within a day, and then nothing runs.
+  26 disagreement(s) with the registry, each with its recorded reason:
+    [NOT-RENDERED] "Application home is unavailable."
+           `prepare()` at update_startup.rs:55, when `HOME` is unset. Same single call site, same `eprintln!` and return,
+    [CONTROL] "Check for updates"
+           `#update-check`'s label in every state but a non-signature failure, where it reads 'Try again'.
+    [CONTROL] "Choose the company"
+           The button beneath the composer's block (`#choose-company-btn`). It IS the affordance.
+    [INFORMATIONAL] "Give me a folder and I'll pick this company on my own whenever you start R"
+           What the folder DOES, beside the field that takes it. It is not a request: it names the consequence of both an
+    [UNREACHABLE] "I already have a lot of companies with names like \"{name}\" and I couldn't "
+           `register_entity`'s 99-collision bound. It needs ninety-nine companies whose names all derive to one label; no
+    [INFORMATIONAL] "I couldn't work out how fast this machine hears, so I've started with the "
+           `Basis::Unmeasured` (hardware.rs:374). Nothing could be measured — no probe, no binary, no cache (hardware.rs:
+    [INFORMATIONAL] "I'm using my faster hearing on this machine. The more accurate one takes l"
+           `Basis::TooSlow` (hardware.rs:361). A better rung exists and this machine decodes it too slowly — measured, pe
+    [INFORMATIONAL] "I'm using my lighter hearing on this machine — there isn't enough free mem"
+           `Basis::TooLarge` (hardware.rs:368). The one of the three he could in principle influence, by freeing memory, 
+    [CONTROL] "Let's pick up the questions about my business where we stopped."
+           The explicit Resume acceptance sent through the ordinary message path.
+    [CONTROL] "Pick it back up"
+           The retry button on both intervention cards.
+    [FRAGMENT] "Press Stop again and I'll have another go."
+           Appended to the backend's own sentence in the failed-stop notice.
+    [INFORMATIONAL] "RichOS is confirming this update was signed by us before preparing it for "
+           The `installing` sub-line, and it is on screen for a reason: the signature check is the property the whole upd
+    [CONTROL] "Set by hand in config.json, so none of the three is selected."
+           #retention-hint when the stored window matches no menu entry (`RetentionChoice::Custom`). It explains why no r
+    [INFORMATIONAL] "Set up the environment"
+           §5.3 activity rollup label.
+    [FRAGMENT] "Set up the environment ( steps)"
+           Template hole: the step count.
+    [UNREACHABLE] "That check sent {probe_chars} characters where RichOS's own work runs to {"
+           `ReachabilityVerdict::Unproven`, and the sentence the whole module exists for. It says neither 'healthy' nor '
+    [INFORMATIONAL] "That's set up. From now on I'll keep what you tell me in that folder and r"
+           What he sees after answering, when the corpus resolved AND the compiler is installed. Nothing to do — it is th
+    [INFORMATIONAL] "There is no update server yet, so RichOS cannot check for new versions. Wh"
+           The `unconfigured` state, and the honest one: this build points at a placeholder endpoint. NOT ACTIONABLE — `p
+    [CONTROL] "This conversation is set on its own. changes just this one."
+           #techy-hint under the Settings switch, with the `${key}` shortcut hole folded out by the scraper — it renders 
+    [UNREACHABLE] "This copy of me was told which company it works for when it was started up"
+           `ENTITY_PINNED_MESSAGE` — `choose_entity`'s refusal when `RICHOS_ENTITY` is set. No path in the shipped UI rea
+    [INFORMATIONAL] "You can type, or tap ◉ to talk to me."
+           The voice half of the first-run greeting, SPLIT OFF on 2026-09-04 and appended only when `voice_readiness` say
+    [INFORMATIONAL] "Your memory folder is on this Mac, and I can't read or write it yet — the "
+           Two moments, one sentence: a boot that resolves a corpus and no compiler, and a setup that finishes the same w
+    [FRAGMENT] "headphones recommended · tap"
+           Voice footnote, completed by the ◉ glyph.
+    [FRAGMENT] "is ready for the next launch."
+           One literal, used by both `waitingSaid()`'s `ready` head and `sub()`'s `ready` headline: `version + ' is ready
+    [FRAGMENT] "is ready to install."
+           `waitingSaid()`'s `available` head: `version + ' is ready to install.'`.
+    [NOT-RENDERED] "not a fresh launch ("
+           `state.declined`, which records WHY the curtain did not run. It is read by `RichSplash.state()` for the suite 
+
+4 check(s) FAILED — an actionable state is rendering without its control.

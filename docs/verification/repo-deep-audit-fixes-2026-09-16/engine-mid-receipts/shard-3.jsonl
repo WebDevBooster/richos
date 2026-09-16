@@ -1,0 +1,11 @@
+{"expected_rc":0,"rc":0,"seconds":4.1,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"ass-kicker/tests/brief-provenance.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":18.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"ecs/tests/run.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"mega-lander/tests/relocation.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":10.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"mega-lander/tests/workspace-stopped-ending.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":11.1,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"mega-lander/tests/workspaces-e2e.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":3.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/ci-surface-watch.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":1,"seconds":5.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/cold-open.test.sh","verdict":"FAIL"}
+{"expected_rc":0,"rc":0,"seconds":88.3,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/demo.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/entrypoint-currency-lint.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":15.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/hooks/ceo-ruled.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":229.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":3,"shards":4,"unit":"scripts/hooks/ceo-todos.test.sh","verdict":"PASS"}

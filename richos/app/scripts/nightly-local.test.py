@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Local release entry point: explicit trigger, isolation and private credentials."""
+import importlib.util
+import io
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+
+spec = importlib.util.spec_from_file_location("local_nightly", Path(__file__).with_name("nightly-local.py"))
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+
+class LocalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def file(self, value, mode=0o600):
+        path = self.root / "notary.env"
+        path.write_text(value)
+        path.chmod(mode)
+        return path
+
+    def test_notary_file_is_parsed_without_shell_execution(self):
+        key = self.root / "private key.p8"
+        key.write_text("fixture")
+        key.chmod(0o600)
+        path = self.file(f'export RICHOS_NOTARY_KEY="{key}"\nRICHOS_NOTARY_KEY_ID=id\nRICHOS_NOTARY_ISSUER=issuer\n')
+        result = m.notary_environment(path)
+        self.assertEqual(result["RICHOS_NOTARY_KEY"], str(key))
+        self.assertEqual(result["RICHOS_NOTARY_ISSUER"], "issuer")
+
+    def test_notary_profile_is_supported(self):
+        self.assertEqual(m.notary_environment(self.file('RICHOS_NOTARY_PROFILE="nightly profile"\n')),
+                         {"RICHOS_NOTARY_PROFILE": "nightly profile"})
+
+    def test_unsafe_credentials_refuse(self):
+        cases = ['RICHOS_NOTARY_PROFILE="$(touch /tmp/never-run)"',
+                 'RICHOS_NOTARY_PROFILE="`id`"', 'OTHER=value',
+                 'RICHOS_NOTARY_KEY_ID=partial', 'RICHOS_NOTARY_PROFILE=value; echo unsafe']
+        for value in cases:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                m.notary_environment(self.file(value))
+        with self.assertRaises(ValueError):
+            m.notary_environment(self.file('RICHOS_NOTARY_PROFILE=value', 0o644))
+
+    def test_lock_rejects_concurrent_manual_commands_and_releases_after_failure(self):
+        state = self.root / "state"
+        with self.assertRaises(RuntimeError):
+            with m.exclusive(state):
+                with self.assertRaisesRegex(ValueError, "another local"):
+                    with m.exclusive(state):
+                        self.fail("second publisher acquired lock")
+                raise RuntimeError("failed build")
+        with m.exclusive(state):
+            pass
+
+    def runner(self, build=True):
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        r.checkout = Mock(return_value="source-sha")
+        r.plan = Mock(return_value=(self.root / "plan.json", {
+            "build": build, "reason": "already published", "tag": "v1.2.0-nightly.20260916.1"}))
+        for name in ("preflight", "runtime", "gates", "command"):
+            setattr(r, name, Mock())
+        return r
+
+    def test_check_never_builds_or_publishes(self):
+        r = self.runner()
+        r.perform("check")
+        r.preflight.assert_called_once()
+        r.gates.assert_not_called()
+        r.runtime.assert_not_called()
+        r.command.assert_not_called()
+
+    def test_command_timeout_does_not_expose_signing_password(self):
+        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        args = ["cargo", "tauri", "signer", "sign", "-p", "secret-password"]
+        with patch.object(m.subprocess, "run", side_effect=subprocess.TimeoutExpired(args, 30)):
+            with self.assertRaisesRegex(RuntimeError, "cargo timed out") as raised:
+                r.command(*args, timeout=30)
+        self.assertNotIn("secret-password", str(raised.exception))
+
+    def test_only_release_reaches_publisher(self):
+        r = self.runner()
+        r.perform("release")
+        r.runtime.assert_called_once()
+        r.gates.assert_called_once()
+        args = r.command.call_args.args
+        self.assertEqual(args[2], "run")
+        self.assertEqual(r.plan.call_count, 2)
+
+    def test_unchanged_source_does_not_build(self):
+        r = self.runner(False)
+        r.perform("release")
+        r.gates.assert_not_called()
+        r.command.assert_not_called()
+
+    def test_failed_gates_do_not_publish(self):
+        for method in ("preflight", "runtime", "gates"):
+            with self.subTest(method=method):
+                r = self.runner()
+                getattr(r, method).side_effect = RuntimeError("failed")
+                with self.assertRaises(RuntimeError):
+                    r.perform("release")
+                r.command.assert_not_called()
+
+    def test_fresh_plan_can_skip_after_checks(self):
+        r = self.runner()
+        r.plan.side_effect = [r.plan.return_value,
+                             (self.root / "plan.json", {"build": False, "reason": "already published"})]
+        r.perform("release")
+        r.command.assert_not_called()
+
+    def test_checkout_uses_remote_main_without_touching_developer_edits(self):
+        repo, remote = self.root / "repo", self.root / "remote.git"
+        repo.mkdir()
+        def git(*args, cwd=repo):
+            return subprocess.check_output(["git", *args], cwd=cwd, text=True, stderr=subprocess.DEVNULL).strip()
+        git("init", "--bare", str(remote))
+        git("init", "-b", "main")
+        git("config", "user.name", "Fixture")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "core.hooksPath", "/dev/null")
+        (repo / "source").write_text("committed")
+        git("add", ".")
+        git("commit", "-m", "source")
+        sha = git("rev-parse", "HEAD")
+        git("remote", "add", "origin", str(remote))
+        git("push", "origin", "main")
+        (repo / "source").write_text("uncommitted developer work")
+        state = self.root / "state"
+        state.mkdir()
+        with (self.root / "commands.log").open("w") as log:
+            r = m.Runner(repo, state, os.environ.copy(), log)
+            self.assertEqual(r.checkout(), sha)
+            self.assertEqual((r.source / "source").read_text(), "committed")
+            self.assertEqual((repo / "source").read_text(), "uncommitted developer work")
+            self.assertEqual(r.checkout(), sha)
+            (r.source / "unexpected").write_text("do not delete")
+            with self.assertRaisesRegex(ValueError, "has changes"):
+                r.checkout()
+            self.assertTrue((r.source / "unexpected").exists())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

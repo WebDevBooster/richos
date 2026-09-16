@@ -1532,6 +1532,45 @@ mod tests {
         t.append_data(&mut h, name, io::empty()).unwrap();
     }
     #[test]
+    fn nightly_versions_survive_install_and_order_numerically() {
+        let t = home();
+        let h = canonical(&t);
+        let versions = [
+            "5.1.0-nightly.20260911.9",
+            "5.1.0-nightly.20260911.10",
+            "5.1.0-nightly.20260912.1",
+            "5.1.0",
+        ];
+        for (index, version) in versions.iter().enumerate() {
+            let published = install_verified(&h, &archive(version, |_| {}), version).unwrap();
+            assert_eq!(published.version, *version);
+            assert_eq!(
+                bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+                *version
+            );
+            if index > 0 {
+                assert!(published.is_newer_than(versions[index - 1]).unwrap());
+                assert!(install_verified(
+                    &h,
+                    &archive(versions[index - 1], |_| {}),
+                    versions[index - 1]
+                )
+                .is_err());
+                assert_eq!(
+                    bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+                    *version
+                );
+            }
+        }
+        assert!(stage_verified(
+            &h,
+            &archive("5.1.0-nightly.20260912.01", |_| {}),
+            "5.1.0-nightly.20260912.01"
+        )
+        .is_err());
+    }
+
+    #[test]
     fn installs_as_actual_owner_and_replays_exact_receipt() {
         let t = home();
         let h = canonical(&t);

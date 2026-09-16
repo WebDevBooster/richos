@@ -1,0 +1,59 @@
+[
+  {
+    "name": "loro",
+    "command": [
+      "bash",
+      "richos/engine/loro/tests/run.test.sh"
+    ],
+    "exit": 0,
+    "expected_summary_found": true,
+    "passed": true
+  },
+  {
+    "name": "desktop-corrections",
+    "command": [
+      "/Users/alex/.cargo/bin/cargo",
+      "test",
+      "--locked",
+      "-p",
+      "richos-core",
+      "--test",
+      "delivered_loro_tests"
+    ],
+    "exit": 0,
+    "expected_summary_found": true,
+    "passed": true
+  },
+  {
+    "name": "worker-settlement",
+    "command": [
+      "/Users/alex/.cargo/bin/cargo",
+      "test",
+      "--locked",
+      "-p",
+      "richos-core",
+      "--lib",
+      "worker_settlement_requires_readable_evidence_before_a_normal_turn_end",
+      "--",
+      "--nocapture"
+    ],
+    "exit": 0,
+    "expected_summary_found": true,
+    "passed": true
+  },
+  {
+    "name": "worker-evidence-lock",
+    "command": [
+      "/Users/alex/.cargo/bin/cargo",
+      "test",
+      "--locked",
+      "-p",
+      "richos-core",
+      "--lib",
+      "app_workers::tests"
+    ],
+    "exit": 0,
+    "expected_summary_found": true,
+    "passed": true
+  }
+]

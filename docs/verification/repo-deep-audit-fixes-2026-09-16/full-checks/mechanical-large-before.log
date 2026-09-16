@@ -1,0 +1,49 @@
+=== mechanical findings: found, written once, governed, surfaced, loud when blind ===
+  PASS  1a  a tree with defects makes the lint exit 1
+  PASS  1b  a suite skipped BY NAME in a workflow is found (b.test.sh)
+  PASS  1c  CONTROL: a suite that is RUN, and named only in a comment near 'skip', is NOT reported
+  PASS  1d  a harness no script names is found (x.mutation.sh)
+  PASS  1e  a harness named ONLY IN A COMMENT is found (z.mutation.sh) — a comment is not a runner
+  PASS  1f  CONTROL: a harness a script actually invokes is NOT reported
+  PASS  1g  a registered hook no test names is found (h2), and one named only in a test's COMMENT is found (h3)
+  PASS  1h  CONTROL: a hook a test names on a code line is NOT reported
+  PASS  1i  POSITIVE PROBE: every class reports how many subjects it examined, and none examined zero
+  PASS  1j  report-only wrote nothing: the record is untouched and no temp file exists
+  PASS  1k  report-only: the record is byte-identical to HEAD
+  PASS  2a  --write appends one row per NEW finding (5) and says so
+  PASS  2b  READ BACK OFF DISK: the record carries exactly 5 `finding:` rows
+  PASS  2c  row 3.3 is the skipped suite: id allocated above 3.2, key inside, warrant pinning BOTH the suite and the workflow at their real HEAD object ids
+  PASS  2d  row 3.4 is the unrun harness, stamped at the harness's own object id
+  PASS  2e  rows are appended at the END of section 3's table — after 3.2, in order, before the next heading, with the table's blank line intact
+  PASS  2f  no existing row was edited, re-stamped or removed — the diff is additions only
+  PASS  2g  every written row says a machine wrote it, and which one
+  PASS  3a  a second --write over the same tree writes NOTHING: the record is byte-identical, still 5 rows
+  PASS  3b  the second sweep reports every finding as KNOWN with its row id, none as new
+  PASS  3c  a KNOWN finding names the row that holds it (3.3)
+  PASS  4a  the LANDING GUARD's own lint accepts the written rows: their warrants are current (row-currency-lint exit 0)
+  PASS  4b  the UNSTARTED-ROW sweep names every written row as unstarted — the third link sees the second's output
+  PASS  5a  the exclusion fixed in the tree: row 3.3 is named GONE, nothing is written, nothing is edited
+  PASS  5b  the GONE row is NOT touched — closing it is a person's read of the sentence
+  PASS  5c  a row closed by hand while the finding is still in the tree is named as a CONTRADICTION, not rewritten
+  PASS  6a  `finding-exempt: <reason>` in the subject removes the finding AND is reported with its reason
+  PASS  6b  a BARE marker exempts nothing
+  PASS  6c  a marker whose reason is two letters exempts nothing either
+  PASS  7a  the turn ends with a notice that rows were WRITTEN, naming ids and keys
+  PASS  7b  it NOTICES, it does not block — exit 0
+  PASS  7c  the hook itself wrote the 5 rows (not only the lint)
+  PASS  7d  the notice says the rows are uncommitted and whose repository they are in
+  PASS  7e  the next turn, same tree, same rows: SILENT — known open rows are the unstarted sweep's to name
+  PASS  7f  POSITIVE PROBE: the receipt proves the silent turn SWEPT — 5 findings, all known
+  PASS  7g  the finding disappearing SPEAKS AGAIN, naming the row to close
+  PASS  7i  the same GONE row on the next turn is SILENT — a persistent condition is announced once, not every turn
+  PASS  7j  the GONE condition ending is the end of a story the operator was told: one 'clear again' line
+  PASS  7h  a seat with no .row-currency STANDS DOWN silently, and its receipt says so
+  PASS  8a  a record whose governed section has no table: lint exit 2, BROKEN, nothing written
+  PASS  8b  the hook says it swept nothing, on the channel the operator sees
+  PASS  8c  the analyzer missing: lint exit 2 — never the same code as clean
+  PASS  8d  the analyzer missing: the hook announces it rather than ending the turn quietly
+  PASS  8e  another writer holding the lock: the write is REFUSED and reported, nothing partial lands
+  PASS  9a  a large real sweep writes and announces all 65 findings
+  PASS  9b  the large stable sweep is silent and records all 65 known findings
+
+  46 passed, 0 failed

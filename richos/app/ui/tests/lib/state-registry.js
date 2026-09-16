@@ -1308,18 +1308,6 @@ module.exports = [
       "second sentence.",
   },
   {
-    s: "That's the setting up done.",
-    c: "INFORMATIONAL",
-    fixture: "setup-finished",
-    why:
-      "The heading after a run the backend agrees is complete. It exists because the title " +
-      "used to keep COUNTING WHAT WAS MISSING after the run: a finished install showed " +
-      "\"There's one thing I need on this Mac.\" over \"That's everything. I'm ready.\", two " +
-      "sentences contradicting each other on screen at once. Both are set from the same " +
-      "`next.complete`, so they cannot come apart again. Nothing to do — it is the " +
-      "confirmation that the question is over.",
-  },
-  {
     s: "I couldn't finish the setting up.",
     c: "NEEDS-SOMEONE-ELSE",
     explainedBy:
@@ -1331,28 +1319,6 @@ module.exports = [
       "backend's re-read of the disk. It does not name the party itself because the sentence " +
       "under it does, in the same view, and repeating it would make a two-line dialog say the " +
       "same thing twice.",
-  },
-  {
-    s:
-      "You'll still need your own Anthropic account, and to sign in to it once. I can't do " +
-      "that part for you, and I never see your password.",
-    c: "INFORMATIONAL",
-    fixture: "setup-missing-both",
-    why:
-      "`open-items.md` row 3.14's second condition, on the sheet and above the button: " +
-      "\"D removes one setup step of two, not all of them — RichOS is BYO-Anthropic, so the " +
-      "customer still needs an account and a login, and D must not be sold to him as " +
-      "zero-touch.\" " +
-      "CLASSIFIED INFORMATIONAL DELIBERATELY, AND HERE IS THE ARGUMENT, because it is the " +
-      "one row on this sheet where the bucket is arguable. It is a statement of SCOPE — what " +
-      "this press does not cover — and not a state of the app. The act it describes happens " +
-      "entirely outside RichOS: there is no login flow inside RichOS at all (§19), so no " +
-      "control in this view or any other could perform it, which rules ACTIONABLE out; and " +
-      "the person is HIM, which rules NEEDS-SOMEONE-ELSE out, since that bucket exists to " +
-      "point him at somebody who is not him. Calling it INFORMATIONAL is not a claim that " +
-      "there is nothing for him to do — it is a claim that there is nothing for him to do " +
-      "HERE, which is exactly why the sentence is on the sheet before the button rather " +
-      "than after it.",
   },
   {
     s:
@@ -1371,12 +1337,11 @@ module.exports = [
       "nobody has said whether the CEO can act on.",
   },
   {
-    s: "That's everything. I'm ready.",
+    s: "That's the setting up done.",
     c: "INFORMATIONAL",
     fixture: "setup-finished",
     why:
-      "What he sees when the run finished AND the backend, re-reading the disk, agrees " +
-      "nothing is missing. Nothing to do; it is the confirmation that the question is over.",
+      "The installation heading confirms that software setup completed. Account connection is reported separately below it.",
   },
   {
     s: "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.",
@@ -2877,4 +2842,156 @@ module.exports = [
 
   { s: "Stopping work in the previous conversation", c: "INFORMATIONAL", why: "A durable Stop receipt disables repeat Stop while awaiting its terminal event." },
 
+  // Shipped repository, permission, account and saved-work surfaces.
+  {
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <label class=\"overlay-note\"><input id=\"repository-initialize\" type=\"checkbox\"> Initialize Git if this folder is empty</label> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>",
+    "c": "FRAGMENT",
+    "why": "Composite HTML for the repository connection dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
+  },
+  {
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"><h2 id=\"permission-title\" class=\"overlay-title\">Allow this action?</h2> <p id=\"permission-scope\" class=\"overlay-note\"></p><p id=\"permission-description\" class=\"overlay-note\"></p> <pre id=\"permission-input\" class=\"desk-preview\" style=\"max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere\"></pre> <p id=\"permission-status\" class=\"overlay-note\" role=\"status\">This permission applies only to this action.</p> <div class=\"desk-card-actions\"><button id=\"permission-deny\" class=\"desk-btn\" type=\"button\">Decline</button> <button id=\"permission-allow\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Allow action</button></div></div>",
+    "c": "FRAGMENT",
+    "why": "Composite HTML for the native permission dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
+  },
+  {
+    "s": "Account connection could not be verified. Try again.",
+    "c": "ACTIONABLE",
+    "why": "The failed account check offers the same sign-in button for another attempt.",
+    "control": "#provider-connect",
+    "fixture": "provider-poll-error"
+  },
+  {
+    "s": "Add a company before connecting repositories.",
+    "c": "ACTIONABLE",
+    "why": "Close the repository sheet to reach company creation in the main company picker; a repository cannot be attached until a company exists.",
+    "control": "#repository-close"
+  },
+  {
+    "s": "Another conversation is working. Saved work will refresh when it settles.",
+    "c": "INFORMATIONAL",
+    "why": "The refresh waits for the other conversation to release its lock."
+  },
+  {
+    "s": "Anthropic Console (API billing)",
+    "c": "CONTROL",
+    "why": "An account-kind option in the sign-in selector."
+  },
+  {
+    "s": "Checking this repository…",
+    "c": "INFORMATIONAL",
+    "why": "The native repository validation is in progress."
+  },
+  {
+    "s": "Checking your account connection.",
+    "c": "INFORMATIONAL",
+    "why": "Account status is being loaded."
+  },
+  {
+    "s": "Choose a company",
+    "c": "CONTROL",
+    "why": "The unselected option asks for an explicit company choice."
+  },
+  {
+    "s": "Git initialized and repository connected.",
+    "c": "INFORMATIONAL",
+    "why": "Confirms the completed repository connection."
+  },
+  {
+    "s": "No repositories connected.",
+    "c": "ACTIONABLE",
+    "why": "The company selector begins the explicit connection flow; repositories.js checks selection, folder entry and connection.",
+    "control": "#repository-company",
+    "fixture": "repository-empty"
+  },
+  {
+    "s": "Rich needs permission to run the action shown below.",
+    "c": "ACTIONABLE",
+    "why": "The request can be declined or explicitly approved through its two scoped action buttons.",
+    "control": "#permission-deny",
+    "fixture": "permission-pending"
+  },
+  {
+    "s": "Saved work is unavailable:",
+    "c": "FRAGMENT",
+    "why": "Prefix joined to the native error describing why saved receipts cannot be read."
+  },
+  {
+    "s": "Saved work unavailable",
+    "c": "INFORMATIONAL",
+    "why": "Labels an unavailable saved-work observation without claiming a successful read."
+  },
+  {
+    "s": "Sign-in could not be cancelled. Try again.",
+    "c": "ACTIONABLE",
+    "why": "Cancellation remains available while the provider is still connecting.",
+    "control": "#provider-cancel",
+    "fixture": "provider-cancel-error"
+  },
+  {
+    "s": "Sign-in could not start. Try again.",
+    "c": "ACTIONABLE",
+    "why": "A failed sign-in start re-enables the initiating button.",
+    "control": "#provider-connect",
+    "fixture": "provider-start-error"
+  },
+  {
+    "s": "The action's state could not be verified. Approval is unavailable.",
+    "c": "INFORMATIONAL",
+    "why": "Approval is disabled until a subsequent poll can establish the current action state."
+  },
+  {
+    "s": "The software is installed.",
+    "c": "INFORMATIONAL",
+    "why": "Confirms software installation separately from the account sign-in that follows.",
+    "fixture": "setup-finished"
+  },
+  {
+    "s": "This conversation has no company binding.",
+    "c": "INFORMATIONAL",
+    "why": "Explains why a saved-work query cannot select a company."
+  },
+  {
+    "s": "This permission applies only to this action.",
+    "c": "INFORMATIONAL",
+    "why": "Describes the scope of the visible action decision.",
+    "fixture": "permission-pending"
+  },
+  {
+    "s": "Work status is changing. Please try again.",
+    "c": "ACTIONABLE",
+    "why": "Reopening the saved-work disclosure retries the same native status request after the concurrent update.",
+    "control": ".drill-chip"
+  },
+  {
+    "s": "Worker state is not settled.",
+    "c": "INFORMATIONAL",
+    "why": "The native stop/exit fence reports an unsettled worker observation."
+  },
+  {
+    "s": "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.",
+    "c": "INFORMATIONAL",
+    "why": "Explains the separate account requirement before installation; the subsequent account sheet supplies the sign-in control.",
+    "fixture": "setup-missing-both"
+  },
+  {
+    "s": "Your Anthropic account",
+    "c": "CONTROL",
+    "why": "The heading naming the account connection dialog."
+  },
+  {
+    "s": "button, input, select",
+    "c": "NOT-RENDERED",
+    "why": "A CSS selector used to trap keyboard focus, never displayed as prose."
+  },
+  {
+    "s": "more saved records. Ask Rich about the assignment you want to continue.",
+    "c": "ACTIONABLE",
+    "why": "The saved-record limit directs the user to the normal message composer for a specific assignment.",
+    "control": "#input"
+  },
+  {
+    "s": "saved work records",
+    "c": "FRAGMENT",
+    "why": "A numeric record-count suffix in the saved-work disclosure."
+  },
 ];

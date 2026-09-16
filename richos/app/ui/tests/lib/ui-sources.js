@@ -76,6 +76,9 @@ const ENTRY = "index.html";
 const ROLES = {
   "index.html": { role: "ui", why: "the shell Tauri loads" },
   "main.js": { role: "ui", why: "the chat surface and the bridge" },
+  "work-summary.js": { role: "ui", why: "saved work receipts and their availability states" },
+  "repositories.js": { role: "ui", why: "company repository connections and their status" },
+  "permissions.js": { role: "ui", why: "native action permission requests and their answers" },
   "timeline.js": { role: "ui", why: "the working timeline's model and render" },
   "home.js": { role: "ui", why: "the home screen the CEO lands on" },
   "updates.js": { role: "ui", why: "the update surface — CEO ruling §26" },

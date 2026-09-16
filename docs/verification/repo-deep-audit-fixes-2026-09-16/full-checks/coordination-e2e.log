@@ -1,0 +1,23 @@
+drop zone: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-coord-ol9F60
+
+--- A. ownership handshake: exactly one session per call ---
+[richos-service info] session-start 2026-08-24T13-00-00Z--meet--coord -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-coord-ol9F60/2026-08-24T13-00-00Z--meet--coord
+  ok  extension session directory exists (the browser call is being captured)
+  ok  companion is told to STAND DOWN (extension already owns the browser call) — stand-down
+  ok  claim exit code signals stand-down (3) — code=3
+  ok  stand-down names the conflicting session + the browser process to exclude
+  ok  exactly ONE session directory exists — no double-capture — dirs=2026-08-24T13-00-00Z--meet--coord
+  ok  companion may OWN a desktop-app call the extension is not capturing
+
+--- B. browser-crash failover promotion ---
+[richos-service alarm] ⚠ ANOMALY: 2026-08-24T13-00-00Z--meet--coord — browser pipe closed while the call was still OPEN — finalized interrupted
+  ok  host finalized the extension session INTERRUPTED on pipe EOF (a lost call is present on disk)
+  ok  the interrupted session is marked PROMOTABLE on disk
+  ok  failover-scan surfaces the dead browser call as a promotion candidate — ["2026-08-24T13-00-00Z--meet--coord"]
+  ok  mark-superseded records the takeover on the dead session
+  ok  the superseded session is no longer a promotion candidate (failover is complete)
+  ok  the companion session is the authoritative record and supersedes the dead browser call
+
+(drop zone kept at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-coord-ol9F60)
+
+ALL COORDINATION-E2E CHECKS PASSED

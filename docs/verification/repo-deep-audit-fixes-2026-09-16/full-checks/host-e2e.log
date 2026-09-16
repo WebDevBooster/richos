@@ -1,0 +1,63 @@
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[aist#0:0/pcm_s16be @ 0x134606ef0] Guessed Channel Layout: mono
+Input #0, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-host-work-dLMfXG/a.aiff':
+  Duration: 00:00:02.25, start: 0.000000, bitrate: 367 kb/s
+  Stream #0:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+[aist#1:0/pcm_s16be @ 0x135106ab0] Guessed Channel Layout: mono
+Input #1, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-host-work-dLMfXG/b.aiff':
+  Duration: 00:00:03.41, start: 0.000000, bitrate: 362 kb/s
+  Stream #1:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+Stream mapping:
+  Stream #0:0 (pcm_s16be) -> aformat:default
+  Stream #1:0 (pcm_s16be) -> aformat:default
+  join:default -> Stream #0:0 (libopus)
+Press [q] to stop, [?] for help
+Output #0, webm, to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-host-work-dLMfXG/sample.webm':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Audio: opus, 24000 Hz, stereo, s16, 64 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 libopus
+[out#0/webm @ 0x135104630] video:0KiB audio:59KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 5.400292%
+size=      62KiB time=00:00:08.00 bitrate=  63.5kbits/s speed= 111x elapsed=0:00:00.07    
+  ok  host answers hello with ready
+  ok  host acks session-start
+  ok  host acks the audio chunk
+  ok  host answers heartbeat with an ack (the outside-the-browser liveness signal)
+  ok  host acks session-close
+  ok  audio landed byte-exact in the contract dir — 63510 vs 63510
+  ok  health.ndjson + captions.ndjson were appended
+  ok  session.json is CLOSED and upgraded to schemaVersion 2
+  ok  session-close TRIGGERED the pipeline (status left pending) — status=ready
+  ok  the detached pipeline produced transcript.md from the streamed audio — pipeline status=ready
+
+----- host-e2e transcript.md -----
+# Transcript — Google Meet
+
+- **Session:** `2026-08-24T12-00-00Z--meet--host-e2e`
+- **Started:** 2023-11-14T22:13:20.000Z
+- **Duration:** 0.1 min
+- **Captured by:** chrome-extension
+- **Model:** large-v3-turbo-q5_0
+- **Transcribed by:** whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5
+- **Speaker attribution:** LEFT channel = me (mic); RIGHT channel = others (system/tab); remote names folded in from platform captions
+
+---
+
+**[00:00] Me:** Hello from the microphone side of the call.
+
+**[00:00] Fred:** And hello from the other participant on the tab side.
+----------------------------------
+
+(drop zone kept at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-host-PoTe5G)
+
+ALL HOST-E2E CHECKS PASSED

@@ -1,0 +1,1 @@
+{"expected_rc":3,"rc":3,"seconds":332.7,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":1,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:WTI","verdict":"PASS"}

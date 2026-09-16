@@ -1,0 +1,14 @@
+
+running 1 test
+SETTLEMENT scenario=open, liveness_unknown=1, unattributed=None, result=Err(Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.")), provider_alive=false
+SETTLEMENT scenario=damaged, liveness_unknown=0, unattributed=Some(AppEvidenceUnavailable), result=Err(Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.")), provider_alive=false
+SETTLEMENT scenario=missing, liveness_unknown=0, unattributed=Some(AppEvidenceUnavailable), result=Err(Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.")), provider_alive=false
+SETTLEMENT scenario=unreadable, liveness_unknown=0, unattributed=Some(AppEvidenceUnavailable), result=Err(Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.")), provider_alive=false
+SETTLEMENT scenario=empty, liveness_unknown=0, unattributed=None, result=Ok("end_turn"), provider_alive=true
+SETTLEMENT scenario=settled, liveness_unknown=0, unattributed=None, result=Ok("end_turn"), provider_alive=true
+test native::native_driver_tests::worker_settlement_requires_readable_evidence_before_a_normal_turn_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 555 filtered out; finished in 1.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/richos_core-c877baf62232b090)

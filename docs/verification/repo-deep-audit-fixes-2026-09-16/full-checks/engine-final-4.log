@@ -1,0 +1,117 @@
+[1m=== ci-shard: 49 unit(s), shard 4/4 at 3eaca2dc3e082504b31e917a2877cf993e692555 ===[0m
+  [  1/ 49] ass-kicker/tests/relocation.test.sh                                      [32mPASS[0m 23.1s
+  [  2/ 49] gates/unmanaged-assignment/lib/harness.test.sh                           [32mPASS[0m 1.0s
+  [  3/ 49] mega-lander/tests/app.test.sh                                            [32mPASS[0m 24.1s
+  [  4/ 49] mega-lander/tests/create-teammate-worktree.test.sh                       [32mPASS[0m 5.0s
+  [  5/ 49] scripts/check-census.test.sh                                             [32mPASS[0m 1.0s
+  [  6/ 49] scripts/ci-affected-units.test.sh                                        [32mPASS[0m 7.0s
+  [  7/ 49] scripts/ci-shard.test.sh                                                 [32mPASS[0m 76.5s
+        WEIGHT-DRIFT  planned 12.7s, measured 76.5s (6.0x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/ci-shard.test.sh	76.5	<this-run-id>
+  [  8/ 49] scripts/ci-units.test.sh                                                 [32mPASS[0m 12.1s
+  [  9/ 49] scripts/ci-verify.test.sh                                                [32mPASS[0m 1.0s
+  [ 10/ 49] scripts/collect-worktree-artifacts.test.sh                               [32mPASS[0m 5.0s
+  [ 11/ 49] scripts/handoff-facts.test.sh                                            [32mPASS[0m 2.0s
+  [ 12/ 49] scripts/hook-registration-completeness.test.sh                           [32mPASS[0m 3.0s
+  [ 13/ 49] scripts/hooks/by-reference.test.sh                                       [31mFAIL[0m 618.0s (rc=1, expected 0)
+        === by-reference.test.sh ===
+        
+          PASS  0a.baseline-correct-install-is-green
+          PASS  0b.baseline-every-BR-layer-actually-ran
+          PASS  0c.by-reference-install-does-not-run-the-seated-layers
+          PASS  0d.seated-install-runs-the-seated-layers-not-the-BR-set
+          PASS  0e.R4-does-not-demand-the-seated-registration-from-a-by-reference-entity
+          PASS  1a.BR1-missing-plugin-manifest
+          PASS  1b.BR1-manifest-without-a-name
+          PASS  2a.BR2-missing-hook-table
+          PASS  2b.BR2-guard-not-registered
+          PASS  2c.BR2-guard-registered-twice
+          PASS  2c2.BR2-manifest-rule-listed-twice
+          PASS  2c3.BR2-manifest-rule-deleted
+          PASS  2d.BR2-agent-chain-out-of-order
+          PASS  2e.BR2-guard-on-the-wrong-event
+          PASS  2f.BR2-guard-wired-but-not-declared-in-the-managed-set
+          PASS  2f2.a-tenth-agent-hook-registered-and-declared-is-GREEN
+          PASS  2f2b.the-tenth-hook-is-COUNTED-by-BR2-not-silently-skipped
+          PASS  2g.BR2-session-banner-inventory-disagrees-with-the-hook-table
+          PASS  2h.BR2-guard-inventory-library-missing
+          PASS  3a.BR3-absolute-path-instead-of-plugin-root
+          PASS  3b.BR3-CLAUDE_PROJECT_DIR-for-an-engine-asset
+          PASS  3c.BR3-escapes-the-plugin-root
+          PASS  4a.BR4-registered-script-not-on-disk
+          PASS  4b.BR4-registered-script-not-executable
+          PASS  4c.BR4-script-modified-since-install
+          PASS  4d.BR4-absent-sidecar-is-named-not-waved-through
+          PASS  4e.BR4-absent-sidecar-does-not-claim-hash-matched
+          PASS  5a.BR5-declared-role-file-missing
+          PASS  5b.BR5-declared-role-escapes-the-plugin-root
+          PASS  5c.BR5-declared-directory-with-subdirs-ships-phantom-roles
+          PASS  5d.BR5-declared-role-without-frontmatter
+          PASS  6a.BR6-plugin-not-enabled-anywhere
+          PASS  6b.BR6-plugin-registered-but-disabled
+          PASS  6c.BR6-enabled-plugin-resolves-elsewhere
+          PASS  6d.BR6b-pointer-resolves-to-a-non-engine
+          PASS  6e.BR6b-pointer-disagrees-with-the-audited-engine
+          PASS  6f.BR6b-dangling-pointer-is-not-reported-as-absent
+          PASS  6g.BR6b-absent-pointer-is-a-named-warning-not-a-failure
+          PASS  6h.BR6b-absent-pointer-does-not-claim-agreement
+          PASS  10a.BR10-AGENT_TEAMS-flag-missing
+          PASS  10b.BR10-worktree-baseRef-missing
+          FAIL  10c.BR10-AGENT_TEAMS-flag-present-but-off — BR10 failed, but not for the stated reason (missing: expected "1")
+          PASS  10d.BR10-baseRef-pointing-at-the-wrong-ref
+          PASS  10e.BR10-entity-has-no-settings-file-at-all
+          PASS  10f.BR10-a-correct-entity-config-passes
+          PASS  7a.BR7-marketplace-manifest-untracked-and-ignored
+          PASS  7b.BR7-no-marketplace-manifest-at-all
+          PASS  8a.BR8-announcement-that-reaches-only-the-model-is-a-failure
+          PASS  8b.BR8-status-hook-that-always-says-ACTIVE-is-caught
+          PASS  9a.BR9-guard-gutted-into-a-no-op-is-caught
+          PASS  9b.BR9-guard-that-blocks-everything-is-caught
+          PASS  9c.BR9-guard-that-never-reads-the-roster-is-caught
+          PASS  10.the-operator-global-state-is-unchanged-by-this-suite
+        
+        === by-reference.test.sh: 52 passed, 1 FAILED ===
+            - 10c.BR10-AGENT_TEAMS-flag-present-but-off
+  [ 14/ 49] scripts/hooks/contract-integrity.test.sh:IL                              [32mPASS[0m 163.6s
+  [ 15/ 49] scripts/hooks/contract-integrity.test.sh:K                               [32mPASS[0m 47.2s
+  [ 16/ 49] scripts/hooks/contract-integrity.test.sh:MC                              [32mPASS[0m 61.2s
+  [ 17/ 49] scripts/hooks/contract-integrity.test.sh:P                               [32mPASS[0m 104.4s
+  [ 18/ 49] scripts/hooks/contract-integrity.test.sh:Q                               [32mPASS[0m 208.3s
+  [ 19/ 49] scripts/hooks/contract-integrity.test.sh:SA                              [32mPASS[0m 217.7s
+        WEIGHT-DRIFT  planned 71.9s, measured 217.7s (3.0x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:SA	217.7	<this-run-id>
+  [ 20/ 49] scripts/hooks/contract-integrity.test.sh:WTR                             [32mPASS[0m 341.1s
+  [ 21/ 49] scripts/hooks/contract-integrity.test.sh:python3                         [32mPASS[0m 6.0s
+  [ 22/ 49] scripts/hooks/engine-status.test.sh                                      [32mPASS[0m 3.0s
+  [ 23/ 49] scripts/hooks/guard-ci-turn-gate.test.sh                                 [32mPASS[0m 6.0s
+  [ 24/ 49] scripts/hooks/guard-idle-land.test.sh                                    [32mPASS[0m 12.1s
+  [ 25/ 49] scripts/hooks/guard-main-checkout-writes.test.sh                         [32mPASS[0m 2.0s
+  [ 26/ 49] scripts/hooks/guard-unresolved-claims.test.sh                            [32mPASS[0m 35.2s
+  [ 27/ 49] scripts/hooks/hook-staleness.test.sh                                     [32mPASS[0m 11.0s
+  [ 28/ 49] scripts/hooks/install-retire-reconciler.test.sh                          [32mPASS[0m 14.1s
+  [ 29/ 49] scripts/hooks/left-off.test.sh                                           [32mPASS[0m 98.4s
+  [ 30/ 49] scripts/hooks/lifecycle-payload-transport.test.sh                        [32mPASS[0m 6.0s
+  [ 31/ 49] scripts/hooks/mechanical-findings.test.sh                                [32mPASS[0m 5.0s
+  [ 32/ 49] scripts/hooks/publication-boundary.test.sh                               [32mPASS[0m 19.0s
+  [ 33/ 49] scripts/hooks/ref-transaction-forensics.test.sh                          [32mPASS[0m 2.0s
+  [ 34/ 49] scripts/hooks/root-contract.test.sh                                      [32mPASS[0m 69.2s
+  [ 35/ 49] scripts/hooks/scan-secrets.test.sh                                       [32mPASS[0m 8.0s
+  [ 36/ 49] scripts/hooks/session-evidence.test.sh                                   [32mPASS[0m 1.0s
+  [ 37/ 49] scripts/hooks/session-start-stdin.test.sh                                [32mPASS[0m 26.0s
+  [ 38/ 49] scripts/hooks/stale-staging.test.sh                                      [32mPASS[0m 68.1s
+  [ 39/ 49] scripts/hooks/teammate-idle-handoff.test.sh                              [32mPASS[0m 1.0s
+  [ 40/ 49] scripts/hooks/unlanded-branches.test.sh                                  [32mPASS[0m 17.0s
+  [ 41/ 49] scripts/hooks/verify-agent-prompt.test.sh                                [32mPASS[0m 188.5s
+  [ 42/ 49] scripts/hooks/waiver-repetition.test.sh                                  [32mPASS[0m 36.1s
+  [ 43/ 49] scripts/lib/app-evidence.test.sh                                         [32mPASS[0m 2.0s
+  [ 44/ 49] scripts/lib/assert-own-worktree-registered.test.sh                       [32mPASS[0m 1.0s
+  [ 45/ 49] scripts/lib/ci-surface.test.sh                                           [32mPASS[0m 9.0s
+  [ 46/ 49] scripts/lib/git-jurisdiction.test.sh                                     [32mPASS[0m 11.0s
+  [ 47/ 49] scripts/lib/leak-canary.test.sh                                          [32mPASS[0m 1.0s
+  [ 48/ 49] scripts/lib/worktree-ledger.test.sh                                      [32mPASS[0m 34.1s
+  [ 49/ 49] scripts/mutation-inventory.test.sh                                       [32mPASS[0m 1.0s
+
+[31m✗ ci-shard shard 4/4: 48/49 unit(s) passed, 1 FAILED.[0m
+    - scripts/hooks/by-reference.test.sh (rc=1, expected 0)

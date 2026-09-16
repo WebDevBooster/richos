@@ -1,0 +1,38 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling thiserror v1.0.69
+   Compiling generic-array v0.14.7
+   Compiling serde_json v1.0.151
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-fix-loro-correction-partition/richos/app/crates/richos-core)
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling cpufeatures v0.2.17
+   Compiling uuid v1.26.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling thiserror-impl v1.0.69
+   Compiling sha2 v0.10.9
+   Compiling serde_derive v1.0.229
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.37s
+     Running tests/delivered_loro_tests.rs (target/debug/deps/delivered_loro_tests-faa73334d815e7ba)
+
+running 4 tests
+test selected_engine_node_never_falls_back_to_a_host_runtime ... ok
+test selected_engine_missing_loro_does_not_borrow_an_old_tools_install ... ok
+test selected_engine_reads_writes_and_keeps_the_superseded_reference ... ok
+test desktop_corrections_preserve_the_company_ceo_and_unfiled_partitions ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+

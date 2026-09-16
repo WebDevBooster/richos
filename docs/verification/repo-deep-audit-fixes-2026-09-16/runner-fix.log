@@ -1,0 +1,37 @@
+=== ci-shard tests ===
+  PASS  S1   a suite unit is green at exit 0
+  PASS  S2   a section unit is green at exit 3, that suite's scoped-green code
+  PASS  S3   a scoped section that exits 0 FAILS as SCOPE-LOST — it ran something other than its id
+  PASS  S4a  an empty selection exits 2 — a shard that verifies nothing never exits 0
+  PASS  S4b  --allow-empty exits 0 but SAYS nothing was verified
+  PASS  S5   a unit id absent from the inventory is fatal, never silently skipped
+  PASS  S6   a declared failing unit is KNOWN-RED, does not fail the job, and prints its reason and expiry
+  PASS  S7   NEGATIVE CONTROL: a declared unit that PASSES fails the job, so the table cannot outlive its defect
+  PASS  S8   an entry past its expiry fails the job — the tolerance was time-boxed when it was granted
+  PASS  S9   a receipt carries the unit, the verdict, the duration and the commit
+  PASS  S10  --verify-receipts passes when the receipts union to the whole plan at one commit
+  PASS  S11  a missing receipt FAILS and NAMES the unit (scripts/hooks/contract-integrity.test.sh:alpha) — the dropped-shard case
+  PASS  S12  receipts from two different commits FAIL — a union across two trees certifies neither
+  PASS  S13  a unit with two receipts FAILS — either the packing overlapped or a receipt was collected twice
+  PASS  S14  an empty receipt set FAILS rather than certifying the plan against nothing
+  PASS  S15  a unit that writes outside its sandbox is caught and named — the canary is not lost by sharding
+  PASS  S15b a unit that appends a terminated row to the operator's ledger is caught, named, and the row printed — the record canary is not lost by sharding
+  PASS  S16  --units-file with --shard packs that set across shards and runs each unit exactly once
+  PASS  S17a --verify-receipts --units-file certifies the restricted plan
+  PASS  S17b the SAME receipts checked against the whole inventory FAIL — the restriction is a real claim, not a waiver
+  PASS  S18a a conditional row IN FORCE behaves as an unconditional one, and prints its condition
+  PASS  S18b a DORMANT row does not tolerate anything — the unit fails normally
+  PASS  S18c a DORMANT row over a PASSING unit is silent — rule 2 does not fire where the row does not apply
+  PASS  S18d an unevaluable condition is treated as APPLYING and says so, rather than failing open
+  PASS  S18e a six-column row is unconditional, exactly as before the column existed
+  PASS  S19  a unit that never finishes is KILLED at its deadline and FAILS the shard
+  PASS  S19b the kill is real: the 120 s unit was reaped in 4s, not waited out
+  PASS  S19c the receipt says TIMED-OUT, not FAIL — 'never finished' and 'finished wrong' are different reports
+  PASS  S19d a KNOWN-RED declaration does not excuse a HANG — a hang reaches no verdict to declare
+  PASS  S20  a unit that costs far more than its recorded weight PRINTS the replacement row, measured
+  PASS  S20b drift is REPORTED and does not fail the shard — a wrong weight cannot make a green wrong
+  PASS  S20a at the DECLARED floor the same 4x drift is silent — 3 s of imbalance is not worth a line
+  PASS  S20c a unit inside its weight says nothing — the report stays readable
+  PASS  S21 a valid early unit survives an inventory larger than a pipe buffer
+
+=== ci-shard tests: all 34 passed ===

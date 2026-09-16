@@ -1,0 +1,129 @@
+{
+  "source_revision": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+  "command": "bash richos/engine/scripts/hooks/mechanical-findings.test.sh",
+  "runs": [
+    {
+      "run": 1,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 2,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 3,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 4,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 5,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 6,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 7,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 8,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 9,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 10,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 11,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 12,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 13,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 14,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 15,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 16,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 17,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 18,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 19,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    },
+    {
+      "run": 20,
+      "exit": 0,
+      "expected_summary_found": true,
+      "passed": true
+    }
+  ],
+  "passed": 20,
+  "total": 20,
+  "concurrency": 4
+}

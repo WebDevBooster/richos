@@ -226,34 +226,7 @@ jobs:
       # not long ago; an unknown machine is refused rather than guessed at, because the wrong
       # binary would fail later and somewhere less obvious.
       - name: Tauri CLI 2.11.4, pinned by version and by digest
-        run: |
-          set -euo pipefail
-          case "$(uname -m)" in
-            arm64|aarch64)
-              ASSET=cargo-tauri-aarch64-apple-darwin.zip
-              WANT=82bdcb9ae7f407882321680ae50750f11623fae22445f8b00b096e10f815d604 ;;
-            x86_64)
-              ASSET=cargo-tauri-x86_64-apple-darwin.zip
-              WANT=f10dfcc103ccb79248ca27cb9aff7b8a65499d1b0df79fe0465e8aa0a8e7cbef ;;
-            *)
-              echo "unknown runner architecture $(uname -m) — refusing to guess a binary." >&2
-              exit 1 ;;
-          esac
-          URL="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v2.11.4/$ASSET"
-          curl -fsSL --retry 3 --retry-connrefused -o "$RUNNER_TEMP/$ASSET" "$URL"
-          GOT="$(shasum -a 256 "$RUNNER_TEMP/$ASSET" | awk '{print $1}')"
-          if [ "$GOT" != "$WANT" ]; then
-            echo "$ASSET is $GOT and this workflow pins $WANT." >&2
-            echo "The published asset changed, or something else answered. Refusing." >&2
-            exit 1
-          fi
-          mkdir -p "$HOME/.cargo/bin"
-          unzip -q -o "$RUNNER_TEMP/$ASSET" -d "$RUNNER_TEMP/tauri-cli"
-          install -m 0755 "$RUNNER_TEMP/tauri-cli/cargo-tauri" "$HOME/.cargo/bin/cargo-tauri"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          # Proven, not assumed: cargo has to be able to REACH it as a subcommand, which is
-          # how every caller in richos/app/scripts invokes it.
-          PATH="$HOME/.cargo/bin:$PATH" cargo tauri --version
+        run: bash richos/app/scripts/install-tauri-cli.sh
 
       - name: richos/app/scripts suites
         run: bash richos/app/scripts/run-tests.sh

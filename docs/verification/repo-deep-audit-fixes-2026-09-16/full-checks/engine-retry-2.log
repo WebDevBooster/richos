@@ -1,0 +1,6 @@
+[1m=== ci-shard: 48 unit(s), shard 2/4 at 31e61be91572ad696c413907bd06b632714b9b1d ===[0m
+  [  1/ 48] ass-kicker/tests/brief-scope.test.sh                                     [32mPASS[0m 46.2s
+  [  2/ 48] ass-kicker/tests/guard-stated-actions.test.sh                            [32mPASS[0m 7.0s
+  [  3/ 48] loro/tests/run.test.sh                                                   [32mPASS[0m 31.2s
+  [  4/ 48] mega-lander/tests/workspace-probes.test.sh                               [32mPASS[0m 121.5s
+  [  5/ 48] mega-lander/tests/workspaces.test.sh                                     

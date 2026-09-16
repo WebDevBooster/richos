@@ -1,0 +1,145 @@
+Building for debugging...
+[0/12] /Users/alex/ab/richos-rechecks/deep-20260916/swift-build/arm64-apple-macosx/debug/richos-companionPackageTests.derived/runner.swift
+[0/12] Write sources
+[2/12] Write richos-companion-entitlement.plist
+[3/12] Write sources
+[6/12] Write swift-version--58304C5D6DBC2206.txt
+[8/18] Emitting module RichOSCompanionCore
+[9/23] Compiling RichOSCompanionCore RingBuffer.swift
+[10/23] Compiling RichOSCompanionCore SessionContract.swift
+[11/23] Compiling RichOSCompanionCore SessionWriter.swift
+[12/23] Compiling RichOSCompanionCore WavReader.swift
+[13/23] Compiling RichOSCompanionCore WavWriter.swift
+[14/23] Compiling RichOSCompanionCore ChannelMixer.swift
+[15/23] Compiling RichOSCompanionCore Coordination.swift
+[16/23] Compiling RichOSCompanionCore DropZone.swift
+[17/23] Compiling RichOSCompanionCore JSON.swift
+[18/23] Compiling RichOSCompanionCore MixDecision.swift
+[19/31] Emitting module richos_companion
+[20/33] Compiling richos_companion Notifier.swift
+[21/33] Compiling richos_companion main.swift
+[22/33] Compiling richos_companion CompanionCoordinator.swift
+[23/33] Compiling richos_companion CoreAudioCapture.swift
+[24/33] Compiling richos_companion LiveCapture.swift
+[24/33] Write Objects.LinkFileList
+[25/33] Linking richos-companion
+[26/33] Applying richos-companion
+[28/33] Emitting module RichOSCompanionCoreTests
+[32/36] Compiling RichOSCompanionCoreTests MixDecisionTests.swift
+[33/36] Compiling RichOSCompanionCoreTests SessionContractTests.swift
+[34/36] Compiling RichOSCompanionCoreTests SessionWriterTests.swift
+[35/38] Emitting module richos_companionPackageTests
+[36/38] Compiling richos_companionPackageTests runner.swift
+[36/38] Write Objects.LinkFileList
+[37/38] Linking richos-companionPackageTests
+Build complete! (29.05s)
+Test Suite 'All tests' started at 2026-09-16 9:11:24.374 PM.
+Test Suite 'richos-companionPackageTests.xctest' started at 2026-09-16 9:11:24.382 PM.
+Test Suite 'ChannelMixerTests' started at 2026-09-16 9:11:24.382 PM.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testDownmixAveragesChannels]' started.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testDownmixAveragesChannels]' passed (0.002 seconds).
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testFloatToInt16ClampsAndScales]' started.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testFloatToInt16ClampsAndScales]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testInt16LEByteOrder]' started.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testInt16LEByteOrder]' passed (0.001 seconds).
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testInterleaveMapsMicToLeftSystemToRight]' started.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testInterleaveMapsMicToLeftSystemToRight]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testPeakAndRms]' started.
+Test Case '-[RichOSCompanionCoreTests.ChannelMixerTests testPeakAndRms]' passed (0.000 seconds).
+Test Suite 'ChannelMixerTests' passed at 2026-09-16 9:11:24.385 PM.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'CoordinationTests' started at 2026-09-16 9:11:24.385 PM.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testMalformedClaimThrows]' started.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testMalformedClaimThrows]' passed (0.003 seconds).
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesFailoverCandidates]' started.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesFailoverCandidates]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesOwnClaimWithSupersede]' started.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesOwnClaimWithSupersede]' passed (0.001 seconds).
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesStandDownClaim]' started.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testParsesStandDownClaim]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testPromotionOwnershipBlockMatchesTheContract]' started.
+Test Case '-[RichOSCompanionCoreTests.CoordinationTests testPromotionOwnershipBlockMatchesTheContract]' passed (0.000 seconds).
+Test Suite 'CoordinationTests' passed at 2026-09-16 9:11:24.390 PM.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'DropZoneTests' started at 2026-09-16 9:11:24.390 PM.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testActiveCompanyPartitionsTheCorpusTheSameWayEvidenceRootDoes]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testActiveCompanyPartitionsTheCorpusTheSameWayEvidenceRootDoes]' passed (0.004 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testASiblingSharingAPathPrefixIsNotInsideTheRepo]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testASiblingSharingAPathPrefixIsNotInsideTheRepo]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEmptyOverridesAreIgnoredRatherThanObeyed]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEmptyOverridesAreIgnoredRatherThanObeyed]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEnvironmentBeatsTheCorpusDefault]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEnvironmentBeatsTheCorpusDefault]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEquivalentLetterCasingCannotBypassTheProductBoundary]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testEquivalentLetterCasingCannotBypassTheProductBoundary]' passed (0.003 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testExplicitZoneFlagBeatsTheEnvironment]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testExplicitZoneFlagBeatsTheEnvironment]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testGroupedCheckoutProtectsTheOuterRepository]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testGroupedCheckoutProtectsTheOuterRepository]' passed (0.001 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testLocatesTheCheckoutByTheServiceCLIMarkerAndNotByADirectoryName]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testLocatesTheCheckoutByTheServiceCLIMarkerAndNotByADirectoryName]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testLoroCorpusMovesTheWholeTreeIncludingTilde]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testLoroCorpusMovesTheWholeTreeIncludingTilde]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesAZoneInsideTheProductRepo]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesAZoneInsideTheProductRepo]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesAZoneThatReachesBackIntoTheRepoViaDotDot]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesAZoneThatReachesBackIntoTheRepoViaDotDot]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesTheRepoRootItself]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testRefusesTheRepoRootItself]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testReturnsNilWhenTheBinaryLivesOutsideAnyCheckout]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testReturnsNilWhenTheBinaryLivesOutsideAnyCheckout]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testSymlinkIntoProductIsRefusedBeforeCreatingAZone]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testSymlinkIntoProductIsRefusedBeforeCreatingAZone]' passed (0.002 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testSymlinkToExternalStorageRemainsUsable]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testSymlinkToExternalStorageRemainsUsable]' passed (0.001 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testUnconfiguredDefaultMatchesThePipelinesUnconfiguredDefault]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testUnconfiguredDefaultMatchesThePipelinesUnconfiguredDefault]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testUnresolvedLinksAreRefusedEvenWithoutAProductRoot]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testUnresolvedLinksAreRefusedEvenWithoutAProductRoot]' passed (0.002 seconds).
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testWithNoProductRepoThereIsNothingToBeInsideOf]' started.
+Test Case '-[RichOSCompanionCoreTests.DropZoneTests testWithNoProductRepoThereIsNothingToBeInsideOf]' passed (0.000 seconds).
+Test Suite 'DropZoneTests' passed at 2026-09-16 9:11:24.405 PM.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.014 (0.014) seconds
+Test Suite 'MixDecisionTests' started at 2026-09-16 9:11:24.405 PM.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBothLiveTakesCommonMinimum]' started.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBothLiveTakesCommonMinimum]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBothStalledWritesNothingButAlarmsBoth]' started.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBothStalledWritesNothingButAlarmsBoth]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBriefLagUnderThresholdDoesNotFailover]' started.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testBriefLagUnderThresholdDoesNotFailover]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testMicStalledFailsOverToSystemOnly]' started.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testMicStalledFailsOverToSystemOnly]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testSystemStalledFailsOverToMicOnly]' started.
+Test Case '-[RichOSCompanionCoreTests.MixDecisionTests testSystemStalledFailsOverToMicOnly]' passed (0.000 seconds).
+Test Suite 'MixDecisionTests' passed at 2026-09-16 9:11:24.406 PM.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SessionContractTests' started at 2026-09-16 9:11:24.406 PM.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testAudioPartFilenameIsPipelineMatchable]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testAudioPartFilenameIsPipelineMatchable]' passed (0.007 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testClosedSessionPopulatesAudioAndEndedAt]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testClosedSessionPopulatesAudioAndEndedAt]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testHealthSampleShape]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testHealthSampleShape]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testOpenSessionJSONHasFrozenV2Shape]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testOpenSessionJSONHasFrozenV2Shape]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testSessionDirNameShape]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testSessionDirNameShape]' passed (0.000 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testStampMatchesExtensionStampFor]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionContractTests testStampMatchesExtensionStampFor]' passed (0.000 seconds).
+Test Suite 'SessionContractTests' passed at 2026-09-16 9:11:24.414 PM.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.008 (0.008) seconds
+Test Suite 'SessionWriterTests' started at 2026-09-16 9:11:24.414 PM.
+Test Case '-[RichOSCompanionCoreTests.SessionWriterTests testWavWriterHeaderIsValidAfterFlush]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionWriterTests testWavWriterHeaderIsValidAfterFlush]' passed (0.002 seconds).
+Test Case '-[RichOSCompanionCoreTests.SessionWriterTests testWritesValidContractDirectory]' started.
+Test Case '-[RichOSCompanionCoreTests.SessionWriterTests testWritesValidContractDirectory]' passed (0.082 seconds).
+Test Suite 'SessionWriterTests' passed at 2026-09-16 9:11:24.499 PM.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.085 (0.085) seconds
+Test Suite 'richos-companionPackageTests.xctest' passed at 2026-09-16 9:11:24.499 PM.
+	 Executed 41 tests, with 0 failures (0 unexpected) in 0.116 (0.118) seconds
+Test Suite 'All tests' passed at 2026-09-16 9:11:24.499 PM.
+	 Executed 41 tests, with 0 failures (0 unexpected) in 0.116 (0.125) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

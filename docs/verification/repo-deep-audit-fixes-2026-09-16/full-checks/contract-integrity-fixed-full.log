@@ -1,0 +1,10 @@
+note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+=== contract-integrity.test.sh ===
+
+  PASS  1.committed-source-passes
+        a correctly added tenth Agent hook was refused:
+  [31m✗[0m MT. the spawn guard refused a lower-tier override but did NOT name the remedy line (model-downgrade-ack:) — a refusal that says only "no" gets routed around instead of obeyed.
+  FAIL  C10.a-tenth-agent-hook-seated-and-registered-passes  (expected exit=0 got=2)
+  PASS  C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped
+  PASS  C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C
+  PASS  R10.a-newly-registered-rooted-hook-passes-with-no-edit-to-Layer-R

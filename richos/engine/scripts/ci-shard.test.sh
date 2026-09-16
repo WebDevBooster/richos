@@ -562,6 +562,21 @@ fi
 rm -f "$E/scripts/lib/hangs.test.sh" "$E/scripts/lib/slow.test.sh" \
       "$E/scripts/lib/ontime.test.sh" "$E/scripts/lib/ci-unit-weights.tsv"
 
+# A large inventory must not turn an early match into an upstream SIGPIPE.
+BIG="$SANDBOX/large-engine"; mk_engine "$BIG"
+python3 - "$BIG" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]) / 'scripts/lib'
+for i in range(2000):
+    (root / ('inventory-%04d-padding-for-a-realistic-unit-path.test.sh' % i)).write_text('#!/usr/bin/env bash\nexit 0\n')
+PY
+if bash "$BIG/scripts/ci-shard.sh" --only-units scripts/hooks/contract-integrity.test.sh:alpha --list > "$SANDBOX/out" 2>&1; then
+    ok "S21 a valid early unit survives an inventory larger than a pipe buffer"
+else
+    bad "S21 a valid unit was rejected from a large inventory"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-shard tests: all $PASS passed ==="

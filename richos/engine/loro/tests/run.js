@@ -1267,6 +1267,36 @@ test('writer: supersede links BOTH directions and drops the old record out of li
   });
 });
 
+test('writer: supersede preserves company, CEO and unfiled partitions and refuses an implicit move', () => {
+  withWritableCorpus((ctx) => {
+    for (const partition of ['northwind', 'ceo', 'unfiled']) {
+      const old = appendRecord({ corpusRoot: ctx.corpusRoot, partition, id: `old-${partition}`,
+        kind: 'fact', scope: 'org-shared', body: 'Fictional delivery uses the morning truck.', now: NOW });
+      const options = { corpusRoot: ctx.corpusRoot, corpus: ctx.corpus(), ref: old.ref,
+        id: `new-${partition}`, kind: 'fact', scope: 'org-shared', body: 'Fictional delivery uses the afternoon truck.', now: NOW };
+      const before = fs.readFileSync(old.file, 'utf8');
+      assert.throws(() => supersedeRecord({ ...options, partition: partition === 'ceo' ? 'northwind' : 'ceo' }),
+        /partition.*separate/i);
+      assert.equal(fs.readFileSync(old.file, 'utf8'), before);
+      const replacement = supersedeRecord(options);
+      assert.equal(path.dirname(replacement.file), path.dirname(old.file));
+      const fresh = ctx.corpus();
+      assert.equal(fresh.byId.get(replacement.ref).company, partition === 'northwind' ? 'northwind' : null);
+      assert.equal(fresh.byId.get(old.ref).supersededBy, replacement.ref);
+    }
+  });
+});
+
+test('writer: supersede accepts an explicit equivalent company partition', () => {
+  withWritableCorpus((ctx) => {
+    const old = appendRecord({ corpusRoot: ctx.corpusRoot, partition: 'northwind', id: 'old-company',
+      kind: 'fact', body: 'Fictional original fact.', now: NOW });
+    const replacement = supersedeRecord({ corpusRoot: ctx.corpusRoot, corpus: ctx.corpus(), ref: old.ref,
+      partition: 'companies/northwind', id: 'new-company', kind: 'fact', body: 'Fictional corrected fact.', now: NOW });
+    assert.equal(replacement.ref, 'rec:companies/northwind/records/new-company');
+  });
+});
+
 test('writer: supersede REFUSES an already-superseded record (no chains of dead records)', () => {
   withWritableCorpus((ctx) => {
     appendRecord({ corpusRoot: ctx.corpusRoot, id: 'a1', kind: 'fact', scope: 'org-shared', body: 'One.', now: NOW });
@@ -1362,7 +1392,9 @@ test('privacy: the WRITER lives outside loro/lib, so the compiler read-only scan
 
 test('privacy: PROBE — the same scan flags the writer, so it is detecting writes and not passing blindly', () => {
   const src = fs.readFileSync(path.join(LORO_DIR, 'writer', 'writer.js'), 'utf8');
-  const problems = assertNoSideEffects(src, 'loro/writer/writer.js');
+  assert.match(src, /import .*writePrivateFile.* from '\.\/storage\.js'/);
+  const storage = fs.readFileSync(path.join(LORO_DIR, 'writer', 'storage.js'), 'utf8');
+  const problems = assertNoSideEffects(storage, 'loro/writer/storage.js');
   assert.ok(problems.some((p) => /filesystem write/.test(p)), `expected the scan to flag a write: ${problems.join('; ')}`);
 });
 
@@ -1392,8 +1424,10 @@ test('privacy: the coverage WRITE half is outside loro/lib, and the scan proves 
   assert.ok(!fs.existsSync(path.join(LORO_DIR, 'lib', 'coverage-write.js')), 'a writer must never be a compiler module');
   assert.deepEqual(assertNoSideEffects(fs.readFileSync(path.join(LORO_DIR, 'lib', 'coverage.js'), 'utf8'), 'lib/coverage.js'), []);
   const writeSrc = fs.readFileSync(path.join(LORO_DIR, 'writer', 'coverage-write.js'), 'utf8');
+  assert.match(writeSrc, /import .*writePrivateFile.* from '\.\/storage\.js'/);
+  const storage = fs.readFileSync(path.join(LORO_DIR, 'writer', 'storage.js'), 'utf8');
   assert.ok(
-    assertNoSideEffects(writeSrc, 'writer/coverage-write.js').some((p) => /filesystem write/.test(p)),
+    assertNoSideEffects(storage, 'writer/storage.js').some((p) => /filesystem write/.test(p)),
     'the coverage writer does not actually write — then the split is decorative',
   );
 });

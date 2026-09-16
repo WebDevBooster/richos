@@ -1,0 +1,6 @@
+
+✗ ci-receipts: this run does NOT certify 6bc4ec947cbaa7b38b102114660dbe7ce7292e8a.
+
+  - 1 unit(s) did not reach a green verdict:
+    scripts/hooks/contract-integrity.test.sh:MF                              FAIL (rc=1)
+

@@ -34,6 +34,10 @@
 
 set -uo pipefail
 
+# Drain predicate input before returning. grep -q can close its pipe early and
+# turn a successful match into SIGPIPE from printf under pipefail. The
+# redirected grep predicates below keep the same patterns without that race.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_ENGINE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -175,10 +179,10 @@ run_probe() {
 # The layer token is anchored on the whitespace that precedes it, so asking
 # about layer "A" cannot be satisfied by an "A." buried in another layer's
 # prose. A loose pattern here would quietly make these assertions unfalsifiable.
-layer_failed() { printf '%s\n' "$OUT" | grep -q "✗.*[[:space:]]$1\." ; }
-layer_passed() { printf '%s\n' "$OUT" | grep -q "✓.*[[:space:]]$1\." ; }
-layer_warned() { printf '%s\n' "$OUT" | grep -q "⚠.*[[:space:]]$1\." ; }
-out_has()      { printf '%s\n' "$OUT" | grep -qF "$1" ; }
+layer_failed() { printf '%s\n' "$OUT" | grep >/dev/null "✗.*[[:space:]]$1\." ; }
+layer_passed() { printf '%s\n' "$OUT" | grep >/dev/null "✓.*[[:space:]]$1\." ; }
+layer_warned() { printf '%s\n' "$OUT" | grep >/dev/null "⚠.*[[:space:]]$1\." ; }
+out_has()      { printf '%s\n' "$OUT" | grep -F >/dev/null "$1" ; }
 
 # expect_only_layer_failed <case> <layer> [substring]
 #
@@ -237,7 +241,7 @@ SEATED_OUT="$(HOME="$SB/home" CLAUDE_CONFIG_DIR="$SB/home/.claude" RICHOS_ENTITY
     "$SB/engine/scripts/hooks/contract-integrity-probe.sh" 2>&1)"
 SEATED_RC=$?
 set -e
-if printf '%s\n' "$SEATED_OUT" | grep -q "✓.*A\." && ! printf '%s\n' "$SEATED_OUT" | grep -q "BR1\."; then
+if printf '%s\n' "$SEATED_OUT" | grep >/dev/null "✓.*A\." && ! printf '%s\n' "$SEATED_OUT" | grep >/dev/null "BR1\."; then
     ok "0d.seated-install-runs-the-seated-layers-not-the-BR-set"
 else
     bad "0d.seated-install-runs-the-seated-layers-not-the-BR-set" "exit $SEATED_RC"
@@ -695,7 +699,7 @@ if layer_warned "BR4" && out_has "TAMPER CHECK DID NOT RUN" && out_has "scan-sec
 else
     bad "4d.BR4-absent-sidecar-is-named-not-waved-through" "no warning naming the unverified script"
 fi
-if printf '%s\n' "$OUT" | grep -qE "✓.*BR4\. all [0-9]+ registered guard scripts present, executable and hash-matched"; then
+if printf '%s\n' "$OUT" | grep -E >/dev/null "✓.*BR4\. all [0-9]+ registered guard scripts present, executable and hash-matched"; then
     bad "4e.BR4-absent-sidecar-does-not-claim-hash-matched" "claimed hash-matched with a sidecar missing"
 else
     ok "4e.BR4-absent-sidecar-does-not-claim-hash-matched"

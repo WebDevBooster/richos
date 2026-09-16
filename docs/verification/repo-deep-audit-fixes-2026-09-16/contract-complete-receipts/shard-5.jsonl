@@ -1,0 +1,5 @@
+{"expected_rc":3,"rc":3,"seconds":85.2,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":5,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:CL","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":44.1,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":5,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:Qscope","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":122.3,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":5,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:base","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":4.0,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":5,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:python3","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":38.1,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":5,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:shim","verdict":"PASS"}

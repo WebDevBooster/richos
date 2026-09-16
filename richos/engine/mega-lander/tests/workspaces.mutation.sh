@@ -51,7 +51,7 @@ mutant p05-gate-has-no-budget "test_point_05_the_gate_answers_inside_its_budget"
     "the gate's answer would depend on finishing an unbounded scan inside somebody else's hook timeout; the platform cancels an overrun hook and discards its output, so it would decide nothing and say nothing (point 5)."
 
 mutant p05-new-work-not-blocked "test_point_05_no_new_work_while_finished_work_is_pending" "$W" \
-    '    if blocking and not (helps & set(i["name"] for i in blocking)):' \
+    '    if blocking and not (helps & set(value for i in blocking for value in (i["name"], i["key"]))):' \
     '    if False:' \
     "Rich could start new work while finished work is neither landed nor discarded (point 5)."
 

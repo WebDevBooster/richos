@@ -1,0 +1,11 @@
+  Determining projects to restore...
+  Restored /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/src/richos-companion/richos-companion.csproj (in 66 ms).
+  1 of 2 projects are up-to-date for restore.
+  RichOSCompanionCore -> /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/src/RichOSCompanionCore/bin/Release/net8.0/RichOSCompanionCore.dll
+  richos-companion -> /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/src/richos-companion/bin/Release/net8.0-windows/richos-companion.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.75

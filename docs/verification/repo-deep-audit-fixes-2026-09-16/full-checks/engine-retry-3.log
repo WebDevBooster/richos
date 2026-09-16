@@ -1,0 +1,47 @@
+[1m=== ci-shard: 48 unit(s), shard 3/4 at 31e61be91572ad696c413907bd06b632714b9b1d ===[0m
+  [  1/ 48] ass-kicker/tests/brief-provenance.test.sh                                [32mPASS[0m 4.1s
+  [  2/ 48] ecs/tests/run.test.sh                                                    [32mPASS[0m 18.2s
+  [  3/ 48] mega-lander/tests/relocation.test.sh                                     [32mPASS[0m 2.0s
+  [  4/ 48] mega-lander/tests/workspace-stopped-ending.test.sh                       [32mPASS[0m 10.0s
+  [  5/ 48] mega-lander/tests/workspaces-e2e.test.sh                                 [32mPASS[0m 11.1s
+  [  6/ 48] scripts/ci-surface-watch.test.sh                                         [32mPASS[0m 3.0s
+  [  7/ 48] scripts/cold-open.test.sh                                                [31mFAIL[0m 5.0s (rc=1, expected 0)
+        === cold-open: the harness, driven by a stub reader ===
+          PASS  --brief prints the front-door fingerprint the gate will demand
+          PASS  --brief prints the SHIPPED prompt verbatim — a cold open with an improvised question is not reproducible
+          PASS  --brief files nothing — printing the question is not answering it
+          PASS  --run with an arbitrary reader-cmd files a transcript — the reader is a SEAM, not a vendor
+          PASS  the reader runs IN the repository — it has to be looking at the thing it is describing
+          PASS  the reader gets the verbatim prompt on stdin
+          PASS  ...with the repository path substituted, so the reader knows what to look at
+          PASS  a second reading of the same front door on the same day is filed BESIDE the first, never over it
+          PASS  the transcript carries **Surface-fingerprint:**
+          PASS  the transcript carries **Prompt-fingerprint:**
+          PASS  the transcript carries **Reader:**
+          PASS  the transcript carries **Run-by:**
+          PASS  the transcript carries **Date:**
+          PASS  the transcript stamps the PROMPT's hash — change a question and every transcript stops counting, because nobody has answered the new one
+          PASS  the reader's own words are in the transcript — the transcript IS the product
+          PASS  the checked-claims table records that the reader came away with the entry point
+          PASS  a reader who MISSED the entry point is recorded as a 'no' and the transcript is still filed — the finding is the product, not a failure
+          PASS  a reader that FAILS files nothing — an empty transcript would satisfy the gate while proving nobody read anything
+          PASS  a reader that says NOTHING files nothing
+          PASS  reading a STALE page is refused — a transcript about a document nobody has seen is a fresh-looking lie
+          PASS  --check exits 1 when no reader has seen the current front door
+          PASS  --check exits 0 once a current transcript is on file
+          PASS  --check goes red again the moment the front door changes
+          PASS  --record files a HUMAN reading with the same stamps — the offline path is a first-class path, not a bypass
+          PASS  --record without --reader is refused — the one thing the machine cannot check is the one thing it must at least record
+          PASS  a missing prompt file is a LOUD refusal — without a fixed question there is no reproducible exercise
+          PASS  the default reader runs with --safe-mode: no CLAUDE.md, no plugins, no hooks, no skills, no memory — a reader that loaded this project's own doctrine would not be cold
+          PASS  the default reader is READ-ONLY — it is here to report what it found, not to fix it
+          PASS  cold-open.sh and ceo-todos-render.sh are executable
+          PASS  ONBOARDING-RUNBOOK.md names ceo-todos-init.sh — an adopter is told the CEO's TODOs exist
+          FAIL  skills/bootstrap-interview/SKILL.md does NOT name ceo-todos-init.sh — adopters would receive inert enforcement again
+        
+          30/31 cases passed — 1 FAILED
+  [  8/ 48] scripts/demo.test.sh                                                     [32mPASS[0m 88.3s
+  [  9/ 48] scripts/entrypoint-currency-lint.test.sh                                 [32mPASS[0m 2.0s
+  [ 10/ 48] scripts/hooks/ceo-ruled.test.sh                                          [32mPASS[0m 15.2s
+  [ 11/ 48] scripts/hooks/ceo-todos.test.sh                                          [32mPASS[0m 229.2s
+  [ 12/ 48] scripts/hooks/contract-integrity.test.sh:CL                              
