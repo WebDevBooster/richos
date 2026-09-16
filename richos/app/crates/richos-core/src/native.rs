@@ -326,26 +326,11 @@ impl PermissionDecision {
     }
 }
 
-/// **THE AUTO-APPROVE SEAM.** Decide one `control_request{can_use_tool}`.
-///
-/// **Today it always allows, and that is the ported behaviour, not a new policy.** It is the
-/// exact equivalent of `acp.rs:469-479`, which picked the first option whose `kind` started
-/// with `allow` and fell back to the first option — on a wire where every observed request
-/// offered one. The spike harness mirrored it at its own 469-479 so the comparison would be
-/// like for like, and it is mirrored again here.
-///
-/// **This is where Rich would ASK instead.** R2 business-action governance is deferred to V2
-/// (`ceo-decisions.md` §1), and §16 records that deleting the adapter changes nothing about
-/// it. The request already carries everything an ask would need and MORE than ACP did:
-/// `tool_name`, `input`, a human `description`, `permission_suggestions`, and —
-/// new on this wire — `decision_reason` in words (*"Path is outside allowed working
-/// directories"*) with a machine-readable `decision_reason_type`. A future version routes
-/// this through the CEO gate (§17) and returns `Deny` when he declines; nothing else in this
-/// file has to change.
-///
-/// Kept deliberately pure — no IO, no clock, no state — so it is testable and so the reader
-/// thread that calls it can answer the blocked child in microseconds. §1.2: *"Recording the
-/// auto-approval is a fact, not a policy. It changes no behavior."*
+/// Legacy source-test adapter policy. The shipping desktop engine profile uses
+/// `permissions::ScopedPermissions` instead: host-scoped onboarding/continuity tools
+/// validate their own contracts and other native permission requests require an
+/// exact app decision. Hidden preparation and stopped turns remain denied.
+/// This compatibility function is not the desktop action/access contract.
 pub fn decide_permission(request: &Value) -> PermissionDecision {
     PermissionDecision::Allow { updated_input: request.get("input").cloned().unwrap_or_else(|| json!({})) }
 }
@@ -669,6 +654,7 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    permissions: Option<crate::permissions::ScopedPermissions>,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -713,17 +699,20 @@ struct ReaderState {
     /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
     onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
     continuity_tools_loaded: bool,
+    engine_plugin_loaded: bool,
 }
 
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            permissions: None,
             context_only: false,
             session_model: None,
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
             continuity_tools_loaded: false,
+            engine_plugin_loaded: false,
         }
     }
 }
@@ -858,10 +847,10 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None)
+        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -882,6 +871,10 @@ impl NativeClient {
         }
         let mut command = Command::new(bin);
         crate::owned_process::OwnedChild::configure(&mut command);
+        if let Some(profile) = profile {
+            let scope = continuity.ok_or_else(|| NativeError::Protocol("desktop engine needs a scoped continuity bridge".into()))?.1;
+            profile.configure(&mut command, &session_id, scope);
+        }
         let mut child = command
             .args(args)
             .current_dir(cwd)
@@ -913,6 +906,9 @@ impl NativeClient {
         let current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
         let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
+        if let (Some(profile), Some((_, scope))) = (profile, continuity) {
+            state.lock().unwrap().permissions = Some(crate::permissions::ScopedPermissions {desk: profile.permissions.clone(), scope: scope.into()});
+        }
         let stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>> =
             Arc::new(Mutex::new(std::collections::VecDeque::new()));
         // Reset at every `message_start`; read at every `assistant` frame. See
@@ -1176,7 +1172,8 @@ impl NativeClient {
         }
         if ty == "control_request" {
             let context_only = state.lock().unwrap().context_only;
-            Self::handle_agent_request(&msg, stdin, current, between, context_only);
+            let permissions = state.lock().unwrap().permissions.clone();
+            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref());
             return;
         }
 
@@ -1217,6 +1214,8 @@ impl NativeClient {
             }
             st.continuity_tools_loaded = ["mcp__richos_continuity__checkpoint", "mcp__richos_continuity__inspect"].iter()
                 .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
+            st.engine_plugin_loaded = msg["plugins"].as_array().is_some_and(|plugins|
+                plugins.iter().any(|plugin| plugin["name"] == "richos-app-engine"));
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -1329,6 +1328,7 @@ impl NativeClient {
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
+        permissions: Option<&crate::permissions::ScopedPermissions>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
@@ -1337,7 +1337,8 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
-            } else { decide_permission(&request) };
+            } else if let Some(policy) = permissions { policy.decide(&request) }
+              else { decide_permission(&request) };
             let body = match &decision {
                 PermissionDecision::Allow { updated_input } => {
                     json!({ "behavior": "allow", "updatedInput": updated_input })
@@ -1698,6 +1699,7 @@ pub struct NativeCognition {
     session_id: String,
     onboarding_scope: Option<std::path::PathBuf>,
     continuity: Option<(crate::ecs::EcsBridge, std::path::PathBuf)>,
+    engine_profile: Option<crate::engine_profile::EngineProfile>,
 }
 
 impl NativeCognition {
@@ -1716,7 +1718,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None, engine_profile: None })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -1725,9 +1727,9 @@ impl NativeCognition {
         let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
         std::fs::create_dir_all(&scopes)?;
         let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
-        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, control)?;
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, None, control)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None, engine_profile: None })
     }
     pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
         executable: &Path, bridge: crate::ecs::EcsBridge,
@@ -1739,17 +1741,38 @@ impl NativeCognition {
         let scope = scopes.join(format!("{identity}.json"));
         let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), control)?;
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), None, control)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)) })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)), engine_profile: None })
     }
 
-
+    /// Settings-isolated desktop lease from verified engine delivery.
+    pub fn start_with_engine(bin: &Path, doctrine: &Path, skills: &Path,
+        executable: &Path, bridge: crate::ecs::EcsBridge, profile: crate::engine_profile::EngineProfile,
+        control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+        bridge.request("hello", json!({})).map_err(|e| NativeError::Protocol(e.to_string()))?;
+        let scopes = profile.state.join("scopes");
+        std::fs::create_dir_all(&scopes)?;
+        let identity = uuid::Uuid::new_v4();
+        let scope = scopes.join(format!("{identity}-onboarding.json"));
+        let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
+        // SessionStart and the first internal prime precede entity binding. The
+        // hook sees an explicit closed grant, never a guessed active scope.
+        std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
+        let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), control)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: Some(scope),
+            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile) })
+    }
 
 }
 
 impl Drop for NativeCognition {
     fn drop(&mut self) {
+        let _ = self.client.child.kill();
+        let _ = self.client.child.wait();
+        if let Some(profile) = &self.engine_profile { let _ = std::fs::remove_dir_all(&profile.plugin); }
         if let Some((_, path)) = &self.continuity { let _ = std::fs::remove_file(path); }
         if let Some(path) = &self.onboarding_scope {
             let _ = std::fs::remove_file(path);
@@ -1759,9 +1782,15 @@ impl Drop for NativeCognition {
 
 impl Cognition for NativeCognition {
     fn requires_thread_isolation(&self) -> bool { self.continuity.is_some() }
+    fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> {
+        self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
+    }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
         on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
+            return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
+        }
         if self.client.reader_state.lock().map(|s| s.continuity_tools_loaded).ok() != Some(true) {
             return Err(CognitionError::Protocol("The selected engine's continuity tools did not load".into()));
         }

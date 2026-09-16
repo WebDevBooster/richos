@@ -176,7 +176,18 @@ pub fn detect(boot_engine: Option<&std::path::Path>) -> SetupStatus {
         .filter(|d| setup::engine_looks_valid(d))
         .map(|d| vec![d.to_path_buf()])
         .unwrap_or_default();
-    setup::detect(&SetupPaths::from_process(), &extra)
+    let mut paths = SetupPaths::from_process();
+    if let Some(selected) = boot_engine.filter(|path| setup::engine_looks_valid(path)) {
+        paths.engine_override = Some(selected.to_path_buf());
+    }
+    let mut status = setup::detect(&paths, &extra);
+    if let Some(selected) = status.engine.at.as_deref() {
+        if let Err(error) = richos_core::runtime::verify_engine(std::path::Path::new(selected)) {
+            status.engine.present = false;
+            status.engine.detail = Some(error.to_string());
+        }
+    }
+    status
 }
 
 /// What the consent sheet says, assembled from the status. Returned to the window so the copy
@@ -340,7 +351,8 @@ pub fn run(
 
     // RE-READ FROM DISK. Not "every step returned Ok, therefore it is all there" — the same
     // rule `install_claude_code` applies to Anthropic's own exit code.
-    let mut after = detect(boot_engine);
+    let selected = engine_dir.lock().map_err(|_| "The selected engine could not be read.")?.clone();
+    let mut after = detect(Some(&selected));
     after.installed_now = true;
     emit(
         app,

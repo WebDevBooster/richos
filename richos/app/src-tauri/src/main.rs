@@ -47,7 +47,7 @@ use richos_core::staging::{
 use richos_core::steering::{IntakeRecord, StopOutcome, TurnControl};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
-use richos_core::worker_status::{self, WorkerStatusView};
+use richos_core::worker_status::WorkerStatusView;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -183,6 +183,7 @@ impl MachineryObserver for TauriMachineryEmitter {
 /// That is the same shape as the `lease_ready` snapshot fixed earlier the same day: an answer
 /// cached before the thing it describes existed. `run_setup` writes both cells.
 struct EngineLeaseFactory {
+    permissions: Arc<richos_core::permissions::PermissionDesk>,
     claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
     /// Where RichOS keeps its own files — `app_data_dir()`, the same directory the ledger,
@@ -248,7 +249,14 @@ impl EngineLeaseFactory {
         let skills = richos_core::skills::ensure_rendered(&self.data_dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let executable = std::env::current_exe().map_err(|e| CognitionError::Io(e.to_string()))?;
-        let cog = NativeCognition::start_with_onboarding(&bin, &dir, &doctrine, &skills, &executable, control)?;
+        let runtime = richos_core::runtime::verify_engine(&dir)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        profile.permissions = self.permissions.clone();
+        let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cog = NativeCognition::start_with_engine(&bin, &doctrine, &skills, &executable, bridge, profile, control)?;
         Ok(Box::new(cog))
     }
 }
@@ -256,6 +264,7 @@ impl EngineLeaseFactory {
 /// The durable Rich, guarded for cross-invocation access. `Spine` is `Send` (its
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
+    permissions: Arc<richos_core::permissions::PermissionDesk>,
     provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
     spine: Mutex<Spine>,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
@@ -1602,7 +1611,9 @@ fn main() {
             // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
+            let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
             spine.set_lease_factory(Box::new(EngineLeaseFactory {
+                permissions: permissions.clone(),
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
@@ -1860,6 +1871,7 @@ fn main() {
             };
 
             app.manage(AppState {
+                permissions,
                 provider_auth: Mutex::new(Default::default()),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
@@ -2027,6 +2039,10 @@ fn main() {
             entity_choice,
             choose_entity,
             register_entity,
+            pending_permission,
+            answer_permission,
+            repository_connections,
+            connect_repository,
             memory_status,
             provision_memory,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
@@ -2166,7 +2182,7 @@ fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String
 /// until Rich finished — the same reason the stop control lives on this handle (§9.3).
 #[tauri::command(async)]
 fn get_worker_status(state: State<AppState>) -> WorkerStatusView {
-    worker_status::current_status(state.control.lease_session().as_deref())
+    richos_core::app_workers::status(&state.data_dir.join("engine-state"), state.control.lease_session().as_deref())
 }
 
 /// The proactive-attention SEAM (architecture §2.3/§4.2, UX §5): persistence + the live
@@ -3241,7 +3257,7 @@ fn provider_auth_cancel(state: State<AppState>) -> richos_core::provider_auth::A
 /// what makes it ask, and it is the only signal it needs.
 #[tauri::command(async)]
 fn setup_status(state: State<AppState>) -> serde_json::Value {
-    setup_view::view(&setup_view::detect(state.boot_engine.as_deref()))
+    setup_view::view(&setup_view::detect(Some(&state.engine_dir.lock().unwrap())))
 }
 
 /// **THE CEO PRESSES "Set it up".** Install what is missing, reporting each step on
@@ -3260,19 +3276,74 @@ fn setup_status(state: State<AppState>) -> serde_json::Value {
 ///      that would not open until he quit.
 ///
 /// `(async)` keeps installation downloads off the UI thread. Setup does not acquire the
-/// spine or start an untracked model handshake.
+/// running spine or start an untracked model handshake. The idle spine stays locked through replacement.
 #[tauri::command(async)]
 fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json::Value, String> {
-    let status = setup_view::run(&app, state.boot_engine.as_deref(), &state.engine_dir)?;
+    let selected = state.engine_dir.lock().unwrap().clone();
+    let registry = state.registry.lock().unwrap().clone();
+    let mut spine = state.spine.try_lock().map_err(|_| "Rich is working. Stop or finish the current turn before changing the engine.".to_string())?;
+    let workers = richos_core::app_workers::status(&state.data_dir.join("engine-state"), state.control.lease_session().as_deref());
+    let (worker_state, gap) = richos_core::work_gate::workers(&workers);
+    if !worker_state.permits_action() { return Err(gap.unwrap_or_else(|| "Worker state is not settled.".into())); }
+    let desk = state.correction.lock().unwrap().clone();
+    let mut held_desk = match &desk {
+        Some(desk) => Some(desk.try_lock().map_err(|_| "A memory correction is being written. Try setup again after it finishes.".to_string())?),
+        None => None,
+    };
+    // Keep the idle spine and writer locked throughout replacement. New requests
+    // cannot start against a changing engine and cached child hooks are retired first.
+    spine.retire_idle_lease()?;
+    let installed = setup_view::run(&app, Some(&selected), &state.engine_dir);
+    *state.claude_bin.lock().map_err(|_| "The connection settings could not be updated. Please reopen RichOS.")? = resolve_claude_bin();
+    let engine = state.engine_dir.lock().unwrap().clone();
+    spine.clear_memory_wiring();
+    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry, &engine);
+    *state.loro_install.lock().unwrap() = wired.install;
+    *state.memory.lock().unwrap() = wired.status;
+    if let Some(writer) = wired.writer {
+        if let Some(held) = held_desk.as_mut() {
+            held.replace_writer(Box::new(writer));
+            spine.set_correction_desk(desk.as_ref().unwrap().clone());
+        } else {
+            *state.correction.lock().unwrap() = install_correction_desk(&mut spine, &app, &state.data_dir, writer);
+        }
+    } else { *state.correction.lock().unwrap() = None; }
+    installed.map(|status| setup_view::view(&status))
+}
 
-    // Refresh the factory after installation, even if a conversation is already live.
-    // The existing lease is untouched. The next accepted request owns connection, visible
-    // progress and Stop, just as it does after a normal boot.
-    *state.claude_bin.lock().map_err(|_| {
-        "The connection settings could not be updated. Please reopen RichOS."
-    })? = resolve_claude_bin();
+#[tauri::command(async)]
+fn pending_permission(state: State<AppState>) -> Option<richos_core::permissions::PermissionRequest> {
+    state.permissions.current()
+}
+#[tauri::command(async)]
+fn answer_permission(state: State<AppState>, request_id: String, allow: bool) -> Result<(), String> {
+    state.permissions.resolve(&request_id, allow)
+}
 
-    Ok(setup_view::view(&status))
+/// Explicit repository access is separate from choosing a company folder.
+#[tauri::command(async)]
+fn repository_connections(state: State<AppState>) -> serde_json::Value {
+    let registry = state.registry.lock().unwrap();
+    serde_json::json!({"companies":registry.entities().iter().map(|e| serde_json::json!({
+        "id":e.id, "name":e.display_name, "repositories":e.connected_repositories
+    })).collect::<Vec<_>>()})
+}
+
+#[tauri::command(async)]
+fn connect_repository(state: State<AppState>, entity_id: String, folder: String,
+    initialize_empty: bool) -> Result<serde_json::Value, String> {
+    let id = EntityId::parse(&entity_id).map_err(|e|e.to_string())?;
+    let engine = state.engine_dir.lock().unwrap().clone();
+    let runtime = richos_core::runtime::verify_engine(&engine).map_err(|e|e.to_string())?;
+    // Serialize registry mutations and hold the idle spine until both copies agree.
+    let mut current = state.registry.lock().unwrap();
+    let mut spine = state.spine.try_lock().map_err(|_| "Wait for the current turn to stop before connecting a repository.".to_string())?;
+    let (next, repository) = richos_core::repositories::connect(&current, &id,
+        Path::new(folder.trim()), initialize_empty, &runtime, &[&engine, &state.data_dir])?;
+    next.save(&state.registry_path).map_err(|e| format!("The repository was verified but its connection could not be saved: {e}"))?;
+    *current = next.clone();
+    spine.set_entity_registry(next);
+    Ok(serde_json::json!({"entity_id":id,"repository":repository}))
 }
 
 /// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
@@ -3496,8 +3567,9 @@ fn register_entity(
     };
 
     // Lock order everywhere in this file: config, then registry, then entity, then spine.
+    let mut current_registry = state.registry.lock().unwrap();
     let (id, next) = {
-        let current = state.registry.lock().unwrap();
+        let current = &*current_registry;
         let id = entity_id_from_name(&name, &current)?;
         let mut next = current.clone();
         next.register(Entity::try_new(id.as_str(), &name, roots.clone()).map_err(|e| {
@@ -3522,6 +3594,7 @@ fn register_entity(
         (id, next)
     };
 
+    let mut registry_spine = state.spine.try_lock().map_err(|_| "Wait for the current turn to stop before adding a company.".to_string())?;
     // PROPERTY 1: durable first. Nothing in memory has moved yet.
     next.save(&state.registry_path).map_err(|e| {
         format!(
@@ -3530,14 +3603,10 @@ fn register_entity(
             state.registry_path.display()
         )
     })?;
-    *state.registry.lock().unwrap() = next.clone();
-
-    // The spine's copy is what `create_thread` checks membership against, so the two are
-    // written together and never one without the other.
-    {
-        let mut spine = state.spine.lock().unwrap();
-        spine.set_entity_registry(next);
-    }
+    *current_registry = next.clone();
+    registry_spine.set_entity_registry(next.clone());
+    drop(registry_spine);
+    drop(current_registry);
 
     // PROPERTY 4/5: the first company he adds becomes the one in force, unless the
     // environment already decided or he has already answered. Both of those are statements

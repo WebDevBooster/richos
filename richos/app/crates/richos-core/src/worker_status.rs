@@ -173,6 +173,7 @@ impl WorkerStatusView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Unattributed {
+    AppEvidenceUnavailable,
     /// No compute lease is attached, so the app does not know which session it is serving.
     /// The ordinary state of a boot where the `claude` child could not start.
     NoSession,
@@ -197,6 +198,7 @@ impl Unattributed {
     /// slot into "RichOS could not identify this session's team directory ({reason})".
     pub fn reason(&self) -> &'static str {
         match self {
+            Unattributed::AppEvidenceUnavailable => "desktop worker evidence could not be read",
             Unattributed::NoSession => "no compute lease is attached",
             Unattributed::UnusableSessionId => "the session id cannot name a directory",
             Unattributed::NoHome => "the home directory could not be located",

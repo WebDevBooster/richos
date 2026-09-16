@@ -201,6 +201,7 @@ pub fn workers(view: &WorkerStatusView) -> (Liveness, Option<String>) {
             }
             (Liveness::Clear, None)
         }
+        Some(Unattributed::AppEvidenceUnavailable) => (Liveness::Unknown, Some("RichOS could not read its worker observations.".into())),
         Some(Unattributed::NoTeamDirForSession) => (Liveness::Clear, None),
         Some(Unattributed::NoSession) => (
             Liveness::Clear,

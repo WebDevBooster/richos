@@ -15,11 +15,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         richos_core::onboarding_tools::run_stdio(&PathBuf::from(&args[1]))?;
         return Ok(());
     }
-    if args.len() != 2 { return Err("usage: continuity_roundtrip ENGINE PYTHON".into()); }
+    if !(2..=3).contains(&args.len()) { return Err("usage: continuity_roundtrip ENGINE PYTHON [DELIVERED_RUNTIME]".into()); }
     let engine = std::fs::canonicalize(&args[0])?;
     let python = std::fs::canonicalize(&args[1])?;
     let root = Scratch(std::env::temp_dir().join(format!("richos continuity {}", uuid::Uuid::new_v4())));
-    std::fs::create_dir_all(root.0.join("coordination"))?;
+    if args.len() == 2 { std::fs::create_dir_all(root.0.join("coordination"))?; }
     std::fs::create_dir_all(root.0.join("corpus/ceo/records"))?;
     let doctrine = richos_core::doctrine::ensure_rendered(&root.0, &Default::default())?;
     let skills = richos_core::skills::ensure_rendered(&root.0)?;
@@ -30,8 +30,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let thread = spine.create_thread("Fictional continuity canary", &EntityId::parse("depot")?)?;
     spine.set_central_root(root.0.join("corpus"));
     spine.set_onboarding_record(root.0.join("onboarding.json"));
-    let start = || NativeCognition::start_with_continuity(&resolve_claude_bin(), &root.0.join("coordination"),
-        &doctrine, &skills, &std::env::current_exe().unwrap(), bridge.clone(), None);
+    let start = || -> Result<NativeCognition, Box<dyn std::error::Error>> {
+        if let Some(runtime) = args.get(2) {
+            let runtime = richos_core::runtime::EngineRuntime::load(&engine, Some(&PathBuf::from(runtime)))?;
+            let profile = richos_core::engine_profile::EngineProfile::prepare(&engine, &root.0, runtime)?;
+            Ok(NativeCognition::start_with_engine(&resolve_claude_bin(), &doctrine, &skills,
+                &std::env::current_exe()?, bridge.clone(), profile, None)?)
+        } else {
+            Ok(NativeCognition::start_with_continuity(&resolve_claude_bin(), &root.0.join("coordination"),
+                &doctrine, &skills, &std::env::current_exe()?, bridge.clone(), None)?)
+        }
+    };
     let first = start()?;
     let old_session = first.session_id().to_string();
     spine.attach_lease(Box::new(first));
@@ -46,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reply = &spine.ledger().turn(&turn).unwrap().assistant_text;
     assert!(reply.to_lowercase().contains("manual"), "new process did not recover the obligation");
     assert_eq!(spine.active_thread(), Some(thread.as_str()));
-    println!("{}", json!({"live_checkpoint":true,"new_session_recovered":true,"scope":"fictional","installed_acceptance":false}));
+    println!("{}", json!({"desktop_engine_profile":args.len()==3,"live_checkpoint":true,"new_session_recovered":true,"scope":"fictional","installed_acceptance":false}));
     drop(spine);
     Ok(())
 }

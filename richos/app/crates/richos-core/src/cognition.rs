@@ -72,6 +72,7 @@ pub trait Cognition: Send {
 
     /// Scoped operational sessions cannot be reused for another thread.
     fn requires_thread_isolation(&self) -> bool { false }
+    fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> { None }
 
     /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
     /// keep the default no-op; the native chat lease atomically updates its private scope.

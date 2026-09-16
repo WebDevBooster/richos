@@ -1882,6 +1882,26 @@
           if (onboardingDeclineFails) return Promise.reject(ONBOARDING_DECLINE_REFUSED);
           onboardingByEntity.set(args.entityId, "declined");
           return onboardingViewOf();
+        case "pending_permission":
+          return window.__RICHOS_MOCK_PRESET__?.pendingPermission || null;
+        case "answer_permission": {
+          const pending = window.__RICHOS_MOCK_PRESET__?.pendingPermission;
+          if (!pending || pending.id !== args.requestId) return Promise.reject("That action is no longer waiting for permission.");
+          window.__RICHOS_MOCK_PRESET__.permissionAnswer = args.allow;
+          window.__RICHOS_MOCK_PRESET__.pendingPermission = null;
+          return null;
+        }
+        case "repository_connections":
+          return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};
+        case "connect_repository": {
+          const company = entities.find(e => e.id === args.entityId);
+          if (!company) return Promise.reject("Choose a registered company.");
+          if (window.__RICHOS_MOCK_PRESET__?.repositoryRefusal) return Promise.reject("Choose an existing Git repository or explicitly initialize an empty folder.");
+          if (!args.folder || !args.folder.startsWith("/")) return Promise.reject("Choose an absolute folder path.");
+          if (!company.connected_repositories) company.connected_repositories = [];
+          if (!company.connected_repositories.includes(args.folder)) company.connected_repositories.push(args.folder);
+          return {entity_id:company.id, repository:{root:args.folder, branch:"main", initialized:args.initializeEmpty === true}};
+        }
         case "entity_choice":
           return entityChoiceOf();
         // --- the home screen's company buttons (2026-09-01) ---

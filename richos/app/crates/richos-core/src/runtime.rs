@@ -143,7 +143,8 @@ pub fn verify_engine(engine: &Path) -> Result<EngineRuntime, RuntimeError> {
         "mega-lander/create-teammate-worktree.sh", "ass-kicker/brief-provenance.py",
         "ass-kicker/brief-scope.py", "ass-kicker/guard-stated-actions.py",
         "scripts/lib/app-evidence.py", "scripts/spawn.sh", "scripts/lib/spawn.py",
-        "scripts/hooks/guard-worktree-isolation.sh", "scripts/hooks/guard-brief-scope.sh"] {
+        "scripts/hooks/guard-worktree-isolation.sh", "scripts/hooks/guard-brief-scope.sh",
+        "scripts/app-engine-hook.py", "agents/worker.md", "agents/reviewer.md"] {
         if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing component entry point: {name}"))); }
     }
     EngineRuntime::load(engine, None)

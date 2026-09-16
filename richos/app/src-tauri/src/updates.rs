@@ -648,7 +648,7 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
     // 3. WORKERS — the "all work" half the composer cannot see. The session id comes from
     //    the same control, so this reads THIS session's directory and never the
     //    mtime-newest one on the machine (`worker_status`'s own first claim).
-    let view = richos_core::worker_status::current_status(state.control.lease_session().as_deref());
+    let view = richos_core::app_workers::status(&state.data_dir.join("engine-state"), state.control.lease_session().as_deref());
     let (workers, worker_gap) = work_gate::workers(&view);
 
     work_gate::decide(&WorkSources { turn, spine, workers, worker_gap })

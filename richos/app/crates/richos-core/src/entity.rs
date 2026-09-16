@@ -72,6 +72,10 @@ pub enum EntityError {
     InvalidId(String),
     #[error("duplicate entity id in registry: {0}")]
     DuplicateId(String),
+    #[error("entity is not registered: {0}")]
+    UnknownId(String),
+    #[error("connected repository must be an explicit registered root: {0}")]
+    InvalidRepository(String),
     /// A company with no name renders as an empty button. Refused at the door rather than
     /// stored and discovered by the person looking at a blank row.
     #[error("entity {0} has an empty display name")]
@@ -203,6 +207,9 @@ pub struct Entity {
     /// Absolute repository roots owned by this entity (ECS §10.2). Empty is legal — an
     /// entity with no root simply cannot be selected by root resolution.
     pub roots: Vec<PathBuf>,
+    /// Exact roots explicitly connected for app execution. A company folder alone is not consent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connected_repositories: Vec<PathBuf>,
 }
 
 impl Entity {
@@ -230,7 +237,7 @@ impl Entity {
                 return Err(EntityError::RootNotAbsolute { id: id.to_string(), root: root.clone() });
             }
         }
-        Ok(Entity { id, display_name, status: EntityStatus::Active, roots })
+        Ok(Entity { id, display_name, status: EntityStatus::Active, roots, connected_repositories: Vec::new() })
     }
 }
 
@@ -356,7 +363,22 @@ impl EntityRegistry {
     ///   * a duplicate id;
     ///   * a root that contains, or is contained by, a root already registered to another
     ///     entity — in either direction, because either direction makes some path ambiguous.
+    pub fn connect_repository(&mut self, id: &EntityId, root: PathBuf) -> Result<(), EntityError> {
+        let mut entity = self.get(id).cloned().ok_or_else(|| EntityError::UnknownId(id.to_string()))?;
+        if entity.connected_repositories.contains(&root) { return Ok(()); }
+        if !entity.roots.contains(&root) { entity.roots.push(root.clone()); }
+        entity.connected_repositories.push(root);
+        // Validate against the other entities before changing the live registry.
+        let mut others = Self::new(self.entities.iter().filter(|e| &e.id != id).cloned().collect())?;
+        others.register(entity.clone())?;
+        *self.entities.iter_mut().find(|e| &e.id == id).unwrap() = entity;
+        Ok(())
+    }
+
     pub fn register(&mut self, entity: Entity) -> Result<(), EntityError> {
+        if entity.connected_repositories.iter().any(|p| !entity.roots.contains(p)) {
+            return Err(EntityError::InvalidRepository(entity.id.to_string()));
+        }
         if self.contains(&entity.id) {
             return Err(EntityError::DuplicateId(entity.id.to_string()));
         }
@@ -407,6 +429,7 @@ impl EntityRegistry {
                 display_name: display_name_from_id(id.as_str()),
                 status: EntityStatus::Active,
                 roots: Vec::new(),
+                connected_repositories: Vec::new(),
             });
         }
         registry
@@ -482,8 +505,8 @@ impl EntityRegistry {
 /// halves is a path somebody will assemble wrongly.
 pub const ENTITY_REGISTRY_FILENAME: &str = "entities.json";
 
-/// The schema version this build writes and the only one it reads.
-pub const ENTITY_REGISTRY_VERSION: u32 = 1;
+/// Writes version 2. Reads legacy version 1 without granting repository execution.
+pub const ENTITY_REGISTRY_VERSION: u32 = 2;
 
 /// The documented example, verbatim, as the parser sees it.
 ///
@@ -624,6 +647,8 @@ struct RegistryFileRow {
     /// what [`EntityRegistry::from_existing_ids`] produces.
     #[serde(default)]
     roots: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    connected_repositories: Vec<PathBuf>,
 }
 
 impl EntityRegistry {
@@ -689,7 +714,7 @@ impl EntityRegistry {
                 return unreadable(notes);
             }
         };
-        if file.version != ENTITY_REGISTRY_VERSION {
+        if file.version != 1 && file.version != ENTITY_REGISTRY_VERSION {
             notes.push(format!(
                 "company registry at {} is version {}, and this build reads version {} — \
                  refusing it rather than reading it as something it is not",
@@ -702,9 +727,14 @@ impl EntityRegistry {
 
         let mut registry = EntityRegistry::empty();
         for (i, row) in file.entities.iter().enumerate() {
+            if (file.version == 1 && !row.connected_repositories.is_empty()) || row.connected_repositories.iter().any(|p| !row.roots.contains(p)) {
+                notes.push("connected repositories require registry version 2 and an exact owned root".into());
+                return unreadable(notes);
+            }
             let entity = match Entity::try_new(&row.id, &row.display_name, row.roots.clone()) {
                 Ok(mut e) => {
                     e.status = row.status;
+                    e.connected_repositories = row.connected_repositories.clone();
                     e
                 }
                 Err(e) => {
@@ -752,6 +782,22 @@ impl EntityRegistry {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // Retain the exact legacy registry before the first schema-2 write.
+        // Older app builds cannot read execution grants and must not silently drop them.
+        match std::fs::read(path) {
+            Ok(previous) => {
+                if serde_json::from_slice::<serde_json::Value>(&previous).ok().is_some_and(|v| v["version"] == 1) {
+                    let backup = path.with_extension(format!("v1-{}.backup.json", uuid::Uuid::new_v4()));
+                    let mut options = std::fs::OpenOptions::new();
+                    options.write(true).create_new(true);
+                    #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+                    let mut file = options.open(backup)?;
+                    file.write_all(&previous)?; file.sync_all()?;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
         let file = RegistryFile {
             version: ENTITY_REGISTRY_VERSION,
             entities: self
@@ -762,6 +808,7 @@ impl EntityRegistry {
                     display_name: e.display_name.clone(),
                     status: e.status,
                     roots: e.roots.clone(),
+                    connected_repositories: e.connected_repositories.clone(),
                 })
                 .collect(),
         };
@@ -769,9 +816,12 @@ impl EntityRegistry {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         body.push('\n');
 
-        let tmp = path.with_extension("json.tmp");
+        let tmp = path.with_extension(format!("{}.incoming", uuid::Uuid::new_v4()));
         {
-            let mut f = std::fs::File::create(&tmp)?;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+            let mut f = options.open(&tmp)?;
             f.write_all(body.as_bytes())?;
             f.sync_all()?;
         }
@@ -780,7 +830,9 @@ impl EntityRegistry {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
         }
-        std::fs::rename(&tmp, path)
+        std::fs::rename(&tmp, path)?;
+        if let Some(parent) = path.parent() { std::fs::File::open(parent)?.sync_all()?; }
+        Ok(())
     }
 }
 

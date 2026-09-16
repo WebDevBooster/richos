@@ -81,3 +81,20 @@ fix with a registered positive case and a refused shortened path.
 
 This is runtime feasibility evidence. It is not installed-app acceptance, proof
 that every hook is delivered or proof of an end-to-end assignment workflow.
+
+## Desktop profile and action decisions
+
+The desktop factory now loads a generated profile using the selected delivered
+runtime. The profile separates shipped code, app-owned coordination and connected
+repositories. Repository connections are explicit registry facts; ordinary company
+folder mappings do not become execution grants when an older registry is loaded.
+
+The desktop native permission path uses a scoped app decision desk. Validated
+onboarding/continuity tools retain their existing host contracts. Other permission
+requests display the exact tool input and require a decision for that action only.
+Stop revokes the visible-turn grant before acknowledging cancellation, so an old
+permission request cannot revive a stopped or superseded turn. This decision desk
+does not replace workspace isolation or future dispatch receipt validation.
+
+See the [intermediate profile verification](../verification/desktop-engine-profile-2026-09-16.md)
+for the tested scope and remaining integration work.

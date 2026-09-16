@@ -600,6 +600,10 @@ pub struct CorrectionDesk {
 }
 
 impl CorrectionDesk {
+    /// Replace only the executable adapter after an idle engine installation.
+    /// Proposal and confirmation history remain in this same desk.
+    pub fn replace_writer(&mut self, writer: Box<dyn LoroWriteBackend>) { self.writer = writer; }
+
     pub fn open(path: impl AsRef<Path>, writer: Box<dyn LoroWriteBackend>) -> Result<Self, CorrectionError> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {

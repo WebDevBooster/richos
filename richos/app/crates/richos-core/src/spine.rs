@@ -743,6 +743,18 @@ impl Spine {
         self.lease.is_some()
     }
 
+    /// Called with the shell's idle lock held and worker observations checked.
+    pub fn retire_idle_lease(&mut self) -> Result<(), String> {
+        if self.control.active_turn().is_some() { return Err("A turn is still running.".into()); }
+        self.clear_lease(); Ok(())
+    }
+
+    pub fn clear_memory_wiring(&mut self) {
+        self.loro_compiler = None;
+        self.correction_desk = None;
+        self.lease_primed = false;
+    }
+
     /// Retire a canceled or failed conversation child without another roundtrip.
     fn clear_lease(&mut self) {
         self.lease = None;
@@ -2680,6 +2692,10 @@ impl Spine {
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
+        if let Some(workers) = self.lease.as_ref().and_then(|lease| lease.worker_status()) {
+            payload.worker_state_unknown = workers.unattributed;
+            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+        }
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
         // Preserve the company material and interview offer in the conversation.
@@ -2854,6 +2870,10 @@ impl Spine {
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
+        if let Some(workers) = self.lease.as_ref().and_then(|lease| lease.worker_status()) {
+            payload.worker_state_unknown = workers.unattributed;
+            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+        }
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
         // Preserve the company material and interview offer in the conversation.

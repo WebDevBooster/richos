@@ -152,3 +152,8 @@ pub use worker_status::WorkerStatusView;
 
 pub mod owned_process;
 pub mod provider_auth;
+pub mod engine_profile;
+
+pub mod repositories;
+pub mod app_workers;
+pub mod permissions;
