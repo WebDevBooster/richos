@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { withPrivateOutputs } from './private-files.js';
 import { whisperBin, resolveModel, whisperArgs, DEFAULT_MODEL } from './config.js';
 import { assertToolchain, resolveToolchain, probeWhisper, provenanceString } from './toolchain.js';
 
@@ -170,21 +171,23 @@ export function transcribeChannel(wavPath, speaker, opts = {}) {
   const toolchain = checkToolchain(modelPath, modelId);
   const outDir = opts.outDir || path.dirname(wavPath);
   const outBase = path.join(outDir, `${speaker}`);
-  const args = [
-    '-m', modelPath,
-    '-f', wavPath,
-    ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }),
-    // OUTPUT verbosity, NOT a decode parameter — it sits out here with `-of` for exactly that
-    // reason, so `whisperArgs()` stays the honest record of how the audio was decoded. `-ojf` adds
-    // per-token offsets to the JSON and changes nothing else: proven on the 92-minute corpus, where
-    // a run with `-ojf` produced a transcript byte-identical (sha256) to the committed run without
-    // it. The deletion detector cannot localize anything without these times — see
-    // `parseSegmentWordTimes` — and a detector scored on segment extents invents deletions.
-    '-ojf',
-    '-of', outBase,
-  ];
-  execFileSync(whisperBin(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
   const jsonPath = `${outBase}.json`;
+  withPrivateOutputs([jsonPath], ([output]) => {
+    const args = [
+      '-m', modelPath,
+      '-f', wavPath,
+      ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }),
+      // OUTPUT verbosity, NOT a decode parameter — it sits out here with `-of` for exactly that
+      // reason, so `whisperArgs()` stays the honest record of how the audio was decoded. `-ojf` adds
+      // per-token offsets to the JSON and changes nothing else: proven on the 92-minute corpus, where
+      // a run with `-ojf` produced a transcript byte-identical (sha256) to the committed run without
+      // it. The deletion detector cannot localize anything without these times — see
+      // `parseSegmentWordTimes` — and a detector scored on segment extents invents deletions.
+      '-ojf',
+      '-of', output.slice(0, -5),
+    ];
+    execFileSync(whisperBin(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
+  });
   const json = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
   return { segments: parseWhisperJson(json, speaker), jsonPath, model: modelId, toolchain };
 }
@@ -243,11 +246,19 @@ export function transcribeClips(clipPaths, opts = {}) {
   // weights than the run it is judging is not a control, so it is gated identically — and by then
   // the memo means it costs nothing.
   checkToolchain(modelPath, modelId);
-  execFileSync(
-    whisperBin(),
-    ['-m', modelPath, ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }), ...paths],
-    { stdio: ['ignore', 'ignore', 'ignore'] },
-  );
+  withPrivateOutputs(paths.map((p) => `${p}.json`), (outputs) => {
+    // Without -of, Whisper derives JSON filenames from its input filenames.
+    const inputs = outputs.map((output, i) => {
+      const input = output.slice(0, -5);
+      fs.copyFileSync(paths[i], input);
+      return input;
+    });
+    execFileSync(
+      whisperBin(),
+      ['-m', modelPath, ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }), ...inputs],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+  });
   return paths.map((p) => {
     try {
       const json = JSON.parse(fs.readFileSync(`${p}.json`, 'utf8'));

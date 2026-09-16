@@ -44,7 +44,7 @@ import { guardDeletions, deletionWarnings, DELETION_GUARD_DEFAULTS } from './del
 import { guardSubstitution, substitutionWarnings, SUBSTITUTION_GUARD_DEFAULTS } from './substitution-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
-import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
+import { assertPrivateTree, privateDirectory, writePrivateFile } from './private-files.js';
 
 export const ARTIFACTS = { transcript: 'transcript.md', verification: 'verification.json' };
 
@@ -84,7 +84,7 @@ export function audioBytesOnDisk(sessionDir) {
 }
 
 function writeRecord(sessionDir, record) {
-  fs.writeFileSync(path.join(sessionDir, 'session.json'), `${JSON.stringify(record, null, 2)}\n`);
+  writePrivateFile(path.join(sessionDir, 'session.json'), `${JSON.stringify(record, null, 2)}\n`);
 }
 
 /**
@@ -97,7 +97,7 @@ function writeRecord(sessionDir, record) {
  */
 export function runPipeline(sessionDir, opts = {}) {
   // Explicit CLI sessions and direct callers must obey the same boundary as the drop zone.
-  sessionDir = assertEvidenceOutsideProductRepo(sessionDir, undefined, 'recordings and transcripts');
+  sessionDir = assertPrivateTree(sessionDir);
   const now = opts.now || Date.now();
   // P5 tiering: `tier` (quantized*|turbo|max|low-resource, * = default) or a raw `model` id both resolve here to a
   // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
@@ -309,7 +309,7 @@ export function runPipeline(sessionDir, opts = {}) {
      */
     const makeProbe = (channel, pads = DELETION_GUARD_DEFAULTS, tag = 'del') => (spans) => {
       const wavPath = channelPaths[channel];
-      fs.mkdirSync(probeDir, { recursive: true });
+      privateDirectory(probeDir, sessionDir);
       const tightPaths = [];
       const widePaths = [];
       const levels = [];
@@ -823,15 +823,15 @@ export function runPipeline(sessionDir, opts = {}) {
       log.alarm(`${sessionId} — trivial transcript`, { totalWords });
       record.pipeline.status = PIPELINE_STATUS.anomaly;
       record.pipeline.problems = problems;
-      fs.writeFileSync(path.join(sessionDir, ARTIFACTS.verification), `${JSON.stringify(verification, null, 2)}\n`);
+      writePrivateFile(path.join(sessionDir, ARTIFACTS.verification), `${JSON.stringify(verification, null, 2)}\n`);
       writeRecord(sessionDir, record);
       return { status: PIPELINE_STATUS.anomaly, problems, sessionId, verification };
     }
 
     // ---- Stage 6: EMIT --------------------------------------------------------------------------
     const md = renderMarkdown(finalMerged, record);
-    fs.writeFileSync(path.join(sessionDir, ARTIFACTS.transcript), md);
-    fs.writeFileSync(path.join(sessionDir, ARTIFACTS.verification), `${JSON.stringify(verification, null, 2)}\n`);
+    writePrivateFile(path.join(sessionDir, ARTIFACTS.transcript), md);
+    writePrivateFile(path.join(sessionDir, ARTIFACTS.verification), `${JSON.stringify(verification, null, 2)}\n`);
 
     record.pipeline.status = PIPELINE_STATUS.ready;
     record.pipeline.ffmpegVersion = norm.ffmpeg || ffmpegVersion();
