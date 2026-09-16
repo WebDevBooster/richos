@@ -149,7 +149,7 @@ mutant R-p05-turn-end-not-blocked "C5.1b" "$W" \
     '    if True:{NL}        msg = "\n".join(notes)' \
     "RECORDED [lifecycle-failure-record-2026-09-10.md §3.1 and §2.11, 2026-09-10: notice-unlanded-branches.sh reported, de-duplicated, and went quiet while six then five finished branches sat outside main; the turn ended every time]: Rich could end his turn with finished work neither landed nor discarded."
 mutant R-p05-new-work-not-blocked "C5.1 " "$W" \
-    '    if blocking and not (helps & set(i["name"] for i in blocking)):' \
+    '    if blocking and not (helps & set(value for i in blocking for value in (i["name"], i["key"]))):' \
     '    if False:' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md §5 Type D, 2026-09-12: within the hour of clearing 30 worktrees Rich had spawned new agents and left four more finished agents' worktrees plus a native leftover]: new work could start while finished work is pending."
 mutant S-p05-answer-allowance-unlimited "C5.3 " "$W" \
