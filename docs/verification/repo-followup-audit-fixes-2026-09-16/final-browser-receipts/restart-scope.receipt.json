@@ -1,0 +1,16 @@
+{
+  "suite": "restart-scope.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 43.4,
+  "declared": 14,
+  "records": [
+    {
+      "suite": "restart-scope.js",
+      "label": "§25 restart / multi-thread / scope — real shell, WebKit",
+      "checks": 14,
+      "failed": 0
+    }
+  ]
+}

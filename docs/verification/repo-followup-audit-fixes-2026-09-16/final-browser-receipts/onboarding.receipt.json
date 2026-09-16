@@ -1,0 +1,16 @@
+{
+  "suite": "onboarding.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 16.5,
+  "declared": 11,
+  "records": [
+    {
+      "suite": "onboarding.js",
+      "label": "the first-run notice — the offer he can see, and the two answers it takes",
+      "checks": 11,
+      "failed": 0
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "suite": "provider-auth.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 6.4,
+  "declared": 3,
+  "records": [
+    {
+      "suite": "provider-auth.js",
+      "label": "provider account connection in the shipping renderer",
+      "checks": 3,
+      "failed": 0
+    }
+  ]
+}

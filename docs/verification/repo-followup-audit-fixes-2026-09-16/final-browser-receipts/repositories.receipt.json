@@ -1,0 +1,16 @@
+{
+  "suite": "repositories.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 3.6,
+  "declared": 2,
+  "records": [
+    {
+      "suite": "repositories.js",
+      "label": "repository connection in the shipping renderer",
+      "checks": 2,
+      "failed": 0
+    }
+  ]
+}

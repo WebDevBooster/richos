@@ -1,0 +1,16 @@
+{
+  "suite": "scale.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 24.3,
+  "declared": 13,
+  "records": [
+    {
+      "suite": "scale.js",
+      "label": "§25 the timeline at 10,000 items — WebKit",
+      "checks": 13,
+      "failed": 0
+    }
+  ]
+}

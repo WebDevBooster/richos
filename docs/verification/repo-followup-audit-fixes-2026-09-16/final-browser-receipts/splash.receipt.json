@@ -1,0 +1,16 @@
+{
+  "suite": "splash.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 125.8,
+  "declared": 28,
+  "records": [
+    {
+      "suite": "splash.js",
+      "label": "the opening screen — his two screens, his order, a bar that runs once, and no delay",
+      "checks": 28,
+      "failed": 0
+    }
+  ]
+}

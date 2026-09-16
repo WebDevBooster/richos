@@ -1,0 +1,12 @@
+
+running 5 tests
+test selected_engine_node_never_falls_back_to_a_host_runtime ... ok
+test selected_engine_missing_loro_does_not_borrow_an_old_tools_install ... ok
+test selected_engine_reads_writes_and_keeps_the_superseded_reference ... ok
+test desktop_replacements_cannot_widen_private_memory ... ok
+test desktop_corrections_preserve_the_company_ceo_and_unfiled_partitions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.51s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/delivered_loro_tests.rs (/tmp/richos-audit-current/richos/app/target/debug/deps/delivered_loro_tests-faa73334d815e7ba)

@@ -1,0 +1,16 @@
+{
+  "suite": "compaction-notice.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 25,
+  "declared": 5,
+  "records": [
+    {
+      "suite": "compaction-notice.js",
+      "label": "the compaction notice — WebKit",
+      "checks": 6,
+      "failed": 0
+    }
+  ]
+}

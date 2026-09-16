@@ -1,0 +1,16 @@
+{
+  "suite": "onboarding-lifecycle.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 5.9,
+  "declared": 5,
+  "records": [
+    {
+      "suite": "onboarding-lifecycle.js",
+      "label": "onboarding lifecycle: drafts, partial answers and company races",
+      "checks": 5,
+      "failed": 0
+    }
+  ]
+}

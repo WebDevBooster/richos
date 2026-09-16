@@ -1,0 +1,16 @@
+{
+  "suite": "updates.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 28.5,
+  "declared": 17,
+  "records": [
+    {
+      "suite": "updates.js",
+      "label": "the update surface (RICH-TODOs row 12) — through the real renderer",
+      "checks": 17,
+      "failed": 0
+    }
+  ]
+}

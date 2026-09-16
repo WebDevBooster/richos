@@ -1,0 +1,16 @@
+{
+  "suite": "appearance.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 51.9,
+  "declared": 20,
+  "records": [
+    {
+      "suite": "appearance.js",
+      "label": "Appearance — two lightings, one type knob, and whose rail this is",
+      "checks": 20,
+      "failed": 0
+    }
+  ]
+}

@@ -1,0 +1,2240 @@
+{
+  "kind": "reconciled inventory with explicit repair reruns, not a single-revision CI certificate",
+  "units": 148,
+  "passed": 148,
+  "missing": [],
+  "source_revision": "d9cac993bf909492498836496d45995b857792d0",
+  "rows": [
+    {
+      "unit": "ass-kicker/tests/brief-provenance.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "ass-kicker/tests/brief-provenance.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "ass-kicker/tests/brief-scope.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 1,
+        "seconds": 80.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "ass-kicker/tests/brief-scope.test.sh",
+        "verdict": "FAIL"
+      },
+      "repair_reruns": [
+        {
+          "expected_rc": 0,
+          "rc": 0,
+          "seconds": 27.1,
+          "sha": "483d5410d0396b1e26da2ff3190d7d7ca76966b8",
+          "shard": 0,
+          "shards": 12,
+          "unit": "ass-kicker/tests/brief-scope.test.sh",
+          "verdict": "PASS"
+        }
+      ],
+      "accepted_evidence_revision": "483d5410d0396b1e26da2ff3190d7d7ca76966b8"
+    },
+    {
+      "unit": "ass-kicker/tests/guard-stated-actions.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 16.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "ass-kicker/tests/guard-stated-actions.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "ass-kicker/tests/relocation.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 62.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "ass-kicker/tests/relocation.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "ecs/tests/run.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "ecs/tests/run.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "gates/unmanaged-assignment/lib/harness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "gates/unmanaged-assignment/lib/harness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "loro/tests/run.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 19.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 0,
+        "shards": 12,
+        "unit": "loro/tests/run.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/app.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 75.7,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/app.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/create-teammate-worktree.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 15.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "mega-lander/tests/create-teammate-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/relocation.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "mega-lander/tests/relocation.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/workspace-probes.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 261.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-probes.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2311.5,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 1,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/workspace-stopped-ending.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-stopped-ending.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/workspaces-e2e.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 30.8,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspaces-e2e.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "mega-lander/tests/workspaces.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 819.5,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspaces.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/check-census.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/check-census.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-affected-units.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 23.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-affected-units.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-run-record-check.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/ci-run-record-check.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-shard.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 106.4,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/ci-shard.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-surface-watch.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/ci-surface-watch.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-units.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 19.3,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-units.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ci-verify.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/ci-verify.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/cold-open.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/cold-open.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/collect-worktree-artifacts.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/collect-worktree-artifacts.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/demo.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 172.6,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/demo.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/entrypoint-currency-lint.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/entrypoint-currency-lint.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/handoff-facts.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/handoff-facts.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hardware-choice-check.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hardware-choice-check.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hook-registration-completeness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hook-registration-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/agent-state-claims.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/agent-state-claims.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/by-reference.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 489.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/by-reference.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/ceo-asks.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 48.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-asks.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/ceo-inputs.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-inputs.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/ceo-ruled.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 12.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-ruled.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/ceo-todos.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 336.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-todos.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/completeness-commits.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/completeness-commits.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:base",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 86.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:base",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:M",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 23.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:M",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:shim",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 27.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:shim",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:manifest",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 45.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:manifest",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:worktree",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 15.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:worktree",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:N",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 15.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:N",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:python3",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:python3",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:config",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 20.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:config",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:K",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 26.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:K",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:P",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 40.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:P",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:Q",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 80.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Q",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:Qscope",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 36.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Qscope",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:S",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 25.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:S",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:IP",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 83.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IP",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:IL",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 97.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IL",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:CL",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 80.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:CL",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:RI",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 112.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:RI",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:WTR",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 114.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTR",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MT",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 35.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MT",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MC",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 29.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MC6",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 42.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC6",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:WTI",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 270.4,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTI",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 86.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:SA",
+      "initial": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 76.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:SA",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/detect-nonnative-worktree.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/detect-nonnative-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/dispatch-pretooluse.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 37.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/dispatch-pretooluse.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/engine-status.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/engine-status.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/escalations.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/escalations.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-bash-main-writes.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-bash-main-writes.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-ci-red-lands.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 18.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-ci-red-lands.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-ci-turn-gate.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-ci-turn-gate.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-definition-drift.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-definition-drift.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-dialect.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 80.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-dialect.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-idle-land.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-idle-land.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-interactive-prompt.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-interactive-prompt.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-main-checkout-writes.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-main-checkout-writes.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-model-ceiling.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 54.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-model-ceiling.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-resume-isolation.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-resume-isolation.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-sealed-worktree.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 29.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-sealed-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-stop-live-work.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-stop-live-work.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-unresolved-claims.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 16.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-unresolved-claims.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 48.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-worktree-isolation.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 19.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-worktree-isolation.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/guard-worktree-removal.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-worktree-removal.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/hook-staleness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/hook-staleness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/inflight-ack-durability.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/inflight-ack-durability.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/inflight-notify.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/inflight-notify.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/install-retire-reconciler.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/install-retire-reconciler.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/left-off.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 51.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/left-off.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/lifecycle-payload-transport.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/lifecycle-payload-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/long-payload.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/long-payload.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/mechanical-findings.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/mechanical-findings.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/named-persons.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/named-persons.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/notice-claim-capability.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 11.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/notice-claim-capability.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/owned-state.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/owned-state.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/payload-transport.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/payload-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/premise-ask.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/premise-ask.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/protected-ref-moves.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/protected-ref-moves.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/publication-boundary.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 13.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/publication-boundary.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/ref-transaction-forensics.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/ref-transaction-forensics.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/root-contract.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 54.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/root-contract.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/row-currency.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 160.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/row-currency.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/scan-secrets.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/scan-secrets.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/session-evidence.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/session-evidence.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/session-start-ci-surface.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/session-start-ci-surface.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/session-start-stdin.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 26.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/session-start-stdin.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/stale-staging.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 62.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/stale-staging.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/stop-hook-visibility.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/stop-hook-visibility.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/task-completed-handoff.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/task-completed-handoff.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/teammate-idle-handoff.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/teammate-idle-handoff.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/turn-manifest.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/turn-manifest.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/unasked-deferral.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 26.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unasked-deferral.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/unevaluated-notice.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unevaluated-notice.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/unevaluated-payload.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 10.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unevaluated-payload.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/unlanded-branches.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 15.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unlanded-branches.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/unstarted-rows.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 56.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unstarted-rows.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/verify-agent-prompt.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 139.2,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/verify-agent-prompt.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/waiver-repetition.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 21.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/waiver-repetition.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/hooks/worker-lifecycle.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/worker-lifecycle.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/install-ack-protocol.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/install-ack-protocol.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/install-escalation-protocol.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/install-escalation-protocol.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/land-completeness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/land-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/ledger-prune-sandbox.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ledger-prune-sandbox.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/app-evidence.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/app-evidence.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/assert-own-worktree-registered.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/assert-own-worktree-registered.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/bulk-record-transport.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/bulk-record-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/ci-surface.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/ci-surface.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/ci_pause.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/ci_pause.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/completion-proof.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/completion-proof.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/containers.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 202.5,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 0,
+        "shards": 12,
+        "unit": "scripts/lib/containers.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/durable-filesystem-identity.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/durable-filesystem-identity.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/finish-row-completion.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/finish-row-completion.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/git-jurisdiction.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/git-jurisdiction.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/global-state-witness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/global-state-witness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/hook-dependencies.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/hook-dependencies.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/leak-canary.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/leak-canary.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/mutation-harness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/mutation-harness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/mutation-pool.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/mutation-pool.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/provider-supervisor.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/provider-supervisor.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/record-canary.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/record-canary.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/resolve-roots.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/resolve-roots.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/seat-jurisdiction.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/seat-jurisdiction.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/stopwatch.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/stopwatch.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/lib/worktree-ledger.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 19.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/worktree-ledger.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/locate-engine.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/locate-engine.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/mutation-inventory.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/mutation-inventory.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/prepare-agent-spawn.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/prepare-agent-spawn.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/provision-claude-md.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/provision-claude-md.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/publication-completeness.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/publication-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/run-all-tests.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/run-all-tests.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "scripts/spawn.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/spawn.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    },
+    {
+      "unit": "voice/tests/run.test.sh",
+      "initial": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.1,
+        "sha": "d9cac993bf909492498836496d45995b857792d0",
+        "shard": 0,
+        "shards": 12,
+        "unit": "voice/tests/run.test.sh",
+        "verdict": "PASS"
+      },
+      "repair_reruns": [],
+      "accepted_evidence_revision": "d9cac993bf909492498836496d45995b857792d0"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "suite": "affordances.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 76.3,
+  "declared": 25,
+  "records": [
+    {
+      "suite": "affordances.js",
+      "label": "the affordance rule — a state the user could change renders its control",
+      "checks": 91,
+      "failed": 0
+    }
+  ]
+}

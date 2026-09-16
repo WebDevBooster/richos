@@ -1,0 +1,16 @@
+{
+  "suite": "workers.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 1.8,
+  "declared": 16,
+  "records": [
+    {
+      "suite": "workers.js",
+      "label": "§25 AI workers — WebKit",
+      "checks": 16,
+      "failed": 0
+    }
+  ]
+}

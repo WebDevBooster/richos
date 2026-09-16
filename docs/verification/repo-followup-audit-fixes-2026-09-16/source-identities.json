@@ -1,0 +1,61 @@
+{
+  "d9cac993": {
+    "commit": "d9cac993bf909492498836496d45995b857792d0",
+    "trees": {
+      "richos/engine/loro": "d8210472f021da80cebfbd48fcc99044d5278bd6",
+      "richos/engine/voice": "95afd30c7c792ff8de51405ec8dd0da13d929e7b",
+      "richos/app/crates": "f17543a3ce24b68706b74901262a61d4769e0653",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/tools": "f17ab2bfccf023e12c4c3267eef17eff946f341b"
+    },
+    "changes_since_product_fix": []
+  },
+  "392cd70a": {
+    "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+    "trees": {
+      "richos/engine/loro": "d8210472f021da80cebfbd48fcc99044d5278bd6",
+      "richos/engine/voice": "95afd30c7c792ff8de51405ec8dd0da13d929e7b",
+      "richos/app/crates": "f17543a3ce24b68706b74901262a61d4769e0653",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/tools": "f17ab2bfccf023e12c4c3267eef17eff946f341b"
+    },
+    "changes_since_product_fix": [
+      "docs/hardware-choices-2026-09-10.md",
+      "richos/app/README.md"
+    ]
+  },
+  "483d5410": {
+    "commit": "483d5410d0396b1e26da2ff3190d7d7ca76966b8",
+    "trees": {
+      "richos/engine/loro": "d8210472f021da80cebfbd48fcc99044d5278bd6",
+      "richos/engine/voice": "95afd30c7c792ff8de51405ec8dd0da13d929e7b",
+      "richos/app/crates": "f17543a3ce24b68706b74901262a61d4769e0653",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/tools": "f17ab2bfccf023e12c4c3267eef17eff946f341b"
+    },
+    "changes_since_product_fix": [
+      "docs/hardware-choices-2026-09-10.md",
+      "richos/app/README.md",
+      "richos/engine/ass-kicker/tests/brief-scope.test.sh"
+    ]
+  },
+  "9842c1bb": {
+    "commit": "9842c1bb17f473f0a79a368b6a192b93e5314261",
+    "trees": {
+      "richos/engine/loro": "d8210472f021da80cebfbd48fcc99044d5278bd6",
+      "richos/engine/voice": "95afd30c7c792ff8de51405ec8dd0da13d929e7b",
+      "richos/app/crates": "f17543a3ce24b68706b74901262a61d4769e0653",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/tools": "f17ab2bfccf023e12c4c3267eef17eff946f341b"
+    },
+    "changes_since_product_fix": [
+      "docs/hardware-choices-2026-09-10.md",
+      "richos/app/README.md",
+      "richos/engine/ass-kicker/tests/brief-scope.test.sh"
+    ]
+  }
+}

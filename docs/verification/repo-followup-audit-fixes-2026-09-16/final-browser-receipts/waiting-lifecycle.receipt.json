@@ -1,0 +1,16 @@
+{
+  "suite": "waiting-lifecycle.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 23.6,
+  "declared": 10,
+  "records": [
+    {
+      "suite": "waiting-lifecycle.js",
+      "label": "waiting lifecycle: acceptance, failure, evidence and accessibility",
+      "checks": 10,
+      "failed": 0
+    }
+  ]
+}

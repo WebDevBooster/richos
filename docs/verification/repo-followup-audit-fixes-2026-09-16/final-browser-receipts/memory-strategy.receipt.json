@@ -1,0 +1,16 @@
+{
+  "suite": "memory-strategy.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 12.3,
+  "declared": 32,
+  "records": [
+    {
+      "suite": "memory-strategy.js",
+      "label": "§26 memory-strategy — real shell, real renderer, WebKit",
+      "checks": 32,
+      "failed": 0
+    }
+  ]
+}

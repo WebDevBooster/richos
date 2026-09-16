@@ -1,0 +1,16 @@
+{
+  "suite": "memory.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 8,
+  "declared": 9,
+  "records": [
+    {
+      "suite": "memory.js",
+      "label": "first-run provisioning — the question a fresh install asks, and the one click that answers it",
+      "checks": 9,
+      "failed": 0
+    }
+  ]
+}

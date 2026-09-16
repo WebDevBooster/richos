@@ -1,0 +1,16 @@
+{
+  "suite": "compaction-progress.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 29.2,
+  "declared": 9,
+  "records": [
+    {
+      "suite": "compaction-progress.js",
+      "label": "the paced bar — WebKit",
+      "checks": 10,
+      "failed": 0
+    }
+  ]
+}

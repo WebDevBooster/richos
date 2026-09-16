@@ -1,0 +1,16 @@
+{
+  "suite": "techy.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 31.1,
+  "declared": 21,
+  "records": [
+    {
+      "suite": "techy.js",
+      "label": "techy mode — the renderer, the per-thread toggle and techy_default (row 3.1)",
+      "checks": 21,
+      "failed": 0
+    }
+  ]
+}

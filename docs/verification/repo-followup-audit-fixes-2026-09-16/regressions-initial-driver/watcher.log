@@ -1,0 +1,454 @@
+
+native host installation
+  ok  reinstall refreshes moved host and Node paths, including shell metacharacters
+  ok  appendLedger preserves the next row after a tail without a newline (7b22746f726e223a)
+  ok  appendLedger preserves the next row after a tail without a newline (ffe282)
+  ok  appendLedger preserves the next row after a tail without a newline (7b22636f6d706c657465223a747275657d)
+  ok  appendLedger refuses a linked ledger without changing its target
+
+pipeline storage boundary
+  ok  pipeline refuses symlink output session.json before modifying any artifact
+  ok  pipeline refuses symlink output transcript.md before modifying any artifact
+  ok  pipeline refuses symlink output verification.json before modifying any artifact
+  ok  pipeline refuses symlink output me.wav before modifying any artifact
+  ok  pipeline refuses symlink output others.json before modifying any artifact
+  ok  pipeline refuses symlink output _concat.txt before modifying any artifact
+  ok  pipeline refuses symlink output _probe/clip.wav before modifying any artifact
+  ok  pipeline refuses hardlink output session.json before modifying any artifact
+  ok  pipeline refuses hardlink output transcript.md before modifying any artifact
+  ok  pipeline refuses hardlink output verification.json before modifying any artifact
+  ok  pipeline refuses hardlink output me.wav before modifying any artifact
+  ok  pipeline refuses hardlink output others.json before modifying any artifact
+  ok  pipeline refuses hardlink output _concat.txt before modifying any artifact
+  ok  pipeline refuses hardlink output _probe/clip.wav before modifying any artifact
+  ok  native output staging refuses a leaf replaced during the native operation
+  ok  private writes refuse linked files and retain ordinary overwrite behavior
+  ok  run rejects explicit product sessions and aliases before writing
+  ok  retranscribe rejects explicit product sessions and aliases before writing
+
+capture->pipeline contract (schemaVersion 2) — surface-independence, no field lost
+  ok  upgradeRecord lifts a v1 extension record to v2 without discarding any v1 field
+  ok  upgradeRecord is idempotent and never overwrites an existing pipeline block
+  ok  toAbsolute anchors a relative offset onto session start (no timestamp, no merge)
+
+reconcile — the never-silent guard extends the extension logic verbatim
+  ok  reconcilePipeline reuses analyzeSession — a captions-only session is still a flagged anomaly
+  ok  a CLOSED session with audio but no transcript, past the SLA, is a LOUD transcript-overdue anomaly
+  ok  the same session WITH a transcript is complete and not overdue
+  ok  within the SLA, a not-yet-transcribed closed session is NOT yet an overdue anomaly
+
+merge — interleave by timestamp + fold in caption speaker labels
+  ok  segments from both channels interleave into one time-ordered transcript
+  ok  a far-side segment is attributed to the caption speaker it overlaps in time
+  ok  with no overlapping caption, a far-side segment falls back to the generic "Them" label
+  ok  an "unknown" caption speaker never wins attribution (fails soft to Them)
+  ok  renderMarkdown produces speaker-attributed, timestamped lines with a provenance header
+  ok  stamp formats mm:ss and h:mm:ss; wordCount handles blanks
+
+verification — coverage, caption<->ASR agreement, dead intervals as measured numbers
+  ok  verify computes coverage, per-channel words, and caption agreement
+  ok  verify flags a long silent tail as a dead interval
+
+loro-correction seam — P1 identity pass, P4-shaped contract
+  ok  correct() is a pass-through in P1: same text, zero corrections, applied=false
+  ok  correct() returns the exact shape P4 will fill: {segments, corrections[], applied, entitiesVersion}
+  ok  correct() does not mutate the caller's segments (defensive copy)
+
+loro entity memory loader — the correction stage input source (P4)
+  ok  normalizeEntities keeps valid rows, applies defaults, drops rows with no canonical
+  ok  loadEntityMemory returns an EMPTY memory (never throws) when the file is missing
+  ok  the in-repo loro/entities.json, when present, loads and is well-formed
+
+loro-correction (P4 real corrector) — MEASURED precision/recall, no overcorrection
+      recall = 6/6 = 1.000
+  ok  recall = 1.0 — every planted mangling is corrected to its canonical
+      precision = 6/6 = 1.000 (fp=0)
+  ok  precision = 1.0 — zero false positives across planted + control text
+  ok  correctText preserves surrounding punctuation on a fuzzy fix (Lorow. -> loro.)
+  ok  a caseSensitive entity is not title-cased and an already-correct alias is left alone
+  ok  correct() over segments: applied=true, corrections carry segmentIndex, version recorded
+  ok  applied=true even with zero corrections (the corrector RAN; count says nothing changed)
+  ok  similarity + levenshtein are sane (fuzzy metric guardrails)
+
+correction flywheel — EXPLICIT intake (learnTerm): dedup, no-clobber, versioned
+  ok  learnTerm adds a NEW entity and bumps the version
+  ok  learnTerm MERGES a new mangling into an existing entity without clobbering curated data
+  ok  learnTerm dedups a mangling it already has (no change, no version bump)
+  ok  learnTerm drops a mangling that normalizes to the canonical (correct.js would skip it anyway)
+  ok  learnTerm refuses to steal a mangling already owned by a different canonical (conflict, precision)
+  ok  learnTerm matches an entity by an existing alias, adds a new alias, dedups aliases
+  ok  bumpVersion increments an intra-day revision counter monotonically
+  ok  serializeEntitiesDoc round-trips to valid JSON in the curated inline-array style
+
+correction flywheel — TRANSCRIPT-EDIT diff intake: PRECISION over recall
+  ok  tokenReplaceHunks expands a name fix to the full proper-noun span and ignores pure insertions
+  ok  looksLikeTerm accepts proper nouns / dotted terms and rejects ordinary words
+  ok  extractTermCorrections proposes the NAME + TERM fixes and NOT the ordinary word edit (precision)
+  ok  extractTermCorrections rejects a wholesale rewrite even when the new side is a proper noun
+  ok  learnFromEdits is PROPOSE-ONLY by default (doc untouched) and applies with apply=true
+
+correction flywheel — CLOSED LOOP: capture -> entities.json -> a later transcript is corrected
+  ok  a captured term fixes a subsequent transcript that mangles it (end-to-end through correct())
+
+coordination (P4) — one session per call, no double-capture, browser-crash failover
+  ok  preferenceRank: browser-tab (richest) > process > system (coverage net)
+  ok  scopesOverlap: all-system captures everything; a per-app scope only overlaps the same app
+  ok  THE HANDSHAKE: a companion stands down while the extension owns the browser call (no double)
+  ok  a companion OWNS a desktop-app call the extension is not capturing (no browser session live)
+  ok  a STALE extension session is not a live conflict — the companion may own
+  ok  the richer surface wins if it arrives late: extension supersedes a live all-system companion
+  ok  FAILOVER: an interrupted browser call (crash) is promotable; a fresh one is not
+  ok  FAILOVER: a stale-open owner past the promote threshold is promotable; already-superseded is not
+  ok  pipeline dedup backstop: two overlapping sessions keep the richer (captions) one
+  ok  sessionDescriptor maps a companion record to a system-scope descriptor with its heartbeat
+
+native-messaging stdio framing — round-trips length-prefixed JSON
+  ok  encodeMessage + FrameDecoder round-trip a message
+  ok  the decoder reassembles a message split across chunk boundaries
+  ok  two concatenated frames decode as two messages in one push
+
+native host handlers (SessionSink) — writes the SAME contract dir as the sync helper
+  ok  capture rejects path-shaped session IDs before creating any files
+  ok  capture rejects linked session directories and accepts an external zone alias
+  ok  capture accepts safe room names produced from encoded URLs
+  ok  capture validates audio extensions before accepting a start or chunk
+  ok  every capture writer refuses linked output files without modifying their targets
+  ok  capture rechecks directories after start including watchdog and EOF cleanup
+  ok  session-start creates the contract dir with an OPEN, v2 session.json
+  ok  audio-chunk / health / caption append the right files; session-close finalizes + triggers the pipeline
+  ok  the watchdog alarms on a stale heartbeat (browser stopped talking mid-call)
+  ok  on pipe EOF an open session is finalized INTERRUPTED — a lost call is present on disk
+  ok  reconciliation reports abandoned open sessions in reporting and processing modes
+  ok  watcher isolates a broken recording on every scan and still inspects later sessions
+  ok  watcher preserves storage refusal without blocking the next pending pipeline
+  ok  fresh starts and durable native heartbeats keep active recordings out of recovery
+  ok  companion health ticks remain usable with a torn final health line
+  ok  an open session without any usable liveness timestamp is an anomaly
+
+ingest ledger — collector-path parity, idempotent by (sessionId, runIndex)
+  ok  appendLedger writes once and dedups an identical (sessionId, runIndex)
+
+parsers — ffmpeg channel probe + whisper JSON
+  ok  parseChannels reads mono/stereo/N-channel from ffmpeg stderr
+  ok  parseVolume reads mean/max dBFS and treats -inf as digital silence
+  ok  parseWhisperJson normalizes segments and drops empties
+
+P5 model tiering — quantized default, full turbo + large-v3 opt-in, small.en fallback
+  ok  the default tier is quantized turbo when nothing is specified (CEO decision page §10)
+  ok  DEFAULT_MODEL is DERIVED from the default tier — one declaration, not two that agree
+  ok  full turbo is NOT deleted — it stays selectable by tier, by raw id, and by pin
+  ok  a tier id NEVER changes which weights it means — only which tier is default moved
+
+Hardware resolution — the batch surface stops handing every machine the same decode
+  ok  resolveTier stays a PURE lookup — the hardware question is a different function
+  ok  a capable machine gets the §10 model by ASKING, not by a constant — and is told nothing
+  ok  a machine that cannot keep up with the recording falls to the tier nothing ever selected
+  ok  a machine without the memory demotes on MEMORY, and says memory rather than speed
+  ok  an UNMEASURED machine is not a slow machine — absence of evidence never demotes
+  ok  NO machine is ever promoted above the §10 ruling, however much of it there is
+  ok  an explicit --tier or --model is never second-guessed by the machine
+  ok  os.freemem() is NOT what this machine has available, and the gap is 16x
+  ok  the Node and Rust surfaces key the shared speed cache IDENTICALLY
+  ok  the ladders and gates the two surfaces walk come from ONE file
+
+P5 model tiering — the opt-in tiers and the pipeline-wide decode invariant
+  ok  the "max" opt-in tier is full large-v3 and carries NO private decode params
+  ok  EVERY tier decodes with no previous-text conditioning — the loop fix cannot be tier-local
+  ok  a raw --model large-v3 is gated by the pipeline-wide cap, not by a per-model special case
+  ok  MAX_CONTEXT_TOKENS is overridable per call and by env, so an operator is never trapped
+  ok  flash attention is PASSED, not inherited — the vendor default is not the guarantee
+  ok  every flag the pipeline passes is one the settings table decided — no silent additions
+  ok  a tier decodeArg still wins over the default (emitted after, whisper-cli takes the last)
+  ok  a raw --model large-v3-turbo stays clean (no guard decode params forced on the safe model)
+  ok  low-resource selects small.en; the quantized tier names a quantized .bin
+
+P5 repetition guard — the model-agnostic post-decode hallucination net
+  ok  the guard collapses the real large-v3 4x repetition loop to a single line
+  ok  the collapsed loop keeps timing honest (first kept, end extended over the whole run)
+  ok  the guard preserves the surrounding legitimate speech byte-for-byte
+  ok  the guard does NOT collapse short legitimate backchannels ("Yeah." "Yeah.")
+  ok  the guard DELETES two genuine deliveries of a real 3x human retake when it is text-only
+  ok  the physical veto PRESERVES that retake: three bursts, three deliveries, nothing removed
+  ok  the veto still collapses a fabrication over digital silence (no bursts, no capacity)
+  ok  the veto collapses PARTIALLY when the audio holds some deliveries but not all
+  ok  a SHORT repeated phrase is clamped to what the audio holds — the 2026-08-30 residual, closed
+  ok  a short phrase over SILENCE still collapses to one — the clamp is a ceiling, not an amnesty
+  ok  the veto can only REFUSE a collapse, never cause one (strictly more conservative)
+  ok  guardTranscription routes each channel its OWN bursts (never the other channel's)
+  ok  parseSilenceLog turns silencedetect output into speech bursts (the complement)
+  ok  burstCapacity counts only bursts long enough to hold the phrase, clipped to the span
+  ok  the guard does not touch a clean transcript (zero false positives on turbo output)
+  ok  guardTranscription reports per-channel loop findings for verification.json
+
+P5 hallucination guard, class 2 — PERSISTENT INSERTION (the real large-v3-turbo artifact)
+  ok  readEnumerationMarker reads a bare segment-initial ordinal and leaves real numbers alone
+  ok  the guard DETECTS the real 59-marker turbo fabrication the 2026-08-26 benchmark found blind
+  ok  the fabricated span is bounded by the FIRST well-formedness break, so the real "1." "3." list survives
+  ok  detection NEVER rewrites the transcript — not one character of the 88 segments moves
+  ok  opting into stripping would delete a real word: the speaker's "Zero." at 205.3 s
+  ok  POSITIVE CONTROL for the negatives below: the same detector fires on the artifact
+  ok  numeralInText reads a numeral in EITHER form, anywhere, and says "empty" rather than "absent"
+  ok  a marker is only ever stripped on POSITIVE, agreeing evidence from both paddings
+  ok  THE REPAIR, on the real artifact and its real isolated decodes: 56 of 57 stripped, the spoken "Zero." kept
+  ok  the repair takes the marker and NOTHING else — every other word of all 88 segments is untouched
+  ok  the repair is one-directional: a probe can refuse a strip, never cause one
+  ok  NO PROBE, NO REPAIR: without an isolated re-decode the class is byte-for-byte detect-only
+  ok  a probe that returns nothing, or throws, leaves the text alone and reports it unadjudicated
+  ok  the probe BUDGET caps the decodes and the markers past it stay in the text, named
+  ok  the genuine spoken enumeration is never probed at all — it is not in the suspect set
+  ok  SILENT on real speech carrying the same surface feature — a genuinely spoken "1. 2. 3." list
+  ok  SILENT on the q5_0 transcript of the identical audio that produced the artifact
+  ok  SILENT on a long, well-formed spoken enumeration — counting up, each number used once
+  ok  SILENT on a spoken enumeration with ONE hiccup (a speaker repeating or going back a number)
+  ok  a segment that is ONLY a numeral is a person counting, never a prefix insertion
+
+P5 hallucination guard, class 3 — SLIDING-OVERLAP STUTTER (the real large-v3 artifact)
+  ok  the guard DETECTS the real large-v3 sliding stutter the loop detector could only see 6 of
+  ok  the de-overlap is CONTENT-PRESERVING — every distinct word survives, just once
+  ok  the repaired stream reads once, not two or three times (the captured phrase, verbatim)
+  ok  dropping a re-emitted segment folds its time into the kept one (timing/coverage stay honest)
+  ok  SILENT on real clean speech — 18 captured clean transcripts share ZERO boundary words
+  ok  SILENT on a speaker genuinely repeating a phrase across ONE segment boundary
+  ok  SILENT at two consecutive overlapping boundaries — the chain floor is three
+  ok  collapseStutter:false keeps detection while leaving the text untouched
+
+P5 hallucination guard, class 4 — SILENCE FABRICATION
+  ok  burstOverlapMs measures speech energy inside a span, and stops at the span
+  ok  isSilenceFillerText reads the vocabulary PER SENTENCE — the bug that inverted an adjudication
+  ok  NO BURST GRID -> class 4 never ran. "Never looked" is not "nothing found"
+  ok  THE DEFECT: a 30 s window of silence carrying "Thank you." is removed
+  ok  condition 5, THE STRETCHED EXTENT: a real backchannel inside a long extent is NOT removed
+  ok  condition 6, THE VOCABULARY TIER: unfamiliar text over silence is REPORTED, never removed
+  ok  condition 3, THE BREVITY CAP: this class can never remove a sentence, whatever else fails
+  ok  condition 2, THE DURATION FLOOR: the sub-second band is out of scope, and stays in
+  ok  condition 4, BOTH HALVES: an absolute cap and a fraction, because either alone fails
+  ok  THE MEASURED LOSS, pinned: 0.2 s of energy in the extent means KEEP, not remove
+  ok  ONE-DIRECTIONAL: a segment the audio backs is left completely alone
+  ok  ORDER: 143 copies of the filler over silence are class 4, not a repetition finding
+  ok  the guest-channel probe: genuine speech with genuine repetition is byte-identical after class 4
+  ok  THE TWO GUARDS DO NOT FIGHT: class 4 cannot add a deletion candidate under word times
+  ok  the known-silence span stays silent: class 4 removes the filler, the deletion guard still says NOT-SPEECH
+
+P5 hallucination guard — all four classes through the one pipeline seam
+  ok  class 3 does NOT collapse the deliveries class 1 preserved on the audio
+  ok  a CLAMPED run is handed over too, not only a fully preserved one
+  ok  the hand-off is scoped to the protected span — a real stutter outside one is still caught
+  ok  without the burst grid class 1 keeps one copy, so class 3 has nothing left to eat
+  ok  guardTranscription reports the insertion class from the real turbo artifact
+  ok  guardTranscription reports the stutter class from the real large-v3 artifact
+  ok  the loop class still reports exactly as before (no regression in class 1)
+  ok  all three real captured CLEAN channels stay untouched and undetected
+  ok  a DETECTED-BUT-UNREPAIRED class becomes a plain-English verification warning (never silent)
+  ok  the report says whether a probe REACHED the guard — "detect-only" and "clean" never merge
+  ok  the insertion probe is routed PER CHANNEL — it is told which wav to cut
+  ok  a repaired insertion says what it removed AND what it left, and the two never merge
+  ok  an insertion NOTHING adjudicated warns that it was not adjudicated — never that it was clean
+  ok  a REPAIRED class produces no warning — the transcript no longer contains it
+  ok  guardChannelAll runs loops before insertions before overlap so classes cannot mask each other
+  ok  guardTranscription reports class 4 PER CHANNEL, and never mixes the two grids
+  ok  class 4 REPORT-ONLY becomes a plain-English warning; class 4 REMOVED does not
+
+P5 diarization seam — honest scope (default off; opt-in tinydiarize turn segmentation)
+  ok  default method "none" is identity — one "Them", no wrong speaker counts
+  ok  readTurn strips the whisper.cpp tinydiarize marker and flags the turn
+  ok  tinydiarize-turns splits the RIGHT channel at native turn markers into sequential remotes
+  ok  a caption NAME still wins over a diarized turn label in the merge
+  ok  with no caption, the diarized turn label fills the gap (better than generic "Them")
+
+P5 deletion detector, stage A — COVERAGE: which speech the transcript never claims
+  ok  a burst the transcript places words inside is NOT a deletion candidate
+  ok  a burst with ZERO emitted words IS a candidate — the whole class in one assertion
+  ok  a burst shorter than minGapSec is never a candidate — the sub-second band is out of scope
+  ok  word times WIN over segment extents, and coverageUnit says which unit was used
+  ok  without word times the extent fallback spreads words across the extent — and SAYS so
+  ok  coverage tolerance: a word 0.24 s outside the burst covers it, 0.4 s outside does not
+  ok  nearbyTranscriptText picks up the CONTAINING segment however long its extent
+
+P5 deletion detector, stage B — THE PRECISION RULE, one test per condition
+  ok  lexicalText strips the silence-hallucination vocabulary whisper emits over dead air
+  ok  informativeWords counts a laugh once and drops it — the loudest false positive in the corpus
+  ok  all five conditions satisfied -> DELETED, with the recovered words carried for the alarm
+  ok  condition 2 — a decode of only fillers is NOT-SPEECH, whatever its raw word count
+  ok  condition 3 — near-silence with a fabricated "Thank you." over it is NOT a deletion
+  ok  condition 3 is CHANNEL-RELATIVE — the same dBFS passes on a quieter channel
+  ok  condition 4 — a decode that changes with the padding is a property of the window, not the audio
+  ok  condition 5a — words already in the surrounding transcript are MISTIMED, not missing
+  ok  condition 5b — one inserted word must not defeat the echo test (the measured near-miss)
+  ok  echoLength wants a CONTIGUOUS run; echoRatio tolerates insertions
+  ok  no probe -> UNPROBED, and an unprobed span is never a deletion
+
+P5 deletion detector — the report, and the two answers it must never conflate
+  ok  guardDeletions reports a deletion with the span, the level and the recovered words
+  ok  NO BURST GRID is "never looked", not "nothing found" — probeAvailable says so per channel
+  ok  NO PROBE -> every candidate is unprobed and NOTHING is called a deletion
+  ok  the probe budget is a HARD CAP: longest spans first, the rest reported UNPROBED
+  ok  deletionWarnings names the span in clock time, quotes what is missing, and says detect-only
+  ok  deletionWarnings never lets an UNADJUDICATED span read as a clean transcript
+  ok  SILENCE vs DELETION side by side: silent on the silence, loud on the clause beside it
+
+P5 word-density instrument, stage A — THE BUDGET: how much speech, how many words
+  ok  tileWindows groups consecutive bursts until the window holds windowSpeechSec of speech
+  ok  the shipped window is 4 s of speech — swept, and the value is what the sweep chose
+  ok  a window whose bursts are too far apart is ABANDONED, never judged on a denominator of silence
+  ok  a window at ordinary conversational density is NOT a candidate
+  ok  THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate
+  ok  a WORDLESS window is never a candidate here — that is the deletion detector's class
+  ok  on a channel at conversational pace the relative half is INERT — the absolute floor binds
+  ok  THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further
+  ok  a confirmed DELETION is excluded from the budget — the exclusion can only remove findings
+  ok  the whole channel being thin is a finding of its own, which no per-window comparison can see
+  ok  the two counts a findings list cannot give: thin windows, and the ones that are 3.7's
+  ok  analyzedSpeechSec is reported against burstSeconds, so "0 findings" can never read as "all clear"
+
+P5 word-density instrument, stage B — THE PRECISION RULE, one test per condition
+  ok  all six conditions satisfied -> UNDER-TRANSCRIBED, carrying what the audio returned
+  ok  condition 4 — a thin window at near-silence level is NOT speech, so its budget was never real
+  ok  condition 5 — A SLOW, EMPHATIC DELIVERY IS NOT A DEFECT: the audio agrees with the transcript
+  ok  condition 5 — laughter cannot manufacture a recovery: eight "words", two of them informative
+  ok  condition 5 — a recovery that does not survive repadding is a property of the window
+  ok  condition 6 — words already in the transcript beside the window are PRESENT, not missing
+  ok  condition 6 — a three-word coincidence is NOT an echo, and that is why this floor is four
+  ok  no probe -> UNPROBED, and an unprobed window is never a finding
+
+P5 word-density instrument — the report, and what it refuses to claim
+  ok  guardSubstitution reports the span, the rate, the deficit and what the audio returned
+  ok  NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed
+  ok  no burst grid -> the instrument says it never looked, which is not the same as clean
+  ok  the warning names the span in clock time AND refuses to claim the words present are wrong
+  ok  a channel below the floor is warned about ONCE, as a channel, not as a window
+  ok  an unadjudicated window never lets the transcript read as fully checked
+
+P5 — the two detectors divide the timeline instead of overlapping it
+  ok  THE SAME WORDLESS BURSTS: a deletion to stage 3.7, invisible to stage 3.8, reported once
+  ok  THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot
+  ok  one name spelled two ways by case is TWO spellings, and the corrector settles it
+  ok  the casing pass never touches an ordinary word that happens to be someone's name
+  ok  a short single-token canonical is below the casing pass's floor, a multi-word one is not
+  ok  caseSensitive: true opts an entity OUT — the flag declares that the casing IS the difference
+  ok  phoneticKey hears b and p as one sound, which is what an orthographic gate cannot do
+  ok  the phonetic leg catches the mis-hearing the orthographic gate documents as its own blind spot
+  ok  "ship Thursday" -> "ship Friday" is a CHANGE OF MIND and produces no ask at all
+  ok  a term-shaped mis-hearing DOES ask, and names which leg let it through
+  ok  a lone-token mis-hearing that the LEARN gate rejects is still ASKED — the human is the judge
+  ok  "great" -> "Grant" ASKS and is never learned — a false ask is cheap, a wrong lesson is not
+  ok  the gate judges the CORE of a change, not the context wrapped around it
+  ok  a day or a month is capitalized by grammar and is never learned as a name
+  ok  an ordinary prose edit is not a vocabulary question
+  ok  a casing-only fix asks nothing — a vocabulary cannot hold it
+  ok  hunk expansion stops at a full stop — a sentence-initial capital is grammar, not a name
+  ok  a trailing full stop is dropped from a learned term; an INTERNAL dot is part of it
+  ok  a name fix asks about the WHOLE name, never the lone word inside it
+  ok  a wholesale rewrite asks nothing (neither close in spelling nor in sound)
+  ok  matchHeard claims a recent, similar dictation
+  ok  matchHeard REFUSES a typed message — this is how a typed sentence stays silent
+  ok  matchHeard REFUSES a dictation older than the window, and one already reconciled
+  ok  matchHeard breaks a tie toward the more recent dictation — he is looking at the last one
+  ok  reviewSent on a TYPED message returns no prompts and says why
+  ok  reviewSent on an UNCHANGED dictation returns no prompts — nothing was corrected
+  ok  reviewSent asks the exact sentence §7 specifies
+  ok  the diff is taken against what was PASTED, not the recognizer's raw output
+  ok  NO route out of reviewSent carries a learn — the review cannot change what the system believes
+  ok  a DECLINE is not permanent: the very next repeat asks again, and says it has asked before
+  ok  "don't ask for this term again" is permanent, and lands on an INSPECTABLE list
+  ok  CONFIRM is the only answer that yields a vocabulary pair
+  ok  a confirmed pair goes in by the SAME explicit path learn-term uses, version bump included
+  ok  a corrupt journal line costs one dictation, never the whole journal
+  ok  a missing journal is an EMPTY journal, never a crash — the loop degrades, it does not break
+  ok  the ask ledger round-trips on disk and stores the suppression list sorted, for a human to read
+  ok  reconciling an entry marks it consumed WITHOUT rewriting what open-wispr appended
+  ok  Tier A evicts whole day files past the window, oldest first, by unlink and nothing else
+  ok  Tier A also binds on the record ceiling, and says which limit bound
+  ok  Tier B audio binds on days OR bytes, whichever comes first — the techy-mode numbers, unchanged
+  ok  Tier B is OFF by default, so the flywheel costs zero bytes of retained audio
+  ok  the retention sweep is a DRY RUN by default — a policy that erases his speech is readable first
+  ok  a record whose audio aged out still READS — an honest degrade, never a silent blank
+  ok  the SERVICE sweeps the journal, and it is the only thing that deletes from it
+  ok  a journal that cannot be swept is a disk problem, never a reason to stop transcribing
+  ok  costPerHour is measured from real records, not estimated
+  ok  the shipped gate still gives the answers both implementations are held to
+  ok  the gate fixture is regenerable, and regenerating it reproduces it byte for byte
+
+model resolution — resolve to a model, not to a directory listing
+  ok  a captive-portal page in the first search directory no longer beats a real model in the second
+  ok  resolveModelChecked names every file it rejected, so the error explains itself
+  ok  an explicit RICHOS_WHISPER_MODEL override is honoured, never silently replaced
+  ok  both resolvers walk one search path, in one order, from one definition
+  ok  `richos-service verify-model` exits non-zero on a file that does not match its pin
+
+whisper toolchain — which binary, which backends, which weights (2026-09-10)
+  ok  parseVersion reads the version off STDOUT and refuses to invent one from anything else
+  ok  a build that exits 0 while refusing --version is VERSION_UNKNOWN, never a silent empty string
+  ok  parseBackends reads the backends the binary itself says it loaded, in order
+  ok  a FIRST install has nothing to compare against, so it records and proceeds — never refuses
+  ok  a CHANGED BINARY warns, and the message names BOTH identities — old and new
+  ok  a changed ggml BACKEND is caught even when the binary itself is byte-identical
+  ok  a build that reports NO backends is not reported as having lost them
+  ok  a version off the REFERENCE build warns and names the build the settings were measured on
+  ok  the reference block lives in model-pins.json — ONE registry, not a second one
+  ok  WRONG WEIGHTS of the RIGHT SIZE and the right magic are REFUSED — the case size+magic passes
+  ok  the RIGHT weights produce no finding at all
+  ok  an UNPINNED model is recorded and warned about, not refused — an override is meant to override
+  ok  strict mode escalates every warning to a refusal, and leaves refusals refusals
+  ok  the strict refusal does not tell the reader their transcript was produced — there is none
+  ok  every finding kind has a severity AND a sentence — a kind nobody described is a silent kind
+  ok  the model-hash cache key is WHOLE milliseconds — the Rust consumer cannot express more
+  ok  sameIdentity is the model-hash cache key, and every field of it is load-bearing
+  ok  resolveToolchain: first run writes a lock; the second run serves the model hash from it
+  ok  the per-process memo notices a binary swapped UNDER a long-running watcher
+  ok  a REFUSED run never updates the lock — a guard that caches what it rejected disarms itself
+  ok  assertToolchain THROWS on a refusal, with a code and every finding in the message
+  ok  the provenance string answers "which binary and which weights" from the string alone
+  ok  the lock preserves the model cache across a re-lock of the BINARY
+  ok  the record contract is born with a null toolchain, so a never-run pipeline is visibly missing it
+  ok  the transcript header carries the provenance, so the artifact a person opens names its origin
+
+331 passed, 0 failed
+[richos-service info] session-start normal -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-qp8RZR/zone/normal
+[richos-service info] session-start 2026--whereby--caf%C3%A9 -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-dN3rjd/2026--whereby--caf%C3%A9
+[richos-service info] session-start 2026--whereby--room!@+name -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-dN3rjd/2026--whereby--room!@+name
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-XF5Mmr/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-GOn8IQ/zone/safe
+[richos-service info] session-start safe -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-3rSZdy/zone/safe
+[richos-service alarm] ⚠ ANOMALY: safe — the browser stopped heart-beating (30000 ms) — capture may be dead {"staleMs":30000}
+[richos-service error] failed to finalize safe on EOF: capture boundary: session directory must not be a link
+[richos-service info] session-start sX -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-mgTh4c/sX
+[richos-service info] session-start sY -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-VEXegS/sY
+[richos-service info] session-close sY -> pipeline queued
+[richos-service info] session-start sZ -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-bKOwe2/sZ
+[richos-service alarm] ⚠ ANOMALY: sZ — the browser stopped heart-beating (20000 ms) — capture may be dead {"staleMs":20000}
+[richos-service alarm] ⚠ ANOMALY: sZ — marked PROMOTABLE — a companion may supersede this call {"staleMs":20000}
+[richos-service info] session-start sEOF -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-xZmqdD/sEOF
+[richos-service alarm] ⚠ ANOMALY: sEOF — browser pipe closed while the call was still OPEN — finalized interrupted
+[richos-service info] session-start abandoned -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-AfqFDm/abandoned
+[richos-service alarm] ⚠ ANOMALY: abandoned — abandoned open recording {"problem":"open recording heartbeat is stale (16000 ms); capture may have stopped"}
+[richos-service alarm] ⚠ ANOMALY: abandoned — abandoned open recording {"problem":"open recording heartbeat is stale (16000 ms); capture may have stopped"}
+[richos-service alarm] ⚠ ANOMALY: broken — session processing refused {"problem":"ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-9FoIHh/a-broken/audio-part-0.wav'"}
+[richos-service alarm] ⚠ ANOMALY: broken — session processing refused {"problem":"ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-9FoIHh/a-broken/audio-part-0.wav'"}
+[richos-service alarm] ⚠ ANOMALY: broken — session processing refused {"problem":"ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-9FoIHh/a-broken/audio-part-0.wav'"}
+[richos-service alarm] ⚠ ANOMALY: broken — session processing refused {"problem":"ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-9FoIHh/a-broken/audio-part-0.wav'"}
+[richos-service alarm] ⚠ ANOMALY: a-refused — session processing refused {"problem":"storage boundary: output must be a regular unlinked file"}
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[in#0 @ 0x14df068a0] Error opening input: Invalid data found when processing input
+Error opening input file /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-z5J6ZN/b-pending/audio-part-0.wav.
+Error opening input files: Invalid data found when processing input
+[richos-service alarm] ⚠ ANOMALY: b-pending — pipeline FAILED {"error":"Command failed: /opt/homebrew/bin/ffmpeg -y -i /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-z5J6ZN/b-pending/audio-part-0.wav -ac 1 -ar 16000 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-z5J6ZN/b-pending/.richos-output-nD5nou/0-me.wav\nffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers\n  built with Apple clang version 17.0.0 (clang-1700.6.3.2)\n  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon\n  libavutil      60.  8.100 / 60.  8.100\n  libavcodec     62. 11.100 / 62. 11.100\n  libavformat    62.  3.100 / 62.  3.100\n  libavdevice    62.  1.100 / 62.  1.100\n  libavfilter    11.  4.100 / 11.  4.100\n  libswscale      9.  1.100 /  9.  1.100\n  libswresample   6.  1.100 /  6.  1.100\n[in#0 @ 0x14df068a0] Error opening input: Invalid data found when processing input\nError opening input file /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-z5J6ZN/b-pending/audio-part-0.wav.\nError opening input files: Invalid data found when processing input\n"}
+[richos-service info] session-start live -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-svc-cLCsO5/live
+[richos-service alarm] ⚠ ANOMALY: live — abandoned open recording {"problem":"open recording heartbeat is stale (16000 ms); capture may have stopped"}
+[richos-service alarm] ⚠ ANOMALY: companion — abandoned open recording {"problem":"open recording heartbeat is stale (16000 ms); capture may have stopped"}
+[richos-service alarm] ⚠ ANOMALY: unknown — abandoned open recording {"problem":"open recording has no usable activity timestamp; capture may have stopped"}
+[richos-service info] dictation journal: evicted 1 record(s) in 1 day file(s) and 0 audio file(s) (0 bytes) — policy 14 days OR 5000 records

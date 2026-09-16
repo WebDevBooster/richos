@@ -1,0 +1,16 @@
+{
+  "suite": "feedback.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 33.4,
+  "declared": 24,
+  "records": [
+    {
+      "suite": "feedback.js",
+      "label": "the feedback channel — the local half, reachable, and honest about it",
+      "checks": 24,
+      "failed": 0
+    }
+  ]
+}

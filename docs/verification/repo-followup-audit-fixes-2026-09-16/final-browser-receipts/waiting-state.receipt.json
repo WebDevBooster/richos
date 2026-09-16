@@ -1,0 +1,16 @@
+{
+  "suite": "waiting-state.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 23.2,
+  "declared": 9,
+  "records": [
+    {
+      "suite": "waiting-state.js",
+      "label": "the waiting state — WebKit",
+      "checks": 10,
+      "failed": 0
+    }
+  ]
+}

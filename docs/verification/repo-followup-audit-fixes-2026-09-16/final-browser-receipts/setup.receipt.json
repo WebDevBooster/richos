@@ -1,0 +1,16 @@
+{
+  "suite": "setup.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 14.5,
+  "declared": 16,
+  "records": [
+    {
+      "suite": "setup.js",
+      "label": "first-run setup — the consent step a customer's Mac gets, and what happens when it fails",
+      "checks": 16,
+      "failed": 0
+    }
+  ]
+}

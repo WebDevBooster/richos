@@ -1,0 +1,16 @@
+{
+  "suite": "slow-bridge.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 101.5,
+  "declared": 5,
+  "records": [
+    {
+      "suite": "slow-bridge.js",
+      "label": "slow-bridge — the two interactions that were correct only at zero latency",
+      "checks": 9,
+      "failed": 0
+    }
+  ]
+}

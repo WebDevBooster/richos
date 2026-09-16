@@ -2,6 +2,10 @@
 
 Audited revision: `2c1a48463da1d2028dfec958ff49924bab33828c`.
 
+Follow-up: all four findings were repaired after this audit. See the
+[repair and recheck report](repo-followup-audit-fixes-2026-09-16.md).
+The findings and reproductions below describe the pinned audited revision.
+
 Four defects remain: two P1 privacy boundary failures and two P2 reliability
 failures. Each was reproduced against a pinned source archive using synthetic
 data. Product code was not modified. These findings describe the current source;

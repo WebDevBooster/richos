@@ -1,0 +1,93 @@
+      ok   H1 an early marker in a large diagnostic is recognized
+      ok   H2 a missing marker still fails the assertion
+=== 1  the default everywhere: a body of work with no recorded spec is SILENT ===
+      ok   S1 no spec recorded -> exit 0, nothing printed
+      ok   S1b it printed nothing
+
+=== 2  once the spec is recorded, the anchor is required ===
+      ok   S2 a brief with no serves: line is refused
+      ok   S2b the refusal names what is still red
+
+=== 3  a brief anchored to a RED point passes, and one anchored to a GREEN point does not ===
+      ok   S3 anchored to a red point -> allowed
+      ok   S4 anchored to a green point -> SPEC-SATISFIED
+      ok   S4b the refusal carries the CEO's question
+      ok   S5 a green item riding along with a red one is refused on its own
+      ok   S5b and the refusal says the rest is dispatchable
+      ok   S5c dropping the rider dispatches the rest
+
+=== 4  the ways out, and the ways not out ===
+      ok   S6 the CEO's word releases a green anchor
+      ok   S7 renaming the body of work is refused, not a way out
+      ok   S8 a point the spec does not have is refused
+      ok   S9 a serves: line inside a fenced block is an example, not an anchor
+
+=== 5  the spec is the anchor, so a spec that moved invalidates everything ===
+      ok   S10 an edited spec refuses every dispatch until it is re-recorded
+      ok   S10b restoring the recorded text makes it silent again
+
+=== 6  the measurement must be current ===
+      ok   S11 a verdict older than the branch tip is refused
+      ok   S11b re-measuring at the tip clears it
+
+=== 7  THE SERIES: a regression ends the round, and a loop ends the series ===
+      ok   S12 a point that was green and is now red refuses everything
+      ok   S12b it names the point that went backwards
+      ok   S12c only the CEO's word releases a regression
+      ok   S13 three rounds that did not reduce the red count refuse the fourth
+      ok   S13b the refusal shows the series
+      ok   S14 POSITIVE CONTROL: a falling red count is never refused
+
+=== 8  the guard carries the refusal to the host ===
+      ok   S15 the guard exits 2 and prints the refusal
+      ok   S16 the guard is silent on a dispatchable brief
+      ok   S16b and prints nothing
+      ok   S17 an empty payload is exit 0, never a refusal of its own inability
+      ok   S18 a non-Agent tool call is untouched
+      ok   S18b a guard that cannot find its library exits 0 but is AUDIBLE
+
+=== 9  ACCEPTANCE: the real round-9 brief, byte for byte ===
+      ok   S19pin the vendored round-9 brief is byte-for-byte the dispatched one
+      ok   S19src the vendored copy still matches the one in richos-hq
+      ok   S19 THE ROUND-9 BRIEF IS REFUSED
+      ok   S19b and the refusal says nothing is red
+      ok   S20 anchored to point 2, it is refused because point 2 is recorded green
+      ok   S20b and it hands over the CEO's question
+      ok   S21 THE MISS, ASSERTED: with point 2 red, round 9 item 2 passes untouched
+
+=== 10  §6 WHO CHOOSES THE MECHANISM — the retry rule and the counter-stamp ===
+      ok   S22 a retry item with no design: line is REFUSED
+      ok   S22b the refusal quotes the CEO's scoping clause
+      ok   S22c and it claims only what it measured, never 'a round was spent'
+      ok   S23 design: open is accepted
+      ok   S24 design: spec point <N> is accepted
+      ok   S25 a disposition naming a point the spec lacks is refused
+      ok   S26 a prescription written INTO the disposition line is not one of the three
+      ok   S27 design: ceo-word: is accepted and echoed for the log
+      ok   S28 BOUNDARY: a first-time-red point needs no disposition
+      ok   S29 BOUNDARY: a green point is refused as SPEC-SATISFIED, not for its design
+      ok   S30 design: open appends the counter-stamp to the dispatched text
+      ok   S30b and the brief itself is left intact above it
+      ok   S30c a brief with nothing on retry is byte-identical after annotate
+      ok   S31 THE ROUND-9 BRIEF, on a retry, is REFUSED for its undeclared design
+      ok   S31b and the refusal names round 9's own reviewer-authored prescription
+      ok   S32 THE RESIDUE, ASSERTED: design: open + a prescription in the body still passes
+
+=== brief-scope tests: 55 passed, 0 failed ===
+
+=== running the mutation harness ===
+=== brief-scope: every refusal proven load-bearing: every property, proven load-bearing by removing it ===
+  PASS  spec-satisfied-removed — removing it turns "S20" red  [12.5s]
+  PASS  no-anchor-removed — removing it turns "S19" red  [12.6s]
+  PASS  regression-clause-removed — removing it turns "S12" red  [11.9s]
+  PASS  convergence-clause-removed — removing it turns "S13" red  [11.8s]
+  PASS  stale-verdict-accepted — removing it turns "S11" red  [11.1s]
+  PASS  spec-drift-accepted — removing it turns "S10" red  [11.1s]
+  PASS  fenced-anchors-counted — removing it turns "S9" red  [10.9s]
+  PASS  design-undeclared-accepted — removing it turns "S31" red  [10.6s]
+  PASS  design-disposition-unchecked — removing it turns "S25" red  [12.1s]
+  PASS  retry-never-detected — removing it turns "S22" red  [12.0s]
+  PASS  retry-over-triggers — removing it turns "S28" red  [10.5s]
+  [11 mutant(s), 2 at a time, wall 1m09.6s, slowest 12.6s no-anchor-removed, 1.8x serial]
+
+=== mutation: all 11 properties proven load-bearing ===

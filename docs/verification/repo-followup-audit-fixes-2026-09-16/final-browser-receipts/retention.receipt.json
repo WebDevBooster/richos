@@ -1,0 +1,16 @@
+{
+  "suite": "retention.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 11.7,
+  "declared": 8,
+  "records": [
+    {
+      "suite": "retention.js",
+      "label": "the raw-retention window as a setting (§7.2) — through the real shell",
+      "checks": 8,
+      "failed": 0
+    }
+  ]
+}

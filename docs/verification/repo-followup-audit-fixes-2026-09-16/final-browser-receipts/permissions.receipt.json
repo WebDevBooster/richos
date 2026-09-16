@@ -1,0 +1,16 @@
+{
+  "suite": "permissions.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 5.3,
+  "declared": 2,
+  "records": [
+    {
+      "suite": "permissions.js",
+      "label": "native permission decisions in the shipping renderer",
+      "checks": 3,
+      "failed": 0
+    }
+  ]
+}

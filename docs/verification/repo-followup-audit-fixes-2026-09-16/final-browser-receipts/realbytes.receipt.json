@@ -1,0 +1,16 @@
+{
+  "suite": "realbytes.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 112,
+  "declared": 7,
+  "records": [
+    {
+      "suite": "realbytes.js",
+      "label": "real backend bytes, real renderer, WebKit",
+      "checks": 7,
+      "failed": 0
+    }
+  ]
+}

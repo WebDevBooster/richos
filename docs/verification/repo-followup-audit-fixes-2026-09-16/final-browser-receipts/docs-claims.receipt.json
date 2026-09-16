@@ -1,0 +1,16 @@
+{
+  "suite": "docs-claims.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 0.1,
+  "declared": 6,
+  "records": [
+    {
+      "suite": "docs-claims.js",
+      "label": "app/ documents vs the tree they describe — derived, never typed",
+      "checks": 6,
+      "failed": 0
+    }
+  ]
+}

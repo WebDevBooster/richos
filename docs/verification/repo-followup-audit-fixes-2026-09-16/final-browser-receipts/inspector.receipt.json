@@ -1,0 +1,16 @@
+{
+  "suite": "inspector.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 7,
+  "declared": 11,
+  "records": [
+    {
+      "suite": "inspector.js",
+      "label": "§7.2 inspector / §7.3 summary / §20 breakpoints — real shell, WebKit",
+      "checks": 13,
+      "failed": 0
+    }
+  ]
+}

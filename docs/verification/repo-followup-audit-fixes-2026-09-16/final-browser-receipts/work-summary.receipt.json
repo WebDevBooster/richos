@@ -1,0 +1,16 @@
+{
+  "suite": "work-summary.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 7.1,
+  "declared": 1,
+  "records": [
+    {
+      "suite": "work-summary.js",
+      "label": "saved work in the shipping renderer",
+      "checks": 1,
+      "failed": 0
+    }
+  ]
+}

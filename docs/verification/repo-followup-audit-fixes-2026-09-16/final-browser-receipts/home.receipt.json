@@ -1,0 +1,16 @@
+{
+  "suite": "home.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "2/4",
+  "exit": 0,
+  "seconds": 38.4,
+  "declared": 33,
+  "records": [
+    {
+      "suite": "home.js",
+      "label": "The home screen — round-11.1/v1 in the app, real shell, WebKit",
+      "checks": 34,
+      "failed": 0
+    }
+  ]
+}

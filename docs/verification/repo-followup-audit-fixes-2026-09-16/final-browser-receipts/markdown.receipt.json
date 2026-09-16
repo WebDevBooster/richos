@@ -1,0 +1,16 @@
+{
+  "suite": "markdown.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "1/4",
+  "exit": 0,
+  "seconds": 1.8,
+  "declared": 12,
+  "records": [
+    {
+      "suite": "markdown.js",
+      "label": "§5.4 Markdown — the subset, the escaping, the degradation",
+      "checks": 12,
+      "failed": 0
+    }
+  ]
+}

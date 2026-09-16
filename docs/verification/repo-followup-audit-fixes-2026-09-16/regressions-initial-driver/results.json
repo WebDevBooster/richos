@@ -1,0 +1,48 @@
+[
+  {
+    "name": "loro",
+    "command": [
+      "bash",
+      "richos/engine/loro/tests/run.test.sh"
+    ],
+    "cwd": "/Users/alex/ab/richos-rechecks/followup-20260916/test-repo",
+    "source_revision": "d9cac993bf909492498836496d45995b857792d0",
+    "exit": 0,
+    "missing_evidence": [
+      "Loro read boundaries: 10 passed"
+    ],
+    "passed": false,
+    "sha256": "d78bb048b886f3b27c8b1b23f9fc93ea989b6e387b36849556b53ef9e4fa8523"
+  },
+  {
+    "name": "desktop-corrections",
+    "command": [
+      "/Users/alex/.cargo/bin/cargo",
+      "test",
+      "--locked",
+      "-p",
+      "richos-core",
+      "--test",
+      "delivered_loro_tests"
+    ],
+    "cwd": "/Users/alex/ab/richos-rechecks/followup-20260916/test-repo/richos/app",
+    "source_revision": "d9cac993bf909492498836496d45995b857792d0",
+    "exit": 0,
+    "missing_evidence": [],
+    "passed": true,
+    "sha256": "cbd0ac529627b6f98fc09401859aac1b50fddeb2f0c588ab170bf4cd1af7ce0d"
+  },
+  {
+    "name": "watcher",
+    "command": [
+      "node",
+      "test/run.js"
+    ],
+    "cwd": "/Users/alex/ab/richos-rechecks/followup-20260916/test-repo/richos/tools/richos-service",
+    "source_revision": "d9cac993bf909492498836496d45995b857792d0",
+    "exit": 0,
+    "missing_evidence": [],
+    "passed": true,
+    "sha256": "afb1f6f4d5f0c5efeb7958dd9318501694ba4faa6af00648909c382dc0846484"
+  }
+]

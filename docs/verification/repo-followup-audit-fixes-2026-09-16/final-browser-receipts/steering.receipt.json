@@ -1,0 +1,16 @@
+{
+  "suite": "steering.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "3/4",
+  "exit": 0,
+  "seconds": 8.9,
+  "declared": 22,
+  "records": [
+    {
+      "suite": "steering.js",
+      "label": "§25 Steering and stop — real bytes + real shell, WebKit",
+      "checks": 24,
+      "failed": 0
+    }
+  ]
+}

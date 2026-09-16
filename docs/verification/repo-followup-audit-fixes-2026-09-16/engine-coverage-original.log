@@ -1,0 +1,6 @@
+
+✗ ci-receipts: this run does NOT certify d9cac993bf909492498836496d45995b857792d0.
+
+  - 1 unit(s) did not reach a green verdict:
+    ass-kicker/tests/brief-scope.test.sh                                     FAIL (rc=1)
+

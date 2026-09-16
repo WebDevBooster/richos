@@ -1,0 +1,44 @@
+35 receipt(s) from 4 shard(s), against 35 discovered suite(s), at 392cd70a80e3
+
+== evidence ==  reconciled across every shard
+  ok              affordances.js — 91 check(s) run, 25 declared, 0 failed (exit 0)  76s  [shard 3/4]
+  ok              appearance.js — 20 check(s) run, 20 declared, 0 failed (exit 0)  52s  [shard 4/4]
+  ok              compaction-notice.js — 6 check(s) run, 5 declared, 0 failed (exit 0)  25s  [shard 3/4]
+  ok              compaction-progress.js — 10 check(s) run, 9 declared, 0 failed (exit 0)  29s  [shard 2/4]
+  ok              contrast.js — 49 check(s) run, 19 declared, 0 failed (exit 0)  111s  [shard 4/4]
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)  34s  [shard 4/4]
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)  0s  [shard 1/4]
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)  33s  [shard 1/4]
+  ok              home.js — 34 check(s) run, 33 declared, 0 failed (exit 0)  38s  [shard 2/4]
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)  7s  [shard 4/4]
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)  2s  [shard 1/4]
+  ok              markdown.js — 12 check(s) run, 12 declared, 0 failed (exit 0)  2s  [shard 1/4]
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)  12s  [shard 1/4]
+  ok              memory.js — 9 check(s) run, 9 declared, 0 failed (exit 0)  8s  [shard 2/4]
+  ok              onboarding-lifecycle.js — 5 check(s) run, 5 declared, 0 failed (exit 0)  6s  [shard 4/4]
+  ok              onboarding.js — 11 check(s) run, 11 declared, 0 failed (exit 0)  17s  [shard 3/4]
+  ok              outage.js — 9 check(s) run, 8 declared, 0 failed (exit 0)  2s  [shard 2/4]
+  ok              permissions.js — 3 check(s) run, 2 declared, 0 failed (exit 0)  5s  [shard 2/4]
+  ok              provider-auth.js — 3 check(s) run, 3 declared, 0 failed (exit 0)  6s  [shard 3/4]
+  ok              realbytes.js — 7 check(s) run, 7 declared, 0 failed (exit 0)  112s  [shard 2/4]
+  ok              repositories.js — 2 check(s) run, 2 declared, 0 failed (exit 0)  4s  [shard 4/4]
+  ok              restart-scope.js — 14 check(s) run, 14 declared, 0 failed (exit 0)  43s  [shard 3/4]
+  ok              retention.js — 8 check(s) run, 8 declared, 0 failed (exit 0)  12s  [shard 1/4]
+  ok              scale.js — 13 check(s) run, 13 declared, 0 failed (exit 0)  24s  [shard 3/4]
+  ok              setup.js — 16 check(s) run, 16 declared, 0 failed (exit 0)  15s  [shard 4/4]
+  ok              slow-bridge.js — 9 check(s) run, 5 declared, 0 failed (exit 0)  102s  [shard 3/4]
+  ok              splash.js — 28 check(s) run, 28 declared, 0 failed (exit 0)  126s  [shard 1/4]
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)  9s  [shard 3/4]
+  ok              techy.js — 21 check(s) run, 21 declared, 0 failed (exit 0)  31s  [shard 2/4]
+  ok              updates.js — 17 check(s) run, 17 declared, 0 failed (exit 0)  29s  [shard 1/4]
+  ok              vouch-template.js — 7 check(s) run, 7 declared, 0 failed (exit 0)  1s  [shard 4/4]
+  ok              waiting-lifecycle.js — 10 check(s) run, 10 declared, 0 failed (exit 0)  24s  [shard 4/4]
+  ok              waiting-state.js — 10 check(s) run, 9 declared, 0 failed (exit 0)  23s  [shard 1/4]
+  ok              work-summary.js — 1 check(s) run, 1 declared, 0 failed (exit 0)  7s  [shard 2/4]
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)  2s  [shard 2/4]
+
+  35 planned, 35 ran, 0 skipped, 572 checks observed against 461 declared
+
+✓ ui-suite: 35/35 discovered suite(s) ran, all green, all at 392cd70a80e3b42e2223c72b1e7c2ce31da2c159.
+  572 checks observed. serial cost 1027 s across 4 shard(s).
+  affordances.js, appearance.js, compaction-notice.js, compaction-progress.js, contrast.js, corrections.js, docs-claims.js, feedback.js, home.js, inspector.js, live-workers.js, markdown.js, memory-strategy.js, memory.js, onboarding-lifecycle.js, onboarding.js, outage.js, permissions.js, provider-auth.js, realbytes.js, repositories.js, restart-scope.js, retention.js, scale.js, setup.js, slow-bridge.js, splash.js, steering.js, techy.js, updates.js, vouch-template.js, waiting-lifecycle.js, waiting-state.js, work-summary.js, workers.js

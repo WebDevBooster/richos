@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos/richos/app/scripts/verify-runtime.py", line 50, in <module>
+    inventory = verify(args.root, args.sources)
+  File "/Users/alex/ab/richos/richos/app/scripts/verify-runtime.py", line 33, in verify
+    raise ValueError(f"runtime content changed: {name}")
+ValueError: runtime content changed: python/lib/python3.13/encodings/__pycache__/aliases.cpython-313.pyc

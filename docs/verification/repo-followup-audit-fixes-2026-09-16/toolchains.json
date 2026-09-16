@@ -1,0 +1,73 @@
+{
+  "host": "macOS-15.6-arm64-arm-64bit-Mach-O",
+  "commands": {
+    "node": {
+      "command": [
+        "node",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "v25.5.0"
+    },
+    "python": {
+      "command": [
+        "python3",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "Python 3.14.3"
+    },
+    "cargo": {
+      "command": [
+        "/Users/alex/.cargo/bin/cargo",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)"
+    },
+    "rustc": {
+      "command": [
+        "/Users/alex/.cargo/bin/rustc",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "rustc 1.95.0 (59807616e 2026-04-14)"
+    },
+    "git": {
+      "command": [
+        "git",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "git version 2.52.0"
+    },
+    "swift": {
+      "command": [
+        "swift",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)\nTarget: arm64-apple-macosx15.0\nswift-driver version: 1.120.5"
+    },
+    "dotnet": {
+      "command": [
+        "/tmp/richos-dotnet-8.0.424/dotnet",
+        "--version"
+      ],
+      "exit": 0,
+      "output": "8.0.424"
+    },
+    "docker_image": {
+      "command": [
+        "docker",
+        "image",
+        "inspect",
+        "richos-linux:git-latest",
+        "--format",
+        "{{.Id}}"
+      ],
+      "exit": 0,
+      "output": "sha256:2795c0e4f4278861d1d43c80e552fda016cdeddf09be8582252a8a8ee70eab42"
+    }
+  }
+}

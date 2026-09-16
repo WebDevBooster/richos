@@ -1,0 +1,16 @@
+{
+  "suite": "vouch-template.js",
+  "commit": "392cd70a80e3b42e2223c72b1e7c2ce31da2c159",
+  "shard": "4/4",
+  "exit": 0,
+  "seconds": 0.7,
+  "declared": 7,
+  "records": [
+    {
+      "suite": "vouch-template.js",
+      "label": "the pull-request gate's message vs the evidence that records it",
+      "checks": 7,
+      "failed": 0
+    }
+  ]
+}
