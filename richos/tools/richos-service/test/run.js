@@ -57,6 +57,8 @@ import {
   MATCH_WINDOW_MS,
 } from '../lib/dictation.js';
 import { scanZone, sweepDictationRetention } from '../lib/watcher.js';
+import { runPipeline } from '../lib/pipeline.js';
+import { withPrivateOutputs, writePrivateFile } from '../lib/private-files.js';
 import {
   parseJournalFile,
   loadJournal,
@@ -259,6 +261,61 @@ test('reinstall refreshes moved host and Node paths, including shell metacharact
 });
 
 group('pipeline storage boundary');
+for (const link of ['symlink', 'hardlink']) {
+  for (const name of ['session.json', 'transcript.md', 'verification.json', 'me.wav', 'others.json', '_concat.txt', '_probe/clip.wav']) {
+    test(`pipeline refuses ${link} output ${name} before modifying any artifact`, () => {
+      const root = tmp();
+      try {
+        const session = path.join(root, 'session');
+        fs.mkdirSync(session);
+        const record = JSON.stringify({ sessionId: 'call', status: 'closed', audio: { parts: [], bytesTotal: 0 } });
+        fs.writeFileSync(path.join(session, 'session.json'), record);
+        const target = path.join(root, 'outside.json');
+        fs.writeFileSync(target, record);
+        const output = path.join(session, name);
+        fs.mkdirSync(path.dirname(output), { recursive: true });
+        fs.rmSync(output, { force: true });
+        if (link === 'symlink') fs.symlinkSync(target, output);
+        else fs.linkSync(target, output);
+        assert.throws(() => runPipeline(session, { model: 'small.en', zone: root }), /storage boundary/);
+        assert.equal(fs.readFileSync(target, 'utf8'), record);
+        assert.equal(fs.readFileSync(path.join(session, 'session.json'), 'utf8'), record);
+      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    });
+  }
+}
+test('native output staging refuses a leaf replaced during the native operation', () => {
+  const root = tmp();
+  try {
+    const outside = path.join(root, 'outside');
+    const output = path.join(root, 'result.wav');
+    fs.writeFileSync(outside, 'original');
+    assert.throws(() => withPrivateOutputs([output], ([stage]) => {
+      assert.notEqual(stage, output);
+      fs.writeFileSync(stage, 'native output');
+      fs.symlinkSync(outside, output);
+    }), /storage boundary/);
+    assert.equal(fs.readFileSync(outside, 'utf8'), 'original');
+    fs.unlinkSync(output);
+    withPrivateOutputs([output], ([stage]) => fs.writeFileSync(stage, 'normal output'));
+    assert.equal(fs.readFileSync(output, 'utf8'), 'normal output');
+    assert.deepEqual(fs.readdirSync(root).sort(), ['outside', 'result.wav']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+test('private writes refuse linked files and retain ordinary overwrite behavior', () => {
+  const root = tmp();
+  try {
+    const file = path.join(root, 'output');
+    const linked = path.join(root, 'linked');
+    writePrivateFile(file, 'old');
+    fs.linkSync(file, linked);
+    assert.throws(() => writePrivateFile(file, 'new'), /storage boundary/);
+    assert.equal(fs.readFileSync(linked, 'utf8'), 'old');
+    fs.unlinkSync(linked);
+    writePrivateFile(file, 'new');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 for (const command of ['run', 'retranscribe']) {
   test(`${command} rejects explicit product sessions and aliases before writing`, () => {
     const root = tmp();

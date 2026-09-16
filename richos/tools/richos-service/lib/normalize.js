@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { ffmpegBin } from './config.js';
+import { privateDirectory, writePrivateFile, withPrivateOutputs } from './private-files.js';
 
 export const SAMPLE_RATE = 16000;
 export const CHANNEL_FILES = { me: 'me.wav', others: 'others.wav' };
@@ -197,8 +198,7 @@ export function normalizeSession(sessionDir, opts = {}) {
   const ffmpeg = ffmpegBin();
   const parts = listAudioParts(sessionDir);
   if (parts.length === 0) throw new Error('normalize: no audio parts to normalize');
-  const workDir = opts.workDir || sessionDir;
-  fs.mkdirSync(workDir, { recursive: true });
+  const workDir = privateDirectory(opts.workDir || sessionDir);
 
   // 1) Concatenate parts. Single part -> use it directly; many -> ffmpeg concat demuxer.
   let concatInput;
@@ -207,12 +207,13 @@ export function normalizeSession(sessionDir, opts = {}) {
     concatInput = path.join(sessionDir, parts[0]);
   } else {
     const listFile = path.join(workDir, '_concat.txt');
-    fs.writeFileSync(
+    writePrivateFile(
       listFile,
       parts.map((p) => `file '${path.join(sessionDir, p).replace(/'/g, "'\\''")}'`).join('\n'),
     );
     concatInput = path.join(workDir, '_concat.webm');
-    execFileSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', concatInput]);
+    withPrivateOutputs([concatInput], ([output]) =>
+      execFileSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', output]));
     cleanup.push(listFile, concatInput);
   }
 
@@ -221,22 +222,24 @@ export function normalizeSession(sessionDir, opts = {}) {
   const mePath = path.join(workDir, CHANNEL_FILES.me);
   const othersPath = path.join(workDir, CHANNEL_FILES.others);
 
-  if (stereo) {
-    // channelsplit gives free me-vs-them separation with no diarization model (§3.1).
-    execFileSync(ffmpeg, [
-      '-y', '-i', concatInput,
-      '-filter_complex', 'channelsplit=channel_layout=stereo[L][R]',
-      '-map', '[L]', '-ac', '1', '-ar', String(SAMPLE_RATE), mePath,
-      '-map', '[R]', '-ac', '1', '-ar', String(SAMPLE_RATE), othersPath,
-    ]);
-  } else {
-    // In-person / mono fallback (§3.1): both voices on LEFT; the 2-channel split degrades to
-    // single-channel gracefully. `others.wav` is a silent placeholder so downstream stays uniform.
-    execFileSync(ffmpeg, ['-y', '-i', concatInput, '-ac', '1', '-ar', String(SAMPLE_RATE), mePath]);
-    execFileSync(ffmpeg, [
-      '-y', '-f', 'lavfi', '-t', '0.1', '-i', `anullsrc=r=${SAMPLE_RATE}:cl=mono`, othersPath,
-    ]);
-  }
+  withPrivateOutputs([mePath, othersPath], ([meOutput, othersOutput]) => {
+    if (stereo) {
+      // channelsplit gives free me-vs-them separation with no diarization model (§3.1).
+      execFileSync(ffmpeg, [
+        '-y', '-i', concatInput,
+        '-filter_complex', 'channelsplit=channel_layout=stereo[L][R]',
+        '-map', '[L]', '-ac', '1', '-ar', String(SAMPLE_RATE), meOutput,
+        '-map', '[R]', '-ac', '1', '-ar', String(SAMPLE_RATE), othersOutput,
+      ]);
+    } else {
+      // In-person / mono fallback (§3.1): both voices on LEFT; the 2-channel split degrades to
+      // single-channel gracefully. `others.wav` is a silent placeholder so downstream stays uniform.
+      execFileSync(ffmpeg, ['-y', '-i', concatInput, '-ac', '1', '-ar', String(SAMPLE_RATE), meOutput]);
+      execFileSync(ffmpeg, [
+        '-y', '-f', 'lavfi', '-t', '0.1', '-i', `anullsrc=r=${SAMPLE_RATE}:cl=mono`, othersOutput,
+      ]);
+    }
+  });
 
   for (const f of cleanup) {
     try {
@@ -267,14 +270,14 @@ export function cutSpan(wavPath, span, outPath, opts = {}) {
   const pad = opts.padSec != null ? Number(opts.padSec) : 0.3;
   const from = Math.max(0, (Number(span.startMs) || 0) / 1000 - pad);
   const to = (Number(span.endMs) || 0) / 1000 + pad;
-  execFileSync(ffmpegBin(), [
+  withPrivateOutputs([outPath], ([output]) => execFileSync(ffmpegBin(), [
     '-y', '-v', 'error',
     '-ss', String(from),
     '-t', Math.max(0.05, to - from).toFixed(3),
     '-i', wavPath,
     '-ac', '1', '-ar', String(SAMPLE_RATE),
-    outPath,
-  ]);
+    output,
+  ]));
   return outPath;
 }
 
