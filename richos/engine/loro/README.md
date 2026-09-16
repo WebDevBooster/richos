@@ -32,3 +32,6 @@ compiled knowledge.
 Run `node loro/tests/run.js` and `node loro/tests/relocation.js`. The scale explorer
 is `node loro/tests/scale.js`. No private repository or existing corpus is required.
 See [the context contract](CONTEXT-CONTRACT.md).
+
+[Authoring guidance](docs/authoring.md) and [empty templates](templates/README.md)
+are shipped with the component. They are not seeded into a user's corpus.

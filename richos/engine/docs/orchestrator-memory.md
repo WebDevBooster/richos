@@ -1,10 +1,15 @@
 # Orchestrator memory — the operational second brain, distinct from the CEO's
 
 This document defines a convention: the orchestrator keeps its own
-**persistent operational memory**, separate from `ceo-wiki/`. If you're
-looking for how the CEO's judgment gets recorded, that's `ceo-wiki/` — this
+**persistent operational memory**, separate from Loro. If you're
+looking for how the CEO's judgment gets recorded, that's Loro — this
 document is about how the orchestrator remembers **how to run the machine
 well**, so it doesn't re-learn the same operational lesson every sprint.
+
+In the desktop app, ECS owns live obligations, work state and operational
+corrections. The historical terminal memory convention below is not a substitute
+for ECS and is not imported automatically. A fresh app does not require Claude
+auto-memory or an existing terminal memory directory.
 
 ## The two-brain model — read this table before writing to either
 
@@ -13,25 +18,25 @@ the CEO's wiki clutters it with operational minutiae the CEO never asked
 for; dumping the CEO's actual decisions into orchestrator memory buries them
 somewhere the "consult the wiki first" escalation-ladder step doesn't look.
 
-| | `ceo-wiki/` | Orchestrator memory (this doc's convention) |
+| | Loro | Orchestrator memory (this doc's convention) |
 |---|---|---|
 | **Whose knowledge** | The CEO's | The orchestrator's own |
 | **What it holds** | Decisions, preferences, precedents, positions about the product/business | Lessons, corrections, process rules about *running the operation* |
 | **Curated by** | The CEO (asks questions, guides analysis) | The orchestrator itself |
-| **Written by** | The orchestrator (one writer, per `ceo-wiki/AGENTS.md`) | The orchestrator itself |
-| **Read by** | Everyone (teammates cite it like a spec) | Primarily the orchestrator; teammates don't need to read another agent's operational notes |
+| **Written by** | The orchestrator (one writer, per `loro/docs/authoring.md`) | The orchestrator itself |
+| **Read by** | Only the selected company and authorized audience | Primarily the orchestrator; teammates don't need to read another agent's operational notes |
 | **Example entry** | "We launch UK-only for the first quarter." | "A completion notification with a stub result is not a handoff — resume once, then take over." |
-| **Where it's documented** | `ceo-wiki/README.md`, `ceo-wiki/AGENTS.md` | This document |
+| **Where it's documented** | `loro/README.md`, `loro/docs/authoring.md` | This document |
 
 If you're not sure which one something belongs in, ask: *is this a fact
 about the product/business the CEO would recognize as their own call, or a
 fact about how to operate the agent team well regardless of what product
-it's building?* The first is `ceo-wiki/`; the second is orchestrator memory.
+it's building?* The first is Loro; the second is orchestrator memory.
 
 ## The convention
 
 - **One file per lesson**, plus an index the orchestrator loads at the start
-  of every session — the same index-plus-files shape `ceo-wiki/` uses for its
+  of every session — the same index-plus-files shape Loro uses for its
   own pages, applied to a different substrate.
 - **Frontmatter per file**: at minimum a short slug/title and a category (a
   free-form tag like "handoff," "recovery," "verification" — whatever
@@ -73,7 +78,7 @@ described no longer applies (the underlying mechanism changed, the tool
 being warned about was fixed), **delete it** — don't leave it in place with
 a note that it's outdated. A stale lesson sitting in the index is exactly
 the kind of trap "current spec only, never a changelog of itself"
-(`ceo-wiki/AGENTS.md`'s rule, applied here too) exists to prevent. Update the
+(`loro/docs/authoring.md`'s rule, applied here too) exists to prevent. Update the
 index to match.
 
 ## How this relates to `docs/failures-playbook.md`

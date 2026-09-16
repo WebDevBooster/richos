@@ -1,0 +1,15 @@
+---
+id: [stable-id]
+kind: [fact-or-other-supported-kind]
+scope: ceo-private
+authority: unknown
+confidence: [supported-confidence]
+observedAt: [source-observation-time]
+supersededBy: null
+provenance:
+  method: [actual-learning-method]
+  source: [actual-source-type]
+  ref: [stable-evidence-reference]
+---
+
+[Source-backed belief. Use loro-write to create a validated record and receipt.]

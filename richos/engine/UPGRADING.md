@@ -1,5 +1,14 @@
 # Upgrading — pulling engine updates into a repo that has already adopted it
 
+For 1.2.0, Loro and ECS are canonical engine components. The old public wiki
+scaffold moved to `reference/legacy-ceo-wiki/`; a fresh install creates an empty
+external private corpus. This source reorganization is not permission to delete
+an adopter's existing `ceo-wiki/`, staff, doctrine or configuration. The desktop
+installer preserves those paths and retains the complete previous engine as a
+backup. Historical references remain readable through explicit legacy layouts.
+A separate reviewed migration handles actual personal records later.
+
+
 Once you adopt the engine, your repo diverges from it on purpose: you fill in
 `CLAUDE.md`, staff real workers, grow a `ceo-wiki/`, and tune
 `orchestration.config`. When the engine ships a new version — a hook hardening, a

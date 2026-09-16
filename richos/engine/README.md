@@ -11,12 +11,22 @@ to `main`, durable "the commit is the handoff" semantics, model tiering, and a
 mandatory QA pipeline. Drop it into a repo, point it at the project, and have
 the built-in HR worker staff the domain team.
 
-The flagship piece is `ceo-wiki/` — the CEO's second brain, ready to use from
-the first commit. It is what turns Rich from a router into a genuine Chief of
-Staff: a decision, preference, or precedent recorded once in the wiki never has
-to be re-asked, and escalations to the CEO shrink over time as the second brain
-grows. See "The Orchestrator as COO" and "Repository Conventions" in
-`CLAUDE.md.template`.
+The engine has four principal components:
+
+- [Loro](loro/README.md) compiles and maintains durable knowledge in an external private corpus.
+- [ECS](ecs/README.md) retains scoped commitments, decisions and operational continuity.
+- [Mega Lander](mega-lander/README.md) owns isolated workspaces, integration eligibility and cleanup.
+- [ASS Kicker](ass-kicker/README.md) checks briefs, reported actions and execution evidence.
+
+Version 1.2.0 supplies generic worker and reviewer roles for the desktop profile.
+Engine code, app coordination and target repositories have separate roots. A fresh
+corpus starts empty; installing the engine does not import an operator's knowledge,
+private roster or terminal configuration. Installed acceptance is recorded against
+an exact app and engine candidate separately from source-level test results.
+
+`ceo-wiki/` is retired as the new-install scaffold. Its public historical templates
+are retained under `reference/legacy-ceo-wiki/`. Existing adopter-owned stores and
+legacy references are preserved during upgrade; personal migration is separate.
 
 **A note on vocabulary.** RichOS's product voice says *Rich* and *AI workers*.
 This directory is the engine's own technical documentation, so it also uses the
@@ -247,22 +257,23 @@ left out. What ships here is only what transfers to any project:
 | CI red holds the TURN | `scripts/hooks/guard-ci-turn-gate.sh` + `scripts/hooks/guard-ci-turn-gate.py` (Stop) | The third leg of the CI surface, and the only one that costs something at the moment somebody is about to walk away. The land gate makes red cost something at a land and the session-start pass reports it; between them a workflow stayed red for **sixteen days**, named in every session banner, and nobody moved — a report nobody is forced to read is not a mechanism. This **refuses to end the orchestrator's turn** while a commit THIS SESSION PUSHED is failing CI. The repositories are DERIVED from the transcript's own `git push` calls rather than typed; the verdict is GitHub's, about that exact commit, read from `refs/remotes/origin/<branch>` so the reader can re-run the lookup by hand. **A run still in progress does NOT hold the turn** — it holds the obligation, written to disk per (repository, commit) and re-read at every later turn-end, because blocking for the length of a twelve-shard suite is how an ack becomes reflex. **The budget is a number, not an adjective:** `BUDGET_SECONDS = 2.0`, enforced as a wall-clock deadline around every subprocess; on expiry the turn is ALLOWED with the reason printed. Unreachable GitHub never holds a turn — "could not look" is not evidence of red. A green finished commit is cached forever, so the steady state costs no API call at all. The hatch is `ci-red-ack: <repository> — <reason>` in the final message: it must name something actually red, a bare marker and the pure assertions ("fine", "known", "flaky", "unrelated") are refused, it covers ONE repository, and every accepted ack is logged and counted back at the next refusal |
 | Full walkthrough | `WALKTHROUGH.md` | One feature traced through the complete lifecycle — wiki consult, real spawn, commit-is-the-handoff, single-writer land, the full 4-step QA pipeline with a genuine FIX-FIRST bounce, gatekeeper signoff — illustrative narrative, not a captured transcript; `scripts/demo.sh` is its runnable counterpart |
 | White-glove onboarding | `ONBOARDING-RUNBOOK.md` | The operator's timed script for a live setup session with a non-technical CEO — preflight checklist/email template, exact commands + expected-green output per step, realistic ~60-90 min timings, the common-stall playbook, and a machine-checkable definition of done |
-| Guided setup | `skills/bootstrap-interview/SKILL.md` | First-session orchestrator skill: interviews the CEO (~20 min, resumable), then fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages from the interview itself — the recommended path through "Adopter flow" below |
+| Guided setup | `skills/bootstrap-interview/SKILL.md` | First-session orchestrator skill: interviews the CEO (~20 min, resumable), then fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds confirmed private Loro knowledge from the interview itself — the recommended path through "Adopter flow" below |
 | Config | `orchestration.config` | The ONE file you edit to point the hooks at your repo (protected paths, allowlists, meta-role names, artifact dirs, optional QA gate) |
 | Cost governance | `docs/cost-governance.md` | What a sprint costs in practice (order-of-magnitude reasoning, not invented pricing), why judgment roles get the Opus tier and mechanical roles don't, the per-spawn override, and the levers that keep spend proportional to stakes — grounded in the engine's own role-template mix and QA-pipeline doctrine |
 | Failures playbook | `docs/failures-playbook.md` | 12 generic, product-independent operational failure modes distilled from this engine's own doctrine — symptom → why it happens → the rule → how to recover. Seeds orchestrator memory (below); a memory lesson that generalizes graduates back into this playbook |
-| Orchestrator memory | `docs/orchestrator-memory.md` | Rich's own persistent operational-memory convention (one file per lesson + an index) — and, front and center, the boundary table distinguishing it from `ceo-wiki/` (CEO's product/business judgment) so the two substrates never get conflated |
+| Orchestrator memory | `docs/orchestrator-memory.md` | Rich's own persistent operational-memory convention (one file per lesson + an index) — and, front and center, the boundary table distinguishing it from Loro (durable product/business judgment) so the two substrates never get conflated |
 | Versioning & upgrade path | `VERSION`, `VERSIONING.md`, `CHANGELOG.md`, `UPGRADING.md` | The packaging that lets the engine be versioned and safely upgraded: the semver scheme for a doctrine + hooks product (what counts as MAJOR/MINOR/PATCH), the engine-owned `VERSION` file the probe prints on every run, the CHANGELOG, and the upgrade mechanic — which files are yours after adoption vs. engine-owned and safe to overwrite, with the golden rule "re-run install.sh + probe + demo; green = safe" |
 | Land/worktree helpers | `scripts/lib/`, `scripts/collect-worktree-artifacts.sh` | Main-checkout resolver + gitignored-evidence collector |
 | Working meta-workers | `.claude/agents/{dean,clark,reed,frank}.md` | Spawnable out of the box — Dean (HR), Clark (research), Reed (source reading), Frank (devil's advocate) |
 | Role templates | `.claude/agents/templates/` | 16 non-live skeletons (architect, CTO, engineers, QA, designer/gatekeeper, copywriter, marketing, advisors, domain expert) Dean turns into real teammates |
 | HR records | `team/` | Plain-markdown profiles for the meta-roles + a profile skeleton + starter `ROSTER.md` + the `NAMING.md` teammate-naming convention |
 | Doctrine | `CLAUDE.md.template` | Rich's operating manual — generic rules intact, product sections stubbed |
-| **The CEO's second brain (flagship)** | `ceo-wiki/` | Ready to use, not optional-adoption reference: the CEO's externalized judgment — decisions, preferences, precedents. One writer (Rich), everyone reads. Grows primarily from distilled daily conversation; `raw/`-ingestion is the bootstrap path. See `ceo-wiki/README.md` + `ceo-wiki/AGENTS.md` |
-| Visibility without meetings | `ceo-briefings/` | Committed sprint/milestone briefs — shipped, in-flight, blocked, escalation-ladder decisions (with wiki citations), wiki updates, open CEO decisions. Rich-written only, like `ceo-wiki/`. Ships with a worked model, `ceo-briefings/EXAMPLE_BRIEFING.md` |
+| Durable knowledge | `loro/` | Compiler, writer and contracts. Actual records live in an external private corpus; read scope and confirmation rules are explicit. |
+| Executive continuity | `ecs/` | Scoped operational obligations, provider observations and receipts. |
+| Visibility without meetings | `ceo-briefings/` | Committed sprint/milestone briefs — shipped, in-flight, blocked, escalation-ladder decisions (with wiki citations), wiki updates, open CEO decisions. Rich-written only, under the Loro writer contract. Ships with a worked model, `ceo-briefings/EXAMPLE_BRIEFING.md` |
 | Skill library | `skills/` (index: `skills/README.md`) | 25 skills total: 3 meta-role doctrine skills (worktree workflow, land sequence, bootstrap interview) + 22 domain skills (14 ship-as-is, 7 scrubbed, 1 template-only) covering QA/testing, native mobile, marketing, copywriting, Svelte, and vendor integrations |
 | Advanced tier (reference) | `reference/advanced-tier/` | The optional "identity-or-refuse" freshness / data-render pattern — reference only, not wired in |
-| Ingestion tooling | `tools/gpt-exporter/` | GPT Exporter — a Chrome extension that exports ChatGPT threads as clean, Obsidian-compatible `.md` files (with frontmatter), for dropping into `ceo-inbox/for-wiki/` for ingestion into `ceo-wiki/` — see `tools/gpt-exporter/README.md` |
+| Ingestion tooling | `tools/gpt-exporter/` | GPT Exporter — a Chrome extension that exports ChatGPT threads as clean, Obsidian-compatible `.md` files (with frontmatter), for dropping into `ceo-inbox/for-wiki/` as private source material for Loro — see `tools/gpt-exporter/README.md` |
 
 ## Repository structure
 
@@ -295,34 +306,20 @@ orphan folders:
 ├── ceo-briefings/                — committed sprint/milestone briefs (shipped,
 │                                  in-flight, blocked, escalation-ladder
 │                                  decisions, wiki updates, open CEO decisions);
-│                                  Rich-written only, like ceo-wiki/;
+│                                  Rich-written only, with explicit private scope;
 │                                  ships with EXAMPLE_BRIEFING.md, a worked
 │                                  model (delete after your first real one)
 ├── ceo-inbox/                    — CEO's private channel to Rich
 │                                  ONLY (teammates never read it); transient —
 │                                  a processed inbox is an EMPTY inbox
-│   ├── for-wiki/                 — material destined for ceo-wiki/: Rich
-│   │                              moves it into ceo-wiki/raw/ and
-│   │                              distills it, no per-item instructions needed
-│   │                              (incl. exported .md threads — see
-│   │                              tools/gpt-exporter/)
+│   ├── for-wiki/                 — legacy intake name for private Loro sources;
+│   │                              preserve citations and confirm derived knowledge
 │   └── general/                  — everything else for Rich (work
 │                                  requests, task context, one-off directives);
 │                                  processed case-by-case
-├── ceo-wiki/                     — the CEO's second brain (flagship) — decisions,
-│                                  preferences, precedents, not documentation.
-│                                  One writer (Rich), everyone reads.
-│   ├── README.md                 — what this is + the intake pipeline + access rules
-│   ├── AGENTS.md                 — the maintenance doctrine (read before editing)
-│   ├── CLAUDE.md                 — single-line `@AGENTS.md` import
-│   ├── PAGE-TYPES.md              — the 20-type page taxonomy reference
-│   ├── PAGE-TEMPLATE.md           — the standalone page-format skeleton
-│   ├── raw/assets/                — provenance archive for images (raw/ itself
-│   │                              is the permanent, immutable ingested-source
-│   │                              archive that source-* pages cite)
-│   └── wiki/
-│       ├── 000_index.md          — table of contents (sorts first: "000_")
-│       └── zzz_log.md            — append-only operations log (sorts last: "zzz_")
+├── loro/                        — compiler, writer, contracts and empty templates
+├── ecs/                         — scoped operational store and app protocol
+├── reference/legacy-ceo-wiki/    — archived templates for older adopters only
 ├── docs/
 │   ├── audits/                  — dated audit registers and findings docs
 │   ├── briefs/                  — Reed's durable, committed source-reading briefs
@@ -337,7 +334,7 @@ orphan folders:
 │   │                              failure modes (symptom -> why -> rule ->
 │   │                              recovery); seeds orchestrator-memory.md
 │   ├── orchestrator-memory.md   — Rich's own persistent operational
-│   │                              memory convention, and its boundary vs. ceo-wiki/
+│   │                              memory convention, and its boundary with Loro and ECS
 │   └── plans/                   — architecture/migration/rollout/sprint plans
 ├── hr-inbox/
 │   └── team-skills/             — skill packages Dean distributes to teammates
@@ -399,7 +396,7 @@ scaffold.
    subset: `scripts/`, `.claude/` (**including the committed
    `.claude/settings.local.json`** — see the load-bearing warning just below),
    `.github/workflows/`, `team/`, `skills/`, `orchestration.config`,
-   `CLAUDE.md.template`, `reference/`, `tools/`, `ceo-inbox/`, `ceo-wiki/`,
+   `CLAUDE.md.template`, `reference/`, `tools/`, `ceo-inbox/`, `loro/`, `ecs/`,
    `ceo-briefings/`, plus `.gitignore` and the `VERSION` / `CHANGELOG.md` /
    `UPGRADING.md` packaging files.
    - **`.claude/settings.local.json` is committed BY DESIGN and easy to lose.**
@@ -438,8 +435,7 @@ scaffold.
    (~20 minutes, structured stages, resumable if you need to stop partway),
    then does the rest of this section's old manual work FOR you: fills
    `CLAUDE.md` from `CLAUDE.md.template`, fills `orchestration.config`, spawns
-   Dean to staff your initial roster from the answers, seeds the first
-   `ceo-wiki/` pages from the interview itself (with discuss-before-write
+   Dean to staff your initial roster from the answers, seeds confirmed knowledge in an explicitly selected private Loro corpus from the interview (with discuss-before-write
    honored, same as any other wiki ingest), and finishes with its own
    verification pass (`install.sh` + `contract-integrity-probe.sh` +
    `scripts/demo.sh`) so you see a green summary before doing anything else.
@@ -489,11 +485,10 @@ the interview is doing on your behalf:
    the sample "No pagination" bullet** — anything left in place reads as your
    doctrine. Keep all the generic doctrine intact, including "The Orchestrator
    as COO" section.
-3. **Start using `ceo-wiki/`:** it's ready as-is — no setup required. Either
-   drop your first source into `ceo-inbox/for-wiki/` and have Rich
-   ingest it, or just start talking; Rich distills durable
-   decisions/preferences into the wiki continuously from there. `ceo-inbox/general/`
-   is for everything else you hand Rich.
+3. **Choose a private Loro corpus:** use the app's memory setup or an explicit
+   external corpus root for the Loro CLI. See `loro/docs/authoring.md`. Keep the
+   corpus outside engine code and the public repository. Write only confirmed
+   knowledge with source references; installing templates does not import context.
 4. **Staff your domain team via Dean:** for each role you need, have Dean read
    the matching template in `.claude/agents/templates/` (asking Clark to research
    the role for your domain when depth helps), copy it to

@@ -31,7 +31,7 @@ claim that must be verified by grep, not by memory of the export pass.
 |---|---|---|
 | `using-git-worktrees` | as-is | The teammate worktree workflow — isolation, atomic commits, commit-is-the-handoff, courtesy summaries. Read this before writing your first file. |
 | `rich-lander` | as-is | The orchestrator's per-handoff land sequence — single-writer-to-main, durable-signal detection, serialized landing. Orchestrator-only. |
-| `bootstrap-interview` | as-is (engine-authored) | First-session orchestrator skill — interviews the CEO, fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages. Orchestrator-only, run once per adoption. |
+| `bootstrap-interview` | as-is (engine-authored) | First-session orchestrator skill — interviews the CEO, fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds confirmed knowledge in the private Loro corpus. Orchestrator-only, run once per adoption. |
 
 ## Ship-as-is (14) — zero project content, proven byte-identical to an independent instantiation
 

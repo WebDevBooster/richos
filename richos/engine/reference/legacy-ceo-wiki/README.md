@@ -1,3 +1,8 @@
+> Legacy reference only. RichOS 1.2 creates an empty private corpus through
+> [Loro](../../loro/README.md). This archived scaffold is not installed as an
+> active knowledge store. Existing adopter-owned `ceo-wiki/` directories and
+> references remain supported and must be preserved during upgrade.
+
 # Wiki
 
 The CEO's evolving knowledge base — maintained by Rich. Based on

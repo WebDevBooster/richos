@@ -1,6 +1,6 @@
 ---
 name: bootstrap-interview
-description: First-session orchestrator skill — interviews the CEO conversationally to fill CLAUDE.md and orchestration.config, staff the initial domain roster via Dean, and seed the first ceo-wiki/ pages, in one guided ~20-minute session. Use on first session with a fresh, un-adopted copy of this engine, or whenever CLAUDE.md/orchestration.config still carry unfilled sample content.
+description: First-session orchestrator skill — interviews the CEO conversationally to fill CLAUDE.md and orchestration.config, staff the initial domain roster via Dean, and seed confirmed knowledge in a private Loro corpus, in one guided ~20-minute session. Use on first session with a fresh, un-adopted copy of this engine, or whenever CLAUDE.md/orchestration.config still carry unfilled sample content.
 ---
 
 # Bootstrap Interview
@@ -17,7 +17,7 @@ still carry unfilled sample content (Stage 0 tells you how to check).
 The promise is: **the CEO answers questions for about 20 minutes and ends
 with a staffed company** — a filled `CLAUDE.md`, a filled
 `orchestration.config`, real named teammates registered and spawnable, and a
-`ceo-wiki/` that already contains what the CEO said. That promise is fragile
+the private Loro corpus that already contains what the CEO said. That promise is fragile
 in two opposite directions, and both are non-negotiable:
 
 - **Too shallow, and everything downstream is under-filled** — Dean can't
@@ -56,7 +56,7 @@ transcript to drop in `ceo-inbox/for-wiki/`.
 Filling your own operating manual and config from an interview you conducted
 yourself is orchestrator self-administration, not product/feature work — the
 same class of bounded exception as running the land sequence or maintaining
-`ceo-wiki/` (see `CLAUDE.md`'s Core Guardrail — this is the third of the
+the private Loro corpus (see `CLAUDE.md`'s Core Guardrail — this is the third of the
 three reserved exceptions to "never carry out work directly"). You do NOT
 delegate the interview, the `CLAUDE.md`/`orchestration.config` fill, or the
 wiki-seeding to a teammate. You DO delegate the actual role instantiation to
@@ -144,9 +144,7 @@ instructions):
    the interview.
 
 Once extraction + generation complete, move the transcript file itself into
-whatever `ceo-wiki/raw/` subfolder is appropriate (it's now provenance
-material a `source-*` page can cite) — the same intake pipeline any other
-`ceo-inbox/for-wiki/` material follows.
+an explicitly agreed private source archive only if that move preserves its existing references. Otherwise retain the original file and cite it in place. Do not create `ceo-wiki/` during new installation.
 
 ## The interview stages
 
@@ -156,7 +154,7 @@ Each stage lists what you need by the end of it — not a fixed question list.
 ### Stage 1 — Product & domain
 What is this, in one or two sentences? Who is it for? What's the core
 promise/category? Is there an existing name, or still deciding? (Feeds
-`CLAUDE.md`'s intro and `ceo-wiki/wiki/vision-and-positioning.md`.)
+`CLAUDE.md`'s intro and a confirmed vision page in the selected private company corpus.)
 
 ### Stage 2 — Users & surfaces
 Is there more than one user-facing surface (web/native/admin/multiple apps
@@ -301,85 +299,26 @@ gap: the block that needed names G1 didn't have yet is completed the moment the
 names exist. Keep the bars, the loop-back rule, and the CEO-sees-nothing-before-
 signoff rule exactly as shipped.
 
-### G4 — Seed `ceo-wiki/` from the interview itself
+### G4 — Seed confirmed knowledge through Loro
 
-This is where the conversation-primary loop runs in minute one, not as an
-abstract promise. Follow `ceo-wiki/AGENTS.md`'s Conversation workflow
-exactly, including its first rule: **discuss before you write.** Before
-creating any page:
+Use `loro/docs/authoring.md` and the selected external private corpus. The app
+supplies that corpus and the selected company. A terminal adopter must choose the
+private location and stable company ID explicitly; never create a knowledge store
+inside the engine or public product repository.
 
-1. Propose the page plan out loud — which pages you're about to create
-   (typically: a hub/overview page, vision-and-positioning, target-audience-
-   and-niche, product-architecture, and a product-principles page if hard
-   rules came up — see `ceo-wiki/PAGE-TYPES.md` for the full taxonomy) and a
-   one-line gist of what each will say.
-2. Get a nod from the CEO before writing anything — same discuss-first gate
-   as any other ingest, no exception for "it's just the bootstrap."
-3. Write the pages per `ceo-wiki/PAGE-TEMPLATE.md`'s skeleton. **The citation
-   form depends on the entry path** (both satisfy `AGENTS.md`'s "every factual
-   claim cites its source"):
-   - **Live-interview path** — cite `(conversation with the CEO, YYYY-MM-DD)` in
-     each `**Sources**:` header. This is genuinely conversation-derived
-     knowledge, not a `raw/` ingest, so there is no source file to link.
-   - **Transcript mode** — there IS a source file: transcript-mode step 5 moves
-     the transcript into `ceo-wiki/raw/`, so cite that `raw/` transcript file
-     (a `../raw/…` link) as the provenance, exactly like any other `raw/`
-     ingest. (Move it to `raw/` *before* writing pages so the link resolves —
-     see Transcript mode step 5; optionally add a `source-*` summary page per the
-     Ingest workflow and cite that.) Do not use the conversation-citation form
-     here — a real file exists and must be the traceable source.
-4. Wiki-link the new pages to each other where they relate.
-5. Update `wiki/000_index.md` — fill in the categories these new pages
-   belong to (per the taxonomy groupings already in the index skeleton).
-6. Append one `wiki/zzz_log.md` entry: "conversation with the CEO" as the
-   source, the bootstrap interview as the trigger, and which pages were
-   created.
+Propose the specific records or pages to create and confirm the content under the
+existing discuss-before-write contract. Reuse an explicit approval already given
+in this interview. Keep unanswered questions unresolved. Typed beliefs go through
+`loro/bin/loro-write.mjs` with the explicit central root, partition, scope and
+source reference. The app uses its existing correction desk. Do not add another
+writer or confirmation mechanism.
 
-Only capture what the CEO actually said as durable fact — Stage 1-6 answers,
-not your own inferences about the product. If you want to note an inference,
-label it as such explicitly, same as any wiki page would.
-
-### G4b — Give the CEO a TODO list, and a page to find it on
-
-The engine ships a CEO-TODOs lint, a commit guard, a predicate and a test suite.
-**Every one of them is inert until this repository carries a `.ceo-todos`
-declaration.** For one release there was no template and no step here, so
-adopters received enforcement that could never fire and nothing told them —
-which is the same defect the mechanism itself exists to catch, one level out.
-That is why this is a generation step and not a suggestion.
-
-```bash
-scripts/ceo-todos-init.sh <this repo>
-```
-
-It writes the declaration, a starter record, renders the one entry point
-(`CEO-TODOs.md` at the repository root), points the root `README.md` at it,
-runs a **cold open**, and finishes by running the lint. Show the CEO the real
-output.
-
-Then say these three things, because they are the contract and he is the one it
-protects:
-
-1. **`CEO-TODOs.md` is the only place his work appears.** Repository root, one
-   page, generated from the record. Never edit it by hand — the commit guard
-   refuses a copy that has drifted from its source.
-2. **Nothing reaches that page unprepared.** An item may not claim to be waiting
-   on him unless the file he opens already exists, the time is stated, and
-   "done" is written down. Unprepared work is `BLOCKED-ON-RICH` in section 3 —
-   your problem, not his.
-3. **A stranger reads the page, on purpose.** `scripts/cold-open.sh` asks a
-   reader with no context what this repository wants from him. The transcript is
-   committed; changing the front door invalidates it and blocks the next commit
-   until somebody reads the new one. The gate checks that the reading happened,
-   never what it concluded.
-
-From here on, **every item you would otherwise hand the CEO in conversation
-goes into the record first** and reaches him on that page. The one-sentence
-verbal hand-off is the failure this replaces.
-
-If the cold open cannot run, init leaves `COLD_OPEN_DIR` commented out and
-prints the line to uncomment later — say so plainly rather than reporting a
-clean install over a gate that is not on.
+For explanatory pages, use `loro/templates/page.md.template` in the selected
+company's private pages directory. Cite actual interview evidence. A supplied
+transcript keeps its original reference; do not move or rewrite it merely to fit a
+new folder convention. Operational commitments belong to ECS rather than belief
+records. Report the writer's actual receipts and any refused or unresolved item.
+Do not claim that setup has migrated earlier personal context.
 
 ### G5 — Verification pass
 
@@ -411,9 +350,7 @@ never report "bootstrapped" over a red verification pass.
 - At least the roles confirmed in Stage 4 are registered as real named
   `.claude/agents/<slug>.md` + `team/<name>.md` pairs, and `CLAUDE.md`'s Team
   Directory + `team/ROSTER.md` list them.
-- At least one real `ceo-wiki/wiki/*.md` page exists beyond the shipped
-  skeleton, `wiki/000_index.md` references it, and `wiki/zzz_log.md` has at
-  least one dated entry for this session.
+- Confirmed Loro records or pages exist in the selected private corpus with actual source references and writer receipts; declined or unanswered content remains unwritten.
 - `install.sh` + `contract-integrity-probe.sh` + `scripts/demo.sh` all ran
   green in this same session.
 - The repository carries a `.ceo-todos`, `CEO-TODOs.md` exists at its root and
