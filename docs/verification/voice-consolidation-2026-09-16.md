@@ -117,3 +117,28 @@ was migrated. Clean installed-app voice acceptance, physical microphone/speaker
 regression and update/rollback acceptance were not run for this consolidation.
 Those remain required before claiming a newly delivered voice release. The source
 move introduces no new speech capability or automatic model installation.
+
+## Integration with September 16 main
+
+Merged public main `2d0f3d935301a956a5d3dcf7c170f5960976278b` into the voice
+implementation `5809c537` as `117bf4b6`. The only conflict was two appended
+sections in the app README; both sections were retained. The voice component,
+service, HUD and Rust voice source were unchanged by this merge.
+
+Rechecked the combined tree locally on the same macOS host with Node 24.21.0
+and Rust 1.95.0:
+
+| Check | Result |
+|---|---|
+| Service `npm test` | 35 component, 329 service, 3 JS/shell consumer and 91 workspace cases passed |
+| Rust voice suite | 225 passed; 4 opt-in hardware tests ignored |
+| `voice-component.test.sh` | 12 consumer/relocation/runner cases and both Rust source-build checks passed |
+| `nightly.test.sh` and `nightly-local.test.sh` | 19 and 11 tests passed |
+| `make-release.test.sh` | 11 passed |
+| `ci-affected-units.test.sh` | 13 passed |
+| `make-engine-asset.test.sh` with the verified 1.2.0 runtime | 19 passed, including reproducibility and extracted voice execution |
+| `git diff --check origin/main..HEAD` | Passed |
+
+The earlier 56-mutation result still applies to the unchanged voice source.
+The nightly suites exercised local fixtures; no release was published. The
+installed-app and physical-device acceptance limits above still apply.
