@@ -85,9 +85,11 @@ mutant empty-paths-means-everything "test_C9_reap_with_no_paths_does_nothing" "$
 # --- proven only where Docker is present -----------------------------------
 
 if [ "$DOCKER_OK" = "1" ]; then
+    # Landing now reaps before its final cleanliness proof as well as during
+    # deletion. Disable the shared operation so both landing paths are tested.
     mutant reap-does-nothing "test_D1_a_landed_workspace_takes_its_container_with_it" "$W" \
-        '        stop_containers([w["path"] for w in workspaces])' \
-        '        pass' \
+        'def stop_containers(paths):' \
+        'def stop_containers(paths):{NL}    return {}' \
         "THE FOUNDER'S QUESTION. The lifecycle would stop reaping containers, and residue would again depend on somebody remembering to tidy up."
 
     # The witness here is D6, not D2, and the difference is the whole reason
@@ -107,8 +109,8 @@ if [ "$DOCKER_OK" = "1" ]; then
         "with a REAL container and a REAL land: a bind-mounted container would be destroyed when the directory it mounts is landed."
 
     mutant auto-land-does-not-reap "test_D5_the_automatic_land_at_the_next_spawn_reaps_too" "$W" \
-        '        stop_containers([w["path"] for w in workspaces])' \
-        '        pass' \
+        'def stop_containers(paths):' \
+        'def stop_containers(paths):{NL}    return {}' \
         "the automatic land at the next spawn would leave containers behind, so reaping would only happen when somebody typed a command."
 
     mutant one-gone-container-empties-the-inventory "test_D9_a_container_that_vanished_does_not_empty_the_whole_inventory" "$C" \
