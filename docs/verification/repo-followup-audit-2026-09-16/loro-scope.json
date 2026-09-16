@@ -1,0 +1,27 @@
+{
+  "directCorrectionExit": 5,
+  "directCorrectionError": "loro write: refusing to widen \"rec:ceo/records/secret\" from ceo-private to org-shared without --widen-scope. Widening is what turns the CEO's private view into something every worker sees, and it must be a decision, never a side effect of another edit.",
+  "supersedeExit": 0,
+  "supersedeError": "",
+  "workerItems": [
+    {
+      "ref": "rec:ceo/records/replacement",
+      "kind": "fact",
+      "kindInferred": false,
+      "title": "Synthetic confidential acquisition budget is 43 million.",
+      "scope": "org-shared",
+      "company": null,
+      "score": 2.2813,
+      "truncated": false,
+      "provenance": {
+        "source": "records",
+        "path": "ceo/records/replacement.md",
+        "anchor": null,
+        "link": null,
+        "method": "explicit_ceo_instruction",
+        "ref": "rec:ceo/records/secret"
+      },
+      "confidence": 0.9
+    }
+  ]
+}

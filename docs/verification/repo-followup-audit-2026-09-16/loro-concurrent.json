@@ -1,0 +1,22 @@
+{
+  "firstExit": 0,
+  "secondExit": 0,
+  "sequentialExit": 5,
+  "records": [
+    {
+      "ref": "rec:ceo/records/original",
+      "supersededBy": "rec:ceo/records/replacement-two",
+      "text": "Synthetic acquisition budget 42 million."
+    },
+    {
+      "ref": "rec:ceo/records/replacement-one",
+      "supersededBy": null,
+      "text": "Synthetic acquisition budget 43 million."
+    },
+    {
+      "ref": "rec:ceo/records/replacement-two",
+      "supersededBy": null,
+      "text": "Synthetic acquisition budget 44 million."
+    }
+  ]
+}

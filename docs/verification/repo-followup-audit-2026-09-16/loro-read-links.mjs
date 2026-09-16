@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const source=process.argv[2];
+const {compileContext}=await import(path.join(source,'richos/engine/loro/lib/compile.js'));
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'loro-read-audit-'));
+fs.mkdirSync(path.join(root,'ceo/pages/private'),{recursive:true});fs.mkdirSync(path.join(root,'companies'));
+const privateFile=path.join(root,'ceo/pages/private/acquisition.md');
+fs.writeFileSync(privateFile,'# Acquisition budget\n\nSynthetic confidential acquisition budget is 42 million. This private note must remain visible only to the CEO.\n');
+const compile=()=>compileContext({corpusRoot:root,topic:'confidential acquisition budget',audience:'worker',budgetChars:4000});
+const before=compile();fs.symlinkSync(privateFile,path.join(root,'ceo/pages/budget.md'));
+const after=compile();assert.equal(before.items.length,0);assert.ok(after.items.some(r=>r.ref==='wiki:ceo/pages/budget.md#overview' && r.scope==='org-shared'));assert.ok(after.text.includes('42 million'));
+console.log(JSON.stringify({before:before.items,after:after.items,text:after.text},null,2));
+fs.rmSync(root,{recursive:true,force:true});

@@ -1,0 +1,98 @@
+
+loro-scope
+{
+  "directCorrectionExit": 5,
+  "directCorrectionError": "loro write: refusing to widen \"rec:ceo/records/secret\" from ceo-private to org-shared without --widen-scope. Widening is what turns the CEO's private view into something every worker sees, and it must be a decision, never a side effect of another edit.",
+  "supersedeExit": 0,
+  "supersedeError": "",
+  "workerItems": [
+    {
+      "ref": "rec:ceo/records/replacement",
+      "kind": "fact",
+      "kindInferred": false,
+      "title": "Synthetic confidential acquisition budget is 43 million.",
+      "scope": "org-shared",
+      "company": null,
+      "score": 2.2813,
+      "truncated": false,
+      "provenance": {
+        "source": "records",
+        "path": "ceo/records/replacement.md",
+        "anchor": null,
+        "link": null,
+        "method": "explicit_ceo_instruction",
+        "ref": "rec:ceo/records/secret"
+      },
+      "confidence": 0.9
+    }
+  ]
+}
+
+loro-read-links
+{
+  "before": [],
+  "after": [
+    {
+      "ref": "wiki:ceo/pages/budget.md#overview",
+      "kind": "passage",
+      "kindInferred": true,
+      "title": "Acquisition budget",
+      "scope": "org-shared",
+      "company": null,
+      "score": 1.9794,
+      "truncated": false,
+      "provenance": {
+        "source": "wiki",
+        "path": "ceo/pages/budget.md",
+        "anchor": "overview",
+        "link": null,
+        "method": null,
+        "ref": null
+      },
+      "confidence": 0.75
+    }
+  ],
+  "text": "COMPANY MEMORY (loro) — bearing on: \"confidential acquisition budget\"\n• [passage?] Acquisition budget — Synthetic confidential acquisition budget is 42 million. This private note must remain visible only to the CEO. (ref: wiki:ceo/pages/budget.md#overview)"
+}
+
+loro-concurrent
+{
+  "firstExit": 0,
+  "secondExit": 0,
+  "sequentialExit": 5,
+  "records": [
+    {
+      "ref": "rec:ceo/records/original",
+      "supersededBy": "rec:ceo/records/replacement-two",
+      "text": "Synthetic acquisition budget 42 million."
+    },
+    {
+      "ref": "rec:ceo/records/replacement-one",
+      "supersededBy": null,
+      "text": "Synthetic acquisition budget 43 million."
+    },
+    {
+      "ref": "rec:ceo/records/replacement-two",
+      "supersededBy": null,
+      "text": "Synthetic acquisition budget 44 million."
+    }
+  ]
+}
+
+watcher
+{
+  "control": {
+    "transcribed": [],
+    "anomalies": [],
+    "skipped": [
+      "good"
+    ]
+  },
+  "failures": [
+    "ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/watcher-audit-JJtjn3/a-broken/audio-part-0.wav'",
+    "ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/watcher-audit-JJtjn3/a-broken/audio-part-0.wav'"
+  ],
+  "boundaryFailure": "storage boundary: output must be a regular unlinked file"
+}
+
+All four defects reproduced against the audited revision.

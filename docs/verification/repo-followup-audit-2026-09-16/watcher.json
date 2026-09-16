@@ -1,0 +1,14 @@
+{
+  "control": {
+    "transcribed": [],
+    "anomalies": [],
+    "skipped": [
+      "good"
+    ]
+  },
+  "failures": [
+    "ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/watcher-audit-gUnk5k/a-broken/audio-part-0.wav'",
+    "ENOENT: no such file or directory, stat '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/watcher-audit-gUnk5k/a-broken/audio-part-0.wav'"
+  ],
+  "boundaryFailure": "storage boundary: output must be a regular unlinked file"
+}

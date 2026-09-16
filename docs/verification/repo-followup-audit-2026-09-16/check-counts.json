@@ -1,0 +1,181 @@
+{
+  "richos-audit-current-consumers": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "4",
+        "0"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-consumers.log",
+    "sha256": "d3e43ed0987d65a9dacbf93ecfab036532525743b5054ee2012ecde0b15fe07b"
+  },
+  "richos-audit-current-core": {
+    "rust_totals": [
+      1031,
+      0,
+      4
+    ],
+    "node_counts": [],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-core.log",
+    "sha256": "95c77f5887860946505397a18216b032c7921a4b8aabd45ee151640f69b9c571"
+  },
+  "richos-audit-current-ecs": {
+    "rust_totals": null,
+    "node_counts": [],
+    "python_counts": [
+      "18"
+    ],
+    "python_ok": true,
+    "log": "/tmp/richos-audit-current-ecs.log",
+    "sha256": "4a7d0720f8f89fc38c0b9ab0ef1734d3448055d0113d22ea79f6b08da57cccd3"
+  },
+  "richos-audit-current-extension": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "66",
+        "0"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-extension.log",
+    "sha256": "29bb699b6984ee386c019316b5da0246a13a1728f220f87cae12bb9e910eebfe"
+  },
+  "richos-audit-current-loro": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "207",
+        "0"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-loro.log",
+    "sha256": "b01a71287d86d68ab64b5d23f3edd953096775b4afdca5d7476e584e4f42fd09"
+  },
+  "richos-audit-current-nightly": {
+    "rust_totals": null,
+    "node_counts": [],
+    "python_counts": [
+      "19",
+      "11"
+    ],
+    "python_ok": true,
+    "log": "/tmp/richos-audit-current-nightly.log",
+    "sha256": "e8ef56b7d5741febf98f69aa491366780f535898d0a4b02f7848bde2ad929f2c"
+  },
+  "richos-audit-current-service": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "35",
+        "0"
+      ],
+      [
+        "329",
+        "0"
+      ],
+      [
+        "3",
+        "0"
+      ],
+      [
+        "87",
+        "4"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-service.log",
+    "sha256": "20efc7f989285c0aea71a7ab674bd3e971a1223bf8c5ba90428045fa8bdded32"
+  },
+  "richos-audit-current-supervisor": {
+    "rust_totals": null,
+    "node_counts": [],
+    "python_counts": [
+      "1"
+    ],
+    "python_ok": true,
+    "log": "/tmp/richos-audit-current-supervisor.log",
+    "sha256": "0c39d0c11567cc3f9b6a21b4251429d1caf7395b84797472f468c4da414684fc"
+  },
+  "richos-audit-current-tauri": {
+    "rust_totals": [
+      98,
+      0,
+      0
+    ],
+    "node_counts": [],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-tauri.log",
+    "sha256": "2503b0bde2fd97984de9a782d97efb2313871e95808e09b6909911623cdf0107"
+  },
+  "richos-audit-current-updater": {
+    "rust_totals": [
+      40,
+      0,
+      0
+    ],
+    "node_counts": [],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-updater.log",
+    "sha256": "8a7de0f1be6037da7d4e0f6f707d5b956daa8a9037311f386cdf7d547c285ed9"
+  },
+  "richos-audit-current-voice-relocation": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "4",
+        "0"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-voice-relocation.log",
+    "sha256": "7e53c722b93decc67f21b6f8fcdf2ad5cbf32deda092795cd913793a109d5dfb"
+  },
+  "richos-audit-current-voice": {
+    "rust_totals": [
+      225,
+      0,
+      4
+    ],
+    "node_counts": [],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-voice.log",
+    "sha256": "0862920541dc737e665768c14a20e823d6769d4b2f42afaf0e52d6bafaaf59ba"
+  },
+  "richos-audit-current-work-adapter": {
+    "rust_totals": null,
+    "node_counts": [],
+    "python_counts": [
+      "13"
+    ],
+    "python_ok": true,
+    "log": "/tmp/richos-audit-current-work-adapter.log",
+    "sha256": "ac0377345eeb09fb31a99ac1c9aef077b47135b3044c9a0e9e22f979f3c42d96"
+  },
+  "richos-audit-current-workspace": {
+    "rust_totals": null,
+    "node_counts": [
+      [
+        "91",
+        "0"
+      ]
+    ],
+    "python_counts": [],
+    "python_ok": false,
+    "log": "/tmp/richos-audit-current-workspace.log",
+    "sha256": "32d58955f14e4e49657417601afd8f8240d1e967d2c6cd0893eb56c53db92c88"
+  }
+}

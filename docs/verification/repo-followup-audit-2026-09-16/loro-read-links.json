@@ -1,0 +1,25 @@
+{
+  "before": [],
+  "after": [
+    {
+      "ref": "wiki:ceo/pages/budget.md#overview",
+      "kind": "passage",
+      "kindInferred": true,
+      "title": "Acquisition budget",
+      "scope": "org-shared",
+      "company": null,
+      "score": 1.9794,
+      "truncated": false,
+      "provenance": {
+        "source": "wiki",
+        "path": "ceo/pages/budget.md",
+        "anchor": "overview",
+        "link": null,
+        "method": null,
+        "ref": null
+      },
+      "confidence": 0.75
+    }
+  ],
+  "text": "COMPANY MEMORY (loro) — bearing on: \"confidential acquisition budget\"\n• [passage?] Acquisition budget — Synthetic confidential acquisition budget is 42 million. This private note must remain visible only to the CEO. (ref: wiki:ceo/pages/budget.md#overview)"
+}
