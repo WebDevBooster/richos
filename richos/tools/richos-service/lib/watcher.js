@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reconcilePipeline } from './reconcile.js';
 import { runPipeline, readRecord, audioBytesOnDisk, ARTIFACTS } from './pipeline.js';
+import { lastSessionHeartbeat, CLAIM_STALE_MS } from './coordination.js';
 import { hasUsableAudio } from './contract.js';
 import { dropZone } from './config.js';
 import { sweepRetention, TEXT_RETENTION_DAYS, TEXT_RETENTION_RECORDS } from './dictation-store.js';
@@ -72,7 +73,7 @@ function sessionDirs(zone) {
  */
 export function scanZone(opts = {}) {
   const zone = opts.zone || dropZone();
-  const now = opts.now || Date.now();
+  const now = opts.now ?? Date.now();
   const doProcess = opts.process !== false;
   const transcribed = [];
   const anomalies = [];
@@ -90,10 +91,17 @@ export function scanZone(opts = {}) {
     const sessionId = record?.sessionId || path.basename(dir);
 
     if (record?.status === 'open') {
-      // Still live (or died mid-call) — not the pipeline's to transcribe yet; the in-call watchdog
-      // owns open sessions. Report as anomaly only once it is clearly not going to close (SLA path
-      // uses `closed`), so here we simply skip open sessions quietly for the pipeline.
-      skipped.push(sessionId);
+      const heartbeat = lastSessionHeartbeat(dir, record);
+      if (heartbeat !== null && heartbeat <= now && now - heartbeat <= CLAIM_STALE_MS) {
+        skipped.push(sessionId);
+      } else {
+        const problem = heartbeat === null || heartbeat > now
+          ? 'open recording has no usable activity timestamp; capture may have stopped'
+          : `open recording heartbeat is stale (${now - heartbeat} ms); capture may have stopped`;
+        anomalies.push({ sessionId, problems: [...recon.problems, problem] });
+        log.alarm(`${sessionId} — abandoned open recording`, { problem });
+      }
+      // An open recording is never finalized or transcribed by this recovery scan.
       continue;
     }
 

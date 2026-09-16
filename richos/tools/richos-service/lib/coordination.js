@@ -248,7 +248,7 @@ export function sessionDescriptor(record, extra = {}) {
     status: record?.status || 'unknown',
     startedAt: Number(record?.startedAt || 0),
     endedAt: record?.endedAt ? Number(record.endedAt) : null,
-    lastHeartbeat: extra.lastHeartbeat ?? Number(record?.endedAt || record?.startedAt || 0),
+    lastHeartbeat: extra.lastHeartbeat ?? Number(record?.lastHeartbeat || record?.endedAt || record?.startedAt || 0),
     hasTranscript: !!extra.hasTranscript,
     supersededBy: record?.ownership?.supersededBy || null,
     captionCount: Number(record?.captions?.count || 0),
@@ -261,12 +261,23 @@ function lastHealthT(sessionDir) {
   try {
     const raw = fs.readFileSync(path.join(sessionDir, 'health.ndjson'), 'utf8').trim();
     if (!raw) return null;
-    const lastLine = raw.split(/\r?\n/).pop();
-    const t = JSON.parse(lastLine)?.t;
-    return Number.isFinite(t) ? Number(t) : null;
+    for (const line of raw.split(/\r?\n/).reverse()) {
+      try {
+        const t = JSON.parse(line)?.t;
+        if (Number.isFinite(t) && t > 0) return t;
+      } catch { /* A torn tick does not erase the preceding heartbeat. */ }
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+/** Durable activity shared by ownership checks and recovery, including companion health ticks. */
+export function lastSessionHeartbeat(dir, record) {
+  const times = [lastHealthT(dir), record?.lastHeartbeat, record?.endedAt, record?.startedAt]
+    .map(Number).filter((t) => Number.isFinite(t) && t > 0);
+  return times.length ? Math.max(...times) : null;
 }
 
 /** Build coordination descriptors for every session directory in the drop zone. */
@@ -283,10 +294,10 @@ export function readSessions(zone) {
       continue;
     }
     const hasTranscript = fs.existsSync(path.join(dir, 'transcript.md'));
-    const healthT = lastHealthT(dir);
+    const heartbeat = lastSessionHeartbeat(dir, record);
     out.push(sessionDescriptor(record, {
       hasTranscript,
-      lastHeartbeat: healthT ?? Number(record?.endedAt || record?.startedAt || 0),
+      lastHeartbeat: heartbeat ?? 0,
     }));
   }
   return out;

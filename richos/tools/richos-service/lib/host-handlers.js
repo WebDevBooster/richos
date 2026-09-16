@@ -33,6 +33,12 @@ export class SessionSink {
     return sessionDirectory(this.zone, sessionId);
   }
 
+  _heartbeat(sessionId, state, now, line = { kind: 'native-host-heartbeat' }) {
+    // The watchdog's in-memory signal must also survive the host process exiting.
+    writeSessionFile(this.zone, sessionId, 'health.ndjson', `${JSON.stringify({ ...line, t: now })}\n`, true);
+    state.lastHeartbeat = now;
+  }
+
   /**
    * Handle one decoded message. Returns a response to send back (or null), possibly carrying a
    * `_trigger` sessionId the stdio host should hand to the pipeline.
@@ -71,6 +77,7 @@ export class SessionSink {
         record.sessionId = sessionId;
         record.dir = sessionId;
         record.status = 'open';
+        record.lastHeartbeat = now;
         writeSessionFile(this.zone, sessionId, 'session.json', `${JSON.stringify(record, null, 2)}\n`);
         this.open.set(sessionId, { dir, lastHeartbeat: now, lastAudioExt: ext });
         log.info(`session-start ${sessionId} -> ${dir}`);
@@ -83,16 +90,15 @@ export class SessionSink {
         const ext = audioExtension(msg.ext || s.lastAudioExt || 'webm');
         const part = Number.isInteger(msg.part) ? msg.part : 0;
         const file = `audio-part-${String(part).padStart(2, '0')}.${ext}`;
+        this._heartbeat(msg.sessionId, s, now);
         writeSessionFile(this.zone, msg.sessionId, file, Buffer.from(msg.dataB64 || '', 'base64'), true);
-        s.lastHeartbeat = now;
         return msg.ack === false ? null : { type: 'chunk-ack', sessionId: msg.sessionId, part };
       }
 
       case 'health': {
         const s = this.open.get(msg.sessionId);
         if (!s) return { type: 'error', error: `health for unknown session ${msg.sessionId}` };
-        writeSessionFile(this.zone, msg.sessionId, 'health.ndjson', `${JSON.stringify(msg.line)}\n`, true);
-        s.lastHeartbeat = now;
+        this._heartbeat(msg.sessionId, s, now, msg.line);
         return null;
       }
 
@@ -105,7 +111,7 @@ export class SessionSink {
 
       case 'heartbeat': {
         const s = this.open.get(msg.sessionId);
-        if (s) s.lastHeartbeat = now;
+        if (s) this._heartbeat(msg.sessionId, s, now);
         return { type: 'heartbeat-ack', sessionId: msg.sessionId };
       }
 
