@@ -2069,6 +2069,11 @@
         // (worker_status.rs): a real `active` count, a real `liveness_unknown`, and
         // `needs_you` STRUCTURALLY ZERO — no decision-required signal exists anywhere in
         // the engine, so there is no honest non-zero value to mock either.
+        case "get_work_status": {
+          const preset = window.__RICHOS_MOCK_PRESET__ || {};
+          if (preset.workSummaryError) throw new Error(preset.workSummaryError);
+          return preset.workSummaries?.[args.threadId] || {items: [], omitted: 0};
+        }
         case "get_worker_status":
           return {
             active: 1,

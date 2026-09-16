@@ -1995,6 +1995,7 @@ fn main() {
             get_assertiveness,
             set_assertiveness,
             get_worker_status,
+            get_work_status,
             raise_proactive_message,
             // --- loro (2026-08-29) — appended, never reordered ---
             loro_available,
@@ -2187,8 +2188,27 @@ fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String
 /// this command on TURN START. Taking the spine lock here would make the worker chip block
 /// until Rich finished — the same reason the stop control lives on this handle (§9.3).
 #[tauri::command(async)]
-fn get_worker_status(state: State<AppState>) -> WorkerStatusView {
+fn get_worker_status(state: State<AppState>, thread_id: Option<String>) -> WorkerStatusView {
+    if let Some(thread) = thread_id {
+        if !state.control.active_turn().is_some_and(|turn| turn.thread_id == thread) {
+            return WorkerStatusView::default();
+        }
+    }
     richos_core::app_workers::status(&state.data_dir.join("engine-state"), state.control.lease_session().as_deref())
+}
+
+/// Saved work belongs to the requested ledger thread. Do not wait on a running
+/// reasoning turn or fall back to another company's most recent receipts.
+#[tauri::command(async)]
+fn get_work_status(state: State<AppState>, thread_id: String) -> Result<richos_core::work_status::WorkSummary, String> {
+    let entity = if let Some(active) = state.control.active_turn() {
+        if active.thread_id != thread_id { return Err("Another conversation is working. Saved work will refresh when it settles.".into()); }
+        active.entity_id.ok_or("This conversation has no company binding.")?
+    } else {
+        let spine = state.spine.try_lock().map_err(|_| "Work status is changing. Please try again.")?;
+        spine.ledger().thread_binding(&thread_id).map_err(|e| e.to_string())?.entity_id().clone()
+    };
+    richos_core::work_status::read(&state.data_dir.join("engine-state"), entity.as_str(), &thread_id)
 }
 
 /// The proactive-attention SEAM (architecture §2.3/§4.2, UX §5): persistence + the live

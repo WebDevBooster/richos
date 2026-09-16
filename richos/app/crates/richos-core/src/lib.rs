@@ -156,4 +156,5 @@ pub mod engine_profile;
 
 pub mod repositories;
 pub mod app_workers;
+pub mod work_status;
 pub mod permissions;

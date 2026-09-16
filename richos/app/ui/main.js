@@ -322,6 +322,9 @@ let voiceMode = false;
 /// is offered and cannot work. The opposite failure (voice quietly unoffered on a machine
 /// that could have run it) costs a feature nobody was promised.
 let voiceAvailable = false;
+let savedWork = {items: [], omitted: 0};
+let workStatusRead = 0;
+let workStatusBusy = false;
 let drillItems = []; // populated from the real `get_worker_status` command — honest-empty
 // until the engine has ever completed a task since boot (richos-core's worker_status.rs).
 // The view's OWN authoritative counts (§7.3). Never re-derived from `drillItems`, and
@@ -933,6 +936,8 @@ async function openThread(threadId, opts) {
   stashThreadViewState();
   clearLiveMark(threadId);
   activeThreadId = threadId;
+  savedWork = {items: [], omitted: 0};
+  ++workStatusRead;
   // The previous company's offer must not remain clickable while activation is pending.
   el("first-run").hidden = true;
   firstRunState = null;
@@ -2753,49 +2758,43 @@ Bridge.listen("rich://mock-proactive", ({ payload }) => {
   loadTimeline();
 });
 
-// §7.3 THE BACKGROUND WORK SUMMARY — "3 working · 1 done".
-//
-// §7.3 was explicit that this could not be built honestly: *"The current `worker_status.rs`
-// cannot support this honestly because it only sees completion events. The engine and task
-// graph must emit full lifecycle events first."* The engine landed those events at
-// `d14bc54` and `worker_status.rs` consumes them, so `active` is now
-//
-//     open runs (a created/started with no LATER run_ended, per agent_id)
-//     reconciled against each row's recorded host_pid via a REAL signal-0 probe
-//
-// — arithmetic over observations plus one syscall. That is the literal §23 Phase 4 exit
-// gate: "no active or completed status is inferred from idle logs or filesystem activity."
-// Nothing in that chain reads `idle-events.jsonl`, an mtime, a file size or a directory
-// listing as a signal.
-//
-// THREE NUMBERS ARE READ AND THE FOURTH IS REFUSED:
-//   `active`            REAL — the count above.
-//   done                REAL — but TASK-grain, from `TaskCompleted`, never from a worker's
-//                       `run_ended` (which is the honest superset of completed, interrupted
-//                       and failed and would be a completion claim nobody made).
-//   `liveness_unknown`  REAL — an open run whose host liveness could not be established.
-//                       Shown rather than folded in either direction: counting it as active
-//                       asserts it is running, hiding it asserts it is gone.
-//   `needs_you`         NEVER SHOWN. It is structurally 0 — no hook payload asks the CEO
-//                       for anything — and §22 lists "worker waiting state" under must not
-//                       be faked. The branch is gone rather than dormant: a branch that can
-//                       never fire is a claim waiting for someone to make it fire.
-//
-// Polled on turn-started rather than continuously — a courtesy line, not a live dashboard.
+// Provider callbacks and saved work receipts have different meanings. Neither a
+// run ending nor a recorded start is presented as verified task completion.
 async function pollWorkerStatus() {
+  const thread = activeThreadId;
+  const ticket = ++workStatusRead;
+  const current = () => ticket === workStatusRead && thread === activeThreadId;
   try {
-    const status = await Bridge.invoke("get_worker_status");
+    const status = await Bridge.invoke("get_worker_status", {threadId: thread});
+    if (!current()) return;
     drillItems = status.items || [];
     workerCounts = {
       active: typeof status.active === "number" ? status.active : 0,
       livenessUnknown: typeof status.liveness_unknown === "number" ? status.liveness_unknown : 0,
     };
   } catch (_e) {
+    if (!current()) return;
     drillItems = [];
     workerCounts = { active: 0, livenessUnknown: 0 };
   }
+  if (thread) {
+    try {
+      const summary = await Bridge.invoke("get_work_status", {threadId: thread});
+      if (!current()) return;
+      savedWork = summary;
+    } catch (error) {
+      if (!current()) return;
+      savedWork = {items: [], error: String(error)};
+    }
+  }
   renderDrillChip();
+  if (!slideoverEl.hidden) renderSlideOver();
 }
+window.setInterval(async () => {
+  if (workStatusBusy || !activeThreadId || mainView !== "conversation" || document.hidden) return;
+  workStatusBusy = true;
+  try { await pollWorkerStatus(); } finally { workStatusBusy = false; }
+}, 3000);
 
 function renderDrillChip() {
   drillChipEl.innerHTML = "";
@@ -2808,6 +2807,8 @@ function renderDrillChip() {
   const parts = [];
   if (active) parts.push(`${active} working`);
   if (done) parts.push(`${done} done`);
+  if (savedWork.items?.length) parts.push(`${savedWork.items.length} saved work records`);
+  if (savedWork.error) parts.push("Saved work unavailable");
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);
@@ -2837,6 +2838,11 @@ Bridge.listen("rich://mock-worker-status", ({ payload }) => {
 function openSlideOver() {
   // Two panes never own the screen at once (§7.2's pane is a sibling, not a second modal).
   closeWorkerInspector();
+  renderSlideOver();
+  slideoverEl.hidden = false;
+  slideoverBackdrop.hidden = false;
+}
+function renderSlideOver() {
   slideoverBody.innerHTML = "";
   for (const item of drillItems) {
     const row = document.createElement("div");
@@ -2849,8 +2855,7 @@ function openSlideOver() {
     row.textContent = `${marker} ${item.label}`;
     slideoverBody.appendChild(row);
   }
-  slideoverEl.hidden = false;
-  slideoverBackdrop.hidden = false;
+  window.RichWorkSummary.render(savedWork, slideoverBody);
 }
 function closeSlideOver() {
   slideoverEl.hidden = true;
