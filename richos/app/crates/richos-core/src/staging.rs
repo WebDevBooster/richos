@@ -334,7 +334,8 @@ impl CandidateDesk {
     fn append(&mut self, rec: DeskRecord) -> Result<(), StagingError> {
         let line = serde_json::to_string(&rec)
             .map_err(|e| StagingError::Io(format!("staging record did not serialize: {e}")))?;
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+        let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
+        crate::util::ensure_line_boundary(&mut f)?;
         f.write_all(line.as_bytes())?;
         f.write_all(b"\n")?;
         // fsync every record: an unanswered question that a crash erases is a correction
@@ -677,8 +678,11 @@ mod tests {
         raw.push_str("{\"rec\":\"staged\",\"candi");
         std::fs::write(&path, raw).unwrap();
 
-        let reopened = CandidateDesk::open(&path).unwrap();
+        let mut reopened = CandidateDesk::open(&path).unwrap();
         assert_eq!(reopened.pending().len(), 1);
+        stage_one(&mut reopened, "It's Falcon, not Falcn.");
+        drop(reopened);
+        assert_eq!(CandidateDesk::open(&path).unwrap().pending().len(), 2);
     }
 
     /// INVARIANT: with no vocabulary attached, a confirm FAILS LOUDLY and the candidate

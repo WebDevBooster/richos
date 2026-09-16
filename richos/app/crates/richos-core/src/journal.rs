@@ -655,7 +655,8 @@ impl MachineryJournal {
 }
 
 fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
-    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = OpenOptions::new().create(true).read(true).append(true).open(path)?;
+    crate::util::ensure_line_boundary(&mut f)?;
     f.write_all(line.as_bytes())?;
     // flush, NOT sync_data — §2.2, deliberately.
     f.flush()
@@ -933,7 +934,7 @@ mod tests {
         j.append(&rec("thr_a", Some("t"), 0, 1_756_425_600_000, 4)).unwrap();
         let shard = root.join("thr_a").join("2025-08-29.jsonl");
         let mut f = OpenOptions::new().append(true).open(&shard).unwrap();
-        f.write_all(b"{\"machineryId\": \"mach_tor\n").unwrap();
+        f.write_all(b"{\"machineryId\": \"mach_tor").unwrap();
         drop(f);
         j.append(&rec("thr_a", Some("t"), 1, 1_756_425_600_000, 4)).unwrap();
         assert_eq!(j.read_thread("thr_a").len(), 2, "the torn line is skipped, the rest survives");
