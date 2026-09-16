@@ -224,7 +224,7 @@ if [ -n "${MF_CONTRA_IDS:-}" ]; then
     PIECES="${PIECES:+$PIECES }ROW(S) ${MF_CONTRA_IDS} say CLOSED and the sweep still produces their finding — one of the two is wrong."
     STATE="${STATE:+$STATE|}closed-but-present:${MF_CONTRA_IDS}"
 fi
-REFUSED="$(printf '%s\n' "${MF_LINES:-}" | awk -F'\t' '$1=="NOTE" && $2 ~ /^WRITE REFUSED/ {print $2; exit}')"
+REFUSED="$(printf '%s\n' "${MF_LINES:-}" | awk -F'\t' '!found && $1=="NOTE" && $2 ~ /^WRITE REFUSED/ {print $2; found=1}')"
 if [ -n "$REFUSED" ]; then
     PIECES="${PIECES:+$PIECES }${REFUSED}"
     STATE="${STATE:+$STATE|}refused"

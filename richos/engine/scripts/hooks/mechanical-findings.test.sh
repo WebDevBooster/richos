@@ -500,6 +500,22 @@ if printf '%s' "$LOUT" | grep >/dev/null 'WRITE REFUSED: another writer holds' &
 else bad "8e  lock refuses the write" "$LOUT"; fi
 rmdir "$LOCK"
 
+# 9. A real sweep larger than a pipe buffer must still publish its notice and
+# persist the normal follow-up state. These are actual unreferenced harnesses,
+# so the analyzer and writer both participate in the regression.
+for n in $(seq 1 400); do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$APP/scripts/hooks/large-$n.mutation.sh"
+done
+commit_all "$APP" "large findings inventory"
+run_hook
+if [ "$HRC" -eq 0 ] && spoke && printf '%s' "$HOUT" | grep >/dev/null 'WROTE 405 ROW'; then
+    ok "9a  a large real sweep writes and announces all 405 findings"
+else bad "9a  large sweep reaches its notice" "rc=$HRC $HOUT"; fi
+run_hook --remember
+if [ "$HRC" -eq 0 ] && ! spoke && grep >/dev/null '^findings:      405  new 0  known 405' "$RECEIPT"; then
+    ok "9b  the large stable sweep is silent and records all 405 known findings"
+else bad "9b  large stable sweep reaches its receipt" "rc=$HRC $HOUT"; fi
+
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
