@@ -1,0 +1,16 @@
+✓ ci-receipts: 141/141 planned unit(s) ran, all green, all at ae7235b74f5536830605acdeec2998eb094db5fd.
+  serial cost 19751 s across 4 shard(s); longest shard 5432 s (90.5 min).
+  WEIGHTS ARE STALE: 35 unit(s) cost materially more than the plan assumed, so they are
+  in the wrong shards. This does not change what was verified, only where it ran:
+      2353.2s  mega-lander/tests/workspaces.test.sh                           planned 579.6s (4.1x)
+       973.0s  scripts/hooks/by-reference.test.sh                             planned 345.1s (2.8x)
+       867.2s  scripts/hooks/contract-integrity.test.sh:WTI                   planned 402.9s (2.2x)
+       574.1s  scripts/hooks/row-currency.test.sh                             planned 160.8s (3.6x)
+       445.9s  scripts/hooks/verify-agent-prompt.test.sh                      planned 170.1s (2.6x)
+       434.2s  scripts/hooks/contract-integrity.test.sh:Q                     planned 137.1s (3.2x)
+       390.4s  scripts/hooks/contract-integrity.test.sh:RI                    planned 157.9s (2.5x)
+       376.6s  scripts/hooks/contract-integrity.test.sh:base                  planned 130.8s (2.9x)
+       348.4s  scripts/hooks/contract-integrity.test.sh:IL                    planned 113.3s (3.1x)
+       319.7s  mega-lander/tests/workspace-probes.test.sh                     planned 114.0s (2.8x)
+       295.6s  scripts/hooks/contract-integrity.test.sh:IP                    planned 128.9s (2.3x)
+       282.4s  scripts/hooks/contract-integrity.test.sh:manifest              planned 81.3s (3.5x)

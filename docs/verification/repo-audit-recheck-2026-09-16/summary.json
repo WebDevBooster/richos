@@ -1,0 +1,61 @@
+{
+  "app_tested_revision": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+  "app_trees": {
+    "c2112510c4d99c10ca2fc4e9de4ac045f78eb423": "3f38723992b68ea56e4d4111982e4b1b04389eaa",
+    "734d06f61a5b309b14796a8e35fc5484e9dea0cf": "3f38723992b68ea56e4d4111982e4b1b04389eaa"
+  },
+  "code_revision": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+  "engine_tested_revision": "ae7235b74f5536830605acdeec2998eb094db5fd",
+  "engine_trees": {
+    "ae7235b74f5536830605acdeec2998eb094db5fd": "aafae2a51afc56b8779e5b04e04385e41b186a64",
+    "734d06f61a5b309b14796a8e35fc5484e9dea0cf": "aafae2a51afc56b8779e5b04e04385e41b186a64"
+  },
+  "engine_units": 141,
+  "engine_verdicts": {
+    "PASS": 141
+  },
+  "engine_runner": {
+    "shards": 4,
+    "RICHOS_MUTANT_JOBS": 4,
+    "CI_SHARD_UNIT_TIMEOUT": 10800
+  },
+  "rust_workspace": {
+    "passed": 1216,
+    "ignored": 8,
+    "test_threads": 1
+  },
+  "desktop_rust": {
+    "passed": 98
+  },
+  "updater_rust": {
+    "passed": 38
+  },
+  "swift": {
+    "passed": 41
+  },
+  "service": {
+    "passed": 335
+  },
+  "workspace_service": {
+    "passed": 73
+  },
+  "extension": {
+    "passed": 66
+  },
+  "windows_core": {
+    "passed": 26
+  },
+  "packaging": {
+    "suites": 9,
+    "checks": 178
+  },
+  "browser_ui": {
+    "suites": 31,
+    "checks": 554,
+    "skipped": 0
+  },
+  "screenshots_restored": [
+    24,
+    24
+  ]
+}

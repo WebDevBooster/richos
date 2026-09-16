@@ -1,0 +1,98 @@
+[
+  {
+    "name": "final-rust-workspace",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 454.0
+  },
+  {
+    "name": "final-rust-desktop",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 11.7
+  },
+  {
+    "name": "final-packaging",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 380.0
+  },
+  {
+    "name": "final-browser-ui",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 969.7
+  },
+  {
+    "name": "final-audit-reproductions",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 55.7
+  },
+  {
+    "name": "final-publication",
+    "commit": "c2112510c4d99c10ca2fc4e9de4ac045f78eb423",
+    "exit": 0,
+    "seconds": 3.0
+  },
+  {
+    "name": "case-service",
+    "commit": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+    "exit": 0,
+    "seconds": 9.6
+  },
+  {
+    "name": "case-workspace-service",
+    "commit": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+    "exit": 0,
+    "seconds": 0.2
+  },
+  {
+    "name": "case-swift",
+    "commit": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+    "exit": 0,
+    "seconds": 3.9
+  },
+  {
+    "name": "case-audit-reproductions",
+    "commit": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+    "exit": 0,
+    "seconds": 28.6
+  },
+  {
+    "name": "case-publication",
+    "commit": "734d06f61a5b309b14796a8e35fc5484e9dea0cf",
+    "exit": 0,
+    "seconds": 1.6
+  },
+  {
+    "name": "engine-shard-1",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 5433.4
+  },
+  {
+    "name": "engine-shard-2",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 5076.0
+  },
+  {
+    "name": "engine-shard-3",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 4775.4
+  },
+  {
+    "name": "engine-shard-4",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 4553.5
+  },
+  {
+    "name": "engine-receipt-verification",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 0.4
+  }
+]

@@ -1,5 +1,10 @@
 # Repository audit, 2026-09-16
 
+**Resolved:** all five findings below have been fixed. See the
+[fixes and complete recheck](repo-audit-fixes-2026-09-16.md), including three
+additional path cases found during the second review. The remainder
+of this document records the original audit.
+
 Audited revision: `221f3d80`. Reviewed the product relocation (`59b492c3`),
 Mega Lander extraction (`37acdbd9`), PreToolUse dispatcher refactor
 (`5e3ea207` and follow-ups) and the fixes from the September 15 audit.

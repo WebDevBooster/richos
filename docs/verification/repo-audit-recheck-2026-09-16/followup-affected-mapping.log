@@ -1,0 +1,15 @@
+  richos/app/README.md
+    (outside engine/ — not this gate)
+  richos/app/crates/richos-core/src/provision.rs
+    (outside engine/ — not this gate)
+  richos/tools/richos-service/companion-macos/Tests/RichOSCompanionCoreTests/DropZoneTests.swift
+    (outside engine/ — not this gate)
+  richos/tools/richos-service/lib/workspace/privacy.js
+    (outside engine/ — not this gate)
+  richos/tools/richos-service/test/run.js
+    (outside engine/ — not this gate)
+  richos/tools/richos-service/test/workspace.js
+    (outside engine/ — not this gate)
+6 changed path(s) -> 0 unit(s)
+NOTHING TO RUN: this diff touches no file any suite names. For a docs-only change that is
+the correct answer, and it is printed rather than left implicit.

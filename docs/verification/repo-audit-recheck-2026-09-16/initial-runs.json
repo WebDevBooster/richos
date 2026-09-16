@@ -1,0 +1,86 @@
+[
+  {
+    "name": "engine-shard-0",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 2,
+    "seconds": 1.1
+  },
+  {
+    "name": "rust-workspace",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 101,
+    "seconds": 108.0
+  },
+  {
+    "name": "rust-desktop",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 13.5
+  },
+  {
+    "name": "rust-updater",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 21.4
+  },
+  {
+    "name": "swift",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 4.5
+  },
+  {
+    "name": "service",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 8.2
+  },
+  {
+    "name": "workspace-service",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 0.6
+  },
+  {
+    "name": "extension",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 0.2
+  },
+  {
+    "name": "packaging",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 530.4
+  },
+  {
+    "name": "browser-ui",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 1,
+    "seconds": 1003.5
+  },
+  {
+    "name": "windows-companion",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 28.8
+  },
+  {
+    "name": "engine-non-suites",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 151.1
+  },
+  {
+    "name": "publication",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 2.1
+  },
+  {
+    "name": "audit-reproductions",
+    "commit": "ae7235b74f5536830605acdeec2998eb094db5fd",
+    "exit": 0,
+    "seconds": 26.0
+  }
+]
