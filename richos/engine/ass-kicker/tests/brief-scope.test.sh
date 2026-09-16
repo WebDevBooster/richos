@@ -59,18 +59,32 @@ PASS=0; FAIL=0; NOTRUN=0
 ok()   { printf '      ok   %s\n' "$1"; PASS=$((PASS+1)); }
 # Two spaces after FAIL: the shared mutation harness matches "FAIL  <case id>",
 # and a one-space line makes every mutant report "red, but not at the named case".
-bad()  { printf '      FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '           %s\n' "$(printf '%s' "$2" | head -c 900 | tr '\n' '|')"; FAIL=$((FAIL+1)); }
+bad()  { printf '      FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '           %s\n' "$(printf '%s' "${2:0:900}" | tr '\n' '|')"; FAIL=$((FAIL+1)); }
 # A case that COULD NOT RUN says so in its own column and is counted on its own.
 # It is never folded into PASS: "it passed because it never ran" is the exact
 # failure this file exists to make impossible.
 notrun() { printf '      NOT RUN  %s\n' "$1"; [ -n "${2:-}" ] && printf '               %s\n' "$2"; NOTRUN=$((NOTRUN+1)); }
 want() { # <label> <expected-rc> <expected-substring-or-empty> <actual-rc> <actual-out>
     if [ "$2" != "$4" ]; then bad "$1  (wanted exit $2, got $4)" "$5"; return; fi
-    if [ -n "$3" ] && ! printf '%s' "$5" | grep -q -- "$3"; then
+    if [ -n "$3" ] && ! printf '%s' "$5" | grep -- "$3" >/dev/null; then
         bad "$1  (exit right, but the output never says '$3')" "$5"; return
     fi
     ok "$1"
 }
+
+# An early match must not SIGPIPE the producer and turn a present diagnostic
+# into a missing one. The absent-marker control must still report a failure.
+LARGE_OUTPUT="$(python3 - <<'PY'
+print('SPEC-SATISFIED\n' + 'Synthetic diagnostic detail.\n' * 40000)
+PY
+)"
+want "H1 an early marker in a large diagnostic is recognized" 2 "SPEC-SATISFIED" 2 "$LARGE_OUTPUT"
+if (PASS=0; FAIL=0; want "missing marker control" 2 "ABSENT-MARKER" 2 "$LARGE_OUTPUT" >/dev/null; [ "$FAIL" -eq 1 ]); then
+    ok "H2 a missing marker still fails the assertion"
+else
+    bad "H2 a missing marker was accepted"
+fi
+unset LARGE_OUTPUT
 
 T="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/brief-scope.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
@@ -108,7 +122,7 @@ mklog() { # <outfile> <red point numbers...>
     echo "  PASS  C0  the harness's own self-check" >>"$out"
     local nred=0
     for i in $(seq 1 14); do
-        if printf '%s' "$reds" | grep -q " $i "; then
+        if printf '%s' "$reds" | grep " $i " >/dev/null; then
             echo "  FAIL  C$i  point $i  (1 sub-assertion(s) red)" >>"$out"
             nred=$((nred+1))
         else
@@ -390,12 +404,12 @@ rm -f "$VERDICT" "$VERDICT.history.jsonl"
 record_verdict "$TIP5" 2 9
 record_verdict "$TIP5" 2 9
 STAMPED="$(python3 "$LIB" annotate "$T/retry-open.md" --repo "$REPO" 2>/dev/null)"
-if printf '%s' "$STAMPED" | grep -q "no sentence in this brief is binding on your design"; then
+if printf '%s' "$STAMPED" | grep "no sentence in this brief is binding on your design" >/dev/null; then
     ok "S30 design: open appends the counter-stamp to the dispatched text"
 else
     bad "S30 design: open appends the counter-stamp to the dispatched text" "$STAMPED"
 fi
-if printf '%s' "$STAMPED" | grep -q "^serves: point 2"; then
+if printf '%s' "$STAMPED" | grep "^serves: point 2" >/dev/null; then
     ok "S30b and the brief itself is left intact above it"
 else
     bad "S30b and the brief itself is left intact above it" "$STAMPED"
