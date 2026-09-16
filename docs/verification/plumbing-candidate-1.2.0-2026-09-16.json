@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "date": "2026-09-16",
+  "app_version": "1.2.0",
+  "engine_version": "1.2.0",
+  "app_source_revision": "c72e0a80",
+  "engine_source_revision": "b561bf5c",
+  "app_archive": {
+    "name": "RichOS.app.tar.gz",
+    "sha256": "cc9601910fd02a08c300fe40e7da59fcfd41091b9d62f0c67afef3c6cd7a18da",
+    "bytes": 10889848
+  },
+  "engine_archive": {
+    "name": "richos-engine-1.2.0.tar.gz",
+    "sha256": "3ac3382746075d60bf9b07aed3aec87a19d0f8e7cb9bf8ea1c54bc74b0c04902",
+    "bytes": 119357278
+  },
+  "compatibility_manifest_sha256": "08e752eaddbcfec17ed1e79f4c3fcb10b5f7fc4f445b4c0865866e59e3d4b537",
+  "platform_tested": "macOS 15.6 arm64",
+  "provider_tested": "Claude Code 2.1.273",
+  "app_signature": "verified ad-hoc",
+  "notarized": false,
+  "engine_reproducible_across_two_environments": true,
+  "engine_members_accounted_for": true,
+  "app_contains_matching_engine_pin": true,
+  "app_developer_home_path_scan": "absent",
+  "signed_app_isolated_home_boot": "passed with stub provider; not clean OS acceptance",
+  "installed_acceptance": "pending",
+  "composed_desktop_journey": "pending",
+  "public_engine_url_available": "not established; asset not published by this work",
+  "publication": "not published",
+  "personal_context_migration": "not performed"
+}

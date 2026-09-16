@@ -32,10 +32,11 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let session=cognition.session_id().to_string();
  spine.set_central_root(data.join("corpus"));spine.set_onboarding_record(data.join("onboarding.json"));spine.attach_lease(Box::new(cognition));
  let finished=Arc::new(AtomicBool::new(false));
- let responder={let done=finished.clone();let desk=desk.clone();let expected_thread=thread.clone();std::thread::spawn(move||{
+ let approval_counts=Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::<String,usize>::new()));
+ let responder={let counts=approval_counts.clone();let done=finished.clone();let desk=desk.clone();let expected_thread=thread.clone();std::thread::spawn(move||{
   let deadline=Instant::now()+Duration::from_secs(1800);
   while !done.load(Ordering::SeqCst)&&Instant::now()<deadline{
-   if let Some(request)=desk.current(){assert_eq!(request.binding.entity_id,"depot");assert_eq!(request.binding.thread_id,expected_thread);desk.resolve(&request.id,true).expect("synthetic fixture permission");}
+   if let Some(request)=desk.current(){assert_eq!(request.binding.entity_id,"depot");assert_eq!(request.binding.thread_id,expected_thread);*counts.lock().unwrap().entry(request.tool.clone()).or_default()+=1;desk.resolve(&request.id,true).expect("synthetic fixture permission");}
    std::thread::sleep(Duration::from_millis(20));
   }
  })};
@@ -67,7 +68,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   let binding=bridge.request("current",serde_json::json!({}))?["binding"].clone();
   let item=bridge.request("inspect",serde_json::json!({"binding":binding,"query":{"item_id":obligation}}))?;
   assert_eq!(item["item"]["status"],"completed","parent assignment was not verified complete");
-  finished.store(true,Ordering::SeqCst);responder.join().unwrap();drop(spine);
+  finished.store(true,Ordering::SeqCst);responder.join().unwrap();eprintln!("Synthetic permission approvals by tool: {:?}",approval_counts.lock().unwrap());drop(spine);
   println!("{}",serde_json::json!({"natural_language_assignment":true,"two_repositories_integrated":true,"independent_reviews_verified":true,"canonical_cleanup_verified":true,"parent_obligation_completed":true,"installed_acceptance":false}));return Ok(());
  }
  let projects:&[&str]=if revision { &["first project"] } else { &["first project","second project"] };
@@ -128,6 +129,6 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  assert_eq!(updated["integration"]["cleanup_pending"],serde_json::json!([]));
  assert_eq!(std::fs::read_to_string(repo.join("marker.txt"))?.trim(),"FICTIONAL");assert!(!target.exists());
  }
- finished.store(true,Ordering::SeqCst);responder.join().unwrap();
+ finished.store(true,Ordering::SeqCst);responder.join().unwrap();eprintln!("Synthetic permission approvals by tool: {:?}",approval_counts.lock().unwrap());
  println!("{}",serde_json::json!({"two_repositories_integrated":!revision,"rejected_review_revised_and_verified":revision,"real_worker_dispatched":true,"worker_commit_verified":true,"target_main_untouched_before_integration":true,"ecs_completion_not_inferred_from_exit":true,"fresh_provider_recovered_work":true,"real_reviewer_observed":true,"reviewed_commit_integrated":true,"canonical_cleanup_verified":true,"host_user_instruction_attested":true,"installed_acceptance":false}));drop(spine);Ok(())
 }

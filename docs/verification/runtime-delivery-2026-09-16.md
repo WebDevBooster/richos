@@ -14,7 +14,7 @@ builder's Mach-O dependency check.
 Verified locally:
 
 - Loro's 205 behavioral cases plus relocation checks using delivered Node.
-- ECS's 14 protocol/import cases using delivered Python.
+- ECS's 18 protocol/import/receipt cases using delivered Python.
 - The live native worker probe using delivered Python and Git with Homebrew
   removed from PATH. The canonical stated-action refusal and valid alternative,
   native permission denial/allow and a real isolated target artifact all passed.
@@ -23,7 +23,7 @@ Verified locally:
 - Four Rust runtime resolver checks, three selected-engine Loro checks and
   33 setup checks, including preservation of synthetic legacy adopter records
   and a complete predecessor backup.
-- 546 core library tests passed; one pre-existing ignored case remains ignored.
+- 551 core library tests passed; one pre-existing ignored case remains ignored.
 - All 18 engine archive tests passed with generated runtimes included. Repeated
   builds under different umasks and timezones produced identical bytes. Every
   regular file and symlink was accounted for by tracked source, declared license
@@ -40,7 +40,8 @@ locations. Other customized files remain in the complete predecessor backup.
 This preserves source records; it does not perform personal-context migration.
 
 No app release was published, no installed engine pointer was changed and no
-private operational store was imported. The normal desktop orchestration path,
-account connection, clean OS installation and full acceptance matrix still need
-implementation or verification. Presence of four component directories is not
+private operational store was imported. Actual native dispatch, review, integration and durable recovery now have
+source-probe evidence in `desktop-work-2026-09-16.md`. Account connection, the
+complete desktop journey, clean OS installation and the full acceptance matrix
+still require installed verification. Presence of four component directories is not
 certification of those behaviors.
