@@ -4,6 +4,10 @@ Loro owns durable organizational knowledge. Its compiler selects relevant record
 for a topic and audience. Its separate writer records corrections with provenance.
 It does not own live assignments, worker execution or Git integration.
 
+Use Node 24.21.0 or later, matching the delivered engine runtime. Writers use
+Node's built-in SQLite support to serialize corpus mutations across processes;
+no package installation is required.
+
 The component ships code and fictional tests. User knowledge lives in an explicitly
 selected private corpus outside the product checkout and engine installation.
 An empty corpus contains `ceo/records`, `ceo/pages` and `companies/`. It contains no

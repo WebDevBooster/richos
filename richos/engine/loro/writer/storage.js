@@ -4,6 +4,38 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { productCheckoutContaining } from '../lib/layout.js';
 
+// SQLite supplies an OS-managed process lock using the shipped Node runtime.
+// The database inode stays in place; closing it or process death releases the
+// lock. Never unlink it as a stale-lock heuristic while another writer can run.
+export function withWriteLock(corpusRoot, action, { dryRun = false } = {}) {
+  if (dryRun) return action();
+  const directory = path.join(corpusRoot.root, corpusRoot.layout === 'corpus' ? 'state' : 'loro');
+  makeWriteDirectory(corpusRoot, directory);
+  const file = path.join(directory, 'writer-lock.sqlite');
+  for (const suffix of ['', '-journal', '-wal', '-shm']) assertWritePath(corpusRoot, file + suffix);
+  const fd = fs.openSync(file, fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW, 0o600);
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) refuse('writer lock must be a single-link file');
+  } finally {
+    fs.closeSync(fd);
+  }
+  // Lazy loading keeps read commands and dry runs independent of SQLite.
+  const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
+  const lock = new DatabaseSync(file);
+  try {
+    lock.exec('PRAGMA busy_timeout = 5000');
+    try { lock.exec('BEGIN IMMEDIATE'); }
+    catch (error) {
+      if (error.errcode === 5) refuse('another corpus writer is active; retry after it finishes');
+      throw error;
+    }
+    return action();
+  } finally {
+    lock.close();
+  }
+}
+
 function refuse(message) {
   const error = new Error(`loro write: ${message}`);
   error.code = 5;
