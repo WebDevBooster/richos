@@ -857,8 +857,13 @@ impl NativeClient {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
+        let desktop_doctrine = match (profile, doctrine) {
+            (Some(profile), Some(doctrine)) => Some(profile.standing_doctrine(doctrine)
+                .map_err(|e| NativeError::Protocol(e.to_string()))?),
+            _ => None,
+        };
         let mut args = match standing {
-            Some((d, s)) => chat_child_args(&session_id, d, s),
+            Some((d, s)) => chat_child_args(&session_id, desktop_doctrine.as_deref().unwrap_or(d), s),
             None => child_args(&session_id),
         };
         if let Some((executable, scope)) = onboarding {

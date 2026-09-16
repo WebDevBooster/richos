@@ -44,7 +44,7 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
 impl EngineProfile {
     pub fn prepare(engine: &Path, data: &Path, runtime: EngineRuntime) -> Result<Self, RuntimeError> {
         if !engine.is_absolute() || !data.is_absolute() { return Err(RuntimeError("desktop roots must be absolute".into())); }
-        for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "agents/worker.md", "agents/reviewer.md"] {
+        for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "mega-lander/DESKTOP.md", "agents/worker.md", "agents/reviewer.md"] {
             if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: {name}"))); }
         }
         std::fs::create_dir_all(data).map_err(|e| RuntimeError(e.to_string()))?;
@@ -100,6 +100,7 @@ impl EngineProfile {
         write(&coordination.join(".gitignore"), ".claude/\norchestration.config\napp-owned-coordination.json\n")?;
         write(&plugin.join(".claude-plugin/plugin.json"), &json!({"name":"richos-app-engine", "version":"1.2.0",
             "agents":["./agents/worker.md", "./agents/reviewer.md"]}).to_string())?;
+        write(&plugin.join("gitconfig"), "[user]\n\tname = RichOS\n\temail = richos@localhost\n")?;
         let command = format!("{} {}", quote(&runtime.python), quote(&engine.join("scripts/app-engine-hook.py")));
         let mut hooks = serde_json::Map::new();
         for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop"] {
@@ -113,6 +114,20 @@ impl EngineProfile {
             {"type":"command","command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks/guard-brief-scope.sh")))}
         ]}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
+    }
+    pub fn standing_doctrine(&self, app_doctrine: &Path) -> Result<PathBuf, RuntimeError> {
+        let read = |path: &Path| -> Result<String, RuntimeError> {
+            if std::fs::metadata(path).map(|m|m.len()).unwrap_or(u64::MAX) > 256 * 1024 {
+                return Err(RuntimeError("standing instruction is missing or too large".into()));
+            }
+            let text = std::fs::read_to_string(path).map_err(|e|RuntimeError(e.to_string()))?;
+            if text.trim().is_empty() { return Err(RuntimeError("standing instruction is empty".into())); }
+            Ok(text)
+        };
+        let body = read(app_doctrine)? + "\n\n" + &read(&self.engine.join("mega-lander/DESKTOP.md"))?;
+        let path = self.plugin.join("standing-doctrine.md");
+        write(&path, &body)?;
+        Ok(path)
     }
     pub fn scope_to(&mut self, binding: &crate::entity::ThreadBinding) {
         self.work_scope = Some((binding.entity_id().to_string(), binding.thread_id().to_string()));
@@ -138,12 +153,12 @@ impl EngineProfile {
             .env("PYTHONDONTWRITEBYTECODE", "1")
             // A settings-isolated provider must not execute terminal Git hooks
             // or borrow a developer's identity through global Git configuration.
-            .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", self.plugin.join("gitconfig"))
             .env("GIT_CONFIG_COUNT", "0").env_remove("GIT_CONFIG_PARAMETERS").env_remove("GIT_TEMPLATE_DIR")
             .env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").env_remove("GIT_INDEX_FILE")
             .env_remove("GIT_AUTHOR_DATE").env_remove("GIT_COMMITTER_DATE")
-            .env("GIT_AUTHOR_NAME", "RichOS").env("GIT_AUTHOR_EMAIL", "richos@localhost")
-            .env("GIT_COMMITTER_NAME", "RichOS").env("GIT_COMMITTER_EMAIL", "richos@localhost")
+            .env_remove("GIT_AUTHOR_NAME").env_remove("GIT_AUTHOR_EMAIL")
+            .env_remove("GIT_COMMITTER_NAME").env_remove("GIT_COMMITTER_EMAIL")
             .env("RICHOS_APP_REGISTRY", self.coordination.parent().unwrap().join("entities.json"))
             .env("RICHOS_APP_SCOPE", scope).env("RICHOS_APP_STATE", &self.state)
             .env("RICHOS_ENGINE_ROOT", &self.engine).env("RICHOS_ENGINE_DIR", &self.engine)

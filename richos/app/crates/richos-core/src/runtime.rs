@@ -140,7 +140,7 @@ pub fn verify_engine(engine: &Path) -> Result<EngineRuntime, RuntimeError> {
     for name in ["loro/bin/loro-context.mjs", "loro/bin/loro-write.mjs", "loro/lib/layout.js",
         "ecs/bin/ecs", "ecs/adapters/app.py", "ecs/adapters/mcp.py", "ecs/core/ecs_core.py",
         "ecs/migrations/007_correction_reobservations.sql", "mega-lander/workspaces.py",
-        "mega-lander/create-teammate-worktree.sh", "mega-lander/app.py", "ass-kicker/brief-provenance.py",
+        "mega-lander/create-teammate-worktree.sh", "mega-lander/app.py", "mega-lander/DESKTOP.md", "ass-kicker/brief-provenance.py",
         "ass-kicker/brief-scope.py", "ass-kicker/guard-stated-actions.py",
         "scripts/lib/app-evidence.py", "scripts/spawn.sh", "scripts/lib/spawn.py",
         "scripts/hooks/guard-worktree-isolation.sh", "scripts/hooks/guard-brief-scope.sh",

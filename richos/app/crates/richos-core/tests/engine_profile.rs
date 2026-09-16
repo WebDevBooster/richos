@@ -56,8 +56,8 @@ fn child_configuration_is_explicit_and_disables_auto_memory_only_for_that_child(
     assert_eq!(environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"].as_deref(), Some("1"));
     assert_eq!(environment["RICHOS_ENTITY_ROOT"].as_deref(), profile.coordination.to_str());
     assert!(!environment["PATH"].as_ref().unwrap().contains("homebrew"));
-    assert_eq!(environment["GIT_CONFIG_GLOBAL"].as_deref(), Some("/dev/null"));
-    assert_eq!(environment["GIT_AUTHOR_NAME"].as_deref(), Some("RichOS"));
+    assert_eq!(environment["GIT_CONFIG_GLOBAL"].as_deref(), profile.plugin.join("gitconfig").to_str());
+    assert_eq!(environment["GIT_AUTHOR_NAME"], None);
     assert_eq!(environment["RICHOS_SESSION_ID"].as_deref(), Some("fictional-session"));
     let args: Vec<_> = command.get_args().map(|a|a.to_string_lossy().to_string()).collect();
     assert!(args.contains(&"--plugin-dir".to_string()));
@@ -101,4 +101,35 @@ fn workspace_partitions_are_stable_per_company_thread_and_distinct_across_thread
     assert_eq!(a.workspace_state(),b.workspace_state());
     b.scope_to(&spine.ledger().thread_binding(&second).unwrap());
     assert_ne!(a.workspace_state(),b.workspace_state());
+}
+
+#[test]
+fn standing_instruction_combines_app_identity_with_delivered_execution_contract() {
+    let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let app=f.0.join("app-doctrine.md");
+    assert!(profile.standing_doctrine(&app).is_err());
+    std::fs::write(&app,"Fictional app identity").unwrap();
+    let path=profile.standing_doctrine(&app).unwrap();
+    let body=std::fs::read_to_string(&path).unwrap();
+    assert!(body.starts_with("Fictional app identity\n\n"));
+    assert!(body.ends_with(&std::fs::read_to_string(engine().join("mega-lander/DESKTOP.md")).unwrap()));
+    assert!(path.starts_with(&profile.plugin));
+    std::fs::write(&app,"").unwrap();
+    assert!(profile.standing_doctrine(&app).is_err());
+}
+
+#[test]
+fn generic_git_identity_is_a_default_and_explicit_assignment_identity_can_override_it() {
+    let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let mut configured=std::process::Command::new("/fictional/provider");
+    profile.configure(&mut configured,"fixture-session",&f.0.join("scope.json"));
+    for (extra, expected) in [(vec![],"RichOS"), (vec!["-c","user.name=Fixture"],"Fixture")] {
+        let mut git=std::process::Command::new("/usr/bin/git");
+        for (key,value) in configured.get_envs() {
+            if let Some(value)=value { git.env(key,value); } else { git.env_remove(key); }
+        }
+        let output=git.current_dir(&profile.coordination).args(extra).args(["config","--get","user.name"]).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+    }
 }
