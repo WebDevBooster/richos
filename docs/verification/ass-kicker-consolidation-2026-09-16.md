@@ -101,3 +101,39 @@ run. The application can resolve an existing external engine directory; a later
 nightly test must record the actual resolved engine path and source revision, not
 assume that a new app binary is executing this change. Nightly acceptance remains
 pending until a delivered artifact is tested through that route.
+
+## Merge recheck against updated main
+
+On 2026-09-16, fetched `origin/main` at
+`59edd92b58fe17ac89d34f2ca94992983bf303d0` and merged it without conflicts into
+the implementation branch. The combined code was checked at
+`f8e15271689998713a65b31dd05b9c84e17b0b20` before merging into `main`.
+All 55 files changed upstream since the original base are byte-identical to
+updated main. The relocated control functions and classes retain the same ASTs
+as their implementations on updated main; provenance and scope also remain
+byte-identical. App code, service code and workflow files have no delivery diff.
+
+The following local checks passed again on the combined code. Behavioral runs
+used `RICHOS_MUTATION_INNER=1`; the listed mutations ran separately with
+`RICHOS_MUTANT_JOBS=2`.
+
+| Check | Result |
+|---|---|
+| ASS Kicker provenance, scope and stated-action suites | 47, 53 and 45 passed |
+| ASS Kicker relocation suite | 7 passed |
+| Capability notice delivery | 14 passed |
+| Hook dependency discovery and mutation harness | 14 and 24 passed |
+| Test inventory and affected-unit selection | 17 and 10 passed |
+| Spawn integration | 32 passed, 0 skipped |
+| Mega Lander workspace suite | 76 passed |
+| Fourteen-point workspace specification | All 14 checks and the cleanup self-check passed |
+| Container reaping | 19 passed, 0 skipped, including Docker cases |
+| Brief scope mutations | 11 of 11 detected at their named cases |
+| Container reaping mutations | 15 of 15 detected at their named cases |
+
+Syntax checks passed for all 33 changed Python and shell files. Documentation
+links resolve and `git diff --check` passed. The private implementation plan is
+absent from public Git history. GitHub's engine, app, packaging, UI and Windows
+CI workflows remain `disabled_manually`; no workflow was enabled or dispatched.
+This merge recheck does not replace the delivered nightly acceptance described
+above or claim a fresh full-repository test run.
