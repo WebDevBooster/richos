@@ -57,7 +57,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="${NOTICE_HOOK_UNDER_TEST:-$SCRIPT_DIR/notice-claim-capability.sh}"
-PROV="$SCRIPT_DIR/../brief-provenance.py"
+PROV="$SCRIPT_DIR/../../ass-kicker/brief-provenance.py"
 
 PASS=0; FAIL=0
 SANDBOX="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/notice-claim-capability.XXXXXX")" && pwd -P)"
@@ -290,14 +290,14 @@ silent D11
 
 # --- D12 — a broken predicate never fails the tool call ------------------------------------
 BROKEN="$SANDBOX/broken"
-mkdir -p "$BROKEN/scripts/hooks"
+mkdir -p "$BROKEN/scripts/hooks" "$BROKEN/ass-kicker"
 cp "$HOOK" "$BROKEN/scripts/hooks/notice-claim-capability.sh"
-printf 'def segment(  SyntaxError here\n' >"$BROKEN/scripts/brief-provenance.py"
+printf 'def segment(  SyntaxError here\n' >"$BROKEN/ass-kicker/brief-provenance.py"
 record_3 >"$R3"
 _saved_hook="$HOOK"; HOOK="$BROKEN/scripts/hooks/notice-claim-capability.sh"
 fire Bash "$REPO" "$(heredoc_write "$R3" record_3 | bash_ti)"
 broken_rc="$RC"; broken_out="$OUT$ERR"
-rm -f "$BROKEN/scripts/brief-provenance.py"
+rm -f "$BROKEN/ass-kicker/brief-provenance.py"
 fire Bash "$REPO" "$(heredoc_write "$R3" record_3 | bash_ti)"
 HOOK="$_saved_hook"
 if [ "$broken_rc" -eq 0 ] && [ -z "$broken_out" ] && [ "$RC" -eq 0 ] && [ -z "$OUT$ERR" ]; then ok "D12"

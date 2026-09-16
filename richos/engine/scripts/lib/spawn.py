@@ -96,9 +96,9 @@ W = _load("richos_workspaces", os.path.join(HERE, "..", "..", "mega-lander", "wo
 PREPARE = _load("richos_prepare_agent_spawn",
                 os.path.join(ENGINE, "scripts", "prepare-agent-spawn.py"))
 PROV = _load("richos_brief_provenance",
-             os.path.join(ENGINE, "scripts", "brief-provenance.py"))
+             os.path.join(ENGINE, "ass-kicker", "brief-provenance.py"))
 SCOPE = _load("richos_brief_scope",
-              os.path.join(ENGINE, "scripts", "brief-scope.py"))
+              os.path.join(ENGINE, "ass-kicker", "brief-scope.py"))
 
 
 class Refusal(Exception):

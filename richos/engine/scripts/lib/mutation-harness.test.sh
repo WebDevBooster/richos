@@ -109,8 +109,9 @@ fi
 # a "mutation" removes. Nothing here is the real engine.
 # ---------------------------------------------------------------------------
 FAKE_ENG="$SANDBOX/fake-engine"
-mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks" "$FAKE_ENG/mega-lander"
+mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks" "$FAKE_ENG/mega-lander" "$FAKE_ENG/ass-kicker"
 printf '# fixture feature code\n' > "$FAKE_ENG/mega-lander/workspaces.py"
+printf '# fixture predicate\n' > "$FAKE_ENG/ass-kicker/brief-scope.py"
 printf 'PROTECTED_PATHS="app"\n' > "$FAKE_ENG/orchestration.config"
 printf '0.0.0-fixture\n' > "$FAKE_ENG/VERSION"
 cp "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" "$FAKE_ENG/scripts/lib/"
@@ -239,7 +240,8 @@ else
     bad "3b  mutation_copy_engine accepts a real engine root" "it refused the fixture engine, so 3a proves nothing"
 fi
 if [ -f "$SANDBOX/dest-b/scripts/hooks/fake-guard.sh" ] && [ -f "$SANDBOX/dest-b/orchestration.config" ] \
-   && [ -f "$SANDBOX/dest-b/mega-lander/workspaces.py" ]; then
+   && [ -f "$SANDBOX/dest-b/mega-lander/workspaces.py" ] \
+   && [ -f "$SANDBOX/dest-b/ass-kicker/brief-scope.py" ]; then
     ok "3c  the copy carries the whole mechanical layer, not one file — the missing-dependency trap the old in-place harnesses cited"
 else
     bad "3c  the copy carries the mechanical layer" "the sandbox is missing the guard, config or Mega Lander"

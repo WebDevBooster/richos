@@ -12,7 +12,7 @@
 # nothing — the whole claim is that it would have stopped the round that was
 # actually dispatched.
 #
-# THOSE BYTES ARE VENDORED, at scripts/fixtures/brief-scope/, AND PINNED BY
+# THOSE BYTES ARE VENDORED, at ass-kicker/fixtures/brief-scope/, AND PINNED BY
 # sha256 BELOW. Until 2026-09-15 this file read them through an absolute path
 # into richos-hq — another repository, on the operator's laptop. That path is on
 # no CI runner, so the eight acceptance cases here did not merely fail there,
@@ -44,13 +44,14 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="$HERE/brief-scope.py"
-GUARD="$HERE/hooks/guard-brief-scope.sh"
+ENGINE_ROOT="$(cd "$HERE/../.." && pwd)"
+LIB="$HERE/../brief-scope.py"
+GUARD="$ENGINE_ROOT/scripts/hooks/guard-brief-scope.sh"
 
 # THE VENDORED ACCEPTANCE FIXTURE AND ITS IDENTITY. See the header: the bytes
 # are the round-9 brief as dispatched, the hash is asserted at S19pin, and
 # R9_SOURCE is provenance only — nothing load-bearing ever reads it.
-R9="$HERE/fixtures/brief-scope/round9-brief-2026-09-13.md"
+R9="$HERE/../fixtures/brief-scope/round9-brief-2026-09-13.md"
 R9_SHA256="76c8eb46b09f9238b714fe6e5b9322a75f8e8611c2612e62dff307b0d7dea16e"
 R9_SOURCE="/Users/alex/ab/richos-hq/docs/plans/round9-brief-2026-09-13.md"
 
@@ -267,7 +268,7 @@ want "S18 a non-Agent tool call is untouched" 0 "" "$GRC" "$GOUT"
 # quiet exit 0; every library-level case still passed. A guard that cannot run
 # must say so, or it is indistinguishable from a guard that found nothing.
 mkdir -p "$T/broken/hooks"
-sed 's|\$HERE/\.\./brief-scope\.py|$HERE/../nowhere/brief-scope.py|' "$GUARD" >"$T/broken/hooks/g.sh"
+sed 's|\$HERE/\.\./\.\./ass-kicker/brief-scope\.py|$HERE/../nowhere/brief-scope.py|' "$GUARD" >"$T/broken/hooks/g.sh"
 payload "$T/green.md" >"$T/payload.json"
 GOUT="$(bash "$T/broken/hooks/g.sh" <"$T/payload.json" 2>&1)"; GRC=$?
 want "S18b a guard that cannot find its library exits 0 but is AUDIBLE" 0 "did NOT run" "$GRC" "$GOUT"

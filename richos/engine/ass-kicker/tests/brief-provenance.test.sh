@@ -107,7 +107,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK="$SCRIPT_DIR/brief-provenance.py"
+CHECK="$SCRIPT_DIR/../brief-provenance.py"
 
 PASS=0; FAIL=0
 SANDBOX="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/brief-provenance-test.XXXXXX")" && pwd -P)"

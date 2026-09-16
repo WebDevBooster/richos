@@ -91,7 +91,7 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="$HERE/../brief-scope.py"
+LIB="$HERE/../../ass-kicker/brief-scope.py"
 
 PAYLOAD="$(cat 2>/dev/null)"
 
