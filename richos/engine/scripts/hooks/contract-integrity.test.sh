@@ -42,6 +42,10 @@
 
 set -o pipefail
 
+# Drain predicate input before returning. grep -q can close its pipe early and
+# turn a successful match into SIGPIPE from printf under pipefail. The
+# redirected grep predicates below keep the same patterns without that race.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL="$SCRIPT_DIR/install.sh"
 PROBE="$SCRIPT_DIR/contract-integrity-probe.sh"
@@ -172,7 +176,7 @@ if [ -n "$_SCOPE_ARGS" ]; then
         done
         if [ -z "$_hit" ]; then
             for _sid in $_ALL_SECTIONS; do
-                if _scope_cases_of "$_sid" | tr '[:upper:]' '[:lower:]' | grep -q "^$_sel_lc"; then
+                if _scope_cases_of "$_sid" | tr '[:upper:]' '[:lower:]' | grep >/dev/null "^$_sel_lc"; then
                     _hit="$_hit $_sid"
                 fi
             done
@@ -1303,7 +1307,7 @@ fi
 emit_case "C10.a-tenth-agent-hook-seated-and-registered-passes" 0 "$rc"
 # Green is not enough: a layer that skipped the new hook is also green. It has
 # to have been SEEN.
-if printf '%s\n' "$C10_OUT" | grep -q "guard-tenth-example.sh"; then
+if printf '%s\n' "$C10_OUT" | grep >/dev/null "guard-tenth-example.sh"; then
     emit_case "C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped" 0 0
 else
     printf '        the probe was green but never named guard-tenth-example.sh\n' >&2
@@ -1314,7 +1318,7 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 add_tenth_agent_hook "$ROOT" 1 0
 set +e; C10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
-if [ "$rc" -eq 2 ] && printf '%s\n' "$C10_OUT" | grep -q "C\..*MISMATCH between the two registration surfaces"; then
+if [ "$rc" -eq 2 ] && printf '%s\n' "$C10_OUT" | grep >/dev/null "C\..*MISMATCH between the two registration surfaces"; then
     emit_case "C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C" 0 0
 else
     printf '        expected Layer C to report a surface mismatch, rc=%s, got: [%s]\n' \
@@ -1418,7 +1422,7 @@ ROOT="$(make_sandbox)"
 add_rooted_stop_hook "$ROOT" 1 0
 set +e; R10_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 if [ "$rc" -eq 2 ] && printf '%s\n' "$R10_OUT" \
-        | grep -q "R\..*do NOT source the root-resolution contract.*notice-rooted-example"; then
+        | grep >/dev/null "R\..*do NOT source the root-resolution contract.*notice-rooted-example"; then
     emit_case "R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED" 0 0
 else
     printf '        expected Layer R to name notice-rooted-example, rc=%s, got: [%s]\n' \
@@ -1465,7 +1469,7 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
 set +e; SC_OUT="$(richos_sandbox_start_failures "$ROOT" "${ALL_HOOKS[@]}")"; set -e
-if printf '%s' "$SC_OUT" | grep -q '^scan-secrets\.sh'; then
+if printf '%s' "$SC_OUT" | grep >/dev/null '^scan-secrets\.sh'; then
     emit_case "SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1" 0 0
 else
     printf '        expected scan-secrets.sh to be reported unable to start, got: [%s]\n' "$SC_OUT" >&2
@@ -1823,7 +1827,7 @@ SHIM="$SHIMDIR/guard-main-checkout-writes.sh"
 cat >"$SHIM" <<'SHIM_SH'
 #!/usr/bin/env bash
 INPUT="$(cat)"
-if printf '%s' "$INPUT" | grep -q '__integrity_canary__'; then
+if printf '%s' "$INPUT" | grep >/dev/null '__integrity_canary__'; then
     exit 2
 fi
 exit 0
@@ -2065,7 +2069,7 @@ if _section worktree; then
 MAIN="$(make_git_main)"
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$MAIN" "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "19.git-main-checkout-passes" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'N. .claude/settings.local.json is git-tracked'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'N. .claude/settings.local.json is git-tracked'; then
     PASS=$((PASS+1)); printf '  PASS  19b.layer-N-tracked-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("19b.layer-N-tracked-pass-line-present"); printf '  FAIL  19b.layer-N-tracked-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -2140,7 +2144,7 @@ PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null RICHO
 rc=$?
 set -e
 emit_case "32.git-untracked-ignored-settings-local-fails" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'git add -f .claude/settings.local.json'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'git add -f .claude/settings.local.json'; then
     PASS=$((PASS+1)); printf '  PASS  32b.layer-N-names-the-git-add-f-fix\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("32b.layer-N-names-the-git-add-f-fix"); printf '  FAIL  32b.layer-N-names-the-git-add-f-fix  (got: %s)\n' "$PROBE_OUT"
@@ -2158,7 +2162,7 @@ PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null RICHO
 rc=$?
 set -e
 emit_case "33.git-untracked-not-ignored-warns-rc-0" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'N. .claude/settings.local.json is present but not yet git-tracked'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'N. .claude/settings.local.json is present but not yet git-tracked'; then
     PASS=$((PASS+1)); printf '  PASS  33b.layer-N-warns-when-not-yet-committed\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("33b.layer-N-warns-when-not-yet-committed"); printf '  FAIL  33b.layer-N-warns-when-not-yet-committed  (got: %s)\n' "$PROBE_OUT"
@@ -2199,7 +2203,7 @@ NOPY_OUT="$(PATH="$FAKEBIN" "$BASH_BIN" "$ROOT/scripts/hooks/install.sh" 2>&1 1>
 rc=$?
 set -e
 emit_case "22.install-no-python3-refuses" 2 "$rc"
-if printf '%s' "$NOPY_OUT" | grep -qF 'python3'; then
+if printf '%s' "$NOPY_OUT" | grep -F >/dev/null 'python3'; then
     PASS=$((PASS+1)); printf '  PASS  22b.install-no-python3-stderr-names-python3\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("22b.install-no-python3-stderr-names-python3"); printf '  FAIL  22b.install-no-python3-stderr-names-python3  (got: %s)\n' "$NOPY_OUT"
@@ -2216,7 +2220,7 @@ NOPY_OUT="$(PATH="$FAKEBIN" RICHOS_ENTITY_ROOT="$ROOT" "$BASH_BIN" "$ROOT/script
 rc=$?
 set -e
 emit_case "23.probe-no-python3-refuses" 2 "$rc"
-if printf '%s' "$NOPY_OUT" | grep -qF 'python3'; then
+if printf '%s' "$NOPY_OUT" | grep -F >/dev/null 'python3'; then
     PASS=$((PASS+1)); printf '  PASS  23b.probe-no-python3-stderr-names-python3\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("23b.probe-no-python3-stderr-names-python3"); printf '  FAIL  23b.probe-no-python3-stderr-names-python3  (got: %s)\n' "$NOPY_OUT"
@@ -2240,7 +2244,7 @@ ROOT="$(make_sandbox)"
 write_sandbox_settings_local "$ROOT" "" "head"
 set +e; INSTALL_OUT="$("$ROOT/scripts/hooks/install.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "24.install-missing-env-flag-refuses" 2 "$rc"
-if printf '%s' "$INSTALL_OUT" | grep -qF 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'; then
+if printf '%s' "$INSTALL_OUT" | grep -F >/dev/null 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'; then
     PASS=$((PASS+1)); printf '  PASS  24b.install-missing-env-flag-names-the-key\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("24b.install-missing-env-flag-names-the-key"); printf '  FAIL  24b.install-missing-env-flag-names-the-key  (got: %s)\n' "$INSTALL_OUT"
@@ -2258,7 +2262,7 @@ ROOT="$(make_sandbox)"
 write_sandbox_settings_local "$ROOT" "1" ""
 set +e; INSTALL_OUT="$("$ROOT/scripts/hooks/install.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "25.install-missing-baseref-refuses" 2 "$rc"
-if printf '%s' "$INSTALL_OUT" | grep -qF 'worktree.baseRef'; then
+if printf '%s' "$INSTALL_OUT" | grep -F >/dev/null 'worktree.baseRef'; then
     PASS=$((PASS+1)); printf '  PASS  25b.install-missing-baseref-names-the-key\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("25b.install-missing-baseref-names-the-key"); printf '  FAIL  25b.install-missing-baseref-names-the-key  (got: %s)\n' "$INSTALL_OUT"
@@ -2279,7 +2283,7 @@ json.dump(d, open(p, 'w'), indent=2)
 "
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "26.probe-catches-env-flag-removed-post-install" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'; then
     PASS=$((PASS+1)); printf '  PASS  26b.probe-names-the-missing-env-flag\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("26b.probe-names-the-missing-env-flag"); printf '  FAIL  26b.probe-names-the-missing-env-flag  (got: %s)\n' "$PROBE_OUT"
@@ -2299,7 +2303,7 @@ json.dump(d, open(p, 'w'), indent=2)
 "
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "27.probe-catches-baseref-removed-post-install" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'worktree.baseRef'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'worktree.baseRef'; then
     PASS=$((PASS+1)); printf '  PASS  27b.probe-names-the-missing-baseref\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("27b.probe-names-the-missing-baseref"); printf '  FAIL  27b.probe-names-the-missing-baseref  (got: %s)\n' "$PROBE_OUT"
@@ -2312,22 +2316,22 @@ ROOT="$(make_sandbox)"
 set +e; "$ROOT/scripts/hooks/install.sh" >/dev/null 2>&1; set -e
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "28.both-keys-correct-probe-passes" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present'; then
     PASS=$((PASS+1)); printf '  PASS  28b.layer-I-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28b.layer-I-explicit-pass-line-present"); printf '  FAIL  28b.layer-I-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'J. worktree.baseRef="head" present'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'J. worktree.baseRef="head" present'; then
     PASS=$((PASS+1)); printf '  PASS  28c.layer-J-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28c.layer-J-explicit-pass-line-present"); printf '  FAIL  28c.layer-J-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets scanner wired + REJECTS a planted secret and PASSES clean content'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'K. secrets scanner wired + REJECTS a planted secret and PASSES clean content'; then
     PASS=$((PASS+1)); printf '  PASS  28d.layer-K-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28d.layer-K-explicit-pass-line-present"); printf '  FAIL  28d.layer-K-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'M. registration uniqueness'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'M. registration uniqueness'; then
     PASS=$((PASS+1)); printf '  PASS  28e.layer-M-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28e.layer-M-explicit-pass-line-present"); printf '  FAIL  28e.layer-M-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -2357,7 +2361,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "29.secrets-scanner-not-wired-fails" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. PreToolUse[Write|Edit|MultiEdit|NotebookEdit] secrets scanner (scan-secrets.sh) NOT wired'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'K. PreToolUse[Write|Edit|MultiEdit|NotebookEdit] secrets scanner (scan-secrets.sh) NOT wired'; then
     PASS=$((PASS+1)); printf '  PASS  29b.probe-names-the-missing-secrets-scanner\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("29b.probe-names-the-missing-secrets-scanner"); printf '  FAIL  29b.probe-names-the-missing-secrets-scanner  (got: %s)\n' "$PROBE_OUT"
@@ -2370,7 +2374,7 @@ ROOT="$(make_sandbox)"
 printf '\n# tampered\n' >> "$ROOT/scripts/hooks/scan-secrets.sh"
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "30.secrets-scanner-tampered-fails" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets-scanner content hash mismatch'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'K. secrets-scanner content hash mismatch'; then
     PASS=$((PASS+1)); printf '  PASS  30b.probe-names-the-hash-mismatch\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("30b.probe-names-the-hash-mismatch"); printf '  FAIL  30b.probe-names-the-hash-mismatch  (got: %s)\n' "$PROBE_OUT"
@@ -2391,7 +2395,7 @@ chmod +x "$ROOT/scripts/hooks/scan-secrets.sh"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "31.secrets-scanner-broken-then-reinstalled-fails" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. wired secrets scanner did NOT block a known-bad secret'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'K. wired secrets scanner did NOT block a known-bad secret'; then
     PASS=$((PASS+1)); printf '  PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("31b.functional-canary-catches-broken-scanner-despite-matching-hash"); printf '  FAIL  31b.functional-canary-catches-broken-scanner-despite-matching-hash  (got: %s)\n' "$PROBE_OUT"
@@ -2420,7 +2424,7 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
 set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "31c.dead-secrets-scanner-fails-layer-K" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. the secrets scanner refused BOTH a planted secret and content with no secret in it'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'K. the secrets scanner refused BOTH a planted secret and content with no secret in it'; then
     PASS=$((PASS+1)); printf '  PASS  31d.layer-K-says-failing-to-start-not-failing-to-catch\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("31d.layer-K-says-failing-to-start-not-failing-to-catch"); printf '  FAIL  31d.layer-K-says-failing-to-start-not-failing-to-catch  (got: %s)\n' "$PROBE_OUT"
@@ -2442,7 +2446,7 @@ if _section P; then
 ROOT="$(make_sandbox)"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "34.definition-drift-pair-intact-probe-rc-0" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'P. definition-drift pair wired exactly once'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'P. definition-drift pair wired exactly once'; then
     PASS=$((PASS+1)); printf '  PASS  34b.layer-P-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("34b.layer-P-pass-line-present"); printf '  FAIL  34b.layer-P-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -2465,7 +2469,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "35.definition-snapshotter-unwired-fails-layerP" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'snapshot-agent-definitions.sh) NOT wired'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'snapshot-agent-definitions.sh) NOT wired'; then
     PASS=$((PASS+1)); printf '  PASS  35b.layer-P-names-the-missing-snapshotter\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("35b.layer-P-names-the-missing-snapshotter"); printf '  FAIL  35b.layer-P-names-the-missing-snapshotter  (got: %s)\n' "$PROBE_OUT"
@@ -2522,7 +2526,7 @@ chmod +x "$ROOT/scripts/hooks/guard-definition-drift.sh"
 shasum -a 256 "$ROOT/scripts/hooks/guard-definition-drift.sh" | awk '{print $1}' > "$ROOT/scripts/hooks/guard-definition-drift.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "38b.definition-drift-guard-overblocks-fails-layerP-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'blocked an UNCHANGED definition'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'blocked an UNCHANGED definition'; then
     PASS=$((PASS+1)); printf '  PASS  38c.layer-P-names-the-over-block\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("38c.layer-P-names-the-over-block"); printf '  FAIL  38c.layer-P-names-the-over-block  (got: %s)\n' "$PROBE_OUT"
@@ -2607,7 +2611,7 @@ if _section Q; then
 ROOT="$(make_sandbox)"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "41.workspace-spec-intact-probe-rc-0" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. the workspace spec is wired on its six events'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'Q. the workspace spec is wired on its six events'; then
     PASS=$((PASS+1)); printf '  PASS  41b.layer-Q-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("41b.layer-Q-pass-line-present"); printf '  FAIL  41b.layer-Q-pass-line-present  (got: %s)\n' "$(printf '%s' "$PROBE_OUT" | grep -F 'Q.' | head -5)"
@@ -2644,7 +2648,7 @@ open(p, 'w').write(text.replace(needle, '        git -C "$Q_ENT" -c user.name=pr
 PY
 set +e; PROBE_OUT="$(run_probe_hostile "$ROOT")"; rc=$?; set -e
 emit_case "41f.hermetic-seed-commit-removed-fails-under-a-hostile-environment" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. FUNCTIONAL CANARY DID NOT RUN'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'Q. FUNCTIONAL CANARY DID NOT RUN'; then
     PASS=$((PASS+1)); printf '  PASS  41g.layer-Q-says-its-canary-did-not-run\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("41g.layer-Q-says-its-canary-did-not-run")
@@ -2690,7 +2694,7 @@ ROOT="$(make_sandbox)"
 q_unwire "$ROOT/.claude/settings.local.json" SessionStart workspace-lifecycle.sh
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "42.lifecycle-unwired-from-SessionStart-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'workspace-lifecycle.sh registered 0x on SessionStart'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'workspace-lifecycle.sh registered 0x on SessionStart'; then
     PASS=$((PASS+1)); printf '  PASS  42b.layer-Q-names-the-missing-event\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("42b.layer-Q-names-the-missing-event"); printf '  FAIL  42b.layer-Q-names-the-missing-event\n'
@@ -2711,7 +2715,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "42c.lifecycle-blind-to-SendMessage-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'does not see PostToolUse[SendMessage]'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'does not see PostToolUse[SendMessage]'; then
     PASS=$((PASS+1)); printf '  PASS  42d.layer-Q-names-the-unseen-tool\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("42d.layer-Q-names-the-unseen-tool"); printf '  FAIL  42d.layer-Q-names-the-unseen-tool\n'
@@ -2723,7 +2727,7 @@ ROOT="$(make_sandbox)"
 q_unwire "$ROOT/.claude/settings.local.json" Stop guard-workspace-gate.sh
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "42e.stop-gate-unwired-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'guard-workspace-gate.sh registered 0x on Stop'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'guard-workspace-gate.sh registered 0x on Stop'; then
     PASS=$((PASS+1)); printf '  PASS  42f.layer-Q-names-the-missing-gate\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("42f.layer-Q-names-the-missing-gate"); printf '  FAIL  42f.layer-Q-names-the-missing-gate\n'
@@ -2743,7 +2747,7 @@ ROOT="$(make_sandbox)"
 printf '\n# tamper — no longer matches the minted sidecar\n' >> "$ROOT/mega-lander/workspaces.py"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "44.registry-tampered-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. registry content hash mismatch'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'Q. registry content hash mismatch'; then
     PASS=$((PASS+1)); printf '  PASS  44a.layer-Q-names-the-tampered-registry\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("44a.layer-Q-names-the-tampered-registry"); printf '  FAIL  44a.layer-Q-names-the-tampered-registry\n'
@@ -2755,7 +2759,7 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/mega-lander/workspaces.py.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "44b.registry-sidecar-missing-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. registry manifest missing'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'Q. registry manifest missing'; then
     PASS=$((PASS+1)); printf '  PASS  44c.layer-Q-names-the-missing-manifest\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("44c.layer-Q-names-the-missing-manifest"); printf '  FAIL  44c.layer-Q-names-the-missing-manifest\n'
@@ -2768,7 +2772,7 @@ ROOT="$(make_sandbox)"
 q_mutate_registry "$ROOT" '    blocking = [i for i in items if i["blocks_turn_end"]]' '    blocking = []'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "45.gate-lets-every-turn-end-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'point 5: the turn was allowed to end'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'point 5: the turn was allowed to end'; then
     PASS=$((PASS+1)); printf '  PASS  45b.layer-Q-names-point-5\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("45b.layer-Q-names-point-5"); printf '  FAIL  45b.layer-Q-names-point-5\n'
@@ -2781,7 +2785,7 @@ ROOT="$(make_sandbox)"
 q_mutate_registry "$ROOT" '    allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]' '    return'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "45c.land-deletes-nothing-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF "point 4: the landed agent's workspace still exists"; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null "point 4: the landed agent's workspace still exists"; then
     PASS=$((PASS+1)); printf '  PASS  45d.layer-Q-names-the-surviving-workspace\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("45d.layer-Q-names-the-surviving-workspace"); printf '  FAIL  45d.layer-Q-names-the-surviving-workspace\n'
@@ -2872,7 +2876,7 @@ for q_pair in "49|TeammateIdle|agent-finished-reap-worktrees.sh" \
     q_revive "$ROOT" "$q_ev" "$q_sc"
     set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
     emit_case "$q_id.retired-deleter-$q_sc-revived-fails-layerQ" 2 "$rc"
-    if printf '%s' "$PROBE_OUT" | grep -qF "a retired deleter is wired: $q_sc on $q_ev"; then
+    if printf '%s' "$PROBE_OUT" | grep -F >/dev/null "a retired deleter is wired: $q_sc on $q_ev"; then
         PASS=$((PASS+1)); printf '  PASS  %s\n' "${q_id}b.layer-Q-names-$q_sc"
     else
         FAIL=$((FAIL+1)); FAIL_NAMES+=("${q_id}b.layer-Q-names-$q_sc"); printf '  FAIL  %s\n' "${q_id}b.layer-Q-names-$q_sc"
@@ -2889,7 +2893,7 @@ q_mutate_registry "$ROOT" '    if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "51.finished-agent-not-locked-out-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF "point 9: a finished agent's Read was allowed"; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null "point 9: a finished agent's Read was allowed"; then
     PASS=$((PASS+1)); printf '  PASS  51b.layer-Q-names-point-9\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("51b.layer-Q-names-point-9"); printf '  FAIL  51b.layer-Q-names-point-9\n'
@@ -2922,7 +2926,7 @@ ROOT="$(make_sandbox)"
 q_mutate_registry "$ROOT" '    if not sid or (not tuid and not dry):' '    if True:'
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "52.registration-at-spawn-broken-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'a well-formed spawn was not registered'; then
+if printf '%s' "$PROBE_OUT" | grep -F >/dev/null 'a well-formed spawn was not registered'; then
     PASS=$((PASS+1)); printf '  PASS  52b.layer-Q-names-the-unregistered-spawn\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("52b.layer-Q-names-the-unregistered-spawn"); printf '  FAIL  52b.layer-Q-names-the-unregistered-spawn\n'
@@ -2963,7 +2967,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; S_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "S1.worktree-removal-guard-not-wired-fails" 2 "$rc"
-if printf '%s' "$S_OUT" | grep -q 'S\. PreToolUse\[Bash\] worktree guard'; then
+if printf '%s' "$S_OUT" | grep >/dev/null 'S\. PreToolUse\[Bash\] worktree guard'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "S1b.layer-S-is-the-layer-that-caught-it"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("S1b.layer-S-is-the-layer-that-caught-it")
@@ -3009,7 +3013,7 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/mega-lander/workspaces.sh"
 set +e; S_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "S4.sanctioned-helper-missing-fails" 2 "$rc"
-if printf '%s' "$S_OUT" | grep -q 'the sanctioned command is MISSING'; then
+if printf '%s' "$S_OUT" | grep >/dev/null 'the sanctioned command is MISSING'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "S4b.layer-S-names-the-missing-helper"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("S4b.layer-S-names-the-missing-helper")
@@ -3032,8 +3036,30 @@ rm -rf "$ROOT"
 fi  # _section — S
 
 if _section IP; then
+# A long, unrelated Read hook must not make the first-write-hook selector
+# terminate the whole probe with SIGPIPE. Exercise both a valid inventory and
+# a genuinely missing interactive guard against the same large input.
+pad_hook_inventory() {
+    python3 - "$1/.claude/settings.local.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["hooks"]["PreToolUse"].append({"matcher": "Read", "hooks": [
+    {"type": "command", "command": "true # " + "padding" * 10000}
+]})
+p.write_text(json.dumps(d))
+PY
+}
+ROOT="$(make_sandbox)"
+pad_hook_inventory "$ROOT"
+set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IP0.large-hook-inventory-passes" 0 "$rc"
+rm -rf "$ROOT"
+
 # IP1 — the guard is not wired at all.
 ROOT="$(make_sandbox)"
+pad_hook_inventory "$ROOT"
 python3 - "$ROOT/.claude/settings.local.json" <<'PY'
 import json, sys
 p = sys.argv[1]
@@ -3046,7 +3072,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IP1.interactive-prompt-guard-not-wired-fails" 2 "$rc"
-if printf '%s' "$IP_OUT" | grep -q 'IP\. PreToolUse\[Bash\] interactive-prompt guard'; then
+if printf '%s' "$IP_OUT" | grep >/dev/null 'IP\. PreToolUse\[Bash\] interactive-prompt guard'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IP1b.layer-IP-is-the-layer-that-caught-it"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IP1b.layer-IP-is-the-layer-that-caught-it")
@@ -3091,7 +3117,7 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/lib/interactive-prompt.py" "$ROOT/scripts/lib/interactive-prompt.py.sha256"
 set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IP4.shape-table-missing-fails" 2 "$rc"
-if printf '%s' "$IP_OUT" | grep -q 'the shape table is MISSING'; then
+if printf '%s' "$IP_OUT" | grep >/dev/null 'the shape table is MISSING'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IP4b.layer-IP-names-the-missing-shape-table"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IP4b.layer-IP-names-the-missing-shape-table")
@@ -3112,7 +3138,7 @@ shasum -a 256 "$ROOT/scripts/hooks/guard-interactive-prompt.sh" | awk '{print $1
     > "$ROOT/scripts/hooks/guard-interactive-prompt.sh.sha256"
 set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash" 2 "$rc"
-if printf '%s' "$IP_OUT" | grep -q 'refused BOTH the prompting command and the corrected one'; then
+if printf '%s' "$IP_OUT" | grep >/dev/null 'refused BOTH the prompting command and the corrected one'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IP5b.layer-IP-says-failing-to-start-not-failing-to-catch"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IP5b.layer-IP-says-failing-to-start-not-failing-to-catch")
@@ -3187,7 +3213,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IL1.idle-land-gate-not-wired-fails" 2 "$rc"
-if printf '%s' "$IL_OUT" | grep -q 'IL. Stop\[guard-idle-land.sh\] NOT wired'; then
+if printf '%s' "$IL_OUT" | grep >/dev/null 'IL. Stop\[guard-idle-land.sh\] NOT wired'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IL1b.layer-IL-is-the-layer-that-caught-it"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IL1b.layer-IL-is-the-layer-that-caught-it")
@@ -3205,7 +3231,7 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/hooks/guard-idle-land.py" "$ROOT/scripts/hooks/guard-idle-land.py.sha256"
 set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IL2.missing-analyzer-fails" 2 "$rc"
-if printf '%s' "$IL_OUT" | grep -q 'the idle-land ANALYZER is missing'; then
+if printf '%s' "$IL_OUT" | grep >/dev/null 'the idle-land ANALYZER is missing'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IL2b.layer-IL-names-the-missing-analyzer"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IL2b.layer-IL-names-the-missing-analyzer")
@@ -3237,7 +3263,7 @@ shasum -a 256 "$ROOT/scripts/hooks/guard-idle-land.sh" | awk '{print $1}' \
     > "$ROOT/scripts/hooks/guard-idle-land.sh.sha256"
 set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IL4.gutted-gate-fails-despite-matching-hash" 2 "$rc"
-if printf '%s' "$IL_OUT" | grep -q 'did NOT refuse a turn that merged a branch'; then
+if printf '%s' "$IL_OUT" | grep >/dev/null 'did NOT refuse a turn that merged a branch'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IL4b.layer-IL-says-it-is-registered-but-not-enforcing"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IL4b.layer-IL-says-it-is-registered-but-not-enforcing")
@@ -3259,7 +3285,7 @@ shasum -a 256 "$ROOT/scripts/hooks/guard-idle-land.sh" | awk '{print $1}' \
     > "$ROOT/scripts/hooks/guard-idle-land.sh.sha256"
 set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "IL5.gate-that-refuses-everything-fails-despite-matching-hash" 2 "$rc"
-if printf '%s' "$IL_OUT" | grep -q 'refused BOTH the bad turn and a legitimately DECLARED stop'; then
+if printf '%s' "$IL_OUT" | grep >/dev/null 'refused BOTH the bad turn and a legitimately DECLARED stop'; then
     PASS=$((PASS+1)); printf '  PASS  %s\n' "IL5b.layer-IL-says-refusing-everything-not-deciding"
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("IL5b.layer-IL-says-refusing-everything-not-deciding")
@@ -3420,7 +3446,7 @@ ROOT="$(make_sandbox)"
 _sed_inplace 's/^MODEL_TIERS=.*/MODEL_TIERS=""/' "$ROOT/orchestration.config"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT1.model-tiers-undeclared-fails" 2 "$rc"
-if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS in .*: MODEL_TIERS is blank'; then
+if printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. MODEL_TIERS in .*: MODEL_TIERS is blank'; then
     emit_case "MT1b.the-refusal-names-the-blank-declaration" 0 0
 else
     emit_case "MT1b.the-refusal-names-the-blank-declaration" 0 1
@@ -3433,7 +3459,7 @@ ROOT="$(make_sandbox)"
 _sed_inplace 's/^MODEL_TIERS=.*/MODEL_TIERS="fable > opus > sonnet"/' "$ROOT/orchestration.config"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT2.model-tiers-alias-set-drifts-from-allowed-models-fails" 2 "$rc"
-if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS and ALLOWED_MODELS disagree.*haiku'; then
+if printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. MODEL_TIERS and ALLOWED_MODELS disagree.*haiku'; then
     emit_case "MT2b.the-refusal-names-the-unranked-alias" 0 0
 else
     emit_case "MT2b.the-refusal-names-the-unranked-alias" 0 1
@@ -3445,7 +3471,7 @@ ROOT="$(make_sandbox)"
 printf '**Models:** the order is `MODEL_TIERS="opus > fable > sonnet > haiku"` and never move a teammate down it.\n' >"$ROOT/CLAUDE.md"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT3.doctrine-quotes-a-different-order-fails" 2 "$rc"
-if printf '%s' "$MT_OUT" | grep -q 'MT\. .*CLAUDE.md quotes MODEL_TIERS="opus > fable > sonnet > haiku" but orchestration.config declares MODEL_TIERS="fable > opus > sonnet > haiku"'; then
+if printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. .*CLAUDE.md quotes MODEL_TIERS="opus > fable > sonnet > haiku" but orchestration.config declares MODEL_TIERS="fable > opus > sonnet > haiku"'; then
     emit_case "MT3b.the-refusal-names-both-orders" 0 0
 else
     emit_case "MT3b.the-refusal-names-both-orders" 0 1
@@ -3457,7 +3483,7 @@ ROOT="$(make_sandbox)"
 printf '**Models:** definitions default to Opus for the judgment-critical roles (do not downgrade) and Sonnet for the rest.\n' >"$ROOT/CLAUDE.md"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT4.doctrine-says-downgrade-without-quoting-the-data-fails" 2 "$rc"
-if printf '%s' "$MT_OUT" | grep -q 'MT\. .*says "downgrade" but never quotes the declaration'; then
+if printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. .*says "downgrade" but never quotes the declaration'; then
     emit_case "MT4b.the-refusal-names-the-missing-quotation" 0 0
 else
     emit_case "MT4b.the-refusal-names-the-missing-quotation" 0 1
@@ -3472,11 +3498,45 @@ printf '**Models:** the order is `MODEL_TIERS="fable > opus > sonnet > haiku"`; 
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 # The probe styles its check mark (C_GREEN ... C_RESET) so "✓ MT." never
 # appears as plain text; match the layer's own words, as MT1-MT4 do.
-if printf '%s' "$MT_OUT" | grep -q 'MT\. capability order declared as data'; then
+if printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. capability order declared as data'; then
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 1
     diag_or_tail "$(printf '%s\n' "$MT_OUT" | grep -E 'MT\.' || true)" "$MT_OUT"
+fi
+rm -rf "$ROOT"
+
+# MT6: a real refusal can exceed the pipe buffer. Preserve the real guard's
+# behavior and append diagnostic padding only when it refuses. Matching the
+# remedy must not turn the producer's SIGPIPE into a missing-remedy verdict.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/scripts/hooks/guard-worktree-isolation.sh" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+source = p.read_text()
+needle = "set -eo pipefail\n"
+assert source.count(needle) == 1
+padding = '''trap 'rc=$?; if [ "$rc" -eq 2 ]; then printf "%65536s\\n" diagnostic-padding >&2; fi' EXIT
+'''
+p.write_text(source.replace(needle, needle + padding, 1))
+PY
+gen_sidecars "$ROOT"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -eq 0 ] && printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. capability order declared as data'; then
+    emit_case "MT6.large-refusal-still-names-the-remedy" 0 0
+else
+    emit_case "MT6.large-refusal-still-names-the-remedy" 0 1
+    diag_or_tail "$(printf '%s\n' "$MT_OUT" | grep -E 'MT\.' || true)" "$MT_OUT"
+fi
+# Negative control: padding cannot satisfy a remedy that is actually absent.
+_sed_inplace 's/model-downgrade-ack:/missing-remedy:/g' "$ROOT/scripts/hooks/guard-worktree-isolation.sh"
+gen_sidecars "$ROOT"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$rc" -eq 2 ] && printf '%s' "$MT_OUT" | grep >/dev/null 'MT\. .*did NOT name the remedy line'; then
+    emit_case "MT6b.large-refusal-without-remedy-still-fails" 0 0
+else
+    emit_case "MT6b.large-refusal-without-remedy-still-fails" 0 1
 fi
 rm -rf "$ROOT"
 
@@ -3506,7 +3566,7 @@ ROOT="$(make_sandbox)"
 _sed_inplace '/^MODEL_CEILING=/d' "$ROOT/orchestration.config"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MC1.no-ceiling-declared-warns-and-does-not-fail" 0 "$rc"
-if printf '%s' "$MC_OUT" | grep -q 'MC\. no MODEL_CEILING declared'; then
+if printf '%s' "$MC_OUT" | grep >/dev/null 'MC\. no MODEL_CEILING declared'; then
     emit_case "MC1b.the-warning-names-the-missing-declaration" 0 0
 else
     emit_case "MC1b.the-warning-names-the-missing-declaration" 0 1
@@ -3519,7 +3579,7 @@ ROOT="$(make_sandbox)"
 _sed_inplace 's/^MODEL_CEILING=.*/MODEL_CEILING="mythic"/' "$ROOT/orchestration.config"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MC2.unrankable-ceiling-fails" 2 "$rc"
-if printf '%s' "$MC_OUT" | grep -q 'MC\. MODEL_CEILING="mythic" is declared .* ranks it NOWHERE'; then
+if printf '%s' "$MC_OUT" | grep >/dev/null 'MC\. MODEL_CEILING="mythic" is declared .* ranks it NOWHERE'; then
     emit_case "MC2b.the-refusal-names-the-unrankable-ceiling" 0 0
 else
     emit_case "MC2b.the-refusal-names-the-unrankable-ceiling" 0 1
@@ -3531,7 +3591,7 @@ ROOT="$(make_sandbox)"
 printf '**Models:** the cost ceiling is `MODEL_CEILING="haiku"` and the tier above it is for one-offs.\n' >"$ROOT/CLAUDE.md"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MC3.doctrine-quotes-a-different-ceiling-fails" 2 "$rc"
-if printf '%s' "$MC_OUT" | grep -q 'MC\. .*CLAUDE.md quotes MODEL_CEILING="haiku" but orchestration.config declares MODEL_CEILING="opus"'; then
+if printf '%s' "$MC_OUT" | grep >/dev/null 'MC\. .*CLAUDE.md quotes MODEL_CEILING="haiku" but orchestration.config declares MODEL_CEILING="opus"'; then
     emit_case "MC3b.the-refusal-names-both-ceilings" 0 0
 else
     emit_case "MC3b.the-refusal-names-both-ceilings" 0 1
@@ -3564,7 +3624,7 @@ if [ "$MC4_MUTATED" -ne 0 ]; then
     emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 1
 else
     emit_case "MC4.dead-ceiling-guard-is-caught" 2 "$rc"
-    if printf '%s' "$MC_OUT" | grep -q 'MC\. the guard did NOT refuse a spawn one tier ABOVE'; then
+    if printf '%s' "$MC_OUT" | grep >/dev/null 'MC\. the guard did NOT refuse a spawn one tier ABOVE'; then
         emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 0
     else
         emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 1
@@ -3577,7 +3637,7 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 printf '**Models:** the cost ceiling is `MODEL_CEILING="opus"`; the tier above it is for super-critical one-offs.\n' >"$ROOT/CLAUDE.md"
 set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
-if printf '%s' "$MC_OUT" | grep -q 'MC\. cost ceiling declared as data'; then
+if printf '%s' "$MC_OUT" | grep >/dev/null 'MC\. cost ceiling declared as data'; then
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 1
