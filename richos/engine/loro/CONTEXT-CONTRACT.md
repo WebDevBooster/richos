@@ -15,6 +15,11 @@ Audiences are `rich`, `worker` and `org`. Only `rich` may receive `ceo-private`
 records. Unknown audiences are refused. `--company` selects attention lanes; it
 is not an access grant. A caller must also enforce its entity binding and audience.
 
+The selected corpus root may be an alias. Descendant source directories and files
+must be ordinary paths within that corpus. Linked source paths and multiply linked
+files are refused before scope is assigned, so a shared alias cannot expose a
+private page or borrow another company's records.
+
 ## Read commands
 
 `compile --topic TEXT` returns one JSON slice containing `schemaVersion`,

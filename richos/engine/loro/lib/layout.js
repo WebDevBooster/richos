@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { parseFrontMatterLines } from './frontmatter.js';
+import { assertReadPath, readSource } from './read-storage.js';
 
 export const CORPUS_ENV = 'LORO_CORPUS';
 
@@ -113,6 +114,7 @@ export function proseOwners(manifests) {
 
 export function listCompanies(root) {
   const dir = path.join(root, 'companies');
+  if (!assertReadPath(root, dir, 'directory')) return [];
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -133,8 +135,9 @@ export function readCompanyManifest(root, id) {
   const file = path.join(root, 'companies', id, COMPANY_MANIFEST);
   const out = { id, name: null, role: null, status: 'active', startedAt: null, mergedInto: null, pages: [], dormant: false, problems: [] };
   let text;
+  assertReadPath(root, file);
   try {
-    text = fs.readFileSync(file, 'utf8');
+    text = readSource(root, file);
   } catch {
     return out;
   }
