@@ -285,6 +285,11 @@ mutant missing-dependency-not-announced "y2." "$H" \
     'for _DEP in turn-manifest.py; do' \
     "with guard-idle-land.py gone ARM 2 decides nothing and the wrapper would start perfectly and exit 0 every turn."
 
+mutant analyzer-crash-reported-as-normal "y3." "$H" \
+    'if [ "$RC" != "0" ] && [ "$RC" != "2" ]; then' \
+    'if false; then' \
+    "a runtime failure may allow turn-end but must never be reported as a healthy analyzer."
+
 # --- the verdict ------------------------------------------------------------
 # Drained rather than accumulated: PASS/FAIL below come from the workers' exit
 # codes, and a worker that left no exit code is counted as a FAILURE. The tally
