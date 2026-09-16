@@ -876,7 +876,8 @@ impl CorrectionDesk {
     fn write_record(&mut self, rec: &DeskRecord) -> Result<(), CorrectionError> {
         let mut line = serde_json::to_string(rec).map_err(|e| CorrectionError::Io(e.to_string()))?;
         line.push('\n');
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+        let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
+        crate::util::ensure_line_boundary(&mut f)?;
         f.write_all(line.as_bytes())?;
         // fsync, not flush. A proposal the CEO has not answered must survive the power
         // going out — same reason `steering::IntakeLog` fsyncs, and a page cache is not disk.
@@ -1305,6 +1306,26 @@ mod tests {
             scope: Some("org-shared".into()),
             body: "What is actually true.".into(),
         }
+    }
+
+    #[test]
+    fn accepted_proposal_survives_restart_after_a_torn_tail() {
+        let (mut d, w, log) = desk("torn-tail");
+        d.propose("acme", "thr-1", a_supersede(), "before crash").unwrap();
+        drop(d);
+        std::fs::OpenOptions::new().append(true).open(&log).unwrap()
+            .write_all(b"{\"record\":\"interrupted").unwrap();
+        let mut d = CorrectionDesk::open(&log, Box::new(w.clone())).unwrap();
+        let mut next = a_supersede();
+        if let ProposedWrite::Supersede { record_ref, .. } = &mut next {
+            *record_ref = "rec:ceo/records/another".into();
+        }
+        let accepted = d.propose("acme", "thr-1", next, "after recovery").unwrap();
+        drop(d);
+        let recovered = CorrectionDesk::open(&log, Box::new(w)).unwrap();
+        assert_eq!(recovered.get(&accepted.id).unwrap().state, ProposalState::AwaitingCeo);
+        assert_eq!(recovered.pending_for("acme").len(), 1);
+        std::fs::remove_file(log).unwrap();
     }
 
     #[test]

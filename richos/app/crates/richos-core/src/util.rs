@@ -16,3 +16,44 @@ pub fn now_millis() -> u64 {
 pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
 }
+
+/// Separate a previous incomplete append from the next record without discarding bytes.
+/// The file must be opened for reading and appending. The caller flushes or syncs
+/// this separator together with the new record before acknowledging it.
+pub(crate) fn ensure_line_boundary(file: &mut std::fs::File) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    if file.metadata()?.len() != 0 {
+        file.seek(SeekFrom::End(-1))?;
+        let mut last = [0];
+        file.read_exact(&mut last)?;
+        if last[0] != b'\n' {
+            file.write_all(b"\n")?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn line_boundary_preserves_empty_complete_and_unterminated_tails() {
+        let path = std::env::temp_dir().join(new_id("line-boundary"));
+        for (before, expected) in [
+            ("", "next\n"),
+            ("{}\n", "{}\nnext\n"),
+            ("{}", "{}\nnext\n"),
+            ("{broken", "{broken\nnext\n"),
+        ] {
+            std::fs::write(&path, before).unwrap();
+            let mut file = std::fs::OpenOptions::new().read(true).append(true).open(&path).unwrap();
+            ensure_line_boundary(&mut file).unwrap();
+            ensure_line_boundary(&mut file).unwrap();
+            file.write_all(b"next\n").unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+}
