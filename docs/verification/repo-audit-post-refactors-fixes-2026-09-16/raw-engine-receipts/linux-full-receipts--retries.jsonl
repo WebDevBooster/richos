@@ -1,0 +1,3 @@
+{"expected_rc":0,"rc":0,"seconds":111.2,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hooks/guard-dialect.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":49.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hooks/guard-vendoring-commits.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hooks/session-evidence.test.sh","verdict":"PASS"}

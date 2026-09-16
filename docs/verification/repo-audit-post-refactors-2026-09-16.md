@@ -1,5 +1,7 @@
 # Repository audit after the refactors, 2026-09-16
 
+**Follow-up:** The six findings are fixed. See the [fix and recheck report](repo-audit-post-refactors-fixes-2026-09-16.md). The findings and results below describe the original audited revision.
+
 Audited revision: `e9831589`.
 
 Six actionable issues were reproduced. Two are remaining storage-boundary gaps;

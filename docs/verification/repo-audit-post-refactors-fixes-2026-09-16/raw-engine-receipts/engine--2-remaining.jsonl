@@ -1,0 +1,8 @@
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/check-census.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":4.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/ci-surface-watch.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/ci-verify.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":7.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/cold-open.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":12.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/collect-worktree-artifacts.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hardware-choice-check.test.sh","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":245.7,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hooks/contract-integrity.test.sh:IP","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":100.7,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":0,"shards":12,"unit":"scripts/hooks/contract-integrity.test.sh:MC","verdict":"PASS"}

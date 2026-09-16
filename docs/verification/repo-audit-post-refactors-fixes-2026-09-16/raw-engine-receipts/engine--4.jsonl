@@ -1,0 +1,16 @@
+{"expected_rc":0,"rc":0,"seconds":5.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"ass-kicker/tests/brief-provenance.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":98.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"ass-kicker/tests/brief-scope.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":37.3,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"ass-kicker/tests/relocation.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"gates/unmanaged-assignment/lib/harness.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":12.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"mega-lander/tests/create-teammate-worktree.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":28.3,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"mega-lander/tests/workspace-stopped-ending.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":22.2,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/ci-units.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":6.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/handoff-facts.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":741.7,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/by-reference.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":147.1,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/ceo-asks.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":27.2,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/completeness-commits.test.sh","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":346.7,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/contract-integrity.test.sh:IL","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":108.8,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/contract-integrity.test.sh:M","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":571.3,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/contract-integrity.test.sh:Q","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":75.5,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/contract-integrity.test.sh:S","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":234.6,"sha":"134ef73b3a00f008bfd5e8c6306447d74cb423e1","shard":4,"shards":4,"unit":"scripts/hooks/contract-integrity.test.sh:SA","verdict":"PASS"}
