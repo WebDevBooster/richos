@@ -1330,7 +1330,9 @@ body.bp-narrow .first-run {
 #slideover-backdrop {
   position: fixed;
   inset: 0;
-  background: var(--scrim);
+  /* This is a dismiss target for a nonmodal pane. Keep the readable shell
+     at its normal contrast while the work summary is open. */
+  background: transparent;
   z-index: 30;
 }
 
@@ -3797,6 +3799,16 @@ body.bp-narrow .tl-user-bubble {
 .desk-btn:disabled:hover {
   border-color: var(--line);
   color: var(--ink-soft);
+}
+
+/* The connection action waits for an explicit company selection. Keep its
+   label readable, using a neutral surface rather than fading the whole button. */
+#repository-connect:disabled {
+  opacity: 1;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  border-color: var(--line);
+  cursor: not-allowed;
 }
 
 /* ---------------------------------------------------------------------------------------
