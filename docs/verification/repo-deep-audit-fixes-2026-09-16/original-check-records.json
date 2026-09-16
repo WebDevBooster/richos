@@ -1,0 +1,146 @@
+[
+  {
+    "name": "accuracy-tier-e2e",
+    "command": "node test/accuracy-tier-e2e.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 18.06,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "browser",
+    "command": "node richos/app/ui/tests/run.js",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo",
+    "exit": 1,
+    "seconds": 756.17,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "coordination-e2e",
+    "command": "node test/coordination-e2e.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 1.14,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "cross-surface-e2e",
+    "command": "node test/cross-surface-e2e.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 54.03,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "docker-unit",
+    "command": "bash richos/engine/scripts/ci-shard.sh --only-units scripts/lib/containers.test.sh --receipt /Users/alex/ab/richos-rechecks/deep-20260916/host-receipt.jsonl",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/engine-repo",
+    "exit": 0,
+    "seconds": 425.38,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "e2e",
+    "command": "node test/e2e.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 18.84,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "engine-nonsuites",
+    "command": "bash richos/engine/scripts/ci-verify.sh --no-suites",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/engine-repo",
+    "exit": 0,
+    "seconds": 156.38,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "extension",
+    "command": "npm test",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-extension",
+    "exit": 0,
+    "seconds": 0.45,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "host-e2e",
+    "command": "node test/host-e2e.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 7.72,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "packaging",
+    "command": "RICHOS_RUNTIME_DIR=/tmp/richos-1.2.0-arm64-runtime bash richos/app/scripts/run-tests.sh",
+    "cwd": "/Users/alex/ab/richos",
+    "exit": 1,
+    "seconds": 252.44,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "rust-workspace",
+    "command": "cargo test --locked --offline --workspace -- --test-threads=1",
+    "cwd": "/Users/alex/ab/richos/richos/app",
+    "exit": 0,
+    "seconds": 269.28,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "service-mutations",
+    "command": "node test/mutation-audit.mjs",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/mutation-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 388.49,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "service",
+    "command": "npm test",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+    "exit": 0,
+    "seconds": 8.27,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "swift",
+    "command": "swift test --scratch-path /Users/alex/ab/richos-rechecks/deep-20260916/swift-build --jobs 2",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-macos",
+    "exit": 0,
+    "seconds": 33.41,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "tauri",
+    "command": "cargo test --locked --offline --manifest-path src-tauri/Cargo.toml",
+    "cwd": "/Users/alex/ab/richos/richos/app",
+    "exit": 0,
+    "seconds": 39.71,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "updater",
+    "command": "cargo test --locked --offline --manifest-path crates/richos-user-update/Cargo.toml",
+    "cwd": "/Users/alex/ab/richos/richos/app",
+    "exit": 0,
+    "seconds": 24.51,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "windows-build",
+    "command": "dotnet build src/richos-companion/richos-companion.csproj --configuration Release",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows",
+    "exit": 0,
+    "seconds": 2.0,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  },
+  {
+    "name": "windows-test",
+    "command": "dotnet test tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj",
+    "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows",
+    "exit": 0,
+    "seconds": 6.47,
+    "source_revision": "70b5df857315e166de885181369005d717233f67"
+  }
+]

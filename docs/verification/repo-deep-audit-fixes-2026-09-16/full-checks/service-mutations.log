@@ -1,0 +1,142 @@
+ 4 red  catalog: stop lowercasing pinned digests
+ 1 red  catalog: drop the witness field
+ 1 red  catalog: pretend nothing is single-witness
+ 2 red  catalog: generic refusal for an unpinned model
+ 1 red  catalog: accept any sha256 shape in a manifest pin
+ 1 red  catalog: accept any filename in a manifest pin
+ 1 red  catalog: accept a zero-byte manifest pin
+ 1 red  catalog: stop normalising a manifest digest's case
+ 1 red  catalog: drop the 10% disk headroom
+ 1 red  pins: serve models over plaintext http
+ 1 red  pins: give two models the same filename
+ 1 red  shell: awk drops the id field
+ 1 red  integrity: stop recognising a doctype-less portal stub
+ 1 red  integrity: stop recognising gzip
+ 3 red  integrity: never call a body plain text
+ 5 red  integrity: check size before content
+ 8 red  integrity: skip the hash comparison entirely
+ 3 red  integrity: mark a cheap pass as hashed
+ 4 red  integrity: one generic sentence for a hash mismatch
+ 3 red  integrity: one generic sentence for a captive portal
+ 2 red  integrity: same sentence for a file on disk as for a partial
+ 2 red  integrity: terse sentence for a missing file
+ 2 red  integrity: no free-disk refusal
+ 1 red  integrity: resume onto a partial that is not a model prefix
+ 1 red  integrity: resume onto a partial already past the pinned size
+10 red  integrity: hashFile returns a constant
+ 1 red  integrity: inspectFile stops hashing by default
+ 4 red  fetch: rename into place before verifying
+ 1 red  fetch: quarantine a failed hash instead of deleting it
+ 1 red  fetch: throw away the prefix of a cleanly-truncated body
+ 1 red  fetch: never resume
+ 1 red  fetch: trust a 200 answer to a Range request
+ 1 red  fetch: skip the disk preflight
+ 1 red  fetch: ignore a declared length that disagrees with the pin
+ 2 red  fetch: peek returns nothing, so a rejected body cannot be named
+ 1 red  fetch: re-download a model that is already installed
+ 1 red  fetch: accept an installed model that fails its hash
+ 1 red  fetch: retry everything, including a corrupted download
+ 1 red  fetch: stop saying how many attempts were made
+ 1 red  fetch: reach the network without a pin
+ 1 red  fetch: a status check ignores the partial already downloaded
+ 1 red  fetch: a deep status never says it hashed anything
+ 2 red  config: the checked resolver takes the first file it finds
+ 1 red  config: the resolution error stops naming what it rejected
+ 1 red  config: an explicit model override is silently replaced
+ 2 red  config: reorder the model search path
+ 1 red  cli: verify-model always exits 0
+ 1 red  pins: delete a model from the table outright
+ 1 red  shell: awk emits before the sha is read, pairing each model with the PREVIOUS hash
+ 7 red  fetch: stream straight to the model's real name
+ 4 red  fetch: a dropped connection is reported as not worth retrying
+ 2 red  fetch: throw away the prefix when the socket dies mid-body
+ 1 red  fetch: an HTTP error status is not named
+ 1 red  fetch: an HTTP error is treated as success
+ 2 red  config: modelSearchDirs puts the explicit override last
+ 1 red  config: drop the open-wispr model dir from the search path
+
+=== 41 checks under audit ===
+  RED  every pin carries a well-formed sha256, a real byte count and a named provenance
+         first broken by: catalog: stop lowercasing pinned digests
+  RED  no two pins share an id or a filename — one name, one set of bytes
+         first broken by: pins: give two models the same filename
+  RED  a single-witness pin is labelled as one rather than presented as equal to the rest
+         first broken by: catalog: drop the witness field
+  RED  the shell fetcher and the service read the SAME pin table, field for field
+         first broken by: catalog: stop lowercasing pinned digests
+  RED  an unpinned model is refused by name, and the refusal lists what IS pinned
+         first broken by: catalog: generic refusal for an unpinned model
+  RED  a pin that could not actually pin anything down is rejected before it is trusted
+         first broken by: catalog: accept any sha256 shape in a manifest pin
+  RED  models are fetched over HTTPS from one host — a hash is not a licence for plaintext
+         first broken by: pins: serve models over plaintext http
+  RED  the disk requirement is the model plus 10% headroom, and is checked before anything starts
+         first broken by: catalog: drop the 10% disk headroom
+  RED  sniffBody tells a model from a web page, an archive, a message, and nothing at all
+         first broken by: integrity: stop recognising a doctype-less portal stub
+  RED  content is diagnosed BEFORE size — a login page is a login page, not a short download
+         first broken by: integrity: check size before content
+  RED  the case size-and-magic could never see: right size, right magic, wrong bytes
+         first broken by: integrity: skip the hash comparison entirely
+  RED  a cheap pass is never dressed up as a verified one
+         first broken by: catalog: stop lowercasing pinned digests
+  RED  every failure kind has its own sentence, and none of them is a generic error
+         first broken by: integrity: one generic sentence for a hash mismatch
+  RED  a short file on disk is told to be deleted; a short download is told it will resume
+         first broken by: integrity: same sentence for a file on disk as for a partial
+  RED  resumePlan resumes a real prefix and refuses to resume onto anything else
+         first broken by: integrity: resume onto a partial that is not a model prefix
+  RED  hashFile streams, and agrees with a one-shot hash over the whole file
+         first broken by: integrity: hashFile returns a constant
+  RED  inspectFile hashes what is on disk and says, in a sentence, what is wrong with it
+         first broken by: integrity: skip the hash comparison entirely
+  RED  an honest download verifies, installs, and leaves no .part behind
+         first broken by: integrity: hashFile returns a constant
+  RED  a captive portal is caught BY NAME, and nothing is installed
+         first broken by: integrity: check size before content
+  RED  a portal that pads its page to the EXACT pinned length is still caught by name
+         first broken by: fetch: rename into place before verifying
+  RED  a right-size, right-magic, WRONG-CONTENT body is caught by the hash and deleted
+         first broken by: integrity: skip the hash comparison entirely
+  RED  a truncated transfer keeps its prefix, says so, and is retryable
+         first broken by: fetch: stream straight to the model's real name
+  RED  a body that ends cleanly but short keeps its prefix for the resume
+         first broken by: fetch: rename into place before verifying
+  RED  a flaky connection resumes from the kept prefix rather than starting over
+         first broken by: integrity: hashFile returns a constant
+  RED  a server that ignores Range does not get its body appended onto the partial
+         first broken by: integrity: hashFile returns a constant
+  RED  the model never exists under its real name until it has verified
+         first broken by: integrity: hashFile returns a constant
+  RED  a full disk is refused before a single request reaches the server
+         first broken by: integrity: no free-disk refusal
+  RED  a declared length that disagrees with the pin stops the transfer before the body
+         first broken by: integrity: never call a body plain text
+  RED  a server that declares no length at all is still named correctly, from its body
+         first broken by: integrity: never call a body plain text
+  RED  an HTTP error names the status and installs nothing
+         first broken by: fetch: an HTTP error status is not named
+  RED  a hash mismatch stops at ONE attempt; a dropped connection gets its retries
+         first broken by: integrity: skip the hash comparison entirely
+  RED  a download that never succeeds stops after its attempts and says how many it made
+         first broken by: fetch: stop saying how many attempts were made
+  RED  an unpinned model never reaches the network at all
+         first broken by: catalog: generic refusal for an unpinned model
+  RED  a model already installed and verified is not downloaded again
+         first broken by: integrity: hashFile returns a constant
+  RED  a model already installed but CORRUPT is replaced, never left where a resolver would find it
+         first broken by: integrity: skip the hash comparison entirely
+  RED  modelStatus answers "what would this cost" without touching the network
+         first broken by: integrity: skip the hash comparison entirely
+  RED  a captive-portal page in the first search directory no longer beats a real model in the second
+         first broken by: integrity: check size before content
+  RED  resolveModelChecked names every file it rejected, so the error explains itself
+         first broken by: integrity: same sentence for a file on disk as for a partial
+  RED  an explicit RICHOS_WHISPER_MODEL override is honoured, never silently replaced
+         first broken by: config: an explicit model override is silently replaced
+  RED  both resolvers walk one search path, in one order, from one definition
+         first broken by: config: reorder the model search path
+  RED  `richos-service verify-model` exits non-zero on a file that does not match its pin
+         first broken by: integrity: skip the hash comparison entirely
+
+41/41 observed RED

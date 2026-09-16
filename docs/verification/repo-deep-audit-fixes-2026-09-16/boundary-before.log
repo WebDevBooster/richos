@@ -1,0 +1,19 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: {"status":0,"signal":null,"output":[null,"{\n  \"op\": \"append\",\n  \"dryRun\": false,\n  \"ref\": \"rec:ceo/records/new\",\n  \"file\": \"/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro write boundary NmzWcA/linked-records-directory/corpus/ceo/records/new.md\",\n  \"text\": \"---\\nid: new\\nkind: fact\\nscope: ceo-private\\nconfidence: 0.9\\nobservedAt: \\\"2026-09-16T20:02:37.905Z\\\"\\nsupersededBy: null\\nprovenance: { method: explicit_ceo_instruction, source: conversation, ref: null }\\n---\\n\\nPRIVATE CORRECTION\\n\"\n}\n",""],"pid":65197,"stdout":"{\n  \"op\": \"append\",\n  \"dryRun\": false,\n  \"ref\": \"rec:ceo/records/new\",\n  \"file\": \"/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro write boundary NmzWcA/linked-records-directory/corpus/ceo/records/new.md\",\n  \"text\": \"---\\nid: new\\nkind: fact\\nscope: ceo-private\\nconfidence: 0.9\\nobservedAt: \\\"2026-09-16T20:02:37.905Z\\\"\\nsupersededBy: null\\nprovenance: { method: explicit_ceo_instruction, source: conversation, ref: null }\\n---\\n\\nPRIVATE CORRECTION\\n\"\n}\n","stderr":""}
+    at refused (file:///private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-boundary-control-tw18k122/loro/tests/write-boundary.js:30:10)
+    at file:///private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-boundary-control-tw18k122/loro/tests/write-boundary.js:42:3
+    at ModuleJob.run (node:internal/modules/esm/module_job:430:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:655:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 0,
+  expected: 0,
+  operator: 'notStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v25.5.0

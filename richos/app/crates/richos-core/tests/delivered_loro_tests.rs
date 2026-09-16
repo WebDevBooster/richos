@@ -64,6 +64,40 @@ fn selected_engine_reads_writes_and_keeps_the_superseded_reference() {
 }
 
 #[test]
+fn desktop_corrections_preserve_the_company_ceo_and_unfiled_partitions() {
+    use richos_core::correction::{CliLoroWriter, LoroWriteBackend, ProposedWrite};
+    let fixture = Fixture::new();
+    let (install, _) = LoroInstall::locate(&fixture.paths(engine_source())).unwrap();
+    let install = install.unwrap();
+    for company in ["alpha", "beta"] {
+        cli(&install, true, &["create-company", "--id", company, "--json"]);
+    }
+    let writer = CliLoroWriter::from_install(&install);
+    for (partition, prefix) in [("alpha", "companies/alpha/records"), ("ceo", "ceo/records"), ("unfiled", "ceo/unfiled")] {
+        let old_id = format!("delivery-{partition}");
+        let new_id = format!("delivery-{partition}-corrected");
+        cli(&install, true, &["append", "--partition", partition, "--id", &old_id, "--kind", "fact",
+            "--scope", "org-shared", "--body", "Fictional delivery uses the morning truck.", "--json"]);
+        let old_ref = format!("rec:{prefix}/{old_id}");
+        let new_ref = format!("rec:{prefix}/{new_id}");
+        let proposal = ProposedWrite::Supersede { record_ref:old_ref.clone(), new_id,
+            kind:"fact".into(), scope:Some("org-shared".into()), body:"Fictional delivery uses the afternoon truck.".into() };
+        writer.preview(&proposal, "Fictional timetable correction").unwrap();
+        // A preview must not publish the replacement or retire the original.
+        assert_eq!(cli(&install, false, &["fetch", "--ref", &old_ref])["status"], "current");
+        writer.commit(&proposal, "Fictional timetable correction").unwrap();
+        assert_eq!(cli(&install, false, &["fetch", "--ref", &old_ref])["supersededBy"], new_ref);
+        let replacement = cli(&install, false, &["fetch", "--ref", &new_ref]);
+        assert_eq!(replacement["company"], if partition == "alpha" {serde_json::json!("alpha")} else {serde_json::Value::Null});
+        if partition == "alpha" {
+            let slice = cli(&install, false, &["compile", "--company", "beta", "--topic", "Fictional delivery afternoon truck"]);
+            assert!(slice["items"].as_array().unwrap().iter().all(|item| item["ref"] != new_ref));
+            assert!(!slice["text"].as_str().unwrap().contains("Fictional delivery uses the afternoon truck."));
+        }
+    }
+}
+
+#[test]
 fn selected_engine_missing_loro_does_not_borrow_an_old_tools_install() {
     let fixture = Fixture::new();
     let paths = fixture.paths(fixture.0.join("missing-engine"));

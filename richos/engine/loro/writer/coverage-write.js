@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { analyzeCoverage, relinkCandidates } from '../lib/coverage.js';
 import { RefusedError, bareMemId, memoryStoreFileFor, setJsonlField } from './writer.js';
+import { assertWritePath, writePrivateFile } from './storage.js';
 
 export const BASELINE_SCHEMA_VERSION = 1;
 
@@ -57,12 +58,12 @@ export function readBaseline(corpusRoot) {
 }
 
 export function writeBaseline(corpusRoot, analysis, opts = {}) {
+  assertWritePath(corpusRoot, baselinePath(corpusRoot));
   const { baseline, file } = readBaseline(corpusRoot);
   const text = renderBaseline(analysis, baseline || {});
   const changed = !fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== text;
   if (!opts.dryRun && changed) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text, 'utf8');
+    writePrivateFile(corpusRoot, file, text);
   }
   return { file, text, written: !opts.dryRun && changed, changed };
 }
@@ -116,6 +117,7 @@ export function applyRelinks(corpusRoot, corpus, repairs, opts = {}) {
         skipped.push({ id, why: 'could not resolve the JSONL store this record lives in' });
         continue;
       }
+      assertWritePath(corpusRoot, store);
       if (!edits.has(store)) edits.set(store, fs.readFileSync(store, 'utf8'));
       try {
         edits.set(store, setJsonlField(edits.get(store), bareMemId(id), { anchor: repair.to }));
@@ -128,7 +130,8 @@ export function applyRelinks(corpusRoot, corpus, repairs, opts = {}) {
   }
 
   if (!opts.dryRun) {
-    for (const [f, text] of edits) fs.writeFileSync(f, text, 'utf8');
+    for (const f of edits.keys()) assertWritePath(corpusRoot, f);
+    for (const [f, text] of edits) writePrivateFile(corpusRoot, f, text);
   }
   return { applied, skipped };
 }

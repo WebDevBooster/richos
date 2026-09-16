@@ -903,7 +903,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 993 tests + 5 doc-tests (989 direct, 4 ignored)
+cargo test -p richos-core                       # 1030 tests + 5 doc-tests (1026 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1674,3 +1674,9 @@ are historical records, not descriptions of installed functionality.
 See [rollback record](../../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
 
 `crates/richos-user-update/tests/startup_exec.rs` covers the update startup executor.
+
+The delivered engine is exercised by `tests/delivered_ecs_tests.rs`,
+`tests/delivered_loro_tests.rs` and `tests/engine_profile.rs`. Runtime delivery,
+owned processes, provider authentication and repository connections are covered
+by `tests/runtime_delivery.rs`, `tests/owned_process.rs`, `tests/provider_auth.rs`
+and `tests/repository_connection.rs`.

@@ -1,0 +1,64 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (crates/richos-user-update/target/debug/deps/richos_user_update-7c645d7310441d4a)
+
+running 37 tests
+test tests::actual_exec_preserves_session_exclusion_until_replacement_exits ... ok
+test tests::destination_permission_denial_is_plain_io_failure ... ok
+test tests::duplicate_entries_and_second_archive_root_are_refused ... ok
+test tests::escaping_links_and_hard_links_are_refused ... ok
+test tests::already_exchanged_current_version_finishes_receipt_without_swap ... ok
+test tests::changed_published_tree_cannot_relaunch ... ok
+test tests::collector_vetoes_shared_session_and_loaded_backup_and_cleans_partial_allocation ... ok
+test tests::failed_exec_restores_cloexec_and_keeps_exclusion ... ok
+test tests::collector_replays_partial_deletion_but_refuses_replaced_inode ... ok
+test tests::atomic_exchange_retains_old_application ... ok
+test tests::exchange_before_receipt_crash_recovers_without_swapping_back ... ok
+test tests::lease_adoption_rejects_unrelated_descriptor_without_closing_it ... ok
+test tests::lease_exec_child ... ok
+test tests::malformed_receipt_and_external_receipt_links_refuse ... ok
+test tests::harmless_deny_acl_works_but_write_grant_refuses ... ok
+test tests::installs_as_actual_owner_and_replays_exact_receipt ... ok
+test tests::compiled_version_mismatch_is_rejected_before_publication_and_does_not_block_next_update ... ok
+
+running 1 test
+test tests::interrupted_extraction_is_rebuilt_without_touching_current_app ... ok
+test tests::damaged_pending_cannot_strand_a_newer_update_when_old_publication_is_intact ... ok
+test tests::retirement_uses_native_volume_uuid_and_rejects_changed_volume_or_legacy_device_pins ... ok
+test tests::prepared_first_install_recovers_after_journal_crash ... ok
+test tests::external_newer_destination_is_not_replaced_by_older_pending ... ok
+test tests::probe_does_not_inherit_writable_files_or_sockets ... ok
+test tests::collector_reclaims_verified_backup_and_superseded_payload_but_keeps_active_and_pending ... ok
+test tests::symlink_cannot_become_a_write_parent ... ok
+test tests::probe_scrubs_descriptor_above_lowered_soft_and_hard_limits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 1.05s
+
+test tests::symlinked_user_destination_is_not_followed ... ok
+test tests::probe_scrubs_descriptor_above_lowered_soft_and_hard_limits ... ok
+test tests::wrong_version_cannot_publish ... ok
+test tests::replaced_lease_path_vetoes_activation ... ok
+test tests::newer_running_build_retires_obsolete_pending_without_mutating_app ... ok
+test tests::safe_framework_links_preserve_topology ... ok
+test tests::stale_old_instance_cannot_downgrade_preferred_app ... ok
+test tests::write_acl_on_published_executable_prevents_launch ... ok
+test tests::concurrent_install_cannot_modify_existing_journal ... ok
+test tests::stage_does_not_replace_live_bundle_and_shared_sessions_veto_activation ... ok
+test tests::exact_preferred_callback_holds_publication_exclusion ... ok
+test tests::slow_staging_probe_does_not_block_another_normal_startup ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.95s
+
+     Running tests/startup_exec.rs (crates/richos-user-update/target/debug/deps/startup_exec-6a5d479fb3476b39)
+
+running 1 test
+[richos] reclaimed 1 retired update payloads
+test shipping_startup_activates_and_execs_with_lifetime_exclusion ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.24s
+
+   Doc-tests richos_user_update
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

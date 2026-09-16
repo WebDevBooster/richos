@@ -322,6 +322,18 @@ Do not claim that setup has migrated earlier personal context.
 
 ### G5 — Verification pass
 
+Initialize the adopter repository's CEO TODOs before checking completion:
+
+```bash
+scripts/ceo-todos-init.sh /path/to/adopter-repository
+```
+
+Use the actual repository path established in this interview. If `.ceo-todos`
+already exists, preserve its record and run `scripts/ceo-todos-lint.sh` against
+that repository instead. Never use `--force` to replace existing commitments.
+The initializer creates the declaration, renders `CEO-TODOs.md` and links it
+from the root README. Resolve any reported lint failure before continuing.
+
 Run, in order, and show the CEO the real output, not a paraphrase:
 
 ```bash

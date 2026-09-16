@@ -1,0 +1,14 @@
+[1m=== ci-shard: 49 unit(s), shard 4/4 at 31e61be91572ad696c413907bd06b632714b9b1d ===[0m
+  [  1/ 49] ass-kicker/tests/relocation.test.sh                                      [32mPASS[0m 34.3s
+  [  2/ 49] gates/unmanaged-assignment/lib/harness.test.sh                           [32mPASS[0m 1.0s
+  [  3/ 49] mega-lander/tests/app.test.sh                                            [32mPASS[0m 26.1s
+  [  4/ 49] mega-lander/tests/create-teammate-worktree.test.sh                       [32mPASS[0m 6.0s
+  [  5/ 49] scripts/check-census.test.sh                                             [32mPASS[0m 1.0s
+  [  6/ 49] scripts/ci-affected-units.test.sh                                        [32mPASS[0m 10.1s
+  [  7/ 49] scripts/ci-shard.test.sh                                                 [32mPASS[0m 63.2s
+  [  8/ 49] scripts/ci-units.test.sh                                                 [32mPASS[0m 7.0s
+  [  9/ 49] scripts/ci-verify.test.sh                                                [32mPASS[0m 1.0s
+  [ 10/ 49] scripts/collect-worktree-artifacts.test.sh                               [32mPASS[0m 4.0s
+  [ 11/ 49] scripts/handoff-facts.test.sh                                            [32mPASS[0m 2.0s
+  [ 12/ 49] scripts/hook-registration-completeness.test.sh                           [32mPASS[0m 2.0s
+  [ 13/ 49] scripts/hooks/by-reference.test.sh                                       

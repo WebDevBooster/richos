@@ -1,0 +1,12 @@
+{"expected_rc":0,"rc":0,"seconds":34.3,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"ass-kicker/tests/relocation.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"gates/unmanaged-assignment/lib/harness.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":26.1,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"mega-lander/tests/app.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":6.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"mega-lander/tests/create-teammate-worktree.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/check-census.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":10.1,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/ci-affected-units.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":63.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/ci-shard.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":7.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/ci-units.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":1.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/ci-verify.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":4.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/collect-worktree-artifacts.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/handoff-facts.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":2.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":4,"shards":4,"unit":"scripts/hook-registration-completeness.test.sh","verdict":"PASS"}

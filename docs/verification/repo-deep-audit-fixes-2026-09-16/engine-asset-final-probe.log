@@ -1,0 +1,20 @@
+  PASS  L1 a repository with no root LICENSE is REFUSED, by name
+  PASS  L2 a repository with no third-party notices is REFUSED, by name
+  PASS  L3 a complete fixture builds an archive
+  PASS  L4 the archive contains engine/LICENSE
+  PASS  L5 the archived LICENSE is byte-identical to the repository's root LICENSE
+  PASS  L6 the archive contains engine/THIRD-PARTY-NOTICES.md
+  PASS  L7 bundled third-party license files survive into the archive
+  PASS  L8 a skill declaring a license with no license file beside it is REFUSED
+  PASS  L9 the real root LICENSE is the canonical AGPL v3 text
+  PASS  L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
+  PASS  L11 the real engine carries 17 bundled license files (16 known bundled works)
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+  PASS  L13 the digest survives a different umask and a different timezone (f62b2d5ded4bdf36a2959d8489acb60348917ae9709200ce63e086d7ea2c9f4e)
+  PASS  L14 every member of the real archive is tracked source or declared runtime (7490 members)
+  PASS  L15 gitignored files in the source engine do not reach the archive
+  PASS  L16 an archive carrying an untracked member is REFUSED, and the member is named
+  PASS  L17 a missing members check REFUSES the build rather than skipping the check
+  PASS  L18 building outside a git checkout is REFUSED, not silently fallen back from
+
+=== make-engine-asset tests: all 18 passed ===

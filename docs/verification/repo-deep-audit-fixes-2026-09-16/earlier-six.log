@@ -1,0 +1,58 @@
+{
+  "service": {
+    "pipeline-symlink": {
+      "refused": true,
+      "productFileUnchanged": true
+    },
+    "pipeline-hardlink": {
+      "refused": true,
+      "productFileUnchanged": true
+    },
+    "workspaceChild": {
+      "refused": true,
+      "noEvidenceInProduct": true
+    },
+    "transcriptionLedger": {
+      "firstAcceptedReadable": true,
+      "duplicateRejected": true,
+      "laterAcceptedReadable": true,
+      "tornPrefixPreserved": true
+    },
+    "workspaceLedger": {
+      "firstAcceptedReadable": true,
+      "duplicateRejected": true,
+      "laterAcceptedReadable": true,
+      "tornPrefixPreserved": true
+    },
+    "evidenceCollision": {
+      "distinctPaths": true,
+      "originalPreserved": true,
+      "repeatUnchanged": true,
+      "conflictRefused": true
+    },
+    "calendarCursor": {
+      "threeDistinctSources": true,
+      "noForeignCursor": true,
+      "ownCursorsOnSecondPoll": true,
+      "legacyCursorRetired": true
+    }
+  },
+  "stated_action_notice": {
+    "stood_down": {
+      "exit": 0,
+      "stdout": "{\"suppressOutput\":true,\"systemMessage\":\"STATED-ACTIONS GATE \u2014 STOOD DOWN by CHECK_STATED_ACTIONS=0 in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker igkqrepl/engine with spaces/orchestration.config. A report stating an action the turn did not take, or a turn that stops after a teammate returns, is NOT being refused this session. (hook: scripts/hooks/guard-stated-actions.sh)\"}\n",
+      "stderr": ""
+    },
+    "crash": {
+      "exit": 0,
+      "stdout": "{\"suppressOutput\":true,\"systemMessage\":\"STATED-ACTIONS GATE: NOT RUNNING. The analyzer exited 1 without a verdict. This turn was not checked; it is allowed to end. Inspect the hook error output. (hook: scripts/hooks/guard-stated-actions.sh)\"}\n",
+      "stderr": "Traceback (most recent call last):\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker igkqrepl/engine with spaces/scripts/hooks/../../ass-kicker/guard-stated-actions.py\", line 798, in <module>\n    sys.exit(main())\n             ~~~~^^\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker igkqrepl/engine with spaces/scripts/hooks/../../ass-kicker/guard-stated-actions.py\", line 634, in main\n    if not message.strip():\n           ^^^^^^^^^^^^^\nAttributeError: 'int' object has no attribute 'strip'\n"
+    },
+    "normal_control": {
+      "exit": 0,
+      "stdout": "{\"suppressOutput\":true,\"systemMessage\":\"STATED-ACTIONS GATE \u2014 RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. (hook: scripts/hooks/guard-stated-actions.sh)\"}\n",
+      "stderr": ""
+    }
+  }
+}
+Results: /Users/alex/ab/richos-rechecks/deep-20260916/earlier-six

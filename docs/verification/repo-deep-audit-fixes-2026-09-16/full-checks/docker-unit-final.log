@@ -1,0 +1,59 @@
+[1m=== ci-shard: 1 unit(s) at 3eaca2dc3e082504b31e917a2877cf993e692555 ===[0m
+  [  1/  1] scripts/lib/containers.test.sh                                           [31mFAIL[0m 418.2s — wrote outside its sandbox
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-10-1/10-1-settings-menu-dark.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-10-1/10-1-settings-menu-light.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-10-1/10-1-start-screen-always-dark.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-01-just-after-send.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-02-working-for-18s.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-03-three-workers-active.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-04-run-ended-with-recovery-commentary.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-05-worker-detail-beside-thread.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-07-expanded-completed-activity.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-08-resized-panes.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-26/ms-09-restored-after-reload.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/first-run-notice.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/first-run-unusable.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/inspector.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/opening-screen.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/setup-blocked.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/setup-sheet.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/technical-view.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/updates-available.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/updates-downloading.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-contrast/updates-failed.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-anonymized.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-app-ui.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-named.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-returned.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-settings-dark.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+        TRACKED FILE CHANGED DURING THE RUN — every unit after this one tested different code:
+           M richos/app/ui/tests/shots-home/home-settings-light.png  (under /Users/alex/ab/richos-rechecks/deep-20260916/final-repo)
+
+[31m✗ ci-shard: 0/1 unit(s) passed, 1 FAILED.[0m
+    - scripts/lib/containers.test.sh — wrote outside its sandbox

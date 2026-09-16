@@ -1,0 +1,267 @@
+=== P5 accuracy-tier e2e (real ffmpeg + whisper) ===
+
+--- DEFAULT tier (real, nothing specified) ---
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[aist#0:0/pcm_s16be @ 0x11d612610] Guessed Channel Layout: mono
+Input #0, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-work-eSlSrn/2026-08-24T12-00-00Z--meet--default-a.aiff':
+  Duration: 00:00:04.01, start: 0.000000, bitrate: 360 kb/s
+  Stream #0:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+[aist#1:0/pcm_s16be @ 0x11d619990] Guessed Channel Layout: mono
+Input #1, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-work-eSlSrn/2026-08-24T12-00-00Z--meet--default-b.aiff':
+  Duration: 00:00:05.79, start: 0.000000, bitrate: 358 kb/s
+  Stream #1:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+Stream mapping:
+  Stream #0:0 (pcm_s16be) -> aformat:default
+  Stream #1:0 (pcm_s16be) -> aformat:default
+  join:default -> Stream #0:0 (libopus)
+Press [q] to stop, [?] for help
+Output #0, webm, to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/audio-part-00.webm':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Audio: opus, 24000 Hz, stereo, s16, 64 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 libopus
+[out#0/webm @ 0x11d616b50] video:0KiB audio:98KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 4.630398%
+size=     102KiB time=00:00:12.00 bitrate=  69.8kbits/s speed= 195x elapsed=0:00:00.06    
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:12.01, start: -0.007000, bitrate: 69 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:12.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/.richos-output-9OXO2V/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/.richos-output-9OXO2V/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x14d80ce00] Error parsing Opus packet header.
+size=     256KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.06    [out#0/wav @ 0x14d80c300] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+[out#1/wav @ 0x14d80e8f0] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+size=     375KiB time=00:00:12.00 bitrate= 255.9kbits/s speed= 176x elapsed=0:00:00.06    
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — normalized 1 part(s), stereo=true
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — tier=quantized model=large-v3-turbo-q5_0
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.014 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/me.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/.richos-output-8ExHQR/0-me.json'
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.015 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/others.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-00-00Z--meet--default/.richos-output-m1rRxC/0-others.json'
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — transcribed: me=1 seg, others=1 seg
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — speech bursts: me=1 others=2
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — deletion detector: 0 candidate(s), 0 probed, 0 deletion(s) / 0s (unit=word-times)
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — word-density instrument: 1 window(s), 0 candidate(s), 0 probed, 0 under-transcribed span(s) / 0s
+[richos-service info] 2026-08-24T12-00-00Z--meet--default — READY: 26 words, 2 speaker(s), ledger appended
+  ok  default tier reached READY — ""
+  ok  default tier wrote transcript.md
+  ok  the default is the quantized tier (CEO decision page §10, 2026-09-10) — tier=quantized model=large-v3-turbo-q5_0
+  ok  the recorded model is the one resolveTier(null) names — no second source of truth — record=large-v3-turbo-q5_0 config=large-v3-turbo-q5_0
+  ok  the DEFAULT tier decodes with NO previous-text conditioning — maxContextTokens=0 whisperArgs=["-l","en","-t","4","-mc","0","-oj","-np","-fa"]
+  ok  default run recorded a repetitionGuard block
+  ok  the default produced NO repetition loop on a normal sample — removed=0
+  ok  the speech-burst probe reached the guard — {"me":1,"others":2}
+  ok  the provenance line names the model that ran — whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5
+  ok  session.json records the weights with their FULL sha256, not only the 12 in the sentence — {"id":"large-v3-turbo-q5_0","path":"/Users/alex/Models/Whisper/ggml-large-v3-turbo-q5_0.bin","bytes":574041195,"sha256":"394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2","hashed":"cached","pinned":true}
+  ok  the transcript a person opens names the model
+  ok  default transcript has real words — words=26
+
+--- opt-in full-turbo tier (real) ---
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[aist#0:0/pcm_s16be @ 0x13400ab30] Guessed Channel Layout: mono
+Input #0, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-work-eSlSrn/2026-08-24T12-10-00Z--meet--turbo-a.aiff':
+  Duration: 00:00:04.01, start: 0.000000, bitrate: 360 kb/s
+  Stream #0:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+[aist#1:0/pcm_s16be @ 0x1345052f0] Guessed Channel Layout: mono
+Input #1, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-work-eSlSrn/2026-08-24T12-10-00Z--meet--turbo-b.aiff':
+  Duration: 00:00:05.79, start: 0.000000, bitrate: 358 kb/s
+  Stream #1:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+Stream mapping:
+  Stream #0:0 (pcm_s16be) -> aformat:default
+  Stream #1:0 (pcm_s16be) -> aformat:default
+  join:default -> Stream #0:0 (libopus)
+Press [q] to stop, [?] for help
+Output #0, webm, to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/audio-part-00.webm':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Audio: opus, 24000 Hz, stereo, s16, 64 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 libopus
+[out#0/webm @ 0x13400a6d0] video:0KiB audio:98KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 4.630398%
+size=     102KiB time=00:00:12.00 bitrate=  69.8kbits/s speed= 129x elapsed=0:00:00.09    
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:12.01, start: -0.007000, bitrate: 69 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:12.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/.richos-output-gazy1C/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/.richos-output-gazy1C/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x14da07970] Error parsing Opus packet header.
+size=     256KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.07    [out#0/wav @ 0x14db04160] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+[out#1/wav @ 0x13c6042f0] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+size=     375KiB time=00:00:12.00 bitrate= 255.9kbits/s speed= 162x elapsed=0:00:00.07    
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — normalized 1 part(s), stereo=true
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — tier=turbo model=large-v3-turbo
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.021 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/me.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/.richos-output-IaXBe6/0-me.json'
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.047 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/others.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC/2026-08-24T12-10-00Z--meet--turbo/.richos-output-A1uPGC/0-others.json'
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — transcribed: me=1 seg, others=2 seg
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — speech bursts: me=1 others=2
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — deletion detector: 0 candidate(s), 0 probed, 0 deletion(s) / 0s (unit=word-times)
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — word-density instrument: 1 window(s), 0 candidate(s), 0 probed, 0 under-transcribed span(s) / 0s
+[richos-service info] 2026-08-24T12-10-00Z--meet--turbo — READY: 26 words, 2 speaker(s), ledger appended
+  ok  opt-in turbo tier reached READY — ""
+  ok  --tier turbo still means full large-v3-turbo, exactly as it did before the ruling — tier=turbo model=large-v3-turbo
+  ok  the opt-in tier decodes with NO previous-text conditioning either — maxContextTokens=0 whisperArgs=["-l","en","-t","4","-mc","0","-oj","-np","-fa"]
+  ok  turbo produced NO repetition loop on a normal sample — removed=0
+  ~~  SKIP max tier (guarded large-v3) — large-v3 model not in a standard model dir — guard proven on the benchmark sample separately (see P5 report). Set RICHOS_MODEL_DIR to run it here.
+
+ALL ACCURACY-TIER E2E CHECKS PASSED (1 skipped)
+(artifacts at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-tier-szq9AC)

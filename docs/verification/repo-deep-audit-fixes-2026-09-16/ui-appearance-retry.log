@@ -1,0 +1,47 @@
+  shot changed: shots-10-1/10-1-start-screen-always-dark.png — 50782/1330000 pixels (3.8182%), worst channel delta 214
+  shot changed: shots-10-1/10-1-settings-menu-dark.png — 43708/1330000 pixels (3.2863%), worst channel delta 231
+  shot changed: shots-10-1/10-1-settings-menu-light.png — 47413/1330000 pixels (3.5649%), worst channel delta 243
+
+== Appearance — two lightings, one type knob, and whose rail this is ==
+  PASS  1  a fresh install opens DARK, under a light operating system
+          no stored preference + a light OS -> first paint dark, settled dark, pref=dark, body #0C1322
+  PASS  2  the choice is durable, and config.rs wins a disagreement with the mirror
+          store=light vs mirror=dark -> light wins and the mirror is rewritten to match
+  PASS  3  switching the theme writes through to the durable store
+          the segment writes to config.rs and reports itself through aria-pressed
+  PASS  4  the opening screen is ALWAYS dark, even for a CEO who chose light
+          pref stays light, the resolved theme is dark, and nothing was written — ceiling disarmed at 4000ms (3s hold + 1000ms grace), curtain up and state.reason still null
+  PASS  4b  the held curtain outlives the ceiling, so check 4 is not on a four-second clock
+          sampled at 5049ms, 1027ms after the 4022ms the ceiling would have fired at — the curtain is still up, still dark, and the stored preference is still light
+  PASS  5  the settings button is ON the opening screen, with NO theme switch
+          button present, 0 theme options, Bust a bug reachable — 10-1-start-screen-always-dark.png
+  PASS  6  reporting a bug from the opening screen does not leave the opening screen
+          the curtain survives the settings button and Bust a bug, and still yields to any other input
+  PASS  7  the settings button is on every surface, above every overlay
+          6 surfaces, the button hit-testable on every one (shell, thread, corrections, feedback, search, preferences); z-index 300 out-ranks every other z-index in fonts/fonts.css + style.css + splash.css + home.css (highest other: 200), and the 2 above it are the component's own, each proven so in the real shell: #bug-toast 301 — the toast the menu's own Bust a bug raises; .home-prefs 340 — the company-buttons dialog the menu's own Home screen row opens (aria-modal, with its own Done)
+  PASS  8  the menu is theme, then Text size, then Techy Mode, then the floor
+          Theme -> Text size -> Techy Mode -> Opening screen -> Company -> Home screen -> Connected repositories -> Account connection -> Updates -> Bust a bug!
+  PASS  9  the accelerator is the APP's — preventDefault, and it moves the stored number
+          ⌘= 100 -> 110% (root 17.6px), durable, and ⌘0 resets
+  PASS  10  the Text size row and the shortcut are ONE state, not two that agree
+          row 100->110 by click, 110->100 by ⌘-, and the row's reading tracked both
+  PASS  11  Techy Mode: the menu row and the rail preference are ONE state
+          menu -> rail, and rail -> menu, both observed
+  PASS  11b  the splash off switch survived the rebuild, and is ONE state behind two doors
+          present in both places, both directions observed, and the mirror splash.js reads agrees
+  PASS  12  every font-size in the SHIPPED CSS scales, or is declared with its reason
+          179 font-size declaration(s) across fonts/fonts.css + style.css + splash.css + home.css; 16 in px, every one declared (style.css 2, home.css 13, splash.css 1), smallest 14px — at or above §15's floor
+  PASS  13  the whole interface scales, not a subset of it
+          at 100%: prose 18, rail 16, keycap 14; at 110% every one of the four moved by exactly 1.1x
+  PASS  14  the Tauri shell does not hand ⌘+/- to the webview
+          zoomHotkeysEnabled: false, claimed explicitly rather than inherited
+  PASS  15  the wordmark replaced 'My Company', and carries the approved treatment
+          wordmark present and announced as "RichOS — go to the home screen" (role=button); company label gone; ink #DFE4EE -> #0C1322 and swoosh rgb(194, 163, 92) -> rgb(156, 124, 52) across the theme
+  PASS  16  the foot of the rail is HIS — and says nothing it does not know
+          unset: empty circle + 'Set your name'; named: AB + Alex Booster
+  PASS  17  every surface, photographed in BOTH themes
+          12 shots: 10-1-conversation-dark.png, 10-1-corrections-dark.png, 10-1-feedback-dark.png, 10-1-search-dark.png, 10-1-preferences-dark.png, 10-1-settings-menu-dark.png, 10-1-conversation-light.png, 10-1-corrections-light.png, 10-1-feedback-light.png, 10-1-search-light.png, 10-1-preferences-light.png, 10-1-settings-menu-light.png
+  PASS  18  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+two lightings, one knob, and the rail is his.

@@ -654,7 +654,7 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Connected repositories", "Account connection", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +

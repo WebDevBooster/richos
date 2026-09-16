@@ -1,0 +1,97 @@
+{
+  "final_code_revision": "366e5b20470b4b21384b7247a00eb54f551ee748",
+  "trees": {
+    "70b5df857315e166de885181369005d717233f67": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "46c91ecd21ac8a6b9fb176ee2605f971bef7bbb1",
+      "richos/app/ui": "d52bd0a0efb890c122cdebb012aac94bd1a9d700",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "3eaca2dc3e082504b31e917a2877cf993e692555": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "8c95d9f2df66c7fab9fe63a52829fc7be33aea61",
+      "richos/app/ui": "f400362e934f07d2d93eb53fc2a340d62a1cf7f9",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "cac72656eaa672edc130a38efd90af814e600f87": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "8c95d9f2df66c7fab9fe63a52829fc7be33aea61",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "40014a0bde4405853971f3d39ee9194965bad3e1": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "bf5cfeb267c1fc7c68019f965f8a59455a988e39",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "174b67663752cd070fb7cd603a2bf545c386a0ba",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "44e1d764d8f85decab982882ee37740c836fd570": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "e0f367193e2a5de4e25b75ea312391a5a094dd8a",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "6511d725394a0edb96c5950ba12ed4e31880cbaf": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "22a144dfee9562084dd0594ff41d5fb87c22b0e4",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "1f0acf37930cd781890814b50f68f0b79b5f10c5": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "5c46b4da054baa6ee02b8c057edf62a81ae8ce82",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    },
+    "366e5b20470b4b21384b7247a00eb54f551ee748": {
+      "richos/app/crates": "fc1ede939cec3e42badb8c5a535f34586f68d106",
+      "richos/app/src-tauri": "853d7afec69636a0a9f1eef39b15792a66716f09",
+      "richos/tools/richos-service": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "richos/tools/richos-extension": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "richos/engine": "d86c20ccb7eda70554583b3f7a9f621cda3136d8",
+      "richos/app/ui": "5bfbcf2330d7ebad6131345b8ce6b11d4e6b5551",
+      "richos/app/scripts": "0a78d1ca488d448b31c4a81cdd13c74597fc42dd"
+    }
+  },
+  "engine_changes_since_inventory": [
+    "richos/engine/mega-lander/tests/workspace-spec-fourteen.mutation.sh",
+    "richos/engine/mega-lander/tests/workspaces.mutation.sh",
+    "richos/engine/scripts/hooks/by-reference.test.sh",
+    "richos/engine/scripts/hooks/contract-integrity-probe.sh",
+    "richos/engine/scripts/hooks/contract-integrity.test.sh",
+    "richos/engine/scripts/hooks/mechanical-findings.test.sh",
+    "richos/engine/scripts/hooks/notice-mechanical-findings.sh",
+    "richos/engine/scripts/lib/mechanical-findings.sh"
+  ],
+  "ui_changes_since_full_browser": []
+}

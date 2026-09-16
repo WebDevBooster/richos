@@ -1,0 +1,639 @@
+ffmpeg=/opt/homebrew/bin/ffmpeg
+whisper=/opt/homebrew/bin/whisper-cli
+model=/Users/alex/Models/Whisper/ggml-large-v3-turbo-q5_0.bin
+loro entity memory: this machine resolves /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/loro/entities.json (0 entities, version none); this run uses the fixture /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/test/fixtures/e2e-entities.json
+drop zone: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca
+
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[aist#0:0/pcm_s16be @ 0x149104870] Guessed Channel Layout: mono
+Input #0, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-work-jqXr21/agent.aiff':
+  Duration: 00:00:05.35, start: 0.000000, bitrate: 358 kb/s
+  Stream #0:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+[aist#1:0/pcm_s16be @ 0x1491087a0] Guessed Channel Layout: mono
+Input #1, aiff, from '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-work-jqXr21/cust.aiff':
+  Duration: 00:00:06.50, start: 0.000000, bitrate: 357 kb/s
+  Stream #1:0: Audio: pcm_s16be (twos / 0x736F7774), 22050 Hz, mono, s16, 352 kb/s
+Stream mapping:
+  Stream #0:0 (pcm_s16be) -> aformat:default
+  Stream #1:0 (pcm_s16be) -> aformat:default
+  join:default -> Stream #0:0 (libopus)
+Press [q] to stop, [?] for help
+Output #0, webm, to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/audio-part-00.webm':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Audio: opus, 24000 Hz, stereo, s16, 64 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 libopus
+[out#0/webm @ 0x1491059e0] video:0KiB audio:111KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 4.164973%
+size=     115KiB time=00:00:12.00 bitrate=  78.6kbits/s speed= 129x elapsed=0:00:00.09    
+
+--- running pipeline (real ffmpeg + whisper) ---
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:12.01, start: -0.007000, bitrate: 78 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:12.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-HIsD6R/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-HIsD6R/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x12fe04280] Error parsing Opus packet header.
+[out#0/wav @ 0x12fe04a10] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+[out#1/wav @ 0x12fe06340] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+size=     375KiB time=00:00:12.00 bitrate= 255.9kbits/s speed= 254x elapsed=0:00:00.04    
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — normalized 1 part(s), stereo=true
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — tier=quantized model=large-v3-turbo-q5_0
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.012 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/me.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-6XjpQa/0-me.json'
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.010 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/others.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-bGSQYt/0-others.json'
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — transcribed: me=1 seg, others=1 seg
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — speech bursts: me=1 others=3
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — deletion detector: 0 candidate(s), 0 probed, 0 deletion(s) / 0s (unit=word-times)
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — word-density instrument: 2 window(s), 0 candidate(s), 0 probed, 0 under-transcribed span(s) / 0s
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — READY: 31 words, 2 speaker(s), ledger appended
+pipeline took 4.7s -> status=ready
+
+  ok  pipeline reached READY — ""
+  ok  transcript.md was written
+
+===== transcript.md =====
+# Transcript — Google Meet
+
+- **Session:** `2026-08-24T09-00-00Z--meet--e2e-sample`
+- **Started:** 2023-11-14T22:13:20.000Z
+- **Duration:** 0.2 min
+- **Captured by:** chrome-extension
+- **Model:** large-v3-turbo-q5_0
+- **Transcribed by:** whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5
+- **Speaker attribution:** LEFT channel = me (mic); RIGHT channel = others (system/tab); remote names folded in from platform captions
+
+---
+
+**[00:00] Me:** Hi Marcus. Thanks for joining the call today. Let me pull up your account details now.
+
+**[00:00] Marcus Whitfield:** Marcus Whitfield here. Happy to be on. Let us get started with a quarterly review.
+
+=========================
+
+  ok  verification.json was written
+verification.json:
+{
+  "generatedAt": "2026-09-16T20:12:51.910Z",
+  "model": "large-v3-turbo-q5_0",
+  "coverage": {
+    "sessionDurationMs": 12000,
+    "transcribedMs": 12000,
+    "ratio": 1
+  },
+  "channels": {
+    "meSegments": 1,
+    "othersSegments": 1,
+    "meWords": 16,
+    "othersWords": 15,
+    "totalWords": 31
+  },
+  "captions": {
+    "count": 1,
+    "matchedToSegments": 1,
+    "agreementRatio": 1
+  },
+  "deadIntervals": [],
+  "deadIntervalCount": 0,
+  "repetitionGuard": {
+    "enabled": true,
+    "detected": false,
+    "removedSegments": 0,
+    "classes": {
+      "repetition": 0,
+      "insertion": 0,
+      "overlapStutter": 0,
+      "silenceFabrication": 0,
+      "preservedByAudio": 0
+    },
+    "loops": [],
+    "preserved": [],
+    "speechBurstProbe": {
+      "me": 1,
+      "others": 3
+    },
+    "stutters": [],
+    "silenceFabrications": [],
+    "silenceRemoved": 0,
+    "silenceUnrepaired": 0,
+    "silenceProbed": {
+      "me": true,
+      "others": true
+    },
+    "silenceUnit": {
+      "me": "word-times",
+      "others": "word-times"
+    },
+    "insertions": [],
+    "insertionProbeAvailable": true,
+    "insertionsRepaired": 0,
+    "insertionsKeptSpoken": 0,
+    "unrepaired": 0
+  },
+  "deletionGuard": {
+    "enabled": true,
+    "probeAvailable": true,
+    "coverageUnit": "word-times",
+    "elapsedMs": 1,
+    "detected": false,
+    "candidates": 0,
+    "probed": 0,
+    "deletedSpans": 0,
+    "deletedSeconds": 0,
+    "unrepaired": 0,
+    "deletions": [],
+    "rejected": [],
+    "unprobed": [],
+    "byChannel": {
+      "me": {
+        "bursts": 1,
+        "burstSeconds": 5.3,
+        "emittedWords": 16,
+        "candidates": 0,
+        "probed": 0,
+        "deletedSpans": 0,
+        "deletedSeconds": 0,
+        "unprobedSpans": 0,
+        "probeAvailable": true
+      },
+      "others": {
+        "bursts": 3,
+        "burstSeconds": 5.5,
+        "emittedWords": 15,
+        "candidates": 0,
+        "probed": 0,
+        "deletedSpans": 0,
+        "deletedSeconds": 0,
+        "unprobedSpans": 0,
+        "probeAvailable": true
+      }
+    }
+  },
+  "substitutionGuard": {
+    "enabled": true,
+    "probeAvailable": true,
+    "coverageUnit": "word-times",
+    "elapsedMs": 0,
+    "detected": false,
+    "windows": 2,
+    "candidates": 0,
+    "probed": 0,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unrepaired": 0,
+    "findings": [],
+    "channelsBelowFloor": [],
+    "rejected": [],
+    "unprobed": [],
+    "byChannel": {
+      "me": {
+        "bursts": 1,
+        "burstSeconds": 5.3,
+        "analyzedSpeechSec": 5.3,
+        "emittedWords": 16,
+        "windows": 1,
+        "candidates": 0,
+        "probed": 0,
+        "sparseSpans": 0,
+        "sparseSeconds": 0,
+        "unprobedSpans": 0,
+        "medianDensity": 3.015,
+        "thresholdWordsPerSec": 1.2,
+        "baselineBelowFloor": false,
+        "windowsBelowFloor": 0,
+        "wordlessWindows": 0,
+        "probeAvailable": true
+      },
+      "others": {
+        "bursts": 3,
+        "burstSeconds": 5.5,
+        "analyzedSpeechSec": 5.5,
+        "emittedWords": 15,
+        "windows": 1,
+        "candidates": 0,
+        "probed": 0,
+        "sparseSpans": 0,
+        "sparseSeconds": 0,
+        "unprobedSpans": 0,
+        "medianDensity": 2.384,
+        "thresholdWordsPerSec": 1.2,
+        "baselineBelowFloor": false,
+        "windowsBelowFloor": 0,
+        "wordlessWindows": 0,
+        "probeAvailable": true
+      }
+    }
+  },
+  "warnings": [],
+  "toolchain": {
+    "provenance": "whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:large-v3-turbo-q5_0@394221709cd5",
+    "verdict": "ok",
+    "whisperCli": {
+      "path": "/opt/homebrew/bin/whisper-cli",
+      "realPath": "/opt/homebrew/Cellar/whisper-cpp/1.9.1/bin/whisper-cli",
+      "bytes": 654720,
+      "sha256": "7dc20e3106d70746d61c419646d9bf87f726a5df7da562e26e8529067119f7b8",
+      "version": "1.9.1",
+      "probeExitStatus": 0
+    },
+    "backends": [
+      {
+        "name": "BLAS",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so",
+        "bytes": 58720,
+        "sha256": "4b599af7ec58e36c9467a4c0cba210cfccda9c48fe237b495c0de1daab8b405f"
+      },
+      {
+        "name": "MTL",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so",
+        "bytes": 856880,
+        "sha256": "9bbe5cfc4c23147d6c12041d2fa4b358ef62b4f96f8ce9fd44c70d0c1116c5c4"
+      },
+      {
+        "name": "CPU",
+        "path": "/opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so",
+        "bytes": 551840,
+        "sha256": "8b5c7e0a42d27b9d1432e3ebca2cb8f4d959c36147651f031ef0a099b7f978d6"
+      }
+    ],
+    "model": {
+      "id": "large-v3-turbo-q5_0",
+      "path": "/Users/alex/Models/Whisper/ggml-large-v3-turbo-q5_0.bin",
+      "bytes": 574041195,
+      "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      "hashed": "cached",
+      "pinned": true
+    },
+    "findings": []
+  }
+}
+
+  ok  session.json upgraded to schemaVersion 2
+  ok  pipeline.status = ready in session.json
+  ok  modelRuns records the run + model — model=large-v3-turbo-q5_0 DEFAULT_MODEL=large-v3-turbo-q5_0
+  ok  the default this ran on is the one CEO decision page §10 ruled (2026-09-10) — tier=quantized model=large-v3-turbo-q5_0
+  ok  loro-correction (P4) ran on entity memory the pipeline loaded ITSELF (applied=true, version recorded) — applied=true version=e2e-fixture-1
+  ok  the inert fixture changed nothing (correction is not allowed to touch text it has no entity for) — corrections=0
+SKIP  real loro entity memory (not required by any assertion) — no readable entities file at /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/loro/entities.json — set LORO_CORPUS to the corpus, or RICHOS_ENTITIES_FILE to a file. The product treats this as an empty memory and a clean identity correction, by design.
+  ok  the insertion class was wired with a way to REPAIR, not only to detect — insertionProbeAvailable=true
+  ok  and a clean sample gives it nothing to repair — unrepaired=0
+  ok  ingest ledger has a line for this session
+  ok  transcript carries the LEFT-channel "Me:" attribution
+  ok  far-side caption NAME folded in as the speaker label (Marcus Whitfield)
+  ok  both channels produced real words — me=16 others=15
+  ok  caption<->ASR agreement was measured (>0) — agreement=1
+
+--- re-transcribe (retained audio, same model) ---
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:12.01, start: -0.007000, bitrate: 78 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:12.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-efY6Yn/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-efY6Yn/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x13e405270] Error parsing Opus packet header.
+size=     256KiB time=00:00:11.89 bitrate= 176.2kbits/s speed= 339x elapsed=0:00:00.03    [out#0/wav @ 0x13e404120] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+[out#1/wav @ 0x13e4064f0] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+size=     375KiB time=00:00:12.00 bitrate= 255.9kbits/s speed= 332x elapsed=0:00:00.03    
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — normalized 1 part(s), stereo=true
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — tier=quantized model=large-v3-turbo-q5_0
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.014 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/me.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-Hi8NXN/0-me.json'
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.013 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/others.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-x1pJQu/0-others.json'
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — transcribed: me=1 seg, others=1 seg
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — speech bursts: me=1 others=3
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — deletion detector: 0 candidate(s), 0 probed, 0 deletion(s) / 0s (unit=word-times)
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — word-density instrument: 2 window(s), 0 candidate(s), 0 probed, 0 under-transcribed span(s) / 0s
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — READY: 31 words, 2 speaker(s), ledger appended
+  ok  re-transcribe reached READY
+  ok  re-transcribe appended a SECOND modelRun (retained audio re-run)
+  ok  ledger has two run rows for the session (runIndex 0 and 1)
+
+--- loro-correction end-to-end (inject an entity, re-run the real pipeline) ---
+  ok  found a transcript word to use as an injected mangling — pick=Marcus
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:12.01, start: -0.007000, bitrate: 78 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:12.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-5QsDIj/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-5QsDIj/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x1353043a0] Error parsing Opus packet header.
+[out#0/wav @ 0x1353049f0] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+[out#1/wav @ 0x1352048f0] video:0KiB audio:375KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020313%
+size=     375KiB time=00:00:12.00 bitrate= 255.9kbits/s speed= 418x elapsed=0:00:00.02    
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — normalized 1 part(s), stereo=true
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — tier=quantized model=large-v3-turbo-q5_0
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.021 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/me.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-j8iDR6/0-me.json'
+load_backend: loaded BLAS backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-blas.so
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.024 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0 (Apple M4)
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple9  (1009)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 17179.89 MB
+load_backend: loaded MTL backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-metal.so
+load_backend: loaded CPU backend from /opt/homebrew/Cellar/ggml/0.17.0/libexec/libggml-cpu-apple_m4.so
+read_audio_data: reading audio data from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/others.wav' ...
+read_audio_data: trying to decode with miniaudio
+output_json: saving output to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T09-00-00Z--meet--e2e-sample/.richos-output-xHzZMa/0-others.json'
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — transcribed: me=1 seg, others=1 seg
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — speech bursts: me=1 others=3
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — deletion detector: 0 candidate(s), 0 probed, 0 deletion(s) / 0s (unit=word-times)
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — word-density instrument: 2 window(s), 0 candidate(s), 0 probed, 0 under-transcribed span(s) / 0s
+[richos-service info] 2026-08-24T09-00-00Z--meet--e2e-sample — READY: 31 words, 2 speaker(s), ledger appended
+  ok  injected-entity re-run reached READY — ""
+  ok  the mangling "Marcus" was corrected to "Zeta Corrected Term" in the regenerated transcript.md — spoken contains canonical=true
+  ok  session.json records the injected loro-correction (applied + count + version) — {"applied":true,"entitiesVersion":"e2e-inject-1","corrections":2}
+
+--- anomaly A: captions-but-no-audio ---
+[richos-service alarm] ⚠ ANOMALY: 2026-08-24T10-00-00Z--meet--captions-only — cannot transcribe {"problems":["captions were captured (30) but NO audio — the call was NOT fully captured (tab audio was never armed, or tab capture failed for the whole call). Investigate; do not treat as complete."]}
+  ok  captions-only session is flagged as an ANOMALY — anomaly
+  ok  captions-only session produced NO transcript.md
+  ok  captions-only anomaly is recorded in session.json
+
+--- anomaly B: captured-but-silent (trivial transcript) ---
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, lavfi, from 'anullsrc=r=48000:cl=stereo':
+  Duration: N/A, start: 0.000000, bitrate: 768 kb/s
+  Stream #0:0: Audio: pcm_u8, 48000 Hz, stereo, u8, 768 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (pcm_u8 (native) -> opus (libopus))
+Press [q] to stop, [?] for help
+Output #0, webm, to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T11-00-00Z--meet--silent/audio-part-00.webm':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, s16, 64 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 libopus
+[out#0/webm @ 0x154904430] video:0KiB audio:1KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 246.965919%
+size=       4KiB time=00:00:08.00 bitrate=   4.2kbits/s speed= 113x elapsed=0:00:00.07    
+ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.3.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.0.1_1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, matroska,webm, from '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T11-00-00Z--meet--silent/audio-part-00.webm':
+  Metadata:
+    ENCODER         : Lavf62.3.100
+  Duration: 00:00:08.01, start: -0.007000, bitrate: 4 kb/s
+  Stream #0:0: Audio: opus, 48000 Hz, stereo, fltp, start -0.007000
+    Metadata:
+      ENCODER         : Lavc62.11.100 libopus
+      DURATION        : 00:00:08.008000000
+Stream mapping:
+  Stream #0:0 (opus) -> channelsplit:default
+  channelsplit -> Stream #0:0 (pcm_s16le)
+  channelsplit -> Stream #1:0 (pcm_s16le)
+Press [q] to stop, [?] for help
+Output #0, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T11-00-00Z--meet--silent/.richos-output-8DoQqr/0-me.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+Output #1, wav, to '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca/2026-08-24T11-00-00Z--meet--silent/.richos-output-8DoQqr/1-others.wav':
+  Metadata:
+    ISFT            : Lavf62.3.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+    Metadata:
+      encoder         : Lavc62.11.100 pcm_s16le
+[opus @ 0x15b60a040] Error parsing Opus packet header.
+[out#0/wav @ 0x15b606460] video:0KiB audio:250KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.030469%
+[out#1/wav @ 0x15b608220] video:0KiB audio:250KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.030469%
+size=     250KiB time=00:00:08.00 bitrate= 255.9kbits/s speed= 446x elapsed=0:00:00.01    
+[richos-service info] 2026-08-24T11-00-00Z--meet--silent — normalized 1 part(s), stereo=true
+[richos-service alarm] ⚠ ANOMALY: 2026-08-24T11-00-00Z--meet--silent — silent capture {"me":{"meanDb":-91,"maxDb":-91},"others":{"meanDb":-91,"maxDb":-91}}
+  ok  a captured-but-silent session is a trivial-transcript ANOMALY (never a silent empty file) — anomaly: ["captured audio is digitally silent on BOTH channels (me -91 dB / others -91 dB max) — nothing was actually recorded. The session closed but held no sound. Investigate the capture; never treat as a complete transcript."]
+
+--- watcher reconcile (report-only) ---
+[richos-service alarm] ⚠ ANOMALY: 2026-08-24T10-00-00Z--meet--captions-only — capture anomaly {"problems":["captions were captured (30) but NO audio — the call was NOT fully captured (tab audio was never armed, or tab capture failed for the whole call). Investigate; do not treat as complete.","session CLOSED 1493159 min ago but produced NO transcript.md (SLA 10 min) — the pipeline crashed or never ran. The audio is on disk; re-run the pipeline. Never treat as done."]}
+[richos-service alarm] ⚠ ANOMALY: 2026-08-24T11-00-00Z--meet--silent — transcript overdue {"problems":["session CLOSED 1493160 min ago but produced NO transcript.md (SLA 10 min) — the pipeline crashed or never ran. The audio is on disk; re-run the pipeline. Never treat as done."]}
+  ok  report-only reconcile surfaces the captions-only anomaly
+  ok  report-only reconcile leaves the READY session alone
+
+(artifacts kept for inspection at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-e2e-dC8Yca; remove manually)
+
+ALL E2E CHECKS PASSED (1 check(s) SKIPPED — reasons printed above)

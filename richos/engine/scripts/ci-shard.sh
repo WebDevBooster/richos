@@ -454,7 +454,9 @@ resolve_selection > "$SELECTED"
 UNKNOWN=0
 while IFS= read -r id; do
     [ -n "$id" ] || continue
-    if ! cut -f1 "$ALL_UNITS" | grep -qxF "$id"; then
+    # Read the inventory directly. An early-exiting grep in a pipeline can
+    # SIGPIPE cut under pipefail and misreport a present unit as missing.
+    if ! awk -F'\t' -v want="$id" '$1 == want { found=1 } END { exit !found }' "$ALL_UNITS"; then
         printf '%sERROR%s ci-shard.sh: %s is not a unit in the current inventory.\n' "$C_RED" "$C_RESET" "$id" >&2
         UNKNOWN=1
     fi

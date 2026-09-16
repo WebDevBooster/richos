@@ -1,0 +1,4 @@
+[1m=== ci-shard: 1 unit(s) at 44e1d764d8f85decab982882ee37740c836fd570 ===[0m
+  [  1/  1] mega-lander/tests/workspace-spec-fourteen.test.sh                        [32mPASS[0m 749.6s
+
+[32m✓ ci-shard: 1/1 unit(s) passed.[0m

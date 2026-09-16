@@ -1,0 +1,16 @@
+=== by-reference.test.sh ===
+
+  PASS  0a.baseline-correct-install-is-green
+  PASS  0b.baseline-every-BR-layer-actually-ran
+  PASS  0c.by-reference-install-does-not-run-the-seated-layers
+  PASS  0d.seated-install-runs-the-seated-layers-not-the-BR-set
+  PASS  0e.R4-does-not-demand-the-seated-registration-from-a-by-reference-entity
+  PASS  1a.BR1-missing-plugin-manifest
+  PASS  1b.BR1-manifest-without-a-name
+  PASS  2a.BR2-missing-hook-table
+  PASS  2b.BR2-guard-not-registered
+  PASS  2c.BR2-guard-registered-twice
+  PASS  2c2.BR2-manifest-rule-listed-twice
+  PASS  2c3.BR2-manifest-rule-deleted
+  PASS  2d.BR2-agent-chain-out-of-order
+  FAIL  2e.BR2-guard-on-the-wrong-event — probe exit was 143, expected 2

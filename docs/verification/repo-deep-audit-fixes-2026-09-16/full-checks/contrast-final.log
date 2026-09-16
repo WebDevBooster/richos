@@ -1,0 +1,255 @@
+CONTRAST_COUNTS {"surface":"shell","checked":92,"considered":448}
+CONTRAST_COUNTS {"surface":"repositories","checked":20,"considered":464}
+CONTRAST_COUNTS {"surface":"permission","checked":18,"considered":454}
+CONTRAST_COUNTS {"surface":"saved-work-chip","checked":106,"considered":466}
+CONTRAST_COUNTS {"surface":"saved-work","checked":71,"considered":480}
+CONTRAST_COUNTS {"surface":"settings-tooltip","checked":92,"considered":448}
+CONTRAST_COUNTS {"surface":"thread","checked":104,"considered":464}
+CONTRAST_COUNTS {"surface":"corrections","checked":46,"considered":482}
+CONTRAST_COUNTS {"surface":"feedback","checked":22,"considered":458}
+CONTRAST_COUNTS {"surface":"search","checked":92,"considered":536}
+  shot changed: shots-contrast/inspector.png — 6896/1330000 pixels (0.5185%), worst channel delta 2
+CONTRAST_COUNTS {"surface":"inspector","checked":158,"considered":532}
+CONTRAST_COUNTS {"surface":"technical-view","checked":148,"considered":500}
+CONTRAST_COUNTS {"surface":"unbound","checked":98,"considered":456}
+CONTRAST_COUNTS {"surface":"settings","checked":74,"considered":448}
+CONTRAST_COUNTS {"surface":"company-picker","checked":40,"considered":468}
+CONTRAST_COUNTS {"surface":"company-blocked","checked":82,"considered":468}
+CONTRAST_COUNTS {"surface":"memory-setup","checked":14,"considered":452}
+CONTRAST_COUNTS {"surface":"memory-no-compiler","checked":12,"considered":452}
+CONTRAST_COUNTS {"surface":"setup-sheet","checked":22,"considered":460}
+CONTRAST_COUNTS {"surface":"setup-blocked","checked":20,"considered":460}
+CONTRAST_COUNTS {"surface":"updates-available","checked":130,"considered":452}
+CONTRAST_COUNTS {"surface":"updates-downloading","checked":128,"considered":450}
+CONTRAST_COUNTS {"surface":"updates-failed","checked":132,"considered":452}
+CONTRAST_COUNTS {"surface":"updates-waiting","checked":94,"considered":452}
+CONTRAST_COUNTS {"surface":"entity-view","checked":112,"considered":476}
+CONTRAST_COUNTS {"surface":"thread-menu","checked":100,"considered":454}
+CONTRAST_COUNTS {"surface":"techy-nothing-recorded","checked":118,"considered":470}
+CONTRAST_COUNTS {"surface":"history-notice","checked":96,"considered":452}
+CONTRAST_COUNTS {"surface":"first-run-notice","checked":102,"considered":454}
+CONTRAST_COUNTS {"surface":"first-run-unusable","checked":96,"considered":452}
+CONTRAST_COUNTS {"surface":"opening-screen","checked":0,"considered":450}
+
+== the shipping shell, by the numbers ==
+  surfaces walked          31 x 2 themes = 62 walks
+  text nodes considered    14410
+    of those, not rendered 10900  (display:none / zero-area / a closed panel)
+    behind a modal         748  (inert; each one measured on a surface where it is not)
+    MEASURED               2439
+      passed               2404
+      failed               35 node(s) over 20 distinct colour pairings
+  non-text indicators      2150 considered, 174 with a boundary of their own to check
+  resolved by ancestor     182  (off-viewport: no hit test, so no occlusion proof)
+  measured through a veil  47
+  UNRESOLVABLE             1  (a failure to prove, not a pass; met 2 time(s) across the walks)
+  declared exempt          0
+  <canvas> unmeasured      0   in #home (measured by tests/home.js)  186   svg <text> seen  0
+
+== every distinct failing colour pairing on the shipping shell today ==
+    1.7:1  (needs 4.5)  button.desk-btn.desk-btn--confirm | #3d3c39 on #655d4d | 16px/400 | >=4.5
+           e.g. button#repository-connect  “Connect repository”
+   2.68:1  (needs 4.5)  button.desk-btn.desk-btn--confirm | #797367 on #d1c2a0 | 16px/400 | >=4.5
+           e.g. button#repository-connect  “Connect repository”
+   2.68:1  (needs 4.5)  span.rail-count | #181a1d on #715b29 | 14px/400 | >=4.5
+           e.g. span#nav-corrections-count  “2”
+   3.46:1  (needs 4.5)  span.nav-status.nav-status--unknown | #673c19 on #a19d91 | 11px/700 | >=4.5
+           e.g. li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--unknown  “?”
+   3.46:1  (needs 4.5)  span.nav-group-label | #673c19 on #a19d91 | 11px/600 | >=4.5
+           e.g. span#nav-label-unbound  “Needs an entity”
+   3.46:1  (needs 4.5)  span.nav-group-count | #673c19 on #a19d91 | 14px/400 | >=4.5
+           e.g. nav#rail-nav > section.nav-group.nav-group--unbound > div.nav-group-head > span.nav-group-count  “1”
+   3.46:1  (needs 4.5)  span.nav-status.nav-status--unbound | #673c19 on #a19d91 | 11px/400 | >=4.5
+           e.g. li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--unbound  “⊘”
+      4:1  (needs 4.5)  span.nav-status.nav-status--interrupted | #662b21 on #a19d91 | 11px/400 | >=4.5
+           e.g. li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--interrupted  “△”
+   4.23:1  (needs 4.5)  kbd.rail-kbd | #3a3937 on #a19d91 | 14px/400 | >=4.5
+           e.g. kbd#nav-search-kbd  “⌘K”
+   4.23:1  (needs 4.5)  button.nav-disclosure | #3a3937 on #a19d91 | 11px/400 | >=4.5
+           e.g. nav#rail-nav > section.nav-group > div.nav-group-head > button.nav-disclosure  “▾”
+   4.23:1  (needs 4.5)  span.nav-group-count | #3a3937 on #a19d91 | 14px/400 | >=4.5
+           e.g. nav#rail-nav > section.nav-group > div.nav-group-head > span.nav-group-count  “3”
+   4.23:1  (needs 4.5)  span.nav-thread-title | #3a3937 on #a19d91 | 16px/400 | >=4.5
+           e.g. li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title  “Design RichOS memory strategy”
+   4.23:1  (needs 4.5)  button.rail-settings-btn | #3a3937 on #a19d91 | 17px/400 | >=4.5
+           e.g. button#rail-settings  “⚙”
+   4.23:1  (needs 4.5)  span.rail-user-name | #3a3937 on #a19d91 | 16px/400 | >=4.5
+           e.g. span#rail-user-name  “Set your name”
+   4.23:1  (needs 4.5)  span.scope-sep | #3a3937 on #a19d91 | 16px/400 | >=4.5
+           e.g. span#scope-sep  “/”
+   4.23:1  (needs 4.5)  span.scope-thread | #3a3937 on #a19d91 | 16px/400 | >=4.5
+           e.g. span#scope-thread  “Q4 hiring”
+   4.23:1  (needs 4.5)  span.tl-chevron | #3a3937 on #a19d91 | 11px/400 | >=4.5
+           e.g. button#duration:t_ea7kw95m > span.tl-chevron  “›”
+   4.23:1  (needs 4.5)  span.tl-duration-label | #3a3937 on #a19d91 | 14px/400 | >=4.5
+           e.g. button#duration:t_ea7kw95m > span.tl-duration-label  “Worked for 18s”
+   4.23:1  (needs 4.5)  button.tl-collapsed-summary | #3a3937 on #a19d91 | 14px/400 | >=4.5
+           e.g. button#summary:t_ea7kw95m  “Delegated to Sage, Frank and Clark”
+   4.23:1  (needs 4.5)  span.tl-who | #3a3937 on #a19d91 | 14px/600 | >=4.5
+           e.g. div#work:t_ea7kw95m > article.tl-rich > div.tl-rich-meta > span.tl-who  “Rich”
+
+== WCAG AA contrast — the shipping shell, both themes, computed not eyeballed ==
+  PASS  1  the ratio is WCAG's ratio — checked against WebAIM's own published values
+          8 published pairs, all within 0.01 of WebAIM
+  PASS  2  the math running in WebKit is the same source, not a second copy
+          4 pairs identical across the two runtimes: [2.36,3.24,5.61,null]
+  PASS  3  4.5 normal, 3.0 at 24px or 18.66px bold, 3.0 for a declared indicator
+          3.03:1 fails at 14px/400 and passes at 24px, at 19px bold, and as a declared indicator
+  PASS  4  a deliberately-introduced failure is caught and NAMED, not just counted
+          p#planted-failure caught at 2.17:1 against a 4.5:1 floor, quoted verbatim
+  PASS  5  a declared exemption passes, is NOT hidden, and carries its reason
+          2 exempt entr(ies), reason printed, excused ratio 2.17:1 stated
+  PASS  6  an empty or one-word exemption is itself a failure — no mute button
+          both the empty and the one-word claim are refused and named
+  PASS  7  a colour that cannot be resolved is a FAILURE TO PROVE, never a pass
+          gradient, mix-blend-mode, filter and backdrop-filter refused by name; transparent text fails at 1:1
+  PASS  8  a faint veil is measured THROUGH; only an aria-modal claim excuses
+          12% sheet: 4.54:1 -> 4.25:1 measured through; with aria-modal, filed obscured instead
+  PASS  9.shell  the shell as it opens: rail, scope line, first turn, composer
+          92 of 448 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  FAIL  9.repositories  the repository connection dialog and its explicit company selection
+          2 NEW and 0 WORSENED contrast failure(s) on repositories:
+    NEW (light)
+      2.68:1 (needs 4.5:1)  #797367 on #d1c2a0  16px/400  x1
+        button#repository-connect   “Connect repository”
+    NEW (dark)
+      1.7:1 (needs 4.5:1)  #3d3c39 on #655d4d  16px/400  x1
+        button#repository-connect   “Connect repository”
+  PASS  9.permission  a native action request with its description, input and scoped decision controls
+          18 of 454 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.saved-work-chip  the visible saved-work disclosure control
+          106 of 466 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  FAIL  9.saved-work  saved work receipts in the work summary
+          18 NEW and 0 WORSENED contrast failure(s) on saved-work:
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  14px/400  x1
+        kbd#nav-search-kbd   “⌘K”
+    NEW (light)
+      2.68:1 (needs 4.5:1)  #181a1d on #715b29  14px/400  x1
+        span#nav-corrections-count   “2”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  11px/400  x6
+        nav#rail-nav > section.nav-group > div.nav-group-head > button.nav-disclosure   “▾”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  14px/400  x6
+        nav#rail-nav > section.nav-group > div.nav-group-head > span.nav-group-count   “3”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  16px/400  x6
+        li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title   “Design RichOS memory strategy”
+    NEW (light)
+      4:1 (needs 4.5:1)  #662b21 on #a19d91  11px/400  x1
+        li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--interrupted   “△”
+    NEW (light)
+      3.46:1 (needs 4.5:1)  #673c19 on #a19d91  11px/700  x1
+        li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--unknown   “?”
+    NEW (light)
+      3.46:1 (needs 4.5:1)  #673c19 on #a19d91  11px/600  x1
+        span#nav-label-unbound   “Needs an entity”
+    NEW (light)
+      3.46:1 (needs 4.5:1)  #673c19 on #a19d91  14px/400  x1
+        nav#rail-nav > section.nav-group.nav-group--unbound > div.nav-group-head > span.nav-group-count   “1”
+    NEW (light)
+      3.46:1 (needs 4.5:1)  #673c19 on #a19d91  11px/400  x1
+        li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-status.nav-status--unbound   “⊘”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  17px/400  x1
+        button#rail-settings   “⚙”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  16px/400  x1
+        span#rail-user-name   “Set your name”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  16px/400  x1
+        span#scope-sep   “/”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  16px/400  x1
+        span#scope-thread   “Q4 hiring”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  11px/400  x1
+        button#duration:t_ea7kw95m > span.tl-chevron   “›”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  14px/400  x1
+        button#duration:t_ea7kw95m > span.tl-duration-label   “Worked for 18s”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  14px/400  x1
+        button#summary:t_ea7kw95m   “Delegated to Sage, Frank and Clark”
+    NEW (light)
+      4.23:1 (needs 4.5:1)  #3a3937 on #a19d91  14px/600  x1
+        div#work:t_ea7kw95m > article.tl-rich > div.tl-rich-meta > span.tl-who   “Rich”
+  PASS  9.settings-tooltip  the settings button's tooltip — the one string the stylesheet itself renders
+          92 of 448 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.thread  a seeded conversation with a settled turn and a delegation summary
+          104 of 464 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.corrections  the correction desk, both families, with two asks waiting
+          46 of 482 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.feedback  the feedback desk as it first opens
+          22 of 458 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.search  search with results, including the selected row
+          92 of 536 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.inspector  the worker inspector open over an expanded transcript
+          158 of 532 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.technical-view  the technical view pinned on for one conversation (§3.3)
+          148 of 500 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.unbound  the refusal pane for a thread that predates entity scoping (§21)
+          98 of 456 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.settings  the assertiveness popover
+          74 of 448 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.company-picker  the launch-time company picker, its note, and the blocked composer behind it
+          40 of 468 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.company-blocked  the blocked composer and its Choose the company button, picker dismissed
+          82 of 468 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.memory-setup  the first-run memory question: its note, the location it offers, and the two buttons
+          14 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.memory-no-compiler  a corpus this install cannot read, said once as the answer to his press
+          12 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.setup-sheet  the first-run consent step: what is missing, why, and the account he still needs
+          22 of 460 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.setup-blocked  a build that cannot install an engine, and the sentence naming who can
+          20 of 460 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-available  the update row with a version waiting, and the mark on the settings button
+          130 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-downloading  the update row mid-download: the progress bar, its track and its border
+          128 of 450 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-failed  a REFUSED SIGNATURE, with the vendor's own reason disclosed
+          132 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.updates-waiting  the non-actionable waiting cue and its open explanation, with the update control gone
+          94 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.entity-view  §3.5's company overview: its facts, its attention list and its thread list
+          112 of 476 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.thread-menu  the thread's own actions menu — rename, pin, archive (§3.1)
+          100 of 454 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.techy-nothing-recorded  techy mode on a conversation with no machinery — the sentence that is not 'I can't read it'
+          118 of 470 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.history-notice  the notice that says part of his history did not load, at the top of the conversation
+          96 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.first-run-notice  the offer of the bootstrap interview at the head of the conversation, and its two controls
+          102 of 454 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.first-run-unusable  notes about his company that could not be read — the one onboarding state that needs a person
+          96 of 452 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened
+  PASS  9.opening-screen  the opening screen, curtain held up (its one HTML text line; the rest is SVG)
+          0 of 450 node(s) measured across both themes, 0 known-debt hit(s), 0 new, 0 worsened — ceiling disarmed at 4000ms (3s hold + 1000ms grace), curtain up and state.reason still null
+  PASS  9z  NEGATIVE CONTROL: a surface that collapsed to the bare shell FAILS its floor
+          27 surface floor(s) proven able to fail: the bare shell measured in this run (92 of 448) is below every one of them, tolerance 3 included. 3 declared unable to, each naming what proves its driver arrived instead: opening-screen, settings, settings-tooltip
+  PASS  10  the second theme is a real second theme, or is reported as not one
+          3 second-theme rule(s) shipped (3 `:root[data-theme=]`, 0 `prefers-color-scheme`), and both walks exercise them: the two runs differ, the body ground differs (rgb(12, 19, 34) vs rgb(234, 230, 221)), and a fresh install under a light OS still opens dark.
+  PASS  10b  every surface was walked in both themes — and standalone is not a thinner run
+          62 walks completed (31 surfaces x 2 themes), and the count is the same started directly or under run.js: RICHOS_UI_TESTS_LEDGER gates only whether evidence is APPENDED, never what is measured.
+  PASS  10c  every panel the shell declares is walked, or is declared unwalked with a reason
+          22 of 26 declared panel(s) opened by a driver and walked in both themes; 4 declared unwalked with a reason:
+          #home — The home screen, and it is COVERED SOMEWHERE ELSE rather than uncovered: round-11.1/v1 "Constellation" is a WebGL canvas composition, so a computed-style walk can read nothing painted on it. tests/home.js measures it FROM THE PIXELS instead — 16 elements, worst 4.23:1, on the rendered frame — which check 14 already names. Two DOM checkers over one canvas would be one checker rotting.
+          #inspector-scrim — The worker inspector's scrim, on the same footing as the rail's. The inspector ITSELF is walked (surface `inspector`, 146 nodes measured) — it is only the sheet beside it that carries nothing to measure.
+          #rail-scrim — The rail's scrim on a narrow window — a translucent sheet with no text in it and no boundary of its own, so it is neither a text node nor a non-text INDICATOR under check 3's definition. What matters about a scrim is what can still be read THROUGH it, and check 8 measures exactly that on every run: a 12% sheet takes 4.54:1 down to 4.25:1 and the 4.25 is what gets reported, not the stylesheet's 4.54.
+          #voice-panel — The voice panel mid-listen. Reaching it needs a live audio device: main.js hides the talk button entirely when voice_readiness refuses, and the panel only paints once start_voice_capture has a real stream. A browser fixture that forced it open would be measuring markup the product does not paint on a machine with no microphone.
+  PASS  11  nothing disappears into `obscured` without being measured somewhere else
+          43 node path(s) obscured behind a modal on some surface, every one of them measured on another
+  PASS  11b  every string the stylesheets themselves render is measured, both themes
+          1 authored `content` string(s) across fonts/fonts.css + style.css + splash.css + home.css; 62 generated node(s) considered and 2 measured across 62 walks, 0 unprovable:
+          style.css:4205 "Settings" — worst 5.78:1 (floor 4.5:1) #979faf on #182440 at 16px on settings-tooltip/dark, via its own background
+  PASS  12  every exemption in the shipped source is enumerated, with its reason
+          0 exemptions declared in the shipped source today (cap 0). Nothing is currently excused.
+  PASS  13  the debt ledger can only shrink, and every entry in it is still real
+          0 known-debt signature(s) (cap 0), 20 seen this run; 1 declared-unprovable colour(s), 0 new
+  PASS  14  no UNMEASURED <canvas> on any surface walked — the DOM check is not talking past the pixels
+          0 unmeasured <canvas> elements across 62 surface/theme walks. The DOM check therefore covers the whole of every surface it reaches — every failure it reports is a node with a computed style, and every node with a computed style was reported.
+          186 <canvas> element(s) inside #home were EXCLUDED and are not covered here: the home screen is round-11.1/v1 "Constellation", a canvas composition the CEO chose, and it is measured from the pixels by tests/home.js instead — 16 elements, worst 4.23:1, on the rendered frame. Canvas-heavy work elsewhere in the repo (the round-7 / round-8.1 material studies) is NOT covered by anything, here or there.
+  PASS  15  SVG fill/stroke is counted as uncovered, not passed over in silence
+          0 svg <text> nodes on the walked surfaces. The opening screen is a separate matter and is named here rather than counted as covered: it is already gone by walk time (its curtain yields as soon as main.js reports the shell usable), and it is drawn almost entirely in SVG — its wordmark, logo and plinth carry no computed `color` this walk can read.

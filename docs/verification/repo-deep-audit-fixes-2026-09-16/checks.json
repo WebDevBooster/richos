@@ -1,0 +1,283 @@
+{
+  "final_code_revision": "366e5b20470b4b21384b7247a00eb54f551ee748",
+  "original_runs": [
+    {
+      "name": "accuracy-tier-e2e",
+      "command": "node test/accuracy-tier-e2e.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 18.06,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "browser",
+      "command": "node richos/app/ui/tests/run.js",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo",
+      "exit": 1,
+      "seconds": 756.17,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "coordination-e2e",
+      "command": "node test/coordination-e2e.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 1.14,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "cross-surface-e2e",
+      "command": "node test/cross-surface-e2e.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 54.03,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "docker-unit",
+      "command": "bash richos/engine/scripts/ci-shard.sh --only-units scripts/lib/containers.test.sh --receipt /Users/alex/ab/richos-rechecks/deep-20260916/host-receipt.jsonl",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/engine-repo",
+      "exit": 0,
+      "seconds": 425.38,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "e2e",
+      "command": "node test/e2e.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 18.84,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "engine-nonsuites",
+      "command": "bash richos/engine/scripts/ci-verify.sh --no-suites",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/engine-repo",
+      "exit": 0,
+      "seconds": 156.38,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "extension",
+      "command": "npm test",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-extension",
+      "exit": 0,
+      "seconds": 0.45,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "host-e2e",
+      "command": "node test/host-e2e.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 7.72,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "packaging",
+      "command": "RICHOS_RUNTIME_DIR=/tmp/richos-1.2.0-arm64-runtime bash richos/app/scripts/run-tests.sh",
+      "cwd": "/Users/alex/ab/richos",
+      "exit": 1,
+      "seconds": 252.44,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "rust-workspace",
+      "command": "cargo test --locked --offline --workspace -- --test-threads=1",
+      "cwd": "/Users/alex/ab/richos/richos/app",
+      "exit": 0,
+      "seconds": 269.28,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "service-mutations",
+      "command": "node test/mutation-audit.mjs",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/mutation-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 388.49,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "service",
+      "command": "npm test",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service",
+      "exit": 0,
+      "seconds": 8.27,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "swift",
+      "command": "swift test --scratch-path /Users/alex/ab/richos-rechecks/deep-20260916/swift-build --jobs 2",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-macos",
+      "exit": 0,
+      "seconds": 33.41,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "tauri",
+      "command": "cargo test --locked --offline --manifest-path src-tauri/Cargo.toml",
+      "cwd": "/Users/alex/ab/richos/richos/app",
+      "exit": 0,
+      "seconds": 39.71,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "updater",
+      "command": "cargo test --locked --offline --manifest-path crates/richos-user-update/Cargo.toml",
+      "cwd": "/Users/alex/ab/richos/richos/app",
+      "exit": 0,
+      "seconds": 24.51,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "windows-build",
+      "command": "dotnet build src/richos-companion/richos-companion.csproj --configuration Release",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows",
+      "exit": 0,
+      "seconds": 2.0,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    },
+    {
+      "name": "windows-test",
+      "command": "dotnet test tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj",
+      "cwd": "/Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows",
+      "exit": 0,
+      "seconds": 6.47,
+      "source_revision": "70b5df857315e166de885181369005d717233f67"
+    }
+  ],
+  "subsequent_runs": [
+    {
+      "name": "packaging-final",
+      "source_revision": "cac72656",
+      "exit": 0,
+      "suites": 9,
+      "checks": 180,
+      "command": "RICHOS_RUNTIME_DIR=<verified-extraction> PYTHONDONTWRITEBYTECODE=1 bash richos/app/scripts/run-tests.sh"
+    },
+    {
+      "name": "probe-pipeline-before",
+      "source_revision": "cac72656 with the new MT6 test and draining test assertions; shipped probe unchanged",
+      "exit": 1,
+      "passed": 10,
+      "failed": 1,
+      "command": "bash richos/engine/scripts/hooks/contract-integrity.test.sh --only MT"
+    },
+    {
+      "name": "probe-pipeline-after",
+      "source_revision": "40014a0bde4405853971f3d39ee9194965bad3e1",
+      "exit": 3,
+      "passed": 11,
+      "failed": 0,
+      "scope": "MT only; scoped success is exit 3 and is not a full suite pass",
+      "command": "bash richos/engine/scripts/hooks/contract-integrity.test.sh --only MT"
+    },
+    {
+      "name": "browser-complete",
+      "source_revision": "cac72656",
+      "exit": 0,
+      "suites": 35,
+      "checks": 572,
+      "skipped": 0,
+      "command": "RICHOS_PLAYWRIGHT=<installed-playwright> node richos/app/ui/tests/run.js"
+    },
+    {
+      "name": "workspace-mutation-fixed",
+      "source_revision": "cac72656",
+      "working_tree_patch": "6511d725 (one-line mutation target repair)",
+      "exit": 0,
+      "tests": 76,
+      "mutations_caught": 56,
+      "command": "RICHOS_MUTANT_JOBS=4 bash richos/engine/mega-lander/tests/workspaces.test.sh"
+    },
+    {
+      "name": "by-reference-final",
+      "source_revision": "40014a0bde4405853971f3d39ee9194965bad3e1",
+      "exit": 0,
+      "checks": 53,
+      "command": "RICHOS_MUTANT_JOBS=2 bash richos/engine/scripts/hooks/by-reference.test.sh"
+    },
+    {
+      "name": "engine-asset-final-probe",
+      "source_revision": "40014a0bde4405853971f3d39ee9194965bad3e1",
+      "exit": 0,
+      "checks": 18,
+      "command": "RICHOS_RUNTIME_DIR=<verified-extraction> PYTHONDONTWRITEBYTECODE=1 bash richos/app/scripts/make-engine-asset.test.sh"
+    },
+    {
+      "name": "contract-complete",
+      "source_revision": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+      "sections": 24,
+      "passed_sections": 23,
+      "failed_sections": [
+        "MF"
+      ],
+      "coverage_verifier_exit": 1,
+      "command": "RICHOS_MUTANT_JOBS=2 bash richos/engine/scripts/ci-shard.sh --units-file <all-contract-sections> --shard I/6 --receipt <receipt> --verbose",
+      "note": "MF was repaired and rerun separately; this is not a passing single-revision certificate."
+    },
+    {
+      "name": "mechanical-final",
+      "source_revision": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+      "exit": 0,
+      "units": 2,
+      "baseline_checks": 46,
+      "command": "RICHOS_MUTANT_JOBS=2 bash richos/engine/scripts/ci-shard.sh --only-units scripts/hooks/contract-integrity.test.sh:MF,scripts/hooks/mechanical-findings.test.sh --receipt <receipt> --verbose"
+    },
+    {
+      "name": "mechanical-stress",
+      "source_revision": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+      "exit": 0,
+      "complete_runs": 20,
+      "checks_per_run": 46,
+      "concurrency": 4,
+      "results": "mechanical-stress/results.json"
+    },
+    {
+      "name": "fourteen-final",
+      "source_revision": "44e1d764d8f85decab982882ee37740c836fd570",
+      "exit": 0,
+      "behavioral_checks": 14,
+      "self_checks": 1,
+      "mutations": 85,
+      "command": "RICHOS_MUTANT_JOBS=8 bash richos/engine/scripts/ci-shard.sh --only-units mega-lander/tests/workspace-spec-fourteen.test.sh --receipt <receipt>"
+    },
+    {
+      "name": "engine-asset-final-sweep",
+      "source_revision": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+      "exit": 0,
+      "checks": 18,
+      "command": "RICHOS_RUNTIME_DIR=<verified-extraction> PYTHONDONTWRITEBYTECODE=1 bash richos/app/scripts/make-engine-asset.test.sh"
+    },
+    {
+      "name": "engine-nonsuites-final",
+      "source_revision": "366e5b20470b4b21384b7247a00eb54f551ee748",
+      "exit": 0,
+      "steps": 6,
+      "command": "bash richos/engine/scripts/ci-verify.sh --no-suites"
+    },
+    {
+      "name": "syntax-final",
+      "source_revision": "366e5b20470b4b21384b7247a00eb54f551ee748",
+      "counts": {
+        ".py": 414,
+        ".sh": 500,
+        ".js": 171,
+        ".mjs": 55
+      },
+      "failures": [],
+      "exit": 0,
+      "command": "Python compile() without emission; bash -n; node --check over tracked source files"
+    },
+    {
+      "name": "docs-publication-final",
+      "source_revision": "366e5b20470b4b21384b7247a00eb54f551ee748 plus the staged audit report and evidence",
+      "exit": 0,
+      "command": "bash richos/engine/scripts/publication-completeness.sh --root /Users/alex/ab/richos"
+    }
+  ],
+  "engine_coverage": "engine-coverage.json",
+  "source_identities": "source-identities-final.json",
+  "note": "Original failures and intermediate attempts are retained. Only completed passing runs and explicitly recorded repair reruns contribute to final coverage.",
+  "raw_log_policy": "Captured logs retain their exact whitespace and terminal output. The content diff check excludes raw .log files; code and structured evidence pass."
+}
