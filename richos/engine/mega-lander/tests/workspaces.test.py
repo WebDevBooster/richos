@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
+from unittest.mock import patch
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -790,6 +792,79 @@ class Point09_NeverWritesAgain(Base):
         self.assertFalse(os.path.exists(npath))
         ev = open(os.path.join(ws.state_dir(), "events.jsonl")).read()
         self.assertIn('"event": "processes-stopped"', ev)
+
+
+class LandingShutdown(Base):
+    def shutdown_writer(self, path, commit=False):
+        code = """import signal, pathlib, subprocess, sys, time
+commit = sys.argv[1] == 'commit'
+def stopped(*args):
+    pathlib.Path('shutdown-result.txt').write_text('result flushed on shutdown\\n')
+    if commit:
+        subprocess.run(['git', 'add', 'shutdown-result.txt'], check=True)
+        subprocess.run(['git', 'commit', '-qm', 'shutdown result'], check=True)
+    print('FLUSHED', flush=True)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stopped)
+print('READY', flush=True)
+while True: time.sleep(.1)
+"""
+        pr = subprocess.Popen([sys.executable, '-c', code, 'commit' if commit else 'write'],
+                              cwd=path, stdout=subprocess.PIPE, text=True)
+        self.env.procs.append(pr)
+        self.assertEqual(pr.stdout.readline().strip(), 'READY')
+        # Reap immediately so the OS liveness check does not observe a zombie.
+        threading.Thread(target=pr.wait, daemon=True).start()
+        return pr
+
+    def check_shutdown(self, commit):
+        name = 'zach-opus-flush'
+        cc = self.make_cc(name)
+        aid, native = self.spawn(name, cc)
+        pr = self.shutdown_writer(cc, commit)
+        self.finish(aid)
+        with self.assertRaises(ws.SpecError):
+            ws.land(name, self.sid)
+        self.assertEqual(pr.stdout.readline().strip(), 'FLUSHED')
+        self.assertTrue(os.path.exists(os.path.join(cc, 'shutdown-result.txt')))
+        self.assertTrue(os.path.isdir(native))
+        self.assertFalse(self.rec(name).get('disposition'))
+        if not commit:
+            self.commit(cc, 'shutdown-result.txt', 'result flushed on shutdown\n')
+        self.merge(self.other, 'cc/' + name)
+        ws.land(name, self.sid)
+        self.assertFalse(os.path.exists(cc))
+        self.assertFalse(os.path.exists(native))
+
+    def test_land_preserves_a_file_flushed_during_shutdown(self):
+        self.check_shutdown(False)
+
+    def test_land_rechecks_commits_made_during_shutdown(self):
+        self.check_shutdown(True)
+
+    def check_retry(self, commit):
+        name = 'zach-opus-retry'
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        with patch.object(ws, 'remove_workspace', return_value=(False, 'simulated disk refusal')):
+            ws.land(name, self.sid)
+        self.assertTrue(self.rec(name)['deletion'])
+        if commit:
+            self.commit(path, 'later.txt', 'new work after the first land check\n')
+        else:
+            with open(os.path.join(path, 'later.txt'), 'w') as f:
+                f.write('new work after the first land check\n')
+        ws.retry_due()
+        self.assertTrue(os.path.isfile(os.path.join(path, 'later.txt')))
+        self.assertIn('worktree-agent-' + aid, branches(self.entity))
+        self.assertFalse(self.rec(name).get('disposition'))
+        self.assertIn(name, self.names())
+
+    def test_retry_preserves_new_uncommitted_work(self):
+        self.check_retry(False)
+
+    def test_retry_preserves_new_unmerged_commits(self):
+        self.check_retry(True)
 
 
 class Point10_AllTogether(Base):

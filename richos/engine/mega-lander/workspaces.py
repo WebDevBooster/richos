@@ -3080,6 +3080,31 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     if rec.get("disposition") and rec["disposition"].get("kind") != "continued":
         return {"landed": True, "already": rec["disposition"]["kind"]}
     chain = _chain(rec)
+    # Shutdown can flush files or create commits. Prove landing only after it.
+    paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
+    stopped = stop_processes(paths)
+    if stopped.get("survivors"):
+        raise SpecError("cannot land %s: workspace processes are still running: %s" %
+                        (rec["name"], stopped["survivors"]))
+    containers = stop_containers(paths)
+    if containers.get("failed"):
+        raise SpecError("cannot land %s: workspace containers could not be stopped" % rec["name"])
+    _require_landed(rec, chain, ignored_ok, deadline)
+    for r in chain:
+        with Lock():
+            fresh = load_agent(r["key"])
+            fresh["disposition"] = {"kind": "landed", "at": now(), "auto": bool(auto), "by_session": me,
+                                    "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
+            save_agent(fresh)
+        event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
+    if not _delete_chain(chain, "landed", processes=stopped):
+        if not (load_agent(rec["key"]) or {}).get("disposition"):
+            raise SpecError("landing eligibility changed during cleanup; the work was preserved")
+    return {"landed": True}
+
+
+def _require_landed(rec, chain, ignored_ok="", deadline=None):
+    """Read current work after writers stop, including on a deletion retry."""
     for r in chain:
         _require_clean(r, "land %s" % r["name"], ignored_ok, deadline)
     missing = []
@@ -3118,15 +3143,6 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     if missing:
         raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
                         "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
-    for r in chain:
-        with Lock():
-            fresh = load_agent(r["key"])
-            fresh["disposition"] = {"kind": "landed", "at": now(), "auto": bool(auto), "by_session": me,
-                                    "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
-            save_agent(fresh)
-        event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
-    _delete_chain(chain, "landed")
-    return {"landed": True}
 
 
 def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
@@ -3166,12 +3182,17 @@ def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
     return {"discarded": True, "tips": tips}
 
 
-def _delete_chain(chain, why):
+def _delete_chain(chain, why, processes=None):
     allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]
-    stopped = stop_processes([w["path"] for _r, w in allw])
+    stopped = processes if processes is not None else stop_processes([w["path"] for _r, w in allw])
+    complete = True
     for r in chain:
-        _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
-                processes=stopped)
+        if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
+                       processes=stopped):
+            complete = False
+            if why == "landed" and not (load_agent(r["key"]) or {}).get("disposition"):
+                return False
+    return complete
 
 
 def _delete(rec, workspaces, branches, why, processes=None):
@@ -3186,7 +3207,33 @@ def _delete(rec, workspaces, branches, why, processes=None):
         # Containers first, directories second: a workspace's containers are
         # part of it, and stop_containers never raises, so this cannot cost a
         # deletion that would otherwise have succeeded. See stop_containers.
-        stop_containers([w["path"] for w in workspaces])
+        containers = stop_containers([w["path"] for w in workspaces])
+        current = load_agent(rec["key"]) or rec
+        disposition = current.get("disposition") or {}
+        if disposition.get("kind") == "landed":
+            owner = load_agent(disposition.get("as_part_of") or rec["key"]) or current
+            chain = _chain(owner)
+            try:
+                if containers.get("failed"):
+                    raise SpecError("workspace containers could not be stopped")
+                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")
+            except SpecError as e:
+                # Eligibility expired. Return surviving work to the pending gate,
+                # instead of retrying a forced deletion under an old verdict.
+                with Lock():
+                    for member in chain:
+                        if not os.path.exists(agent_path(member["key"])):
+                            continue
+                        fresh = load_agent(member["key"])
+                        if (fresh.get("disposition") or {}).get("kind") == "landed":
+                            fresh["disposition"] = None
+                            fresh["deletion"] = None
+                            fresh.setdefault("history", []).append({"at": iso(),
+                                "fact": "landing eligibility changed", "why": str(e)})
+                            save_agent(fresh)
+                event("landing-reopened", key=rec["key"], why=str(e))
+                return False
+
         for w in workspaces:
             # Point 3: the branches the agent created are its branches too, and
             # they are recorded (observe_created_refs) rather than read back out of
@@ -3197,7 +3244,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
             else:
                 failures.append(err)
     untouched = []
-    if branches:
+    if branches and not processes.get("survivors"):
         for repo, b in _branch_targets([rec]):
             ok, err = delete_branch(repo, b)
             if ok is None:
