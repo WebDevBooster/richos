@@ -159,6 +159,7 @@ on:
     paths:
       - "richos/app/**"
       - "richos/engine/VERSION"
+      - "richos/engine/voice/**"
       - "richos/engine/scripts/named-persons.sh"
       - "richos/engine/scripts/lib/named-persons.sh"
       - "richos/engine/scripts/lib/named-persons.py"
@@ -168,6 +169,7 @@ on:
     paths:
       - "richos/app/**"
       - "richos/engine/VERSION"
+      - "richos/engine/voice/**"
       - "richos/engine/scripts/named-persons.sh"
       - "richos/engine/scripts/lib/named-persons.sh"
       - "richos/engine/scripts/lib/named-persons.py"

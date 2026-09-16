@@ -87,7 +87,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
-import { pinFor as pinForModel, TOOLCHAIN_REFERENCE } from './model-catalog.js';
+import { pinFor as pinForModel, TOOLCHAIN_REFERENCE } from '../../../engine/voice/provisioning/model-catalog.js';
 
 /** Lock-file schema version. Bump when a field's MEANING changes, never for an addition. */
 export const LOCK_SCHEMA = 1;
@@ -573,7 +573,7 @@ export function buildLock({ observed, previous = null, at = new Date() }) {
       '',
       'What is in here is what was found the first time this machine transcribed, plus every model',
       'file hash it has verified since. It records what WAS; it has no authority to say what is',
-      'RIGHT — that is what tools/richos-service/lib/model-pins.json is for, and a mismatch against',
+      'RIGHT — that is what engine/voice/models/model-pins.json is for, and a mismatch against',
       'THAT refuses. A mismatch against this file warns loudly and names both identities.',
       '',
       'Delete this file to re-lock from scratch, or run `richos-service toolchain --relock`.',

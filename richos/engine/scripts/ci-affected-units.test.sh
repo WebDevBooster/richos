@@ -180,6 +180,16 @@ else
     bad "A9   dupes=$DUPES sorted='$SORTED' as-is='$ASIS'"
 fi
 
+# Voice imports cross directories inside the component; metadata must select code tests.
+for input in voice/models/model-pins.json voice/models/model-costs.json voice/tests/support/harness.mjs; do
+    OUT="$(aff --paths "richos/engine/$input")"
+    if printf '%s\n' "$OUT" | grep -qxF 'voice/tests/run.test.sh'; then
+        ok "voice dependency selects its core suite: $input"
+    else
+        bad "voice dependency selected no core suite: $input"
+    fi
+done
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-affected-units tests: all $PASS passed ==="

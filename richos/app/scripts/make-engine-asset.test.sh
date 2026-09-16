@@ -375,6 +375,19 @@ else
     bad "L18 building outside a git checkout is REFUSED, not silently fallen back from" "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
 fi
 
+# The actual archive must execute the component without source-checkout siblings.
+VOICE_NODE="$RX/engine/runtime/bin/node"
+if [ -x "$VOICE_NODE" ]; then
+    VOICE_OUT="$(cd "$WORK" && "$VOICE_NODE" "$RX/engine/voice/tests/run.mjs" 2>&1)"; VOICE_RC=$?
+    if [ "$VOICE_RC" -eq 0 ]; then
+        ok "L19 extracted voice core runs with the delivered Node runtime"
+    else
+        bad "L19 extracted voice core runs with the delivered Node runtime" "$VOICE_OUT"
+    fi
+else
+    bad "L19 extracted voice core runs with the delivered Node runtime" "no delivered Node"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== make-engine-asset tests: $FAIL FAILED, $PASS passed ==="

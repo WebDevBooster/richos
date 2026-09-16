@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The measured cost table and the ladders, from the ONE place they live. */
-export function loadCosts(file = path.join(HERE, 'model-costs.json')) {
+export function loadCosts(file = path.join(HERE, '../../../engine/voice/models/model-costs.json')) {
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   const models = new Map();
   for (const m of raw.models) models.set(m.id, m);

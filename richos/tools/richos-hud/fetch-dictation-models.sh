@@ -25,7 +25,7 @@
 # It used to verify a byte count and the four-byte GGML magic. Both are trivially satisfiable by
 # anyone who can serve bytes, so a hotel captive portal's login page padded to 574,041,195 bytes
 # would have installed as a speech model. The sizes and hashes are no longer written here at all:
-# they are read from tools/richos-service/lib/model-pins.json, which is the ONE place they live,
+# they are read from engine/voice/models/model-pins.json, which is the ONE place they live,
 # so this script and the service can never disagree about what a model is. The test suite asserts
 # that this parser and the service's reader produce identical tables.
 #
@@ -47,7 +47,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PIN_FILE="${HERE}/../richos-service/lib/model-pins.json"
+PIN_FILE="${HERE}/../../engine/voice/models/model-pins.json"
 
 if [ ! -f "${PIN_FILE}" ]; then
   echo "!! pin table not found at ${PIN_FILE} — refusing to download a model this script cannot verify" >&2

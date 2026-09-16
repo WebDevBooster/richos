@@ -85,7 +85,7 @@ use std::path::PathBuf;
 ///
 /// `include_str!` for the same reason `toolchain.rs` compiles in `model-pins.json`: the Node call
 /// path reads this identical file, and a table this crate re-typed would be a table free to drift.
-const MODEL_COSTS_JSON: &str = include_str!("../../../../tools/richos-service/lib/model-costs.json");
+const MODEL_COSTS_JSON: &str = include_str!("../../../../engine/voice/models/model-costs.json");
 
 // -------------------------------------------------------------------------------------------
 // What the machine says about itself.

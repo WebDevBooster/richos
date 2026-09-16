@@ -209,6 +209,7 @@ on:
   push:
     paths:
       - "richos/app/crates/richos-voice/**"
+      - "richos/engine/voice/models/**"
       # Not decoration: `cargo test -p richos-voice` builds examples/voice_loop.rs, which
       # binds richos-core's API. See "WHAT THIS COSTS" above.
       - "richos/app/crates/richos-core/**"
@@ -221,6 +222,7 @@ on:
   pull_request:
     paths:
       - "richos/app/crates/richos-voice/**"
+      - "richos/engine/voice/models/**"
       - "richos/app/crates/richos-core/**"
       - "richos/app/Cargo.toml"
       - "richos/app/Cargo.lock"

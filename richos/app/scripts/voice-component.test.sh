@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Source and consumer integration for engine/voice, including Rust's compiled metadata.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VOICE="$HERE/../../engine/voice"
+node "$VOICE/tests/consumers.test.mjs"
+node "$VOICE/tests/relocation.test.mjs"
+node "$VOICE/tests/mutation-runner.test.mjs"
+
+# A source build needs the model subtree, but no service or HUD source.
+APP="$(cd "$HERE/.." && pwd)"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/voice-build.XXXXXX")"
+trap 'rm -rf "$SCRATCH"' EXIT
+PRODUCT="$SCRATCH/product with spaces"
+mkdir -p "$PRODUCT/app/crates" "$PRODUCT/engine/voice"
+cp "$APP/Cargo.toml" "$APP/Cargo.lock" "$PRODUCT/app/"
+cp -R "$APP/crates/richos-core" "$APP/crates/richos-voice" "$PRODUCT/app/crates/"
+cp -R "$VOICE/models" "$PRODUCT/engine/voice/"
+CARGO_BIN="${CARGO:-cargo}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP/target}"
+"$CARGO_BIN" run --quiet --locked --manifest-path "$APP/Cargo.toml" -p richos-voice --example model_metadata > "$SCRATCH/original.json"
+"$CARGO_BIN" run --quiet --locked --manifest-path "$PRODUCT/app/Cargo.toml" -p richos-voice --example model_metadata > "$SCRATCH/copied.json"
+cmp "$SCRATCH/original.json" "$SCRATCH/copied.json"
+echo '  PASS  Rust source build without tools embeds the same metadata'
+rm "$PRODUCT/engine/voice/models/model-pins.json"
+if "$CARGO_BIN" check --quiet --locked --manifest-path "$PRODUCT/app/Cargo.toml" -p richos-voice > "$SCRATCH/missing.log" 2>&1; then
+    echo '  FAIL  Rust build accepted missing canonical model data' >&2
+    exit 1
+fi
+grep -q 'model-pins.json' "$SCRATCH/missing.log"
+echo '  PASS  Rust rebuild refuses missing canonical model data'

@@ -1674,3 +1674,12 @@ are historical records, not descriptions of installed functionality.
 See [rollback record](../../docs/verification/owned-outcome/ROLLBACK-2026-09-09.md).
 
 `crates/richos-user-update/tests/startup_exec.rs` covers the update startup executor.
+
+## Shared voice infrastructure
+
+The live pipeline stays in `crates/richos-voice`. Its shared model metadata and
+JavaScript provisioning live in [the voice component](../engine/voice/README.md).
+App source builds require `../engine/voice/models/`: the Rust crate embeds those
+files at compile time. An engine update alone does not replace an app's embedded
+metadata. Run `bash scripts/voice-component.test.sh` for consumer and relocation
+checks, with Node and Cargo on PATH.

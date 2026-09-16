@@ -15,7 +15,7 @@
 //!
 //! # ONE registry and ONE lock, shared with the Node service
 //!
-//! The model pins are `tools/richos-service/lib/model-pins.json`, compiled in with `include_str!`
+//! The model pins are `engine/voice/models/model-pins.json`, compiled in with `include_str!`
 //! rather than re-typed here. Two registries of truth is how the second unpinned consumer came to
 //! exist in the first place, and a table this crate copied would be a table free to drift.
 //!
@@ -54,7 +54,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The pin table, compiled in from the ONE place it lives. See the module docs.
-const MODEL_PINS_JSON: &str = include_str!("../../../../tools/richos-service/lib/model-pins.json");
+const MODEL_PINS_JSON: &str = include_str!("../../../../engine/voice/models/model-pins.json");
 
 /// How loud a finding is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -662,7 +662,7 @@ mod tests {
     #[test]
     fn the_pin_table_is_the_services_own_file_not_a_copy() {
         // If this ever fails, someone has forked the registry — the failure this change exists to
-        // prevent. The values are read out of tools/richos-service/lib/model-pins.json at compile
+        // prevent. The values are read out of engine/voice/models/model-pins.json at compile
         // time, so a drifted copy could not produce them.
         assert_eq!(
             pinned_sha256("small.en").as_deref(),

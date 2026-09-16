@@ -114,7 +114,7 @@ Executed 2026-09-10 against the live host, so this is not a path that only exist
 
 ## Model integrity — a pinned sha256, not a byte count
 
-Every model RichOS may download is listed in [`lib/model-pins.json`](lib/model-pins.json) with
+Every model RichOS may download is listed in [`engine/voice/models/model-pins.json`](../../engine/voice/models/model-pins.json) with
 its exact byte count, its exact sha256, and **where that hash came from**. The table is source: it
 is never refreshed at run time, because a hash fetched from the same server it authenticates is not
 a check. `richos/tools/richos-hud/fetch-dictation-models.sh` reads the same file — the test suite asserts
@@ -507,3 +507,17 @@ converging in three rounds, WER 3.15% → 2.31%, without touching `-mc`. Up-fron
 measured and **rejected**: it is byte-identically inert at the pipeline's `-mc 0`, and in dictation —
 where it is live — it raises exact hits while *costing* spelling consistency, because a
 probabilistic nudge can invent a new variant and a deterministic replacement cannot.
+
+## Shared voice component
+
+Model definitions and verified provisioning are owned by
+[engine/voice](../../engine/voice/README.md). The three old JavaScript model modules
+forward to that component. Model selection for calls, toolchain checks and the
+call-processing pipeline remain here. Preserve the sibling `engine/voice` and
+extension dependencies when copying the service; the native-host installer registers
+this layout in place. See the [delivery contract](../../engine/voice/contracts/delivery.md).
+
+`npm test` includes component core cases once, service cases and JavaScript/shell
+consumer checks. `npm run test:mutation` runs component and consumer audits in
+disposable snapshots, including uncommitted source changes, without resetting this
+checkout. The Rust conformance check is run separately from the component directory.

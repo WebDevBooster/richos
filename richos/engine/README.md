@@ -11,12 +11,13 @@ to `main`, durable "the commit is the handoff" semantics, model tiering, and a
 mandatory QA pipeline. Drop it into a repo, point it at the project, and have
 the built-in HR worker staff the domain team.
 
-The engine has four principal components:
+The engine has five principal components:
 
 - [Loro](loro/README.md) compiles and maintains durable knowledge in an external private corpus.
 - [ECS](ecs/README.md) retains scoped commitments, decisions and operational continuity.
 - [Mega Lander](mega-lander/README.md) owns isolated workspaces, integration eligibility and cleanup.
 - [ASS Kicker](ass-kicker/README.md) checks briefs, reported actions and execution evidence.
+- [Voice](voice/README.md) owns shared speech-model definitions and provisioning for Talk to Rich and the speech tools.
 
 Version 1.2.0 supplies generic worker and reviewer roles for the desktop profile.
 Engine code, app coordination and target repositories have separate roots. A fresh
@@ -33,6 +34,12 @@ This directory is the engine's own technical documentation, so it also uses the
 Claude Code mechanics terms — *orchestrator*, *agent*, *subagent*, *teammate*,
 *spawn* — wherever precision demands them. They name the same things: the
 orchestrator is Rich; the agents are his AI workers.
+
+## Voice
+
+[Voice](voice/README.md) owns shared speech-model definitions and provisioning for
+Talk to Rich, dictation and call transcription. The live audio pipeline remains in
+[`richos-voice`](../app/crates/richos-voice/); the component README maps its app and tool integrations.
 
 ## Cross-repo workspace automation
 

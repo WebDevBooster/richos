@@ -29,7 +29,7 @@ handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 - **Upstream drift:** [`check-upstream-drift.sh`](check-upstream-drift.sh) — reports whether open-wispr has moved past the pinned base. The build cannot break from upstream movement (the pin is immutable); what movement means is that staying frozen has started costing something. Run it when you want to know, not on a schedule.
 - **Models:** [`fetch-dictation-models.sh`](fetch-dictation-models.sh) — fetches both
   dictation models and **verifies a pinned sha256** before installing either. Sizes and
-  hashes live in `../richos-service/lib/model-pins.json`, not in the script, so the script
+  hashes live in [`../../engine/voice/models/model-pins.json`](../../engine/voice/models/model-pins.json), not in the script, so the script
   and the service can never disagree about what a model is. Resumes a dropped download
   (`curl -C -`) rather than starting a 574 MB transfer over; deletes anything that fails its
   hash rather than leaving it where the app's model resolution would find it. Named failures
@@ -389,3 +389,10 @@ and §10–§11 (the TCC root cause and what it forces on RichOS packaging).
 2. **No-audio warning is shown inline in the Recording pill** (swapping the timer line) rather than as a separate Problem pill, so silent failure is caught *in-context while recording* — realizing the assessment's "make silent failure loud" intent. Reuses the Problem message string.
 3. **`waitingForPermission` surfaces as a Problem line** ("Waiting for mic / accessibility permission"). It's a permission failure, so it maps into the existing Problem state — not a 4th state.
 4. **Screen selection uses `NSScreen.main`** as the "screen with keyboard focus" approximation (our app is an accessory and never key). Multi-display correctness is on the live-verification list (design-lead follow-up #3).
+
+## Shared voice infrastructure
+
+The [voice component](../../engine/voice/README.md) owns the model pin table used by
+`fetch-dictation-models.sh`. Preserve `../../engine/voice/models/` relative to this
+directory when copying the helper. Its shell interface and runtime dependencies
+are unchanged; the optional dictation application and patches remain here.

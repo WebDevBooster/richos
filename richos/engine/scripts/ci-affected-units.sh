@@ -182,6 +182,13 @@ while IFS= read -r p; do
     BASENAME="$(basename "$REL")"
     MATCHED=0
 
+    # Voice's JS/data dependency graph is owned by one core suite. Basename
+    # matching alone cannot follow imports through the component's test harness.
+    case "$REL" in
+        voice/*.js|voice/*.mjs|voice/*.json|voice/*.sh)
+            add_suite_units "voice/tests/run.test.sh" "$p"; MATCHED=1 ;;
+    esac
+
     # 1. the path IS a suite
     if grep -qxF "$REL" "$SUITES"; then
         add_suite_units "$REL" "$p"; MATCHED=1

@@ -1,0 +1,17 @@
+{
+  "name": "richos-voice-infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "Shared speech model definitions, integrity checks and verified provisioning for RichOS.",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:consumers": "node tests/consumers.test.mjs",
+    "test:relocation": "node tests/relocation.test.mjs && node tests/mutation-runner.test.mjs",
+    "test:mutation": "node tests/mutation-audit.mjs"
+  }
+}

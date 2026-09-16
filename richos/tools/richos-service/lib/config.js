@@ -17,12 +17,12 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { assertEvidenceOutsideProductRepo, PRODUCT_REPO } from './workspace/privacy.js';
-import { pinFor as pinForModel } from './model-catalog.js';
+import { pinFor as pinForModel } from '../../../engine/voice/provisioning/model-catalog.js';
 import {
   classify as classifyModel,
   describe as describeModelFinding,
   readHead as readModelHead,
-} from './model-integrity.js';
+} from '../../../engine/voice/provisioning/model-integrity.js';
 // Which model THIS machine can carry. Namespaced rather than star-imported so every call site
 // below reads as a question being asked of the host — `hw.readMachine()`, `hw.resolveBatchModel()`
 // — instead of as a local helper that might be a constant in disguise.
