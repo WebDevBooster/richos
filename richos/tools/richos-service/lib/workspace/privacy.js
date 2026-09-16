@@ -43,7 +43,9 @@ function canonicalPath(target) {
   const missing = [];
   for (;;) {
     try {
-      return path.join(fs.realpathSync(ancestor), ...missing);
+      // The native resolver also returns the filesystem's actual letter casing.
+      // The JavaScript resolver can retain an alias spelling on case-insensitive volumes.
+      return path.join(fs.realpathSync.native(ancestor), ...missing);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       // A dangling symlink is not a missing directory. Its destination cannot

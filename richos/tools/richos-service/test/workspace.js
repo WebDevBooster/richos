@@ -330,6 +330,30 @@ test('privacy: grouped product protects outer docs and .richos as well as produc
   }
 });
 
+test('privacy: filesystem-equivalent letter casing cannot bypass the product boundary', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-case-boundary-'));
+  try {
+    const product = path.join(tmp, 'Product');
+    const alternate = path.join(tmp, 'PRODUCT');
+    fs.mkdirSync(path.join(product, 'docs'), { recursive: true });
+    const target = path.join(alternate, 'docs', 'new-recordings');
+    if (fs.existsSync(alternate)) {
+      assert.throws(() => assertEvidenceOutsideProductRepo(target, product), /inside the RichOS product repo/);
+      assert.throws(() => assertEvidenceOutsideProductRepo(path.join(product, 'docs', 'new-recordings'), alternate), /inside the RichOS product repo/);
+      const repoAlias = path.join(path.dirname(REPO_ROOT), path.basename(REPO_ROOT).toUpperCase());
+      if (fs.existsSync(repoAlias) && fs.realpathSync.native(repoAlias) === fs.realpathSync.native(REPO_ROOT)) {
+        assert.throws(() => assertLocalTokenLocation({ backend: 'file', filePath: path.join(repoAlias, 'docs', 'tokens.json') }), /inside the RichOS product repo/);
+      }
+    } else {
+      // On a case-sensitive volume these spellings denote different directories.
+      assert.equal(assertEvidenceOutsideProductRepo(target, product), target);
+    }
+    assert.equal(fs.existsSync(path.join(product, 'docs', 'new-recordings')), false);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('privacy: symlinked checkout aliases cannot receive evidence or tokens', () => {
   const tmp = fs.mkdtempSync(path.join(os.homedir(), '.richos-privacy-test-'));
   const saved = { ...process.env };

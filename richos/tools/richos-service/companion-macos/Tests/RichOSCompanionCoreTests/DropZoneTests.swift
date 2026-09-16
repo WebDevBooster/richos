@@ -8,6 +8,25 @@ final class DropZoneTests: XCTestCase {
     private let home = "/Users/tester"
     private let repo = "/checkout/richos"
 
+    func testEquivalentLetterCasingCannotBypassTheProductBoundary() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let product = root.appendingPathComponent("Product")
+        let alternate = root.appendingPathComponent("PRODUCT")
+        try FileManager.default.createDirectory(at: product.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        let target = alternate.appendingPathComponent("docs/new-recordings").path
+        if FileManager.default.fileExists(atPath: alternate.path) {
+            XCTAssertTrue(DropZone.isInside(target, product.path))
+            XCTAssertThrowsError(try DropZone.resolve(explicit: target, env: [:], home: root.path, productRepo: product.path))
+            XCTAssertThrowsError(try DropZone.resolve(explicit: product.appendingPathComponent("docs/new-recordings").path,
+                                                     env: [:], home: root.path, productRepo: alternate.path))
+        } else {
+            // A case-sensitive volume treats these as genuinely separate directories.
+            XCTAssertNoThrow(try DropZone.resolve(explicit: target, env: [:], home: root.path, productRepo: product.path))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: product.appendingPathComponent("docs/new-recordings").path))
+    }
+
     // MARK: - The default must be the pipeline's default, not a second opinion
 
     func testUnconfiguredDefaultMatchesThePipelinesUnconfiguredDefault() throws {
