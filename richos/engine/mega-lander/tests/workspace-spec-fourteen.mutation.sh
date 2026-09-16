@@ -127,7 +127,7 @@ mutant R-p03-unregistered-branch-never-listed "C3.8 " "$W" \
 
 # --- point 4 ---------------------------------------------------------------
 mutant R-p04-branch-left-after-land "C4.3 " "$W" \
-    '    if branches:{NL}        for repo, b in _branch_targets([rec]):' \
+    '    if branches and not processes.get("survivors"):{NL}        for repo, b in _branch_targets([rec]):' \
     '    if False:{NL}        for repo, b in _branch_targets([rec]):' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md §2c, 2026-09-12: 'git branch --contains 6fd5aef8' returned cc/frank-opus-c6, cc/sage-opus-c6, cc/zach-opus-g4 after their workspaces were cut and left; and the same record's addendum §A2: 22 cc/ branches deleted by hand today, none by the system]: a land would delete the workspace and leave the branch."
 mutant R-p04-quarantine-instead-of-delete "C4.4 " "$W" \
@@ -273,8 +273,8 @@ mutant S-p09-sigkill-escalation-removed "C9.6 " "$W" \
     '    for p in []:{NL}        try:{NL}            os.kill(p, signal.SIGKILL)' \
     "SPEC-DERIVED (point 9 negated, 'every process it started is stopped before its workspaces are deleted'; constructed by frank-fable-b3 as F-G, brief-audit-frank-round8 §5, which survived the round-7 fourteen because C9's holder dies on TERM): a process that ignores SIGTERM would outlive the deletion of its workspace."
 mutant R-p09-processes-not-stopped "C9.3 " "$W" \
-    '    stopped = stop_processes([w["path"] for _r, w in allw])' \
-    '    stopped = {"stopped": [], "survivors": []}' \
+    'def stop_processes(paths):' \
+    'def stop_processes(paths):{NL}    return {"stopped": [], "survivors": []}' \
     "RECORDED [femcboost CLAUDE.md, Git Worktree Isolation, 'Corollary (zombie residue, 2026-07-18)': a background child outlived both its agent and its worktree and re-created the path; brief-audit-frank-round6 P11, 2026-09-12: VM pid 1483 holding 324 files inside a finished agent's trees five days later]: a process the agent started would outlive the deletion of its workspace."
 
 # --- point 10 --------------------------------------------------------------
