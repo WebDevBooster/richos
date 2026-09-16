@@ -167,6 +167,41 @@ pub struct ProductCheckout {
 /// The path does not have to exist — provisioning is asked about a directory that is about
 /// to be created, and every ancestor of it does exist.
 pub fn product_checkout_containing(dir: &Path) -> Option<ProductCheckout> {
+    product_checkout_at_physical_path(&physical_path(dir).ok()?)
+}
+
+// Resolve existing ancestors without requiring a new corpus to exist. A
+// dangling link is an error, not a missing directory we may create through.
+fn physical_path(path: &Path) -> std::io::Result<PathBuf> {
+    let mut ancestor = path.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match std::fs::canonicalize(&ancestor) {
+            Ok(mut resolved) => {
+                for component in missing.iter().rev() {
+                    if component == ".." { resolved.pop(); }
+                    else if component != "." { resolved.push(component); }
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match std::fs::symlink_metadata(&ancestor) {
+                    Ok(_) => return Err(error),
+                    Err(meta_error) if meta_error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(meta_error) => return Err(meta_error),
+                }
+                let component = ancestor.components().next_back().ok_or(error)?;
+                missing.push(component.as_os_str().to_os_string());
+                if !ancestor.pop() {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no resolvable path ancestor"));
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn product_checkout_at_physical_path(dir: &Path) -> Option<ProductCheckout> {
     let mut d = dir.to_path_buf();
     for _ in 0..12 {
         if d.join("loro").join("lib").join("store.js").is_file()
@@ -392,7 +427,8 @@ pub fn provision(req: &ProvisionRequest) -> Result<ProvisionReport, ProvisionErr
     if !target.is_absolute() {
         return Err(ProvisionError::RelativeTarget(target));
     }
-    if let Some(checkout) = product_checkout_containing(&target) {
+    let physical = physical_path(&target).map_err(|e| io_err(&target, e))?;
+    if let Some(checkout) = product_checkout_at_physical_path(&physical) {
         return Err(ProvisionError::InsideProductCheckout { target, checkout });
     }
     if looks_like_corpus(&target) {
@@ -714,7 +750,7 @@ mod tests {
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("richos-provision-{name}-{}", crate::util::now_millis()));
         std::fs::create_dir_all(&d).unwrap();
-        d
+        d.canonicalize().unwrap()
     }
 
     fn req(target: PathBuf, home: Option<PathBuf>) -> ProvisionRequest {
@@ -806,6 +842,55 @@ mod tests {
             assert!(matches!(provision(&req(target, None)), Err(ProvisionError::InsideProductCheckout { .. })));
         }
         assert!(product_checkout_containing(&root.parent().unwrap().join("separate-corpus")).is_none());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn provisioning_refuses_an_alias_into_the_product_before_writing() {
+        let root = tmp("product-alias");
+        let repo = root.join("product");
+        let marker = repo.join("richos/app/crates/richos-core/Cargo.toml");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(marker, "").unwrap();
+        std::fs::create_dir_all(repo.join("docs")).unwrap();
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(repo.join("docs"), &alias).unwrap();
+        let target = alias.join("new/corpus");
+        assert_eq!(product_checkout_containing(&target).unwrap().dir, repo);
+        assert!(matches!(provision(&req(target, None)), Err(ProvisionError::InsideProductCheckout { .. })));
+        assert!(!repo.join("docs/new").exists());
+        let through_missing = root.join("missing/../product/docs/corpus");
+        assert!(matches!(provision(&req(through_missing, None)), Err(ProvisionError::InsideProductCheckout { .. })));
+        assert!(!root.join("missing").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn provisioning_allows_an_alias_to_external_storage() {
+        let root = tmp("external-alias");
+        let outside = root.join("private");
+        std::fs::create_dir_all(&outside).unwrap();
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&outside, &alias).unwrap();
+        let target = alias.join("new/corpus");
+        let report = provision(&req(target.clone(), None)).unwrap();
+        assert_eq!(report.root, target);
+        assert!(outside.join("new/corpus/ceo/pages/private").is_dir());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn provisioning_refuses_unresolved_symlink_ancestors_without_creating_destinations() {
+        let root = tmp("unresolved-alias");
+        let missing = root.join("missing");
+        let dangling = root.join("dangling");
+        std::os::unix::fs::symlink(&missing, &dangling).unwrap();
+        let cycle = root.join("cycle");
+        std::os::unix::fs::symlink(&cycle, &cycle).unwrap();
+        for alias in [dangling, cycle] {
+            assert!(matches!(provision(&req(alias.join("new/corpus"), None)), Err(ProvisionError::Io { .. })));
+        }
+        assert!(!missing.exists());
     }
 
     #[test]
