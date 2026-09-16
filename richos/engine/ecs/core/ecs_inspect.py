@@ -18,8 +18,8 @@ def inspect_records(store: EventStore, *, section: str | None = None,
         raise ValidationError("unknown inspection section")
     if offset < 0 or not 1 <= limit <= 100:
         raise ValidationError("offset must be non-negative and limit must be between 1 and 100")
-    if include_closed and section not in CONTINUITY_ITEM_TYPES:
-        raise ValidationError("include_closed requires a continuity item section")
+    if include_closed and section not in CONTINUITY_ITEM_TYPES | {"work", "actions"}:
+        raise ValidationError("include_closed requires a continuity item, work or actions section")
     conn = store.connect()
     try:
         conn.execute("BEGIN")
@@ -37,13 +37,18 @@ def inspect_records(store: EventStore, *, section: str | None = None,
         if sequence is not None and sequence != observed:
             raise RevisionConflict("inspection state changed; restart pagination from the manifest")
         groups = store._compile_rows(conn, entity, thread, context["audience"])
-        if include_closed:
+        if include_closed and section in CONTINUITY_ITEM_TYPES:
             groups[section] = conn.execute(
                 "SELECT * FROM ecs_continuity_items WHERE entity_id=? "
                 "AND (thread_id IS NULL OR thread_id=?) AND item_type=? "
                 "AND visibility IN (" + ",".join("?" for _ in visibility) + ") ORDER BY item_id",
                 (entity, thread, section, *visibility),
             ).fetchall()
+        if include_closed and section in {"work", "actions"}:
+            table,key = ("ecs_work_units","work_unit_id") if section == "work" else ("ecs_actions","action_id")
+            groups[section] = conn.execute(
+                f"SELECT * FROM {table} WHERE entity_id=? AND (thread_id IS NULL OR thread_id=?) ORDER BY {key}",
+                (entity,thread)).fetchall()
         if query is not None:
             if not section or not query.strip():
                 raise ValidationError("query requires a section and non-empty search text")

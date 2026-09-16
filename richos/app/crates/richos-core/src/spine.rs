@@ -1692,7 +1692,7 @@ impl Spine {
                     }
                 };
                 self.lease.as_mut().ok_or(SpineError::NoLease)?
-                    .prepare_work_turn(binding, turn_id, &mut on_item).map_err(SpineError::from)
+                    .prepare_work_turn(binding, turn_id, self.ledger.turn(turn_id).ok_or_else(|| SpineError::NoLease)?.source, text, &mut on_item).map_err(SpineError::from)
             })
         };
         let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
@@ -2672,7 +2672,7 @@ impl Spine {
         // Step 4: spawn the fresh child BEFORE tearing down the old one, so a spawn
         // failure leaves the CEO on the still-working outgoing lease instead of
         // stranding the conversation lease-less.
-        let spawned = self.lease_factory.as_ref().unwrap().spawn_cancellable(&self.control);
+        let spawned = self.lease_factory.as_ref().unwrap().spawn_scoped(binding, &self.control);
         let mut fresh = match spawned {
             Ok(f) => f,
             Err(e) => {
@@ -2846,7 +2846,7 @@ impl Spine {
         }
         if self.lease.is_none() {
             let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLease)?;
-            let fresh = factory.spawn_cancellable(&self.control)?;
+            let fresh = factory.spawn_scoped(binding, &self.control)?;
             self.install_lease(fresh);
             if let Some(active) = self.control.active_turn() {
                 let session = self.lease_session_id().unwrap().to_string();

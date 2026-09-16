@@ -12,6 +12,7 @@ pub struct EngineProfile {
     pub plugin: PathBuf,
     pub state: PathBuf,
     pub runtime: EngineRuntime,
+    pub work_scope: Option<(String, String)>,
     pub permissions: std::sync::Arc<crate::permissions::PermissionDesk>,
 }
 
@@ -43,7 +44,7 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
 impl EngineProfile {
     pub fn prepare(engine: &Path, data: &Path, runtime: EngineRuntime) -> Result<Self, RuntimeError> {
         if !engine.is_absolute() || !data.is_absolute() { return Err(RuntimeError("desktop roots must be absolute".into())); }
-        for name in ["scripts/app-engine-hook.py", "agents/worker.md", "agents/reviewer.md"] {
+        for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "agents/worker.md", "agents/reviewer.md"] {
             if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: {name}"))); }
         }
         std::fs::create_dir_all(data).map_err(|e| RuntimeError(e.to_string()))?;
@@ -111,21 +112,45 @@ impl EngineProfile {
             {"type":"command","command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks/guard-worktree-isolation.sh")))},
             {"type":"command","command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks/guard-brief-scope.sh")))}
         ]}]}}).to_string())?;
-        Ok(Self { engine, coordination, plugin, state, runtime, permissions: Default::default() })
+        Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
+    }
+    pub fn scope_to(&mut self, binding: &crate::entity::ThreadBinding) {
+        self.work_scope = Some((binding.entity_id().to_string(), binding.thread_id().to_string()));
+    }
+    pub fn workspace_state(&self) -> PathBuf {
+        use sha2::Digest;
+        let partition = match &self.work_scope {
+            Some((entity, thread)) => format!("{:x}", sha2::Sha256::digest(serde_json::to_vec(&(entity, thread)).unwrap())),
+            None => format!("unbound-{}", self.plugin.file_name().unwrap().to_string_lossy()),
+        };
+        self.state.join("workspaces").join(partition)
     }
     pub fn configure(&self, command: &mut Command, session: &str, scope: &Path) {
+        command.env_remove("RICHOS_APP_ENTITY").env_remove("RICHOS_APP_THREAD");
+        if let Some((entity, thread)) = &self.work_scope {
+            command.env("RICHOS_APP_ENTITY", entity).env("RICHOS_APP_THREAD", thread);
+        }
         command.arg("--plugin-dir").arg(&self.plugin)
             .arg("--settings").arg(json!({"autoMemoryEnabled":false,
                 "claudeMdExcludes":["**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/rules/**"]}).to_string())
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1")
             .env("PATH", self.runtime.path()).env_remove("CLAUDECODE")
             .env("PYTHONDONTWRITEBYTECODE", "1")
+            // A settings-isolated provider must not execute terminal Git hooks
+            // or borrow a developer's identity through global Git configuration.
+            .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_COUNT", "0").env_remove("GIT_CONFIG_PARAMETERS").env_remove("GIT_TEMPLATE_DIR")
+            .env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_AUTHOR_DATE").env_remove("GIT_COMMITTER_DATE")
+            .env("GIT_AUTHOR_NAME", "RichOS").env("GIT_AUTHOR_EMAIL", "richos@localhost")
+            .env("GIT_COMMITTER_NAME", "RichOS").env("GIT_COMMITTER_EMAIL", "richos@localhost")
+            .env("RICHOS_APP_REGISTRY", self.coordination.parent().unwrap().join("entities.json"))
             .env("RICHOS_APP_SCOPE", scope).env("RICHOS_APP_STATE", &self.state)
             .env("RICHOS_ENGINE_ROOT", &self.engine).env("RICHOS_ENGINE_DIR", &self.engine)
             .env("RICHOS_ENTITY_ROOT", &self.coordination).env("CLAUDE_PROJECT_DIR", &self.coordination)
-            .env("RICHOS_WORKSPACES_DIR", self.state.join("workspaces"))
+            .env("RICHOS_WORKSPACES_DIR", self.workspace_state())
             .env("RICHOS_SA_ENTITY_ROOT", &self.coordination).env("RICHOS_SA_TEAMS_DIR", self.state.join("teams"))
-            .env("RICHOS_SESSION_ID", session).env("RICHOS_SESSION_PID", std::process::id().to_string())
+            .env("RICHOS_SESSION_ID", session).env_remove("RICHOS_SESSION_PID")
             .env("RICHOS_SPAWN_HOOK_SOURCES", format!("app={}", self.plugin.join("spawn-preflight.json").display()));
     }
 }

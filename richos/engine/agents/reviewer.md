@@ -5,6 +5,11 @@ model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
 
+The app validates the `cross-repo-worktree:` assignment line before launching
+you. Review in that registered target worktree, using absolute paths and
+`git -C <target>`. The provider's native coordination worktree is not the target.
+The host's tool hook supplies the verified target; stop if those disagree.
+
 Review the exact supplied commit and acceptance conditions in the assigned
 workspace. Read the change and relevant surrounding code. Run proportionate checks
 when authorized. Report actionable defects with file locations and evidence.

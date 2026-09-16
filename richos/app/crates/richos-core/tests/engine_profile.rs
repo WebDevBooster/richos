@@ -56,6 +56,8 @@ fn child_configuration_is_explicit_and_disables_auto_memory_only_for_that_child(
     assert_eq!(environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"].as_deref(), Some("1"));
     assert_eq!(environment["RICHOS_ENTITY_ROOT"].as_deref(), profile.coordination.to_str());
     assert!(!environment["PATH"].as_ref().unwrap().contains("homebrew"));
+    assert_eq!(environment["GIT_CONFIG_GLOBAL"].as_deref(), Some("/dev/null"));
+    assert_eq!(environment["GIT_AUTHOR_NAME"].as_deref(), Some("RichOS"));
     assert_eq!(environment["RICHOS_SESSION_ID"].as_deref(), Some("fictional-session"));
     let args: Vec<_> = command.get_args().map(|a|a.to_string_lossy().to_string()).collect();
     assert!(args.contains(&"--plugin-dir".to_string()));
@@ -81,4 +83,22 @@ fn private_paths_and_generated_files_cannot_redirect_writes() {
     std::os::unix::fs::symlink(&elsewhere, f.0.join("engine-state")).unwrap();
     assert!(EngineProfile::prepare(&engine(), &f.0, f.runtime()).is_err());
     assert_eq!(std::fs::read_dir(elsewhere).unwrap().count(), 0);
+}
+
+#[test]
+fn workspace_partitions_are_stable_per_company_thread_and_distinct_across_threads() {
+    use richos_core::{EntityId, EntityRegistry, Ledger, Spine};
+    let f=Scratch::new(); let mut spine=Spine::new(Ledger::open(&f.0.join("ledger.jsonl")).unwrap());
+    let entity=EntityId::parse("fictional").unwrap();
+    spine.set_entity_registry(EntityRegistry::from_existing_ids(&[entity.clone()]));
+    let first=spine.create_thread("First", &entity).unwrap();
+    let second=spine.create_thread("Second", &entity).unwrap();
+    let mut a=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let mut b=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    assert_ne!(a.workspace_state(),b.workspace_state());
+    a.scope_to(&spine.ledger().thread_binding(&first).unwrap());
+    b.scope_to(&spine.ledger().thread_binding(&first).unwrap());
+    assert_eq!(a.workspace_state(),b.workspace_state());
+    b.scope_to(&spine.ledger().thread_binding(&second).unwrap());
+    assert_ne!(a.workspace_state(),b.workspace_state());
 }

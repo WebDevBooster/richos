@@ -96,7 +96,7 @@ def build(destination):
         (runtime / "bin/node").symlink_to("../node/bin/node")
         # Relocation can invalidate upstream bytecode. Never rewrite signed/runtime
         # inventory files during normal execution, including direct CLI invocation.
-        (runtime / "bin/python3").write_text('#!/bin/sh\nexec "$(dirname "$0")/../python/bin/python3" -B "$@"\n')
+        (runtime / "bin/python3").write_text('#!/bin/sh\nexport PYTHONDONTWRITEBYTECODE=1\nexec "$(dirname "$0")/../python/bin/python3" -B "$@"\n')
         (runtime / "bin/python3").chmod(0o755)
         # Git resolves its relative helper prefix from argv[0], so invoke the real
         # installed entry point rather than a symlink in the combined bin directory.

@@ -209,15 +209,18 @@ struct EngineLeaseFactory {
 
 impl LeaseFactory for EngineLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
-        self.spawn_chat(None)
+        self.spawn_chat(None, None)
+    }
+    fn spawn_scoped(&self, binding: &richos_core::entity::ThreadBinding, control: &TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn_chat(Some(control), Some(binding))
     }
     fn spawn_cancellable(&self, control: &TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
-        self.spawn_chat(Some(control))
+        self.spawn_chat(Some(control), None)
     }
 }
 
 impl EngineLeaseFactory {
-    fn spawn_chat(&self, control: Option<&TurnControl>) -> Result<Box<dyn Cognition>, CognitionError> {
+    fn spawn_chat(&self, control: Option<&TurnControl>, binding: Option<&richos_core::entity::ThreadBinding>) -> Result<Box<dyn Cognition>, CognitionError> {
         let dir = self
             .engine_dir
             .lock()
@@ -253,6 +256,7 @@ impl EngineLeaseFactory {
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        if let Some(binding) = binding { profile.scope_to(binding); }
         profile.permissions = self.permissions.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
@@ -2127,6 +2131,8 @@ fn main() {
         .run(|handle, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = handle.try_state::<AppState>() {
+                    let _ = state.control.request_stop();
+                    state.control.shutdown_lease();
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
                     }

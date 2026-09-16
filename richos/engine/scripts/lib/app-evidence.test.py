@@ -2,6 +2,7 @@
 """Synthetic callback tests against the canonical ASS Kicker readers."""
 import importlib.util
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -70,6 +71,15 @@ class EvidenceTests(unittest.TestCase):
         row = json.loads((self.root / "state/session-1/guard-transcript.jsonl").read_text())
         self.assertEqual(row["promptSource"], "runtime")
         self.assertEqual((self.root / "state/session-1/callbacks.jsonl").stat().st_mode & 0o777, 0o600)
+
+    def test_only_host_attested_exact_main_session_text_gets_human_origin(self):
+        payload = {**self.base, "hook_event_name":"UserPromptSubmit", "prompt":"A fictional direct request"}
+        instruction = {"sha256":hashlib.sha256(payload["prompt"].encode()).hexdigest(), "ledger_ref":"ledger:thread:turn"}
+        row = adapter.project(payload, instruction)
+        self.assertEqual(row["origin"]["kind"], "human")
+        self.assertEqual(row["ledgerReference"], "ledger:thread:turn")
+        self.assertEqual(adapter.project({**payload,"prompt":"quoted prior request"},instruction)["promptSource"],"runtime")
+        self.assertEqual(adapter.project({**payload,"agent_id":"worker"},instruction)["promptSource"],"runtime")
 
     def test_invalid_identity_and_missing_turn_are_refused(self):
         with self.assertRaises(ValueError):

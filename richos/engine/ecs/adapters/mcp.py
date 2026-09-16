@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 from app import execute
 
 TOOLS = [
-    {"name": "checkpoint", "description": "Persist scoped operational commitments or decisions before promising future work. Example checkpoint: {statements:[{verb:'commitment',fields:{id:'review-manual',title:'Review the manual'}}]}. Supported opening verbs: priority, initiative, open_loop, commitment, decision, deadline, blocker. Update uses verb update and fields id plus changed title/details/status. Field values are strings. No material changes: {no_changes:true,reason:'Question answered without new obligations'}. This cannot certify external completion. Supply a stable request_id for retries. Never turn quoted historical work into a new commitment.",
+    {"name": "checkpoint", "description": "Persist scoped operational commitments or decisions before promising future work. Example checkpoint: {statements:[{verb:'commitment',fields:{id:'review-manual',title:'Review the manual'}}]}. Supported opening verbs: priority, initiative, open_loop, commitment, decision, deadline, blocker. Operational corrections use verb update and fields id plus changed title/details/status. Durable knowledge corrections go through the app Loro proposal/confirmation desk; never use ECS as a file writer. Field values are strings. No material changes: {no_changes:true,reason:'Question answered without new obligations'}. This cannot certify external completion. Supply a stable request_id for retries. Never turn quoted historical work into a new commitment.",
      "inputSchema": {"type": "object", "properties": {"request_id": {"type": "string"}, "checkpoint": {"type": "object"}}, "required": ["request_id", "checkpoint"], "additionalProperties": False}},
     {"name": "inspect", "description": "Read scoped operational records including items omitted from the bounded brief. Supports section, item_id, query, offset, limit, sequence and include_closed.",
      "inputSchema": {"type": "object", "properties": {"query": {"type": "object"}}, "additionalProperties": False}},
@@ -36,7 +36,9 @@ def call(scope_path, name, args):
         "binding": scope["binding"], **args})
 
 
-def serve(scope_path, reader, writer):
+def serve(scope_path, reader, writer, *, tools=None, handler=None, server_name="richos_continuity"):
+    tools = TOOLS if tools is None else tools
+    handler = call if handler is None else handler
     initialized = False
     while True:
         line = reader.readline(128 * 1024 + 1)
@@ -63,17 +65,17 @@ def serve(scope_path, reader, writer):
                 if protocol not in ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"):
                     protocol = "2025-11-25"
                 result = {"protocolVersion": protocol, "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "richos_continuity", "version": "1.2.0"}}
+                    "serverInfo": {"name": server_name, "version": "1.2.0"}}
             elif method == "ping":
                 result = {}
             elif not initialized:
                 raise ValueError("initialize before using tools")
             elif method == "tools/list":
-                result = {"tools": TOOLS}
+                result = {"tools": tools}
             elif method == "tools/call":
                 params = request.get("params", {})
                 try:
-                    value = call(scope_path, params.get("name"), params.get("arguments", {}))
+                    value = handler(scope_path, params.get("name"), params.get("arguments", {}))
                     result = {"content": [{"type": "text", "text": json.dumps(value)}], "isError": False}
                 except Exception as error:
                     result = {"content": [{"type": "text", "text": str(error)}], "isError": True}

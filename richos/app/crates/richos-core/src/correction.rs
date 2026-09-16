@@ -93,6 +93,8 @@ pub enum CorrectionError {
     WrongEntity { id: String, owner: String, asked: String },
     #[error("a correction needs the CEO's own words for what was wrong (--why)")]
     NoReason,
+    #[error("proposal {id} was confirmed but its writer outcome is unknown; reconcile the existing record before trying another write")]
+    WriteOutcomeUnknown { id: String },
     #[error("{0:?} was permanently declined for correction — clear the suppression to propose again")]
     Suppressed(String),
     #[error(
@@ -826,11 +828,17 @@ impl CorrectionDesk {
     fn apply(&mut self, rec: DeskRecord) {
         match rec {
             DeskRecord::Proposed(p) => self.proposals.push(p),
-            DeskRecord::Confirmed { .. } => {}
+            DeskRecord::Confirmed { id, .. } => {
+                if let Some(p) = self.find_mut(&id) {
+                    p.state = ProposalState::Unresolved;
+                    p.failure = Some("confirmed-write-outcome-unknown".into());
+                }
+            }
             DeskRecord::Written { id, outcome, .. } => {
                 if let Some(p) = self.find_mut(&id) {
                     p.state = ProposalState::Written;
                     p.outcome = Some(outcome);
+                    p.failure = None;
                 }
             }
             DeskRecord::Failed { id, reason, .. } => {
@@ -958,6 +966,9 @@ impl CorrectionDesk {
         // claim this build is in no position to make: it does not know whether it was
         // confirmed once.
         if p.state == ProposalState::Unresolved {
+            if p.failure.as_deref() == Some("confirmed-write-outcome-unknown") {
+                return Err(CorrectionError::WriteOutcomeUnknown { id: id.into() });
+            }
             return Err(CorrectionError::AnswerUnreadable { id: id.into() });
         }
         if p.state != ProposalState::AwaitingCeo {
@@ -968,6 +979,7 @@ impl CorrectionDesk {
         // The confirmation is durable BEFORE the write, so a crash between the two leaves
         // evidence that the CEO said yes rather than losing his answer.
         self.write_record(&DeskRecord::Confirmed { id: id.into(), at })?;
+        self.apply(DeskRecord::Confirmed { id: id.into(), at });
         match self.writer.commit(&write, &why) {
             Ok(outcome) => {
                 self.write_record(&DeskRecord::Written { id: id.into(), at, outcome: outcome.clone() })?;
@@ -1342,6 +1354,19 @@ mod tests {
         assert_eq!(w.corpus_files(), before, "propose must not write a single file");
         assert_eq!(*w.calls.lock().unwrap(), vec!["preview:supersede:we never decided that"]);
         let _ = std::fs::remove_file(&log);
+    }
+
+    #[test]
+    fn a_confirmation_without_a_writer_receipt_never_replays_as_an_unanswered_proposal() {
+        let (mut d, w, log) = desk("confirmed-crash");
+        let p = d.propose("fictional", "thread", a_supersede(), "explicit correction").unwrap();
+        d.write_record(&DeskRecord::Confirmed { id: p.id.clone(), at: 1 }).unwrap();
+        drop(d);
+        let mut reopened = CorrectionDesk::open(&log, Box::new(w.clone())).unwrap();
+        assert!(reopened.pending_for("fictional").is_empty());
+        assert!(matches!(reopened.confirm("fictional", &p.id), Err(CorrectionError::WriteOutcomeUnknown {..})));
+        assert!(w.corpus_files().is_empty());
+        let _ = std::fs::remove_file(log);
     }
 
     #[test]

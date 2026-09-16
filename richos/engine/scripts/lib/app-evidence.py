@@ -8,6 +8,7 @@ not establish execution and SubagentStop does not establish successful work.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ import subprocess
 import sys
 
 
-def project(payload):
+def project(payload, instruction=None):
     """Preserve actual prompt/tool identities and separate worker sidechains."""
     record = {
         "promptId": payload.get("prompt_id"),
@@ -31,6 +32,13 @@ def project(payload):
         # app ledger can attest that a given message is a user instruction.
         record.update(type="user", promptSource="runtime",
                       message={"content": payload.get("prompt", "")})
+        if (not payload.get("agent_id") and isinstance(instruction, dict)
+                and isinstance(payload.get("prompt"), str)
+                and instruction.get("sha256") == hashlib.sha256(payload["prompt"].encode()).hexdigest()
+                and str(instruction.get("ledger_ref", "")).startswith("ledger:")):
+            record.update(promptSource="sdk", origin={"kind":"human"},
+                          ledgerReference=instruction["ledger_ref"],
+                          evidenceSource="richos-ledger-attested-hook-v1")
     elif event == "PreToolUse":
         if not payload.get("tool_use_id") or not payload.get("tool_name"):
             raise ValueError("Tool callback has no tool identity")
@@ -65,7 +73,7 @@ def append(path, value):
         os.fsync(stream.fileno())
 
 
-def capture(payload, state_root):
+def capture(payload, state_root, instruction=None):
     session = payload.get("session_id", "")
     if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session):
         raise ValueError("Invalid native session identity")
@@ -80,7 +88,7 @@ def capture(payload, state_root):
     lock_fd = os.open(folder / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock_fd, "r+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        record = project(payload)
+        record = project(payload, instruction)
         append(folder / "callbacks.jsonl", {"schema": 1, "callback": payload})
         if record is not None:
             append(transcript, record)

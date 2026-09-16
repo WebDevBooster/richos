@@ -33,11 +33,20 @@ pub struct EcsBridge {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct UserInstruction {
+    pub ledger_ref: String,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolScope {
     pub version: u32,
     pub actions_allowed: bool,
     pub bridge: EcsBridge,
     pub binding: Binding,
+    #[serde(default)]
+    pub user_instruction: Option<UserInstruction>,
 }
 
 pub fn write_scope(path: &Path, scope: &ToolScope) -> Result<(), EcsError> {

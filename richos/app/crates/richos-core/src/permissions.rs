@@ -46,7 +46,7 @@ impl ScopedPermissions {
         let Some(binding)=grant(&self.scope) else {return deny("This app turn is stopped or is supplying context. New actions are unavailable.")};
         let tool=request["tool_name"].as_str().unwrap_or("");
         // These tools implement their own explicit host scope and write contracts.
-        if matches!(tool,"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
+        if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
             "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding") {
             return PermissionDecision::Allow{updated_input:request.get("input").cloned().unwrap_or(json!({}))};
         }

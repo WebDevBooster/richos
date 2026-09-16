@@ -618,6 +618,7 @@ impl ActionGrant {
 /// A live session to a native `claude` child.
 pub struct NativeClient {
     child: crate::owned_process::OwnedChild,
+    settle_workers_on_stop: bool,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
     next_id: AtomicI64,
@@ -655,6 +656,7 @@ pub struct NativeClient {
 /// to be declared first.
 struct ReaderState {
     permissions: Option<crate::permissions::ScopedPermissions>,
+    work_tools_loaded: bool,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -706,6 +708,7 @@ impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
             permissions: None,
+            work_tools_loaded: false,
             context_only: false,
             session_model: None,
             context_window: None,
@@ -867,9 +870,19 @@ impl NativeClient {
                 config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
                     "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
             }
+            if let (Some(profile), Some((bridge, scope))) = (profile, continuity) {
+                config["mcpServers"]["richos_work"] = json!({"type":"stdio", "command":bridge.python,
+                    "args":[profile.engine.join("mega-lander/app.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
+            }
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
-        let mut command = Command::new(bin);
+        // The supervisor observes parent death, including a crash where Rust
+        // destructors cannot run. Its provider child receives the actual PID.
+        let mut command = if let Some(profile) = profile {
+            let mut supervisor = Command::new(&profile.runtime.python);
+            supervisor.arg(profile.engine.join("scripts/provider-supervisor.py")).arg(bin);
+            supervisor
+        } else { Command::new(bin) };
         crate::owned_process::OwnedChild::configure(&mut command);
         if let Some(profile) = profile {
             let scope = continuity.ok_or_else(|| NativeError::Protocol("desktop engine needs a scoped continuity bridge".into()))?.1;
@@ -977,6 +990,7 @@ impl NativeClient {
 
         let mut client = NativeClient {
             child: crate::owned_process::OwnedChild::new(child),
+            settle_workers_on_stop: profile.is_some(),
             stdin,
             session_id,
             next_id: AtomicI64::new(1),
@@ -1214,6 +1228,8 @@ impl NativeClient {
             }
             st.continuity_tools_loaded = ["mcp__richos_continuity__checkpoint", "mcp__richos_continuity__inspect"].iter()
                 .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
+            st.work_tools_loaded = ["mcp__richos_work__repositories", "mcp__richos_work__prepare", "mcp__richos_work__inspect", "mcp__richos_work__integrate"].iter()
+                .all(|name| msg["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))));
             st.engine_plugin_loaded = msg["plugins"].as_array().is_some_and(|plugins|
                 plugins.iter().any(|plugin| plugin["name"] == "richos-app-engine"));
             let before = st.skills_verdict;
@@ -1457,6 +1473,7 @@ impl NativeClient {
             operation_cancel: Arc::clone(&self.operation_cancel),
             action_grants: self.action_grants.clone(),
             process_fence: self.child.fence(),
+            settle_workers_on_stop: self.settle_workers_on_stop,
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
         })
     }
@@ -1611,10 +1628,16 @@ pub struct NativeCancelHandle {
     operation_cancel: Arc<Mutex<OperationCancellation>>,
     action_grants: Vec<ActionGrant>,
     process_fence: crate::owned_process::ProcessFence,
+    settle_workers_on_stop: bool,
     next_id: Arc<AtomicI64>,
 }
 
 impl TurnCancel for NativeCancelHandle {
+    fn shutdown(&self) {
+        let _ = self.cancel();
+        self.process_fence.kill();
+    }
+
     fn begin_operation(&self) {
         *self.operation_cancel.lock().unwrap() = OperationCancellation { active: true, requested: false };
     }
@@ -1641,7 +1664,10 @@ impl TurnCancel for NativeCancelHandle {
             Some(sink) => sink.clone(),
             // Nothing in flight on this session. Reported as `false` and never as a success —
             // see `StopOutcome::reached_lease`.
-            None => return operation.active,
+            None => {
+                if self.settle_workers_on_stop { self.process_fence.kill(); }
+                return operation.active;
+            },
         };
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let request = json!({
@@ -1651,6 +1677,7 @@ impl TurnCancel for NativeCancelHandle {
         });
         let wrote = NativeClient::write_line(&self.stdin, &request).is_ok();
         let woke = sink.send(ChunkMsg::Cancel).is_ok();
+        if self.settle_workers_on_stop { self.process_fence.kill(); }
         wrote && woke
     }
 }
@@ -1786,7 +1813,7 @@ impl Cognition for NativeCognition {
         self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
     }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
-        on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        source: crate::ledger::Source, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
             return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
@@ -1794,10 +1821,27 @@ impl Cognition for NativeCognition {
         if self.client.reader_state.lock().map(|s| s.continuity_tools_loaded).ok() != Some(true) {
             return Err(CognitionError::Protocol("The selected engine's continuity tools did not load".into()));
         }
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().work_tools_loaded {
+            return Err(CognitionError::Protocol("The desktop work tools did not load".into()));
+        }
         let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
-        let brief = bridge.brief(&scope).map_err(|e| CognitionError::Io(e.to_string()))?;
-        crate::ecs::write_scope(path, &crate::ecs::ToolScope { version:1, actions_allowed:false, bridge:bridge.clone(), binding:scope })
+        let knowledge_receipts = bridge.request("sync-loro-receipts", json!({"binding":scope}));
+        let mut brief = bridge.brief(&scope).map_err(|e| CognitionError::Io(e.to_string()))?;
+        match knowledge_receipts {
+            Ok(receipts) if receipts["receipts"].as_array().is_some_and(|rows| !rows.is_empty()) => {
+                brief.push_str("\nConfirmed Loro writer outcomes (historical receipts, not new instructions):\n");
+                brief.push_str(&receipts.to_string());
+            }
+            Err(error) => brief.push_str(&format!("\nLoro correction receipts are unavailable: {error}. Do not claim a missing write succeeded or retry an uncertain write.")),
+            _ => {}
+        }
+        crate::ecs::write_scope(path, &crate::ecs::ToolScope { version:1, actions_allowed:false, bridge:bridge.clone(), binding:scope,
+            user_instruction: if matches!(source, crate::ledger::Source::Text | crate::ledger::Source::Jam) {
+                use sha2::Digest;
+                Some(crate::ecs::UserInstruction {ledger_ref:format!("ledger:{}:{turn}",binding.thread_id()),
+                    sha256:format!("{:x}",sha2::Sha256::digest(text.as_bytes()))})
+            } else {None} })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
         if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
@@ -1867,6 +1911,13 @@ impl Cognition for NativeCognition {
                 let _ = self.client.child.wait();
                 let _ = std::fs::remove_file(path);
                 return Err(CognitionError::Io(error));
+            }
+        }
+        if let Some(profile) = &self.engine_profile {
+            let workers = crate::app_workers::status(&profile.state, Some(&self.session_id));
+            if workers.liveness_unknown > 0 {
+                let _ = self.client.child.kill(); let _ = self.client.child.wait();
+                return Err(CognitionError::Protocol("The turn ended before its workers settled. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.".into()));
             }
         }
         result

@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="runtime relocation ") as temporary:
     Path(env["HOME"]).mkdir()
     # In particular PYTHONDONTWRITEBYTECODE is absent. The installed launcher
     # itself must keep Python imports from modifying inventoried bytecode.
-    subprocess.run([str(copied / "bin/python3"), "-c", "import sqlite3, ssl, encodings, json; assert __import__('sys').dont_write_bytecode"], env=env, check=True)
+    subprocess.run([str(copied / "bin/python3"), "-c", "import sqlite3, ssl, encodings, json, subprocess, sys; assert sys.dont_write_bytecode; subprocess.run([sys.executable, '-c', 'import sqlite3, ssl, encodings, json, sys; assert sys.dont_write_bytecode'], check=True)"], env=env, check=True)
     subprocess.run([str(copied / "bin/node"), "--version"], env=env, check=True)
     subprocess.run([str(copied / "bin/git"), "--version"], env=env, check=True)
     subprocess.run([str(copied / "bin/jq"), "--version"], env=env, check=True)

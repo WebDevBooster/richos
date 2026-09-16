@@ -52,9 +52,20 @@ def handle(payload):
         if active.get("actions_allowed") is not True:
             raise ValueError("This app turn is stopped or is supplying context. New actions are unavailable.")
     evidence = load("richos_app_evidence", ENGINE / "scripts/lib/app-evidence.py")
-    payload = evidence.capture(payload, root / "evidence")
+    instruction = None
+    if event == "UserPromptSubmit":
+        active = scope()
+        if active.get("actions_allowed") is True and active.get("binding", {}).get("session_id") == payload.get("session_id"):
+            instruction = active.get("user_instruction")
+    payload = evidence.capture(payload, root / "evidence", instruction)
     ws = [sys.executable, str(ENGINE / "mega-lander/workspaces.py"), "--entity", str(coordination)]
+    work = load("richos_desktop_work", ENGINE / "mega-lander/app.py")
+    if event == "PreToolUse":
+        run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-sealed-worktree.sh")], payload)
+        context = work.worker_context(active, payload)
+        if context: print(json.dumps(context))
     if event == "PreToolUse" and payload.get("tool_name") == "Agent":
+        work.dispatch_intent(active, payload)
         # Both decisions come from the existing canonical implementation.
         run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-worktree-isolation.sh")], payload)
         run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-brief-scope.sh")], payload)
@@ -62,6 +73,8 @@ def handle(payload):
         run(ws + ["hook"], payload)
     if event == "PostToolUse" and payload.get("tool_name") == "Agent":
         run(["/bin/bash", str(ENGINE / "scripts/hooks/detect-nonnative-worktree.sh")], payload)
+    if event in ("SubagentStart", "SubagentStop", "PostToolUse"):
+        work.observe(scope(), payload)
     if event == "Stop":
         # Context-only priming is host machinery, not a new assignment or promise.
         # The same host grant controls mutation tools and the visible-turn analyzer.
@@ -73,6 +86,6 @@ def handle(payload):
 if __name__ == "__main__":
     try:
         handle(json.load(sys.stdin))
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as error:
+    except Exception as error:
         print(f"RichOS desktop engine: {error}", file=sys.stderr)
         raise SystemExit(2)

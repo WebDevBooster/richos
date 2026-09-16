@@ -37,6 +37,11 @@ pub trait LeaseFactory: Send {
     /// cannot proceed and must surface honestly rather than silently keep the dead lease.
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError>;
 
+    /// The host fixes the company/thread before the provider or its hooks start.
+    fn spawn_scoped(&self, _binding: &crate::entity::ThreadBinding, control: &crate::steering::TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
+        self.spawn_cancellable(control)
+    }
+
     /// Stop may be recorded before a child has completed its initialize handshake.
     fn spawn_cancellable(&self, _control: &crate::steering::TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
         self.spawn()
@@ -84,7 +89,7 @@ pub trait Cognition: Send {
     /// Host-issued visible-turn scope. Hidden preparation records are retained as
     /// internal machinery and never receive a mutation grant.
     fn prepare_work_turn(&mut self, _binding: &crate::entity::ThreadBinding, _turn: &str,
-        _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { Ok(()) }
+        _source: crate::ledger::Source, _text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { Ok(()) }
 
     /// Inject the re-prime payload as an INTERNAL, non-rendered priming turn.
     /// Called once when the lease is (re)spawned, before any CEO-visible turn.

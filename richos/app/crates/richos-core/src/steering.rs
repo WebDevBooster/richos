@@ -592,6 +592,8 @@ pub trait TurnCancel: Send + Sync {
     /// means the lease had nothing to cancel (no prompt in flight, or the child is gone),
     /// which the caller reports rather than hides.
     fn cancel(&self) -> bool;
+    /// Settle owned processes on app exit even when no turn is in flight.
+    fn shutdown(&self) { let _ = self.cancel(); }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -741,6 +743,10 @@ impl TurnControl {
     /// Install the lease's cancel seam. Called when a lease is attached, rotated or
     /// recovered; `None` when there is no lease, so a stop reports `reached_lease: false`
     /// rather than pretending.
+    pub fn shutdown_lease(&self) {
+        if let Some(cancel) = self.inner.cancel.lock().unwrap().clone() { cancel.shutdown(); }
+    }
+
     pub fn set_cancel(&self, cancel: Option<Arc<dyn TurnCancel>>) {
         let active = self.inner.active.lock().unwrap();
         if let Some(turn) = active.as_ref() {

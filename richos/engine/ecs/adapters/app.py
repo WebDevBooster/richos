@@ -81,7 +81,7 @@ def execute(state_root, request):
             identity.update(file.read_bytes())
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "import-preview", "import-apply"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
@@ -93,7 +93,10 @@ def execute(state_root, request):
         return bind(store, request)
     binding = request.get("binding")
     context = fence(store, binding)
-    if command == "import-apply":
+    if command == "sync-loro-receipts":
+        from loro_receipts import synchronize
+        result = synchronize(store, binding)
+    elif command == "import-apply":
         from import_records import apply
         return apply(root, request.get("envelope"), binding)
     elif command == "checkpoint":
@@ -106,6 +109,8 @@ def execute(state_root, request):
         for statement in document.get("statements", []):
             if isinstance(statement, dict):
                 fields = statement.get("fields", {})
+                if isinstance(fields,dict) and fields.get("class") == "wiki_loro":
+                    raise ValidationError("durable knowledge corrections must use the app's Loro proposal/confirmation desk; ECS consumes its writer receipt")
                 if isinstance(fields, dict) and (fields.get("status") == "completed" or
                         (statement.get("verb") == "close" and "status" not in fields)):
                     raise ValidationError("completion needs an app verification receipt, not a checkpoint claim")
@@ -126,18 +131,38 @@ def execute(state_root, request):
         if not isinstance(query, dict) or set(query) - {"section", "offset", "limit", "sequence", "item_id", "query", "include_closed"}:
             raise ValidationError("unsupported inspection fields")
         result = inspect_records(store, **query)
-    elif command == "observe":
+    elif command == "observation-receipt":
+        event = store.existing_event(f"app-observe:{required(request, 'request_id')}")
+        if event is None:
+            result = {"observed": False}
+        else:
+            if event["entity_id"] != context["entity_id"] or event["thread_id"] != context["thread_id"]:
+                raise ScopeError("observation receipt belongs to another scope")
+            result = {"observed": True, "work": json.loads(event["payload_json"]),
+                      "source_ref": event["source_ref"], "expected_revision": event["expected_revision"]}
+    elif command in ("observe", "verified-work"):
         # Host-issued observations only. The app translates provider facts;
         # generic checkpoints cannot impersonate a task authority.
         payload = request.get("work")
         if not isinstance(payload, dict) or payload.get("authority") != "richos-provider-v1":
             raise ValidationError("unknown app task authority")
-        if payload.get("status") == "completed":
+        if command == "verified-work":
+            # This command is not exposed by the continuity MCP server. The app
+            # work adapter must have a durable review/integration receipt and
+            # Git must still prove the commit is in the recorded target branch.
+            import importlib.util
+            spec=importlib.util.spec_from_file_location("richos_verified_work",Path(__file__).resolve().parents[2]/"mega-lander/app.py")
+            work=importlib.util.module_from_spec(spec);spec.loader.exec_module(work)
+            evidence=work.verification_evidence({"binding":binding},payload.get("external_id"))
+            if payload.get("status")!="completed" or payload.get("evidence_ref")!=evidence:
+                raise ValidationError("completion does not match the verified Git receipt")
+        elif payload.get("status") == "completed":
             raise ValidationError("provider completion is not verified assignment completion")
-        result = asdict(store.append("work_unit.upserted", entity_id=context["entity_id"],
+        result = asdict(store.append("work_unit.authority_completed" if command=="verified-work" else "work_unit.upserted", entity_id=context["entity_id"],
             thread_id=context["thread_id"], session_id=context["session_id"],
             active_context_revision=context["revision"], source_ref=required(request, "source_ref"),
             idempotency_key=f"app-observe:{required(request, 'request_id')}",
+            expected_revision=request.get("expected_revision"),
             actor_kind="authority_adapter", actor_id="richos-provider-v1", payload=payload))
     else:
         raise ValidationError(f"unsupported ECS command: {command}")
