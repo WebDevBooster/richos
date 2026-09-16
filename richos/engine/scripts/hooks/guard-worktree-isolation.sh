@@ -737,7 +737,7 @@ while IFS= read -r _marker_path; do
   MK_WHY="$(registered_teammate_worktree "$_marker_path")" || \
     PROBLEMS+=("cross-repo-worktree: line refused — ${MK_WHY}. ${HELPER_HINT}")
 done <<MARKERS_EOF
-$(printf '%s' "$PROMPT" | sed -n -E 's/^[[:space:]]*cross-repo-worktree:[[:space:]]*([^[:space:]]+).*$/\1/p')
+$(printf '%s' "$PROMPT" | sed -n -E 's/^[[:space:]]*cross-repo-worktree:[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p')
 MARKERS_EOF
 
 # CLAUSE 4d — a prompt that tells the teammate to hand-roll a worktree is the

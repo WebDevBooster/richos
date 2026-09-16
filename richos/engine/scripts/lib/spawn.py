@@ -436,12 +436,12 @@ def build_payload(args, brief, workspace):
         if not have:
             prompt = line + "\n\n" + prompt
         else:
-            wrong = [p for p in have if W.realpath(p.split()[0]) != workspace]
+            wrong = [p for p in have if W.realpath(p) != workspace]
             if wrong:
                 raise Refusal("the brief already names a different workspace on a "
                               "'cross-repo-worktree:' line (%s); this command would create %s. Remove "
                               "the line and let it be written, or pass --dir %s."
-                              % (wrong[0], workspace, os.path.dirname(wrong[0].split()[0])))
+                              % (wrong[0], workspace, os.path.dirname(wrong[0])))
     ti = {"name": args["name"], "subagent_type": args["type"], "prompt": prompt,
           "isolation": "worktree"}
     if args.get("description"):

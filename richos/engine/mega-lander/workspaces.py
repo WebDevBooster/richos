@@ -1156,7 +1156,7 @@ def register_spawn(payload, entity, dry=False):
         raise SpecError("the spawn payload carries no session_id/tool_use_id, so it cannot be registered")
     if not NAME_RE.match(name):
         raise SpecError("the spawn has no usable name, so it cannot be registered")
-    cc_paths = [realpath(p.split()[0]) for p in prompt_lines(prompt, "cross-repo-worktree") if p.split()]
+    cc_paths = [realpath(p) for p in prompt_lines(prompt, "cross-repo-worktree") if p]
     if ti.get("cwd"):
         cc_paths.append(realpath(str(ti.get("cwd"))))
     continues = [p.split()[0] for p in prompt_lines(prompt, "continues") if p.split()]
