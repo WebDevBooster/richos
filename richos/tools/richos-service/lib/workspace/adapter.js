@@ -10,6 +10,7 @@
  * interface SourceAdapter {
  *   readonly vendor: 'google' | 'microsoft';
  *   readonly source: 'calendar' | 'drive' | 'mail';
+ *   readonly sourceInstanceId: string; // stable account + resource identity, never an access token
  *   listChanges(syncState): Promise<{ items: RawRef[]; nextSyncState: SyncState }>;  // THE poll primitive
  *   fetchItem(ref: RawRef): Promise<RawPayload>;                                     // pull one item
  *   toSourceItem(raw: RawPayload): SourceItem;                                       // NORMALIZE → §4.1
@@ -30,6 +31,9 @@ export function validateAdapter(adapter) {
   if (!adapter || typeof adapter !== 'object') return ['not an object'];
   if (adapter.vendor !== 'google' && adapter.vendor !== 'microsoft') problems.push('bad/missing vendor');
   if (!['calendar', 'drive', 'mail'].includes(adapter.source)) problems.push('bad/missing source');
+  if (typeof adapter.sourceInstanceId !== 'string' || !adapter.sourceInstanceId.trim()) {
+    problems.push('missing stable sourceInstanceId');
+  }
   for (const m of ['listChanges', 'fetchItem', 'toSourceItem']) {
     if (typeof adapter[m] !== 'function') problems.push(`missing method ${m}`);
   }

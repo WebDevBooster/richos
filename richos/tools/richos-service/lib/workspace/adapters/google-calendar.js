@@ -14,6 +14,7 @@
  * storage. It talks to ONE vendor API and turns raw → `SourceItem`. Everything downstream is vendor-blind.
  */
 
+import { createHash } from 'node:crypto';
 import { buildSourceItem } from '../source-item.js';
 
 export const ADAPTER_VERSION = '1.0.0';
@@ -23,12 +24,18 @@ export const DEFAULT_FULL_SYNC_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 export class GoogleCalendarAdapter {
   /**
-   * @param {{client:import('../google-client.js').GoogleClient, calendarId?:string,
+   * @param {{client:import('../google-client.js').GoogleClient, accountId:string, calendarId?:string,
    *   fullSyncWindowMs?:number, maxResults?:number, now?:() => number}} opts
    */
   constructor(opts) {
+    if (typeof opts.accountId !== 'string' || !opts.accountId.trim()) {
+      throw new Error('Calendar requires a stable accountId bound to the authenticated account');
+    }
+    this.accountId = opts.accountId.trim();
     this.client = opts.client;
     this.calendarId = opts.calendarId || 'primary';
+    this.sourceInstanceId = createHash('sha256')
+      .update(JSON.stringify(['google', 'calendar', this.accountId, this.calendarId])).digest('hex');
     this.fullSyncWindowMs = opts.fullSyncWindowMs ?? DEFAULT_FULL_SYNC_WINDOW_MS;
     this.maxResults = opts.maxResults || 250;
     this.now = opts.now || (() => Date.now());
@@ -107,13 +114,13 @@ export class GoogleCalendarAdapter {
 
     const cancelled = ev.status === 'cancelled';
     // Cancellation is a supersede signal in temporal memory — never a hard delete.
-    const supersedes = cancelled ? `google:calendar:${ev.id}` : null;
+    const supersedes = cancelled ? `google:calendar:${this.sourceInstanceId}:${ev.id}` : null;
 
     return buildSourceItem({
       vendor: 'google',
       source: 'calendar',
       kind: 'event',
-      sourceItemId: `google:calendar:${ev.id}`,
+      sourceItemId: `google:calendar:${this.sourceInstanceId}:${ev.id}`,
       provenance: {
         fetchedAt: this.now(),
         vendorEtag: String(ev.etag || ''),

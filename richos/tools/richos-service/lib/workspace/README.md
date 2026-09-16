@@ -75,3 +75,21 @@ Guide: the Google Workspace OAuth setup guide.
 npm run test:workspace     # this layer (mocked Google API)
 npm test                   # transcription + workspace suites
 ```
+
+## Source identity and existing stores
+
+`GoogleCalendarAdapter` requires `accountId`, a stable identifier for the authenticated
+Google account. Use the same identifier on every poll, bind it to the credentials
+supplied to the client and change it when changing accounts. Do not use an access
+or refresh token. `calendarId` defaults to `primary` within that account.
+
+The adapter's `sourceInstanceId` identifies the account and calendar together.
+The ingest core uses it for sync cursors, and normalized item IDs carry the same
+namespace into ledger deduplication, cancellation references and evidence paths.
+Every new adapter must provide this property.
+
+Old `google:calendar` cursors cannot be assigned to an account or calendar safely.
+On the first scoped ingest they are retired with their old value retained locally
+for diagnosis. A source without its own scoped cursor performs a full sync. The summary reports
+`legacyCursorRetired: true`. Existing evidence and its recorded links remain in
+place; new scoped items are ingested under their own identities.
