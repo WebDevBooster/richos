@@ -45,11 +45,10 @@ use tauri::{AppHandle, Emitter};
 pub const EVENT_SETUP: &str = "richos://setup";
 
 /// **The sentence that keeps this honest.** He still needs his own Anthropic account and a
-/// completed login; there is no login flow inside RichOS (§19). Shown on the consent sheet,
+/// completed login through the provider-owned browser flow. Shown on the consent sheet,
 /// before the button, not in a footnote afterwards.
 pub const SETUP_ACCOUNT_NOTE: &str =
-    "You'll still need your own Anthropic account, and to sign in to it once. \
-     I can't do that part for you, and I never see your password.";
+    "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.";
 
 /// The sentence a build with no engine pin shows INSTEAD of a button.
 ///
@@ -349,7 +348,7 @@ pub fn run(
             state: "finished",
             component: None,
             what: if after.complete() {
-                "That's everything. I'm ready.".to_string()
+                "The software is installed. Connect your account to start working.".to_string()
             } else {
                 // Reached only if something removed a component between the install and this
                 // line. It is still not reported as a success.

@@ -88,7 +88,7 @@ use crate::steering::TurnCancel;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -632,7 +632,7 @@ impl ActionGrant {
 
 /// A live session to a native `claude` child.
 pub struct NativeClient {
-    child: Child,
+    child: crate::owned_process::OwnedChild,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
     next_id: AtomicI64,
@@ -881,6 +881,7 @@ impl NativeClient {
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         let mut command = Command::new(bin);
+        crate::owned_process::OwnedChild::configure(&mut command);
         let mut child = command
             .args(args)
             .current_dir(cwd)
@@ -979,7 +980,7 @@ impl NativeClient {
         });
 
         let mut client = NativeClient {
-            child,
+            child: crate::owned_process::OwnedChild::new(child),
             stdin,
             session_id,
             next_id: AtomicI64::new(1),
@@ -1454,6 +1455,7 @@ impl NativeClient {
             current_prompt: Arc::clone(&self.current_prompt),
             operation_cancel: Arc::clone(&self.operation_cancel),
             action_grants: self.action_grants.clone(),
+            process_fence: self.child.fence(),
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
         })
     }
@@ -1607,6 +1609,7 @@ pub struct NativeCancelHandle {
     current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
     operation_cancel: Arc<Mutex<OperationCancellation>>,
     action_grants: Vec<ActionGrant>,
+    process_fence: crate::owned_process::ProcessFence,
     next_id: Arc<AtomicI64>,
 }
 
@@ -1626,7 +1629,7 @@ impl TurnCancel for NativeCancelHandle {
         // Missing scopes are normal before the initial company/thread binding.
         for grant in &self.action_grants {
             if grant.path().exists() && grant.set(false).is_err() {
-                let _ = std::fs::remove_file(grant.path());
+                if std::fs::remove_file(grant.path()).is_err() { self.process_fence.kill(); }
             }
         }
         // Take the sink FIRST so the ordering is unambiguous: interrupt out, then wake. The

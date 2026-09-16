@@ -290,7 +290,7 @@ async function main() {
     );
     // AND THE END IS THE BACKEND'S ANSWER, re-read from disk, not "no step threw".
     const done = (await page.textContent("#setup-note")).trim();
-    assert(/ready/i.test(done), "the finished sheet must say so: " + done);
+    assert(/software is installed/i.test(done), "the finished sheet must report installation: " + done);
     // AND THE HEADING AGREES WITH IT. It went on counting what was missing after the run, so
     // a successful install showed "There's one thing I need on this Mac." directly above
     // "That's everything. I'm ready." — two sentences contradicting each other on screen at
@@ -607,7 +607,7 @@ async function main() {
     await page.click("#setup-go");
     await page.waitForSelector("#setup-close:not([hidden])");
     const done = (await page.textContent("#setup-note")).trim();
-    assert(/ready/i.test(done), "the run started from the notice must finish: " + done);
+    assert(/software is installed/i.test(done), "the run started from the notice must finish: " + done);
     bump(10);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
     await page.close();

@@ -256,6 +256,7 @@ impl EngineLeaseFactory {
 /// The durable Rich, guarded for cross-invocation access. `Spine` is `Send` (its
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
+    provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
     spine: Mutex<Spine>,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
@@ -1859,6 +1860,7 @@ fn main() {
             };
 
             app.manage(AppState {
+                provider_auth: Mutex::new(Default::default()),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
                 machinery_root,
@@ -2078,6 +2080,10 @@ fn main() {
             // --- first-run setup, Option D (2026-09-01) — appended, never reordered ---
             setup_status,
             run_setup,
+            provider_auth_status,
+            provider_auth_start,
+            provider_auth_poll,
+            provider_auth_cancel,
             // --- what did not load out of the ledger (2026-09-05) — appended, never reordered ---
             history_health,
             // --- the home screen's picture, out of his own corpus (2026-09-06) — appended,
@@ -3208,6 +3214,26 @@ fn provision_memory(
 // he still needs his own Anthropic account, because row 3.14's second condition is that D
 // must not be sold as zero-touch.
 // ---------------------------------------------------------------------------------------
+
+#[tauri::command(async)]
+fn provider_auth_status(state: State<AppState>) -> richos_core::provider_auth::AuthView {
+    let bin = resolve_claude_bin();
+    state.provider_auth.lock().unwrap().refresh(&bin)
+}
+#[tauri::command(async)]
+fn provider_auth_start(state: State<AppState>, console: bool) -> richos_core::provider_auth::AuthView {
+    let bin = resolve_claude_bin();
+    state.provider_auth.lock().unwrap().start(&bin, console)
+}
+#[tauri::command(async)]
+fn provider_auth_poll(state: State<AppState>) -> richos_core::provider_auth::AuthView {
+    let bin = resolve_claude_bin();
+    state.provider_auth.lock().unwrap().poll(&bin)
+}
+#[tauri::command(async)]
+fn provider_auth_cancel(state: State<AppState>) -> richos_core::provider_auth::AuthView {
+    state.provider_auth.lock().unwrap().cancel()
+}
 
 /// What this machine is missing, and what the sheet should say about it.
 ///

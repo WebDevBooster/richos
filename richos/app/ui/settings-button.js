@@ -35,6 +35,7 @@ window.RichSettings = (function () {
   var splash = null; // { read(), write(on) } — the opening screen's off switch
   var updates = null; // { render(container), onOpen() } — the update surface fills its own row
   var company = null; // { read(), write(id) } — which company this copy of Rich works for
+  var account = null; // { open() }
   var home = null; // { open() } — the home screen's company buttons: their labels and which show
 
   var wrap = null;
@@ -346,6 +347,12 @@ window.RichSettings = (function () {
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
+    if (account) {
+      var accountButton = elem("button", "set-bug", {type: "button", role: "menuitem", id: "set-account-open"});
+      accountButton.textContent = "Account connection";
+      accountButton.addEventListener("click", function () { close(); account.open(); });
+      menu.appendChild(accountButton);
+    }
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
@@ -686,6 +693,8 @@ window.RichSettings = (function () {
      *  ones are on the screen at all. `host.open()` opens the panel that owns both; this
      *  file owns only the row that leads to it. Registering is what makes the row exist, so
      *  a page with no home screen behind it carries no door to a panel that is not there. */
+    registerAccount: function (host) { account = host || null; rebuild(); },
+
     registerHome: function (host) {
       home = host || null;
       rebuild();

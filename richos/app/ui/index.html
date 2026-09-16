@@ -708,7 +708,13 @@
                packages — a sentence each, because "the program I think with" is what the
                thing is and "claude-code@2.1.257" is what it is called. -->
           <ul id="setup-items" class="setup-items"></ul>
-          <p id="setup-account" class="setup-account"></p>
+          <p id="setup-account" class="setup-account" role="status"></p>
+          <label id="provider-account-kind" hidden>Account type
+            <select id="provider-account-select">
+              <option value="subscription">Claude subscription</option>
+              <option value="console">Anthropic Console (API billing)</option>
+            </select>
+          </label>
           <!-- PROGRESS, live. `role="status"` so it is announced rather than silently
                replaced; a download that takes minutes with a still window is the state this
                line exists to prevent. -->
@@ -719,6 +725,8 @@
                as a failure that was not reported. -->
           <p id="setup-error" class="setup-error" role="alert" hidden></p>
           <div class="memory-setup-actions">
+            <button id="provider-connect" class="desk-btn desk-btn--confirm" type="button" hidden>Connect account</button>
+            <button id="provider-cancel" class="desk-btn" type="button" hidden>Cancel sign-in</button>
             <button id="setup-go" class="desk-btn desk-btn--confirm" type="button">Set it up</button>
             <button id="setup-later" class="desk-btn" type="button">Not now</button>
             <button id="setup-close" class="desk-btn" type="button" hidden>Close</button>

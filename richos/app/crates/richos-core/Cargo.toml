@@ -16,6 +16,9 @@ thiserror = "1"
 # stdout is the exact shape of "exit 0 while doing the wrong thing".
 sha2 = "0.10"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [[example]]
 name = "native_roundtrip"
 path = "examples/native_roundtrip.rs"

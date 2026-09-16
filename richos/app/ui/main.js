@@ -3863,12 +3863,61 @@ async function refreshEntityChoice() {
 // ---------------------------------------------------------------------------------------
 
 let setupState = null;
+let providerAuth = null;
+let providerPoll = null;
+const providerConnectEl = el("provider-connect");
+const providerCancelEl = el("provider-cancel");
+const providerKindEl = el("provider-account-kind");
+
+function renderProviderAuth(view) {
+  providerAuth = view;
+  if (!view) return;
+  setupAccountEl.textContent = view.message;
+  setupAccountEl.hidden = false;
+  const connecting = view.state === "connecting";
+  const canConnect = !["connected", "unavailable"].includes(view.state);
+  providerConnectEl.hidden = !canConnect || connecting;
+  providerConnectEl.disabled = false;
+  providerCancelEl.hidden = !connecting;
+  providerKindEl.hidden = !canConnect || connecting;
+  setupCloseEl.hidden = connecting;
+  if (providerPoll) { clearTimeout(providerPoll); providerPoll = null; }
+  if (connecting) providerPoll = setTimeout(async () => {
+    try { renderProviderAuth(await Bridge.invoke("provider_auth_poll")); }
+    catch (_) { renderProviderAuth({state: "failed", message: "Account connection could not be verified. Try again."}); }
+  }, 750);
+}
+
+async function openAccountConnection() {
+  if (!setupState) await refreshSetup();
+  if (setupState?.ask?.items?.length) {
+    openSetupSheet(setupState.ask, {canInstall: setupState.ask.can_install});
+    return;
+  }
+  openSetupSheet({items: [], account_note: "Checking your account connection."}, {canInstall: false});
+  setupTitleEl.textContent = "Your Anthropic account";
+  renderProviderAuth(await invokeQuiet("provider_auth_status"));
+}
+
+providerConnectEl.addEventListener("click", async () => {
+  providerConnectEl.disabled = true;
+  try { renderProviderAuth(await Bridge.invoke("provider_auth_start", {console: el("provider-account-select").value === "console"})); }
+  catch (_) { renderProviderAuth({state: "failed", message: "Sign-in could not start. Try again."}); }
+});
+providerCancelEl.addEventListener("click", async () => {
+  providerCancelEl.disabled = true;
+  try { renderProviderAuth(await Bridge.invoke("provider_auth_cancel")); }
+  catch (_) { renderProviderAuth({state: "connecting", message: "Sign-in could not be cancelled. Try again."}); }
+  finally { providerCancelEl.disabled = false; }
+});
+window.RichSettings.registerAccount({open: openAccountConnection});
 /// Set when the setup sheet opened ahead of the memory question, so that question is asked
 /// the moment this one closes rather than being stacked on top of it.
 let memoryQuestionDeferred = false;
 
 async function refreshSetup() {
   setupState = await invokeQuiet("setup_status");
+  if (setupState?.status?.claude?.present) providerAuth = await invokeQuiet("provider_auth_status");
   return setupState;
 }
 
@@ -3877,12 +3926,21 @@ async function refreshSetup() {
 function maybeAskAboutSetup() {
   if (!setupState || !setupState.ask) return false;
   const { ask } = setupState;
-  if (!ask.items.length) return false;
+  if (!ask.items.length) {
+    if (providerAuth && providerAuth.state !== "connected") {
+      openAccountConnection();
+      return true;
+    }
+    return false;
+  }
   openSetupSheet(ask, { canInstall: ask.can_install });
   return true;
 }
 
 function openSetupSheet(ask, opts) {
+  providerConnectEl.hidden = true;
+  providerCancelEl.hidden = true;
+  providerKindEl.hidden = true;
   // THE TITLE COUNTS WHAT IS MISSING, in words, because "1 item" is a package manager's
   // sentence and this is a conversation.
   const several = ask.items.length > 1;
@@ -3934,6 +3992,8 @@ function openSetupSheet(ask, opts) {
 }
 
 function closeSetupSheet() {
+  if (providerAuth?.state === "connecting") return;
+  if (providerPoll) { clearTimeout(providerPoll); providerPoll = null; }
   setupSheetEl.hidden = true;
   // The question that was held back, asked now rather than never — the same handoff
   // `closeMemorySetup` performs for the company question. Without this line a fresh install
@@ -3991,10 +4051,11 @@ async function runSetup() {
     ? "That's the setting up done."
     : "I couldn't finish the setting up.";
   setupNoteEl.textContent = next && next.complete
-    ? "That's everything. I'm ready."
+    ? "The software is installed."
     : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
   setupItemsEl.replaceChildren();
   setupAccountEl.hidden = false;
+  if (next?.complete) renderProviderAuth(await invokeQuiet("provider_auth_status"));
   setupCloseEl.focus();
 }
 

@@ -739,6 +739,13 @@
   // `preset.setupFails` makes `run_setup` reject with one of the real `SetupError` sentences,
   // because the failure states are the ones a surface gets wrong.
   // ---------------------------------------------------------------------------------------
+  let providerState = preset.providerAuth || "connected";
+  const providerView = () => ({state: providerState, message: {
+    connected: "Your Anthropic account is connected.",
+    "signed-out": "Connect your Anthropic account to start working with Rich.",
+    connecting: "Complete sign-in in your browser, then return here.",
+    cancelled: "Sign-in was cancelled. You can try again when you are ready."
+  }[providerState] || "Account connection could not be verified. Try again."});
   const setupPreset = preset.setup || "ready";
   let setupClaudePresent = setupPreset === "ready" || setupPreset === "missing-engine";
   let setupEnginePresent = setupPreset === "ready" || setupPreset === "missing-claude";
@@ -755,8 +762,7 @@
   };
   const SETUP_NAME = { "claude-code": "Claude Code", engine: "the RichOS engine" };
   const SETUP_ACCOUNT_NOTE =
-    "You'll still need your own Anthropic account, and to sign in to it once. " +
-    "I can't do that part for you, and I never see your password.";
+    "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.";
   // WHAT A SEND IS REFUSED WITH WHEN THE SETTING UP WAS NEVER DONE. Verbatim from
   // `setup_view::SETUP_INCOMPLETE_*` (app/src-tauri/src/setup_view.rs). The preview must
   // rehearse the sentence the product ships, not a paraphrase of it — the same rule
@@ -873,7 +879,7 @@
     emit("richos://setup", {
       state: "finished",
       component: null,
-      what: "That's everything. I'm ready.",
+      what: "The software is installed. Connect your account to start working.",
       index: total,
       total,
       detail: null,
@@ -1801,6 +1807,17 @@
         // is a machine that has everything, because every other fixture assumes one;
         // `setup: "missing-both"` is the customer's Mac, which is the state §19 says every
         // machine but the CEO's is actually in.
+        case "provider_auth_status":
+          return providerView();
+        case "provider_auth_poll":
+          if (providerState === "connecting" && !preset.providerAuthHold) providerState = "connected";
+          return providerView();
+        case "provider_auth_start":
+          providerState = "connecting";
+          return providerView();
+        case "provider_auth_cancel":
+          providerState = "cancelled";
+          return providerView();
         case "setup_status":
           return setupStatusOf();
         // HE PRESSES THE BUTTON. It installs nothing here — the point of the mock is the
