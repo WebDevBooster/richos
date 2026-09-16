@@ -1001,6 +1001,18 @@ test('capture rejects linked session directories and accepts an external zone al
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('capture accepts safe room names produced from encoded URLs', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    for (const sessionId of ['2026--whereby--caf%C3%A9', '2026--whereby--room!@+name']) {
+      assert.equal(sink.handle({ type: 'session-start', record: { sessionId } }).type, 'started');
+      assert.equal(sink.handle({ type: 'audio-chunk', sessionId, dataB64: 'YQ==' }).type, 'chunk-ack');
+      assert.equal(fs.readFileSync(path.join(zone, sessionId, 'audio-part-00.webm'), 'utf8'), 'a');
+    }
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
 test('capture validates audio extensions before accepting a start or chunk', () => {
   const zone = tmp();
   try {
