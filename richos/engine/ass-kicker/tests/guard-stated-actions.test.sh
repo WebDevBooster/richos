@@ -468,6 +468,36 @@ run_hook "$TR_FIN" "$FIN_REPORT" false "$ENTITY" "$NODEP/scripts/hooks/guard-sta
 if [ "$RC" -eq 0 ] && has_sysmsg "NOT RUNNING"; then ok "y2. guard-idle-land.py absent: the gate does not guess, exits 0, and the operator is TOLD"
 else bad "y2. dependency absent" "rc=$RC out=$(printf '%s' "$OUT" | head -c 200)"; fi
 
+# One session through failed, still failed, recovered and still healthy states.
+notice_transition() {
+    local message="$1"
+    python3 - "$ENTITY" "$TR_BASH" "$PROMPT_ID" "$message" > "$SANDBOX/notice-payload.json" <<'PYNOTICE'
+import json, sys
+entity, transcript, prompt, message = sys.argv[1:]
+print(json.dumps({"cwd": entity, "session_id": "feedface-8888-4000-8000-000000000000",
+    "prompt_id": prompt, "transcript_path": transcript, "hook_event_name": "Stop",
+    "last_assistant_message": json.loads(message)}))
+PYNOTICE
+    RICHOS_ENTITY_ROOT="$ENTITY" bash "$HOOK" < "$SANDBOX/notice-payload.json" > "$SANDBOX/notice-out" 2> "$SANDBOX/notice-err"
+    RC=$?; OUT="$(cat "$SANDBOX/notice-out")"; ERR="$(cat "$SANDBOX/notice-err")"
+}
+notice_transition '123'
+if [ "$RC" -eq 0 ] && has_sysmsg "NOT RUNNING" && has_sysmsg "exited 1" && ! has_sysmsg "RUNNING AGAIN"; then
+    ok "y3. analyzer crash fails open and tells the operator that no verdict was obtained"
+else bad "y3. analyzer crash notice" "rc=$RC out=$OUT err=$ERR"; fi
+notice_transition '123'
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+    ok "y4. repeated analyzer failure stays abnormal without repeating the same notice"
+else bad "y4. repeated failure" "rc=$RC out=$OUT"; fi
+notice_transition '"Done."'
+if [ "$RC" -eq 0 ] && has_sysmsg "RUNNING AGAIN"; then
+    ok "y5. successful analysis after a crash reports actual recovery"
+else bad "y5. recovery" "rc=$RC out=$OUT err=$ERR"; fi
+notice_transition '"Done."'
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+    ok "y6. another successful analysis does not repeat recovery"
+else bad "y6. repeated recovery" "rc=$RC out=$OUT"; fi
+
 # ---------------------------------------------------------------------------
 # RECORD
 # ---------------------------------------------------------------------------

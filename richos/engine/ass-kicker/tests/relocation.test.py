@@ -163,7 +163,7 @@ class Relocation(unittest.TestCase):
 
     def test_stop_hook_self_test_uses_relocated_suite_in_isolated_engine(self):
         result = self.command("bash", "scripts/hooks/guard-stated-actions.sh", "--self-test")
-        self.assertIn("45 passed, 0 failed", result.stdout)
+        self.assertIn("49 passed, 0 failed", result.stdout)
 
 
 if __name__ == "__main__":

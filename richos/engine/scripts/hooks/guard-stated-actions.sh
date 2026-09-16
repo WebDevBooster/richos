@@ -278,6 +278,13 @@ ANALYZER_OUT="$(printf '%s' "$INPUT" | RICHOS_SA_ENTITY_ROOT="$ENTITY_ROOT" \
 RC=$?
 set -e
 
+# Failing open must not turn a failed analyzer into a healthy observation.
+if [ "$RC" != "0" ] && [ "$RC" != "2" ]; then
+    stop_notice_abnormal "analyzer-exit:$RC" \
+        "STATED-ACTIONS GATE: NOT RUNNING. The analyzer exited $RC without a verdict. This turn was not checked; it is allowed to end. Inspect the hook error output. $HOOK_TAG"
+    exit 0
+fi
+
 # EXACTLY ONE NOTICE PER TURN — the ledger holds one state per (session, hook),
 # so the recovery line is an `else` of the declaration line, never before it.
 DECLARED_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_STOP_DECLARED	" || true)"
