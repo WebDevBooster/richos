@@ -244,3 +244,10 @@ gh api -X PUT repos/WebDevBooster/richos/actions/permissions \
 Nothing in the tree needs to change first: as of the commit that added this
 section, every action reference under `.github/workflows/` is already a
 full-length SHA, so the policy would be satisfied on the day it is switched on.
+
+## Nightly releases
+
+`nightly.yml` builds signed Apple Silicon prereleases from `main` once per day,
+with optional three-hour windows and manual dispatch. It has its own nightly
+update channel and starts disabled until `NIGHTLY_ENABLED=true` and the release
+secrets are configured. See [the nightly runbook](../../richos/app/NIGHTLY.md).

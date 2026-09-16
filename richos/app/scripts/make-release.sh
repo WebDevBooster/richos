@@ -7,6 +7,7 @@
 #   richos/app/scripts/make-release.sh engine           # build the deterministic engine asset + the pin
 #   richos/app/scripts/make-release.sh verify-engine    # download the PUBLISHED asset, require the pin
 #   richos/app/scripts/make-release.sh app              # build the app against the verified pin
+#   richos/app/scripts/make-release.sh verify-assets    # verify published assets before channel promotion
 #   richos/app/scripts/make-release.sh verify-release   # download everything published, require SHA256SUMS
 #
 # THE ORDER IS NOT A PREFERENCE
@@ -67,7 +68,7 @@ rule() { printf '%s\n' "--------------------------------------------------------
 # Arguments
 # ---------------------------------------------------------------------------------------
 cmd="${1:-}"
-[ -n "$cmd" ] && shift || { sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -n "$cmd" ] && shift || { sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 TAG=""
 NOTES="${RICHOS_UPDATE_NOTES:-}"
@@ -86,7 +87,7 @@ while [ $# -gt 0 ]; do
     --sign)         SIGN_MODE="${2:-}"; shift 2 ;;
     --sign=*)       SIGN_MODE="${1#*=}"; shift ;;
     --no-notarize)  NOTARIZE=0; shift ;;
-    -h|--help)      sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)      sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -153,6 +154,14 @@ DOWNLOAD_BASE="https://github.com/$REPO/releases/download/$TAG"
 ENGINE_URL="$DOWNLOAD_BASE/$ENGINE_ASSET"
 UPDATE_URL="$DOWNLOAD_BASE/$UPDATE_ASSET"
 ENDPOINT="https://github.com/$REPO/releases/latest/download/$MANIFEST_ASSET"
+case "$VERSION" in
+  *-nightly.*)
+    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from nightly import nightly_key; nightly_key(sys.argv[2])' "$here" "$VERSION" \
+      || die "invalid nightly version (Python 3.11+ is required)"
+    ENDPOINT="https://raw.githubusercontent.com/$REPO/nightly-channel/$MANIFEST_ASSET"
+    [ "$TAG" = "v$VERSION" ] || die "nightly tag must be v$VERSION"
+    ;;
+esac
 
 PIN_FILE="$OUT/engine-pin.env"
 RECEIPT="$OUT/engine-published.ok"
@@ -442,6 +451,14 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
     || die "the built bundle says it is $plist_version and this release is $VERSION.
   The tag, the manifest and the binary would disagree." 1
 
+  # Check the compiled identity as well as the plist. This probe exits before
+  # setup, update activation or any access to the operator's application data.
+  local identity
+  identity="$("$exe" --richos-internal-update-identity)" \
+    || die "the built executable could not report its update identity" 1
+  printf '%s' "$identity" | python3 -c 'import json,sys; p=json.load(sys.stdin); sys.exit(0 if p.get("version")==sys.argv[1] and p.get("identifier")=="com.richos.app" else 1)' "$VERSION" \
+    || die "the compiled executable version does not match $VERSION" 1
+
   # ---- the first-install artifact -----------------------------------------------------
   #
   # NOT THE DMG. `cargo tauri build --bundles app,dmg` makes the disk image DURING the
@@ -572,6 +589,19 @@ cmd_verify_release() {
     fi
   done < <(sed 's/^\([0-9a-f]*\)  */\1 /' "$OUT/$SUMS_ASSET")
 
+  # Check the immutable manifest and signature before a channel can point here.
+  if [ "$fail" = 0 ]; then
+    python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["version"] == sys.argv[2] else 1)' \
+      "$tmp/$MANIFEST_ASSET" "$VERSION" || fail=1
+    (cd "$src_tauri" && cargo run --locked -q --example verify_update_manifest -- \
+      "$tmp/$MANIFEST_ASSET" "$tmp/$UPDATE_ASSET" "$tmp/$UPDATE_ASSET.sig" "$UPDATE_URL") || fail=1
+  fi
+  if [ "${1:-}" = "assets-only" ]; then
+    [ "$fail" = 0 ] || die "published assets failed verification; channel must not advance" 1
+    say "verify-assets: published bytes, version and updater signature verified."
+    return 0
+  fi
+
   # ---- and the endpoint an installed copy actually fetches ----------------------------
   say ""
   say "fetching the updater endpoint itself:"
@@ -607,6 +637,7 @@ case "$cmd" in
   engine)         plan; say ""; cmd_engine ;;
   verify-engine)  cmd_verify_engine ;;
   app)            cmd_app ;;
+  verify-assets)  cmd_verify_release assets-only ;;
   verify-release) cmd_verify_release ;;
   *) die "unknown command: $cmd (try --help)" ;;
 esac

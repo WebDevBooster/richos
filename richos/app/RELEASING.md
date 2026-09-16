@@ -3,6 +3,8 @@
 One release, start to finish, with nothing to reconstruct. Everything below is run by
 `richos/app/scripts/make-release.sh`; this page is why each step exists and what it refuses.
 
+For automated nightly builds, scheduling and channel setup, see [NIGHTLY.md](NIGHTLY.md).
+
 If you only read one thing: **the order is forced, and `latest.json` is uploaded last.**
 
 ---
