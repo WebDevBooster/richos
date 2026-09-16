@@ -32,3 +32,7 @@ report with exactly one unindented line, outside a code fence:
 Use `changes-requested` instead of `passed` if there is a blocking defect or an
 unresolved verification requirement. Never report checks you could not run.
 The dispatch brief supplies the exact commit; the host verifies it independently.
+
+Pass Git commit messages literally with `-m` or a literal heredoc into `commit -F -`.
+Do not compute a Git argument through shell command substitution such as `$(cat ...)`.
+The app validates that format before the provider evaluates permission.

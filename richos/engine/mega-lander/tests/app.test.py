@@ -70,10 +70,10 @@ class DesktopWork(unittest.TestCase):
         with self.assertRaises(ValueError):self.call("prepare",self.args)
         self.assertFalse((self.root/"engine-state/target-worktrees").exists())
     def test_variable_git_targets_get_format_feedback_without_a_permission_grant(self):
-        for command in ['git -C "$TARGET" status', 'git -C $TARGET status', 'git -C "${TARGET}" log -1', 'git -C "$(pwd)" status']:
+        for command in ['git -C "$TARGET" status', 'git -C $TARGET status', 'git -C "${TARGET}" log -1', 'git -C "$(pwd)" status', 'git commit -m "$(cat <<EOF\nFixture\nEOF\n)"', 'git commit -m `echo Fixture`']:
             with self.subTest(command=command), self.assertRaisesRegex(ValueError,"Unsupported Git command form"):
                 self.app.validate_shell_target({"tool_name":"Bash","tool_input":{"command":command}})
-        for command in ['git -C "/fictional/target with spaces" status', "git -C '/fictional/$literal' status", 'python3 ./tests.py']:
+        for command in ['git -C "/fictional/target with spaces" status', "git -C '/fictional/$literal' status",  'python3 ./tests.py', "git commit -m 'Fix `marker` and $(literal)'"]:
             self.assertIsNone(self.app.validate_shell_target({"tool_name":"Bash","tool_input":{"command":command}}))
         self.assertIsNone(self.app.validate_shell_target({"tool_name":"Read","tool_input":{"command":"git -C $TARGET status"}}))
 

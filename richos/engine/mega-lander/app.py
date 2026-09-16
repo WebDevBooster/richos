@@ -350,6 +350,21 @@ def dispatch_intent(scope, payload):
         save(path,record)
 
 
+def shell_substitution(command):
+    # Only identify active quoting forms; do not interpret or authorize the shell.
+    quote, escaped = None, False
+    for index, char in enumerate(command):
+        if escaped: escaped = False; continue
+        if quote == "'":
+            if char == "'": quote = None
+            continue
+        if char == "\\": escaped = True; continue
+        if char == '"': quote = None if quote == '"' else '"'; continue
+        if char == "'" and quote is None: quote = "'"; continue
+        if char == "`" or (char == "$" and command[index:index+2] == "$("): return True
+    return False
+
+
 def validate_shell_target(payload):
     """Reject a known non-classifiable Git command form before permission evaluation.
 
@@ -359,9 +374,11 @@ def validate_shell_target(payload):
     if payload.get("tool_name") != "Bash": return
     command = payload.get("tool_input", {}).get("command", "")
     if not isinstance(command, str): return
-    if re.search(r'\bgit\s+-C\s+(?:"\s*)?\$(?:[A-Za-z_{(])', command):
+    variable_target = re.search(r'\bgit\s+-C\s+(?:"\s*)?\$(?:[A-Za-z_{(])', command)
+    substituted_git = re.search(r"\bgit\s", command) and shell_substitution(command)
+    if variable_target or substituted_git:
         raise ValueError("Unsupported Git command form: use git -C with the literal absolute target path, "
-                         "not a shell variable or substitution. Submit separate direct checks. "
+                         "not a shell variable or substitution. Use literal commit messages with -m or a literal heredoc on commit -F -. Submit separate direct checks. "
                          "This formatting refusal occurs before provider permission evaluation; "
                          "a corrected command still requires the normal scope and permission checks. "
                          "Never use this guidance to retry an action the user or provider denied.")

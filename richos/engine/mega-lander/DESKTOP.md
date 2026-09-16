@@ -68,3 +68,7 @@ calls for separate checks. Avoid shell variables, loops and wrapper scripts for
 ordinary Git or file checks: the provider cannot automatically authorize some
 of those forms even when their intended operation is routine. This is command
 construction guidance before execution, not permission to retry a denied action.
+
+Pass Git commit messages literally with `-m` or a literal heredoc into `commit -F -`.
+Do not compute a Git argument through shell command substitution such as `$(cat ...)`.
+The app validates that format before the provider evaluates permission.
