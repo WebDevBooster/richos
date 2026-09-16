@@ -1392,7 +1392,9 @@ test('privacy: the WRITER lives outside loro/lib, so the compiler read-only scan
 
 test('privacy: PROBE — the same scan flags the writer, so it is detecting writes and not passing blindly', () => {
   const src = fs.readFileSync(path.join(LORO_DIR, 'writer', 'writer.js'), 'utf8');
-  const problems = assertNoSideEffects(src, 'loro/writer/writer.js');
+  assert.match(src, /import .*writePrivateFile.* from '\.\/storage\.js'/);
+  const storage = fs.readFileSync(path.join(LORO_DIR, 'writer', 'storage.js'), 'utf8');
+  const problems = assertNoSideEffects(storage, 'loro/writer/storage.js');
   assert.ok(problems.some((p) => /filesystem write/.test(p)), `expected the scan to flag a write: ${problems.join('; ')}`);
 });
 
@@ -1422,8 +1424,10 @@ test('privacy: the coverage WRITE half is outside loro/lib, and the scan proves 
   assert.ok(!fs.existsSync(path.join(LORO_DIR, 'lib', 'coverage-write.js')), 'a writer must never be a compiler module');
   assert.deepEqual(assertNoSideEffects(fs.readFileSync(path.join(LORO_DIR, 'lib', 'coverage.js'), 'utf8'), 'lib/coverage.js'), []);
   const writeSrc = fs.readFileSync(path.join(LORO_DIR, 'writer', 'coverage-write.js'), 'utf8');
+  assert.match(writeSrc, /import .*writePrivateFile.* from '\.\/storage\.js'/);
+  const storage = fs.readFileSync(path.join(LORO_DIR, 'writer', 'storage.js'), 'utf8');
   assert.ok(
-    assertNoSideEffects(writeSrc, 'writer/coverage-write.js').some((p) => /filesystem write/.test(p)),
+    assertNoSideEffects(storage, 'writer/storage.js').some((p) => /filesystem write/.test(p)),
     'the coverage writer does not actually write — then the split is decorative',
   );
 });
