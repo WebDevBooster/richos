@@ -260,7 +260,9 @@ print(json.dumps({
         return 0
     fi
 
-    head="$(printf '%s\n' "$out" | head -1)"
+    # Read the first line without closing the pipe before the complete report
+    # is written. The Stop hook calls this under errexit and pipefail.
+    head="$(printf '%s\n' "$out" | sed -n '1p')"
     MF_LINES="$(printf '%s\n' "$out" | tail -n +2)"
     case "$head" in
         BROKEN*)
