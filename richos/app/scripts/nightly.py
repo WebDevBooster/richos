@@ -2,7 +2,7 @@
 """Allocate immutable nightly releases and advance their verified update channel.
 
 Python 3.11+, git and gh are required. Remote writes happen only in prepare/run.
-The workflow serializes runs; Git ref creation/CAS also rejects competing writers.
+The manual local runner serializes runs; Git ref creation/CAS rejects competing writers.
 """
 import argparse
 from datetime import datetime, timezone
@@ -23,8 +23,6 @@ PROVENANCE = APP / "nightly-build.json"
 REPO = "WebDevBooster/richos"
 CHANNEL_REF = "refs/heads/nightly-channel"
 ENDPOINT = f"https://raw.githubusercontent.com/{REPO}/nightly-channel/latest.json"
-DAILY_SCHEDULE = "17 3 * * *"
-BURST_SCHEDULE = "17 0,6,9,12,15,18,21 * * *"
 BASE_RE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
 NIGHTLY_RE = re.compile(BASE_RE + r"-nightly\.([0-9]{8})\.([1-9][0-9]*)")
 
@@ -63,19 +61,6 @@ def next_version(base, day, tags):
     return f"{base}-nightly.{day}.{max(numbers, default=0) + 1}"
 
 
-def due(event, schedule, burst_until, now):
-    if event == "workflow_dispatch" or schedule == DAILY_SCHEDULE:
-        return True
-    if event != "schedule" or schedule != BURST_SCHEDULE:
-        raise ValueError("unknown nightly trigger")
-    if not burst_until:
-        return False
-    end = datetime.fromisoformat(burst_until.replace("Z", "+00:00"))
-    if end.utcoffset() is None:
-        raise ValueError("NIGHTLY_BURST_UNTIL must include a timezone")
-    return now < end
-
-
 def remote_tags():
     refs = git("ls-remote", "--tags", "origin")
     return {line.split()[1].removeprefix("refs/tags/") for line in refs.splitlines()
@@ -95,10 +80,8 @@ def json_text(value):
     return json.dumps(value, indent=2) + "\n"
 
 
-def plan(event, schedule, burst_until, force=False, now=None):
+def plan(force=False, now=None):
     now = now or utc_now()
-    if not due(event, schedule, burst_until, now):
-        return {"build": False, "reason": "three-hour window is inactive"}
     if git("status", "--porcelain", "--untracked-files=all"):
         raise ValueError("nightly builds require a clean checkout")
     source = git("rev-parse", "HEAD")
@@ -116,8 +99,8 @@ def plan(event, schedule, burst_until, force=False, now=None):
         git("merge-base", "--is-ancestor", previous["source_commit"], source)
     return {"build": True, "version": version, "tag": f"v{version}",
             "source_commit": source, "created_at": now.isoformat(),
-            "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+            "run_id": os.environ.get("RICHOS_NIGHTLY_RUN_ID", "manual"),
+            "run_attempt": "1",
             "channel": "nightly", "platform": "darwin-aarch64"}
 
 
@@ -232,9 +215,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("plan")
-    p.add_argument("--event", choices=["schedule", "workflow_dispatch"], default="workflow_dispatch")
-    p.add_argument("--schedule", default="")
-    p.add_argument("--burst-until", default="")
     p.add_argument("--force", action="store_true")
     p.add_argument("--output", type=Path, required=True)
     p = sub.add_parser("run")
@@ -242,11 +222,8 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "plan":
-        info = plan(args.event, args.schedule, args.burst_until, args.force)
+        info = plan(args.force)
         args.output.write_text(json_text(info))
-        if os.environ.get("GITHUB_OUTPUT"):
-            with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
-                handle.write(f"build={str(info['build']).lower()}\n")
         print(json_text(info))
     else:
         info = json.loads(args.plan.read_text())

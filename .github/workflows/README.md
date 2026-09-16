@@ -247,7 +247,6 @@ full-length SHA, so the policy would be satisfied on the day it is switched on.
 
 ## Nightly releases
 
-`nightly.yml` builds signed Apple Silicon prereleases from `main` once per day,
-with optional three-hour windows and manual dispatch. It has its own nightly
-update channel and starts disabled until `NIGHTLY_ENABLED=true` and the release
-secrets are configured. See [the nightly runbook](../../richos/app/NIGHTLY.md).
+Nightlies are triggered manually on the release Mac. There is no Actions nightly
+workflow or schedule. Signing keys stay local and existing CI can stay disabled.
+See [the local nightly runbook](../../richos/app/NIGHTLY.md).

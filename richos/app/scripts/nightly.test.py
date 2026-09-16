@@ -36,16 +36,6 @@ class VersionTests(unittest.TestCase):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 n.nightly_key(version)
 
-    def test_cadence_and_expiry(self):
-        self.assertTrue(n.due("schedule", n.DAILY_SCHEDULE, "", NOW))
-        self.assertTrue(n.due("workflow_dispatch", "", "", NOW))
-        self.assertFalse(n.due("schedule", n.BURST_SCHEDULE, "", NOW))
-        self.assertTrue(n.due("schedule", n.BURST_SCHEDULE, "2026-09-12T00:00:00Z", NOW))
-        self.assertFalse(n.due("schedule", n.BURST_SCHEDULE, NOW.isoformat(), NOW))
-        with self.assertRaises(ValueError):
-            n.due("schedule", n.BURST_SCHEDULE, "2026-09-12", NOW)
-        with self.assertRaises(ValueError):
-            n.due("schedule", "bogus", "", NOW)
 
 
 class GitTests(unittest.TestCase):
@@ -80,7 +70,7 @@ class GitTests(unittest.TestCase):
         self.source = n.git("rev-parse", "HEAD")
 
     def plan(self, **kwargs):
-        return n.plan("workflow_dispatch", "", "", now=NOW, **kwargs)
+        return n.plan(now=NOW, **kwargs)
 
     def manifest(self, info):
         return {"version": info["version"], "platforms": {"darwin-aarch64": {
@@ -150,7 +140,7 @@ class GitTests(unittest.TestCase):
         n.git("checkout", "-q", "main")
         self.assertFalse(self.plan()["build"])
         self.assertEqual(self.plan(force=True)["version"], "5.1.0-nightly.20260911.2")
-        later = n.plan("workflow_dispatch", "", "", force=True,
+        later = n.plan(force=True,
                        now=datetime(2026, 9, 12, tzinfo=timezone.utc))
         self.assertEqual(later["version"], "5.1.0-nightly.20260912.1")
 

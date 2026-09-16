@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Manually check or release a nightly using this Mac's existing signing keys.
+
+Nothing installs a job, watches main or runs on a schedule. Only the explicit
+`release` subcommand may publish. Keys remain in the local Keychain/private files.
+"""
+import argparse
+import base64
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import fcntl
+import json
+import os
+from pathlib import Path
+import platform
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import uuid
+
+ROOT = Path(__file__).resolve().parents[3]
+REPO = "WebDevBooster/richos"
+SCRIPTS = Path("richos/app/scripts")
+
+
+def private_file(path):
+    path = Path(path).expanduser().resolve(strict=True)
+    mode = path.stat()
+    if not path.is_file() or mode.st_uid != os.getuid() or stat.S_IMODE(mode.st_mode) & 0o077:
+        raise ValueError(f"expected an owner-private file: {path}")
+    return path
+
+
+def notary_environment(path):
+    """Parse assignments as data. Never source a shell file or execute its values."""
+    allowed = {"RICHOS_NOTARY_KEY", "RICHOS_NOTARY_KEY_ID", "RICHOS_NOTARY_ISSUER",
+               "RICHOS_NOTARY_PROFILE"}
+    result = {}
+    for line in private_file(path).read_text().splitlines():
+        tokens = shlex.split(line, comments=True)
+        if tokens[:1] == ["export"]:
+            tokens = tokens[1:]
+        if not tokens:
+            continue
+        if len(tokens) != 1 or "=" not in tokens[0]:
+            raise ValueError("notary.env must contain plain NAME=value assignments")
+        name, value = tokens[0].split("=", 1)
+        if name not in allowed or any(c in value for c in ('`', '$(', '\n', '\r')):
+            raise ValueError("unsupported notary.env assignment")
+        if name == "RICHOS_NOTARY_KEY":
+            value = value.replace("${HOME}", str(Path.home())).replace("$HOME", str(Path.home()))
+            value = str(private_file(value))
+        elif "$" in value:
+            raise ValueError("variable expansion is not supported for notary credentials")
+        result[name] = value
+    if not result.get("RICHOS_NOTARY_PROFILE") and not all(result.get(k) for k in
+            ("RICHOS_NOTARY_KEY", "RICHOS_NOTARY_KEY_ID", "RICHOS_NOTARY_ISSUER")):
+        raise ValueError("notarization credentials are incomplete")
+    return result
+
+
+def local_environment():
+    env = os.environ.copy()
+    # Explicit PATH also works from a fresh terminal, without an interactive shell.
+    env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    for key in ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG", "CARGO_TARGET_DIR",
+                "TAURI_SIGNING_PRIVATE_KEY", "RUN_TESTS_DECLARED_GAPS"):
+        env.pop(key, None)
+    env.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
+    env["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
+        env.get("TAURI_SIGNING_PRIVATE_KEY_PATH", Path.home() / ".richos-signing/richos-updater.key")))
+    env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = env.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    env["RICHOS_NAMED_PERSONS_FILE"] = str(private_file(
+        env.get("RICHOS_NAMED_PERSONS_FILE", Path.home() / ".richos-privacy/named-persons")))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["CARGO_PROFILE_DEV_DEBUG"] = "0"
+    env["CARGO_PROFILE_TEST_DEBUG"] = "0"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=15"
+    env["RICHOS_NIGHTLY_RUN_ID"] = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
+    return env
+
+
+@contextmanager
+def exclusive(state):
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if state.is_symlink() or state.stat().st_uid != os.getuid():
+        raise ValueError("nightly state must be owned by the current user")
+    state.chmod(0o700)
+    with (state / "release.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("another local nightly command is running") from error
+        yield
+
+
+class Runner:
+    def __init__(self, repo, state, env, log):
+        self.repo, self.state, self.env, self.log = repo, state, env, log
+        self.source = state / "source"
+
+    def command(self, *args, cwd=None, capture=False, timeout=None):
+        try:
+            result = subprocess.run([str(a) for a in args], cwd=cwd or self.source,
+                                    env=self.env, stdin=subprocess.DEVNULL, text=True,
+                                    stdout=subprocess.PIPE if capture else self.log,
+                                    stderr=self.log, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # TimeoutExpired's default message includes argv, potentially a password.
+            raise RuntimeError(f"{Path(str(args[0])).name} timed out; see the run log") from None
+        if result.returncode:
+            # Do not echo argv: signing commands can carry a password.
+            raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {result.returncode}); see the run log")
+        return result.stdout.strip() if capture else None
+
+    def checkout(self):
+        self.command("git", "fetch", "origin", "main", cwd=self.repo, timeout=120)
+        sha = self.command("git", "rev-parse", "FETCH_HEAD", cwd=self.repo, capture=True)
+        if self.source.exists():
+            common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
+            expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=self.repo, capture=True)
+            if common != expected or Path(self.command("git", "rev-parse", "--show-toplevel", capture=True)) != self.source:
+                raise ValueError("nightly source is not the dedicated worktree for this repository")
+            if self.command("git", "status", "--porcelain", capture=True):
+                raise ValueError("nightly worktree has changes; inspect it before continuing")
+            self.command("git", "checkout", "--detach", sha)
+        else:
+            self.command("git", "worktree", "add", "--detach", self.source, sha, cwd=self.repo)
+        return sha
+
+    def preflight(self):
+        print("Checking GitHub access, local signing and notarization credentials...", flush=True)
+        if self.command("gh", "api", f"repos/{REPO}", "--jq", ".permissions.push", capture=True, timeout=60) != "true":
+            raise ValueError("GitHub credentials cannot publish to this repository")
+        rules = json.loads(self.command("gh", "api", f"repos/{REPO}/rules/branches/nightly-channel", capture=True, timeout=60))
+        if any(r["type"] in {"creation", "update"} for r in rules):
+            raise ValueError("repository rules block nightly-channel; configure its narrow exception first")
+        self.command("cargo", "tauri", "--version", timeout=30)
+        if self.env.get("RICHOS_NOTARY_PROFILE") and not self.env.get("RICHOS_NOTARY_KEY"):
+            auth = ["--keychain-profile", self.env["RICHOS_NOTARY_PROFILE"]]
+        else:
+            auth = ["--key", self.env["RICHOS_NOTARY_KEY"], "--key-id", self.env["RICHOS_NOTARY_KEY_ID"],
+                    "--issuer", self.env["RICHOS_NOTARY_ISSUER"]]
+        self.command("xcrun", "notarytool", "history", *auth, "--output-format", "json", capture=True, timeout=90)
+        identities = self.command("security", "find-identity", "-v", "-p", "codesigning", capture=True)
+        import re
+        found = re.findall(r'\b([0-9A-F]{40}) "Developer ID Application:[^"]+"', identities)
+        wanted = self.env.get("RICHOS_SIGNING_IDENTITY")
+        if wanted:
+            if wanted not in identities:
+                raise ValueError("configured Developer ID identity is unavailable")
+        elif len(found) == 1:
+            wanted = found[0]
+        else:
+            raise ValueError("exactly one Developer ID signing identity is required")
+        with tempfile.TemporaryDirectory(prefix="richos-nightly-signing-") as tmp:
+            probe = Path(tmp) / "probe"
+            # Do not copy protected system-file flags or extended attributes.
+            shutil.copyfile("/usr/bin/true", probe)
+            probe.chmod(0o755)
+            self.command("codesign", "--force", "--sign", wanted, "--timestamp", "--options", "runtime", probe, timeout=90)
+            self.command("codesign", "--verify", "--strict", probe, timeout=30)
+            self.command("cargo", "tauri", "signer", "sign", "-f", self.env["TAURI_SIGNING_PRIVATE_KEY_PATH"],
+                         "-p", self.env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], probe, timeout=30)
+            # Public key configuration must match the existing local key pair. The
+            # release pipeline also verifies the actual artifact signature before publishing.
+            public = Path(self.env["TAURI_SIGNING_PRIVATE_KEY_PATH"] + ".pub").read_text().strip()
+            conf = json.loads((self.source / "richos/app/src-tauri/tauri.conf.json").read_text())
+            expected = conf["plugins"]["updater"]["pubkey"].strip()
+            if public not in (expected, base64.b64decode(expected).decode().strip()):
+                raise ValueError("local updater public key does not match the app")
+        print("Local signing and Apple notarization authentication passed.", flush=True)
+
+    def plan(self, force):
+        path = self.state / "plan.json"
+        self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "plan",
+                     *(["--force"] if force else []), "--output", path)
+        return path, json.loads(path.read_text())
+
+    def runtime(self, override):
+        path = override or self.state / "runtime"
+        if not path.exists():
+            if override:
+                raise ValueError("specified runtime directory does not exist")
+            print("Building the pinned public runtimes...", flush=True)
+            self.command(sys.executable, self.source / SCRIPTS / "build-runtimes.py", path)
+        self.command(sys.executable, self.source / SCRIPTS / "verify-runtime.py", path,
+                     self.source / SCRIPTS / "runtime-sources.json")
+        self.env["RICHOS_RUNTIME_DIR"] = str(path)
+
+    def gates(self):
+        print("Running core, updater and packaging checks...", flush=True)
+        self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/Cargo.toml", "-p", "richos-core")
+        self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/crates/richos-user-update/Cargo.toml")
+        self.command("bash", self.source / SCRIPTS / "run-tests.sh")
+        self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree", "--repo", self.source)
+
+    def perform(self, command, force=False, runtime=None):
+        source = self.checkout()
+        plan_path, info = self.plan(force)
+        print(f"Source: {source}", flush=True)
+        if not info["build"] and command == "release":
+            print(info["reason"] + "; nothing published.", flush=True)
+            return
+        self.preflight()
+        if command == "check":
+            if runtime or (self.state / "runtime").exists():
+                self.runtime(runtime)
+            print("Preflight passed. No release was triggered or published.", flush=True)
+            return
+        if command != "release":
+            raise ValueError("only the explicit release command may publish")
+        self.runtime(runtime)
+        self.gates()
+        # Capture the UTC date at allocation, even if checks crossed midnight.
+        plan_path, info = self.plan(force)
+        if not info["build"]:
+            print(info["reason"] + "; nothing published.", flush=True)
+            return
+        out = self.state / "releases" / info["tag"]
+        print(f"Building and publishing {info['tag']}...", flush=True)
+        self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
+                     "--plan", plan_path, "--out", out)
+        print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=["check", "release"])
+    parser.add_argument("--repo", type=Path, default=ROOT)
+    parser.add_argument("--state-dir", type=Path, default=Path.home() / ".richos-nightly")
+    parser.add_argument("--runtime-dir", type=Path, help="existing verified runtime cache")
+    parser.add_argument("--force", action="store_true", help="explicitly rebuild a previously released source")
+    args = parser.parse_args()
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        parser.error("local nightly releases currently require an Apple Silicon Mac")
+    os.umask(0o077)
+    state = args.state_dir.expanduser().absolute()
+    env = local_environment()
+    with exclusive(state):
+        logs = state / "logs"
+        logs.mkdir(exist_ok=True)
+        log_path = logs / (env["RICHOS_NIGHTLY_RUN_ID"] + ".log")
+        print(f"Run log: {log_path}", flush=True)
+        with log_path.open("w") as log:
+            Runner(args.repo.resolve(), state, env, log).perform(
+                args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"nightly: {error}") from error

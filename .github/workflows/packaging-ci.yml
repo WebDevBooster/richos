@@ -164,7 +164,6 @@ on:
       - "richos/engine/scripts/lib/named-persons.py"
       - "LICENSE"
       - ".github/workflows/packaging-ci.yml"
-      - ".github/workflows/nightly.yml"
   pull_request:
     paths:
       - "richos/app/**"
@@ -174,7 +173,6 @@ on:
       - "richos/engine/scripts/lib/named-persons.py"
       - "LICENSE"
       - ".github/workflows/packaging-ci.yml"
-      - ".github/workflows/nightly.yml"
   # So the gate can still be demanded on a named SHA. It could not be while the workflow
   # was disabled at the API, which is recorded above rather than left to be rediscovered.
   workflow_dispatch:

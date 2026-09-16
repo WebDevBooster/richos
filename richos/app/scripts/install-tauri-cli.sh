@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared by packaging-ci and nightly; the upstream archive is digest-pinned.
+# Used by packaging-ci; local releases use the installed CLI. The archive is digest-pinned.
 set -euo pipefail
 case "$(uname -m)" in
   arm64|aarch64)
