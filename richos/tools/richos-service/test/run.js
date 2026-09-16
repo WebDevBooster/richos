@@ -973,6 +973,101 @@ test('two concatenated frames decode as two messages in one push', () => {
 // ---------------------------------------------------------------------------------------
 group('native host handlers (SessionSink) — writes the SAME contract dir as the sync helper');
 
+test('capture rejects path-shaped session IDs before creating any files', () => {
+  const root = tmp();
+  const zone = path.join(root, 'zone');
+  try {
+    const sink = new SessionSink(zone);
+    for (const sessionId of ['../escaped', '.', '..', '/absolute', 'a/b', 'a\\b', 'a\0b', 42]) {
+      assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId } }), /capture boundary/);
+      assert.throws(() => sink.handle({ type: 'session-close', sessionId, record: {} }), /capture boundary/);
+    }
+    assert.deepEqual(fs.readdirSync(zone), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture rejects linked session directories and accepts an external zone alias', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(zone); fs.mkdirSync(outside);
+    fs.symlinkSync(zone, path.join(root, 'alias'), 'dir');
+    const sink = new SessionSink(path.join(root, 'alias'));
+    fs.symlinkSync(outside, path.join(zone, 'linked'), 'dir');
+    assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId: 'linked' } }), /capture boundary/);
+    assert.equal(sink.handle({ type: 'session-start', record: { sessionId: 'normal' } }).type, 'started');
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture validates audio extensions before accepting a start or chunk', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    for (const audioExt of ['../../escape', 'a/b', 'a\\b', 'webm\0', {}]) {
+      assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId: 'bad' }, audioExt }), /capture boundary/);
+    }
+    assert.deepEqual(fs.readdirSync(zone), []);
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } });
+    assert.throws(() => sink.handle({ type: 'audio-chunk', sessionId: 'safe', ext: '../escape' }), /capture boundary/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('every capture writer refuses linked output files without modifying their targets', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const target = path.join(root, 'private-file');
+    const original = '{"status":"open"}\n';
+    fs.writeFileSync(target, original);
+    const sink = new SessionSink(zone);
+    const cases = [
+      ['session.json', { type: 'session-start', record: { sessionId: 'safe' } }],
+      ['session.json', { type: 'session-close', sessionId: 'safe' }],
+      ['audio-part-00.webm', { type: 'audio-chunk', sessionId: 'safe', dataB64: 'YQ==' }],
+      ['health.ndjson', { type: 'health', sessionId: 'safe', line: { t: T0 } }],
+      ['captions.ndjson', { type: 'caption', sessionId: 'safe', line: { text: 'synthetic' } }],
+    ];
+    for (const [file, msg] of cases) {
+      sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+      const output = path.join(zone, 'safe', file);
+      fs.rmSync(output, { force: true });
+      fs.symlinkSync(target, output);
+      assert.throws(() => sink.handle(msg), /capture boundary/);
+      assert.equal(fs.readFileSync(target, 'utf8'), original);
+      fs.unlinkSync(output);
+    }
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+    const output = path.join(zone, 'safe', 'session.json');
+    fs.unlinkSync(output); fs.linkSync(target, output);
+    assert.throws(() => sink.handle({ type: 'session-close', sessionId: 'safe' }), /capture boundary/);
+    assert.equal(fs.readFileSync(target, 'utf8'), original);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture rechecks directories after start including watchdog and EOF cleanup', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(outside);
+    const original = '{"status":"open"}\n';
+    fs.writeFileSync(path.join(outside, 'session.json'), original);
+    const sink = new SessionSink(zone);
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+    fs.renameSync(path.join(zone, 'safe'), path.join(zone, 'original'));
+    fs.symlinkSync(outside, path.join(zone, 'safe'), 'dir');
+    for (const type of ['audio-chunk', 'health', 'caption', 'session-close']) {
+      assert.throws(() => sink.handle({ type, sessionId: 'safe', line: {}, dataB64: 'YQ==' }), /capture boundary/);
+    }
+    sink.checkWatchdog(T0 + 30000);
+    assert.deepEqual(sink.finalizeOnEof(T0 + 30000), []);
+    assert.equal(fs.readFileSync(path.join(outside, 'session.json'), 'utf8'), original);
+    assert.deepEqual(fs.readdirSync(outside), ['session.json']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('session-start creates the contract dir with an OPEN, v2 session.json', () => {
   const zone = tmp();
   const sink = new SessionSink(zone);

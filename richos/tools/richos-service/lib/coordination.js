@@ -21,6 +21,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { sessionFile, writeSessionFile } from './capture-files.js';
 import { CAPTURE_SOURCE } from './contract.js';
 
 /** Capture SCOPE — what a surface's RIGHT channel is recording. Generic over OS/companion type. */
@@ -309,14 +310,14 @@ export function findPromotableOnDisk(zone, opts = {}) {
  * @param {number} now
  */
 export function markPromotable(zone, sessionId, now = Date.now()) {
-  const file = path.join(zone, sessionId, 'session.json');
   try {
+    const file = sessionFile(zone, sessionId, 'session.json');
     const record = JSON.parse(fs.readFileSync(file, 'utf8'));
     record.ownership = record.ownership || {};
     if (record.ownership.promotable === true) return false;
     record.ownership.promotable = true;
     record.ownership.staleSince = now;
-    fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+    writeSessionFile(zone, sessionId, 'session.json', `${JSON.stringify(record, null, 2)}\n`);
     return true;
   } catch {
     return false;
@@ -325,12 +326,12 @@ export function markPromotable(zone, sessionId, now = Date.now()) {
 
 /** Record on the dead session that a companion has superseded it (closes the failover loop). */
 export function markSuperseded(zone, deadSessionId, bySessionId) {
-  const file = path.join(zone, deadSessionId, 'session.json');
   try {
+    const file = sessionFile(zone, deadSessionId, 'session.json');
     const record = JSON.parse(fs.readFileSync(file, 'utf8'));
     record.ownership = record.ownership || {};
     record.ownership.supersededBy = bySessionId;
-    fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+    writeSessionFile(zone, deadSessionId, 'session.json', `${JSON.stringify(record, null, 2)}\n`);
     return true;
   } catch {
     return false;
