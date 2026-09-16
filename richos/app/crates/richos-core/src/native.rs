@@ -1934,9 +1934,9 @@ impl Cognition for NativeCognition {
         }
         if let Some(profile) = &self.engine_profile {
             let workers = crate::app_workers::status(&profile.state, Some(&self.session_id));
-            if workers.liveness_unknown > 0 {
+            if !workers.is_attributed() || workers.active > 0 || workers.liveness_unknown > 0 {
                 let _ = self.client.child.kill(); let _ = self.client.child.wait();
-                return Err(CognitionError::Protocol("The turn ended before its workers settled. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.".into()));
+                return Err(CognitionError::Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.".into()));
             }
         }
         result
@@ -2445,6 +2445,49 @@ done
         assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
         assert!(!client.reader_state.lock().unwrap().context_only);
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    #[test]
+    fn worker_settlement_requires_readable_evidence_before_a_normal_turn_end() {
+        use crate::cognition::Cognition;
+        use std::collections::BTreeMap;
+        for scenario in ["open", "damaged", "missing", "unreadable", "empty", "settled"] {
+            let script = write_script("audit-unsettled", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r keep_alive
+"#);
+            let mut cognition = NativeCognition::start(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+            let root = script.parent().unwrap().join("state");
+            let folder = root.join("evidence").join(&cognition.session_id);
+            std::fs::create_dir_all(&folder).unwrap();
+            let mut log = serde_json::json!({"schema":1,"callback":{"session_id":cognition.session_id,"hook_event_name":"SubagentStart","agent_id":"still-running"}}).to_string()+"\n";
+            match scenario {
+                "damaged" => log.push_str("{\"schema\":"),
+                "empty" => log.clear(),
+                "settled" => log.push_str(&(serde_json::json!({"schema":1,"callback":{"session_id":cognition.session_id,"hook_event_name":"SubagentStop","agent_id":"still-running"}}).to_string()+"\n")),
+                _ => {},
+            }
+            std::fs::write(folder.join(".lock"), "").unwrap();
+            match scenario {
+                "missing" => {},
+                "unreadable" => std::fs::create_dir(folder.join("callbacks.jsonl")).unwrap(),
+                _ => std::fs::write(folder.join("callbacks.jsonl"), log).unwrap(),
+            }
+            let state = crate::app_workers::status(&root, Some(&cognition.session_id));
+            cognition.engine_profile = Some(crate::engine_profile::EngineProfile {
+                engine: root.clone(), coordination: root.clone(), plugin: root.clone(), state: root.clone(),
+                runtime: crate::runtime::EngineRuntime {root: root.clone(), python:"/usr/bin/python3".into(), node:"/usr/bin/false".into(), git:"/usr/bin/git".into(),versions:BTreeMap::new()},
+                work_scope:None, permissions:Default::default()
+            });
+            let result = cognition.prompt("Synthetic audit turn", &mut |_| {});
+            let provider_alive = cognition.client.child.try_wait().unwrap().is_none();
+            println!("SETTLEMENT scenario={scenario}, liveness_unknown={}, unattributed={:?}, result={result:?}, provider_alive={provider_alive}", state.liveness_unknown,state.unattributed);
+            if matches!(scenario, "empty" | "settled") { assert_eq!(result.unwrap(),"end_turn"); assert!(provider_alive); }
+            else { assert!(result.is_err()); assert!(!provider_alive); }
+        }
     }
 
     #[test]
