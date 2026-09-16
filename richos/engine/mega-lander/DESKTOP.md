@@ -61,3 +61,10 @@ owns actual execution observations, Mega Lander owns workspaces, Git owns local
 integration and publication evidence, Loro owns knowledge and ASS Kicker owns
 its existing reliability controls. Do not create parallel authorities or weaken
 one component's refusal to make another component appear successful.
+
+For shell tools, use direct commands with literal absolute paths, such as
+`git -C "/absolute/assigned/worktree" status --short`. Submit separate tool
+calls for separate checks. Avoid shell variables, loops and wrapper scripts for
+ordinary Git or file checks: the provider cannot automatically authorize some
+of those forms even when their intended operation is routine. This is command
+construction guidance before execution, not permission to retry a denied action.

@@ -29,7 +29,7 @@
    if(current?.id===request.id)return;
    current=request;returnFocus=document.activeElement;
    field("scope").textContent="Company: "+request.binding.entity_id+" · Action: "+request.tool;
-   field("description").textContent=request.description||"Rich needs permission to run the action shown below.";
+   field("description").textContent=[request.description,request.reason].filter(Boolean).join(" ")||"Rich needs permission to run the action shown below.";
    field("input").textContent=JSON.stringify(request.input,null,2);
    field("status").textContent="This permission applies only to this action.";panel.hidden=false;field("deny").focus();
   }catch(error){if(current){field("status").textContent="The action's state could not be verified. Approval is unavailable.";field("allow").disabled=true;}}

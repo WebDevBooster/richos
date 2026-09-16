@@ -89,12 +89,29 @@ runtime. The profile separates shipped code, app-owned coordination and connecte
 repositories. Repository connections are explicit registry facts; ordinary company
 folder mappings do not become execution grants when an older registry is loaded.
 
-The desktop native permission path uses a scoped app decision desk. Validated
-onboarding/continuity tools retain their existing host contracts. Other permission
-requests display the exact tool input and require a decision for that action only.
-Stop revokes the visible-turn grant before acknowledging cancellation, so an old
-permission request cannot revive a stopped or superseded turn. This decision desk
-does not replace workspace isolation or future dispatch receipt validation.
+The desktop requests the provider's `auto` permission mode and verifies that the
+native initialization frame reports it before visible work starts. The generated
+settings retain the classifier defaults and add only the selected company's
+connected repositories and this thread's target-worktree directory. Shell commands
+remain subject to classification; file reads outside registered working directories
+remain subject to the provider's access checks. These settings are not an OS sandbox.
+Publication requires the user's operation and destination, independently of a
+request for local implementation. There is no bypass-mode fallback.
+
+Native callbacks that still need a decision use the scoped app desk. They display
+the exact input and the provider's reason when supplied. Validated host tools retain
+their explicit contracts. Stop revokes the visible-turn grant before acknowledging
+cancellation, and the independent PreToolUse fence also checks that grant. An old
+request cannot revive a stopped turn.
+
+Claude Code 2.1.273 permits direct Git checks automatically but routes some compound
+shell forms to a `safetyCheck` with `classifier_approvable: false`. The shipped roles
+use direct commands and literal target paths for routine checks. They do not retry
+a denied action through another command. The opt-in `work_roundtrip --permissions`
+probe checks direct commands and an intentionally denied compound command. The
+`RICHOS_PROBE_NO_MANUAL=1` natural-assignment probe rejects any manual request.
+Provider availability and future behavior still require the installed release gate.
+See the provider's [auto-mode configuration](https://code.claude.com/docs/en/auto-mode-config).
 
 See the [intermediate profile verification](../verification/desktop-engine-profile-2026-09-16.md)
 for the tested scope and remaining integration work.

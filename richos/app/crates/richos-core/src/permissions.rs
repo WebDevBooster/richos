@@ -12,6 +12,7 @@ pub struct PermissionRequest {
     pub tool: String,
     pub input: Value,
     pub description: String,
+    pub reason: String,
 }
 #[derive(Debug)]
 struct Pending { request: PermissionRequest, scope: PathBuf, decision: Option<bool> }
@@ -25,6 +26,14 @@ fn grant(path: &Path) -> Option<Binding> {
     if std::fs::metadata(path).ok()?.len() > 16384 {return None;}
     let grant: Grant=serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     (grant.version == 1 && grant.actions_allowed).then_some(grant.binding)
+}
+fn permission_reason(request: &Value) -> String {
+    if let Some(reason)=request["decision_reason"].as_str().filter(|s|!s.is_empty()) {return reason.into();}
+    match request["decision_reason_type"].as_str() {
+        Some("safetyCheck") => "The provider requires manual approval for this command form.".into(),
+        Some(kind) => format!("The provider requires approval ({kind})."),
+        None => String::new(),
+    }
 }
 impl PermissionDesk {
     pub fn current(&self) -> Option<PermissionRequest> {
@@ -55,7 +64,7 @@ impl ScopedPermissions {
         let mut pending=self.desk.pending.lock().unwrap();
         if pending.is_some() {return deny("Another action is already waiting for permission. Reconcile it first.");}
         *pending=Some(Pending{request:PermissionRequest{id:id.clone(),binding:binding.clone(),tool:tool.into(),
-            input:request.get("input").cloned().unwrap_or(json!({})),description:request["description"].as_str().unwrap_or("").into()},
+            input:request.get("input").cloned().unwrap_or(json!({})),description:request["description"].as_str().unwrap_or("").into(),reason:permission_reason(request)},
             scope:self.scope.clone(),decision:None});
         let deadline=Instant::now()+limit;
         let decision=loop {
@@ -76,6 +85,11 @@ impl ScopedPermissions {
         let p=std::env::temp_dir().join(format!("permission-{}.json",uuid::Uuid::new_v4()));
         std::fs::write(&p,json!({"version":1,"actions_allowed":true,"binding":{"entity_id":"alpha","thread_id":"thread","session_id":"session","turn_id":"turn","audience":"ceo","revision":1}}).to_string()).unwrap();
         let policy=ScopedPermissions{desk:Arc::new(PermissionDesk::default()),scope:p.clone()};(p,policy)
+    }
+    #[test] fn provider_reason_survives_missing_human_explanation() {
+        assert_eq!(permission_reason(&json!({"decision_reason_type":"safetyCheck","classifier_approvable":false})),"The provider requires manual approval for this command form.");
+        assert_eq!(permission_reason(&json!({"decision_reason":"Exact provider reason","decision_reason_type":"safetyCheck"})),"Exact provider reason");
+        assert_eq!(permission_reason(&json!({})),"");
     }
     #[test] fn allow_and_deny_apply_to_one_exact_request_and_never_persist_a_rule(){
         for allow in [true,false] {let (p,policy)=scope();let child=policy.clone();

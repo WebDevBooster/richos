@@ -73,7 +73,7 @@ def handle(payload):
         run(ws + ["hook"], payload)
     if event == "PostToolUse" and payload.get("tool_name") == "Agent":
         run(["/bin/bash", str(ENGINE / "scripts/hooks/detect-nonnative-worktree.sh")], payload)
-    if event in ("SubagentStart", "SubagentStop", "PostToolUse"):
+    if event in ("SubagentStart", "SubagentStop", "PostToolUse", "PostToolUseFailure"):
         work.observe(scope(), payload)
     if event == "Stop":
         # Context-only priming is host machinery, not a new assignment or promise.

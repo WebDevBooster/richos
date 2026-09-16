@@ -100,11 +100,13 @@ fn workspace_partitions_are_stable_per_company_thread_and_distinct_across_thread
     let mut a=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
     let mut b=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
     assert_ne!(a.workspace_state(),b.workspace_state());
-    a.scope_to(&spine.ledger().thread_binding(&first).unwrap());
-    b.scope_to(&spine.ledger().thread_binding(&first).unwrap());
+    a.scope_to(&spine.ledger().thread_binding(&first).unwrap()).unwrap();
+    b.scope_to(&spine.ledger().thread_binding(&first).unwrap()).unwrap();
     assert_eq!(a.workspace_state(),b.workspace_state());
-    b.scope_to(&spine.ledger().thread_binding(&second).unwrap());
+    b.scope_to(&spine.ledger().thread_binding(&second).unwrap()).unwrap();
     assert_ne!(a.workspace_state(),b.workspace_state());
+    assert_ne!(a.target_state(),b.target_state());
+    assert!(a.target_state().is_dir());
 }
 
 #[test]
@@ -136,4 +138,33 @@ fn generic_git_identity_is_a_default_and_explicit_assignment_identity_can_overri
         assert!(output.status.success());
         assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
     }
+}
+
+#[test]
+fn classified_permissions_keep_defaults_and_only_add_the_current_company_and_thread() {
+    use richos_core::{EntityId, EntityRegistry, Ledger, Spine};
+    let f=Scratch::new();
+    let alpha=EntityId::parse("alpha").unwrap();let beta=EntityId::parse("beta").unwrap();
+    let mut registry=EntityRegistry::from_existing_ids(&[alpha.clone(),beta.clone()]);
+    let a=f.0.join("alpha repository");let b=f.0.join("beta repository");
+    std::fs::create_dir(&a).unwrap();std::fs::create_dir(&b).unwrap();
+    registry.connect_repository(&alpha,a.clone()).unwrap();registry.connect_repository(&beta,b.clone()).unwrap();
+    registry.save(&f.0.join("entities.json")).unwrap();
+    let mut spine=Spine::new(Ledger::open(&f.0.join("ledger.jsonl")).unwrap());spine.set_entity_registry(registry);
+    let thread=spine.create_thread("Alpha",&alpha).unwrap();
+    let mut profile=EngineProfile::prepare(&engine(),&f.0,f.runtime()).unwrap();
+    profile.scope_to(&spine.ledger().thread_binding(&thread).unwrap()).unwrap();
+    let mut command=std::process::Command::new("/fictional/provider");profile.configure(&mut command,"session",&f.0.join("scope"));
+    let args:Vec<_>=command.get_args().map(|a|a.to_string_lossy().to_string()).collect();
+    assert!(args.windows(2).any(|pair|pair==["--permission-mode","auto"]));
+    let start=args.iter().position(|arg|arg=="--add-dir").unwrap()+1;
+    let directories:Vec<_>=args[start..].iter().take_while(|arg|!arg.starts_with("--")).map(String::as_str).collect();
+    assert_eq!(directories,vec![a.to_str().unwrap(),profile.target_state().to_str().unwrap()]);
+    assert!(!args.iter().any(|arg|arg.contains("bypassPermissions")||arg.contains("dangerously-skip")));
+    let settings:serde_json::Value=serde_json::from_str(&args[args.iter().position(|arg|arg=="--settings").unwrap()+1]).unwrap();
+    assert_eq!(settings["permissions"]["blockReadsOutsideWorkingDirectories"],true);
+    assert_eq!(settings["autoMode"]["classifyAllShell"],true);
+    assert_eq!(settings["autoMode"]["environment"][0],"$defaults");
+    assert_eq!(settings["autoMode"]["soft_deny"][0],"$defaults");
+    assert!(!settings.to_string().contains(b.to_str().unwrap()));
 }

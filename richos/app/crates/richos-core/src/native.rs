@@ -657,6 +657,7 @@ pub struct NativeClient {
 struct ReaderState {
     permissions: Option<crate::permissions::ScopedPermissions>,
     work_tools_loaded: bool,
+    automatic_permissions: bool,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -709,6 +710,7 @@ impl Default for ReaderState {
         ReaderState {
             permissions: None,
             work_tools_loaded: false,
+            automatic_permissions: false,
             context_only: false,
             session_model: None,
             context_window: None,
@@ -1235,6 +1237,7 @@ impl NativeClient {
                 .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
             st.work_tools_loaded = ["mcp__richos_work__repositories", "mcp__richos_work__prepare", "mcp__richos_work__inspect", "mcp__richos_work__integrate", "mcp__richos_work__complete"].iter()
                 .all(|name| msg["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))));
+            st.automatic_permissions = msg["permissionMode"] == "auto";
             st.engine_plugin_loaded = msg["plugins"].as_array().is_some_and(|plugins|
                 plugins.iter().any(|plugin| plugin["name"] == "richos-app-engine"));
             let before = st.skills_verdict;
@@ -1828,6 +1831,9 @@ impl Cognition for NativeCognition {
         }
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().work_tools_loaded {
             return Err(CognitionError::Protocol("The desktop work tools did not load".into()));
+        }
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().automatic_permissions {
+            return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
         }
         let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn)
             .map_err(|e| CognitionError::Io(e.to_string()))?;

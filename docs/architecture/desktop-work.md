@@ -5,7 +5,7 @@ adapter and canonical Mega Lander controls. The provider starts in private app
 coordination. Target repositories must be explicitly connected to the active
 company. Company folder mappings alone confer no execution grant.
 
-Workspace registries are partitioned by company and thread before provider
+Workspace registries and target-worktree directories are partitioned by company and thread before provider
 startup. Provider sessions share a partition only when they serve the same
 thread. User instructions are attested from an exact ledger text digest; hidden
 priming and provider-authored prompts never become user instructions.
@@ -48,7 +48,12 @@ review verdicts and local integration kept distinct from whole-task completion.
 
 A reviewer names a worker receipt. Its worktree is based on the worker's actual
 clean commit. The host captures a typed verdict from that reviewer's observed
-SubagentStop callback, including the exact commit and provider identity.
+SubagentStop callback, including the exact commit and provider identity. On providers
+that deliver the report through `SubagentHandback`, the host records only a successful
+PostToolUse delivery from that same reviewer. A later observed SubagentStop must
+settle the run before that report can authorize integration. Attempts, failed
+handbacks, wrong identities and mismatched commits never establish a passing review.
+An explicit malformed final verdict cannot fall back to an older passing handback.
 
 `richos_work.integrate` requires that passing verdict, unchanged worker/reviewer
 commits and clean checkouts. It persists an integration intent before a local

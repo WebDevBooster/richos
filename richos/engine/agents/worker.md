@@ -22,3 +22,10 @@ run relevant checks and commit only your changes on the assigned worktree branch
 Report the exact commit, the checks actually run and any unresolved limitation.
 A final sentence is not proof that the work was integrated or accepted. The host
 and a separate reviewer determine those facts.
+
+For shell tools, use direct commands with literal absolute paths, such as
+`git -C "/absolute/assigned/worktree" status --short`. Submit separate tool
+calls for separate checks. Avoid shell variables, loops and wrapper scripts for
+ordinary Git or file checks: the provider cannot automatically authorize some
+of those forms even when their intended operation is routine. This is command
+construction guidance before execution, not permission to retry a denied action.

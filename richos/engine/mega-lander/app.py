@@ -293,7 +293,7 @@ def prepare(scope_path, scope, args):
         brief_path = root / (identity + ".brief")
         fd = os.open(brief_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,"w") as out: out.write(brief); out.flush(); os.fsync(out.fileno())
-        destination = state() / "target-worktrees" / name
+        destination = state() / "target-worktrees" / folder(scope).name / name
         command = [sys.executable,str(ENGINE / "scripts/lib/spawn.py"),name,"--repo",str(repo),
             "--type",f"richos-app-engine:{role}","--model","sonnet","--brief",str(brief_path),
             "--description",title,"--dir",str(destination),"--json"]
@@ -386,22 +386,47 @@ def worker_context(scope, payload):
             "Shell actions still follow the native permission decision; this context is not a general shell sandbox or publication grant."}}
 
 
+def review_report(record, message, aid, source, tool_use_id=None):
+    """Parse a report actually delivered by the observed reviewer, never a lead claim."""
+    if not isinstance(message, str): message = ""
+    lines = [line[len("RICHOS_REVIEW "):] for line in message.splitlines() if line.startswith("RICHOS_REVIEW ")]
+    try:
+        report = json.loads(lines[0]) if len(lines) == 1 else None
+        valid = (isinstance(report, dict) and report.get("commit") == record["review_target"]["commit"]
+                 and report.get("verdict") in ("passed", "changes-requested")
+                 and isinstance(report.get("checks"), list) and len(message) <= 128000)
+    except (ValueError, KeyError): valid = False
+    result = {"valid": bool(valid), "report": report if valid else None,
+              "provider_agent_id": aid, "message_sha256": hashlib.sha256(message.encode()).hexdigest(),
+              "source": source}
+    if tool_use_id: result["tool_use_id"] = tool_use_id
+    return result
+
+
 def observe(scope, payload=None):
     with locked(scope) as root:
         for path,record in receipts(root):
             refresh(record)
-            if (payload and payload.get("hook_event_name") == "SubagentStop" and record["request"]["role"] == "reviewer"
-                    and payload.get("agent_id") == record.get("agent_id") and payload.get("session_id") == record["binding"]["session_id"]):
-                message=payload.get("last_assistant_message", "")
-                lines=[line[len("RICHOS_REVIEW "):] for line in message.splitlines() if line.startswith("RICHOS_REVIEW ")]
-                try:
-                    report=json.loads(lines[0]) if len(lines)==1 else None
-                    valid=(isinstance(report,dict) and report.get("commit")==record["review_target"]["commit"]
-                        and report.get("verdict") in ("passed","changes-requested") and isinstance(report.get("checks"),list)
-                        and len(message)<=128000)
-                except (ValueError, KeyError): valid=False
-                record["review_observation"]={"valid":bool(valid),"report":report if valid else None,
-                    "provider_agent_id":payload["agent_id"],"message_sha256":hashlib.sha256(message.encode()).hexdigest()}
+            if (payload and record["request"]["role"] == "reviewer"
+                    and payload.get("agent_id") == record.get("agent_id") and record.get("agent_id")
+                    and payload.get("session_id") == record["binding"]["session_id"]):
+                event = payload.get("hook_event_name")
+                if event in ("PostToolUse", "PostToolUseFailure") and payload.get("tool_name") == "SubagentHandback":
+                    # Measured on the native provider: its successful handback carries
+                    # the report, while SubagentStop may contain only a closing sentence.
+                    # An attempt alone, a failed delivery or another agent cannot approve.
+                    delivered = (event == "PostToolUse" and isinstance(payload.get("tool_response"), dict)
+                                 and payload["tool_response"].get("success") is True and payload.get("tool_use_id"))
+                    message = payload.get("tool_input", {}).get("message", "") if delivered else ""
+                    record["review_handback"] = review_report(record, message, payload["agent_id"],
+                                                              "SubagentHandback", payload.get("tool_use_id"))
+                if event == "SubagentStop":
+                    message = payload.get("last_assistant_message", "")
+                    final = review_report(record, message, payload["agent_id"], "SubagentStop")
+                    # A malformed explicit final verdict must not resurrect an older pass.
+                    if isinstance(message, str) and "RICHOS_REVIEW " not in message and record.get("review_handback"):
+                        final = {**record["review_handback"], "end_observed": True}
+                    record["review_observation"] = final
             save(path,record)
     # ECS projection happens on scoped inspection. A late provider callback must
     # not write through a turn binding which has already been closed or superseded.

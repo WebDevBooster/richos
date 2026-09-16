@@ -6,9 +6,10 @@ async function main(){
  for(const allow of [true,false]) await run.check(allow?"explicit approval is bound to the displayed request":"decline is returned without approval",async()=>{
   const page=await browser.newPage({viewport:{width:1280,height:900}});const errors=[];page.on("pageerror",e=>errors.push(String(e)));
   await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
-  await page.evaluate(()=>{window.__RICHOS_MOCK_PRESET__={pendingPermission:{id:"synthetic-action",binding:{entity_id:"depot"},tool:"Write",input:{file_path:"/fictional/one.txt",content:"<img src=x onerror=alert(1)>"},description:"Write one fictional file"}};});
+  await page.evaluate(()=>{window.__RICHOS_MOCK_PRESET__={pendingPermission:{id:"synthetic-action",binding:{entity_id:"depot"},tool:"Write",input:{file_path:"/fictional/one.txt",content:"<img src=x onerror=alert(1)>"},description:"Write one fictional file",reason:"Outside the approved directory <img src=x onerror=alert(1)>"}};});
   await page.waitForSelector("#permission-sheet:not([hidden])");
   assert((await page.textContent("#permission-input")).includes("<img"),"tool input missing");assertEqual(await page.locator("#permission-input img").count(),0,"tool input was interpreted as markup");
+  assert((await page.textContent("#permission-description")).includes("Outside the approved directory"),"permission reason was omitted");assertEqual(await page.locator("#permission-description img").count(),0,"permission reason was interpreted as markup");
   await page.click(allow?"#permission-allow":"#permission-deny");await page.waitForSelector("#permission-sheet",{state:"hidden"});
   assertEqual(await page.evaluate(()=>window.__RICHOS_MOCK_PRESET__.permissionAnswer),allow,"wrong permission decision");assertEqual(errors.length,0,"renderer errors");await page.close();return "one decision for the displayed action";
  });

@@ -75,7 +75,7 @@ class DesktopWork(unittest.TestCase):
         self.app.dispatch_intent(self.scope,envelope)
         self.app.W.register_spawn(envelope,str(self.coord))
         self.app.W.bind_agent(self.session,"observed-call","observed-agent",str(self.coord))
-        target=self.root/"engine-state/target-worktrees"/ready["name"]
+        target=self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
         event={"session_id":self.session,"agent_id":"observed-agent","cwd":str(self.coord),"tool_name":"Write","tool_input":{"file_path":"wrong.txt"}}
         with self.assertRaisesRegex(ValueError,"outside"):self.app.worker_context(self.scope,event)
         event["tool_input"]["file_path"]=str(target/"right.txt")
@@ -92,11 +92,54 @@ class DesktopWork(unittest.TestCase):
         self.app.git(self.coord,"worktree","add","-b","worktree-agent-"+aid,str(native),"HEAD")
         self.app.W.record_start(self.session,aid,str(native),"richos-app-engine:"+ready["request"]["role"])
         self.app.W.bind_agent(self.session,payload["tool_use_id"],aid,str(self.coord))
-        return self.root/"engine-state/target-worktrees"/ready["name"]
+        return self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
 
     def finish_fixture_worker(self,aid,report=""):
         self.app.W.record_end(self.session,aid,"SubagentStop")
         self.app.observe(self.scope,{"hook_event_name":"SubagentStop","session_id":self.session,"agent_id":aid,"last_assistant_message":report})
+
+    def test_native_handback_requires_success_identity_and_observed_reviewer_end(self):
+        worker=self.call("prepare",self.args)
+        target=self.start_fixture_worker(worker,"handback-worker")
+        (target/"result.txt").write_text("FICTIONAL")
+        self.app.git(target,"add","result.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional handback result")
+        commit=self.app.git(target,"rev-parse","HEAD")
+        self.finish_fixture_worker("handback-worker")
+        reviewer=self.call("prepare",{**self.args,"request_id":"handback-review","role":"reviewer","review_of":worker["id"]})
+        self.start_fixture_worker(reviewer,"handback-reviewer")
+        report="RICHOS_REVIEW "+json.dumps({"commit":commit,"verdict":"passed","checks":["synthetic exact-commit review"]})
+        event={"hook_event_name":"PostToolUse","session_id":self.session,"agent_id":"handback-reviewer",
+               "tool_name":"SubagentHandback","tool_use_id":"actual-handback-call", "tool_input":{"message":report},"tool_response":{"success":True}}
+        def receipt():
+            with self.app.locked(self.scope) as root: return self.app.read_record(root,reviewer["id"])
+        for change in ({"hook_event_name":"PreToolUse"},{"agent_id":"another-agent"},{"session_id":"another-session"}):
+            self.app.observe(self.scope,{**event,**change})
+            self.assertNotIn("review_handback",receipt())
+        self.app.observe(self.scope,{**event,"tool_response":{"success":False}})
+        self.assertFalse(receipt()["review_handback"]["valid"])
+        self.app.observe(self.scope,{**event,"tool_input":{"message":report.replace(commit,"0"*40)}})
+        self.assertFalse(receipt()["review_handback"]["valid"])
+        self.app.observe(self.scope,event)
+        self.assertTrue(receipt()["review_handback"]["valid"])
+        self.assertNotIn("review_observation",receipt())
+        with self.assertRaises(ValueError): self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.finish_fixture_worker("handback-reviewer","Report delivered to caller.")
+        observation=receipt()["review_observation"]
+        self.assertTrue(observation["valid"])
+        self.assertTrue(observation["end_observed"])
+        self.assertEqual(observation["tool_use_id"],"actual-handback-call")
+        self.assertEqual(observation["report"]["commit"],commit)
+        self.assertIn("review:",self.app.verification_evidence(self.scope,reviewer["id"]))
+        # Explicit malformed final reports and failed later handbacks cannot reuse an old pass.
+        self.finish_fixture_worker("handback-reviewer","RICHOS_REVIEW malformed")
+        self.assertFalse(receipt()["review_observation"]["valid"])
+        self.app.observe(self.scope,{**event,"hook_event_name":"PostToolUseFailure","error":"delivery failed"})
+        self.finish_fixture_worker("handback-reviewer","No delivered report.")
+        self.assertFalse(receipt()["review_observation"]["valid"])
+        self.app.observe(self.scope,event)
+        self.finish_fixture_worker("handback-reviewer","Report delivered to caller.")
+        self.assertTrue(self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})["work_integrated"])
 
     def test_interrupted_continuation_preserves_dirty_files_and_uses_original_session_key(self):
         worker=self.call("prepare",self.args)
