@@ -11,8 +11,8 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { workspaceSyncStatePath } from '../config.js';
+import { writePrivateFile } from '../private-files.js';
 
 function keyOf(vendor, source) {
   return `${vendor}:${source}`;
@@ -42,8 +42,7 @@ export function getSyncState(vendor, source, file = workspaceSyncStatePath()) {
 export function setSyncState(vendor, source, cursor, file = workspaceSyncStatePath()) {
   const map = loadSyncState(file);
   map[keyOf(vendor, source)] = { cursor, updatedAt: Date.now() };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(map, null, 2)}\n`);
+  writePrivateFile(file, `${JSON.stringify(map, null, 2)}\n`);
   return map[keyOf(vendor, source)];
 }
 
@@ -51,7 +50,6 @@ export function setSyncState(vendor, source, cursor, file = workspaceSyncStatePa
 export function resetSyncState(vendor, source, file = workspaceSyncStatePath()) {
   const map = loadSyncState(file);
   map[keyOf(vendor, source)] = { cursor: null, resetAt: Date.now() };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(map, null, 2)}\n`);
+  writePrivateFile(file, `${JSON.stringify(map, null, 2)}\n`);
   return null;
 }

@@ -911,6 +911,61 @@ await atest('ingestOnce short-circuits (never polls) when auth needs re-consent 
   fs.rmSync(zone, { recursive: true, force: true });
 });
 
+for (const leaf of ['google', 'google/calendar', 'revision', 'item.json', 'content.txt', 'governance.json']) {
+  await atest(`ingest refuses linked evidence component ${leaf} without modifying the target`, async () => {
+    const zone = tmp();
+    const outside = tmp();
+    try {
+      const adapter = new GoogleCalendarAdapter({ client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'S' }]), now });
+      const dir = evidenceDir(adapter.toSourceItem(EVENT_ORG), zone);
+      const isFile = leaf.endsWith('.json') || leaf.endsWith('.txt');
+      const target = isFile ? path.join(outside, 'target') : outside;
+      const link = leaf === 'revision' ? dir : isFile ? path.join(dir, leaf) : path.join(zone, leaf);
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      if (isFile) fs.writeFileSync(target, 'unchanged');
+      fs.symlinkSync(target, link, isFile ? 'file' : 'junction');
+      await assert.rejects(() => ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now }), /storage boundary|privacy invariant/);
+      if (isFile) assert.equal(fs.readFileSync(target, 'utf8'), 'unchanged');
+      else assert.deepEqual(fs.readdirSync(outside), []);
+      assert.equal(fs.existsSync(path.join(zone, '_sync_state.json')), false);
+    } finally {
+      fs.rmSync(zone, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+}
+test('evidence preflights all output files before touching a hard-linked body', () => {
+  const zone = tmp();
+  const outside = tmp();
+  try {
+    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const item = adapter.toSourceItem(EVENT_ORG);
+    const dir = evidenceDir(item, zone);
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(outside, 'body');
+    fs.writeFileSync(target, 'unchanged');
+    fs.linkSync(target, path.join(dir, 'content.txt'));
+    assert.throws(() => writeEvidence(item, {}, zone), /storage boundary/);
+    assert.equal(fs.existsSync(path.join(dir, 'item.json')), false);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'unchanged');
+  } finally {
+    fs.rmSync(zone, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+test('sync-state output refuses a linked file rather than overwriting its target', () => {
+  const zone = tmp();
+  try {
+    const target = path.join(zone, 'original.json');
+    const file = path.join(zone, '_sync_state.json');
+    fs.writeFileSync(target, '{}');
+    fs.symlinkSync(target, file);
+    assert.throws(() => setSyncState('google', 'calendar', 'S', file), /storage boundary/);
+    assert.throws(() => resetSyncState('google', 'calendar', file), /storage boundary/);
+    assert.equal(fs.readFileSync(target, 'utf8'), '{}');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
 // =================================================================================================
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

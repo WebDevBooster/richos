@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspaceZone } from '../config.js';
+import { privateDirectory, privateFile, writePrivateFile } from '../private-files.js';
 
 /** Make a vendor-prefixed sourceItemId safe as a single path segment (no slashes/colons/dots leading). */
 export function safeId(sourceItemId) {
@@ -66,15 +67,18 @@ export function evidenceLinkFor(item, zone, repoRoot) {
  * @returns {{dir:string, itemPath:string, written:boolean}}
  */
 export function writeEvidence(item, governance, zone = workspaceZone()) {
-  const dir = evidenceDir(item, zone);
+  const dir = privateDirectory(evidenceDir(item, zone), zone);
+  // Validate the entire write set before changing any evidence file.
+  for (const name of ['item.json', 'content.txt', 'governance.json']) {
+    privateFile(path.join(dir, name), dir);
+  }
   const itemPath = path.join(dir, 'item.json');
   const alreadyThere = fs.existsSync(itemPath);
-  fs.mkdirSync(dir, { recursive: true });
   // Keep the heavy body out of item.json for cheap scanning; item.json references content.txt.
   const body = item.content.text || '';
   const stored = { ...item, content: { ...item.content, text: undefined, textFile: 'content.txt' } };
-  fs.writeFileSync(itemPath, `${JSON.stringify(stored, null, 2)}\n`);
-  fs.writeFileSync(path.join(dir, 'content.txt'), body);
-  fs.writeFileSync(path.join(dir, 'governance.json'), `${JSON.stringify(governance, null, 2)}\n`);
+  writePrivateFile(itemPath, `${JSON.stringify(stored, null, 2)}\n`);
+  writePrivateFile(path.join(dir, 'content.txt'), body);
+  writePrivateFile(path.join(dir, 'governance.json'), `${JSON.stringify(governance, null, 2)}\n`);
   return { dir, itemPath, written: !alreadyThere };
 }
