@@ -30,6 +30,20 @@ interrupted, unknown and integrated. A run ending does not establish success.
 ECS observations use durable outboxes so a crash after the ECS commit but before
 the local receipt can reconcile without a duplicate event.
 
+## Continuation
+
+A new worker can name `continue_of` after the original execution settles. The
+adapter derives the base from the actual saved commit. Dirty files are retained
+and refused before workspace creation; Rich must inspect and reconcile the
+intended changes through the normal permission path. The adapter never resets,
+discards or silently commits them. Canonical continuation records the original
+session's exact workspace key and requires a fresh review of the revised result.
+
+The delivered desktop execution contract joins the app's standing instruction.
+Users describe their assignment; Rich owns internal obligation and receipt IDs.
+Saved work summaries are available in the conversation, with observed run ends,
+review verdicts and local integration kept distinct from whole-task completion.
+
 ## Review, integration and cleanup
 
 A reviewer names a worker receipt. Its worktree is based on the worker's actual
@@ -40,7 +54,9 @@ SubagentStop callback, including the exact commit and provider identity.
 commits and clean checkouts. It persists an integration intent before a local
 fast-forward. It does not push, rebase, resolve conflicts or overwrite unrelated
 edits. Recovery checks Git before retrying. Mega Lander owns cleanup, with partial
-cleanup reported separately from a verified integration.
+cleanup reported separately from a verified integration. An explicit retry uses
+the canonical deletion path and rechecks eligibility; an earlier landing receipt
+does not certify that resource deletion completed.
 
 A verified work result is not completion of every condition in a broader
 obligation. The adapter does not close the entire obligation automatically.

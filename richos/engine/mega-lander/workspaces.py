@@ -1173,7 +1173,7 @@ def register_spawn(payload, entity, dry=False):
     items = pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), report=report)
     blocking = [i for i in items if i["blocks_new_work"]]
     helps = set(continues + lands_pending)
-    if blocking and not (helps & set(i["name"] for i in blocking)):
+    if blocking and not (helps & set(value for i in blocking for value in (i["name"], i["key"]))):
         extra = ""
         if report.get("deferred"):
             extra = ("\n  (The gate answered inside its budget rather than overrunning this hook's "
@@ -1181,11 +1181,15 @@ def register_spawn(payload, entity, dry=False):
                      "Land it by hand - `workspaces.sh land <name>` has no budget.)"
                      % ", ".join(sorted(set(report["deferred"]))))
         raise SpecError(gate_message(blocking, "start new work", spawn=True) + extra)
+    continuation_keys = []
     for c in continues:
-        match = [i for i in items if i["name"] == c]
+        match = [i for i in items if i["name"] == c or i["key"] == c]
         if not match:
             raise SpecError("continues: %s - there is no pending finished agent of that name to continue "
                             "(point 7)" % c)
+        if len(match) != 1:
+            raise SpecError("continues: %s is ambiguous; name its exact registered key" % c)
+        continuation_keys.append(match[0]["key"])
         _require_clean(load_agent(match[0]["key"]), "continue it (its workspaces are deleted when the new "
                        "agent starts, point 7)")
 
@@ -1245,7 +1249,7 @@ def register_spawn(payload, entity, dry=False):
         rec.update({"tool_use_id": tuid, "subagent_type": str(ti.get("subagent_type") or ""),
                     "isolation": isolation, "session_identity": ident,
                     "ceo_ordered": (ceo_ordered[0] if ceo_ordered else rec.get("ceo_ordered")),
-                    "continues": [named_key(sid, c) if not _is_key(c) else c for c in continues],
+                    "continues": continuation_keys,
                     "lands_pending": lands_pending, "entity": realpath(entity),
                     "spawned_at": iso()})
         rec.pop("creation_failed", None)
@@ -3153,7 +3157,17 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     if not fin:
         raise SpecError("%s is not finished (%s); only finished work is landed" % (rec["name"], why))
     if rec.get("disposition") and rec["disposition"].get("kind") != "continued":
-        return {"landed": True, "already": rec["disposition"]["kind"]}
+        kind = rec["disposition"]["kind"]
+        if kind == "landed":
+            # An explicit retry must finish failed deletion, not certify the
+            # earlier eligibility receipt as completed cleanup. The canonical
+            # deletion path rechecks landing after writers stop.
+            chain = _chain(rec)
+            clean = _delete_chain(chain, "landed")
+            fresh = load_agent(rec["key"]) or {}
+            return {"landed": (fresh.get("disposition") or {}).get("kind") == "landed",
+                    "already": kind, "cleanup_pending": not clean}
+        return {"landed": True, "already": kind}
     chain = _chain(rec)
     # Shutdown can flush files or create commits. Prove landing only after it.
     paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
@@ -3172,10 +3186,11 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
                                     "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
             save_agent(fresh)
         event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
-    if not _delete_chain(chain, "landed", processes=stopped):
+    clean = _delete_chain(chain, "landed", processes=stopped)
+    if not clean:
         if not (load_agent(rec["key"]) or {}).get("disposition"):
             raise SpecError("landing eligibility changed during cleanup; the work was preserved")
-    return {"landed": True}
+    return {"landed": True, **({"cleanup_pending": True} if not clean else {})}
 
 
 def _require_landed(rec, chain, ignored_ok="", deadline=None):

@@ -98,6 +98,37 @@ class DesktopWork(unittest.TestCase):
         self.app.W.record_end(self.session,aid,"SubagentStop")
         self.app.observe(self.scope,{"hook_event_name":"SubagentStop","session_id":self.session,"agent_id":aid,"last_assistant_message":report})
 
+    def test_interrupted_continuation_preserves_dirty_files_and_uses_original_session_key(self):
+        worker=self.call("prepare",self.args)
+        target=self.start_fixture_worker(worker,"interrupted-worker")
+        (target/"unfinished.txt").write_text("KEEP UNFINISHED BYTES")
+        old_session=self.session
+        self.app.W.record_session_end(old_session,"synthetic interruption")
+        old_revision=self.scope["binding"]["revision"]
+        self.session="replacement-session"
+        os.environ["RICHOS_SESSION_ID"]=self.session
+        self.app.W.record_session_start(self.session,str(self.coord))
+        binding=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"bind",
+            "scope":{"entity_id":"depot","thread_id":"thread-a","session_id":self.session,"turn_id":"resume-turn","audience":"ceo"},
+            "request_id":"resume-binding","source_ref":"ledger:thread-a:resume-turn","expected_revision":old_revision})["binding"]
+        self.scope["binding"]=binding;self.scope_path.write_text(json.dumps(self.scope))
+        follow={**self.args,"request_id":"continue-one","continue_of":worker["id"],"brief":"Continue the fictional assignment from its saved progress. Preserve the existing file."}
+        with self.assertRaisesRegex(self.app.W.SpecError,"uncommitted|dirty"):
+            self.call("prepare",follow)
+        self.assertEqual((target/"unfinished.txt").read_text(),"KEEP UNFINISHED BYTES")
+        self.assertEqual(len(self.call("inspect")["records"]),1)
+        # Explicit fictional reconciliation before continuation. The adapter never
+        # resets, deletes or silently commits the old dirty files itself.
+        self.app.git(target,"add","unfinished.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Saved fictional progress")
+        continued=self.call("prepare",follow)
+        next_target=self.start_fixture_worker(continued,"replacement-worker")
+        canonical=self.app.W.load_agent(self.app.W.named_key(self.session,continued["name"]))
+        self.assertEqual(canonical["continues"],[self.app.W.named_key(old_session,worker["name"])])
+        self.assertEqual((next_target/"unfinished.txt").read_text(),"KEEP UNFINISHED BYTES")
+        self.assertFalse(target.exists())
+        self.assertFalse((self.repo/"unfinished.txt").exists())
+
     def test_review_exact_commit_integration_recovery_and_dirty_checkout_preservation(self):
         worker=self.call("prepare",self.args)
         target=self.start_fixture_worker(worker,"fixture-worker")
@@ -124,6 +155,11 @@ class DesktopWork(unittest.TestCase):
         with patch.object(self.app,"git",side_effect=crash_after_merge):
             with self.assertRaisesRegex(RuntimeError,"synthetic crash"):self.call("integrate",args)
         self.assertEqual((self.repo/"result.txt").read_text(),"FICTIONAL")
+        with patch.object(self.app.W,"remove_workspace",return_value=(False,"synthetic busy workspace")):
+            pending=self.call("integrate",args)
+        self.assertTrue(pending["work_integrated"])
+        self.assertTrue(pending["cleanup_pending"])
+        self.assertTrue(target.exists())
         result=self.call("integrate",args)
         self.assertTrue(result["work_integrated"]);self.assertFalse(result["obligation_closed"])
         self.assertEqual(result["cleanup_pending"],[])

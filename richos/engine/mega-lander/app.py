@@ -209,7 +209,7 @@ def project(scope, path, record):
 
 
 def prepare(scope_path, scope, args):
-    if set(args) - {"request_id","obligation_id","repo","title","brief","role","integration","base","review_of"}:
+    if set(args) - {"request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
     obligation = text(args,"obligation_id")
@@ -229,7 +229,7 @@ def prepare(scope_path, scope, args):
     if role not in ("worker","reviewer"): raise ValueError("only the shipped worker and reviewer roles are supported")
     title, brief = text(args,"title",256), text(args,"brief",32000)
     normalized = {"obligation_id":obligation,"repo":str(repo),"title":title,"brief":brief,"role":role,
-        "integration":args.get("integration"),"base":args.get("base"),"review_of":args.get("review_of")}
+        "integration":args.get("integration"),"base":args.get("base"),"review_of":args.get("review_of"),"continue_of":args.get("continue_of")}
     identity = hashlib.sha256(json.dumps([scope["binding"]["entity_id"],scope["binding"]["thread_id"],request_id],separators=(",", ":")).encode()).hexdigest()
     with locked(scope) as root:
         path = root / (identity + ".json")
@@ -247,6 +247,26 @@ def prepare(scope_path, scope, args):
         name = f"{role}-sonnet-{identity[:12]}"
         record = {"schema":1,"id":identity,"request_id":request_id,"binding":scope["binding"],
             "instruction_ref":instruction["ledger_ref"],"request":normalized,"name":name,"status":"preparing"}
+        if args.get("continue_of") is not None:
+            if role != "worker" or args.get("review_of") is not None:
+                raise ValueError("only an implementation worker can continue prior work")
+            previous = refresh(read_record(root, args["continue_of"]))
+            if previous["request"]["role"] != "worker" or previous["request"]["obligation_id"] != obligation or previous["request"]["repo"] != str(repo):
+                raise ValueError("continuation must belong to the same assignment and repository")
+            if previous["status"] not in ("run-ended", "interrupted"):
+                raise ValueError("the previous execution must be settled before continuation")
+            prior = W.load_agent(previous["workspace_ref"])
+            # Canonical continuation deletes the old workspaces when the new run
+            # starts. Refuse before creation unless every old byte is reconciled.
+            W._require_clean(prior, "continue saved work; inspect and reconcile retained uncommitted files first")
+            target = target_workspace(previous)
+            commit = git(target["path"], "rev-parse", "HEAD")
+            if args.get("base") not in (None, commit):
+                raise ValueError("continuation must start at the saved worker commit")
+            record["continuation"] = {"worker_id":previous["id"],"commit":commit,"workspace_ref":previous["workspace_ref"]}
+            brief = f"continues: {previous['workspace_ref']}\n" + brief + (
+                "\nContinue from the saved commit. Reconcile its existing implementation against the assignment; do not repeat completed side effects. "
+                "The prior worker did not establish assignment completion. A fresh independent review is required before integration.")
         if role == "reviewer":
             worker = refresh(read_record(root, args.get("review_of")))
             if worker["request"]["role"] != "worker" or worker["request"]["obligation_id"] != obligation or worker["request"]["repo"] != str(repo):
@@ -274,7 +294,9 @@ def prepare(scope_path, scope, args):
             "--type",f"richos-app-engine:{role}","--model","sonnet","--brief",str(brief_path),
             "--description",title,"--dir",str(destination),"--json"]
         for field in ("integration","base"):
-            value = record.get("review_target",{}).get("commit") if field == "base" and role == "reviewer" else args.get(field)
+            value = args.get(field)
+            if field == "base":
+                value = record.get("review_target", record.get("continuation", {})).get("commit", value)
             if value: command += ["--"+field, value]
         try:
             ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
@@ -295,6 +317,14 @@ def view(record, include_payload=False):
     result = {key:value for key,value in record.items() if key not in ("payload","ecs_pending","ecs_pending_projection","ecs_projection")}
     if include_payload: result["agent_payload"] = record["payload"]
     result["assignment_completed"] = False
+    if not record.get("integration", {}).get("verified"):
+        try:
+            target = target_workspace(record)
+            result["retained_target"] = target["path"]
+            if Path(target["path"]).is_dir():
+                result["uncommitted_files"] = git(target["path"], "status", "--porcelain", "--untracked-files=all")[:12000]
+        except Exception as error:
+            result["workspace_problem"] = str(error)[-2000:]
     return result
 
 
@@ -453,7 +483,9 @@ def integrate(scope_path,scope,args):
         for record in (worker,reviewer):
             try:
                 read_scope(scope_path)
-                W.land(record["workspace_ref"],me=scope["binding"]["session_id"])
+                result = W.land(record["workspace_ref"],me=scope["binding"]["session_id"])
+                if not result.get("landed") or result.get("cleanup_pending"):
+                    raise ValueError(f"Workspace cleanup for {record['name']} remains pending; its reviewed commit is still integrated.")
             except Exception as error: failures.append(str(error)[-4000:])
         worker["integration"]["cleanup_pending"]=failures
         save(path,worker); project(scope,path,worker)
@@ -482,7 +514,7 @@ def call(scope_path, name, args):
 
 TOOLS = [
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first.","inputSchema":{"type":"object","properties":{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of")},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal.","inputSchema":{"type":"object","properties":{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]
