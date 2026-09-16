@@ -275,6 +275,14 @@ declare_rules() {
     '^\[richos\] activation: (regular|accessory) — (an installed launch|no Dock icon, no window on screen, no focus taken, because this is not an installed launch:|RICHOS_ACTIVATION=)' \
     'whether this launch may activate, and why (activation.rs, 2026-09-06)'
 
+  # A placement backed by a current display is a startup decision. Require its
+  # dimensions, position and reason; a fallback or an unreadable display stays red.
+  local rect='[0-9]+x[0-9]+ pt at \(-?[0-9]+,-?[0-9]+\), min [0-9]+x[0-9]+'
+  local display='.+ work area [0-9]+x[0-9]+ pt at \(-?[0-9]+,-?[0-9]+\), scale [0-9]+(\.[0-9]+)?'
+  resolved 'window placement' \
+    "^\[richos\] window: (derived $rect — $display — (the preferred size fits, so it caps the window|the display is smaller than the preferred size, so the display decided)|restored $rect — where it was left, still inside $display)$" \
+    'a window derived from or restored inside an attached display (window_geometry.rs)'
+
   # The connection starts inside the first accepted request so preparation has Working,
   # progress and Stop ownership. This line proves the selected startup policy and command,
   # not an initialize handshake. Executable readiness remains the separate first-run setup
@@ -386,6 +394,19 @@ declare_rules() {
   # the decision, executed on every run.
 
   # --- the registry file itself: the four ways `EntityRegistry::load` refuses one ---------
+  refused 'display unavailable' \
+    '[richos] window: the runtime reported no attached display' \
+    'There is no current display to validate the window against.'
+  refused 'display unreadable' \
+    '[richos] window: displays could not be read: unavailable' \
+    'The display query failed; a fallback is not a display-backed placement.'
+  refused 'window fallback' \
+    '[richos] window: fallback 1400x880 pt centered by the platform, min 1024x700 — no display could be read; the preferred size is the last resort and the platform is left to center it' \
+    'The preferred constants carry no evidence that the window fits an attached display.'
+  refused 'window missing reason' \
+    '[richos] window: derived 1400x880 pt at (260,102), min 1024x700 — unknown' \
+    'A placement without the measured display and decision cannot resolve this proof.'
+
   refused 'registry absent' \
     '[richos] no company registry at /m/Library/Application Support/com.richos.app/entities.json — this install has registered no companies yet' \
     'No registry means no company is registered, which means every send is refused and no
@@ -747,6 +768,7 @@ healthy_log() {
   cat <<'LOG'
 [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 98012), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
 [richos] launch: fresh (start 1, 1 window(s))
+[richos] window: derived 1400x880 pt at (260,102), min 1024x700 — Monitor #30942 work area 1920x1005 pt at (0,25), scale 1 — the preferred size fits, so it caps the window
 [richos] company registry: 1 company from /m/Library/Application Support/com.richos.app/entities.json
 [richos] company registry: 1 compan(ies), /m/Library/Application Support/com.richos.app/entities.json (file)
 [richos] central folder: /m/myrichos (present)
@@ -846,6 +868,33 @@ elif [ "${#UNREFUSED[@]}" -eq 0 ]; then
 else
   bad "A6 every line declared unaccountable is still unaccounted" \
       "a rule now accounts for: ${UNREFUSED[*]}"
+fi
+
+# All successful placement shapes remain accountable, including secondary displays
+# with negative coordinates and a saved placement discarded after a display change.
+PLACEMENT_FAILURES=0
+while IFS= read -r placement; do
+  { healthy_log | grep -v '^\[richos\] window:'; printf '%s\n' "$placement"; } > "$TMP/a7.log"
+  if ! gui_account "$TMP/a7.log" >/dev/null 2>&1; then
+    PLACEMENT_FAILURES=$((PLACEMENT_FAILURES + 1))
+  fi
+done <<'LOG'
+[richos] window: derived 1000x680 pt at (-1900,58), min 1000x680 — Side display work area 1080x760 pt at (-1920,25), scale 1.5 — the display is smaller than the preferred size, so the display decided
+[richos] window: restored 1200x800 pt at (20,58), min 1024x700 — where it was left, still inside Built-in display work area 1512x944 pt at (0,25), scale 2
+[richos] window: derived 1400x880 pt at (260,102), min 1024x700 — the saved 1400x880 at (2000,80) on Removed display fits no display attached now — discarded; Monitor #30942 work area 1920x1005 pt at (0,25), scale 1 — the preferred size fits, so it caps the window
+LOG
+if [ "$PLACEMENT_FAILURES" -eq 0 ]; then
+  ok "A7 display-sized, restored and re-derived window placements are accounted for"
+else
+  bad "A7 successful window placements are accounted for" "$PLACEMENT_FAILURES forms were refused"
+fi
+
+healthy_log | grep -v '^\[richos\] window:' > "$TMP/a8.log"
+OUT="$(gui_account "$TMP/a8.log" 2>&1)"; CODE=$?
+if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'NOT RESOLVED  window placement'; then
+  ok "A8 a missing window placement fails its own proof"
+else
+  bad "A8 a missing window placement fails its own proof" "exit $CODE: $OUT"
 fi
 
 GUI_APP_DIR="$APP_DIR"
