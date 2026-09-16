@@ -187,4 +187,3 @@ export function candidateFor(section, text = '') {
     excerpt: String(text).slice(0, 400),
   };
 }
-

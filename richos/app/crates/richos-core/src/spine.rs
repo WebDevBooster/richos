@@ -1670,7 +1670,18 @@ impl Spine {
         let preparation = if self.control.stop_claim_for(turn_id).is_some() {
             Ok(())
         } else {
-            self.prepare_request(binding)
+            self.prepare_request(binding).and_then(|_| {
+                if self.control.stop_claim_for(turn_id).is_some() { return Ok(()); }
+                let journal = self.machinery_journal.as_ref();
+                let observer = self.machinery_observer.as_deref();
+                let mut on_item = |item: TurnItem| {
+                    if let TurnItem::Machinery(record) = item {
+                        Self::retain_and_emit_machinery(journal, observer, record.stamp(thread_id, Some(turn_id), true));
+                    }
+                };
+                self.lease.as_mut().ok_or(SpineError::NoLease)?
+                    .prepare_work_turn(binding, turn_id, &mut on_item).map_err(SpineError::from)
+            })
         };
         let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
         let preparation_stop = match &preparation {
@@ -2806,6 +2817,12 @@ impl Spine {
     }
 
     fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        if self.lease_primed_thread.as_deref().map(|thread| thread != binding.thread_id()).unwrap_or(false)
+            && self.lease.as_ref().map(|lease| lease.requires_thread_isolation()).unwrap_or(false) {
+            // Never carry one entity's provider context or ECS session into another
+            // thread. The new lease rehydrates only the destination's authorities.
+            self.clear_lease();
+        }
         if let Some(reason) = self.pending_rotation_reason.take() {
             if self.lease.is_some() {
                 self.rotate_lease(binding, &reason)?;

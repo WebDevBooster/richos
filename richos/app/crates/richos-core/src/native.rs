@@ -693,6 +693,7 @@ struct ReaderState {
     skills_verdict: crate::skills::SkillsVerdict,
     /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
     onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
+    continuity_tools_loaded: bool,
 }
 
 impl Default for ReaderState {
@@ -703,6 +704,7 @@ impl Default for ReaderState {
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
+            continuity_tools_loaded: false,
         }
     }
 }
@@ -837,10 +839,10 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None)
+        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -849,10 +851,14 @@ impl NativeClient {
             None => child_args(&session_id),
         };
         if let Some((executable, scope)) = onboarding {
-            let config = json!({"mcpServers": {"richos_onboarding": {
+            let mut config = json!({"mcpServers": {"richos_onboarding": {
                 "type": "stdio", "command": executable,
                 "args": ["--onboarding-mcp", scope]
             }}});
+            if let Some((bridge, scope)) = continuity {
+                config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
+                    "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
+            }
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         let mut command = Command::new(bin);
@@ -1187,6 +1193,8 @@ impl NativeClient {
             if st.onboarding_tools_verdict == crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported {
                 st.onboarding_tools_verdict = crate::onboarding_tools::verdict_from_init(&msg);
             }
+            st.continuity_tools_loaded = ["mcp__richos_continuity__checkpoint", "mcp__richos_continuity__inspect"].iter()
+                .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -1656,6 +1664,7 @@ pub struct NativeCognition {
     client: NativeClient,
     session_id: String,
     onboarding_scope: Option<std::path::PathBuf>,
+    continuity: Option<(crate::ecs::EcsBridge, std::path::PathBuf)>,
 }
 
 impl NativeCognition {
@@ -1674,7 +1683,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -1683,16 +1692,32 @@ impl NativeCognition {
         let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
         std::fs::create_dir_all(&scopes)?;
         let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
-        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), control)?;
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, control)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope) })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None })
     }
+    pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
+        executable: &Path, bridge: crate::ecs::EcsBridge,
+        control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+        bridge.request("hello", json!({})).map_err(|e| NativeError::Protocol(e.to_string()))?;
+        let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
+        std::fs::create_dir_all(&scopes)?;
+        let identity = uuid::Uuid::new_v4();
+        let scope = scopes.join(format!("{identity}.json"));
+        let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), control)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)) })
+    }
+
 
 
 }
 
 impl Drop for NativeCognition {
     fn drop(&mut self) {
+        if let Some((_, path)) = &self.continuity { let _ = std::fs::remove_file(path); }
         if let Some(path) = &self.onboarding_scope {
             let _ = std::fs::remove_file(path);
         }
@@ -1700,6 +1725,23 @@ impl Drop for NativeCognition {
 }
 
 impl Cognition for NativeCognition {
+    fn requires_thread_isolation(&self) -> bool { self.continuity.is_some() }
+    fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
+        on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        let Some((bridge, path)) = &self.continuity else { return Ok(()); };
+        if self.client.reader_state.lock().map(|s| s.continuity_tools_loaded).ok() != Some(true) {
+            return Err(CognitionError::Protocol("The selected engine's continuity tools did not load".into()));
+        }
+        let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let brief = bridge.brief(&scope).map_err(|e| CognitionError::Io(e.to_string()))?;
+        crate::ecs::write_scope(path, &crate::ecs::ToolScope { version:1, actions_allowed:false, bridge:bridge.clone(), binding:scope })
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
+        if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
+        Ok(())
+    }
+
     fn set_onboarding_scope(&mut self, entity: &crate::entity::EntityId,
         central_root: &Path, record_path: &Path) -> Result<(), CognitionError> {
         if let Some(path) = &self.onboarding_scope {
@@ -1735,7 +1777,21 @@ impl Cognition for NativeCognition {
         if let Some(path) = &self.onboarding_scope {
             crate::onboarding_tools::set_actions_allowed(path, true).map_err(CognitionError::Io)?;
         }
+        if let Some((_, path)) = &self.continuity {
+            if let Err(error) = crate::ecs::set_actions_allowed(path, true) {
+                if let Some(onboarding) = &self.onboarding_scope { let _ = crate::onboarding_tools::set_actions_allowed(onboarding, false); }
+                return Err(CognitionError::Io(error.to_string()));
+            }
+        }
         let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
+        if let Some((_, path)) = &self.continuity {
+            if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
+                let _ = self.client.child.kill(); let _ = self.client.child.wait();
+                let _ = std::fs::remove_file(path);
+                if let Some(onboarding) = &self.onboarding_scope { let _ = std::fs::remove_file(onboarding); }
+                return Err(CognitionError::Io(error.to_string()));
+            }
+        }
         if let Some(path) = &self.onboarding_scope {
             if let Err(error) = crate::onboarding_tools::set_actions_allowed(path, false) {
                 // A lease whose grant cannot be revoked must not accept another operation.

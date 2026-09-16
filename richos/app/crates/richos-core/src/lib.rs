@@ -68,6 +68,7 @@ pub mod correction;
 pub mod config;
 pub mod doctrine;
 pub mod entity;
+pub mod ecs;
 pub mod feedback;
 pub mod home_field;
 pub mod journal;

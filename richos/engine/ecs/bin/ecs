@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""One bounded JSON request/response for the app. State is always explicit."""
+import argparse
+import json
+from pathlib import Path
+import sys
+import sqlite3
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT / "core"), str(ROOT / "adapters")]
+from app import execute
+from ecs_core import ECSError
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--state-root", required=True)
+args = parser.parse_args()
+try:
+    raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ValueError("ECS request exceeds 1 MiB")
+    result = execute(args.state_root, json.loads(raw))
+    print(json.dumps({"protocol": 1, "ok": True, "result": result}, ensure_ascii=False))
+except (ECSError, ValueError, TypeError, OSError, sqlite3.Error) as error:
+    print(json.dumps({"protocol": 1, "ok": False, "error": {"kind": type(error).__name__, "message": str(error)}}))
+    raise SystemExit(2)

@@ -70,12 +70,20 @@ pub trait Cognition: Send {
     /// A stable identifier for the backing session (for the ledger's rotation record).
     fn session_id(&self) -> &str;
 
+    /// Scoped operational sessions cannot be reused for another thread.
+    fn requires_thread_isolation(&self) -> bool { false }
+
     /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
     /// keep the default no-op; the native chat lease atomically updates its private scope.
     fn set_onboarding_scope(
         &mut self, _entity: &crate::entity::EntityId, _central_root: &std::path::Path,
         _record_path: &std::path::Path,
     ) -> Result<(), CognitionError> { Ok(()) }
+
+    /// Host-issued visible-turn scope. Hidden preparation records are retained as
+    /// internal machinery and never receive a mutation grant.
+    fn prepare_work_turn(&mut self, _binding: &crate::entity::ThreadBinding, _turn: &str,
+        _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { Ok(()) }
 
     /// Inject the re-prime payload as an INTERNAL, non-rendered priming turn.
     /// Called once when the lease is (re)spawned, before any CEO-visible turn.
