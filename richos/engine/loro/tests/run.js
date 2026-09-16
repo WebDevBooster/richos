@@ -1247,6 +1247,33 @@ test('writer: PROBE — narrowing a scope needs no acknowledgement', () => {
   });
 });
 
+test('write cli: supersession requires acknowledgement for every widening and leaves refused writes untouched', () => {
+  for (const [from, to] of [['ceo-private', 'org-shared'], ['ceo-private', 'external'], ['org-shared', 'external']]) {
+    withWritableCorpus((ctx) => {
+      appendRecord({ corpusRoot: ctx.corpusRoot, id: 'secret', kind: 'fact', scope: from,
+        body: 'Synthetic confidential acquisition budget is forty million.', now: NOW });
+      const before = ctx.read('ceo/records/secret.md');
+      const args = ['supersede', '--corpus', ctx.dir, '--ref', 'rec:ceo/records/secret',
+        '--id', 'replacement', '--kind', 'fact', '--scope', to, '--body',
+        'Synthetic confidential acquisition budget is fifty million.', '--why', 'Budget correction', '--json'];
+      for (const flags of [[], ['--dry-run']]) {
+        const result = writeCli([...args, ...flags]);
+        assert.equal(result.code, 5, result.stderr);
+        assert.match(result.stderr, /refusing to widen/);
+        assert.equal(ctx.read('ceo/records/secret.md'), before);
+        assert.ok(!fs.existsSync(path.join(ctx.dir, 'ceo/records/replacement.md')));
+      }
+      if (from === 'ceo-private') {
+        const slice = compileContext({ corpus: ctx.corpus(), topic: 'confidential acquisition budget', audience: 'worker', now: NOW });
+        assert.deepEqual(slice.items, []);
+      }
+      const allowed = writeCli([...args, '--widen-scope']);
+      assert.equal(allowed.code, 0, allowed.stderr);
+      assert.equal(ctx.corpus().byId.get('rec:ceo/records/replacement').scope, to);
+    });
+  }
+});
+
 test('writer: supersede links BOTH directions and drops the old record out of live memory', () => {
   withWritableCorpus((ctx) => {
     appendRecord({ corpusRoot: ctx.corpusRoot, id: 'old-price', kind: 'decision', scope: 'org-shared', body: 'Pricing is per seat.', now: NOW });

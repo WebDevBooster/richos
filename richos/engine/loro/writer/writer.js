@@ -295,6 +295,13 @@ export function supersedeRecord(opts) {
     );
   }
 
+  const scope = assertScope(opts.scope);
+  if (isWidening(found.record.scope, scope) && !opts.widenScope) {
+    throw new RefusedError(
+      `loro write: refusing to widen "${opts.ref}" from ${found.record.scope} to ${scope} without --widen-scope.`,
+    );
+  }
+
   // A correction changes the belief, not the company that can retrieve it.
   // Desktop Supersede requests intentionally have no partition argument. Keep
   // unfiled records there too; promoted legacy records retain their company lane.
@@ -306,6 +313,7 @@ export function supersedeRecord(opts) {
   }
   const created = appendRecord({
     ...opts,
+    scope,
     partition,
     ref: opts.refSource || opts.ref,
     supersedes: opts.ref,
