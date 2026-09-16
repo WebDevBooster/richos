@@ -1,0 +1,45 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {runPipeline} from './lib/pipeline.js';
+import {assertEvidenceOutsideProductRepo,PRODUCT_REPO} from './lib/workspace/privacy.js';
+import {writeEvidence,evidenceDir} from './lib/workspace/evidence.js';
+import {appendLedger,alreadyLedgered} from './lib/ledger.js';
+import {appendIngest,alreadyIngested} from './lib/workspace/ledger.js';
+import {ingestLedgerPath,workspaceLedgerPath} from './lib/config.js';
+import {GoogleCalendarAdapter} from './lib/workspace/adapters/google-calendar.js';
+import {ingestOnce} from './lib/workspace/core.js';
+const base=path.dirname(PRODUCT_REPO), zone=path.join(base,'zone'); fs.mkdirSync(zone);
+const docs=path.join(PRODUCT_REPO,'docs'); fs.mkdirSync(docs);
+const results={};
+const session=path.join(zone,'call');fs.mkdirSync(session);
+const target=path.join(docs,'record.json');fs.writeFileSync(target,JSON.stringify({sessionId:'call',status:'closed',audio:{parts:[],bytesTotal:0},privateNote:'synthetic call metadata'}));
+fs.symlinkSync(target,path.join(session,'session.json'));
+const before=fs.readFileSync(target,'utf8');let directRefused=false;
+try{assertEvidenceOutsideProductRepo(docs)}catch{directRefused=true}
+const answer=runPipeline(session,{model:'small.en',zone});
+results.pipelineLeaf={directProductRefused:directRefused,externalSessionAccepted:assertEvidenceOutsideProductRepo(session)===session,status:answer.status,productFileChanged:fs.readFileSync(target,'utf8')!==before};
+const wz=path.join(base,'workspace');fs.mkdirSync(wz);fs.symlinkSync(docs,path.join(wz,'google'));
+const adapter=new GoogleCalendarAdapter({client:null,now:()=>100000});
+const item=adapter.toSourceItem({id:'event1',etag:'"123"',summary:'Synthetic private meeting',description:'Synthetic private text'});
+const evidence=writeEvidence(item,{},wz);
+results.workspaceChild={zoneAccepted:assertEvidenceOutsideProductRepo(wz)===wz,physicalEvidence:fs.realpathSync(evidence.itemPath).startsWith(docs+'/'),bodyInProduct:fs.readFileSync(path.join(docs,'calendar/google_calendar_event1/rev-123/content.txt'),'utf8')};
+for (const kind of ['transcription','workspace']) {
+ const z=path.join(base,kind+'-ledger');fs.mkdirSync(z);
+ const file=kind==='workspace'?workspaceLedgerPath(z):ingestLedgerPath(z);
+ fs.writeFileSync(file,'{"torn":');
+ const row=kind==='workspace'?{sourceItemId:'a',vendorEtag:'v'}:{sessionId:'a',runIndex:0};
+ const res=kind==='workspace'?appendIngest(row,z):appendLedger(row,z);
+ const exists=kind==='workspace'?alreadyIngested('a','v',z):alreadyLedgered('a',0,z);
+ results[kind+'Ledger']={appendReturned:res.appended,acceptedRecordReadable:exists,bytes:fs.readFileSync(file,'utf8')};
+}
+const evzone=path.join(base,'versions');
+const a=adapter.toSourceItem({id:'v',etag:'"abc-def"',description:'original'});
+const b=adapter.toSourceItem({id:'v',etag:'"abcdef"',description:'replacement'});
+const ea=writeEvidence(a,{},evzone);const eb=writeEvidence(b,{},evzone);
+results.evidenceCollision={samePath:ea.itemPath===eb.itemPath,originalBody:fs.readFileSync(path.join(ea.dir,'content.txt'),'utf8'),secondReportedWritten:eb.written};
+const iz=path.join(base,'ingest');const polls=[];
+const make=(calendarId,token)=>new GoogleCalendarAdapter({calendarId,now:()=>100000,client:{getJson:async url=>{polls.push(url);return {items:[],nextSyncToken:token}}}});
+await ingestOnce({adapter:make('first','first-token'),zone:iz,linkBase:iz});
+await ingestOnce({adapter:make('second','second-token'),zone:iz,linkBase:iz});
+results.calendarCursor={secondCalendar:new URL(polls[1]).pathname,secondSentFirstToken:new URL(polls[1]).searchParams.get('syncToken')};
+console.log(JSON.stringify(results,null,2));

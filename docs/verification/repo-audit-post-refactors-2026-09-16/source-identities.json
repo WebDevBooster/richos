@@ -1,0 +1,26 @@
+{
+  "lib/workspace/core.js": {
+    "same_as_before_relocation": true,
+    "sha256": "2e6fdfbc809646720f94fc004ef075ed8c00ad895b4dafff5214a48f011b2e9b"
+  },
+  "lib/workspace/evidence.js": {
+    "same_as_before_relocation": true,
+    "sha256": "7015f88194d44d3303612417074747c71677d28938e37f7d0d38a3f0ee8d36f3"
+  },
+  "lib/workspace/ledger.js": {
+    "same_as_before_relocation": true,
+    "sha256": "ad25d2a02bfbb19154edb44d9b8a887aad1b5c7fb121e0f47747a4b109e2d111"
+  },
+  "lib/workspace/sync-state.js": {
+    "same_as_before_relocation": true,
+    "sha256": "66f810e55f5ff936b4530c932e0816e69351c4961c1695fddb416c3cd87942bd"
+  },
+  "lib/workspace/adapters/google-calendar.js": {
+    "same_as_before_relocation": true,
+    "sha256": "e53650806d681a9bb8454c92f04d222a2e1443e3f16bf3947b7186d4825c766d"
+  },
+  "lib/ledger.js": {
+    "same_as_before_relocation": true,
+    "sha256": "c6274a472f90682d702985599ade3f2d6642d46d1c7271a3a3e7bb4b8a39ff56"
+  }
+}

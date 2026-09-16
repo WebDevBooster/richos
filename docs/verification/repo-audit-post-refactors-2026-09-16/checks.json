@@ -1,0 +1,180 @@
+{
+  "revision": "e98315898b808dd0a46ad5f0102f3611b190f26c",
+  "host": "macOS arm64",
+  "node": "v25.5.0",
+  "python": "3.14.3",
+  "rust_path": "/Users/alex/.cargo/bin",
+  "checks": [
+    {
+      "name": "service",
+      "command": "npm test",
+      "cwd": "richos/tools/richos-service",
+      "exit": 0,
+      "result": "345 transcription/service tests and 73 Workspace tests passed",
+      "log": "/tmp/richos-audit-20260916-codex/service.log",
+      "log_sha256": "f42d7200d7e934a97d8114b18854b841fa6af512f8247c10732cc36415f362d6"
+    },
+    {
+      "name": "extension",
+      "command": "npm test",
+      "cwd": "richos/tools/richos-extension",
+      "exit": 0,
+      "result": "66 passed",
+      "log": "/tmp/richos-audit-20260916-codex/extension.log",
+      "log_sha256": "af65197112857f7974c1ef83e75b021c9267613bf95368295bfe1cc8f32551dd"
+    },
+    {
+      "name": "core",
+      "command": "cargo test -p richos-core",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "994 passed, 4 ignored",
+      "log": "/tmp/richos-audit-20260916-codex/core.log",
+      "log_sha256": "8afacb310594aa58cfa2bbc6e47392f8ce14e7ad6d05477bbfccd082b720da64"
+    },
+    {
+      "name": "tauri",
+      "command": "cargo test --manifest-path src-tauri/Cargo.toml",
+      "cwd": "richos/app",
+      "exit": 101,
+      "result": "Stale pre-relocation Tauri dependency permission path",
+      "log": "/tmp/richos-audit-20260916-codex/tauri.log",
+      "log_sha256": "0b3b858692dedac76308c7014c05bb9382a53a0766a4bfba9e064caef0231a8f"
+    },
+    {
+      "name": "tauri-retry",
+      "command": "cargo test --manifest-path src-tauri/Cargo.toml",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "98 passed after cleaning tauri and tauri-plugin-updater dependency caches",
+      "log": "/tmp/richos-audit-20260916-codex/tauri-retry.log",
+      "log_sha256": "d562c90d24291df6e19424e51ecb2549cfe046a9bf716e51ea81eb7e2ee3a850"
+    },
+    {
+      "name": "updater",
+      "command": "cargo test --manifest-path crates/richos-user-update/Cargo.toml",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "37 unit tests and 1 integration test passed; nested child test output not counted twice",
+      "log": "/tmp/richos-audit-20260916-codex/updater.log",
+      "log_sha256": "5fc74363943f89f0ef68ba3ae65cbe2d92820a8a56ef7da9b76070f94c228c67"
+    },
+    {
+      "name": "swift",
+      "command": "swift test",
+      "cwd": "richos/tools/richos-service/companion-macos",
+      "exit": 0,
+      "result": "41 passed",
+      "log": "/tmp/richos-audit-20260916-codex/swift.log",
+      "log_sha256": "a827fe339ee1a3460d95865a6bdbca59fb60c03cebf6b2e1e17623b71c082e31"
+    },
+    {
+      "name": "voice",
+      "command": "cargo test -p richos-voice",
+      "cwd": "richos/app",
+      "exit": 101,
+      "result": "205 passed, 1 failed, 4 ignored; live synthesis rtf 0.541 exceeded <0.5",
+      "log": "/tmp/richos-audit-20260916-codex/voice.log",
+      "log_sha256": "7d039a5a58dd5f9488244ddd43f32815f4f2221094f35f750addf16ede46ada9"
+    },
+    {
+      "name": "voice-timing-retry",
+      "command": "cargo test -p richos-voice tts::tests::live_macos_synthesis_outruns_playback -- --exact --nocapture",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "1 targeted test passed",
+      "log": "/tmp/richos-audit-20260916-codex/voice-timing-retry.log",
+      "log_sha256": "6789747fc9f2d1c5323afe6703d8ef714000491d96a10ad792943c8fe7220d32"
+    },
+    {
+      "name": "voice-full-retry",
+      "command": "cargo test -p richos-voice",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "225 passed, 4 ignored; complete rerun with unchanged assertions",
+      "log": "/tmp/richos-audit-20260916-codex/voice-full-retry.log",
+      "log_sha256": "da8709ee92870b2bdef1a7638fb98e57d08c9a6b3c308afc8742898711044a34"
+    },
+    {
+      "name": "ass-relocation",
+      "command": "RICHOS_MUTATION_INNER=1 bash ass-kicker/tests/relocation.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "7 passed",
+      "log": "/tmp/richos-audit-20260916-codex/ass-relocation.log",
+      "log_sha256": "169c662c127d8805464ceb60dfacc7511f64d72582cbc17c7cf0e4f7cc49a062"
+    },
+    {
+      "name": "workspaces",
+      "command": "RICHOS_MUTATION_INNER=1 bash mega-lander/tests/workspaces.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "76 passed",
+      "log": "/tmp/richos-audit-20260916-codex/workspaces.log",
+      "log_sha256": "f02f08a2c2937410ec849097d8835407a367c3a27308d4d47c8005bb239033ff"
+    },
+    {
+      "name": "dispatcher",
+      "command": "RICHOS_MUTATION_INNER=1 bash scripts/hooks/dispatch-pretooluse.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "36 passed",
+      "log": "/tmp/richos-audit-20260916-codex/dispatcher.log",
+      "log_sha256": "302b88ce12519011dff70c7e3309cf02d0642a81bdd19c21ce1222f02f0efe14"
+    },
+    {
+      "name": "scope",
+      "command": "RICHOS_MUTATION_INNER=1 bash ass-kicker/tests/brief-scope.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "53 passed",
+      "log": "/tmp/richos-audit-20260916-codex/scope.log",
+      "log_sha256": "4224593a5c2c3bd6946baa0daf95e6c50610a78eaf327f41d2f81bc6821ec44e"
+    },
+    {
+      "name": "stated",
+      "command": "RICHOS_MUTATION_INNER=1 bash ass-kicker/tests/guard-stated-actions.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "45 passed",
+      "log": "/tmp/richos-audit-20260916-codex/stated.log",
+      "log_sha256": "631ce029a46304fc0f309f45e5b68958ce881684ece60bf56231ccb6150f9dc9"
+    },
+    {
+      "name": "provenance",
+      "command": "bash ass-kicker/tests/brief-provenance.test.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "47 passed",
+      "log": "/tmp/richos-audit-20260916-codex/provenance.log",
+      "log_sha256": "17b7c32ca6d4fea79a0557cd6670c4edf5769804b676fc44b4601c0fb6066813"
+    },
+    {
+      "name": "stated-mutations",
+      "command": "RICHOS_MUTANT_JOBS=2 bash ass-kicker/tests/stated-actions.mutation.sh",
+      "cwd": "richos/engine",
+      "exit": 0,
+      "result": "31/31 mutations detected at their named cases; intact control passed",
+      "log": "/tmp/richos-audit-20260916-codex/stated-mutations.log",
+      "log_sha256": "8b372b2f8ba356d94961652eaa0e2ec855818e6d19af12f62e59f48065954eba"
+    },
+    {
+      "name": "engine-asset",
+      "command": "bash scripts/make-engine-asset.test.sh",
+      "cwd": "richos/app",
+      "exit": 0,
+      "result": "18 passed",
+      "log": "/tmp/richos-audit-20260916-codex/engine-asset.log",
+      "log_sha256": "c559cfb3766130136012013cc2f19d5bd83cfe8d98cc04bfed0648184c30246b"
+    },
+    {
+      "name": "docs-claims",
+      "command": "node docs-claims.js",
+      "cwd": "richos/app/ui/tests",
+      "exit": 0,
+      "result": "6 passed",
+      "log": "/tmp/richos-audit-20260916-codex/docs-claims.log",
+      "log_sha256": "ea0ef2cc2b64d76e0780a5dc7b5e059028a5773bfa2300e5b6b5958535c416ba"
+    }
+  ]
+}

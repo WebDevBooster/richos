@@ -1,0 +1,51 @@
+{
+  "service": {
+    "pipelineLeaf": {
+      "directProductRefused": true,
+      "externalSessionAccepted": true,
+      "status": "anomaly",
+      "productFileChanged": true
+    },
+    "workspaceChild": {
+      "zoneAccepted": true,
+      "physicalEvidence": true,
+      "bodyInProduct": "Synthetic private text"
+    },
+    "transcriptionLedger": {
+      "appendReturned": true,
+      "acceptedRecordReadable": false,
+      "bytes": "{\"torn\":{\"sessionId\":\"a\",\"runIndex\":0}\n"
+    },
+    "workspaceLedger": {
+      "appendReturned": true,
+      "acceptedRecordReadable": false,
+      "bytes": "{\"torn\":{\"sourceItemId\":\"a\",\"vendorEtag\":\"v\"}\n"
+    },
+    "evidenceCollision": {
+      "samePath": true,
+      "originalBody": "replacement",
+      "secondReportedWritten": false
+    },
+    "calendarCursor": {
+      "secondCalendar": "/calendar/v3/calendars/second/events",
+      "secondSentFirstToken": "first-token"
+    }
+  },
+  "stated_action_notice": {
+    "stood_down": {
+      "exit": 0,
+      "stdout": "{\"suppressOutput\":true,\"systemMessage\":\"STATED-ACTIONS GATE \u2014 STOOD DOWN by CHECK_STATED_ACTIONS=0 in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker ardw6j2l/engine with spaces/orchestration.config. A report stating an action the turn did not take, or a turn that stops after a teammate returns, is NOT being refused this session. (hook: scripts/hooks/guard-stated-actions.sh)\"}\n",
+      "stderr": ""
+    },
+    "crash": {
+      "exit": 0,
+      "stdout": "{\"suppressOutput\":true,\"systemMessage\":\"STATED-ACTIONS GATE \u2014 RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. (hook: scripts/hooks/guard-stated-actions.sh)\"}\n",
+      "stderr": "Traceback (most recent call last):\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker ardw6j2l/engine with spaces/scripts/hooks/../../ass-kicker/guard-stated-actions.py\", line 798, in <module>\n    sys.exit(main())\n             ~~~~^^\n  File \"/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ass kicker ardw6j2l/engine with spaces/scripts/hooks/../../ass-kicker/guard-stated-actions.py\", line 634, in main\n    if not message.strip():\n           ^^^^^^^^^^^^^\nAttributeError: 'int' object has no attribute 'strip'\n"
+    },
+    "normal_control": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  }
+}
