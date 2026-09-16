@@ -304,6 +304,43 @@ const SURFACES = [
     drive: async () => {},
   },
   {
+    name: "repositories",
+    what: "the repository connection dialog and its explicit company selection",
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-repositories-open");
+      await p.waitForSelector("#repository-company option:nth-child(2)", {state: "attached"});
+      await overlaySettled(p, "#repositories-sheet");
+    },
+  },
+  {
+    name: "permission",
+    what: "a native action request with its description, input and scoped decision controls",
+    preset: {pendingPermission: {id: "contrast-permission", binding: {entity_id: "depot"}, tool: "Write", input: {file_path: "/fictional/example.txt"}, description: "Write the requested example file"}},
+    drive: async (p) => {
+      await p.waitForSelector("#permission-sheet:not([hidden])");
+      await p.waitForFunction(() => document.getElementById("permission-input").textContent.includes("example.txt"));
+      await overlaySettled(p, "#permission-sheet");
+    },
+  },
+  ...[false, true].map(showPanel => ({
+    name: showPanel ? "saved-work" : "saved-work-chip",
+    what: showPanel ? "saved work receipts in the work summary" : "the visible saved-work disclosure control",
+    preset: {workSummaries: {hiring: {items: [{title: "Reviewed change", role: "worker", repository: "/fictional/project", state: "integrated", detail: "Reviewed commit integrated locally. Whole assignment remains open."}], omitted: 2}}},
+    drive: async (p) => {
+      await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
+      await p.waitForFunction(() => document.getElementById("drill-chip-zone").textContent.includes("1 saved work records"));
+      if (showPanel) {
+        await p.click(".drill-chip");
+        await p.waitForFunction(() => document.getElementById("slideover-body").textContent.includes("Whole assignment remains open."));
+        await overlaySettled(p, "#slideover");
+      } else {
+        await pageSettled(p);
+      }
+    },
+  })),
+  {
     // THE ONE STRING THE STYLESHEET ITSELF PUTS ON SCREEN, and until 2026-09-05 nothing in
     // this directory could see it. `style.css:3787` is `.setbtn::after { content: "Settings" }`
     // — the tooltip on the settings button §15 requires on every screen, including the
@@ -845,6 +882,16 @@ const SURFACES = [
 
 async function openApp(browser, theme, holdSplash, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
+  // The occlusion check joins node paths across independent pages. The preview
+  // gives seeded turns random IDs, so use one repeatable stream in this suite:
+  // a covered turn must have the same identity when another walk reveals it.
+  await page.addInitScript(() => {
+    let state = 0x6a09e667;
+    Math.random = () => {
+      state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+      return (state >>> 0) / 4294967296;
+    };
+  });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -1505,6 +1552,7 @@ async function main() {
       // 3-node tolerance. Check 9's negative control at the end of this file proves that on
       // a real surface rather than asserting it here.
       // ---------------------------------------------------------------------------------
+      console.log("CONTRAST_COUNTS " + JSON.stringify({surface: surface.name, checked, considered}));
       const floor = debt.surfaceFloors[surface.name];
       assert(floor !== undefined, surface.name + " has no floor in contrast-debt.json — add one rather than letting a surface that stops rendering read as clean");
       // TOP-LEVEL, NOT INSIDE `surfaceFloors`: check 10b reconciles the walk inventory
