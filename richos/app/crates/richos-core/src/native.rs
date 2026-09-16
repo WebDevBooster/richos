@@ -612,6 +612,24 @@ struct OperationCancellation {
     requested: bool,
 }
 
+#[derive(Clone)]
+enum ActionGrant {
+    Onboarding(std::path::PathBuf),
+    Continuity(std::path::PathBuf),
+}
+
+impl ActionGrant {
+    fn set(&self, allowed: bool) -> Result<(), String> {
+        match self {
+            Self::Onboarding(path) => crate::onboarding_tools::set_actions_allowed(path, allowed),
+            Self::Continuity(path) => crate::ecs::set_actions_allowed(path, allowed).map_err(|e| e.to_string()),
+        }
+    }
+    fn path(&self) -> &Path {
+        match self { Self::Onboarding(path) | Self::Continuity(path) => path }
+    }
+}
+
 /// A live session to a native `claude` child.
 pub struct NativeClient {
     child: Child,
@@ -629,6 +647,7 @@ pub struct NativeClient {
     /// `result` ends it.
     current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
     operation_cancel: Arc<Mutex<OperationCancellation>>,
+    action_grants: Vec<ActionGrant>,
     reader_closed: Arc<AtomicBool>,
     /// §1.5's machinery sink INDEPENDENT of the prompt channel.
     between: Arc<Mutex<BetweenTurn>>,
@@ -967,6 +986,8 @@ impl NativeClient {
             pending,
             current_prompt,
             operation_cancel: Arc::new(Mutex::new(OperationCancellation::default())),
+            action_grants: onboarding.map(|(_, path)| ActionGrant::Onboarding(path.into())).into_iter()
+                .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into()))).collect(),
             reader_closed,
             between,
             stderr_tail,
@@ -1432,6 +1453,7 @@ impl NativeClient {
             stdin: Arc::clone(&self.stdin),
             current_prompt: Arc::clone(&self.current_prompt),
             operation_cancel: Arc::clone(&self.operation_cancel),
+            action_grants: self.action_grants.clone(),
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
         })
     }
@@ -1584,6 +1606,7 @@ pub struct NativeCancelHandle {
     stdin: Arc<Mutex<ChildStdin>>,
     current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
     operation_cancel: Arc<Mutex<OperationCancellation>>,
+    action_grants: Vec<ActionGrant>,
     next_id: Arc<AtomicI64>,
 }
 
@@ -1599,6 +1622,13 @@ impl TurnCancel for NativeCancelHandle {
     fn cancel(&self) -> bool {
         let mut operation = self.operation_cancel.lock().unwrap();
         if operation.active { operation.requested = true; }
+        // Revoke before interrupting, while holding the same lock as grant activation.
+        // Missing scopes are normal before the initial company/thread binding.
+        for grant in &self.action_grants {
+            if grant.path().exists() && grant.set(false).is_err() {
+                let _ = std::fs::remove_file(grant.path());
+            }
+        }
         // Take the sink FIRST so the ordering is unambiguous: interrupt out, then wake. The
         // reverse order would let a very fast agent's `result` overtake the wake, and the
         // loop would return `end_turn` for a turn the CEO stopped. Measured: the agent acked
@@ -1774,16 +1804,22 @@ impl Cognition for NativeCognition {
     }
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
-        if let Some(path) = &self.onboarding_scope {
-            crate::onboarding_tools::set_actions_allowed(path, true).map_err(CognitionError::Io)?;
-        }
-        if let Some((_, path)) = &self.continuity {
-            if let Err(error) = crate::ecs::set_actions_allowed(path, true) {
-                if let Some(onboarding) = &self.onboarding_scope { let _ = crate::onboarding_tools::set_actions_allowed(onboarding, false); }
-                return Err(CognitionError::Io(error.to_string()));
+        {
+            let operation = self.client.operation_cancel.lock().unwrap();
+            if operation.active && operation.requested {
+                return Ok(STOP_REASON_CANCELLED.to_string());
+            }
+            for (index, grant) in self.client.action_grants.iter().enumerate() {
+                if let Err(error) = grant.set(true) {
+                    for previous in &self.client.action_grants[..index] {
+                        if previous.set(false).is_err() { let _ = std::fs::remove_file(previous.path()); }
+                    }
+                    return Err(CognitionError::Io(error));
+                }
             }
         }
         let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
+        let _operation = self.client.operation_cancel.lock().unwrap();
         if let Some((_, path)) = &self.continuity {
             if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
                 let _ = self.client.child.kill(); let _ = self.client.child.wait();

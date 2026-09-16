@@ -159,10 +159,13 @@ fn onboarding_grant_is_revoked_when_stop_ends_the_visible_prompt() {
     f.mode("hold");
     let cancel = f.lease.cancel_handle().unwrap();
     cancel.begin_operation();
+    let scope_at_stop = f.scope.clone();
     let (ready_tx, ready_rx) = mpsc::channel();
     let presser = std::thread::spawn(move || {
         let ready = ready_rx.recv_timeout(Duration::from_secs(5));
         let reached = cancel.cancel();
+        let stopped_scope: Value = serde_json::from_slice(&std::fs::read(&scope_at_stop).unwrap()).unwrap();
+        assert_eq!(stopped_scope["actions_allowed"], false, "Stop returned while the tool grant was still active");
         // Even a broken stream fixture must cancel before reporting its timeout.
         ready.unwrap();
         assert!(reached);
