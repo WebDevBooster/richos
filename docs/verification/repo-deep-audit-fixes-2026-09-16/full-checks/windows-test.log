@@ -1,0 +1,12 @@
+  Determining projects to restore...
+  Restored /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/src/RichOSCompanionCore/RichOSCompanionCore.csproj (in 81 ms).
+  Restored /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj (in 1.23 sec).
+  RichOSCompanionCore -> /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/src/RichOSCompanionCore/bin/Debug/net8.0/RichOSCompanionCore.dll
+  RichOSCompanionCore.Tests -> /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/tests/RichOSCompanionCore.Tests/bin/Debug/net8.0/RichOSCompanionCore.Tests.dll
+Test run for /Users/alex/ab/richos-rechecks/deep-20260916/test-repo/richos/tools/richos-service/companion-windows/tests/RichOSCompanionCore.Tests/bin/Debug/net8.0/RichOSCompanionCore.Tests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (arm64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    26, Skipped:     0, Total:    26, Duration: 37 ms - RichOSCompanionCore.Tests.dll (net8.0)

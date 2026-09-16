@@ -1,0 +1,169 @@
+[1m=== ci-shard: 48 unit(s), shard 3/4 at 3eaca2dc3e082504b31e917a2877cf993e692555 ===[0m
+  [  1/ 48] ass-kicker/tests/brief-provenance.test.sh                                [32mPASS[0m 3.0s
+  [  2/ 48] ecs/tests/run.test.sh                                                    [32mPASS[0m 9.1s
+  [  3/ 48] mega-lander/tests/relocation.test.sh                                     [32mPASS[0m 2.0s
+  [  4/ 48] mega-lander/tests/workspace-stopped-ending.test.sh                       [32mPASS[0m 8.0s
+  [  5/ 48] mega-lander/tests/workspaces-e2e.test.sh                                 [32mPASS[0m 8.0s
+  [  6/ 48] scripts/ci-surface-watch.test.sh                                         [32mPASS[0m 3.0s
+  [  7/ 48] scripts/cold-open.test.sh                                                [32mPASS[0m 5.0s
+  [  8/ 48] scripts/demo.test.sh                                                     [32mPASS[0m 128.3s
+  [  9/ 48] scripts/entrypoint-currency-lint.test.sh                                 [32mPASS[0m 3.0s
+  [ 10/ 48] scripts/hooks/ceo-ruled.test.sh                                          [32mPASS[0m 28.1s
+  [ 11/ 48] scripts/hooks/ceo-todos.test.sh                                          [32mPASS[0m 351.8s
+        WEIGHT-DRIFT  planned 171.3s, measured 351.8s (2.1x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/ceo-todos.test.sh	351.8	<this-run-id>
+  [ 12/ 48] scripts/hooks/contract-integrity.test.sh:CL                              [32mPASS[0m 170.2s
+        WEIGHT-DRIFT  planned 84.5s, measured 170.2s (2.0x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:CL	170.2	<this-run-id>
+  [ 13/ 48] scripts/hooks/contract-integrity.test.sh:MF                              [31mFAIL[0m 14.1s (rc=1, expected 3)
+        note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+        === contract-integrity.test.sh ===
+        ################################################################################
+        #  SCOPED RUN — THIS IS NOT A FULL PASS AND MUST NOT BE READ AS ONE.
+        #  sections in scope: MF
+        #  A land needs the full suite. Run with no arguments for that.
+        ################################################################################
+        
+          FAIL  MF1.mechanical-findings-mutations-all-load-bearing  (expected exit=0 got=1)
+                === mechanical findings: every property, proven load-bearing by removing it ===
+                  FAIL  control — the unmutated suite is already RED; nothing below means anything
+                            FAIL  5c  CLOSED-BUT-PRESENT for 3.3
+                  0 mutant(s) killed, 1 survived or misfired
+        
+        === summary ===
+        passed: 0
+        failed: 1
+        failing cases:
+          - MF1.mechanical-findings-mutations-all-load-bearing
+        
+        ################################################################################
+        #  SCOPED RUN — NOT A FULL PASS. 173 case(s) DID NOT RUN.
+        #  ran: MF
+        #  did NOT run:
+          base (17): 1.committed-source-passes 2.install-noop-rc-0 2.post-install-probe-rc-0 3.hook-removed-fails 4.wrong-path-fails 5.double-install-idempotent 5.double-install-probe-still-rc-0 6.install-source-missing-rc-2 7.install-writes-only-the-generated-hooks-key 7m.install-write-scope-mutations-all-load-bearing C10.a-tenth-agent-hook-seated-and-registered-passes C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C R10.a-newly-registered-rooted-hook-passes-with-no-edit-to-Layer-R R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED SC1.every-registered-hook-starts-in-a-sandbox SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1 
+          M (7): M1.duplicated-registration-fails M2.migration-removes-duplicate-settings-json M2.post-migration-probe-passes M2b.migration-second-run-noop M3.machine-specific-probe-passes M3.machine-specific-settings-json-hooks-stripped-config-kept M4.intra-file-duplication-fails 
+          shim (6): 10.symlink-to-outside-fails 11.canonical-with-trailing-args-passes 11b.shim-with-trailing-args-fails 12.canonical-fresh-clone-passes 8.shim-at-wrong-path-fails 9.canonical-path-wrong-hash-fails 
+          manifest (10): 13.tamper-canonical-guard-fails 14.tamper-canonical-agent-fails 14a.tamper-guard-worktree-isolation-fails 14b.tamper-guard-definition-drift-fails 14c.chain-entry-missing-fails 14d.chain-out-of-order-fails 15.inline-shim-replace-fails 16.manifest-missing-fails 17.manifest-wrong-hash-fails 18.install-idempotent-manifests 
+          worktree (4): 19.git-main-checkout-passes 19b.layer-N-tracked-pass-line-present 20.git-worktree-invocation-passes 21.worktree-probe-targets-main-settings 
+          N (4): 32.git-untracked-ignored-settings-local-fails 32b.layer-N-names-the-git-add-f-fix 33.git-untracked-not-ignored-warns-rc-0 33b.layer-N-warns-when-not-yet-committed 
+          python3 (4): 22.install-no-python3-refuses 22b.install-no-python3-stderr-names-python3 23.probe-no-python3-refuses 23b.probe-no-python3-stderr-names-python3 
+          config (14): 24.install-missing-env-flag-refuses 24b.install-missing-env-flag-names-the-key 24c.install-missing-env-flag-must-not-write-settings-json 25.install-missing-baseref-refuses 25b.install-missing-baseref-names-the-key 26.probe-catches-env-flag-removed-post-install 26b.probe-names-the-missing-env-flag 27.probe-catches-baseref-removed-post-install 27b.probe-names-the-missing-baseref 28.both-keys-correct-probe-passes 28b.layer-I-explicit-pass-line-present 28c.layer-J-explicit-pass-line-present 28d.layer-K-explicit-pass-line-present 28e.layer-M-explicit-pass-line-present 
+          K (8): 29.secrets-scanner-not-wired-fails 29b.probe-names-the-missing-secrets-scanner 30.secrets-scanner-tampered-fails 30b.probe-names-the-hash-mismatch 31.secrets-scanner-broken-then-reinstalled-fails 31b.functional-canary-catches-broken-scanner-despite-matching-hash 31c.dead-secrets-scanner-fails-layer-K 31d.layer-K-says-failing-to-start-not-failing-to-catch 
+          P (12): 34.definition-drift-pair-intact-probe-rc-0 34b.layer-P-pass-line-present 35.definition-snapshotter-unwired-fails-layerP 35b.layer-P-names-the-missing-snapshotter 36.definition-drift-guard-unwired-fails 37.definition-drift-guard-tampered-fails 37b.definition-snapshotter-tampered-fails-layerP 38.definition-drift-guard-gutted-fails-layerP-canary 38b.definition-drift-guard-overblocks-fails-layerP-canary 38c.layer-P-names-the-over-block 39.definition-snapshotter-duplicated-fails 40.definition-drift-guard-suite-passes 
+          Q (26): 41.workspace-spec-intact-probe-rc-0 41b.layer-Q-pass-line-present 41c.canary-that-could-not-run-fails-probe 41d.canary-that-could-not-run-is-explained 41e.layer-Q-survives-a-hostile-ambient-git-environment 41f.hermetic-seed-commit-removed-fails-under-a-hostile-environment 41g.layer-Q-says-its-canary-did-not-run 42.lifecycle-unwired-from-SessionStart-fails-layerQ 42b.layer-Q-names-the-missing-event 42c.lifecycle-blind-to-SendMessage-fails-layerQ 42d.layer-Q-names-the-unseen-tool 42e.stop-gate-unwired-fails-layerQ 42f.layer-Q-names-the-missing-gate 43.lifecycle-hook-tampered-fails-layerQ 44.registry-tampered-fails-layerQ 44a.layer-Q-names-the-tampered-registry 44b.registry-sidecar-missing-fails-layerQ 44c.layer-Q-names-the-missing-manifest 45.gate-lets-every-turn-end-fails-layerQ-canary 45b.layer-Q-names-point-5 45c.land-deletes-nothing-fails-layerQ-canary 45d.layer-Q-names-the-surviving-workspace 46.lifecycle-duplicated-fails 47.install-mints-workspace-spec-sidecars 47b.post-install-probe-passes 48.workspace-registry-suite-passes 
+          Qscope (6): $q_id.retired-deleter-$q_sc-revived-fails-layerQ 51.finished-agent-not-locked-out-fails-layerQ-canary 51b.layer-Q-names-point-9 52.registration-at-spawn-broken-fails-layerQ-canary 52b.layer-Q-names-the-unregistered-spawn 53.workspace-spec-end-to-end-passes 
+          S (6): S1.worktree-removal-guard-not-wired-fails S1b.layer-S-is-the-layer-that-caught-it S2.worktree-removal-guard-wired-twice-fails S3.gutted-worktree-removal-guard-fails S4.sanctioned-helper-missing-fails S4b.layer-S-names-the-missing-helper 
+          IP (10): IP1.interactive-prompt-guard-not-wired-fails IP1b.layer-IP-is-the-layer-that-caught-it IP2.interactive-prompt-guard-wired-twice-fails IP3.gutted-interactive-prompt-guard-fails IP4.shape-table-missing-fails IP4b.layer-IP-names-the-missing-shape-table IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash IP5b.layer-IP-says-failing-to-start-not-failing-to-catch IP6.interactive-prompt-guard-suite-passes IP7.interactive-prompt-mutations-all-load-bearing 
+          IL (11): IL1.idle-land-gate-not-wired-fails IL1b.layer-IL-is-the-layer-that-caught-it IL2.missing-analyzer-fails IL2b.layer-IL-names-the-missing-analyzer IL3.replaced-analyzer-fails-on-the-hash IL4.gutted-gate-fails-despite-matching-hash IL4b.layer-IL-says-it-is-registered-but-not-enforcing IL5.gate-that-refuses-everything-fails-despite-matching-hash IL5b.layer-IL-says-refusing-everything-not-deciding IL6.idle-land-gate-suite-passes IL7.idle-land-mutations-all-load-bearing 
+          CL (2): CL1.claim-gate-suite-passes CL2.claim-gate-mutations-all-load-bearing 
+          RI (3): IN2.inflight-notify-mutations-all-load-bearing RI1.resume-isolation-suite-passes RI2.resume-isolation-mutations-all-load-bearing 
+          WTR (1): WTR1.worktree-removal-mutations-all-load-bearing 
+          MT (9): MT1.model-tiers-undeclared-fails MT1b.the-refusal-names-the-blank-declaration MT2.model-tiers-alias-set-drifts-from-allowed-models-fails MT2b.the-refusal-names-the-unranked-alias MT3.doctrine-quotes-a-different-order-fails MT3b.the-refusal-names-both-orders MT4.doctrine-says-downgrade-without-quoting-the-data-fails MT4b.the-refusal-names-the-missing-quotation MT5.control-declared-and-quoted-passes-the-layer 
+          MC (9): MC1.no-ceiling-declared-warns-and-does-not-fail MC1b.the-warning-names-the-missing-declaration MC2.unrankable-ceiling-fails MC2b.the-refusal-names-the-unrankable-ceiling MC3.doctrine-quotes-a-different-ceiling-fails MC3b.the-refusal-names-both-ceilings MC4.dead-ceiling-guard-is-caught MC4b.the-refusal-says-the-guard-did-not-refuse MC5.control-declared-and-quoted-passes-the-layer 
+          MC6 (1): MC6.model-ceiling-mutations-all-load-bearing 
+          WTI (1): WTI1.staffing-gate-mutations-all-load-bearing 
+          SA (2): SA1.stated-actions-gate-suite-passes SA2.stated-actions-mutations-all-load-bearing 
+        #
+        #  Exit code 3 means scoped-and-green. It is not 0 and must not be treated
+        #  as one. Re-run with no arguments before landing anything.
+        ################################################################################
+  [ 14/ 48] scripts/hooks/contract-integrity.test.sh:MT                              [31mFAIL[0m 60.2s (rc=1, expected 3)
+        note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+        === contract-integrity.test.sh ===
+        ################################################################################
+        #  SCOPED RUN — THIS IS NOT A FULL PASS AND MUST NOT BE READ AS ONE.
+        #  sections in scope: MT
+        #  A land needs the full suite. Run with no arguments for that.
+        ################################################################################
+        
+          PASS  MT1.model-tiers-undeclared-fails
+          PASS  MT1b.the-refusal-names-the-blank-declaration
+          PASS  MT2.model-tiers-alias-set-drifts-from-allowed-models-fails
+          PASS  MT2b.the-refusal-names-the-unranked-alias
+          PASS  MT3.doctrine-quotes-a-different-order-fails
+          PASS  MT3b.the-refusal-names-both-orders
+          PASS  MT4.doctrine-says-downgrade-without-quoting-the-data-fails
+          PASS  MT4b.the-refusal-names-the-missing-quotation
+          FAIL  MT5.control-declared-and-quoted-passes-the-layer  (expected exit=0 got=1)
+                  [32m✓[0m MT. capability order declared as data (MODEL_TIERS="fable > opus > sonnet > haiku"; alias set = ALLOWED_MODELS), parser hash-matched, doctrine quotation matches, spawn guard REFUSES a lower tier naming the remedy and is SILENT on a same tier (two-sided canary)
+        
+        === summary ===
+        passed: 8
+        failed: 1
+        failing cases:
+          - MT5.control-declared-and-quoted-passes-the-layer
+        
+        ################################################################################
+        #  SCOPED RUN — NOT A FULL PASS. 165 case(s) DID NOT RUN.
+        #  ran: MT
+        #  did NOT run:
+          base (17): 1.committed-source-passes 2.install-noop-rc-0 2.post-install-probe-rc-0 3.hook-removed-fails 4.wrong-path-fails 5.double-install-idempotent 5.double-install-probe-still-rc-0 6.install-source-missing-rc-2 7.install-writes-only-the-generated-hooks-key 7m.install-write-scope-mutations-all-load-bearing C10.a-tenth-agent-hook-seated-and-registered-passes C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C R10.a-newly-registered-rooted-hook-passes-with-no-edit-to-Layer-R R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED SC1.every-registered-hook-starts-in-a-sandbox SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1 
+          M (7): M1.duplicated-registration-fails M2.migration-removes-duplicate-settings-json M2.post-migration-probe-passes M2b.migration-second-run-noop M3.machine-specific-probe-passes M3.machine-specific-settings-json-hooks-stripped-config-kept M4.intra-file-duplication-fails 
+          shim (6): 10.symlink-to-outside-fails 11.canonical-with-trailing-args-passes 11b.shim-with-trailing-args-fails 12.canonical-fresh-clone-passes 8.shim-at-wrong-path-fails 9.canonical-path-wrong-hash-fails 
+          manifest (10): 13.tamper-canonical-guard-fails 14.tamper-canonical-agent-fails 14a.tamper-guard-worktree-isolation-fails 14b.tamper-guard-definition-drift-fails 14c.chain-entry-missing-fails 14d.chain-out-of-order-fails 15.inline-shim-replace-fails 16.manifest-missing-fails 17.manifest-wrong-hash-fails 18.install-idempotent-manifests 
+          worktree (4): 19.git-main-checkout-passes 19b.layer-N-tracked-pass-line-present 20.git-worktree-invocation-passes 21.worktree-probe-targets-main-settings 
+          N (4): 32.git-untracked-ignored-settings-local-fails 32b.layer-N-names-the-git-add-f-fix 33.git-untracked-not-ignored-warns-rc-0 33b.layer-N-warns-when-not-yet-committed 
+          python3 (4): 22.install-no-python3-refuses 22b.install-no-python3-stderr-names-python3 23.probe-no-python3-refuses 23b.probe-no-python3-stderr-names-python3 
+          config (14): 24.install-missing-env-flag-refuses 24b.install-missing-env-flag-names-the-key 24c.install-missing-env-flag-must-not-write-settings-json 25.install-missing-baseref-refuses 25b.install-missing-baseref-names-the-key 26.probe-catches-env-flag-removed-post-install 26b.probe-names-the-missing-env-flag 27.probe-catches-baseref-removed-post-install 27b.probe-names-the-missing-baseref 28.both-keys-correct-probe-passes 28b.layer-I-explicit-pass-line-present 28c.layer-J-explicit-pass-line-present 28d.layer-K-explicit-pass-line-present 28e.layer-M-explicit-pass-line-present 
+          K (8): 29.secrets-scanner-not-wired-fails 29b.probe-names-the-missing-secrets-scanner 30.secrets-scanner-tampered-fails 30b.probe-names-the-hash-mismatch 31.secrets-scanner-broken-then-reinstalled-fails 31b.functional-canary-catches-broken-scanner-despite-matching-hash 31c.dead-secrets-scanner-fails-layer-K 31d.layer-K-says-failing-to-start-not-failing-to-catch 
+          P (12): 34.definition-drift-pair-intact-probe-rc-0 34b.layer-P-pass-line-present 35.definition-snapshotter-unwired-fails-layerP 35b.layer-P-names-the-missing-snapshotter 36.definition-drift-guard-unwired-fails 37.definition-drift-guard-tampered-fails 37b.definition-snapshotter-tampered-fails-layerP 38.definition-drift-guard-gutted-fails-layerP-canary 38b.definition-drift-guard-overblocks-fails-layerP-canary 38c.layer-P-names-the-over-block 39.definition-snapshotter-duplicated-fails 40.definition-drift-guard-suite-passes 
+          Q (26): 41.workspace-spec-intact-probe-rc-0 41b.layer-Q-pass-line-present 41c.canary-that-could-not-run-fails-probe 41d.canary-that-could-not-run-is-explained 41e.layer-Q-survives-a-hostile-ambient-git-environment 41f.hermetic-seed-commit-removed-fails-under-a-hostile-environment 41g.layer-Q-says-its-canary-did-not-run 42.lifecycle-unwired-from-SessionStart-fails-layerQ 42b.layer-Q-names-the-missing-event 42c.lifecycle-blind-to-SendMessage-fails-layerQ 42d.layer-Q-names-the-unseen-tool 42e.stop-gate-unwired-fails-layerQ 42f.layer-Q-names-the-missing-gate 43.lifecycle-hook-tampered-fails-layerQ 44.registry-tampered-fails-layerQ 44a.layer-Q-names-the-tampered-registry 44b.registry-sidecar-missing-fails-layerQ 44c.layer-Q-names-the-missing-manifest 45.gate-lets-every-turn-end-fails-layerQ-canary 45b.layer-Q-names-point-5 45c.land-deletes-nothing-fails-layerQ-canary 45d.layer-Q-names-the-surviving-workspace 46.lifecycle-duplicated-fails 47.install-mints-workspace-spec-sidecars 47b.post-install-probe-passes 48.workspace-registry-suite-passes 
+          Qscope (6): $q_id.retired-deleter-$q_sc-revived-fails-layerQ 51.finished-agent-not-locked-out-fails-layerQ-canary 51b.layer-Q-names-point-9 52.registration-at-spawn-broken-fails-layerQ-canary 52b.layer-Q-names-the-unregistered-spawn 53.workspace-spec-end-to-end-passes 
+          S (6): S1.worktree-removal-guard-not-wired-fails S1b.layer-S-is-the-layer-that-caught-it S2.worktree-removal-guard-wired-twice-fails S3.gutted-worktree-removal-guard-fails S4.sanctioned-helper-missing-fails S4b.layer-S-names-the-missing-helper 
+          IP (10): IP1.interactive-prompt-guard-not-wired-fails IP1b.layer-IP-is-the-layer-that-caught-it IP2.interactive-prompt-guard-wired-twice-fails IP3.gutted-interactive-prompt-guard-fails IP4.shape-table-missing-fails IP4b.layer-IP-names-the-missing-shape-table IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash IP5b.layer-IP-says-failing-to-start-not-failing-to-catch IP6.interactive-prompt-guard-suite-passes IP7.interactive-prompt-mutations-all-load-bearing 
+          IL (11): IL1.idle-land-gate-not-wired-fails IL1b.layer-IL-is-the-layer-that-caught-it IL2.missing-analyzer-fails IL2b.layer-IL-names-the-missing-analyzer IL3.replaced-analyzer-fails-on-the-hash IL4.gutted-gate-fails-despite-matching-hash IL4b.layer-IL-says-it-is-registered-but-not-enforcing IL5.gate-that-refuses-everything-fails-despite-matching-hash IL5b.layer-IL-says-refusing-everything-not-deciding IL6.idle-land-gate-suite-passes IL7.idle-land-mutations-all-load-bearing 
+          CL (2): CL1.claim-gate-suite-passes CL2.claim-gate-mutations-all-load-bearing 
+          RI (3): IN2.inflight-notify-mutations-all-load-bearing RI1.resume-isolation-suite-passes RI2.resume-isolation-mutations-all-load-bearing 
+          WTR (1): WTR1.worktree-removal-mutations-all-load-bearing 
+          MC (9): MC1.no-ceiling-declared-warns-and-does-not-fail MC1b.the-warning-names-the-missing-declaration MC2.unrankable-ceiling-fails MC2b.the-refusal-names-the-unrankable-ceiling MC3.doctrine-quotes-a-different-ceiling-fails MC3b.the-refusal-names-both-ceilings MC4.dead-ceiling-guard-is-caught MC4b.the-refusal-says-the-guard-did-not-refuse MC5.control-declared-and-quoted-passes-the-layer 
+          MC6 (1): MC6.model-ceiling-mutations-all-load-bearing 
+          WTI (1): WTI1.staffing-gate-mutations-all-load-bearing 
+          MF (1): MF1.mechanical-findings-mutations-all-load-bearing 
+          SA (2): SA1.stated-actions-gate-suite-passes SA2.stated-actions-mutations-all-load-bearing 
+        #
+        #  Exit code 3 means scoped-and-green. It is not 0 and must not be treated
+        #  as one. Re-run with no arguments before landing anything.
+        ################################################################################
+  [ 15/ 48] scripts/hooks/contract-integrity.test.sh:N                               [32mPASS[0m 28.1s
+  [ 16/ 48] scripts/hooks/contract-integrity.test.sh:WTI                             [32mPASS[0m 663.5s
+  [ 17/ 48] scripts/hooks/contract-integrity.test.sh:base                            [32mPASS[0m 306.7s
+        WEIGHT-DRIFT  planned 130.8s, measured 306.7s (2.3x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:base	306.7	<this-run-id>
+  [ 18/ 48] scripts/hooks/contract-integrity.test.sh:config                          [32mPASS[0m 48.2s
+  [ 19/ 48] scripts/hooks/contract-integrity.test.sh:shim                            [32mPASS[0m 83.6s
+  [ 20/ 48] scripts/hooks/contract-integrity.test.sh:worktree                        [32mPASS[0m 35.1s
+  [ 21/ 48] scripts/hooks/guard-bash-main-writes.test.sh                             [32mPASS[0m 3.0s
+  [ 22/ 48] scripts/hooks/guard-definition-drift.test.sh                             [32mPASS[0m 6.0s
+  [ 23/ 48] scripts/hooks/guard-dialect.test.sh                                      [32mPASS[0m 180.7s
+  [ 24/ 48] scripts/hooks/guard-model-ceiling.test.sh                                [32mPASS[0m 75.2s
+  [ 25/ 48] scripts/hooks/guard-sealed-worktree.test.sh                              [32mPASS[0m 36.1s
+  [ 26/ 48] scripts/hooks/guard-vendoring-commits.test.sh                            [32mPASS[0m 53.1s
+  [ 27/ 48] scripts/hooks/guard-worktree-removal.test.sh                             [32mPASS[0m 9.0s
+  [ 28/ 48] scripts/hooks/inflight-notify.test.sh                                    [32mPASS[0m 5.0s
+  [ 29/ 48] scripts/hooks/notice-claim-capability.test.sh                            [32mPASS[0m 10.0s
+  [ 30/ 48] scripts/hooks/owned-state.test.sh                                        [32mPASS[0m 2.0s
+  [ 31/ 48] scripts/hooks/protected-ref-moves.test.sh                                [32mPASS[0m 1.0s
+  [ 32/ 48] scripts/hooks/row-currency.test.sh                                       [32mPASS[0m 254.6s
+  [ 33/ 48] scripts/hooks/task-completed-handoff.test.sh                             [32mPASS[0m 6.0s
+  [ 34/ 48] scripts/install-ack-protocol.test.sh                                     [32mPASS[0m 1.0s
+  [ 35/ 48] scripts/install-escalation-protocol.test.sh                              [32mPASS[0m 1.0s
+  [ 36/ 48] scripts/lib/bulk-record-transport.test.sh                                [32mPASS[0m 7.0s
+  [ 37/ 48] scripts/lib/ci_pause.test.sh                                             [32mPASS[0m 1.0s
+  [ 38/ 48] scripts/lib/completion-proof.test.sh                                     [32mPASS[0m 6.0s
+  [ 39/ 48] scripts/lib/finish-row-completion.test.sh                                [32mPASS[0m 8.0s
+  [ 40/ 48] scripts/lib/global-state-witness.test.sh                                 [32mPASS[0m 6.0s
+  [ 41/ 48] scripts/lib/hook-dependencies.test.sh                                    [32mPASS[0m 1.0s
+  [ 42/ 48] scripts/lib/mutation-harness.test.sh                                     [32mPASS[0m 1.0s
+  [ 43/ 48] scripts/lib/mutation-pool.test.sh                                        [32mPASS[0m 4.0s
+  [ 44/ 48] scripts/lib/stopwatch.test.sh                                            [32mPASS[0m 2.0s
+  [ 45/ 48] scripts/locate-engine.test.sh                                            [32mPASS[0m 10.0s
+  [ 46/ 48] scripts/provision-claude-md.test.sh                                      [32mPASS[0m 1.0s
+  [ 47/ 48] scripts/run-all-tests.test.sh                                            [32mPASS[0m 2.0s
+  [ 48/ 48] scripts/spawn.test.sh                                                    [32mPASS[0m 6.0s
+
+[31m✗ ci-shard shard 3/4: 46/48 unit(s) passed, 2 FAILED.[0m
+    - scripts/hooks/contract-integrity.test.sh:MF (rc=1, expected 3)
+    - scripts/hooks/contract-integrity.test.sh:MT (rc=1, expected 3)

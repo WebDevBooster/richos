@@ -1,0 +1,47 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.4
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling thiserror v1.0.69
+   Compiling generic-array v0.14.7
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-fix-worker-settlement-fence/richos/app/crates/richos-core)
+   Compiling itoa v1.0.18
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling uuid v1.26.0
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.00s
+     Running unittests src/lib.rs (target/debug/deps/richos_core-c877baf62232b090)
+
+running 1 test
+SETTLEMENT scenario=open, liveness_unknown=1, unattributed=None, result=Err(Protocol("The turn ended before its workers settled. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.")), provider_alive=false
+SETTLEMENT scenario=damaged, liveness_unknown=0, unattributed=Some(AppEvidenceUnavailable), result=Ok("end_turn"), provider_alive=true
+
+thread 'native::native_driver_tests::worker_settlement_requires_readable_evidence_before_a_normal_turn_end' (562752580) panicked at crates/richos-core/src/native.rs:2489:20:
+assertion failed: result.is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test native::native_driver_tests::worker_settlement_requires_readable_evidence_before_a_normal_turn_end ... FAILED
+
+failures:
+
+failures:
+    native::native_driver_tests::worker_settlement_requires_readable_evidence_before_a_normal_turn_end
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 554 filtered out; finished in 0.23s
+
+error: test failed, to rerun pass `-p richos-core --lib`

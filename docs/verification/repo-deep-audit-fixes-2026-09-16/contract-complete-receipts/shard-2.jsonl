@@ -1,0 +1,4 @@
+{"expected_rc":3,"rc":3,"seconds":34.1,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":2,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:M","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":69.2,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":2,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:MC6","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":23.0,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":2,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:S","verdict":"PASS"}
+{"expected_rc":3,"rc":3,"seconds":155.3,"sha":"6bc4ec947cbaa7b38b102114660dbe7ce7292e8a","shard":2,"shards":6,"unit":"scripts/hooks/contract-integrity.test.sh:WTR","verdict":"PASS"}

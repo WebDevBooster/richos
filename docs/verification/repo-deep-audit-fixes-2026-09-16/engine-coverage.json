@@ -1,0 +1,2396 @@
+{
+  "inventory_units": 147,
+  "initial_receipts": 147,
+  "initial_failures": [
+    "mega-lander/tests/workspace-spec-fourteen.test.sh",
+    "mega-lander/tests/workspaces.test.sh",
+    "scripts/hooks/contract-integrity.test.sh:MF",
+    "scripts/hooks/contract-integrity.test.sh:MT",
+    "scripts/hooks/by-reference.test.sh"
+  ],
+  "covered_units": 147,
+  "all_covered": true,
+  "same_revision_ci_certificate": false,
+  "note": "Complete discovered inventory plus repair reruns. Original receipts are retained with their real revisions and failures. This ledger is not a single-revision ci-shard --verify-receipts result.",
+  "units": [
+    {
+      "unit": "ass-kicker/tests/brief-provenance.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "ass-kicker/tests/brief-provenance.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "ass-kicker/tests/brief-scope.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 21.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "ass-kicker/tests/brief-scope.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "ass-kicker/tests/guard-stated-actions.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "ass-kicker/tests/guard-stated-actions.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "ass-kicker/tests/relocation.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 23.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "ass-kicker/tests/relocation.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "ecs/tests/run.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "ecs/tests/run.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "gates/unmanaged-assignment/lib/harness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "gates/unmanaged-assignment/lib/harness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "loro/tests/run.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 27.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "loro/tests/run.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/app.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 24.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "mega-lander/tests/app.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/create-teammate-worktree.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "mega-lander/tests/create-teammate-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/relocation.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "mega-lander/tests/relocation.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/workspace-probes.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 115.8,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-probes.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 1,
+        "seconds": 2311.7,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 1,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+        "verdict": "FAIL"
+      },
+      "repair_verification": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 749.6,
+        "sha": "44e1d764d8f85decab982882ee37740c836fd570",
+        "shard": 0,
+        "shards": 12,
+        "unit": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/workspace-stopped-ending.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspace-stopped-ending.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/workspaces-e2e.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspaces-e2e.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "mega-lander/tests/workspaces.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 1,
+        "seconds": 795.9,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "mega-lander/tests/workspaces.test.sh",
+        "verdict": "FAIL"
+      },
+      "repair_verification": {
+        "name": "workspace-mutation-fixed",
+        "source_revision": "cac72656",
+        "working_tree_patch": "6511d725 (one-line mutation target repair)",
+        "exit": 0,
+        "tests": 76,
+        "mutations_caught": 56,
+        "command": "RICHOS_MUTANT_JOBS=4 bash richos/engine/mega-lander/tests/workspaces.test.sh"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/check-census.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/check-census.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-affected-units.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-affected-units.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-run-record-check.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/ci-run-record-check.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-shard.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 76.5,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-shard.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-surface-watch.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/ci-surface-watch.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-units.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 12.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-units.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ci-verify.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/ci-verify.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/cold-open.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/cold-open.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/collect-worktree-artifacts.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/collect-worktree-artifacts.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/demo.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 128.3,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/demo.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/entrypoint-currency-lint.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/entrypoint-currency-lint.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/handoff-facts.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/handoff-facts.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hardware-choice-check.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hardware-choice-check.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hook-registration-completeness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hook-registration-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/agent-state-claims.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/agent-state-claims.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/by-reference.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 1,
+        "seconds": 618.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/by-reference.test.sh",
+        "verdict": "FAIL"
+      },
+      "repair_verification": {
+        "name": "by-reference-final",
+        "source_revision": "40014a0bde4405853971f3d39ee9194965bad3e1",
+        "exit": 0,
+        "checks": 53,
+        "command": "RICHOS_MUTANT_JOBS=2 bash richos/engine/scripts/hooks/by-reference.test.sh"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/ceo-asks.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 58.4,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-asks.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/ceo-inputs.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-inputs.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/ceo-ruled.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 28.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-ruled.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/ceo-todos.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 351.8,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/ceo-todos.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/completeness-commits.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/completeness-commits.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:base",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 306.7,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:base",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 122.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 5,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:base",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:M",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 47.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:M",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 34.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 2,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:M",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:shim",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 83.6,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:shim",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 38.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 5,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:shim",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:manifest",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 130.8,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:manifest",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 62.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 4,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:manifest",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:worktree",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 35.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:worktree",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 20.0,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 4,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:worktree",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:N",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 28.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:N",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 19.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:N",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:python3",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:python3",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 4.0,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 5,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:python3",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:config",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 48.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:config",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 30.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 6,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:config",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:K",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 47.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:K",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 29.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 4,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:K",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:P",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 104.4,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:P",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 65.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 4,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:P",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:Q",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 208.3,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Q",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 115.2,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 4,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Q",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:Qscope",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 100.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Qscope",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 44.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 5,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:Qscope",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:S",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 87.4,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:S",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 23.0,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 2,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:S",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:IP",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 134.6,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IP",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 114.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 6,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IP",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:IL",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 163.6,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IL",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 104.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 6,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:IL",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:CL",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 170.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:CL",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 85.2,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 5,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:CL",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:RI",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 193.8,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:RI",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 146.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:RI",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:WTR",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 341.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTR",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 155.3,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 2,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTR",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MT",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 1,
+        "seconds": 60.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MT",
+        "verdict": "FAIL"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 56.2,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MT",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MC",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 61.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 33.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 6,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MC6",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 78.7,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC6",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 69.2,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 2,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MC6",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:WTI",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 663.5,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTI",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 332.7,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 1,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:WTI",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 1,
+        "seconds": 14.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+        "verdict": "FAIL"
+      },
+      "rerun_scope": "Full MF campaign or standalone mechanical suite after the report-parser repair",
+      "intermediate_rerun": {
+        "expected_rc": 3,
+        "rc": 1,
+        "seconds": 7.0,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+        "verdict": "FAIL"
+      },
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 40.1,
+        "sha": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+        "shard": 0,
+        "shards": 12,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/contract-integrity.test.sh:SA",
+      "initial_receipt": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 217.7,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/contract-integrity.test.sh:SA",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "All 24 sections exercised at this revision; MF subsequently repaired and rerun separately",
+      "repair_verification": {
+        "expected_rc": 3,
+        "rc": 3,
+        "seconds": 79.1,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:SA",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/detect-nonnative-worktree.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 11.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/detect-nonnative-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/dispatch-pretooluse.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 59.5,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/dispatch-pretooluse.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/engine-status.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/engine-status.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/escalations.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/escalations.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-bash-main-writes.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-bash-main-writes.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-ci-red-lands.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 24.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-ci-red-lands.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-ci-turn-gate.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-ci-turn-gate.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-definition-drift.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-definition-drift.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-dialect.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 180.7,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-dialect.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-idle-land.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 12.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-idle-land.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-interactive-prompt.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 17.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-interactive-prompt.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-main-checkout-writes.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-main-checkout-writes.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-model-ceiling.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 75.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-model-ceiling.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-resume-isolation.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 12.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-resume-isolation.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-sealed-worktree.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 36.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-sealed-worktree.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-stop-live-work.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-stop-live-work.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-unresolved-claims.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 35.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-unresolved-claims.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 53.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-worktree-isolation.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 49.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-worktree-isolation.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/guard-worktree-removal.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/guard-worktree-removal.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/hook-staleness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 11.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/hook-staleness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/inflight-ack-durability.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/inflight-ack-durability.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/inflight-notify.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/inflight-notify.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/install-retire-reconciler.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 14.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/install-retire-reconciler.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/left-off.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 98.4,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/left-off.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/lifecycle-payload-transport.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/lifecycle-payload-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/long-payload.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/long-payload.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/mechanical-findings.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/mechanical-findings.test.sh",
+        "verdict": "PASS"
+      },
+      "rerun_scope": "Full MF campaign or standalone mechanical suite after the report-parser repair",
+      "intermediate_rerun": {
+        "expected_rc": 3,
+        "rc": 1,
+        "seconds": 7.0,
+        "sha": "6bc4ec947cbaa7b38b102114660dbe7ce7292e8a",
+        "shard": 3,
+        "shards": 6,
+        "unit": "scripts/hooks/contract-integrity.test.sh:MF",
+        "verdict": "FAIL"
+      },
+      "repair_verification": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 3.0,
+        "sha": "1f0acf37930cd781890814b50f68f0b79b5f10c5",
+        "shard": 0,
+        "shards": 12,
+        "unit": "scripts/hooks/mechanical-findings.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/named-persons.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 15.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/named-persons.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/notice-claim-capability.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 10.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/notice-claim-capability.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/owned-state.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/owned-state.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/payload-transport.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/payload-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/premise-ask.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 14.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/premise-ask.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/protected-ref-moves.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/protected-ref-moves.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/publication-boundary.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 19.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/publication-boundary.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/ref-transaction-forensics.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/ref-transaction-forensics.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/root-contract.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 69.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/root-contract.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/row-currency.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 254.6,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/row-currency.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/scan-secrets.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/scan-secrets.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/session-evidence.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/session-evidence.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/session-start-ci-surface.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/session-start-ci-surface.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/session-start-stdin.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 26.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/session-start-stdin.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/stale-staging.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 68.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/stale-staging.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/stop-hook-visibility.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 5.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/stop-hook-visibility.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/task-completed-handoff.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/hooks/task-completed-handoff.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/teammate-idle-handoff.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/teammate-idle-handoff.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/turn-manifest.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 11.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/turn-manifest.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/unasked-deferral.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 42.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unasked-deferral.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/unevaluated-notice.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unevaluated-notice.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/unevaluated-payload.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 18.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unevaluated-payload.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/unlanded-branches.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 17.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/unlanded-branches.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/unstarted-rows.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 71.2,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/unstarted-rows.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/verify-agent-prompt.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 188.5,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/verify-agent-prompt.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/waiver-repetition.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 36.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/hooks/waiver-repetition.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/hooks/worker-lifecycle.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/hooks/worker-lifecycle.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/install-ack-protocol.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/install-ack-protocol.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/install-escalation-protocol.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/install-escalation-protocol.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/land-completeness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/land-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/ledger-prune-sandbox.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/ledger-prune-sandbox.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/app-evidence.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/app-evidence.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/assert-own-worktree-registered.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/assert-own-worktree-registered.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/bulk-record-transport.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 7.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/bulk-record-transport.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/ci-surface.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 9.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/ci-surface.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/ci_pause.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/ci_pause.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/completion-proof.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/completion-proof.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/containers.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 332.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 0,
+        "shards": 12,
+        "unit": "scripts/lib/containers.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/durable-filesystem-identity.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/durable-filesystem-identity.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/finish-row-completion.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 8.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/finish-row-completion.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/git-jurisdiction.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 11.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/git-jurisdiction.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/global-state-witness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/global-state-witness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/hook-dependencies.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/hook-dependencies.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/leak-canary.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/leak-canary.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/mutation-harness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/mutation-harness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/mutation-pool.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/mutation-pool.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/provider-supervisor.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/provider-supervisor.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/record-canary.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/record-canary.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/resolve-roots.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/resolve-roots.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/seat-jurisdiction.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/lib/seat-jurisdiction.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/stopwatch.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/stopwatch.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/lib/worktree-ledger.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 34.1,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/lib/worktree-ledger.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/locate-engine.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 10.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/locate-engine.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/mutation-inventory.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 4,
+        "shards": 4,
+        "unit": "scripts/mutation-inventory.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/prepare-agent-spawn.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/prepare-agent-spawn.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/provision-claude-md.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 1.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/provision-claude-md.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/publication-completeness.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 4.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 2,
+        "shards": 4,
+        "unit": "scripts/publication-completeness.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/run-all-tests.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 2.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/run-all-tests.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    },
+    {
+      "unit": "scripts/spawn.test.sh",
+      "initial_receipt": {
+        "expected_rc": 0,
+        "rc": 0,
+        "seconds": 6.0,
+        "sha": "3eaca2dc3e082504b31e917a2877cf993e692555",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/spawn.test.sh",
+        "verdict": "PASS"
+      },
+      "passed": true
+    }
+  ]
+}

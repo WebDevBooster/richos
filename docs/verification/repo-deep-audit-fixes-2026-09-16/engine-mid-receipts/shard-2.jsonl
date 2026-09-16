@@ -1,0 +1,4 @@
+{"expected_rc":0,"rc":0,"seconds":46.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":2,"shards":4,"unit":"ass-kicker/tests/brief-scope.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":7.0,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":2,"shards":4,"unit":"ass-kicker/tests/guard-stated-actions.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":31.2,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":2,"shards":4,"unit":"loro/tests/run.test.sh","verdict":"PASS"}
+{"expected_rc":0,"rc":0,"seconds":121.5,"sha":"31e61be91572ad696c413907bd06b632714b9b1d","shard":2,"shards":4,"unit":"mega-lander/tests/workspace-probes.test.sh","verdict":"PASS"}

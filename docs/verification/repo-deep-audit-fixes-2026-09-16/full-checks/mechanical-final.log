@@ -1,0 +1,99 @@
+[1m=== ci-shard: 2 unit(s) at 1f0acf37930cd781890814b50f68f0b79b5f10c5 ===[0m
+  [  1/  2] scripts/hooks/contract-integrity.test.sh:MF                              [32mPASS[0m 40.1s
+        note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+        === contract-integrity.test.sh ===
+        ################################################################################
+        #  SCOPED RUN — THIS IS NOT A FULL PASS AND MUST NOT BE READ AS ONE.
+        #  sections in scope: MF
+        #  A land needs the full suite. Run with no arguments for that.
+        ################################################################################
+        
+          PASS  MF1.mechanical-findings-mutations-all-load-bearing
+        
+        === summary ===
+        passed: 1
+        failed: 0
+        
+        ################################################################################
+        #  SCOPED RUN — NOT A FULL PASS. 176 case(s) DID NOT RUN.
+        #  ran: MF
+        #  did NOT run:
+          base (17): 1.committed-source-passes 2.install-noop-rc-0 2.post-install-probe-rc-0 3.hook-removed-fails 4.wrong-path-fails 5.double-install-idempotent 5.double-install-probe-still-rc-0 6.install-source-missing-rc-2 7.install-writes-only-the-generated-hooks-key 7m.install-write-scope-mutations-all-load-bearing C10.a-tenth-agent-hook-seated-and-registered-passes C10a.the-tenth-hook-is-named-by-Layer-C-not-silently-skipped C10b.NEGATIVE-CONTROL-seated-but-unregistered-is-named-by-Layer-C R10.a-newly-registered-rooted-hook-passes-with-no-edit-to-Layer-R R10b.NEGATIVE-CONTROL-an-unlisted-rooted-hook-that-drops-the-resolver-is-NAMED SC1.every-registered-hook-starts-in-a-sandbox SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1 
+          M (7): M1.duplicated-registration-fails M2.migration-removes-duplicate-settings-json M2.post-migration-probe-passes M2b.migration-second-run-noop M3.machine-specific-probe-passes M3.machine-specific-settings-json-hooks-stripped-config-kept M4.intra-file-duplication-fails 
+          shim (6): 10.symlink-to-outside-fails 11.canonical-with-trailing-args-passes 11b.shim-with-trailing-args-fails 12.canonical-fresh-clone-passes 8.shim-at-wrong-path-fails 9.canonical-path-wrong-hash-fails 
+          manifest (10): 13.tamper-canonical-guard-fails 14.tamper-canonical-agent-fails 14a.tamper-guard-worktree-isolation-fails 14b.tamper-guard-definition-drift-fails 14c.chain-entry-missing-fails 14d.chain-out-of-order-fails 15.inline-shim-replace-fails 16.manifest-missing-fails 17.manifest-wrong-hash-fails 18.install-idempotent-manifests 
+          worktree (4): 19.git-main-checkout-passes 19b.layer-N-tracked-pass-line-present 20.git-worktree-invocation-passes 21.worktree-probe-targets-main-settings 
+          N (4): 32.git-untracked-ignored-settings-local-fails 32b.layer-N-names-the-git-add-f-fix 33.git-untracked-not-ignored-warns-rc-0 33b.layer-N-warns-when-not-yet-committed 
+          python3 (4): 22.install-no-python3-refuses 22b.install-no-python3-stderr-names-python3 23.probe-no-python3-refuses 23b.probe-no-python3-stderr-names-python3 
+          config (14): 24.install-missing-env-flag-refuses 24b.install-missing-env-flag-names-the-key 24c.install-missing-env-flag-must-not-write-settings-json 25.install-missing-baseref-refuses 25b.install-missing-baseref-names-the-key 26.probe-catches-env-flag-removed-post-install 26b.probe-names-the-missing-env-flag 27.probe-catches-baseref-removed-post-install 27b.probe-names-the-missing-baseref 28.both-keys-correct-probe-passes 28b.layer-I-explicit-pass-line-present 28c.layer-J-explicit-pass-line-present 28d.layer-K-explicit-pass-line-present 28e.layer-M-explicit-pass-line-present 
+          K (8): 29.secrets-scanner-not-wired-fails 29b.probe-names-the-missing-secrets-scanner 30.secrets-scanner-tampered-fails 30b.probe-names-the-hash-mismatch 31.secrets-scanner-broken-then-reinstalled-fails 31b.functional-canary-catches-broken-scanner-despite-matching-hash 31c.dead-secrets-scanner-fails-layer-K 31d.layer-K-says-failing-to-start-not-failing-to-catch 
+          P (12): 34.definition-drift-pair-intact-probe-rc-0 34b.layer-P-pass-line-present 35.definition-snapshotter-unwired-fails-layerP 35b.layer-P-names-the-missing-snapshotter 36.definition-drift-guard-unwired-fails 37.definition-drift-guard-tampered-fails 37b.definition-snapshotter-tampered-fails-layerP 38.definition-drift-guard-gutted-fails-layerP-canary 38b.definition-drift-guard-overblocks-fails-layerP-canary 38c.layer-P-names-the-over-block 39.definition-snapshotter-duplicated-fails 40.definition-drift-guard-suite-passes 
+          Q (26): 41.workspace-spec-intact-probe-rc-0 41b.layer-Q-pass-line-present 41c.canary-that-could-not-run-fails-probe 41d.canary-that-could-not-run-is-explained 41e.layer-Q-survives-a-hostile-ambient-git-environment 41f.hermetic-seed-commit-removed-fails-under-a-hostile-environment 41g.layer-Q-says-its-canary-did-not-run 42.lifecycle-unwired-from-SessionStart-fails-layerQ 42b.layer-Q-names-the-missing-event 42c.lifecycle-blind-to-SendMessage-fails-layerQ 42d.layer-Q-names-the-unseen-tool 42e.stop-gate-unwired-fails-layerQ 42f.layer-Q-names-the-missing-gate 43.lifecycle-hook-tampered-fails-layerQ 44.registry-tampered-fails-layerQ 44a.layer-Q-names-the-tampered-registry 44b.registry-sidecar-missing-fails-layerQ 44c.layer-Q-names-the-missing-manifest 45.gate-lets-every-turn-end-fails-layerQ-canary 45b.layer-Q-names-point-5 45c.land-deletes-nothing-fails-layerQ-canary 45d.layer-Q-names-the-surviving-workspace 46.lifecycle-duplicated-fails 47.install-mints-workspace-spec-sidecars 47b.post-install-probe-passes 48.workspace-registry-suite-passes 
+          Qscope (6): $q_id.retired-deleter-$q_sc-revived-fails-layerQ 51.finished-agent-not-locked-out-fails-layerQ-canary 51b.layer-Q-names-point-9 52.registration-at-spawn-broken-fails-layerQ-canary 52b.layer-Q-names-the-unregistered-spawn 53.workspace-spec-end-to-end-passes 
+          S (6): S1.worktree-removal-guard-not-wired-fails S1b.layer-S-is-the-layer-that-caught-it S2.worktree-removal-guard-wired-twice-fails S3.gutted-worktree-removal-guard-fails S4.sanctioned-helper-missing-fails S4b.layer-S-names-the-missing-helper 
+          IP (11): IP0.large-hook-inventory-passes IP1.interactive-prompt-guard-not-wired-fails IP1b.layer-IP-is-the-layer-that-caught-it IP2.interactive-prompt-guard-wired-twice-fails IP3.gutted-interactive-prompt-guard-fails IP4.shape-table-missing-fails IP4b.layer-IP-names-the-missing-shape-table IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash IP5b.layer-IP-says-failing-to-start-not-failing-to-catch IP6.interactive-prompt-guard-suite-passes IP7.interactive-prompt-mutations-all-load-bearing 
+          IL (11): IL1.idle-land-gate-not-wired-fails IL1b.layer-IL-is-the-layer-that-caught-it IL2.missing-analyzer-fails IL2b.layer-IL-names-the-missing-analyzer IL3.replaced-analyzer-fails-on-the-hash IL4.gutted-gate-fails-despite-matching-hash IL4b.layer-IL-says-it-is-registered-but-not-enforcing IL5.gate-that-refuses-everything-fails-despite-matching-hash IL5b.layer-IL-says-refusing-everything-not-deciding IL6.idle-land-gate-suite-passes IL7.idle-land-mutations-all-load-bearing 
+          CL (2): CL1.claim-gate-suite-passes CL2.claim-gate-mutations-all-load-bearing 
+          RI (3): IN2.inflight-notify-mutations-all-load-bearing RI1.resume-isolation-suite-passes RI2.resume-isolation-mutations-all-load-bearing 
+          WTR (1): WTR1.worktree-removal-mutations-all-load-bearing 
+          MT (11): MT1.model-tiers-undeclared-fails MT1b.the-refusal-names-the-blank-declaration MT2.model-tiers-alias-set-drifts-from-allowed-models-fails MT2b.the-refusal-names-the-unranked-alias MT3.doctrine-quotes-a-different-order-fails MT3b.the-refusal-names-both-orders MT4.doctrine-says-downgrade-without-quoting-the-data-fails MT4b.the-refusal-names-the-missing-quotation MT5.control-declared-and-quoted-passes-the-layer MT6.large-refusal-still-names-the-remedy MT6b.large-refusal-without-remedy-still-fails 
+          MC (9): MC1.no-ceiling-declared-warns-and-does-not-fail MC1b.the-warning-names-the-missing-declaration MC2.unrankable-ceiling-fails MC2b.the-refusal-names-the-unrankable-ceiling MC3.doctrine-quotes-a-different-ceiling-fails MC3b.the-refusal-names-both-ceilings MC4.dead-ceiling-guard-is-caught MC4b.the-refusal-says-the-guard-did-not-refuse MC5.control-declared-and-quoted-passes-the-layer 
+          MC6 (1): MC6.model-ceiling-mutations-all-load-bearing 
+          WTI (1): WTI1.staffing-gate-mutations-all-load-bearing 
+          SA (2): SA1.stated-actions-gate-suite-passes SA2.stated-actions-mutations-all-load-bearing 
+        #
+        #  Exit code 3 means scoped-and-green. It is not 0 and must not be treated
+        #  as one. Re-run with no arguments before landing anything.
+        ################################################################################
+  [  2/  2] scripts/hooks/mechanical-findings.test.sh                                [32mPASS[0m 3.0s
+        === mechanical findings: found, written once, governed, surfaced, loud when blind ===
+          PASS  1a  a tree with defects makes the lint exit 1
+          PASS  1b  a suite skipped BY NAME in a workflow is found (b.test.sh)
+          PASS  1c  CONTROL: a suite that is RUN, and named only in a comment near 'skip', is NOT reported
+          PASS  1d  a harness no script names is found (x.mutation.sh)
+          PASS  1e  a harness named ONLY IN A COMMENT is found (z.mutation.sh) — a comment is not a runner
+          PASS  1f  CONTROL: a harness a script actually invokes is NOT reported
+          PASS  1g  a registered hook no test names is found (h2), and one named only in a test's COMMENT is found (h3)
+          PASS  1h  CONTROL: a hook a test names on a code line is NOT reported
+          PASS  1i  POSITIVE PROBE: every class reports how many subjects it examined, and none examined zero
+          PASS  1j  report-only wrote nothing: the record is untouched and no temp file exists
+          PASS  1k  report-only: the record is byte-identical to HEAD
+          PASS  2a  --write appends one row per NEW finding (5) and says so
+          PASS  2b  READ BACK OFF DISK: the record carries exactly 5 `finding:` rows
+          PASS  2c  row 3.3 is the skipped suite: id allocated above 3.2, key inside, warrant pinning BOTH the suite and the workflow at their real HEAD object ids
+          PASS  2d  row 3.4 is the unrun harness, stamped at the harness's own object id
+          PASS  2e  rows are appended at the END of section 3's table — after 3.2, in order, before the next heading, with the table's blank line intact
+          PASS  2f  no existing row was edited, re-stamped or removed — the diff is additions only
+          PASS  2g  every written row says a machine wrote it, and which one
+          PASS  3a  a second --write over the same tree writes NOTHING: the record is byte-identical, still 5 rows
+          PASS  3b  the second sweep reports every finding as KNOWN with its row id, none as new
+          PASS  3c  a KNOWN finding names the row that holds it (3.3)
+          PASS  4a  the LANDING GUARD's own lint accepts the written rows: their warrants are current (row-currency-lint exit 0)
+          PASS  4b  the UNSTARTED-ROW sweep names every written row as unstarted — the third link sees the second's output
+          PASS  5a  the exclusion fixed in the tree: row 3.3 is named GONE, nothing is written, nothing is edited
+          PASS  5b  the GONE row is NOT touched — closing it is a person's read of the sentence
+          PASS  5c  a row closed by hand while the finding is still in the tree is named as a CONTRADICTION, not rewritten
+          PASS  6a  `finding-exempt: <reason>` in the subject removes the finding AND is reported with its reason
+          PASS  6b  a BARE marker exempts nothing
+          PASS  6c  a marker whose reason is two letters exempts nothing either
+          PASS  7a  the turn ends with a notice that rows were WRITTEN, naming ids and keys
+          PASS  7b  it NOTICES, it does not block — exit 0
+          PASS  7c  the hook itself wrote the 5 rows (not only the lint)
+          PASS  7d  the notice says the rows are uncommitted and whose repository they are in
+          PASS  7e  the next turn, same tree, same rows: SILENT — known open rows are the unstarted sweep's to name
+          PASS  7f  POSITIVE PROBE: the receipt proves the silent turn SWEPT — 5 findings, all known
+          PASS  7g  the finding disappearing SPEAKS AGAIN, naming the row to close
+          PASS  7i  the same GONE row on the next turn is SILENT — a persistent condition is announced once, not every turn
+          PASS  7j  the GONE condition ending is the end of a story the operator was told: one 'clear again' line
+          PASS  7h  a seat with no .row-currency STANDS DOWN silently, and its receipt says so
+          PASS  8a  a record whose governed section has no table: lint exit 2, BROKEN, nothing written
+          PASS  8b  the hook says it swept nothing, on the channel the operator sees
+          PASS  8c  the analyzer missing: lint exit 2 — never the same code as clean
+          PASS  8d  the analyzer missing: the hook announces it rather than ending the turn quietly
+          PASS  8e  another writer holding the lock: the write is REFUSED and reported, nothing partial lands
+          PASS  9a  a large real sweep writes and announces all 405 findings
+          PASS  9b  the large stable sweep is silent and records all 405 known findings
+        
+          46 passed, 0 failed
+
+[32m✓ ci-shard: 2/2 unit(s) passed.[0m

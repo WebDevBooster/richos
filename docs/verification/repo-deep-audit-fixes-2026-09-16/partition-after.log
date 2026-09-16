@@ -1,0 +1,229 @@
+  ok  record: a record with no declared scope is CEO-PRIVATE, never org-shared
+  ok  record: an unrecognized scope value is treated as CEO-PRIVATE, not passed through
+  ok  record: an unrecognized kind degrades to passage — never promoted, never dropped
+  ok  record: supersededBy makes a record non-current so it can never read as truth
+  ok  record: a validUntil in the past makes a record expired
+  ok  record: absence of a date is NOT staleness — an undated record stays current
+  ok  record: validation reports an id-less record instead of silently ranking it
+  ok  sources: a hard-rule heading infers a constraint, ordinary prose stays a passage
+  ok  sources: a heading naming a decision infers a decision
+  ok  sources: markdown splits into heading sections carrying the document title
+  ok  sources: a fenced code block never fabricates a heading section
+  ok  sources: sibling markdown links become related refs (the one-hop link graph)
+  ok  sources: slugify produces a stable, ref-safe anchor
+  ok  pages: a customer install compiles the CEO second brain at engine/ceo-wiki/wiki
+  ok  pages: PROBE — the old single-wiki-directory behaviour finds NOTHING in that same install
+  ok  pages: the legacy engine wiki directory is included in a repository layout
+  ok  pages: an unfilled template section is NOT memory (scaffolding never compiles)
+  ok  pages: PROBE — the excluded template sections are long enough to have compiled
+  ok  pages: every prose ref is unique across prose directories (a ref is never ambiguous)
+  ok  pages: a page under pages/private/ is CEO-PRIVATE (the scope field prose otherwise lacks)
+  ok  pages: PROBE — the same page outside private/ compiles org-shared
+  ok  pages: a company partition contributes its own pages and records, tagged with the company
+  ok  pages: evidence, inbox and mirrors are NEVER compiled (evidence is not truth)
+  ok  corpus: a loro with no memory, no wiki and no entities loads as EMPTY, not as an error
+  ok  corpus: typed memory records load with their DECLARED kind and scope
+  ok  corpus: wiki sections load with an INFERRED kind, always marked as inferred
+  ok  corpus: wiki/raw is EXCLUDED — raw evidence never compiles as company memory
+  ok  corpus: the fingerprint is stable across identical loads
+  ok  corpus: the fingerprint CHANGES when a record changes (identity, not a timestamp)
+  ok  corpus: a malformed jsonl line is REPORTED and skipped — one bad row never fails a compile
+  ok  corpus: resolveRoot finds the repo root from inside a subdirectory
+  ok  root: an unconfigured corpus root is an ERROR — never a fallback to the binary's checkout
+  ok  root: PROBE — the same call with a root configured resolves cleanly
+  ok  root: the compiler itself refuses to compile without an explicit root (not just the CLI)
+  ok  root: a root that does not exist FAILS LOUDLY instead of compiling an empty corpus
+  ok  root: a corpus root with neither ceo/ nor companies/ is refused, not compiled as thin
+  ok  root: a corpus inside the RichOS product repo is REFUSED (the open-source boundary)
+  ok  root: PROBE — the same corpus outside the product repo is accepted
+  ok  root: LORO_CORPUS and LORO_ROOT are honoured, and a flag outranks the environment
+  ok  root: compiling the PRODUCT checkout says so in the slice — a dogfood corpus is never silent
+  ok  root: PROBE — a corpus that is not the product checkout carries no dogfood note
+  ok  root: a slice states which corpus it was compiled from (layout + how the root was given)
+usage: loro corpus root: no corpus configured. The corpus is the CEO's own record and it is NEVER inferred from the checkout this binary sits in — inferring it would compile RichOS's memory as yours, or nothing at all, and exit 0 either way.
+  Set one of: --corpus <dir> | LORO_CORPUS=<dir>   (a provisioned corpus: ceo/ + companies/)
+              --root <dir>   | LORO_ROOT=<dir>     (in-repo dogfood: a checkout with wiki/ + loro/)
+  ok  cli: compile without any corpus root exits 2 and names the flags to set
+  ok  cli: PROBE — the same invocation with --root exits 0
+  ok  cli: --corpus compiles a shipped-layout corpus end to end
+  ok  privacy: an unknown audience THROWS rather than defaulting to the widest scope
+  ok  privacy: the worker audience is not permitted CEO-private scope at all
+  ok  privacy: filtering removes CEO-private records for a worker and keeps them for Rich
+  ok  privacy: a compiled WORKER slice never contains a CEO-private record
+  ok  privacy: the same CEO-private memory IS available to Rich's own slice
+  ok  privacy: withheld records are COUNTED in the slice, never silently dropped
+  ok  privacy: the finished slice is re-checked — a leaked scope throws instead of being emitted
+  ok  privacy: deep fetch enforces the SAME scope wall as compile (no ref-guessing around it)
+  ok  privacy: every compiler library module is READ-ONLY and makes no network call
+  ok  privacy: the read-only scan reaches a module in a SUBDIRECTORY of lib
+  ok  relevance: tokenizing keeps punctuated company terms (whisper.cpp) as one term
+  ok  relevance: stopwords are dropped so they can never drive a match
+  ok  relevance: a term present in every record carries near-zero IDF (grep cannot do this)
+  ok  relevance: a topic dictated with a known ASR mangling still retrieves the entity's memory
+  ok  relevance: a governing DECISION outranks a merely word-similar prose passage
+  ok  relevance: a SUPERSEDED decision is never returned — not ranked lower, absent
+  ok  relevance: an EXPIRED record is never returned
+  ok  relevance: a record containing no query term at all is never a candidate (no padding)
+  ok  relevance: brevity below the length floor is not itself a relevance signal
+  ok  relevance: an entity alias that is AMBIENT in the corpus never expands the query
+  ok  relevance: a promoted memory record is its own diversity group, a wiki section is not
+  ok  relevance: no single wiki page may supply more than two items to a slice
+  ok  compile: the rendered slice NEVER exceeds the character budget, at any budget
+  ok  compile: a larger budget yields a SUPERSET of a smaller budget (monotone packing)
+  ok  compile: the same corpus, topic and clock produce BYTE-IDENTICAL output (deterministic)
+  ok  compile: a freshly loaded corpus compiles identically to a cached one (no load-order drift)
+  ok  compile: an EMPTY loro returns an honest thin slice that tells the reader not to assume
+  ok  compile: a topic loro squarely covers is labelled DIRECT
+  ok  compile: a topic loro can only answer ADJACENTLY says so in the injected text itself
+  ok  compile: a question built mostly of terms loro has never heard is NEVER labelled direct
+  ok  relevance: an unheard-of query term counts against coverage at half weight, not zero
+  ok  compile: a topic loro knows nothing about returns thin, never a plausible-sounding filler
+  ok  compile: a thin slice still fits its budget
+  ok  compile: inferred kinds are flagged in the slice text and called out in the notes
+  ok  compile: relevant memory that did not fit is listed for on-demand deep fetch
+  ok  compile: deep fetch returns the FULL untruncated record behind a truncated slice line
+  ok  compile: an unknown ref reports not-found rather than returning a near match
+  ok  compile: the slice carries its contract version and the corpus fingerprint it came from
+  ok  compile: truncation cuts on a word boundary and marks the cut
+  ok  cli: compile emits a schema-stamped JSON slice and exits 0
+  ok  cli: --format text emits exactly the injectable slice text and nothing else
+  ok  cli: --now makes two runs byte-identical (deterministic for the caller)
+  ok  cli: --budget-chars is honoured end-to-end through the CLI
+  ok  cli: an empty loro exits 0 with thin=true — thin is an answer, not a failure
+  ok  cli: a worker-audience compile never emits CEO-private memory
+privacy invariant: unknown audience "everyone". Must be one of rich | worker | org — refusing to guess, because guessing wide would leak CEO-private memory.
+  ok  cli: an unknown audience is refused with a usage error, never silently widened
+no record with ref "mem:company:nope"
+  ok  cli: fetch of an unknown ref exits 3
+ref "mem:company:vp-sales-doubt" is not available to audience "worker"
+  ok  cli: fetch of CEO-private memory as a worker exits 4 (refused by the scope wall)
+  ok  cli: fetch of the same ref as Rich exits 0 and returns the record
+usage: compile needs --topic "<text>" (or --topic-stdin)
+  ok  cli: compile without a topic is a usage error (a slice is always topical)
+  ok  cli: corpus reports what loro actually holds, for a real repo root
+  ok  coverage: a prose section with no promoted record is UNCOVERED, and the count is derived not typed
+  ok  coverage: a JSONL row with no cited page is UNCITED, never a citation of its own store
+  ok  coverage: a citation whose anchor no longer exists is a DRIFTED ANCHOR, reported not ignored
+  ok  coverage: a citation naming a file outside the prose layer is UNREACHABLE, counted apart
+  ok  coverage: a drifted anchor is repaired ONLY when the heading text is unchanged
+  ok  coverage: an ambiguous anchor is never re-aimed silently
+  ok  coverage: the same records produce a byte-identical report (a coverage number has an identity)
+  ok  coverage: a candidate declares NOTHING a promotion must adjudicate
+  ok  coverage: per-page rows surface a page at zero, which an aggregate hides
+  ok  frontmatter: a record file parses into fields plus a body
+  ok  frontmatter: a machine rewrite PRESERVES unknown fields, comments and order verbatim
+  ok  frontmatter: PROBE — a parse/reserialize round trip DOES lose them (so the test above bites)
+  ok  frontmatter: an unparsable line is REPORTED and kept, never silently dropped
+  ok  frontmatter: a fence a HUMAN broke is REPORTED, never mistaken for "he wrote no metadata"
+  ok  frontmatter: PROBE — a file that never intended front matter is NOT reported as damage
+  ok  records: a broken fence reaches the SLICE as a problem, and the record is never dropped
+  ok  record: an AMBIGUOUS hand-typed date is REPORTED with BOTH readings, never silently resolved
+  ok  record: PROBE — an unambiguous date is accepted SILENTLY, so the report can never be noise
+  ok  record: an UNREADABLE date is reported but still DEGRADES — never a crash, never a dropped record
+  ok  records: an ambiguous hand-typed date reaches the SLICE as a problem, and the file is UNTOUCHED
+  ok  records: PROBE — the same record dated in ISO compiles with NO problems at all
+  ok  writer: a record written by the writer is READ BACK by the compiler (the loop closes)
+  ok  writer: PROBE — the same corpus before any write holds no records at all
+  ok  layout: the CEO layer is the directory `ceo/` — recognized, written to, and read back as `rec:ceo/`
+  ok  writer: append REFUSES to overwrite — a belief is superseded, never silently replaced
+  ok  writer: a record with no declared scope is CEO-PRIVATE on the way IN, not just on the way out
+  ok  writer: correct changes ONLY what it was asked to, and never the body
+  ok  writer: correct REFUSES without a reason — an unexplained edit is indistinguishable from a mistake
+  ok  writer: WIDENING a scope is refused without an explicit acknowledgement (the scope wall)
+  ok  writer: PROBE — narrowing a scope needs no acknowledgement
+  ok  writer: supersede links BOTH directions and drops the old record out of live memory
+  ok  writer: supersede preserves company, CEO and unfiled partitions and refuses an implicit move
+  ok  writer: supersede accepts an explicit equivalent company partition
+  ok  writer: supersede REFUSES an already-superseded record (no chains of dead records)
+  ok  writer: a JSONL-promoted record is superseded by rewriting ONE line, byte-identical elsewhere
+  ok  writer: a ref that names PROSE is refused with the file to open (the escape hatch)
+  ok  writer: an id that could escape its directory is refused before anything is written
+  ok  writer: an unknown company partition is refused and names the ones that exist
+  ok  writer: filing never BLOCKS a write — unfiled is always available
+  ok  records: a hand-written file with NO front matter still compiles, private and untyped
+  ok  records: the ref comes from the PATH, so it can never disagree with where the file lives
+  ok  privacy: the WRITER lives outside loro/lib, so the compiler read-only scan still covers it all
+  ok  privacy: PROBE — the same scan flags the writer, so it is detecting writes and not passing blindly
+  ok  write: the AUTHORITY the reader ranks on can actually be written, and a typo is refused
+  ok  privacy: the coverage WRITE half is outside loro/lib, and the scan proves it writes
+  ok  slice: a record citing a section its page no longer has SAYS SO, unprompted
+no coverage baseline at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/loro-cov-tclUzC/loro/coverage-baseline.json. Refusing to check against nothing — an absent ratchet passes every corpus, including one that has fallen a month behind. Create it with `loro-coverage baseline --write`, read the diff, and commit it.
+  ok  coverage gate: a MISSING baseline is refused, never a silent pass over nothing
+  ok  coverage gate: a NEWLY uncovered section fails the ratchet, and promoting a record clears it
+  ok  coverage gate: a drifted citation FAILS and is never ratchetable
+  ok  coverage gate: an unreachable file needs a WRITTEN reason — an empty one is not a declaration
+  ok  coverage baseline: a regeneration carries forward every declared reason, and is byte-stable
+  ok  coverage relink: --apply changes one JSONL line and no other byte; a dry run changes none
+  ok  coverage relink: a citation whose heading was REWRITTEN is left alone for a person
+loro-coverage propose --apply does not exist, and will not. A candidate is not a record: `kind`, `authority`, `confidence` and `scope` are judgments a heading cannot supply, and the prose layer already carries the mechanical guess honestly labelled `kindInferred: true`. Promoting that guess unlabelled would make the corpus WORSE, not merely no better. Read the section and write it with `loro-write append`.
+  ok  coverage propose: --apply is REFUSED, so a candidate can never become a record by flag
+usage: loro corpus root: no corpus configured. The corpus is the CEO's own record and it is NEVER inferred from the checkout this binary sits in — inferring it would compile RichOS's memory as yours, or nothing at all, and exit 0 either way.
+  Set one of: --corpus <dir> | LORO_CORPUS=<dir>   (a provisioned corpus: ceo/ + companies/)
+              --root <dir>   | LORO_ROOT=<dir>     (in-repo dogfood: a checkout with wiki/ + loro/)
+  ok  coverage: the corpus root is never inferred for coverage either
+  ok  write cli: append then correct, end to end, with an explicit corpus
+  ok  write cli: --dry-run prints the file and writes NOTHING
+usage: loro corpus root: no corpus configured. The corpus is the CEO's own record and it is NEVER inferred from the checkout this binary sits in — inferring it would compile RichOS's memory as yours, or nothing at all, and exit 0 either way.
+  Set one of: --corpus <dir> | LORO_CORPUS=<dir>   (a provisioned corpus: ceo/ + companies/)
+              --root <dir>   | LORO_ROOT=<dir>     (in-repo dogfood: a checkout with wiki/ + loro/)
+  ok  write cli: writing with NO corpus root configured exits 2, exactly like reading
+  ok  write cli --json: append emits ONE parseable object carrying ref, file and text
+  ok  write cli --json: a --dry-run says dryRun:true, carries the full text, and touches nothing
+  ok  write cli --json: supersede names both refs, and correct names the fields it changed
+  ok  write cli --json: show returns the file behind a ref as data
+loro write: no record with ref "rec:ceo/records/nope". Nothing was changed.
+  ok  write cli --json: a REFUSAL still exits on its code and still writes stderr, not a JSON error
+  ok  write cli --json: prose output is UNCHANGED when the flag is absent
+loro write: no record with ref "rec:ceo/records/nope". Nothing was changed.
+  ok  write cli: correcting a ref loro does not hold exits 3 and changes nothing
+  ok  scale: a company's relevance floor is set by its OWN best hit, never by another company's
+  ok  scale: a raw score is not comparable across index sizes, so an absolute floor cannot be
+  ok  scale: the relevance floor can never delete a lane's own best candidate, at any lane size
+  ok  scale: a one-record company partition compiles its record instead of an honest-looking nothing
+  ok  scale: a term is weighted against comparable material, not against another company's usage
+  ok  scale: the youngest company reaches the slice on its own merit, not on its share of the mass
+  ok  scale: the coverage label does not degrade because a different company arrived
+  ok  scale: the CEO layer reaches a company slice even when nothing in it can win a slot
+  ok  scale: narrowing with --company indexes one lane, not the whole corpus
+  ok  partition: a corpus with NO company partitions compiles as one lane holding the whole budget
+  ok  partition: an unknown --company id is REFUSED, never compiled as an empty lane
+  ok  partition: a lane's character share is monotone in the budget, for every lane
+  ok  partition: item slots do not depend on the character budget
+  ok  partition: a larger budget yields a SUPERSET of a smaller one ACROSS a split budget
+  ok  partition: FLOW-FORWARD of an unspent lane share would break that superset guarantee
+  ok  partition: a slice reports its unspent budget rather than quietly reusing it
+  ok  partition: a lane's rendered width comes from ITS share, not from the whole budget
+  ok  partition: the deep-fetch index draws from every lane, never sorted across incomparable scores
+  ok  partition: a record's lane is its company field, and an unfiled record is CEO-layer
+  ok  manifest: a RETIRED company leaves live slices and stays fetchable by name
+  ok  manifest: an unreadable manifest degrades to ACTIVE and says so, never loses the memory
+  ok  manifest: a manifest cannot rename the partition its own records live in
+  ok  create-company: a partition is created with every directory the layout specifies
+  ok  create-company: a second partition for a company that already exists is REFUSED
+  ok  create-company: a mistyped role or status is REFUSED rather than stored for a later reader
+  ok  create-company: --dry-run shows the manifest and touches NOTHING
+  ok  dogfood layout: an UNPROVISIONED checkout is unchanged — one records dir, no partitions
+  ok  dogfood layout: create-company works on a repo root, and a fresh compile sees the lane
+  ok  dogfood layout: `pages:` in a manifest gives the repo's own prose a home, and refs do NOT move
+  ok  dogfood layout: a bound company lane is EXCLUDED from another company's compile
+  ok  dogfood layout: two partitions claiming one prose directory is REPORTED, and the first wins
+  ok  dogfood layout: a pages claim that escapes the corpus is REFUSED, not obeyed
+  ok  dogfood layout: ceo/entities.json is the vocabulary once it exists; loro/entities.json is the fallback
+  ok  write cli: create-company writes a partition a fresh compile can immediately use
+usage: --company needs a value — a comma list of company ids, or "all"
+loro --company: no such company partition "northwnd" in this corpus. Known: northwind. Refusing to compile an empty lane and call it an answer — a mistyped company id must not look like a company with nothing in it.
+  ok  cli: --company refuses to WIDEN — a bare flag and an unknown id both exit 2
+  ok  round trip: every ref a compiled slice emits resolves to the file that HOLDS it, or is refused for its own named reason
+  ok  round trip NEGATIVE CONTROL: the round trip saw refs, from more than one source (it cannot pass on an empty slice)
+  ok  round trip: the WHOLE emission set is addressable — the compiler can emit any record id, not just the ranked ones
+  ok  round trip: the writer has a resolver for EXACTLY the sources the compiler can emit from
+  ok  round trip: a source the compiler emits from but the writer cannot resolve is REFUSED by name, never guessed at
+  ok  round trip: show reads back EVERY ref kind — a ref the compiler hands out is a ref a human can open
+  ok  round trip: show on a CITED promoted record names its JSONL store, and reports the citation separately
+  ok  round trip: supersede REACHES a cited promoted row instead of hunting for JSON in a markdown page
+  ok  supersede: the replacement cites its own evidence — --ref-source is not collapsed into the ref it replaces
+  ok  supersede: PROBE — with no --ref-source the replacement still points back at what it replaced
+  ok  round trip: an entity ref is refused as generated VOCABULARY, not misdescribed as prose
+
+207 passed, 0 failed
+Loro relocation, physical storage boundary and legacy refs: passed

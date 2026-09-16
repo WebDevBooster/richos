@@ -1,5 +1,7 @@
 # Deep repository audit, 2026-09-16
 
+Follow-up: [repairs and complete recheck](repo-deep-audit-fixes-2026-09-16.md).
+
 Audited revision: `ef2f0c87f808951e1fd2da3802accb2c17ebc4c2` on `main`.
 
 Three actionable defects were reproduced: two P1 storage/scope problems and one

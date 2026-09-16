@@ -1,0 +1,100 @@
+
+> richos-extension@0.1.0 test
+> node tests/run.js
+
+
+platform detection
+  ok  recognizes a Google Meet meeting URL but not the Meet home page
+  ok  recognizes the Zoom web client and extracts the meeting number
+  ok  recognizes Teams web meetings and Whereby rooms
+  ok  ignores non-call pages and malformed URLs
+  ok  Slack/Discord/Webex only count as calls once the tab is actually making sound
+
+auto-arm decisions
+  ok  a recognized call URL arms even before any audio (a silent lobby must not be missed)
+  ok  the arm delay is respected so a page that is merely loading is not armed
+  ok  manual mode never auto-arms
+  ok  unknown audible tabs arm only when the CEO opted in
+
+health evaluation — the in-call guarantee
+  ok  a healthy session is green with no recovery actions
+  ok  the first 20 seconds without a chunk are amber (warm-up), not a false alarm
+  ok  armed but never received one byte of audio => RED plus a recorder restart
+  ok  audio stops arriving => amber at 7s, red with a restart by 15s
+  ok  chunks that keep arriving but never grow the file are caught (the nastiest silent failure)
+  ok  a silent recorder document is red and asks for a rebuild, and other signals are not guessed at
+  ok  an ended tab stream asks for re-attach; an ended mic stream asks for re-acquire
+  ok  exact digital silence on the microphone is red (device switched / muted at the OS)
+  ok  a suspended audio graph is red — it would record perfect silence while looking healthy
+  ok  nobody talking is amber, never red, and never triggers recovery
+  ok  microphone-only failover stays visibly degraded for the whole call
+  ok  applyHeartbeat only advances the growth clock when bytes actually increased
+  ok  badge text is short enough for the action badge
+
+session records — a lost call is present on disk, not absent
+  ok  session directory names are portable (no colons) and carry time, platform and slug
+  ok  a session record is born OPEN so a call that captured nothing is a loud anomaly
+  ok  a session that recorded real audio and closed cleanly verifies OK
+  ok  any second spent red is remembered in the session record
+
+drop-zone paths
+  ok  path components are made safe for every OS Chrome runs on
+  ok  drop paths stay relative and keep their directory structure
+
+privacy + noise defaults (the CEO's stated posture)
+  ok  routine notifications and the participant disclosure are OFF by default; failure alerts are ON
+  ok  capture defaults bias towards never missing a call
+
+captions — the secondary channel dedups, and the COUNT is the collector path
+  ok  a caption row emits once on appearance and once per meaningful change; no-ops are dropped
+  ok  the caption count equals exactly the number of events emitted (no second heuristic)
+  ok  blank / keyless observations never produce a caption
+  ok  a missing speaker label degrades to "unknown", never crashes the row
+
+captions-only reconciliation — a call with captions but no audio is a FLAGGED anomaly
+  ok  verifySession flags captions-present + audio-absent as a specific anomaly
+  ok  the sync reconciler refuses to treat a captions-only session as complete
+  ok  the sync reconciler passes a clean audio session (with or without captions)
+  ok  degraded captions on an otherwise-complete audio session are noted, not a blocking loss
+  ok  an unreadable session.json is still an anomaly (never silently skipped)
+
+Meet caption extraction — BOTH renderers (classic markup + server-driven), deterministic
+  ok  classic Meet caption markup (obfuscated classes) extracts speaker + text per row
+  ok  server-driven (SDUI) caption markup extracts the same shape via data-attribute anchors
+  ok  structural fallback: an unrecognized row still yields text (name inferred from the first line)
+  ok  empty caption rows are dropped by extraction
+
+hybrid capture — mic + captions run while tab audio is awaited
+  ok  awaiting-tab-audio is amber (partial capture), never red, and never a recovery action
+  ok  with tab audio disabled, a missing tab channel does not raise a tab-silence red
+  ok  the session record carries a caption block and a capture mode from birth
+  ok  hybrid auto-start is ON by default and captions collection is ON by default
+
+captions-only health — CEO decision 2026-08-23: degraded (amber) vs true failure (red)
+  ok  captions-only, still inside the warmup grace period with zero captions yet, is amber — not a false alarm
+  ok  captions-only WITH captions flowing is AMBER, never red — the degraded-but-working state
+  ok  captions-only with captions flowing right up to the stall threshold is still amber
+  ok  captions-only past warmup with NOT ONE caption ever captured is RED — nothing is being captured
+  ok  captions-only where the caption adapter itself broke is RED regardless of past captions
+  ok  amber → red ESCALATION: captions were flowing in captions-only mode, then stalled
+  ok  captions-only red reasons always carry a human-readable "nothing is being captured" detail
+
+captions-only vs the UNCHANGED red paths — no existing failure alarm was softened
+  ok  awaiting-tab-audio (mic + captions ALREADY running, only tab audio missing) is still amber via evaluateHealth — unrelated to, and unchanged by, the captions-only split
+  ok  a hard stall on a FULL audio session is still RED via evaluateHealth — not downgraded by the captions-only amber change
+  ok  a silent offscreen recorder (no heartbeat) is still RED via evaluateHealth — the hard alarm is untouched
+  ok  evaluateCaptionsOnlyHealth NEVER returns green — amber (degraded) or red (failure) are the only two states
+
+native-host client seam — the local service transport, with a Downloads fallback
+  ok  the host id matches the service manifest name (com.richos.host)
+  ok  message builders produce the exact shapes the service host-handlers consume
+  ok  chooseSink falls back to Downloads when the service is unavailable (graceful degrade)
+  ok  health + caption stream builders produce the shapes the host appends to *.ndjson
+  ok  the extension declares nativeMessaging so the transport can connect, version synced with PRODUCT
+
+coordination handshake seam (P4) — the extension owns browser-tab calls
+  ok  the extension declares itself the browser-tab surface (matches the service contract enums)
+  ok  withBrowserOwnership stamps the ownership handshake block onto a session record
+  ok  buildClaimMessage asks the shared authority to own a browser-tab call
+
+66 passed, 0 failed

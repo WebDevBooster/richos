@@ -1,0 +1,208 @@
+[33m################################################################################
+#  --no-suites: THIS IS ONE HALF OF A VERIFICATION, NOT A REDUCED ONE.
+#  Step 3 (every engine test suite) does NOT run here. In CI it runs beside
+#  this job as scripts/ci-shard.sh --shard i/N, and the coverage job proves
+#  the shards covered the whole inventory at this same commit. A green run of
+#  THIS alone is not a pass and must never be quoted as one.
+################################################################################[0m
+
+[1m=== [1/6] preconditions (tool versions + git identity) ===[0m
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin24)
+git version 2.52.0
+Python 3.14.3
+git identity: Alex Booster <webdevbooster@gmail.com>
+
+[1m=== [2/6] bash -n every shipped shell script ===[0m
+[32m✓[0m bash -n: 305 script(s) OK
+
+[1m=== [3/6] mint sidecars + migrate stale settings.json (scripts/hooks/install.sh) ===[0m
+✓ seated hook surface already matches hooks/hooks.json
+✓ no settings.json to migrate — settings.local.json is the sole settings file
+✓ refreshed hook sha256 manifests
+✓ engine pointer -> /Users/alex/.claude/richos-engine -> /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo/richos/engine
+✓ the retired nightly reconciler is not under launchd (com.richos.worktree-reconciler)
+
+[1m=== [4/6] integrity probe (scripts/hooks/contract-integrity-probe.sh) ===[0m
+richos-engine v1.2.0 — contract integrity probe
+  [32m✓[0m A. .claude/settings.local.json present (canonical hook source)
+  [32m✓[0m B. write-guard -> /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo/richos/engine/scripts/hooks/guard-main-checkout-writes.sh (path-confined, manifest-matched)
+  [32m✓[0m C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, verify-agent-prompt.sh, guard-ceo-ask-first.sh, guard-model-ceiling.sh, guard-stale-staging.sh, guard-owned-state.sh, guard-brief-scope.sh (seated table matches the registration, path-confined, manifest-matched, structural gates first)
+  [32m✓[0m D. wired write-guard rejects main-checkout source writes (exit=2 canary)
+  [32m✓[0m E. wired Agent hook chain scripts present + executable (8 entries)
+  [32m✓[0m F. TeammateIdle hook wired + present (idle-event logging active)
+  [32m✓[0m G. TaskCompleted hook wired + present (completion logging active)
+  [32m✓[0m H. PostToolUse[Agent] detect-nonnative-worktree.sh wired + present (worktree-guard detector active)
+  [32m✓[0m I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present in .claude/settings.local.json
+  [32m✓[0m J. worktree.baseRef="head" present in .claude/settings.local.json
+  [32m✓[0m K. secrets scanner wired + REJECTS a planted secret and PASSES clean content (path-confined, manifest-matched, two-sided canary)
+  [32m✓[0m T. dialect guard wired + REJECTS a British spelling and PASSES clean American prose + vocabulary hashed (path-confined, manifest-matched, two-sided canary)
+  [32m✓[0m IL. idle-land gate wired on Stop + REFUSES a completed-and-started-nothing turn and PASSES a declared stop + analyzer hashed (path-confined, manifest-matched, two-sided canary)
+  [32m✓[0m L. PreToolUse[SendMessage] guard-resume-isolation.sh wired + blocks an unresolvable resume (path-confined, manifest-matched, exit=2 canary)
+  [32m✓[0m M. registration uniqueness — each canonical hook wired exactly once; single-fire canary logged 1 line for 1 registration(s)
+  [32m✓[0m N. .claude/settings.local.json is git-tracked (will reach the next clone)
+  [32m✓[0m O. Bash-write guard wired + denies a main-checkout source write (path-confined, manifest-matched, exit=2 canary)
+  [32m✓[0m IP. interactive-prompt guard wired + REFUSES `security import` with no -P and PASSES the same command with -P '' + shape table hashed (path-confined, manifest-matched, two-sided canary)
+  [32m✓[0m P. definition-drift pair wired exactly once (SessionStart snapshotter + PreToolUse[Agent] guard) + blocks drift (exit=2) + allows unchanged (exit=0) — path-confined, manifest-matched
+  [32m✓[0m Q. the workspace spec is wired on its six events and its Stop gate, every retired deleter is wired nowhere, all four files match their manifests, and a sandboxed spawn -> commit -> finish was locked out, held the turn, and — once merged — was landed with its workspace and branch gone
+  [32m✓[0m Q7. the retired nightly reconciler is not loaded under launchd
+  [32m✓[0m Q6. the lock-out FAILS CLOSED: an unregistered worker, a missing registry, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms
+  [32m✓[0m S. worktree guard wired exactly once + REFUSES a raw 'git worktree remove' and 'git worktree add' + ALLOWS 'git worktree list'; the sanctioned command (workspaces.sh) is present and executable
+  [32m✓[0m R. root-resolution contract present + hashed + sourced by all 59 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces
+  [32m✓[0m AL. agent-liveness resolver present, hashed and behaving: a live lock -> ALIVE, an absent worktree -> NOT-ALIVE, an unqueryable repo -> INDETERMINATE (never collapsed)
+  [32m✓[0m MT. capability order declared as data (MODEL_TIERS="fable > opus > sonnet > haiku"; alias set = ALLOWED_MODELS), parser hash-matched, doctrine quotation matches, spawn guard REFUSES a lower tier naming the remedy and is SILENT on a same tier (two-sided canary)
+  [32m✓[0m MC. cost ceiling declared as data (MODEL_CEILING="opus"), guard present and executable, shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)
+  [32m✓[0m EP. supersession declared as data (ENTRYPOINTS in /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo/richos/engine/orchestration.config, 4 superseded entrypoint(s)), every standing instruction in 1 root(s) — /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo/richos/engine — names the current command, and the lint REFUSES a known-bad instruction naming file:line while ALLOWING the corrected one (two-sided canary)
+
+  [32m✓[0m contract integrity: PASS — the engine SEATED in /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo/richos/engine
+    Every layer above was RUN against this repository's own .claude/settings.local.json wiring, functional canaries included.
+    28 green, 0 broken, 0 could not run.
+
+[1m=== [5/6] the 60-second proof (scripts/demo.sh) — assert 7/7 beats ===[0m
+
+[1m=== Setting up a throwaway sample company (temp dir, deleted on exit) ===[0m
+Building a tiny sample repo at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H — this is NOT your repo and
+is deleted when this script exits. Wiring in the engine's real, unmodified
+enforcement hooks from this checkout — the same files that would protect
+your own repo.
+  [1m[REAL ENFORCEMENT][0m install.sh — minting hook integrity sidecars + verifying the single canonical settings source
+    ✓ regenerated .claude/settings.local.json hook stanzas from hooks/hooks.json — commit the change
+    ✓ no settings.json to migrate — settings.local.json is the sole settings file
+    ✓ refreshed hook sha256 manifests
+    ✓ engine pointer -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/.claude-config/richos-engine -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H
+Sample company ready.
+
+[1m=== Beat 1 — spawning a file-writing teammate without isolation ===[0m
+Someone (or an over-eager orchestrator) tries to spawn an "engineer" to
+fix a bug directly, forgetting isolation: "worktree". Watch what happens:
+  [1m[REAL ENFORCEMENT][0m guard-worktree-isolation.sh (the same hook that runs on every real Agent spawn)
+    === Teammate-spawn guard: BLOCKED ===
+      Agent 'engineer' can edit repo files, so it must satisfy the
+      teammate-spawn contract. It failed:
+        - missing native isolation — add  isolation: "worktree"  to run in an isolated worktree (got isolation='unset'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by mega-lander/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.
+      Re-issue the Agent call fixing the above.
+      (If this agent is genuinely READ-ONLY, add its type to READONLY_ALLOWLIST
+       in orchestration.config.)
+    (hook: scripts/hooks/guard-worktree-isolation.sh)
+  [32m✓ Beat 1 PASSED[0m — the guard refused the unsafe spawn — this is what protects your main branch from a stray agent editing it directly
+
+[1m=== Beat 2 — writing straight into a protected source tree ===[0m
+Now someone tries to edit app/greeting.py directly in the shared checkout
+(not inside an isolated worktree) — exactly the mistake that corrupts
+other agents' work. Watch what happens:
+  [1m[REAL ENFORCEMENT][0m guard-main-checkout-writes.sh (the same hook that runs on every Write/Edit)
+    === Main-checkout write BLOCKED ===
+      Refusing to write '/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/app/greeting.py'.
+      This is the SHARED main checkout (/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H). All source (protected trees:
+      app) must be edited in your own git worktree, never in the main
+      checkout — concurrent edits here corrupt other agents' work and block landing.
+      Re-issue the edit against your worktree path (…/.claude/worktrees/<your-worktree>/…).
+      (If you are the orchestrator: land source via git merge, or make source changes in a worktree.)
+    (hook: scripts/hooks/guard-main-checkout-writes.sh)
+
+And the raw-Bash variant of the same mistake — `cd <main> && mkdir app/new`
+— which the Write/Edit guard never sees, so it used to prompt YOU. The
+Bash guard auto-denies it too:
+  [1m[REAL ENFORCEMENT][0m guard-bash-main-writes.sh (the same hook that runs on every Bash command)
+    === guard-bash-main-writes: BLOCKED ===
+      This Bash command writes into the MAIN checkout's SOURCE tree
+      (protected trees: app) — reason: BLOCK cd-compound.
+      Source is edited ONLY inside your own worktree:
+        /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/.claude/worktrees/<your-agent-id>/<tree>/...
+      Use ABSOLUTE paths under your worktree for every file operation; never
+      'cd /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H' for writes. Main receives source only via git merge.
+    (hook: scripts/hooks/guard-bash-main-writes.sh)
+  [32m✓ Beat 2 PASSED[0m — both write-paths refused — the Write/Edit guard AND the raw-Bash guard block protected-source edits; source only changes via an isolated worktree + merge
+
+[1m=== Beat 3 — the same guard lets a correctly-isolated spawn through ===[0m
+This time the spawn does it right: isolation: "worktree", a proper
+truthful "<role>-<model>-<identifier>" name, and the ack contract that
+tells this teammate how to acknowledge a land that moves main under it.
+It should sail through the full PreToolUse[Agent]
+chain untouched:
+  [1m[REAL ENFORCEMENT][0m guard-worktree-isolation.sh -> guard-definition-drift.sh -> verify-agent-prompt.sh (the real chain, in the real order)
+    ✓ guard-worktree-isolation.sh: exit 0 (allowed)
+    ✓ guard-definition-drift.sh: exit 0 (allowed)
+    ✓ verify-agent-prompt.sh: exit 0 (allowed)
+  [32m✓ Beat 3 PASSED[0m — the compliant spawn passed every gate — the guard blocks unsafe spawns, not spawning itself
+
+[1m=== Beat 4 — the engineer builds in an isolated worktree and commits ===[0m
+This is what isolation: "worktree" actually produces: a real, linked git
+worktree on its own branch. The engineer's commit on that branch IS the
+handoff — no message required.
+  [1m[REAL ENFORCEMENT][0m git worktree add + git commit (real git mechanics, no mock)
+  [32m✓ Beat 4 PASSED[0m — worktree agent-demo0001 on branch worktree-demo0001, commit e7e27ff — the engineer's handoff, no message needed
+
+[1m=== Beat 5 — QA reviews the engineer's commit and finds a defect ===[0m
+  [33m[NARRATED SIMULATION][0m there is no live QA agent in this demo (this script is plain bash) — the git
+  [33m[NARRATED SIMULATION][0m history and the QA check's exit code below are REAL; the "QA verdict" is
+  [33m[NARRATED SIMULATION][0m this demo's own scripted stand-in for what a real QA teammate would do.
+Running the QA check against the engineer's commit:
+    Traceback (most recent call last):
+      File "/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/.claude/worktrees/agent-demo0001/app/qa_check.py", line 14, in <module>
+        assert actual == expected, f"QA FAILED: expected {expected!r}, got {actual!r}"
+               ^^^^^^^^^^^^^^^^^^
+    AssertionError: QA FAILED: expected 'Hello, World!', got 'Hello World!'
+  [32m✓ Beat 5 PASSED[0m — QA rejected the defect — the gate has real teeth, it does not rubber-stamp a broken commit
+
+[1m=== Beat 6 — the engineer fixes it, QA re-checks and passes ===[0m
+  [33m[NARRATED SIMULATION][0m same caveat as Beat 5 — the fix commit and the re-run QA check are REAL;
+  [33m[NARRATED SIMULATION][0m the pass/fail verdict narration stands in for a real QA teammate's signoff.
+    QA PASSED: greeting('World') == 'Hello, World!'
+  [32m✓ Beat 6 PASSED[0m — fix 81a3838 passes QA — the FIX-FIRST loop closes, only a verified fix proceeds
+
+[1m=== Beat 7 — landing: merge to main, then the enforcement machinery re-verifies itself ===[0m
+  [1m[REAL ENFORCEMENT][0m git merge (the land sequence's core mechanic) + contract-integrity-probe.sh
+    
+    ✓ main now has the fixed greeting.py
+    richos-engine v1.2.0 — contract integrity probe
+      [32m✓[0m A. .claude/settings.local.json present (canonical hook source)
+      [32m✓[0m B. write-guard -> /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/scripts/hooks/guard-main-checkout-writes.sh (path-confined, manifest-matched)
+      [32m✓[0m C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, verify-agent-prompt.sh, guard-ceo-ask-first.sh, guard-model-ceiling.sh, guard-stale-staging.sh, guard-owned-state.sh, guard-brief-scope.sh (seated table matches the registration, path-confined, manifest-matched, structural gates first)
+      [32m✓[0m D. wired write-guard rejects main-checkout source writes (exit=2 canary)
+      [32m✓[0m E. wired Agent hook chain scripts present + executable (8 entries)
+      [32m✓[0m F. TeammateIdle hook wired + present (idle-event logging active)
+      [32m✓[0m G. TaskCompleted hook wired + present (completion logging active)
+      [32m✓[0m H. PostToolUse[Agent] detect-nonnative-worktree.sh wired + present (worktree-guard detector active)
+      [32m✓[0m I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present in .claude/settings.local.json
+      [32m✓[0m J. worktree.baseRef="head" present in .claude/settings.local.json
+      [32m✓[0m K. secrets scanner wired + REJECTS a planted secret and PASSES clean content (path-confined, manifest-matched, two-sided canary)
+      [32m✓[0m T. dialect guard wired + REJECTS a British spelling and PASSES clean American prose + vocabulary hashed (path-confined, manifest-matched, two-sided canary)
+      [32m✓[0m IL. idle-land gate wired on Stop + REFUSES a completed-and-started-nothing turn and PASSES a declared stop + analyzer hashed (path-confined, manifest-matched, two-sided canary)
+      [32m✓[0m L. PreToolUse[SendMessage] guard-resume-isolation.sh wired + blocks an unresolvable resume (path-confined, manifest-matched, exit=2 canary)
+      [32m✓[0m M. registration uniqueness — each canonical hook wired exactly once; single-fire canary logged 1 line for 1 registration(s)
+      [32m✓[0m N. .claude/settings.local.json is git-tracked (will reach the next clone)
+      [32m✓[0m O. Bash-write guard wired + denies a main-checkout source write (path-confined, manifest-matched, exit=2 canary)
+      [32m✓[0m IP. interactive-prompt guard wired + REFUSES `security import` with no -P and PASSES the same command with -P '' + shape table hashed (path-confined, manifest-matched, two-sided canary)
+      [32m✓[0m P. definition-drift pair wired exactly once (SessionStart snapshotter + PreToolUse[Agent] guard) + blocks drift (exit=2) + allows unchanged (exit=0) — path-confined, manifest-matched
+      [32m✓[0m Q. the workspace spec is wired on its six events and its Stop gate, every retired deleter is wired nowhere, all four files match their manifests, and a sandboxed spawn -> commit -> finish was locked out, held the turn, and — once merged — was landed with its workspace and branch gone
+      [32m✓[0m Q6. the lock-out FAILS CLOSED: an unregistered worker, a missing registry, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms
+      [32m✓[0m S. worktree guard wired exactly once + REFUSES a raw 'git worktree remove' and 'git worktree add' + ALLOWS 'git worktree list'; the sanctioned command (workspaces.sh) is present and executable
+      [32m✓[0m R. root-resolution contract present + hashed + sourced by all 59 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces
+      [32m✓[0m AL. agent-liveness resolver present, hashed and behaving: a live lock -> ALIVE, an absent worktree -> NOT-ALIVE, an unqueryable repo -> INDETERMINATE (never collapsed)
+      [32m✓[0m MT. capability order declared as data (MODEL_TIERS="fable > opus > sonnet > haiku"; alias set = ALLOWED_MODELS), parser hash-matched, doctrine quotation matches, spawn guard REFUSES a lower tier naming the remedy and is SILENT on a same tier (two-sided canary)
+      [32m✓[0m MC. cost ceiling declared as data (MODEL_CEILING="opus"), guard present and executable, shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)
+      [33m⚠[0m EP. layer implementation not present at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H/scripts/hooks/contract-integrity-layer-ep.sh — nothing here checked whether a standing instruction still names a superseded entrypoint. Expected in a synthetic sandbox that carries only registered hooks; in a real engine it means the layer was deleted, and scripts/entrypoint-currency-lint.test.sh fails hard on that.
+    
+      [32m✓[0m contract integrity: PASS — the engine SEATED in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-engine-demo.3Jru8H
+        Every layer above was RUN against this repository's own .claude/settings.local.json wiring, functional canaries included.
+        26 green, 0 broken, 1 could not run.
+  [32m✓ Beat 7 PASSED[0m — merged to main cleanly, and the integrity probe confirms every layer is still wired correctly after the change
+
+[1m=== Summary ===[0m
+[32m✓ Your team's enforcement machinery works. 7/7 beats passed.[0m (in 125s)
+
+What you just watched, real vs. simulated:
+  [REAL ENFORCEMENT]      Beats 1, 2, 3, 4, 7 — actual hook binaries and real git
+                          mechanics, unmodified from this checkout.
+  [NARRATED SIMULATION]   Beats 5, 6 — the QA check's git/exit-code mechanics are
+                          real; the "QA agent" judgment is this script's scripted
+                          stand-in, not a spawned teammate.
+
+[1m=== [6/6] publication completeness (scripts/publication-completeness.sh) ===[0m
+[1m=== publication completeness: /Users/alex/ab/richos-rechecks/deep-20260916/engine-repo ===[0m
+[32m✓ Every capability this tree claims is delivered: no dangling citation, no
+  declaration-gated mechanism without its declaration and its documentation,
+  no unreachable workflow, no public contract with its mechanism left behind
+  in the private tree.[0m
+
+[32m✓ ci-verify --no-suites: all 6 non-suite steps passed. STEP 3 DID NOT RUN HERE.[0m

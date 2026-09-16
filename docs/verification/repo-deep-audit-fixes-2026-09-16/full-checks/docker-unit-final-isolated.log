@@ -1,0 +1,9 @@
+[1m=== ci-shard: 1 unit(s) at 3eaca2dc3e082504b31e917a2877cf993e692555 ===[0m
+  [  1/  1] scripts/lib/containers.test.sh                                           [31mFAIL[0m 394.5s — wrote outside its sandbox
+        WROTE OUTSIDE ITS SANDBOX — residue a stranger will have to explain:
+          ?? docs/verification/repo-deep-audit-fixes-2026-09-16.md  [861960359 7583 @1789590687.660576539]  (under /Users/alex/ab/richos)
+        WROTE OUTSIDE ITS SANDBOX — residue a stranger will have to explain:
+          ?? docs/verification/repo-deep-audit-fixes-2026-09-16/recheck.py  [2568282161 2216 @1789590836.986202477]  (under /Users/alex/ab/richos)
+
+[31m✗ ci-shard: 0/1 unit(s) passed, 1 FAILED.[0m
+    - scripts/lib/containers.test.sh — wrote outside its sandbox

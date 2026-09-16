@@ -1,0 +1,4 @@
+[31mERROR[0m ci-shard.sh: scripts/demo.test.sh is not a unit in the current inventory.
+[31mERROR[0m ci-shard.sh: scripts/hooks/contract-integrity.test.sh:base is not a unit in the current inventory.
+[31mERROR[0m ci-shard.sh: scripts/hooks/inflight-notify.test.sh is not a unit in the current inventory.
+[31mERROR: ci-shard.sh: one or more requested units do not exist — run 'ci-units.sh units' to see the inventory.[0m
