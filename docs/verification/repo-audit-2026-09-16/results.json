@@ -1,0 +1,32 @@
+{
+  "rust_provision": {
+    "exit": 0,
+    "stdout": "physical path refused: true\nsymlink path refused: false\nprovision accepted: true\nprivate directory created inside product: true\n",
+    "stderr": ""
+  },
+  "swift_recorder": {
+    "exit": 0,
+    "stdout": "physical path refused: true\nsymlink path refused: false\nrecorder accepted zone: <sandbox>/swift-fixture/external-link/recordings\n",
+    "stderr": ""
+  },
+  "service_cli": {
+    "same_destination_as_zone_refused": true,
+    "explicit_session_exit": 2,
+    "explicit_session_privacy_refusal": false,
+    "pipeline_wrote_inside_product": true
+  },
+  "host_installer": {
+    "install_exit_codes": [
+      0,
+      0
+    ],
+    "launcher_kept_old_host_path": true,
+    "launch_exit": 1,
+    "missing_old_host_module": true
+  },
+  "hook_dispatcher": {
+    "exit": 0,
+    "stdout": "",
+    "stderr": "ERROR: dispatch-pretooluse.sh: rule module 'missing-rule.sh' is NOT PRESENT at <sandbox>/engine/scripts/hooks/missing-rule.sh. THAT RULE DID NOT EVALUATE THIS CALL \u2014 every other rule in the Bash chain still ran. Run scripts/hooks/install.sh and check the manifest. (hook: scripts/hooks/dispatch-pretooluse.sh)\nERROR: dispatch-pretooluse.sh: rule module 'broken-rule.sh' exited 1, which is neither 0 (allow) nor 2 (block). THAT RULE DID NOT EVALUATE THIS CALL and its verdict is unknown; every other rule in the Bash chain ran normally and their verdicts stand. (hook: scripts/hooks/dispatch-pretooluse.sh)\n"
+  }
+}
