@@ -1,0 +1,262 @@
+{
+  "browser-ui": {
+    "name": "browser-ui",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 738.7
+  },
+  "desktop-final": {
+    "name": "desktop-final",
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 4.4
+  },
+  "earlier-audit-reproductions": {
+    "name": "earlier-audit-reproductions",
+    "command": [
+      "python3",
+      "docs/verification/repo-audit-2026-09-16/reproduce.py"
+    ],
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 11.0
+  },
+  "engine-interrupted": {
+    "root": 44681,
+    "reason": "Full lifecycle suite exposed partial-cleanup retry regression. Restart at corrected source.",
+    "owned_processes": 71
+  },
+  "extension": {
+    "name": "extension",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 0.8
+  },
+  "native-host-e2e": {
+    "name": "native-host-e2e",
+    "command": [
+      "node",
+      "test/host-e2e.mjs"
+    ],
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 4.8
+  },
+  "packaging": {
+    "name": "packaging",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 882.4
+  },
+  "publication": {
+    "name": "publication",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 4.8
+  },
+  "rust-desktop": {
+    "name": "rust-desktop",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 21.5
+  },
+  "rust-updater-quiet": {
+    "name": "rust-updater-quiet",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--",
+      "--test-threads=1"
+    ],
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 28.7
+  },
+  "rust-updater-serial": {
+    "name": "rust-updater-serial",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--",
+      "--test-threads=1"
+    ],
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 101,
+    "seconds": 82.7
+  },
+  "rust-updater": {
+    "name": "rust-updater",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 101,
+    "seconds": 6.8
+  },
+  "rust-workspace-quiet": {
+    "name": "rust-workspace-quiet",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--",
+      "--test-threads=1"
+    ],
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 138.4
+  },
+  "rust-workspace": {
+    "name": "rust-workspace",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 101,
+    "seconds": 269.2
+  },
+  "service-e2e": {
+    "name": "service-e2e",
+    "command": [
+      "node",
+      "test/e2e.mjs"
+    ],
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 12.3
+  },
+  "service-final": {
+    "name": "service-final",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 5.6
+  },
+  "service-mutations": {
+    "name": "service-mutations",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 785.2
+  },
+  "service": {
+    "name": "service",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 28.0
+  },
+  "swift-clean": {
+    "name": "swift-clean",
+    "command": [
+      "swift",
+      "test",
+      "--scratch-path",
+      "/tmp/richos-audit3-recheck/swift-build",
+      "--jobs",
+      "2"
+    ],
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 69.4
+  },
+  "swift-default-retry": {
+    "name": "swift-default-retry",
+    "commit": "ea3221c2a758219806213c24a30fbfeecbcad62c",
+    "exit": 0,
+    "seconds": 1.3
+  },
+  "swift": {
+    "name": "swift",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": -11,
+    "seconds": 7.3
+  },
+  "syntax-final": {
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "counts": {
+      "python": 380,
+      "shell": 494,
+      "javascript": 193
+    },
+    "failures": [],
+    "seconds": 18.7
+  },
+  "syntax": {
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "counts": {
+      "python": 380,
+      "shell": 494,
+      "javascript": 193
+    },
+    "failures": [],
+    "seconds": 32.9
+  },
+  "windows-companion": {
+    "name": "windows-companion",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 26.4
+  },
+  "windows-release": {
+    "name": "windows-release",
+    "command": [
+      "dotnet",
+      "build",
+      "src/richos-companion/richos-companion.csproj",
+      "--configuration",
+      "Release"
+    ],
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 9.0
+  },
+  "workspace-service": {
+    "name": "workspace-service",
+    "commit": "1dd7257e621447913394ff54b27430b52aaa4d6c",
+    "exit": 0,
+    "seconds": 0.7
+  },
+  "coordination-e2e": {
+    "name": "coordination-e2e",
+    "command": [
+      "node",
+      "test/coordination-e2e.mjs"
+    ],
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 1.3
+  },
+  "cross-surface-e2e": {
+    "name": "cross-surface-e2e",
+    "command": [
+      "node",
+      "test/cross-surface-e2e.mjs"
+    ],
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 27.4
+  },
+  "publication-final": {
+    "name": "publication-final",
+    "command": [
+      "bash",
+      "richos/engine/scripts/publication-completeness.sh",
+      "--root",
+      "."
+    ],
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "includes_uncommitted_verification_docs": true,
+    "exit": 0,
+    "seconds": 1.7
+  },
+  "publication-completed-report": {
+    "name": "publication-completed-report",
+    "command": [
+      "bash",
+      "richos/engine/scripts/publication-completeness.sh",
+      "--root",
+      "."
+    ],
+    "commit": "2262a18035dea994bfb96a7f14a26a5d5a846222",
+    "includes_uncommitted_verification_docs": true,
+    "exit": 0
+  }
+}

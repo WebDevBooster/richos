@@ -290,14 +290,11 @@ impl CandidateDesk {
             return Ok(());
         }
         let file = std::fs::File::open(&self.path)?;
-        for line in BufReader::new(file).lines().map_while(Result::ok) {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
+        for line in BufReader::new(file).split(b'\n') {
+            let line = line?;
             // A torn last line (a crash mid-write) is skipped, never fatal: one lost
             // question must not make the whole desk unreadable.
-            let Ok(rec) = serde_json::from_str::<DeskRecord>(line) else { continue };
+            let Ok(rec) = serde_json::from_slice::<DeskRecord>(&line) else { continue };
             self.apply(rec);
         }
         Ok(())
@@ -334,7 +331,8 @@ impl CandidateDesk {
     fn append(&mut self, rec: DeskRecord) -> Result<(), StagingError> {
         let line = serde_json::to_string(&rec)
             .map_err(|e| StagingError::Io(format!("staging record did not serialize: {e}")))?;
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+        let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
+        crate::util::ensure_line_boundary(&mut f)?;
         f.write_all(line.as_bytes())?;
         f.write_all(b"\n")?;
         // fsync every record: an unanswered question that a crash erases is a correction
@@ -668,17 +666,22 @@ mod tests {
     /// the whole desk.
     #[test]
     fn a_torn_last_line_is_skipped_not_fatal() {
-        let path = tmp("torn");
-        {
-            let (mut d, _) = desk_with(&path);
-            stage_one(&mut d, "It's Kestrel, not Kestral.");
+        for (tag, tail) in [("torn-ascii", b"{\"rec\":\"staged".as_slice()),
+                            ("torn-utf8", b"{\"rec\":\"staged\xc3".as_slice())] {
+            let path = tmp(tag);
+            {
+                let (mut d, _) = desk_with(&path);
+                stage_one(&mut d, "It's Kestrel, not Kestral.");
+            }
+            let mut raw = std::fs::read(&path).unwrap();
+            raw.extend_from_slice(tail);
+            std::fs::write(&path, raw).unwrap();
+            let mut reopened = CandidateDesk::open(&path).unwrap();
+            assert_eq!(reopened.pending().len(), 1);
+            stage_one(&mut reopened, "It's Falcon, not Falcn.");
+            drop(reopened);
+            assert_eq!(CandidateDesk::open(&path).unwrap().pending().len(), 2, "{tag}");
         }
-        let mut raw = std::fs::read_to_string(&path).unwrap();
-        raw.push_str("{\"rec\":\"staged\",\"candi");
-        std::fs::write(&path, raw).unwrap();
-
-        let reopened = CandidateDesk::open(&path).unwrap();
-        assert_eq!(reopened.pending().len(), 1);
     }
 
     /// INVARIANT: with no vocabulary attached, a confirm FAILS LOUDLY and the candidate

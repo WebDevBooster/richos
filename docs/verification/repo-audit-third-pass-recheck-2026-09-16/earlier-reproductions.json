@@ -1,0 +1,33 @@
+{
+  "rust_provision": {
+    "exit": 0,
+    "stdout": "physical path refused: true\nsymlink path refused: true\nprovision accepted: false\nprivate directory created inside product: false\n",
+    "stderr": ""
+  },
+  "swift_recorder": {
+    "exit": 0,
+    "stdout": "physical path refused: true\nsymlink path refused: true\nrecorder refused: privacy invariant: refusing to write call recordings inside the RichOS product repo (<sandbox>/swift-fixture/external-link/recordings, repo <sandbox>/swift-fixture/product). RichOS ships publicly and this is the CEO's own material. Point it at the corpus (LORO_CORPUS) or an explicit path outside the checkout with --zone / RICHOS_DROP_ZONE. This is the same refusal the pipeline's lib/workspace/privacy.js makes; the companion makes it BEFORE recording rather than after, so a call is never captured into a place the pipeline will not read.\n",
+    "stderr": ""
+  },
+  "service_cli": {
+    "same_destination_as_zone_refused": true,
+    "explicit_session_exit": 1,
+    "explicit_session_privacy_refusal": true,
+    "pipeline_wrote_inside_product": false
+  },
+  "host_installer": {
+    "install_exit_codes": [
+      0,
+      0
+    ],
+    "launcher_kept_old_host_path": false,
+    "launch_exit": 0,
+    "host_ready": true,
+    "missing_old_host_module": false
+  },
+  "hook_dispatcher": {
+    "exit": 0,
+    "stdout": "{\"systemMessage\": \"ERROR: dispatch-pretooluse.sh: rule module 'missing-rule.sh' is NOT PRESENT at <sandbox>/engine/scripts/hooks/missing-rule.sh. THAT RULE DID NOT EVALUATE THIS CALL \\u2014 every other rule in the Bash chain still ran. Run scripts/hooks/install.sh and check the manifest. (hook: scripts/hooks/dispatch-pretooluse.sh)\\nRule 'broken-rule.sh' exited 1. THAT RULE DID NOT EVALUATE THIS CALL; its verdict is unknown.\"}\n",
+    "stderr": "ERROR: dispatch-pretooluse.sh: rule module 'missing-rule.sh' is NOT PRESENT at <sandbox>/engine/scripts/hooks/missing-rule.sh. THAT RULE DID NOT EVALUATE THIS CALL \u2014 every other rule in the Bash chain still ran. Run scripts/hooks/install.sh and check the manifest. (hook: scripts/hooks/dispatch-pretooluse.sh)\nERROR: dispatch-pretooluse.sh: rule module 'broken-rule.sh' exited 1, which is neither 0 (allow) nor 2 (block). THAT RULE DID NOT EVALUATE THIS CALL and its verdict is unknown; every other rule in the Bash chain ran normally and their verdicts stand. (hook: scripts/hooks/dispatch-pretooluse.sh)\n"
+  }
+}

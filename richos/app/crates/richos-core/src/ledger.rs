@@ -1301,6 +1301,7 @@ impl Ledger {
     fn append(&mut self, event: Event, sync: bool) -> Result<(), LedgerError> {
         let mut line = serde_json::to_string(&event)?;
         line.push('\n');
+        crate::util::ensure_line_boundary(&mut self.file)?;
         self.file.write_all(line.as_bytes())?;
         self.file.flush()?;
         if sync {
@@ -1857,6 +1858,27 @@ fn truncate_detail(detail: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_prompt_survives_restart_after_a_torn_tail() {
+        let path = std::env::temp_dir().join(crate::util::new_id("ledger-tail"));
+        let entity = EntityId::parse("acme").unwrap();
+        let mut ledger = Ledger::open(&path).unwrap();
+        let thread = ledger.create_thread("original", &entity).unwrap();
+        drop(ledger);
+        OpenOptions::new().append(true).open(&path).unwrap()
+            .write_all(b"{\"event\":\"interrupted").unwrap();
+        let mut ledger = Ledger::open(&path).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+        let turn = ledger.record_prompt_received(&binding, "after recovery", Source::Text).unwrap();
+        drop(ledger);
+        let ledger = Ledger::open(&path).unwrap();
+        assert!(ledger.turn(&turn).is_some());
+        assert_eq!(ledger.skipped_records().len(), 1);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("interrupted\n"));
+        std::fs::remove_file(path).unwrap();
+    }
+
 
     fn runs(input: &[(Option<u64>, &str)]) -> Vec<TextRun> {
         let mut out = Vec::new();

@@ -490,7 +490,8 @@ impl IntakeLog {
     fn write(&mut self, rec: &IntakeRecord) -> Result<(), SteeringError> {
         let mut line = serde_json::to_string(rec).map_err(|e| SteeringError::Io(e.to_string()))?;
         line.push('\n');
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
+        let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
+        crate::util::ensure_line_boundary(&mut f)?;
         f.write_all(line.as_bytes())?;
         // fsync, not flush. §9.2's "persisted before delivery" and §9.3's "persist a stop
         // request" are both statements about surviving the power going out, and a page
@@ -1099,6 +1100,12 @@ mod tests {
 
         let reopened = TurnControl::open(&path).unwrap();
         assert_eq!(reopened.pending_intake().len(), 1);
+        reopened.begin_turn(active());
+        reopened.steer("accepted after recovery").unwrap();
+        drop(reopened);
+        let recovered = TurnControl::open(&path).unwrap();
+        assert_eq!(recovered.pending_intake().len(), 2);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"thre\n"));
         let _ = std::fs::remove_file(&path);
     }
 

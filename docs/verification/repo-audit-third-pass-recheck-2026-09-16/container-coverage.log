@@ -1,0 +1,5 @@
+✓ ci-receipts: 1/1 planned unit(s) ran, all green, all at 0f3d25bd24b1e8595f1ab65dd9469db1ef46a9d8.
+  serial cost 271 s across 1 shard(s); longest shard 271 s (4.5 min).
+  WEIGHTS ARE STALE: 1 unit(s) cost materially more than the plan assumed, so they are
+  in the wrong shards. This does not change what was verified, only where it ran:
+       271.2s  scripts/lib/containers.test.sh                                 planned 1.0s (271.2x)

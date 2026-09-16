@@ -867,6 +867,59 @@ while True: time.sleep(.1)
         self.check_retry(True)
 
 
+    def partial_cleanup(self, change=None, remove_pointer=False, dev=False):
+        name = 'zach-opus-partial'
+        if dev:
+            run('git', '-C', self.entity, 'branch', 'dev/partial')
+            ws.record_integration(self.entity, 'dev/partial', 'this body of work', self.sid)
+        aid, path = self.spawn(name)
+        self.commit(path, 'kept.txt', 'already merged\n')
+        if dev:
+            run('git', '-C', self.entity, 'branch', '-f', 'dev/partial', 'worktree-agent-' + aid)
+            self.assertFalse(os.path.exists(os.path.join(self.entity, 'kept.txt')))
+        else:
+            self.merge(self.entity, 'worktree-agent-' + aid)
+        self.finish(aid)
+        def partial_remove(w):
+            pointer = os.path.join(w['path'], '.git')
+            with open(pointer) as f:
+                admin = f.read().removeprefix('gitdir:').strip()
+            shutil.rmtree(admin)
+            if remove_pointer:
+                os.unlink(pointer)
+            return False, 'simulated Git removal that lost its admin directory'
+        with patch.object(ws, 'remove_workspace', side_effect=partial_remove):
+            ws.land(name, self.sid)
+        self.assertTrue(self.rec(name)['deletion'])
+        if change:
+            with open(os.path.join(path, change), 'w') as f:
+                f.write('new work after partial deletion\n')
+        ws.retry_due()
+        if change:
+            self.assertTrue(os.path.isfile(os.path.join(path, change)))
+            self.assertFalse(self.rec(name).get('disposition'))
+            # Once the preserved work reaches main, landing can finish even though
+            # the partial removal already destroyed the workspace's Git metadata.
+            self.commit(self.entity, change, 'new work after partial deletion\n')
+            ws.land(name, self.sid)
+            self.assertFalse(os.path.exists(path))
+        else:
+            self.assertFalse(os.path.exists(path))
+            self.assertFalse(self.rec(name).get('deletion'))
+
+    def test_partial_cleanup_retries_without_git_metadata(self):
+        self.partial_cleanup()
+
+    def test_partial_cleanup_uses_the_recorded_dev_branch(self):
+        self.partial_cleanup(dev=True)
+
+    def test_partial_cleanup_preserves_a_changed_file(self):
+        self.partial_cleanup('kept.txt')
+
+    def test_partial_cleanup_preserves_new_work_without_a_git_pointer(self):
+        self.partial_cleanup('new.txt', remove_pointer=True)
+
+
 class Point10_AllTogether(Base):
     """10. All of an agent's workspaces go together."""
 

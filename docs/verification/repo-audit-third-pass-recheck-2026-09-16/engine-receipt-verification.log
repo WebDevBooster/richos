@@ -1,0 +1,5 @@
+
+✗ ci-receipts: this run does NOT certify a6f1c1c1d69da350b12b1d74a37423b93143529f.
+
+  - 1 unit(s) did not reach a green verdict:
+    scripts/lib/containers.test.sh                                           FAIL (rc=1)

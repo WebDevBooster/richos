@@ -56,7 +56,7 @@ import {
   ASK_MIN_PHONETIC,
   MATCH_WINDOW_MS,
 } from '../lib/dictation.js';
-import { sweepDictationRetention } from '../lib/watcher.js';
+import { scanZone, sweepDictationRetention } from '../lib/watcher.js';
 import {
   parseJournalFile,
   loadJournal,
@@ -973,6 +973,114 @@ test('two concatenated frames decode as two messages in one push', () => {
 // ---------------------------------------------------------------------------------------
 group('native host handlers (SessionSink) — writes the SAME contract dir as the sync helper');
 
+test('capture rejects path-shaped session IDs before creating any files', () => {
+  const root = tmp();
+  const zone = path.join(root, 'zone');
+  try {
+    const sink = new SessionSink(zone);
+    for (const sessionId of ['../escaped', '.', '..', '/absolute', 'a/b', 'a\\b', 'a\0b', 42]) {
+      assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId } }), /capture boundary/);
+      assert.throws(() => sink.handle({ type: 'session-close', sessionId, record: {} }), /capture boundary/);
+    }
+    assert.deepEqual(fs.readdirSync(zone), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture rejects linked session directories and accepts an external zone alias', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(zone); fs.mkdirSync(outside);
+    fs.symlinkSync(zone, path.join(root, 'alias'), 'dir');
+    const sink = new SessionSink(path.join(root, 'alias'));
+    fs.symlinkSync(outside, path.join(zone, 'linked'), 'dir');
+    assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId: 'linked' } }), /capture boundary/);
+    assert.equal(sink.handle({ type: 'session-start', record: { sessionId: 'normal' } }).type, 'started');
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture accepts safe room names produced from encoded URLs', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    for (const sessionId of ['2026--whereby--caf%C3%A9', '2026--whereby--room!@+name']) {
+      assert.equal(sink.handle({ type: 'session-start', record: { sessionId } }).type, 'started');
+      assert.equal(sink.handle({ type: 'audio-chunk', sessionId, dataB64: 'YQ==' }).type, 'chunk-ack');
+      assert.equal(fs.readFileSync(path.join(zone, sessionId, 'audio-part-00.webm'), 'utf8'), 'a');
+    }
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('capture validates audio extensions before accepting a start or chunk', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    for (const audioExt of ['../../escape', 'a/b', 'a\\b', 'webm\0', {}]) {
+      assert.throws(() => sink.handle({ type: 'session-start', record: { sessionId: 'bad' }, audioExt }), /capture boundary/);
+    }
+    assert.deepEqual(fs.readdirSync(zone), []);
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } });
+    assert.throws(() => sink.handle({ type: 'audio-chunk', sessionId: 'safe', ext: '../escape' }), /capture boundary/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('every capture writer refuses linked output files without modifying their targets', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const target = path.join(root, 'private-file');
+    const original = '{"status":"open"}\n';
+    fs.writeFileSync(target, original);
+    const sink = new SessionSink(zone);
+    const cases = [
+      ['session.json', { type: 'session-start', record: { sessionId: 'safe' } }],
+      ['session.json', { type: 'session-close', sessionId: 'safe' }],
+      ['audio-part-00.webm', { type: 'audio-chunk', sessionId: 'safe', dataB64: 'YQ==' }],
+      ['health.ndjson', { type: 'health', sessionId: 'safe', line: { t: T0 } }],
+      ['health.ndjson', { type: 'heartbeat', sessionId: 'safe' }],
+      ['captions.ndjson', { type: 'caption', sessionId: 'safe', line: { text: 'synthetic' } }],
+    ];
+    for (const [file, msg] of cases) {
+      sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+      const output = path.join(zone, 'safe', file);
+      fs.rmSync(output, { force: true });
+      fs.symlinkSync(target, output);
+      assert.throws(() => sink.handle(msg), /capture boundary/);
+      assert.equal(fs.readFileSync(target, 'utf8'), original);
+      fs.unlinkSync(output);
+    }
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+    const output = path.join(zone, 'safe', 'session.json');
+    fs.unlinkSync(output); fs.linkSync(target, output);
+    assert.throws(() => sink.handle({ type: 'session-close', sessionId: 'safe' }), /capture boundary/);
+    assert.equal(fs.readFileSync(target, 'utf8'), original);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('capture rechecks directories after start including watchdog and EOF cleanup', () => {
+  const root = tmp();
+  try {
+    const zone = path.join(root, 'zone');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(outside);
+    const original = '{"status":"open"}\n';
+    fs.writeFileSync(path.join(outside, 'session.json'), original);
+    const sink = new SessionSink(zone);
+    sink.handle({ type: 'session-start', record: { sessionId: 'safe' } }, T0);
+    fs.renameSync(path.join(zone, 'safe'), path.join(zone, 'original'));
+    fs.symlinkSync(outside, path.join(zone, 'safe'), 'dir');
+    for (const type of ['audio-chunk', 'health', 'caption', 'heartbeat', 'session-close']) {
+      assert.throws(() => sink.handle({ type, sessionId: 'safe', line: {}, dataB64: 'YQ==' }), /capture boundary/);
+    }
+    sink.checkWatchdog(T0 + 30000);
+    assert.deepEqual(sink.finalizeOnEof(T0 + 30000), []);
+    assert.equal(fs.readFileSync(path.join(outside, 'session.json'), 'utf8'), original);
+    assert.deepEqual(fs.readdirSync(outside), ['session.json']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('session-start creates the contract dir with an OPEN, v2 session.json', () => {
   const zone = tmp();
   const sink = new SessionSink(zone);
@@ -1026,6 +1134,65 @@ test('on pipe EOF an open session is finalized INTERRUPTED — a lost call is pr
   assert.equal(rec.status, 'interrupted');
   assert.ok(rec.notes.some((n) => /interrupted by the native host/.test(n)));
   fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('reconciliation reports abandoned open sessions in reporting and processing modes', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    sink.handle({ type: 'session-start', record: { sessionId: 'abandoned', startedAt: T0 } }, T0);
+    sink.handle({ type: 'audio-chunk', sessionId: 'abandoned', dataB64: 'YQ==' }, T0);
+    for (const process of [false, true]) {
+      const result = scanZone({ zone, now: T0 + 16000, process });
+      assert.equal(result.anomalies.length, 1);
+      assert.equal(result.anomalies[0].sessionId, 'abandoned');
+      assert.match(result.anomalies[0].problems.join(' '), /heartbeat|activity/);
+      assert.deepEqual(result.transcribed, []);
+      assert.deepEqual(result.skipped, []);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(zone, 'abandoned', 'session.json'))).status, 'open');
+    }
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('fresh starts and durable native heartbeats keep active recordings out of recovery', () => {
+  const zone = tmp();
+  try {
+    const sink = new SessionSink(zone);
+    sink.handle({ type: 'session-start', record: { sessionId: 'live', startedAt: T0 } }, T0);
+    assert.deepEqual(scanZone({ zone, now: T0 + 14000 }).skipped, ['live']);
+    let heartbeat = T0;
+    for (const type of ['heartbeat', 'audio-chunk', 'health']) {
+      heartbeat += 30000;
+      sink.handle({ type, sessionId: 'live', line: { level: 'green', t: 1 }, dataB64: 'YQ==' }, heartbeat);
+      const result = scanZone({ zone, now: heartbeat + 10000 });
+      assert.deepEqual(result.anomalies, [], type);
+      assert.deepEqual(result.skipped, ['live'], type);
+      assert.deepEqual(result.transcribed, []);
+    }
+    assert.equal(scanZone({ zone, now: heartbeat + 16000 }).anomalies.length, 1);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('companion health ticks remain usable with a torn final health line', () => {
+  const zone = tmp();
+  try {
+    const dir = path.join(zone, 'companion'); fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: 'companion', status: 'open', startedAt: 1 }));
+    fs.writeFileSync(path.join(dir, 'health.ndjson'), JSON.stringify({ t: T0 }) + '\n{"t":');
+    assert.deepEqual(scanZone({ zone, now: T0 + 10000 }).skipped, ['companion']);
+    assert.equal(scanZone({ zone, now: T0 + 16000 }).anomalies.length, 1);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('an open session without any usable liveness timestamp is an anomaly', () => {
+  const zone = tmp();
+  try {
+    const dir = path.join(zone, 'unknown'); fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: 'unknown', status: 'open' }));
+    const result = scanZone({ zone, now: T0, process: false });
+    assert.equal(result.anomalies.length, 1);
+    assert.deepEqual(result.skipped, []);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
 // ---------------------------------------------------------------------------------------

@@ -1,0 +1,24 @@
+  PASS  test_land_preserves_a_file_flushed_during_shutdown
+  PASS  test_land_rechecks_commits_made_during_shutdown
+  PASS  test_partial_cleanup_preserves_a_changed_file
+  PASS  test_partial_cleanup_preserves_new_work_without_a_git_pointer
+  FAIL  test_partial_cleanup_retries_without_git_metadata
+  PASS  test_retry_preserves_new_uncommitted_work
+  PASS  test_retry_preserves_new_unmerged_commits
+======================================================================
+FAIL: test_partial_cleanup_retries_without_git_metadata (__main__.LandingShutdown.test_partial_cleanup_retries_without_git_metadata)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 899, in test_partial_cleanup_retries_without_git_metadata
+    self.partial_cleanup()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 895, in partial_cleanup
+    self.assertFalse(os.path.exists(path))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 7 tests in 12.703s
+
+FAILED (failures=1)
+=== workspaces spec tests: 7 run, 1 failed ===

@@ -1,0 +1,78 @@
+{
+  "host_traversal": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "error",
+        "error": "capture boundary: expected a single portable path component"
+      },
+      {
+        "type": "error",
+        "error": "audio-chunk for unknown session ../product/docs/traversal"
+      }
+    ],
+    "product_record": false,
+    "product_audio": false,
+    "audio_at_requested_path": false
+  },
+  "host_symlink": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "error",
+        "error": "capture boundary: session directory must not be a link"
+      },
+      {
+        "type": "error",
+        "error": "audio-chunk for unknown session symlink"
+      }
+    ],
+    "product_record": false,
+    "product_audio": false,
+    "audio_at_requested_path": false
+  },
+  "host_normal": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "started",
+        "sessionId": "normal"
+      },
+      {
+        "type": "chunk-ack",
+        "sessionId": "normal",
+        "part": 0
+      }
+    ],
+    "product_record": false,
+    "product_audio": false,
+    "audio_at_requested_path": true
+  },
+  "host_direct_zone_control": {
+    "exit": 1,
+    "privacy_refusal": true
+  },
+  "abandoned_session": {
+    "exit": 2,
+    "stdout": "reconcile over /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-third-probes-rswgjvny/stale-zone\n  ok/skipped: 0\n\nANOMALIES \u2014 a call may not have a transcript:\n  abandoned\n    - session is still OPEN \u2014 it never closed (browser or machine died mid-call?)\n    - open recording heartbeat is stale (1789552193049 ms); capture may have stopped\n",
+    "stderr": "[richos-service alarm] \u26a0 ANOMALY: abandoned \u2014 abandoned open recording {\"problem\":\"open recording heartbeat is stale (1789552193049 ms); capture may have stopped\"}\n"
+  },
+  "land_shutdown_write": {
+    "before": [
+      [],
+      []
+    ],
+    "answer": {
+      "rejected": "cannot land echo-opus-audit \u2014 nothing uncommitted is ever landed (point 8):\n    /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/ws-spec-tjhs_ef4/other-wt/echo-opus-audit has 1 uncommitted entry (?? shutdown-result.txt)\n  Commit what it left to its branch, or discard it. If the ignored files are not needed, say so: --ignored-not-needed '<why>'."
+    },
+    "child_exit": 0,
+    "child_stdout": "FLUSHED\n",
+    "worktree_exists": true,
+    "result_exists": true,
+    "main_result_exists": false
+  },
+  "torn_log_recovery": {
+    "exit": 0,
+    "stdout": "original_survived_tail_damage=true\nskipped_before_write=1\nrecord_prompt_received_returned_ok=true\nnew_prompt_visible_in_process=true\nnew_prompt_survives_restart=true\nskipped_after_restart=1\nsteer_returned_ok=true\npending_steering_before_restart=1\npending_steering_after_restart=1\n"
+  }
+}

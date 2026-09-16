@@ -259,15 +259,14 @@ impl FeedbackStore {
     /// Every entry, in the order they were recorded. A torn or unparsable line is
     /// skipped rather than fatal: a crash mid-append must not cost the whole history.
     pub fn entries(&self) -> io::Result<Vec<FeedbackEntry>> {
-        let text = match std::fs::read_to_string(&self.path) {
+        let bytes = match std::fs::read(&self.path) {
             Ok(t) => t,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e),
         };
-        Ok(text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str::<FeedbackEntry>(l).ok())
+        Ok(bytes
+            .split(|b| *b == b'\n')
+            .filter_map(|line| serde_json::from_slice::<FeedbackEntry>(line).ok())
             .collect())
     }
 }
@@ -971,21 +970,22 @@ mod tests {
 
     #[test]
     fn a_torn_line_costs_that_line_and_not_the_history() {
-        let path = tmp_path("torn");
-        let store = FeedbackStore::open(&path).unwrap();
-        store.record(&FeedbackEntry::new(PromptOutcome::Rated(Rating::Good))).unwrap();
-        // Simulate a crash mid-append.
-        let mut f = OpenOptions::new().append(true).open(&path).unwrap();
-        write!(f, "{{\"recorded_at_millis\": 1, \"outc").unwrap();
-        f.flush().unwrap();
-        drop(f);
-        store.record(&FeedbackEntry::new(PromptOutcome::Dismissed)).unwrap();
-
-        let entries = store.entries().unwrap();
-        assert_eq!(entries.len(), 2, "the torn line should cost only itself");
-        assert_eq!(entries[0].outcome, PromptOutcome::Rated(Rating::Good));
-        assert_eq!(entries[1].outcome, PromptOutcome::Dismissed);
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        for (tag, tail) in [("torn-ascii", b"{\"outcome\":\"interrupted".as_slice()),
+                            ("torn-utf8", b"{\"outcome\":\"interrupted\xc3".as_slice())] {
+            let path = tmp_path(tag);
+            let store = FeedbackStore::open(&path).unwrap();
+            store.record(&FeedbackEntry::new(PromptOutcome::Rated(Rating::Good))).unwrap();
+            let mut f = OpenOptions::new().append(true).open(&path).unwrap();
+            f.write_all(tail).unwrap();
+            f.flush().unwrap();
+            drop(f);
+            store.record(&FeedbackEntry::new(PromptOutcome::Dismissed)).unwrap();
+            let entries = FeedbackStore::open(&path).unwrap().entries().unwrap();
+            assert_eq!(entries.len(), 2, "the torn line should cost only itself: {tag}");
+            assert_eq!(entries[0].outcome, PromptOutcome::Rated(Rating::Good));
+            assert_eq!(entries[1].outcome, PromptOutcome::Dismissed);
+            std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        }
     }
 
     #[test]

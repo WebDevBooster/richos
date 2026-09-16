@@ -404,12 +404,8 @@ impl MachineryJournal {
         for day in self.day_shards(&dir) {
             let raws = read_raw_shard(&dir.join(format!("{day}.raw.jsonl")));
             let Ok(file) = File::open(dir.join(format!("{day}.jsonl"))) else { continue };
-            for line in BufReader::new(file).lines().map_while(Result::ok) {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                let Ok(mut rec) = serde_json::from_str::<MachineryRecord>(line) else { continue };
+            for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
+                let Ok(mut rec) = serde_json::from_slice::<MachineryRecord>(&line) else { continue };
                 if let Some(raw) = raws.get(&rec.machinery_id) {
                     rec.payload = Some(raw.0.clone());
                     rec.truncated = raw.1;
@@ -466,12 +462,8 @@ impl MachineryJournal {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => return ThreadMachinery::Unreadable(format!("{}: {e}", path.display())),
             };
-            for line in BufReader::new(file).lines().map_while(Result::ok) {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                let Ok(mut rec) = serde_json::from_str::<MachineryRecord>(line) else { continue };
+            for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
+                let Ok(mut rec) = serde_json::from_slice::<MachineryRecord>(&line) else { continue };
                 if let Some(raw) = raws.get(&rec.machinery_id) {
                     rec.payload = Some(raw.0.clone());
                     rec.truncated = raw.1;
@@ -655,7 +647,8 @@ impl MachineryJournal {
 }
 
 fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
-    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = OpenOptions::new().create(true).read(true).append(true).open(path)?;
+    crate::util::ensure_line_boundary(&mut f)?;
     f.write_all(line.as_bytes())?;
     // flush, NOT sync_data — §2.2, deliberately.
     f.flush()
@@ -664,8 +657,8 @@ fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
 fn read_raw_shard(path: &Path) -> std::collections::HashMap<String, (Value, bool)> {
     let mut map = std::collections::HashMap::new();
     let Ok(file) = File::open(path) else { return map };
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if let Ok(r) = serde_json::from_str::<RawLine>(line.trim()) {
+    for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
+        if let Ok(r) = serde_json::from_slice::<RawLine>(&line) {
             map.insert(r.machinery_id, (r.payload, r.truncated));
         }
     }
@@ -928,16 +921,27 @@ mod tests {
 
     #[test]
     fn a_torn_line_is_skipped_not_fatal() {
-        let root = tmp();
-        let j = MachineryJournal::new(&root);
-        j.append(&rec("thr_a", Some("t"), 0, 1_756_425_600_000, 4)).unwrap();
-        let shard = root.join("thr_a").join("2025-08-29.jsonl");
-        let mut f = OpenOptions::new().append(true).open(&shard).unwrap();
-        f.write_all(b"{\"machineryId\": \"mach_tor\n").unwrap();
-        drop(f);
-        j.append(&rec("thr_a", Some("t"), 1, 1_756_425_600_000, 4)).unwrap();
-        assert_eq!(j.read_thread("thr_a").len(), 2, "the torn line is skipped, the rest survives");
-        std::fs::remove_dir_all(&root).ok();
+        for tail in [b"{\"machineryId\":\"interrupted".as_slice(),
+                     b"{\"machineryId\":\"interrupted\xc3".as_slice()] {
+            let root = tmp();
+            let j = MachineryJournal::new(&root);
+            j.append(&rec("thr_a", Some("t"), 0, 1_756_425_600_000, 4)).unwrap();
+            for file in ["2025-08-29.jsonl", "2025-08-29.raw.jsonl"] {
+                let mut f = OpenOptions::new().append(true).open(root.join("thr_a").join(file)).unwrap();
+                f.write_all(tail).unwrap();
+            }
+            let next = rec("thr_a", Some("t"), 1, 1_756_425_600_000, 4);
+            j.append(&next).unwrap();
+            let reopened = MachineryJournal::new(&root);
+            let records = reopened.read_thread("thr_a");
+            assert_eq!(records.len(), 2, "the torn line is skipped, the rest survives");
+            assert_eq!(records[1], next, "the raw payload survives too");
+            match reopened.read_thread_checked("thr_a") {
+                ThreadMachinery::Recorded(records) => assert_eq!(records.len(), 2),
+                other => panic!("expected surviving records, got {other:?}"),
+            }
+            std::fs::remove_dir_all(&root).ok();
+        }
     }
 
     #[test]

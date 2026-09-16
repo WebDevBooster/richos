@@ -2011,11 +2011,86 @@ def _same_file(a, b):
         return False
 
 
+def _landed_residue(rec, w, deadline=None):
+    """Accept partial-removal leftovers only when their content is still preserved."""
+    path = w["path"]
+    main = main_checkout(w.get("repo") or "")
+    entries = worktree_list(main) if main else None
+    if entries is None:
+        return False
+    if any(e["path"] == path for e in entries):
+        return None  # Still a worktree: use Git's normal cleanliness check.
+    _branch, tip, why = integration_target([rec], w.get("repo"))
+    if why:
+        return False
+    rc, tree, _err = git(main, "ls-tree", "-rz", tip)
+    if rc:
+        return False
+    tracked = {}
+    for item in tree.split("\0"):
+        if item:
+            info, name = item.split("\t", 1)
+            mode, kind, oid = info.split()
+            if kind == "blob":
+                tracked[name] = (mode, oid)
+    pointer = os.path.join(path, ".git")
+    try:
+        if os.path.lexists(pointer):
+            if not os.path.isfile(pointer) or os.path.islink(pointer):
+                return False
+            with open(pointer, encoding="utf-8") as f:
+                text = f.read().strip()
+            common = _common_dir(main)
+            if not text.startswith("gitdir:") or not common or not realpath(text[7:].strip()).startswith(
+                    os.path.join(common, "worktrees") + os.sep):
+                return False
+        def unreadable(error):
+            raise error
+        for root, dirs, files in os.walk(path, followlinks=False, onerror=unreadable):
+            for name in files + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
+                if _past(deadline):
+                    raise Deadline("the gate's budget ran out while checking partial cleanup")
+                source = os.path.join(root, name)
+                if source == pointer:
+                    continue
+                relative = os.path.relpath(source, path)
+                target = os.path.join(main, relative)
+                mode, oid = tracked.get(relative, ("", ""))
+                if os.path.islink(source):
+                    if os.path.islink(target) and os.readlink(source) == os.readlink(target):
+                        continue
+                    rc, content, _err = git(main, "cat-file", "blob", oid) if mode == "120000" else (1, "", "")
+                    if rc or os.readlink(source) != content:
+                        return False
+                elif os.path.isfile(source):
+                    executable = bool(os.stat(source).st_mode & 0o111)
+                    if (os.path.isfile(target) and not os.path.islink(target) and _same_file(source, target)
+                            and executable == bool(os.stat(target).st_mode & 0o111)):
+                        continue
+                    if mode != ("100755" if executable else "100644"):
+                        return False
+                    rc, actual, _err = git(main, "hash-object", "--no-filters", "--", source)
+                    if rc or actual.strip() != oid:
+                        return False
+                else:
+                    return False
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+    except (OSError, UnicodeError):
+        return False
+    return True
+
+
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
     problems = []
     for w in live_workspaces(rec):
         if w.get("path") and os.path.isdir(w["path"]):
-            dirty, ignored = uncommitted(w["path"], deadline)
+            residue = None
+            if rec.get("landing_cleanup_started") or (
+                    (rec.get("disposition") or {}).get("kind") == "landed" and rec.get("deletion")):
+                residue = _landed_residue(rec, w, deadline)
+                if residue is False:
+                    raise SpecError("partial cleanup at %s cannot verify all remaining files are preserved; kept" % w["path"])
+            dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -3226,6 +3301,8 @@ def _delete(rec, workspaces, branches, why, processes=None):
                             continue
                         fresh = load_agent(member["key"])
                         if (fresh.get("disposition") or {}).get("kind") == "landed":
+                            if fresh.get("deletion"):
+                                fresh["landing_cleanup_started"] = True
                             fresh["disposition"] = None
                             fresh["deletion"] = None
                             fresh.setdefault("history", []).append({"at": iso(),
