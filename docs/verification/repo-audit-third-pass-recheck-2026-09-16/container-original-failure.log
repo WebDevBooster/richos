@@ -1,0 +1,128 @@
+[1m=== ci-shard: 47 unit(s), shard 3/4 at a6f1c1c1d69da350b12b1d74a37423b93143529f ===[0m
+  [  1/ 47] mega-lander/tests/workspace-stopped-ending.test.sh                       [32mPASS[0m 17.2s
+  [  2/ 47] mega-lander/tests/workspaces-e2e.test.sh                                 [32mPASS[0m 26.2s
+  [  3/ 47] scripts/brief-provenance.test.sh                                         [32mPASS[0m 4.0s
+  [  4/ 47] scripts/ci-surface-watch.test.sh                                         [32mPASS[0m 4.1s
+  [  5/ 47] scripts/ci-verify.test.sh                                                [32mPASS[0m 1.0s
+  [  6/ 47] scripts/cold-open.test.sh                                                [32mPASS[0m 7.1s
+  [  7/ 47] scripts/demo.test.sh                                                     [32mPASS[0m 143.2s
+  [  8/ 47] scripts/entrypoint-currency-lint.test.sh                                 [32mPASS[0m 4.0s
+  [  9/ 47] scripts/hooks/ceo-ruled.test.sh                                          [32mPASS[0m 37.3s
+  [ 10/ 47] scripts/hooks/ceo-todos.test.sh                                          [32mPASS[0m 357.9s
+        WEIGHT-DRIFT  planned 171.3s, measured 357.9s (2.1x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/ceo-todos.test.sh	357.9	<this-run-id>
+  [ 11/ 47] scripts/hooks/contract-integrity.test.sh:CL                              [32mPASS[0m 192.4s
+        WEIGHT-DRIFT  planned 84.5s, measured 192.4s (2.3x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:CL	192.4	<this-run-id>
+  [ 12/ 47] scripts/hooks/contract-integrity.test.sh:MF                              [32mPASS[0m 192.7s
+        WEIGHT-DRIFT  planned 48.3s, measured 192.7s (4.0x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:MF	192.7	<this-run-id>
+  [ 13/ 47] scripts/hooks/contract-integrity.test.sh:MT                              [32mPASS[0m 84.7s
+  [ 14/ 47] scripts/hooks/contract-integrity.test.sh:N                               [32mPASS[0m 39.3s
+  [ 15/ 47] scripts/hooks/contract-integrity.test.sh:WTI                             [32mPASS[0m 938.5s
+        WEIGHT-DRIFT  planned 402.9s, measured 938.5s (2.3x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:WTI	938.5	<this-run-id>
+  [ 16/ 47] scripts/hooks/contract-integrity.test.sh:base                            [32mPASS[0m 314.6s
+        WEIGHT-DRIFT  planned 130.8s, measured 314.6s (2.4x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/contract-integrity.test.sh:base	314.6	<this-run-id>
+  [ 17/ 47] scripts/hooks/contract-integrity.test.sh:config                          [32mPASS[0m 68.5s
+  [ 18/ 47] scripts/hooks/contract-integrity.test.sh:shim                            [32mPASS[0m 110.9s
+  [ 19/ 47] scripts/hooks/contract-integrity.test.sh:worktree                        [32mPASS[0m 60.5s
+  [ 20/ 47] scripts/hooks/dispatch-pretooluse.test.sh                                [32mPASS[0m 110.0s
+  [ 21/ 47] scripts/hooks/guard-bash-main-writes.test.sh                             [32mPASS[0m 5.1s
+  [ 22/ 47] scripts/hooks/guard-definition-drift.test.sh                             [32mPASS[0m 9.1s
+  [ 23/ 47] scripts/hooks/guard-dialect.test.sh                                      [32mPASS[0m 339.7s
+        WEIGHT-DRIFT  planned 116.1s, measured 339.7s (2.9x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/guard-dialect.test.sh	339.7	<this-run-id>
+  [ 24/ 47] scripts/hooks/guard-model-ceiling.test.sh                                [32mPASS[0m 176.5s
+        WEIGHT-DRIFT  planned 68.9s, measured 176.5s (2.6x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/guard-model-ceiling.test.sh	176.5	<this-run-id>
+  [ 25/ 47] scripts/hooks/guard-sealed-worktree.test.sh                              [32mPASS[0m 201.7s
+        WEIGHT-DRIFT  planned 36.9s, measured 201.7s (5.5x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/guard-sealed-worktree.test.sh	201.7	<this-run-id>
+  [ 26/ 47] scripts/hooks/guard-vendoring-commits.test.sh                            [32mPASS[0m 200.7s
+        WEIGHT-DRIFT  planned 42.4s, measured 200.7s (4.7x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/guard-vendoring-commits.test.sh	200.7	<this-run-id>
+  [ 27/ 47] scripts/hooks/guard-worktree-removal.test.sh                             [32mPASS[0m 32.3s
+  [ 28/ 47] scripts/hooks/inflight-notify.test.sh                                    [32mPASS[0m 20.1s
+  [ 29/ 47] scripts/hooks/notice-claim-capability.test.sh                            [32mPASS[0m 32.2s
+  [ 30/ 47] scripts/hooks/owned-state.test.sh                                        [32mPASS[0m 7.1s
+  [ 31/ 47] scripts/hooks/protected-ref-moves.test.sh                                [32mPASS[0m 5.0s
+  [ 32/ 47] scripts/hooks/row-currency.test.sh                                       [32mPASS[0m 641.4s
+        WEIGHT-DRIFT  planned 160.8s, measured 641.4s (4.0x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/hooks/row-currency.test.sh	641.4	<this-run-id>
+  [ 33/ 47] scripts/hooks/task-completed-handoff.test.sh                             [32mPASS[0m 15.1s
+  [ 34/ 47] scripts/hooks/teammate-idle-handoff.test.sh                              [32mPASS[0m 2.0s
+  [ 35/ 47] scripts/ledger-prune-sandbox.test.sh                                     [32mPASS[0m 1.0s
+  [ 36/ 47] scripts/lib/bulk-record-transport.test.sh                                [32mPASS[0m 10.1s
+  [ 37/ 47] scripts/lib/completion-proof.test.sh                                     [32mPASS[0m 15.1s
+  [ 38/ 47] scripts/lib/containers.test.sh                                           [31mFAIL[0m 251.0s (rc=1, expected 0)
+          PASS  test_D7_an_interrupted_run_takes_its_containers_with_it
+          PASS  test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie
+          PASS  test_C10_age_is_read_as_utc_not_local_time
+          PASS  test_C1_label_is_the_strongest_claim
+          PASS  test_C2_compose_working_dir_is_a_declaration
+          PASS  test_C3_a_bind_mount_never_authorizes_deletion
+          PASS  test_C4_but_a_bind_mount_does_protect
+          PASS  test_C5_no_evidence_at_all_is_reported_and_never_touched
+          PASS  test_C6_reap_removes_only_what_the_dead_workspace_declared
+          PASS  test_C7_liveness_unknown_protects_everything
+          PASS  test_C8_docker_absent_is_never_a_failure
+          PASS  test_C9_reap_with_no_paths_does_nothing
+          PASS  test_D1_a_landed_workspace_takes_its_container_with_it
+          PASS  test_D2_a_live_workspaces_container_survives_the_same_run
+          PASS  test_D3_an_unowned_container_is_reported_with_age_and_size_not_deleted
+          PASS  test_D4_a_mounted_only_container_is_spared_at_its_mounts_land
+          PASS  test_D5_the_automatic_land_at_the_next_spawn_reaps_too
+          PASS  test_D6_a_hand_run_reap_aimed_at_a_live_workspace_removes_nothing
+          PASS  test_D9_a_container_that_vanished_does_not_empty_the_whole_inventory
+        ----------------------------------------------------------------------
+        Ran 19 tests in 25.940s
+
+        OK
+        === container reaping: 19 run, 0 failed, 0 skipped ===
+        === containers.py (container residue at the lifecycle): every property, proven load-bearing by removing it ===
+          PASS  compose-label-ignored — removing it turns "test_C2_compose_working_dir_is_a_declaration" red  [32.6s]
+          PASS  mount-authorizes-delete-unit — removing it turns "test_C3_a_bind_mount_never_authorizes_deletion" red  [32.5s]
+          PASS  no-protection-for-live — removing it turns "test_C4_but_a_bind_mount_does_protect" red  [32.5s]
+          PASS  unowned-not-reported — removing it turns "test_C5_no_evidence_at_all_is_reported_and_never_touched" red  [32.4s]
+          PASS  age-read-as-local-time — removing it turns "test_C10_age_is_read_as_utc_not_local_time" red  [32.7s]
+          PASS  docker-absence-raises — removing it turns "test_C8_docker_absent_is_never_a_failure" red  [32.6s]
+          PASS  empty-paths-means-everything — removing it turns "test_C9_reap_with_no_paths_does_nothing" red  [34.0s]
+          FAIL  reap-does-nothing — the mutation did not apply  [0.2s]
+                  MUTATION TARGET ABSENT — the source has drifted:
+                            stop_containers([w["path"] for w in workspaces])
+          PASS  reap-ignores-liveness — removing it turns "test_D6_a_hand_run_reap_aimed_at_a_live_workspace_removes_nothing" red  [32.3s]
+          PASS  mount-authorizes-delete-real — removing it turns "test_D4_a_mounted_only_container_is_spared_at_its_mounts_land" red  [33.5s]
+          FAIL  auto-land-does-not-reap — the mutation did not apply  [0.2s]
+                  MUTATION TARGET ABSENT — the source has drifted:
+                            stop_containers([w["path"] for w in workspaces])
+          PASS  one-gone-container-empties-the-inventory — removing it turns "test_D9_a_container_that_vanished_does_not_empty_the_whole_inventory" red  [33.2s]
+          PASS  interrupt-leaks-containers — removing it turns "test_D7_an_interrupted_run_takes_its_containers_with_it" red  [31.3s]
+          PASS  residue-not-reaped — removing it turns "test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie" red  [32.6s]
+          PASS  residue-sweep-never-sees-death — removing it turns "test_D8_residue_a_killed_run_left_is_named_and_removed_not_left_to_lie" red  [27.4s]
+          [15 mutant(s), 2 at a time, wall 3m43.8s, slowest 34.0s empty-paths-means-everything, 1.8x serial]
+
+        === mutation: 2 property(ies) NOT proven load-bearing, 13 proven ===
+  [ 39/ 47] scripts/lib/finish-row-completion.test.sh                                [32mPASS[0m 13.2s
+  [ 40/ 47] scripts/lib/global-state-witness.test.sh                                 [32mPASS[0m 7.1s
+  [ 41/ 47] scripts/lib/mutation-harness.test.sh                                     [32mPASS[0m 1.0s
+  [ 42/ 47] scripts/lib/mutation-pool.test.sh                                        [32mPASS[0m 4.1s
+  [ 43/ 47] scripts/lib/record-canary.test.sh                                        [32mPASS[0m 2.0s
+  [ 44/ 47] scripts/lib/stopwatch.test.sh                                            [32mPASS[0m 2.0s
+  [ 45/ 47] scripts/locate-engine.test.sh                                            [32mPASS[0m 12.1s
+  [ 46/ 47] scripts/provision-claude-md.test.sh                                      [32mPASS[0m 2.0s
+  [ 47/ 47] scripts/spawn.test.sh                                                    [32mPASS[0m 14.1s
+
+[31m✗ ci-shard shard 3/4: 46/47 unit(s) passed, 1 FAILED.[0m
+    - scripts/lib/containers.test.sh (rc=1, expected 0)

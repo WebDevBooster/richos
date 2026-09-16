@@ -1,0 +1,14 @@
+  PASS  test_land_preserves_a_file_flushed_during_shutdown
+  PASS  test_land_rechecks_commits_made_during_shutdown
+  PASS  test_partial_cleanup_preserves_a_changed_file
+  PASS  test_partial_cleanup_preserves_new_work_without_a_git_pointer
+  PASS  test_partial_cleanup_retries_without_git_metadata
+  PASS  test_partial_cleanup_uses_the_recorded_dev_branch
+  PASS  test_retry_preserves_new_uncommitted_work
+  PASS  test_retry_preserves_new_unmerged_commits
+  PASS  test_point_13_a_failed_deletion_is_retried_until_it_succeeds
+----------------------------------------------------------------------
+Ran 9 tests in 18.433s
+
+OK
+=== workspaces spec tests: 9 run, 0 failed ===

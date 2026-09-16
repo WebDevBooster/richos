@@ -1,0 +1,7 @@
+[1m=== ci-shard: 1 unit(s) at 0f3d25bd24b1e8595f1ab65dd9469db1ef46a9d8 ===[0m
+  [  1/  1] scripts/lib/containers.test.sh                                           [32mPASS[0m 271.2s
+        WEIGHT-DRIFT  planned 1.0s, measured 271.2s (271.2x). The shard plan is built from the planned number, so this unit is in the wrong shard.
+        Replacement row for lib/ci-unit-weights.tsv:
+          scripts/lib/containers.test.sh	271.2	<this-run-id>
+
+[32m✓ ci-shard: 1/1 unit(s) passed.[0m

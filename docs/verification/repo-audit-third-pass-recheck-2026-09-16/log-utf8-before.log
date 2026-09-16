@@ -1,0 +1,44 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.63s
+     Running unittests src/lib.rs (/Users/alex/ab/richos/richos/app/target/debug/deps/richos_core-f3641f3814acf25f)
+
+running 7 tests
+test ledger::tests::accepted_prompt_survives_restart_after_a_torn_tail ... ok
+test staging::tests::a_torn_last_line_is_skipped_not_fatal ... FAILED
+test journal::tests::a_torn_line_is_skipped_not_reported_as_an_unreadable_store ... ok
+test journal::tests::a_torn_line_is_skipped_not_fatal ... FAILED
+test correction::tests::accepted_proposal_survives_restart_after_a_torn_tail ... ok
+test steering::tests::a_torn_final_line_is_skipped_and_the_rest_of_the_log_still_replays ... ok
+test feedback::tests::a_torn_line_costs_that_line_and_not_the_history ... FAILED
+
+failures:
+
+---- staging::tests::a_torn_last_line_is_skipped_not_fatal stdout ----
+
+thread 'staging::tests::a_torn_last_line_is_skipped_not_fatal' (531475298) panicked at crates/richos-core/src/staging.rs:686:13:
+assertion `left == right` failed: torn-utf8
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- journal::tests::a_torn_line_is_skipped_not_fatal stdout ----
+
+thread 'journal::tests::a_torn_line_is_skipped_not_fatal' (531475295) panicked at crates/richos-core/src/journal.rs:945:13:
+assertion `left == right` failed: the torn line is skipped, the rest survives
+  left: 1
+ right: 2
+
+---- feedback::tests::a_torn_line_costs_that_line_and_not_the_history stdout ----
+
+thread 'feedback::tests::a_torn_line_costs_that_line_and_not_the_history' (531475294) panicked at crates/richos-core/src/feedback.rs:984:73:
+called `Result::unwrap()` on an `Err` value: Error { kind: InvalidData, message: "stream did not contain valid UTF-8" }
+
+
+failures:
+    feedback::tests::a_torn_line_costs_that_line_and_not_the_history
+    journal::tests::a_torn_line_is_skipped_not_fatal
+    staging::tests::a_torn_last_line_is_skipped_not_fatal
+
+test result: FAILED. 4 passed; 3 failed; 0 ignored; 0 measured; 540 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p richos-core --lib`

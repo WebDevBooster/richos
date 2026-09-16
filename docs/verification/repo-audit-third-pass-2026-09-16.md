@@ -2,6 +2,10 @@
 
 Audited revision: `854fa1e3`.
 
+Subsequent fixes and their verification are documented in
+[the third-pass fix report](repo-audit-third-pass-fixes-2026-09-16.md).
+The findings and original reproduction receipts below describe the audited revision.
+
 Four newly identified issues remain: two data-loss defects, one capture-storage
 boundary bypass and one missed recording anomaly. All four were reproduced
 against the current implementation using disposable fixtures. No production
