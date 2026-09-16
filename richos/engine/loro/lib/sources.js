@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parseFrontMatter } from './frontmatter.js';
 import { neverWalk } from './layout.js';
 import { dateFieldProblems, normalizeRecord } from './record.js';
+import { assertReadPath, readSource } from './read-storage.js';
 
 export function slugify(heading) {
   return String(heading)
@@ -72,9 +73,10 @@ export function splitMarkdownSections(md) {
     .filter((s) => s.body.length > 0);
 }
 
-function listFilesRecursive(dir, filterFn, excludeDirs, excludeFiles = []) {
+function listFilesRecursive(root, dir, filterFn, excludeDirs, excludeFiles = []) {
   const out = [];
   const walk = (d) => {
+    if (!assertReadPath(root, d, 'directory')) return;
     let entries;
     try {
       entries = fs.readdirSync(d, { withFileTypes: true });
@@ -88,11 +90,12 @@ function listFilesRecursive(dir, filterFn, excludeDirs, excludeFiles = []) {
         if (e.name.startsWith('.') || excludeDirs.includes(e.name)) continue;
         walk(p);
       } else if (filterFn(e.name) && !excludeFiles.includes(e.name)) {
+        assertReadPath(root, p);
         out.push(p);
       }
     }
   };
-  if (fs.existsSync(dir)) walk(dir);
+  walk(dir);
   return out;
 }
 
@@ -110,12 +113,12 @@ export function pageRecords(opts) {
 
   for (const spec of pageDirs) {
     const dir = spec.dir;
-    if (!dir || !fs.existsSync(dir)) continue;
+    if (!dir || !assertReadPath(root, dir, 'directory')) continue;
     anyDir = true;
     const idBase = spec.idBase || dir;
     const privateSubdirs = Array.isArray(spec.privateSubdirs) ? spec.privateSubdirs : [];
 
-    const files = listFilesRecursive(dir, (n) => n.endsWith('.md'), neverWalk(), spec.excludeFiles || []);
+    const files = listFilesRecursive(root, dir, (n) => n.endsWith('.md'), neverWalk(), spec.excludeFiles || []);
     for (const file of files) {
       const rel = path.relative(root, file).split(path.sep).join('/');
       const refPath = path.relative(idBase, file).split(path.sep).join('/');
@@ -123,7 +126,7 @@ export function pageRecords(opts) {
       const isPrivate = privateSubdirs.some((sub) => inDir === sub || inDir.startsWith(`${sub}/`));
       let md;
       try {
-        md = fs.readFileSync(file, 'utf8');
+        md = readSource(root, file);
       } catch (err) {
         notes.push(`unreadable page file ${rel}: ${err.message}`);
         continue;
@@ -167,7 +170,7 @@ export function pageRecords(opts) {
 
 export function wikiRecords(opts) {
   const { wikiDir } = opts;
-  if (!fs.existsSync(wikiDir)) return { records: [], notes: [`no wiki directory at ${wikiDir}`] };
+  if (!assertReadPath(opts.root, wikiDir, 'directory')) return { records: [], notes: [`no wiki directory at ${wikiDir}`] };
   return pageRecords({
     ...opts,
     pageDirs: [{ dir: wikiDir, idBase: wikiDir, defaultScope: 'org-shared' }],
@@ -187,12 +190,12 @@ export function outboundLinks(body) {
 export function entityRecords(opts) {
   const { entitiesPath, root, now } = opts;
   const notes = [];
-  if (!fs.existsSync(entitiesPath)) {
+  if (!assertReadPath(root, entitiesPath)) {
     return { records: [], notes: [`no entities file at ${entitiesPath}`], entitiesVersion: null, entities: [] };
   }
   let doc;
   try {
-    doc = JSON.parse(fs.readFileSync(entitiesPath, 'utf8'));
+    doc = JSON.parse(readSource(root, entitiesPath));
   } catch (err) {
     return {
       records: [],
@@ -240,15 +243,15 @@ export function recordFileRecords(opts) {
   const records = [];
 
   for (const spec of recordDirs) {
-    if (!spec || !spec.dir || !fs.existsSync(spec.dir)) continue;
+    if (!spec || !spec.dir || !assertReadPath(root, spec.dir, 'directory')) continue;
     const idBase = spec.idBase || spec.dir;
-    const files = listFilesRecursive(spec.dir, (n) => n.endsWith('.md'), neverWalk());
+    const files = listFilesRecursive(root, spec.dir, (n) => n.endsWith('.md'), neverWalk());
     for (const file of files) {
       const rel = path.relative(root, file).split(path.sep).join('/');
       const refPath = path.relative(idBase, file).split(path.sep).join('/').replace(/\.md$/, '');
       let text;
       try {
-        text = fs.readFileSync(file, 'utf8');
+        text = readSource(root, file);
       } catch (err) {
         notes.push(`unreadable record file ${rel}: ${err.message}`);
         continue;
@@ -308,17 +311,17 @@ export function firstLineTitle(body) {
 export function memoryRecords(opts) {
   const { memoryDir, root, now } = opts;
   const notes = [];
-  if (!fs.existsSync(memoryDir)) return { records: [], notes: [] };
+  if (!assertReadPath(root, memoryDir, 'directory')) return { records: [], notes: [] };
 
   const records = [];
-  const files = listFilesRecursive(memoryDir, (n) => n.endsWith('.jsonl') || n.endsWith('.json'), ['node_modules']);
+  const files = listFilesRecursive(root, memoryDir, (n) => n.endsWith('.jsonl') || n.endsWith('.json'), ['node_modules']);
   for (const file of files) {
     const rel = path.relative(root, file).split(path.sep).join('/');
     const base = path.basename(file).replace(/\.(jsonl|json)$/, '');
     let raws = [];
     let text;
     try {
-      text = fs.readFileSync(file, 'utf8');
+      text = readSource(root, file);
     } catch (err) {
       notes.push(`unreadable memory file ${rel}: ${err.message}`);
       continue;
