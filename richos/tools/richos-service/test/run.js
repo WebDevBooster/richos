@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { ingestLedgerPath as auditLedgerPath } from '../lib/config.js';
 /**
  * RichOS local service — pure-logic test harness (no ffmpeg, no whisper, no browser).
  *
@@ -258,6 +259,34 @@ test('reinstall refreshes moved host and Node paths, including shell metacharact
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+for (const tail of [Buffer.from('{"torn":'), Buffer.from([0xff, 0xe2, 0x82]), Buffer.from('{"complete":true}')]) {
+  test(`appendLedger preserves the next row after a tail without a newline (${tail.toString('hex')})`, () => {
+    const zone = tmp();
+    try {
+      const file = auditLedgerPath(zone);
+      const before = Buffer.concat([Buffer.from('{"original":true}\n'), tail]);
+      fs.writeFileSync(file, before);
+      assert.equal(appendLedger({ sessionId: 'accepted', runIndex: 0 }, zone).appended, true);
+      assert.equal(alreadyLedgered('accepted', 0, zone), true);
+      assert.equal(appendLedger({ sessionId: 'accepted', runIndex: 0 }, zone).appended, false);
+      assert.deepEqual(fs.readFileSync(file).subarray(0, before.length), before);
+      assert.equal(appendLedger({ sessionId: 'later', runIndex: 0 }, zone).appended, true);
+      assert.equal(alreadyLedgered('later', 0, zone), true);
+      assert.equal(alreadyLedgered('accepted', 0, zone), true);
+    } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+  });
+}
+test('appendLedger refuses a linked ledger without changing its target', () => {
+  const zone = tmp();
+  try {
+    const target = path.join(zone, 'original');
+    fs.writeFileSync(target, 'unchanged');
+    fs.symlinkSync(target, auditLedgerPath(zone));
+    assert.throws(() => appendLedger({ sessionId: 'accepted', runIndex: 0 }, zone), /storage boundary/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'unchanged');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
 group('pipeline storage boundary');

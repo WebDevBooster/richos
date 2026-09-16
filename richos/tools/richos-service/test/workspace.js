@@ -20,7 +20,7 @@ import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCH
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
 import { detectInjection, classifyTrust, promotionGuard, INJECTION_PATTERNS } from '../lib/workspace/immune.js';
 import { assertDirectGoogleEndpoint, assertEvidenceOutsideProductRepo, assertLocalTokenLocation, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
-import { REPO_ROOT, corpusRoot, dropZone, workspaceZone } from '../lib/config.js';
+import { workspaceLedgerPath as auditLedgerPath, REPO_ROOT, corpusRoot, dropZone, workspaceZone } from '../lib/config.js';
 import { entitiesFilePath } from '../lib/entities.js';
 import { pkcePair, buildAuthUrl, exchangeCode, refreshAccessToken, revokeToken } from '../lib/workspace/oauth.js';
 import { TokenManager, TESTING_REFRESH_TOKEN_TTL_MS, REFRESH_EXPIRY_WARN_MS } from '../lib/workspace/token-manager.js';
@@ -709,6 +709,34 @@ test('appendIngest writes once, dedups the same version, appends a new etag as a
 });
 
 // =================================================================================================
+for (const tail of [Buffer.from('{"torn":'), Buffer.from([0xff, 0xe2, 0x82]), Buffer.from('{"complete":true}')]) {
+  test(`appendIngest preserves the next row after a tail without a newline (${tail.toString('hex')})`, () => {
+    const zone = tmp();
+    try {
+      const file = auditLedgerPath(zone);
+      const before = Buffer.concat([Buffer.from('{"original":true}\n'), tail]);
+      fs.writeFileSync(file, before);
+      assert.equal(appendIngest({ sourceItemId: 'accepted', vendorEtag: 'v1' }, zone).appended, true);
+      assert.equal(alreadyIngested('accepted', 'v1', zone), true);
+      assert.equal(appendIngest({ sourceItemId: 'accepted', vendorEtag: 'v1' }, zone).appended, false);
+      assert.deepEqual(fs.readFileSync(file).subarray(0, before.length), before);
+      assert.equal(appendIngest({ sourceItemId: 'later', vendorEtag: 'v1' }, zone).appended, true);
+      assert.equal(alreadyIngested('later', 'v1', zone), true);
+      assert.equal(alreadyIngested('accepted', 'v1', zone), true);
+    } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+  });
+}
+test('appendIngest refuses a linked ledger without changing its target', () => {
+  const zone = tmp();
+  try {
+    const target = path.join(zone, 'original');
+    fs.writeFileSync(target, 'unchanged');
+    fs.symlinkSync(target, auditLedgerPath(zone));
+    assert.throws(() => appendIngest({ sourceItemId: 'accepted', vendorEtag: 'v1' }, zone), /storage boundary/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'unchanged');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
 group('Evidence zone (§4.2) — immutable layout, body split out of JSON, answerable link');
 
 test('writeEvidence lays out <vendor>/<source>/<id>/rev-<etag>/ with item.json + content.txt + governance.json', () => {

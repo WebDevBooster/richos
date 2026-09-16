@@ -10,7 +10,7 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
+import { appendJsonLine } from '../durable-jsonl.js';
 import { workspaceLedgerPath } from '../config.js';
 
 /**
@@ -42,7 +42,6 @@ export function alreadyIngested(sourceItemId, vendorEtag, zone) {
 export function appendIngest(entry, zone) {
   const file = workspaceLedgerPath(zone);
   if (alreadyIngested(entry.sourceItemId, entry.vendorEtag, zone)) return { appended: false, path: file };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
+  appendJsonLine(file, entry);
   return { appended: true, path: file };
 }
