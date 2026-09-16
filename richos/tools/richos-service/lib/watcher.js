@@ -80,56 +80,65 @@ export function scanZone(opts = {}) {
   const skipped = [];
 
   for (const dir of sessionDirs(zone)) {
-    const record = readRecord(dir);
-    const hasTranscript = fs.existsSync(path.join(dir, ARTIFACTS.transcript));
-    const recon = reconcilePipeline({
-      record,
-      audioBytesOnDisk: audioBytesOnDisk(dir),
-      hasTranscript,
-      now,
-    });
-    const sessionId = record?.sessionId || path.basename(dir);
+    let sessionId = path.basename(dir);
+    try {
+      const record = readRecord(dir);
+      sessionId = record?.sessionId || sessionId;
+      const hasTranscript = fs.existsSync(path.join(dir, ARTIFACTS.transcript));
+      const recon = reconcilePipeline({
+        record,
+        audioBytesOnDisk: audioBytesOnDisk(dir),
+        hasTranscript,
+        now,
+      });
 
-    if (record?.status === 'open') {
-      const heartbeat = lastSessionHeartbeat(dir, record);
-      if (heartbeat !== null && heartbeat <= now && now - heartbeat <= CLAIM_STALE_MS) {
-        skipped.push(sessionId);
-      } else {
-        const problem = heartbeat === null || heartbeat > now
-          ? 'open recording has no usable activity timestamp; capture may have stopped'
-          : `open recording heartbeat is stale (${now - heartbeat} ms); capture may have stopped`;
-        anomalies.push({ sessionId, problems: [...recon.problems, problem] });
-        log.alarm(`${sessionId} — abandoned open recording`, { problem });
+      if (record?.status === 'open') {
+        const heartbeat = lastSessionHeartbeat(dir, record);
+        if (heartbeat !== null && heartbeat <= now && now - heartbeat <= CLAIM_STALE_MS) {
+          skipped.push(sessionId);
+        } else {
+          const problem = heartbeat === null || heartbeat > now
+            ? 'open recording has no usable activity timestamp; capture may have stopped'
+            : `open recording heartbeat is stale (${now - heartbeat} ms); capture may have stopped`;
+          anomalies.push({ sessionId, problems: [...recon.problems, problem] });
+          log.alarm(`${sessionId} — abandoned open recording`, { problem });
+        }
+        // An open recording is never finalized or transcribed by this recovery scan.
+        continue;
       }
-      // An open recording is never finalized or transcribed by this recovery scan.
-      continue;
-    }
 
-    // A capture anomaly that can never yield a transcript: no audio / captions-only / unreadable.
-    if (!record || !hasUsableAudio(record)) {
-      anomalies.push({ sessionId, problems: recon.problems });
-      log.alarm(`${sessionId} — capture anomaly`, { problems: recon.problems });
-      continue;
-    }
+      // A capture anomaly that can never yield a transcript: no audio / captions-only / unreadable.
+      if (!record || !hasUsableAudio(record)) {
+        anomalies.push({ sessionId, problems: recon.problems });
+        log.alarm(`${sessionId} — capture anomaly`, { problems: recon.problems });
+        continue;
+      }
 
-    if (hasTranscript && record?.pipeline?.status === 'ready') {
-      skipped.push(sessionId);
-      continue;
-    }
+      if (hasTranscript && record?.pipeline?.status === 'ready') {
+        skipped.push(sessionId);
+        continue;
+      }
 
-    if (recon.transcriptOverdue && !doProcess) {
-      // Reporting-only mode: a closed session past SLA with no transcript is loud.
-      anomalies.push({ sessionId, problems: recon.problems });
-      log.alarm(`${sessionId} — transcript overdue`, { problems: recon.problems });
-      continue;
-    }
+      if (recon.transcriptOverdue && !doProcess) {
+        // Reporting-only mode: a closed session past SLA with no transcript is loud.
+        anomalies.push({ sessionId, problems: recon.problems });
+        log.alarm(`${sessionId} — transcript overdue`, { problems: recon.problems });
+        continue;
+      }
 
-    if (doProcess) {
-      const result = runPipeline(dir, { now, model: opts.model, tier: opts.tier, zone });
-      if (result.status === 'ready') transcribed.push(sessionId);
-      else anomalies.push({ sessionId, problems: result.problems || ['pipeline did not produce a transcript'] });
-    } else {
-      skipped.push(sessionId);
+      if (doProcess) {
+        const result = runPipeline(dir, { now, model: opts.model, tier: opts.tier, zone });
+        if (result.status === 'ready') transcribed.push(sessionId);
+        else anomalies.push({ sessionId, problems: result.problems || ['pipeline did not produce a transcript'] });
+      } else {
+        skipped.push(sessionId);
+      }
+    } catch (error) {
+      // Keep one damaged or refused session from starving all later recordings.
+      // Report in memory only: its storage may be precisely what was refused.
+      const problem = String(error?.message || error);
+      anomalies.push({ sessionId, problems: [problem] });
+      log.alarm(`${sessionId} — session processing refused`, { problem });
     }
   }
 

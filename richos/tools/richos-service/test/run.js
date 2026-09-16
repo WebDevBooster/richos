@@ -1216,6 +1216,63 @@ test('reconciliation reports abandoned open sessions in reporting and processing
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
+test('watcher isolates a broken recording on every scan and still inspects later sessions', () => {
+  const zone = tmp();
+  const broken = path.join(zone, 'a-broken');
+  const ready = path.join(zone, 'b-ready');
+  function record(dir, id, status) {
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: id, status: 'closed',
+      startedAt: T0, endedAt: T0 + 1000, audio: { parts: ['audio-part-0.wav'], bytesTotal: 9 },
+      pipeline: { status } }));
+  }
+  try {
+    record(broken, 'broken', 'pending'); record(ready, 'ready', 'ready');
+    fs.writeFileSync(path.join(ready, 'audio-part-0.wav'), 'synthetic');
+    fs.writeFileSync(path.join(ready, 'transcript.md'), 'Synthetic completed transcript.');
+    fs.symlinkSync(path.join(zone, 'missing.wav'), path.join(broken, 'audio-part-0.wav'));
+    for (const process of [false, true]) {
+      for (let repeat = 0; repeat < 2; repeat++) {
+        const result = scanZone({ zone, now: T0 + 2000, process });
+        assert.deepEqual(result.skipped, ['ready']);
+        assert.equal(result.anomalies.length, 1);
+        assert.equal(result.anomalies[0].sessionId, 'broken');
+        assert.match(result.anomalies[0].problems.join(' '), /ENOENT/);
+      }
+    }
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('watcher preserves storage refusal without blocking the next pending pipeline', () => {
+  const zone = tmp();
+  const outside = tmp();
+  const refused = path.join(zone, 'a-refused');
+  const pending = path.join(zone, 'b-pending');
+  try {
+    const sentinel = path.join(outside, 'transcript.md'); fs.writeFileSync(sentinel, 'Do not overwrite.');
+    for (const dir of [refused, pending]) {
+      fs.mkdirSync(dir);
+      fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: path.basename(dir),
+        status: 'closed', startedAt: T0, endedAt: T0 + 1000,
+        audio: { parts: ['audio-part-0.wav'], bytesTotal: 9 }, pipeline: { status: 'pending' } }));
+      // An ordinary but invalid media file proves the later pipeline is reached
+      // without requiring speech models: normalization records its failure.
+      fs.writeFileSync(path.join(dir, 'audio-part-0.wav'), 'synthetic');
+    }
+    fs.symlinkSync(sentinel, path.join(refused, 'transcript.md'));
+    const original = fs.readFileSync(path.join(refused, 'session.json'), 'utf8');
+    const result = scanZone({ zone, now: T0 + 2000, tier: 'low-resource' });
+    assert.equal(result.anomalies.length, 2);
+    assert.match(result.anomalies.find((r) => r.sessionId === 'a-refused').problems.join(' '), /storage boundary/);
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'Do not overwrite.');
+    assert.equal(fs.readFileSync(path.join(refused, 'session.json'), 'utf8'), original);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(pending, 'session.json'))).pipeline.status, 'failed');
+  } finally {
+    fs.rmSync(zone, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('fresh starts and durable native heartbeats keep active recordings out of recovery', () => {
   const zone = tmp();
   try {
