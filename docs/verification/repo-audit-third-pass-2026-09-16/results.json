@@ -1,0 +1,80 @@
+{
+  "host_traversal": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "started",
+        "sessionId": "../product/docs/traversal"
+      },
+      {
+        "type": "chunk-ack",
+        "sessionId": "../product/docs/traversal",
+        "part": 0
+      }
+    ],
+    "product_record": true,
+    "product_audio": true,
+    "audio_at_requested_path": true
+  },
+  "host_symlink": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "started",
+        "sessionId": "symlink"
+      },
+      {
+        "type": "chunk-ack",
+        "sessionId": "symlink",
+        "part": 0
+      }
+    ],
+    "product_record": true,
+    "product_audio": true,
+    "audio_at_requested_path": true
+  },
+  "host_normal": {
+    "exit": 0,
+    "responses": [
+      {
+        "type": "started",
+        "sessionId": "normal"
+      },
+      {
+        "type": "chunk-ack",
+        "sessionId": "normal",
+        "part": 0
+      }
+    ],
+    "product_record": false,
+    "product_audio": false,
+    "audio_at_requested_path": true
+  },
+  "host_direct_zone_control": {
+    "exit": 1,
+    "privacy_refusal": true
+  },
+  "abandoned_session": {
+    "exit": 0,
+    "stdout": "reconcile over /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-third-probes-g9ndu_ex/stale-zone\n  ok/skipped: 1\n  no anomalies\n",
+    "stderr": ""
+  },
+  "land_shutdown_write": {
+    "before": [
+      [],
+      []
+    ],
+    "answer": {
+      "landed": true
+    },
+    "child_exit": 0,
+    "child_stdout": "FLUSHED\n",
+    "worktree_exists": false,
+    "result_exists": false,
+    "main_result_exists": false
+  },
+  "torn_log_recovery": {
+    "exit": 0,
+    "stdout": "original_survived_tail_damage=true\nskipped_before_write=1\nrecord_prompt_received_returned_ok=true\nnew_prompt_visible_in_process=true\nnew_prompt_survives_restart=false\nskipped_after_restart=1\nsteer_returned_ok=true\npending_steering_before_restart=1\npending_steering_after_restart=0\n"
+  }
+}
