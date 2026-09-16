@@ -201,19 +201,19 @@ test('resolveOrgRelation: self > internal (same domain) > external > unknown', (
 });
 
 test('classifyScope: 2+ internal participants → org-shared', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_ORG), ceoIdentity(IDENTITY));
   assert.equal(classifyScope(resolved).scope, 'org-shared');
 });
 
 test('classifyScope: a self-organized external 1:1 → ceo-private (the private perimeter)', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_PRIVATE), ceoIdentity(IDENTITY));
   assert.equal(classifyScope(resolved).scope, 'ceo-private');
 });
 
 test('classifyScope: an externally-organized event → external (never org truth on its own)', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_EXTERNAL), ceoIdentity(IDENTITY));
   assert.equal(classifyScope(resolved).scope, 'external');
 });
@@ -226,14 +226,14 @@ test('classifyScope: ambiguity defaults to the MORE PRIVATE scope', () => {
 });
 
 test('deriveAuthority tracks the author relationship (self > internal > external)', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const id = ceoIdentity(IDENTITY);
   assert.equal(deriveAuthority(resolveActors(adapter.toSourceItem(EVENT_ORG), id)), 'self');
   assert.equal(deriveAuthority(resolveActors(adapter.toSourceItem(EVENT_EXTERNAL), id)), 'external');
 });
 
 test('governanceMetadata carries the roadmap §5.1 checklist incl. evidence link', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_ORG), ceoIdentity(IDENTITY));
   const m = governanceMetadata(resolved, classifyScope(resolved), 'loro/raw/workspace/…/item.json');
   assert.equal(m.scope, 'org-shared');
@@ -253,7 +253,7 @@ test('detectInjection catches classic override phrasings, ignores ordinary text'
 });
 
 test('classifyTrust marks an external-authored item UNTRUSTED', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_EXTERNAL), ceoIdentity(IDENTITY));
   const t = classifyTrust(resolved, { now: NOW });
   assert.equal(t.trust.class, 'untrusted');
@@ -261,7 +261,7 @@ test('classifyTrust marks an external-authored item UNTRUSTED', () => {
 });
 
 test('classifyTrust QUARANTINES a calendar invite carrying a prompt injection', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_INJECTION), ceoIdentity(IDENTITY));
   const t = classifyTrust(resolved, { now: NOW });
   assert.equal(t.trust.quarantine, true);
@@ -269,14 +269,14 @@ test('classifyTrust QUARANTINES a calendar invite carrying a prompt injection', 
 });
 
 test('classifyTrust flags a superseded (cancelled) item as stale-chain, self-authored stays unverified', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(adapter.toSourceItem(EVENT_CANCELLED), ceoIdentity(IDENTITY));
   const t = classifyTrust(resolved, { now: NOW });
   assert.ok(t.trust.flags.includes('superseded'));
 });
 
 test('promotionGuard: a quarantined item is never promotable; a single untrusted item needs corroboration', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const id = ceoIdentity(IDENTITY);
   const evil = classifyTrust(resolveActors(adapter.toSourceItem(EVENT_INJECTION), id), { now: NOW });
   assert.equal(promotionGuard(evil).promotable, false);
@@ -496,7 +496,7 @@ test('privacy: the entity vocabulary follows the corpus when one is configured',
 });
 
 test('assertPollingOnly: the Calendar adapter is poll-only (no watch/subscribe = no server)', () => {
-  const adapter = new GoogleCalendarAdapter({ client: null });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null });
   assert.deepEqual(assertPollingOnly(adapter), []);
   assert.ok(assertPollingOnly({ subscribe() {} }).length > 0, 'a push method is a violation');
 });
@@ -643,11 +643,11 @@ await atest('getJson maps 410 Gone to GoneError (the sync-token-loss signal)', a
 group('Google Calendar adapter (§3.x) — URL building, normalization, pagination, GoneError');
 
 test('validateAdapter accepts the Calendar adapter surface', () => {
-  assert.deepEqual(validateAdapter(new GoogleCalendarAdapter({ client: null })), []);
+  assert.deepEqual(validateAdapter(new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null })), []);
 });
 
 test('buildListUrl: full sync uses a bounded timeMin window; delta uses the syncToken', () => {
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const full = new URL(a.buildListUrl({ syncToken: null, pageToken: null }));
   assert.ok(full.searchParams.get('timeMin'), 'full sync bounds by timeMin');
   assert.equal(full.searchParams.get('singleEvents'), 'true');
@@ -658,9 +658,9 @@ test('buildListUrl: full sync uses a bounded timeMin window; delta uses the sync
 });
 
 test('toSourceItem normalizes an event → SourceItem (actors, times, provenance, adapter version)', () => {
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const item = a.toSourceItem(EVENT_ORG);
-  assert.equal(item.sourceItemId, 'google:calendar:evt_org');
+  assert.equal(item.sourceItemId, `google:calendar:${a.sourceInstanceId}:evt_org`);
   assert.equal(item.provenance.adapterVersion, ADAPTER_VERSION);
   assert.equal(item.provenance.vendorEtag, '"orgv1"');
   assert.equal(item.content.title, 'Q3 Leadership Sync');
@@ -670,10 +670,10 @@ test('toSourceItem normalizes an event → SourceItem (actors, times, provenance
 });
 
 test('toSourceItem marks a cancelled event as a supersede signal (temporal memory, not delete)', () => {
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const item = a.toSourceItem(EVENT_CANCELLED);
   assert.equal(item.content.structured.cancelled, true);
-  assert.equal(item.temporal.supersedes, 'google:calendar:evt_org');
+  assert.equal(item.temporal.supersedes, `google:calendar:${a.sourceInstanceId}:evt_org`);
 });
 
 await atest('listChanges pages through nextPageToken and returns the final nextSyncToken', async () => {
@@ -681,7 +681,7 @@ await atest('listChanges pages through nextPageToken and returns the final nextS
     { items: [EVENT_ORG], nextPageToken: 'p2' },
     { items: [EVENT_PRIVATE], nextSyncToken: 'SYNC-NEXT' },
   ]);
-  const a = new GoogleCalendarAdapter({ client, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
   const res = await a.listChanges(null);
   assert.equal(res.items.length, 2);
   assert.equal(res.nextSyncState.syncToken, 'SYNC-NEXT');
@@ -689,7 +689,7 @@ await atest('listChanges pages through nextPageToken and returns the final nextS
 
 await atest('listChanges propagates GoneError from an expired syncToken', async () => {
   const client = clientMock([new GoneError('gone')]);
-  const a = new GoogleCalendarAdapter({ client, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
   await assert.rejects(() => a.listChanges({ syncToken: 'STALE' }), GoneError);
 });
 
@@ -741,7 +741,7 @@ group('Evidence zone (§4.2) — immutable layout, body split out of JSON, answe
 
 test('writeEvidence lays out <vendor>/<source>/<id>/rev-<etag>/ with item.json + content.txt + governance.json', () => {
   const zone = tmp();
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const resolved = resolveActors(a.toSourceItem(EVENT_ORG), ceoIdentity(IDENTITY));
   const governed = classifyTrust(resolved, { now: NOW });
   const meta = governanceMetadata(governed, classifyScope(governed), 'link');
@@ -760,7 +760,7 @@ test('writeEvidence lays out <vendor>/<source>/<id>/rev-<etag>/ with item.json +
 test('evidence preserves distinct punctuation and long-prefix revisions and source IDs', () => {
   const zone = tmp();
   try {
-    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
     const cases = [
       ['same', 'abc-def'], ['same', 'abcdef'],
       ['same', 'x'.repeat(24) + 'one'], ['same', 'x'.repeat(24) + 'two'],
@@ -777,7 +777,7 @@ test('evidence preserves distinct punctuation and long-prefix revisions and sour
 test('an existing revision is immutable across repeat observations and conflicts', () => {
   const zone = tmp();
   try {
-    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
     const item = adapter.toSourceItem(EVENT_ORG);
     const first = writeEvidence(item, { original: true }, zone);
     const paths = ['item.json', 'content.txt', 'governance.json'].map((n) => path.join(first.dir, n));
@@ -795,8 +795,9 @@ test('an existing revision is immutable across repeat observations and conflicts
 test('legacy evidence links remain answerable and a colliding new revision gets its own path', () => {
   const zone = tmp();
   try {
-    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
     const item = adapter.toSourceItem({ ...EVENT_ORG, id: 'legacy', etag: 'abc-def' });
+    item.sourceItemId = 'google:calendar:legacy';
     const legacy = path.join(zone, 'google/calendar/google_calendar_legacy/rev-abcdef');
     fs.mkdirSync(legacy, { recursive: true });
     const stored = { ...item, content: { ...item.content, text: undefined, textFile: 'content.txt' } };
@@ -806,6 +807,7 @@ test('legacy evidence links remain answerable and a colliding new revision gets 
     assert.equal(evidenceDir(item, zone), legacy);
     assert.equal(writeEvidence(item, {}, zone).written, false);
     const other = adapter.toSourceItem({ ...EVENT_ORG, id: 'legacy', etag: 'abcdef', description: 'new revision' });
+    other.sourceItemId = item.sourceItemId;
     const result = writeEvidence(other, {}, zone);
     assert.notEqual(fs.realpathSync(result.dir), fs.realpathSync(legacy));
     assert.equal(fs.readFileSync(path.join(legacy, 'content.txt'), 'utf8'), item.content.text);
@@ -816,7 +818,7 @@ test('legacy evidence links remain answerable and a colliding new revision gets 
 test('evidenceLinkFor is a repo-relative, answerable pointer; safeId sanitizes the id', () => {
   assert.match(safeId('google:calendar:evt_1'), /^google_calendar_evt_1--[a-f0-9]{64}$/);
   assert.notEqual(safeId('google:calendar:evt_1'), safeId('google_calendar_evt_1'));
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   const link = evidenceLinkFor(a.toSourceItem(EVENT_ORG), '/repo/loro/raw/workspace', '/repo');
   assert.ok(link.startsWith('loro/raw/workspace/google/calendar/'));
   assert.ok(link.endsWith('item.json'));
@@ -840,7 +842,7 @@ test('sync-state get/set/reset round-trips per (vendor, source)', () => {
 group('Synthesis (§4.4) — FILTER / EXTRACT / RECONCILE (observe-and-synthesize, not copy-everything)');
 
 function govern(ev) {
-  const a = new GoogleCalendarAdapter({ client: null, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
   return classifyTrust(resolveActors(a.toSourceItem(ev), ceoIdentity(IDENTITY)), { now: NOW });
 }
 
@@ -854,7 +856,7 @@ test('isMemoryCandidate keeps meetings, drops a solo no-body block and a cancell
 test('extractCandidates yields an event + attendee entity candidates + a commitment cue', () => {
   const { event, entities, commitments } = extractCandidates(govern(EVENT_ORG));
   assert.equal(event.type, 'event');
-  assert.equal(event.provenance.sourceItemId, 'google:calendar:evt_org');
+  assert.equal(event.provenance.sourceItemId, govern(EVENT_ORG).sourceItemId);
   // self (CEO) excluded; alice + bob are person candidates with email aliases
   assert.deepEqual(entities.map((e) => e.canonical).sort(), ['Alice Nguyen', 'Bob Ramirez']);
   assert.ok(entities.every((e) => e.type === 'person' && e.aliases.length === 1));
@@ -930,7 +932,7 @@ group('CORE end-to-end (§4) — the vendor-agnostic spine, mocked adapter, gove
 function coreEnv() {
   const zone = tmp();
   const client = clientMock([{ items: [EVENT_ORG, EVENT_PRIVATE, EVENT_EXTERNAL, EVENT_INJECTION], nextSyncToken: 'SYNC-1' }]);
-  const adapter = new GoogleCalendarAdapter({ client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
   return { zone, adapter };
 }
 
@@ -951,13 +953,13 @@ await atest('ingestOnce governs every item, writes evidence, and collects only p
   // The external 1:1 (untrusted, uncorroborated) is HELD — no candidate from EVENT_EXTERNAL.
   assert.ok(!summary.events.some((e) => e.title === 'Partner intro'), 'single untrusted item held from promotion');
   // The persisted sync cursor advanced.
-  assert.equal(getSyncState('google', 'calendar', path.join(zone, '_sync_state.json')), 'SYNC-1');
+  assert.equal(getSyncState('google', 'calendar', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId), 'SYNC-1');
   fs.rmSync(zone, { recursive: true, force: true });
 });
 
 await atest('ingestOnce is idempotent: a second identical poll ingests 0 and dedups all', async () => {
   const zone = tmp();
-  const mk = () => new GoogleCalendarAdapter({ client: clientMock([{ items: [EVENT_ORG, EVENT_PRIVATE], nextSyncToken: 'S' }]), now });
+  const mk = () => new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG, EVENT_PRIVATE], nextSyncToken: 'S' }]), now });
   await ingestOnce({ adapter: mk(), identity: IDENTITY, zone, repoRoot: zone, now });
   const second = await ingestOnce({ adapter: mk(), identity: IDENTITY, zone, repoRoot: zone, now });
   assert.equal(second.ingested, 0);
@@ -967,7 +969,6 @@ await atest('ingestOnce is idempotent: a second identical poll ingests 0 and ded
 
 await atest('ingestOnce recovers from a 410 by resetting the cursor and doing a full resync', async () => {
   const zone = tmp();
-  setSyncState('google', 'calendar', 'STALE-TOKEN', path.join(zone, '_sync_state.json'));
   // First listChanges (with the stale token) throws GoneError; the retry (null cursor) succeeds.
   const client = {
     _n: 0,
@@ -977,17 +978,18 @@ await atest('ingestOnce recovers from a 410 by resetting the cursor and doing a 
       return { items: [EVENT_ORG], nextSyncToken: 'FRESH' };
     },
   };
-  const adapter = new GoogleCalendarAdapter({ client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  setSyncState('google', 'calendar', 'STALE-TOKEN', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId);
   const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now });
   assert.equal(summary.resynced, true);
   assert.equal(summary.ingested, 1);
-  assert.equal(getSyncState('google', 'calendar', path.join(zone, '_sync_state.json')), 'FRESH');
+  assert.equal(getSyncState('google', 'calendar', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId), 'FRESH');
   fs.rmSync(zone, { recursive: true, force: true });
 });
 
 await atest('ingestOnce short-circuits (never polls) when auth needs re-consent — LOUD, not silent', async () => {
   const zone = tmp();
-  const adapter = new GoogleCalendarAdapter({ client: clientMock([{ items: [EVENT_ORG] }]), now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG] }]), now });
   const tokenManager = { health: () => ({ ok: false, state: 'refresh-expired', needsReauth: true, message: 'reauth' }) };
   const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now, tokenManager });
   assert.equal(summary.polled, false);
@@ -1001,7 +1003,7 @@ for (const leaf of ['google', 'google/calendar', 'revision', 'item.json', 'conte
     const zone = tmp();
     const outside = tmp();
     try {
-      const adapter = new GoogleCalendarAdapter({ client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'S' }]), now });
+      const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'S' }]), now });
       const dir = evidenceDir(adapter.toSourceItem(EVENT_ORG), zone);
       const isFile = leaf.endsWith('.json') || leaf.endsWith('.txt');
       const target = isFile ? path.join(outside, 'target') : outside;
@@ -1023,7 +1025,7 @@ test('evidence preflights all output files before touching a hard-linked body', 
   const zone = tmp();
   const outside = tmp();
   try {
-    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: null, now });
     const item = adapter.toSourceItem(EVENT_ORG);
     const dir = evidenceDir(item, zone);
     fs.mkdirSync(dir, { recursive: true });
@@ -1048,6 +1050,61 @@ test('sync-state output refuses a linked file rather than overwriting its target
     assert.throws(() => setSyncState('google', 'calendar', 'S', file), /storage boundary/);
     assert.throws(() => resetSyncState('google', 'calendar', file), /storage boundary/);
     assert.equal(fs.readFileSync(target, 'utf8'), '{}');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('Calendar refuses an absent account identity rather than sharing an implicit account', () => {
+  assert.throws(() => new GoogleCalendarAdapter({ client: null }), /stable accountId/);
+  assert.throws(() => new GoogleCalendarAdapter({ client: null, accountId: '  ' }), /stable accountId/);
+});
+await atest('two calendars and two accounts keep independent cursors and event evidence', async () => {
+  const zone = tmp();
+  const seen = [];
+  try {
+    const sources = [['account-a', 'first'], ['account-a', 'second'], ['account-b', 'first']];
+    const adapters = sources.map(([accountId, calendarId], i) => new GoogleCalendarAdapter({
+      accountId, calendarId, now,
+      client: { async getJson(url) {
+        seen.push({ i, token: new URL(url).searchParams.get('syncToken') });
+        return { items: [{ ...EVENT_ORG, id: 'shared-id', etag: 'same-etag', description: `body ${i}` }], nextSyncToken: `token-${i}` };
+      } },
+    }));
+    assert.equal(new Set(adapters.map((a) => a.sourceInstanceId)).size, 3);
+    for (const adapter of adapters) {
+      const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+      assert.equal(summary.ingested, 1);
+    }
+    assert.deepEqual(seen.map((r) => r.token), [null, null, null]);
+    for (const adapter of adapters) {
+      const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+      assert.equal(summary.deduped, 1);
+    }
+    assert.deepEqual(seen.slice(3).map((r) => r.token), ['token-0', 'token-1', 'token-2']);
+    adapters.forEach((adapter, i) => {
+      const item = adapter.toSourceItem({ ...EVENT_ORG, id: 'shared-id', etag: 'same-etag' });
+      assert.equal(fs.readFileSync(path.join(evidenceDir(item, zone), 'content.txt'), 'utf8'), `body ${i}`);
+    });
+    resetSyncState('google', 'calendar', path.join(zone, '_sync_state.json'), adapters[0].sourceInstanceId);
+    assert.equal(getSyncState('google', 'calendar', path.join(zone, '_sync_state.json'), adapters[1].sourceInstanceId), 'token-1');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+await atest('legacy unscoped cursors are retired explicitly before a full source sync', async () => {
+  const zone = tmp();
+  try {
+    const file = path.join(zone, '_sync_state.json');
+    setSyncState('google', 'calendar', 'ambiguous-old-token', file);
+    const seen = [];
+    const adapter = new GoogleCalendarAdapter({ accountId: 'account-a', calendarId: 'second', now,
+      client: { async getJson(url) { seen.push(new URL(url).searchParams.get('syncToken')); return { items: [], nextSyncToken: 'scoped-new-token' }; } },
+    });
+    const first = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+    assert.equal(first.legacyCursorRetired, true);
+    assert.equal(first.resynced, true);
+    assert.deepEqual(seen, [null]);
+    assert.equal(JSON.parse(fs.readFileSync(file))['google:calendar'].retiredCursor, 'ambiguous-old-token');
+    const second = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+    assert.equal(second.legacyCursorRetired, false);
+    assert.deepEqual(seen, [null, 'scoped-new-token']);
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 

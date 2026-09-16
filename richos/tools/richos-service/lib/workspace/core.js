@@ -25,8 +25,9 @@ import { resolveActors, classifyScope, governanceMetadata, ceoIdentity } from '.
 import { classifyTrust } from './immune.js';
 import { evidenceLinkFor, writeEvidence } from './evidence.js';
 import { alreadyIngested, appendIngest } from './ledger.js';
-import { getSyncState, setSyncState, resetSyncState } from './sync-state.js';
+import { getSyncState, setSyncState, resetSyncState, retireUnscopedCursor } from './sync-state.js';
 import { extractCandidates, reconcile } from './synthesis.js';
+import { validateAdapter } from './adapter.js';
 import { GoneError } from './google-client.js';
 
 /**
@@ -39,6 +40,9 @@ import { GoneError } from './google-client.js';
  */
 export async function ingestOnce(opts) {
   const adapter = opts.adapter;
+  const problems = validateAdapter(adapter);
+  if (problems.length) throw new Error(`Workspace adapter: ${problems.join('; ')}`);
+  const instance = adapter.sourceInstanceId;
   const identity = ceoIdentity(opts.identity || {});
   const zone = opts.zone || workspaceZone();
   // The evidence LINK is relative to the corpus, not to the product repo: the evidence itself now
@@ -56,14 +60,15 @@ export async function ingestOnce(opts) {
   }
 
   // 2. Incremental sync with token-loss recovery (§4.3).
-  const cursor = getSyncState(adapter.vendor, adapter.source, syncFile(zone));
+  const legacyCursorRetired = retireUnscopedCursor(adapter.vendor, adapter.source, syncFile(zone));
+  const cursor = getSyncState(adapter.vendor, adapter.source, syncFile(zone), instance);
   let result;
-  let resynced = false;
+  let resynced = legacyCursorRetired && !cursor;
   try {
     result = await adapter.listChanges(cursor ? { syncToken: cursor } : null);
   } catch (err) {
     if (err instanceof GoneError) {
-      resetSyncState(adapter.vendor, adapter.source, syncFile(zone));
+      resetSyncState(adapter.vendor, adapter.source, syncFile(zone), instance);
       result = await adapter.listChanges(null); // bounded full resync; ledger dedups so nothing double-lands
       resynced = true;
     } else {
@@ -75,6 +80,7 @@ export async function ingestOnce(opts) {
     adapter: `${adapter.vendor}:${adapter.source}`,
     polled: true,
     resynced,
+    legacyCursorRetired,
     health,
     observed: 0,
     ingested: 0,
@@ -124,7 +130,7 @@ export async function ingestOnce(opts) {
 
   // 3. Persist the opaque cursor for next poll.
   if (result.nextSyncState && result.nextSyncState.syncToken) {
-    setSyncState(adapter.vendor, adapter.source, result.nextSyncState.syncToken, syncFile(zone));
+    setSyncState(adapter.vendor, adapter.source, result.nextSyncState.syncToken, syncFile(zone), instance);
   }
 
   return summary;
