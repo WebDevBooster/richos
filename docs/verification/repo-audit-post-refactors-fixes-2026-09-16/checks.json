@@ -1,0 +1,226 @@
+{
+  "source_revision": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+  "checks": [
+    {
+      "log": "rust-workspace.log",
+      "command": "cargo test --locked --offline --workspace -- --test-threads=1",
+      "exit": 0
+    },
+    {
+      "log": "tauri.log",
+      "command": "cargo test --locked --offline --manifest-path src-tauri/Cargo.toml",
+      "exit": 0
+    },
+    {
+      "log": "updater.log",
+      "command": "cargo test --locked --offline --manifest-path crates/richos-user-update/Cargo.toml",
+      "exit": 0
+    },
+    {
+      "log": "service-full.log",
+      "command": "npm test (richos/tools/richos-service)",
+      "exit": 0
+    },
+    {
+      "log": "extension.log",
+      "command": "npm test (richos/tools/richos-extension)",
+      "exit": 0
+    },
+    {
+      "log": "swift.log",
+      "command": "swift test --scratch-path /tmp/richos-fixes-20260916/swift-build --jobs 2",
+      "exit": 0
+    },
+    {
+      "log": "windows-tests.log",
+      "command": "dotnet test tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj",
+      "exit": 0
+    },
+    {
+      "log": "windows-build.log",
+      "command": "dotnet build src/richos-companion/richos-companion.csproj --configuration Release",
+      "exit": 0
+    },
+    {
+      "log": "service-mutations.log",
+      "command": "node test/mutation-audit.mjs (isolated clone)",
+      "exit": 0
+    },
+    {
+      "log": "engine-non-suites.log",
+      "command": "bash richos/engine/scripts/ci-verify.sh --no-suites (isolated clone)",
+      "exit": 0
+    },
+    {
+      "log": "e2e.log",
+      "command": "node test/e2e.mjs",
+      "exit": 0
+    },
+    {
+      "log": "host-e2e.log",
+      "command": "node test/host-e2e.mjs",
+      "exit": 0
+    },
+    {
+      "log": "coordination-e2e.log",
+      "command": "node test/coordination-e2e.mjs",
+      "exit": 0
+    },
+    {
+      "log": "cross-surface-e2e.log",
+      "command": "node test/cross-surface-e2e.mjs",
+      "exit": 1
+    },
+    {
+      "log": "cross-surface-e2e-retry.log",
+      "command": "node test/cross-surface-e2e.mjs",
+      "exit": 0
+    },
+    {
+      "log": "accuracy-tier-e2e.log",
+      "command": "node test/accuracy-tier-e2e.mjs",
+      "exit": 0
+    },
+    {
+      "log": "packaging.log",
+      "command": "bash richos/app/scripts/run-tests.sh",
+      "exit": 1
+    },
+    {
+      "log": "gui-fix.log",
+      "command": "bash richos/app/scripts/gui-boot.test.sh (a114a673)",
+      "exit": 0
+    },
+    {
+      "log": "fixed-probes.log",
+      "command": "python3 fixed-probes/reproduce.py REPO OUTPUT",
+      "exit": 0
+    },
+    {
+      "log": "third-audit-recheck.log",
+      "command": "python3 docs/verification/repo-audit-third-pass-2026-09-16/reproduce.py REPO OUTPUT --expect-fixed",
+      "exit": 0
+    },
+    {
+      "log": "first-audit-recheck.log",
+      "command": "python3 docs/verification/repo-audit-2026-09-16/reproduce.py",
+      "exit": 0
+    },
+    {
+      "log": "browser.log",
+      "command": "npm test (richos/app/ui/tests in isolated clone)",
+      "exit": 0,
+      "suites": 31,
+      "checks": 554,
+      "skipped_suites": 0
+    },
+    {
+      "log": "packaging-retry.log",
+      "command": "bash richos/app/scripts/run-tests.sh (a114a673 in isolated clone)",
+      "exit": 0,
+      "suites": 9,
+      "checks": 180
+    },
+    {
+      "log": "final-probes.log",
+      "command": "python3 docs/verification/repo-audit-post-refactors-fixes-2026-09-16/reproduce.py REPO OUTPUT (17832025)",
+      "exit": 0
+    },
+    {
+      "log": "final-docs-publication.log",
+      "command": "bash richos/engine/scripts/publication-completeness.sh --root . (seven-fix tree plus follow-up docs)",
+      "exit": 0
+    },
+    {
+      "log": "linux-workspaces.log",
+      "command": "ci-shard --only-units mega-lander/tests/workspaces.test.sh (Linux)",
+      "exit": 0,
+      "mutation_properties": 56
+    },
+    {
+      "log": "linux-init-spec-fourteen.log",
+      "command": "ci-shard --only-units mega-lander/tests/workspace-spec-fourteen.test.sh (Linux with init)",
+      "exit": 0,
+      "mutation_properties": 85
+    },
+    {
+      "log": "linux-init-remaining-1.log",
+      "command": "ci-shard --units-file remaining --shard 1/3 (sparse Linux checkout)",
+      "exit": 1,
+      "followup": "Three missing-parent-file fixture failures passed in linux-full-retries.log."
+    },
+    {
+      "log": "linux-init-remaining-2.log",
+      "command": "ci-shard --units-file remaining --shard 2/3 (Linux without Docker daemon)",
+      "exit": 1,
+      "followup": "The container-cleanup unit passed completely on the macOS host."
+    },
+    {
+      "log": "linux-init-remaining-3.log",
+      "command": "ci-shard --units-file remaining --shard 3/3 (Linux)",
+      "exit": 0
+    },
+    {
+      "log": "linux-full-retries.log",
+      "command": "ci-shard --only-units guard-dialect,guard-vendoring-commits,session-evidence (full source checkout)",
+      "exit": 0,
+      "units": 3
+    },
+    {
+      "log": "container-host-retry.log",
+      "command": "ci-shard --only-units scripts/lib/containers.test.sh (macOS with Docker)",
+      "exit": 0
+    },
+    {
+      "log": "engine-coverage.log",
+      "command": "ci-shard --verify-receipts canonical-engine-receipts",
+      "exit": 0,
+      "units": 142
+    }
+  ],
+  "syntax": {
+    "counts": {
+      ".py": 385,
+      ".sh": 495,
+      ".js": 146,
+      ".mjs": 50
+    },
+    "failures": []
+  },
+  "notes": [
+    "The first cross-surface run failed with a suppressed Swift build error; the complete retry passed after an unchanged direct Swift build succeeded.",
+    "The first packaging run exposed an unclassified window-placement boot diagnostic; the isolated repair is a114a673.",
+    "The initial 0/4 engine selector selected no units and was refused with exit 2; the real inventory uses 1/4 through 4/4.",
+    "The first 1/4 campaign was deliberately interrupted (exit 143) and restarted with six mutation workers; it is not counted as completed coverage.",
+    "The six-worker macOS spec-fourteen run and the two-worker macOS workspaces run were interrupted (143) and replaced by full Linux runs at the identical source commit. Already completed macOS receipts are retained; remaining shard-2 units run through the normal ci-shard runner.",
+    "Linux baseline: all 76 workspace tests passed in 33.887 seconds. This benchmark alone is not counted as mutation or engine-unit coverage.",
+    "Final coverage platform assignment: 44 macOS units and 98 Linux units.",
+    "The first container lacked an init process; spec-fourteen waited for a zombie synthetic session at C12.4. The unfinished units were rerun with Docker --init, retaining completed PASS receipts. Test assertions were unchanged.",
+    "Three sparse-checkout failures (guard-dialect, guard-vendoring-commits and session-evidence) passed unchanged in the complete source checkout.",
+    "The container-cleanup unit lacked a Docker daemon in the container. Its complete suite and mutation campaign are rerun on the macOS host with Docker; the incomplete result is retained, not passed."
+  ],
+  "final_syntax": {
+    "counts": {
+      ".py": 386,
+      ".sh": 495,
+      ".js": 146,
+      ".mjs": 51
+    },
+    "failures": []
+  },
+  "completed_at_utc": "2026-09-16T13:51:26Z",
+  "final_source_merge": "17832025",
+  "engine": {
+    "verifier_exit": 0,
+    "planned_units": 142,
+    "passed_units": 142,
+    "macos_units": 44,
+    "linux_units": 98,
+    "source_revision": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+    "replacement_records": 4,
+    "canonical_receipts": "engine-receipts/complete.jsonl",
+    "retry_history": "engine-retries.json",
+    "coverage_log": "engine-coverage.log",
+    "weight_drift_warnings": 15
+  }
+}

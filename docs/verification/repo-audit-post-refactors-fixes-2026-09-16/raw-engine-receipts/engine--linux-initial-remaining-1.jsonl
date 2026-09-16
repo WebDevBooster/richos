@@ -1,0 +1,1 @@
+{"expected_rc": 3, "rc": 3, "seconds": 19.0, "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1", "shard": 1, "shards": 3, "unit": "scripts/hooks/contract-integrity.test.sh:MT", "verdict": "PASS"}

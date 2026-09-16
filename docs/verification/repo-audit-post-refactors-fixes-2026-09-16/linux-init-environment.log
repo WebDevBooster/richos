@@ -1,0 +1,6 @@
+init=true image=sha256:452dd6b549979690dc44d99a4d25d4ae4961e94668eb89bcf34af4f2f08ab527
+Linux b418e78ab7fc 6.12.67-linuxkit #1 SMP Sun Jan 25 02:26:28 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux
+git version 2.43.0
+Python 3.12.3
+v18.19.1
+134ef73b3a00f008bfd5e8c6306447d74cb423e1

@@ -1,0 +1,106 @@
+[
+  {
+    "unit": "scripts/hooks/guard-dialect.test.sh",
+    "initial_receipt": "linux-init-receipts/remaining-1.jsonl",
+    "initial": {
+      "expected_rc": 0,
+      "rc": 1,
+      "seconds": 9.0,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 1,
+      "shards": 3,
+      "unit": "scripts/hooks/guard-dialect.test.sh",
+      "verdict": "FAIL"
+    },
+    "replacement_receipt": "linux-full-receipts/retries.jsonl",
+    "replacement": {
+      "expected_rc": 0,
+      "rc": 0,
+      "seconds": 111.2,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 0,
+      "shards": 12,
+      "unit": "scripts/hooks/guard-dialect.test.sh",
+      "verdict": "PASS"
+    },
+    "reason": "full product checkout required by fixture"
+  },
+  {
+    "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+    "initial_receipt": "linux-init-receipts/remaining-1.jsonl",
+    "initial": {
+      "expected_rc": 0,
+      "rc": 1,
+      "seconds": 47.1,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 1,
+      "shards": 3,
+      "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+      "verdict": "FAIL"
+    },
+    "replacement_receipt": "linux-full-receipts/retries.jsonl",
+    "replacement": {
+      "expected_rc": 0,
+      "rc": 0,
+      "seconds": 49.1,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 0,
+      "shards": 12,
+      "unit": "scripts/hooks/guard-vendoring-commits.test.sh",
+      "verdict": "PASS"
+    },
+    "reason": "full product checkout required by fixture"
+  },
+  {
+    "unit": "scripts/hooks/session-evidence.test.sh",
+    "initial_receipt": "linux-init-receipts/remaining-1.jsonl",
+    "initial": {
+      "expected_rc": 0,
+      "rc": 1,
+      "seconds": 1.0,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 1,
+      "shards": 3,
+      "unit": "scripts/hooks/session-evidence.test.sh",
+      "verdict": "FAIL"
+    },
+    "replacement_receipt": "linux-full-receipts/retries.jsonl",
+    "replacement": {
+      "expected_rc": 0,
+      "rc": 0,
+      "seconds": 1.0,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 0,
+      "shards": 12,
+      "unit": "scripts/hooks/session-evidence.test.sh",
+      "verdict": "PASS"
+    },
+    "reason": "full product checkout required by fixture"
+  },
+  {
+    "unit": "scripts/lib/containers.test.sh",
+    "initial_receipt": "linux-init-receipts/remaining-2.jsonl",
+    "initial": {
+      "expected_rc": 0,
+      "rc": 1,
+      "seconds": 2.0,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 2,
+      "shards": 3,
+      "unit": "scripts/lib/containers.test.sh",
+      "verdict": "FAIL"
+    },
+    "replacement_receipt": "container-host-retry.jsonl",
+    "replacement": {
+      "expected_rc": 0,
+      "rc": 0,
+      "seconds": 203.4,
+      "sha": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+      "shard": 0,
+      "shards": 12,
+      "unit": "scripts/lib/containers.test.sh",
+      "verdict": "PASS"
+    },
+    "reason": "Docker daemon required for complete integration proof"
+  }
+]

@@ -1,0 +1,281 @@
+{
+  "directory": "/tmp/richos-fixes-20260916",
+  "files": {
+    "accuracy-tier-e2e.log": {
+      "bytes": 19619,
+      "sha256": "1d8e111ca12e9e4a23555d9a61ef48444fc51972c56b8a825a270f49a702080a"
+    },
+    "browser.log": {
+      "bytes": 132447,
+      "sha256": "3e1ce6a679a6aa9999f407eac99d60ca5b1d39bb89eae23691e5be0c43dc94c9"
+    },
+    "clone.log": {
+      "bytes": 60,
+      "sha256": "1939566e9d1db5a58e5a7585addc5259fd8e9f306c5d92201b0df880b983d91a"
+    },
+    "container-host-retry.log": {
+      "bytes": 491,
+      "sha256": "0cdec3e1225a9b311e38735cf50c3710e6cd6af3622179ee916b1f0840532114"
+    },
+    "coordination-e2e.log": {
+      "bytes": 1658,
+      "sha256": "8b29e4d55922eab076754afb4bd14a67e3dd986f0266a87f82d12477ba10be22"
+    },
+    "cross-surface-e2e-retry.log": {
+      "bytes": 46413,
+      "sha256": "d792242f790275e1de3f800d735a335320db262ff9ae96ee267f7f25ce96b91e"
+    },
+    "cross-surface-e2e.log": {
+      "bytes": 25966,
+      "sha256": "1af133c6f9e7a75c42e6b8d4905cbe91aa8f6b5ce1e779080fa230a2d4b3b885"
+    },
+    "e2e.log": {
+      "bytes": 36778,
+      "sha256": "16cc52f86ca7bd6ea625144dc024709779ff544f17d3ce22e26d92abba5d0f96"
+    },
+    "engine-0.log": {
+      "bytes": 167,
+      "sha256": "5b87f6e10ef9bcc78aacd850049c76584196775684e33ef823c099b9ada25250"
+    },
+    "engine-1-interrupted.log": {
+      "bytes": 259,
+      "sha256": "0958e6120879c72f0696b98152837bf24286b486eac7cd4cc8a71ea2d08e93eb"
+    },
+    "engine-1-macos-interrupted.log": {
+      "bytes": 259,
+      "sha256": "2f2eff00226de563be2b8f965ec17dd0d0d21aa82d4b9cd583a13aeae8b00fb7"
+    },
+    "engine-2-macos-interrupted.log": {
+      "bytes": 746,
+      "sha256": "b3415e87d05cbdddf0496948c613d55e5a17da665efb33284bd98325f30994e9"
+    },
+    "engine-2.log": {
+      "bytes": 1086,
+      "sha256": "cca19968b689f23ef12651919500a9c919e404352c3ffde7628c540c4ad316cd"
+    },
+    "engine-3.log": {
+      "bytes": 3738,
+      "sha256": "07821fd3a99f50173d841d6cd9358bb606812e5632d7772f8e9839fc425d7aa6"
+    },
+    "engine-4.log": {
+      "bytes": 3824,
+      "sha256": "7f84902fac785e54082f177986f089018e67d4f21b3b78c3841bcaac4a2d6424"
+    },
+    "engine-coverage.log": {
+      "bytes": 1544,
+      "sha256": "33c45378799a62f7b79eb9d0822626ac2312b8672e63405a2d589c9198eb09c1"
+    },
+    "engine-non-suites.log": {
+      "bytes": 21214,
+      "sha256": "8adb96b4cae3e371803b50cd25724a4d2f2ffd9bb23dbe34d92d016da667671e"
+    },
+    "engine-steps-clone.log": {
+      "bytes": 2584,
+      "sha256": "c142326b32ff906417232c6bcfc0ea8e9a1572604aae61e3932b1d22da8621f8"
+    },
+    "extension.log": {
+      "bytes": 6487,
+      "sha256": "af65197112857f7974c1ef83e75b021c9267613bf95368295bfe1cc8f32551dd"
+    },
+    "final-docs-publication.log": {
+      "bytes": 348,
+      "sha256": "459a8ce771b4328a105716d92d03203560109c48d565c8b70d3553dd468ebe78"
+    },
+    "final-probes.log": {
+      "bytes": 2790,
+      "sha256": "4448dac36fb980585602996c7159df4052b79cf54aa0e6d091d04cb57fb6419a"
+    },
+    "first-audit-recheck.log": {
+      "bytes": 2432,
+      "sha256": "8a8d8a1d55606d03b7bb99bbcd9c17a0f08978a4ab55cc44830030dab4af1fa9"
+    },
+    "fix1-e2e.log": {
+      "bytes": 36852,
+      "sha256": "d1163a4f02f9d653ed5080ad637b64f3b1f9ab77c231b2b7e4175e6420eb405b"
+    },
+    "fix1-service.log": {
+      "bytes": 45299,
+      "sha256": "19e58038e6f0ccbe544bff371b15ec05672a5c6d72d3c22f565e6bea4614995f"
+    },
+    "fix2-service.log": {
+      "bytes": 45984,
+      "sha256": "cb8ec0df7aeb9cc9f61b97ee6421c2f37688ad61f93c0c61f33fdb9d38f95187"
+    },
+    "fix3-service.log": {
+      "bytes": 46694,
+      "sha256": "54691761534b8e1ab2e437f75eebf86f5d6f5cfdd9a364e79e80f9fcdcb2adf2"
+    },
+    "fix4-service-retry.log": {
+      "bytes": 46955,
+      "sha256": "451be659bdf3d35b5fc8ac5be48bade72070f6c9aa86ae404926e05285f7436a"
+    },
+    "fix4-service.log": {
+      "bytes": 49378,
+      "sha256": "fe118a7d88f61eeb807143a47340ff4b8271d6b3d00f4b5c5ea1b105f30d4cf8"
+    },
+    "fix5-service-final.log": {
+      "bytes": 47205,
+      "sha256": "4a17bc5e907be28209ee8c8785ed9960c61c6fe1bbecabda9abd645a06cc4fb8"
+    },
+    "fix5-service.log": {
+      "bytes": 47205,
+      "sha256": "41240a0360aaa0ebd2f826bd33cb09130522b8549d379c2566c5b8d109775553"
+    },
+    "fix6-mutations.log": {
+      "bytes": 2171,
+      "sha256": "583354cadf740459b32636eb78538abc39796e107b3b51aad2eabccfa5cb0167"
+    },
+    "fix6-relocation.log": {
+      "bytes": 1118,
+      "sha256": "74ee6086c5f881ebe562b18ccd8a511deb8ff624555c6f99841fe7168f2498b5"
+    },
+    "fix6-stated.log": {
+      "bytes": 4181,
+      "sha256": "13d0bcc42bea25bf38ce705eee4b15fc53f9da99640352afb1db9a84eab551aa"
+    },
+    "fixed-probes.log": {
+      "bytes": 2734,
+      "sha256": "b9163d8c072366622c368f464e3bfbe5bde34dcb924a75669b8e140038c869ae"
+    },
+    "glib-current-target.log": {
+      "bytes": 176,
+      "sha256": "4dc8e4fe7f86c681d8b81d94c4e76a3dda13457f37def5513d5850195a7778f6"
+    },
+    "glib-linux-target.log": {
+      "bytes": 2144,
+      "sha256": "7363ae2a155b9fb0583d3637562e6efc16b222fab67f76aa43a95b34c6c38efb"
+    },
+    "gui-fix-clone.log": {
+      "bytes": 2145,
+      "sha256": "dfdfbebcb573897140bac7c25c6d56909ec277af2a31d6c19309638f2d4bf2a6"
+    },
+    "gui-fix.log": {
+      "bytes": 11868,
+      "sha256": "de1f990a3273121bdfd0adce6891e5db0a71f19cd7fe0e2dfb05dd0181d6f109"
+    },
+    "host-e2e.log": {
+      "bytes": 3441,
+      "sha256": "31fc8be7cd09ba096cbb616e7db8a429866c1088c3b66b3419926cb488f142e3"
+    },
+    "linux-environment.log": {
+      "bytes": 189,
+      "sha256": "aca24d49c45c0be22dde3003ebd8ed938db69b3e44f85b17a1af661da830d0a3"
+    },
+    "linux-full-clone.log": {
+      "bytes": 673,
+      "sha256": "1e9f4c7ace12c24c3f09356036ecc4a44ec260ff7cd4e297382868c5a2aa1434"
+    },
+    "linux-full-retries.log": {
+      "bytes": 439,
+      "sha256": "9ed5d059d574a797fd2ebc2804d83b17207926c95067399fb31c0bdc236e7395"
+    },
+    "linux-init-clone.log": {
+      "bytes": 98,
+      "sha256": "e99f3c8dcdc001a2c9e25c536804d9647a579c826527eacdd04fffe36223f09d"
+    },
+    "linux-init-environment.log": {
+      "bytes": 277,
+      "sha256": "a43b0921a0ee71c3c3c4fbae73b84f8888cad2f7322c540893256b092aca8604"
+    },
+    "linux-init-remaining-1.log": {
+      "bytes": 15020,
+      "sha256": "8245f72b73c86511cbf9fe6f9ab74c5b5f9542217be15d12abfde866a05c6596"
+    },
+    "linux-init-remaining-2.log": {
+      "bytes": 7641,
+      "sha256": "062996d00e0d7c73402819fa05b84fc352fbb016d0ca1db032f4719e7464e8ec"
+    },
+    "linux-init-remaining-3.log": {
+      "bytes": 3490,
+      "sha256": "d32d0e198d34c6f99412609527a95f176b3eda84f9b52cfb2114d39413ccdb32"
+    },
+    "linux-init-setup.log": {
+      "bytes": 3244,
+      "sha256": "06498be340614359733307600672e2fd093a87e5924c3cd2ad51f42c2ad1a584"
+    },
+    "linux-init-spec-fourteen.log": {
+      "bytes": 231,
+      "sha256": "295e191a0f2fd19d7da8578296fbfb342e7932282c880d455ea52d0e1d6be05c"
+    },
+    "linux-initial-spec-fourteen-unit.log": {
+      "bytes": 21204,
+      "sha256": "9bed45d31d246007d338180b912aff9dd1cbfbe1a2f285c3c12a7775b0610ffc"
+    },
+    "linux-node-setup.log": {
+      "bytes": 3244,
+      "sha256": "06498be340614359733307600672e2fd093a87e5924c3cd2ad51f42c2ad1a584"
+    },
+    "linux-remaining-1.log": {
+      "bytes": 282,
+      "sha256": "68fad31333cf4584f02be12bf1ec8f7c8ea4755e8fdccb5a2f5680027daef124"
+    },
+    "linux-remaining-2.log": {
+      "bytes": 282,
+      "sha256": "6e07d52f58e565876291e0a0c3e548ba2ac0f618f6a4d4f174c02e03f3097044"
+    },
+    "linux-remaining-3.log": {
+      "bytes": 282,
+      "sha256": "d5fdd11f83460c8a8a96b9fe5c66b540ae3c02d4d7b65ac3feee3e63b623aa8b"
+    },
+    "linux-spec-fourteen.log": {
+      "bytes": 165,
+      "sha256": "99c11b4c9595188852db95d57c73f732070c314035afcfef9b7230f42d24cf78"
+    },
+    "linux-workspaces-baseline.log": {
+      "bytes": 5379,
+      "sha256": "d0b6f36a73ab01176461441b71e9a23a89ab44e6d7cc82643123d914c33766af"
+    },
+    "linux-workspaces.log": {
+      "bytes": 230,
+      "sha256": "2741a646ab1df47567b16a02444effcd16f89e9cd335a8b45ff1759393d36ab3"
+    },
+    "packaging-retry.log": {
+      "bytes": 23976,
+      "sha256": "054c0467ea3aaf1808e4d352813b1e8aedcb64cc74e9c92000607ee399504e55"
+    },
+    "packaging.log": {
+      "bytes": 24602,
+      "sha256": "b286190091df690792c761641487fb0feb22ace1662ebc4f85ad09061aaf3d5f"
+    },
+    "rust-workspace.log": {
+      "bytes": 109587,
+      "sha256": "8ed57269f56ddb6f6f4ea90810abe0a26e9912ea66b848ea1d0d6e3fb4690294"
+    },
+    "service-full.log": {
+      "bytes": 47205,
+      "sha256": "1b98f3033b77f645a059082bccd11d1b677741c21f17e916120ad17d5c9c8099"
+    },
+    "service-mutations.log": {
+      "bytes": 9400,
+      "sha256": "febed06abf9da4f9fc339e3a0b88ff895385a2ae0a7396c517d79cac4cbc19dc"
+    },
+    "swift-default-build.log": {
+      "bytes": 119,
+      "sha256": "b3cfe87e8c054cae61a5541ebf5ec92268ac55343910e7ef8692b5d1b944cd24"
+    },
+    "swift.log": {
+      "bytes": 12943,
+      "sha256": "a4618eb42f11568829ab68ba00a41676d357b2ddfd5cc4ca13cfc9226c063897"
+    },
+    "tauri.log": {
+      "bytes": 9519,
+      "sha256": "cc4f6f99b95ece5f89ea35181837e8c6ab64546cdde3ac083bb512d3145ff1fa"
+    },
+    "third-audit-recheck.log": {
+      "bytes": 2826,
+      "sha256": "e88c848a5be882db19778f806a4978d8b5dbc1962929646ebfc26255f137de96"
+    },
+    "updater.log": {
+      "bytes": 3722,
+      "sha256": "095f09f1f4e1de4473d664551bb685dd923a059e988f4e3fd30cf76eb81b2a7b"
+    },
+    "windows-build.log": {
+      "bytes": 615,
+      "sha256": "df0a1cbe66f2247a501da8a2533005a314f6887c9ba60b1bd05ec2be7df416cb"
+    },
+    "windows-tests.log": {
+      "bytes": 1116,
+      "sha256": "7dfedd0b1abb1f5091324bcff76c45e10259e3a648927e2a8620713632722622"
+    }
+  }
+}

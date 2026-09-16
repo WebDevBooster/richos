@@ -1,0 +1,54 @@
+{
+  "original_audit_revision": "e98315898b808dd0a46ad5f0102f3611b190f26c",
+  "first_six_fixes_revision": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+  "seventh_fix_revision": "17832025a55cd31ac91afb2221b8983de2d28d0b",
+  "engine_receipt_revision": "134ef73b3a00f008bfd5e8c6306447d74cb423e1",
+  "component_trees": {
+    "richos/engine": {
+      "134ef73b": "c20664847227e8861f68b9471c89dd18e63681d1",
+      "17832025": "c20664847227e8861f68b9471c89dd18e63681d1"
+    },
+    "richos/tools/richos-service": {
+      "134ef73b": "8ff157334617ba9c82a509bffd7d4623bbc9417a",
+      "17832025": "8ff157334617ba9c82a509bffd7d4623bbc9417a"
+    },
+    "richos/tools/richos-extension": {
+      "134ef73b": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+      "17832025": "40856073c3b96609d7b7f21ae98a62e94bb5ac02"
+    },
+    "richos/app/crates": {
+      "134ef73b": "14f543ea2aa6faee35b57318a34cf3c24ec53f1b",
+      "17832025": "14f543ea2aa6faee35b57318a34cf3c24ec53f1b"
+    },
+    "richos/app/src-tauri": {
+      "134ef73b": "3f93ed779d8d28af584eeba2a8c31cf7f69b6faa",
+      "17832025": "3f93ed779d8d28af584eeba2a8c31cf7f69b6faa"
+    },
+    "richos/app/ui": {
+      "134ef73b": "fffda7a4ec824bc1a768480a42c50d33b13a5dfd",
+      "17832025": "fffda7a4ec824bc1a768480a42c50d33b13a5dfd"
+    }
+  },
+  "changed_file_sha256": {
+    "richos/app/scripts/gui-boot.test.sh": "d926eb9a836503c4d5a76e3ac303586b4b3a1034c3d2376847bbd1d5d1a87e3f",
+    "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "81e91eda14c9da85a9ec5865f6f42f762ebef35b9387e5320e0a912ea5c38320",
+    "richos/engine/ass-kicker/tests/relocation.test.py": "33a0a0c8d998e1772f0810aa469d3b8b0c06ff29d5b8acd0862109b4e2007ff3",
+    "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "cd57b689cc1758dfa0b7e8b18ba53728c43e960fb14e07d5ddcb5bb381ce0db1",
+    "richos/engine/scripts/hooks/guard-stated-actions.sh": "3c5bb09dea3372d7f645296c5b98ad27a45b1539613586396eabae9f0ca6937e",
+    "richos/tools/richos-service/lib/durable-jsonl.js": "862449f22cc598040504d89b882073df25ec8a02f1cec4e7ee9e4eed64787e4f",
+    "richos/tools/richos-service/lib/ledger.js": "fe6f2e837448acd1a8f20d666c3a13529df769a53d03fa675bffde9922e16d76",
+    "richos/tools/richos-service/lib/normalize.js": "278b69dd2a40ebe2b55cd63af9e0060831c0266e82968ce505393f2df52f4f87",
+    "richos/tools/richos-service/lib/pipeline.js": "62583355591d2143e8f77fef4718946d4acf3040a67552a34066a02917ff4732",
+    "richos/tools/richos-service/lib/private-files.js": "3e4b31425123e3ca2fb999094beec6e94ea38671d0a50825998f41333bd6d822",
+    "richos/tools/richos-service/lib/transcribe.js": "147492f64dcc592f8e34ac6b13ef33e0e0253a25328a185b01f980c9e65a9013",
+    "richos/tools/richos-service/lib/workspace/README.md": "8171885f70c0e3e9f5d71ed0ce5e9ce5bd6034ef02e6bf429cc502881cc450a2",
+    "richos/tools/richos-service/lib/workspace/adapter.js": "279d0f9733be9f015fe29470049b7103f75bc9b023f0f03d695e0a7476fd883b",
+    "richos/tools/richos-service/lib/workspace/adapters/google-calendar.js": "4bf40267698f33646b38119d8bb4ca388c989a82fc8269b24fb5135517f6e79a",
+    "richos/tools/richos-service/lib/workspace/core.js": "4b52deb1db2f8f0582470aa2413a34254ebf1b92e7fce70597a1ad294a94a0cf",
+    "richos/tools/richos-service/lib/workspace/evidence.js": "bc932b6747edf8b733f347b2033bb69f824ab8ea1b69b3294a22c92dfeeb44d8",
+    "richos/tools/richos-service/lib/workspace/ledger.js": "aa19aaad4e7a240c12d9bff6af99d2eca178dc107e3cc76b7f91e607d98bc4cb",
+    "richos/tools/richos-service/lib/workspace/sync-state.js": "0236d583681c3a894b52e8e2abcf5dabe20f99337d3952420041e4afa1bbc442",
+    "richos/tools/richos-service/test/run.js": "1132a18eac350694c17f074566f1c986b9f81656aa7952a0c4b35db2200bb150",
+    "richos/tools/richos-service/test/workspace.js": "49c68ea7e53cf57ec0a62cf074385c51c040354fe29f75e18a4be3f5a1634caf"
+  }
+}
