@@ -8,7 +8,7 @@ ACTUAL HARDWARE WHERE IT IS INSTALLED???"*
 
 The instance he found — which whisper model runs — was fixed and landed the same day at `c1df6f24`
 (`richos/app/crates/richos-voice/src/hardware.rs`, `richos/tools/richos-service/lib/hardware.js`,
-`richos/tools/richos-service/lib/model-costs.json`). **The word that governs this document is
+`richos/engine/voice/models/model-costs.json`). **The word that governs this document is
 PERMANENTLY**, so it is not about that instance. It is the enumeration of the class, and
 [the check that refuses the next member](#part-2--the-check) is Part 2 below.
 
