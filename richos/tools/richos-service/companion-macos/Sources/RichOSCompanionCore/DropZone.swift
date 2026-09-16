@@ -51,9 +51,12 @@ public enum DropZone {
 
     public enum Failure: Error, CustomStringConvertible {
         case insideProductRepo(zone: String, repo: String)
+        case unresolvablePath(path: String, reason: String)
 
         public var description: String {
             switch self {
+            case let .unresolvablePath(path, reason):
+                return "privacy invariant: cannot verify recording path \(path): \(reason)"
             case let .insideProductRepo(zone, repo):
                 return """
                 privacy invariant: refusing to write call recordings inside the RichOS product repo \
@@ -99,20 +102,51 @@ public enum DropZone {
             )
         }
 
-        if let repo = productRepo, isInside(resolution.path, repo) {
+        let physical = try physicalPath(resolution.path)
+        if let repo = productRepo, contains(physical, try physicalPath(repo)) {
             throw Failure.insideProductRepo(zone: resolution.path, repo: repo)
         }
         return resolution
     }
 
-    /// Is `path` `root` itself, or under it? Both sides are lexically normalized first; neither is
-    /// required to exist, because a zone is routinely created by the very run being checked.
+    /// Physical containment, including missing final directories. Unresolvable
+    /// paths conservatively count as inside; `resolve` reports the actual error.
     public static func isInside(_ path: String, _ root: String) -> Bool {
-        let a = (path as NSString).standardizingPath
-        let b = (root as NSString).standardizingPath
-        guard !b.isEmpty else { return false }
+        guard !root.isEmpty else { return false }
+        guard let a = try? physicalPath(path), let b = try? physicalPath(root) else { return true }
+        return contains(a, b)
+    }
+
+    private static func contains(_ a: String, _ b: String) -> Bool {
         if a == b { return true }
         return a.hasPrefix(b.hasSuffix("/") ? b : b + "/")
+    }
+
+    /// `realpath` cannot resolve a directory that capture has not created yet.
+    /// Walk to its nearest existing ancestor, refusing dangling links and other
+    /// filesystem errors instead of treating them as absent directories.
+    private static func physicalPath(_ path: String) throws -> String {
+        var ancestor = (path as NSString).standardizingPath
+        var missing: [String] = []
+        while true {
+            if let resolved = realpath(ancestor, nil) {
+                defer { free(resolved) }
+                return missing.reversed().reduce(String(cString: resolved)) {
+                    ($0 as NSString).appendingPathComponent($1)
+                }
+            }
+            let code = errno
+            var metadata = stat()
+            guard code == ENOENT, lstat(ancestor, &metadata) != 0, errno == ENOENT else {
+                throw Failure.unresolvablePath(path: path, reason: String(cString: strerror(code)))
+            }
+            let parent = (ancestor as NSString).deletingLastPathComponent
+            guard !parent.isEmpty, parent != ancestor else {
+                throw Failure.unresolvablePath(path: path, reason: "no resolvable ancestor")
+            }
+            missing.append((ancestor as NSString).lastPathComponent)
+            ancestor = parent
+        }
     }
 
     /// Expand a leading `~` against `home`, then make absolute + lexically normal.

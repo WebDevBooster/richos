@@ -97,6 +97,49 @@ final class DropZoneTests: XCTestCase {
 
     // MARK: - Locating the repo
 
+    func testSymlinkIntoProductIsRefusedBeforeCreatingAZone() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let product = root.appendingPathComponent("product")
+        try FileManager.default.createDirectory(at: product.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        let alias = root.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: product.appendingPathComponent("docs"))
+        let target = alias.appendingPathComponent("new/recordings").path
+        XCTAssertTrue(DropZone.isInside(target, product.path))
+        XCTAssertThrowsError(try DropZone.resolve(explicit: target, env: [:], home: root.path, productRepo: product.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: product.appendingPathComponent("docs/new").path))
+        // The protected root can itself be an alias.
+        XCTAssertThrowsError(try DropZone.resolve(explicit: product.appendingPathComponent("docs/new/recordings").path,
+                                                 env: [:], home: root.path, productRepo: alias.path))
+    }
+
+    func testSymlinkToExternalStorageRemainsUsable() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outside = root.appendingPathComponent("private")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let alias = root.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: outside)
+        let target = alias.appendingPathComponent("new/recordings").path
+        let result = try DropZone.resolve(explicit: target, env: [:], home: root.path,
+                                          productRepo: root.appendingPathComponent("product").path)
+        XCTAssertEqual(result.path, target)
+    }
+
+    func testUnresolvedLinksAreRefusedEvenWithoutAProductRoot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dangling = root.appendingPathComponent("dangling")
+        let cycle = root.appendingPathComponent("cycle")
+        try FileManager.default.createSymbolicLink(at: dangling, withDestinationURL: root.appendingPathComponent("missing"))
+        try FileManager.default.createSymbolicLink(at: cycle, withDestinationURL: cycle)
+        for alias in [dangling, cycle] {
+            XCTAssertThrowsError(try DropZone.resolve(explicit: alias.appendingPathComponent("new/recordings").path,
+                                                     env: [:], home: root.path, productRepo: nil))
+        }
+    }
+
     func testLocatesTheCheckoutByTheServiceCLIMarkerAndNotByADirectoryName() {
         let marker = "/checkout/richos/tools/richos-service/bin/richos-service.js"
         let found = DropZone.locateProductRepo(
