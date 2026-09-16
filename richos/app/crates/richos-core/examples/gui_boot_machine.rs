@@ -8,47 +8,13 @@
 //! "no corpus configured" and it is telling the truth. So this program builds the healthy
 //! side of the two-sided check.
 //!
-//! # It cannot reach the CEO's corpus, by construction
+//! The source is the selected public engine's Loro component. Provisioning creates
+//! an empty fictional corpus under the supplied scratch home; the shell harness
+//! copies the engine and verified runtimes into that same isolated machine.
+//! The ordinary app resolver must then select that delivered component for both
+//! reading and writing. This fixture is not clean-OS installed acceptance.
 //!
-//! Everything it creates hangs off the scratch `$HOME` given as `argv[1]`. It READS one
-//! thing from the real machine — the directory that already holds this machine's loro
-//! compiler — and copies from it. `provision` refuses a target that already looks like a
-//! corpus, refuses a non-empty target, and refuses anything inside a product checkout, so
-//! there is no argument to this program that could point it at `~/ab/richos-hq`.
-//!
-//! # What it makes, and why each one is here
-//!
-//! | thing | why the boot needs it |
-//! |---|---|
-//! | a provisioned corpus at `<home>/RichOS/corpus` + its pointer | `loro Tier C` resolves a corpus and a compiler; without it the boot says `no corpus configured` |
-//! | the loro tools, copied into `<home>/Library/Application Support/RichOS/loro-tools` | `provision` installs them; the READ half and the WRITE half both resolve through them |
-//! | a company registry at `<home>/Library/Application Support/com.richos.app/entities.json` | `EntityRegistry::load`. The registry is a per-user FILE since 2026-09-04; without it every company is unregistered, the saved choice below is refused as stale, and the boot resolves no entity |
-//! | a saved company in `config.json` | `boot_entity` step 2. `cwd=/` owns no entity, so without a saved choice the boot says `no company resolved` |
-//! | `<home>/.claude/richos-engine` (the shell writes it) | `engine.rs` candidate 6 — the one an installed `.app` on a customer Mac reaches |
-//! | `<home>/.local/bin/claude` (the shell writes it) | `resolve_claude_bin` step 2 — without it there is no compute lease |
-//!
-//! # The compiler source is GIVEN, and that is deliberate
-//!
-//! The RichOS product repository ships no `loro/` (`provision.rs`'s own module doc says so),
-//! so a scratch corpus can only get a compiler by copying one that already exists on this
-//! machine. The obvious way to find it is [`LoroInstall::locate`] — the same call the boot
-//! makes.
-//!
-//! **That was tried and it is wrong, and the red run proved it.** With the pre-`c179cc1`
-//! read path put back, `LoroInstall::locate` resolves nothing, so the fixture could not
-//! build a machine and the suite exited 2 saying *"this machine has no loro compiler to
-//! copy"*. That is red, so nothing failed open — but it is red with the WRONG DIAGNOSIS,
-//! and a check that sends its reader hunting the wrong thing is only marginally better than
-//! one that says nothing. **A fixture must not be built by the component it tests.**
-//!
-//! So the source arrives as `argv[2]`, found by `gui-launch.sh` out of facts that do not go
-//! through any Rust resolution. All this program does with it is check it with
-//! [`compiler_looks_valid`] — a pure predicate, not a resolver — and refuse if it is not a
-//! loro checkout.
-//!
-//! ```text
-//! cargo run -q -p richos-core --example gui_boot_machine -- <scratch-home> <loro-checkout>
-//! ```
+//! Usage: `gui_boot_machine <scratch-home> <public-loro-component>`.
 
 use richos_core::config::ConfigStore;
 use richos_core::entity::EntityRegistry;

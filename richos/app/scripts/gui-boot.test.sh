@@ -898,7 +898,7 @@ else
 fi
 
 GUI_APP_DIR="$APP_DIR"
-GUI_ENGINE_DIR="$REPO_DIR/engine"
+GUI_ENGINE_DIR="${RICHOS_GUI_ENGINE_SOURCE:-$REPO_DIR/engine}"
 GUI_BINARY="$APP_DIR/src-tauri/target/debug/richos-tauri"
 export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
 # shellcheck source=lib/gui-launch.sh
@@ -908,10 +908,8 @@ export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
 # C1-C4 — the bundle this harness gives the product, held to what the product demands
 # =========================================================================================
 #
-# BEFORE THE HOST GATE, ON PURPOSE. Everything below the gate needs a loro checkout, and the
-# only machine that runs this suite on a schedule has none — so anything asserted down there
-# is asserted on a host that already stopped reading. These four need a scratch directory and
-# `sed`. They are the half of this suite that runs in CI.
+# These capability checks need only a scratch directory and `sed`. The real
+# boot below also requires the public engine and its delivered runtime.
 #
 # The executable is a two-line shell script. None of these boots anything: the question is
 # whether the CONTAINER is one the product will open, and that question has an answer with no
@@ -1033,26 +1031,14 @@ if ! command -v cargo >/dev/null 2>&1; then
   fi
 fi
 
-# THE HOST QUESTION IS ASKED BEFORE THE EXPENSIVE ONE, and it did not used to be.
-#
-# `gui_machine` needs a loro checkout to copy 37 files out of, and on a host that has none
-# there is no answer to be had — B0 onwards cannot run at all. That check used to happen
-# AFTER a cold `cargo build --bin richos-tauri`, so a host that was always going to say "I
-# cannot answer" paid for the whole build first and then said it. Measured on a GitHub
-# `macos-latest` runner on 2026-09-10 (run `34444955517`): 98 seconds of build, then
-# `gui_compiler_source: no loro checkout on this machine to copy from`. On a 10x-billed
-# runner that is 16 minutes of billed time for a result that was decided before the first
-# crate compiled.
-#
-# The build still happens, and it still happens before anything is asserted about a boot —
-# only the free question now comes first. Nothing about the verdict changes on a machine
-# that HAS the compiler.
+# A missing public component is a product failure, never the old private-source
+# host gap. The caller may supply an extracted immutable engine candidate.
 if ! GUI_SRC="$(gui_compiler_source 2>&1)"; then
-  printf '%s\n' "$GUI_SRC" >&2
-  echo "gui-boot.test.sh: no machine can be built here, so there is no boot to hold to account." >&2
-  echo "                  That is a fact about THIS MACHINE, not a verdict about the code." >&2
-  echo "                  C1-C4 above ran regardless: they are what this host CAN answer, and" >&2
-  echo "                  a failure among them exits 1 rather than claiming a gap." >&2
+  bad "B0 public Loro component is present" "$GUI_SRC"
+  exit 1
+fi
+if [ ! -f "$GUI_ENGINE_DIR/runtime/delivery.json" ] && [ -z "${RICHOS_RUNTIME_DIR:-}" ]; then
+  echo "gui-boot.test.sh: provide an extracted engine with runtimes via RICHOS_GUI_ENGINE_SOURCE, or a verified RICHOS_RUNTIME_DIR." >&2
   host_gap_exit
 fi
 
@@ -1074,8 +1060,8 @@ if MOUT="$(gui_machine "$MACHINE" 2>&1)"; then
 else
   echo "gui-boot.test.sh: could not build the machine to boot on:" >&2
   printf '%s\n' "$MOUT" | sed 's/^/  /' >&2
-  echo "                  That is a fact about THIS MACHINE, not a verdict about the code." >&2
-  host_gap_exit
+  bad "B0 complete delivered machine could be provisioned" "public component/runtime provisioning failed"
+  exit 1
 fi
 
 # C5 — THE ONE CAPABILITY CASE THAT NEEDS THE BINARY, so it lives here rather than with
@@ -1155,7 +1141,7 @@ break_and_boot() {   # break_and_boot <name> <case-id> <what-to-remove-cmd...>
 
 break_and_boot "the engine pointer is removed -> caught"      B3 rm -f  .claude/richos-engine
 break_and_boot "the corpus pointer is removed -> caught"      B4 rm -rf "Library/Application Support/RichOS/corpus" RichOS
-break_and_boot "the loro tools are removed -> caught"         B5 rm -rf "Library/Application Support/RichOS/loro-tools"
+break_and_boot "the delivered Loro component is removed -> caught" B5 rm -rf FixtureDelivery/engine/loro
 break_and_boot "the claude stand-in is removed -> caught"     B6 rm -f  .local/bin/claude
 # Require the intended readiness detector, not an unrelated boot failure. The deferred
 # compute-policy line alone must never certify a machine with no executable to connect to.

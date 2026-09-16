@@ -93,6 +93,17 @@ gui_machine() {
   local src
   src="$(gui_compiler_source)" || return 1
   mkdir -p "$home" || return 1
+  mkdir -p "$home/.claude" "$home/FixtureDelivery/engine" || return 1
+  # Each negative case owns its component copy. Removing a component must never
+  # follow a symlink into the developer's engine or another fixture.
+  cp -a "$GUI_ENGINE_DIR/." "$home/FixtureDelivery/engine/" || return 1
+  if [ ! -f "$home/FixtureDelivery/engine/runtime/delivery.json" ]; then
+    [ -n "${RICHOS_RUNTIME_DIR:-}" ] || { echo "gui_machine: a verified delivered runtime is required (RICHOS_RUNTIME_DIR)" >&2; return 1; }
+    python3 "$app_dir/scripts/verify-runtime.py" "$RICHOS_RUNTIME_DIR" "$app_dir/scripts/runtime-sources.json" || return 1
+    cp -a "$RICHOS_RUNTIME_DIR" "$home/FixtureDelivery/engine/runtime" || return 1
+  fi
+  ln -sfn ../FixtureDelivery/engine "$home/.claude/richos-engine" || return 1
+  src="$home/FixtureDelivery/engine/loro"
   ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" "$src" ) || return 1
 
   # -- the central folder, and the ONE thing here that is deliberately not provisioned ----
@@ -128,8 +139,7 @@ COMPANY
   # `engine.rs` candidate 6: `$CLAUDE_CONFIG_DIR`(or `~/.claude`)`/richos-engine`, which is
   # the pointer `engine/scripts/hooks/install.sh` mints. A symlink, because that is what the
   # installer makes.
-  mkdir -p "$home/.claude" || return 1
-  ln -sfn "$GUI_ENGINE_DIR" "$home/.claude/richos-engine" || return 1
+
 
   # -- a `claude` binary, at the path `resolve_claude_bin` step 2 names -------------------
   # A STAND-IN, and it is honest about being one. It answers the single control request the
