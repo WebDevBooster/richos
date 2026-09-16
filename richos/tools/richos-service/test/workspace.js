@@ -757,8 +757,65 @@ test('writeEvidence lays out <vendor>/<source>/<id>/rev-<etag>/ with item.json +
   fs.rmSync(zone, { recursive: true, force: true });
 });
 
+test('evidence preserves distinct punctuation and long-prefix revisions and source IDs', () => {
+  const zone = tmp();
+  try {
+    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const cases = [
+      ['same', 'abc-def'], ['same', 'abcdef'],
+      ['same', 'x'.repeat(24) + 'one'], ['same', 'x'.repeat(24) + 'two'],
+      ['a:b', 'version'], ['a_b', 'version'],
+    ];
+    const results = cases.map(([id, etag], i) => {
+      const item = adapter.toSourceItem({ ...EVENT_ORG, id, etag, description: `body ${i}` });
+      return writeEvidence(item, {}, zone);
+    });
+    assert.equal(new Set(results.map((r) => r.dir)).size, cases.length);
+    results.forEach((r, i) => assert.equal(fs.readFileSync(path.join(r.dir, 'content.txt'), 'utf8'), `body ${i}`));
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+test('an existing revision is immutable across repeat observations and conflicts', () => {
+  const zone = tmp();
+  try {
+    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const item = adapter.toSourceItem(EVENT_ORG);
+    const first = writeEvidence(item, { original: true }, zone);
+    const paths = ['item.json', 'content.txt', 'governance.json'].map((n) => path.join(first.dir, n));
+    const before = paths.map((p) => fs.readFileSync(p));
+    const repeated = structuredClone(item);
+    repeated.provenance.fetchedAt += 1000;
+    assert.equal(writeEvidence(repeated, { original: false }, zone).written, false);
+    paths.forEach((p, i) => assert.deepEqual(fs.readFileSync(p), before[i]));
+    const changed = structuredClone(item);
+    changed.content.text = 'different source body';
+    assert.throws(() => writeEvidence(changed, {}, zone), /evidence conflict/);
+    paths.forEach((p, i) => assert.deepEqual(fs.readFileSync(p), before[i]));
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+test('legacy evidence links remain answerable and a colliding new revision gets its own path', () => {
+  const zone = tmp();
+  try {
+    const adapter = new GoogleCalendarAdapter({ client: null, now });
+    const item = adapter.toSourceItem({ ...EVENT_ORG, id: 'legacy', etag: 'abc-def' });
+    const legacy = path.join(zone, 'google/calendar/google_calendar_legacy/rev-abcdef');
+    fs.mkdirSync(legacy, { recursive: true });
+    const stored = { ...item, content: { ...item.content, text: undefined, textFile: 'content.txt' } };
+    fs.writeFileSync(path.join(legacy, 'item.json'), JSON.stringify(stored));
+    fs.writeFileSync(path.join(legacy, 'content.txt'), item.content.text);
+    fs.writeFileSync(path.join(legacy, 'governance.json'), '{}');
+    assert.equal(evidenceDir(item, zone), legacy);
+    assert.equal(writeEvidence(item, {}, zone).written, false);
+    const other = adapter.toSourceItem({ ...EVENT_ORG, id: 'legacy', etag: 'abcdef', description: 'new revision' });
+    const result = writeEvidence(other, {}, zone);
+    assert.notEqual(fs.realpathSync(result.dir), fs.realpathSync(legacy));
+    assert.equal(fs.readFileSync(path.join(legacy, 'content.txt'), 'utf8'), item.content.text);
+    assert.equal(fs.readFileSync(path.join(result.dir, 'content.txt'), 'utf8'), 'new revision');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
 test('evidenceLinkFor is a repo-relative, answerable pointer; safeId sanitizes the id', () => {
-  assert.equal(safeId('google:calendar:evt_1'), 'google_calendar_evt_1');
+  assert.match(safeId('google:calendar:evt_1'), /^google_calendar_evt_1--[a-f0-9]{64}$/);
+  assert.notEqual(safeId('google:calendar:evt_1'), safeId('google_calendar_evt_1'));
   const a = new GoogleCalendarAdapter({ client: null, now });
   const link = evidenceLinkFor(a.toSourceItem(EVENT_ORG), '/repo/loro/raw/workspace', '/repo');
   assert.ok(link.startsWith('loro/raw/workspace/google/calendar/'));
