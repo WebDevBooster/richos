@@ -540,7 +540,8 @@ fn salvage_proposal_number(line: &str) -> Option<u64> {
 /// not acted on): it is the record of decisions he has already made, which is exactly why a
 /// dropped record here has a cost neither of the others has — see the module doc.
 ///
-/// `headline` and `detail` are empty strings when nothing was skipped, which is the
+/// `headline` and `detail` are empty when no record was skipped and no confirmed
+/// write is unresolved. That is the
 /// ordinary case and the signal to say nothing at all. There is no reassuring "the desk is
 /// fine" state, for the same reason `Ledger::history_health` and `IntakeLog::health` have
 /// none.
@@ -554,13 +555,13 @@ pub struct DeskHealth {
     pub from_future: usize,
     pub damaged: usize,
     pub ambiguous: usize,
-    /// Proposals held back because a record that could have been their answer was
-    /// unreadable. Always 0 when `skipped` is 0. See [`ProposalState::Unresolved`].
+    /// Proposals held back because an answer was unreadable or a confirmed write
+    /// has no durable outcome. See [`ProposalState::Unresolved`].
     pub unresolved: usize,
-    /// Records not proposed against because the decision he made about them could not be
-    /// read. Always 0 when `skipped` is 0. See [`CorrectionDesk::held_records`].
+    /// Records not proposed against while their earlier decision or writer outcome
+    /// is unresolved. See [`CorrectionDesk::held_records`].
     pub held_records: usize,
-    /// One short sentence. Empty when nothing was skipped.
+    /// One short sentence. Empty when there is no damaged record or unresolved write.
     pub headline: String,
     /// The honest explanation, in plain American English, with no stack trace in it.
     /// Empty when nothing was skipped.
@@ -568,10 +569,9 @@ pub struct DeskHealth {
 }
 
 impl DeskHealth {
-    /// Every record on disk is in the projection. The normal state, and the state of every
-    /// correction desk in existence today.
+    /// Every record is readable and every confirmed write has a recorded outcome.
     pub fn is_clean(&self) -> bool {
-        self.skipped == 0
+        self.skipped == 0 && self.unresolved == 0
     }
 }
 
@@ -755,8 +755,12 @@ impl CorrectionDesk {
             )
             .collect();
         for p in self.proposals.iter_mut() {
-            if p.state == ProposalState::AwaitingCeo && at_risk.contains(&p.id) {
+            if at_risk.contains(&p.id) && matches!(p.state, ProposalState::AwaitingCeo | ProposalState::Unresolved) {
                 p.state = ProposalState::Unresolved;
+                // Preserve the existing unreadable-answer diagnosis when a
+                // writer receipt was present but damaged. A missing receipt
+                // with an otherwise intact log is the distinct crash case.
+                p.failure = Some("answer-unreadable".into());
             }
         }
 
@@ -1118,7 +1122,10 @@ impl CorrectionDesk {
         let unresolved = self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).count();
         let held_records = self.held.len();
 
-        let (headline, detail) = if skipped == 0 {
+        let (headline, detail) = if skipped == 0 && unresolved > 0 {
+            ("A confirmed knowledge write needs reconciliation.".into(),
+             "Your confirmation was saved, but the writer outcome was not recorded. RichOS has retained the proposal and will not repeat the write or claim it succeeded. The corpus and source evidence must be checked before resolving it.".into())
+        } else if skipped == 0 {
             (String::new(), String::new())
         } else {
             let plural =
@@ -1366,6 +1373,10 @@ mod tests {
         assert!(reopened.pending_for("fictional").is_empty());
         assert!(matches!(reopened.confirm("fictional", &p.id), Err(CorrectionError::WriteOutcomeUnknown {..})));
         assert!(w.corpus_files().is_empty());
+        let health = reopened.desk_health();
+        assert!(!health.is_clean());
+        assert!(health.headline.contains("needs reconciliation"));
+        assert_eq!(health.skipped, 0);
         let _ = std::fs::remove_file(log);
     }
 
