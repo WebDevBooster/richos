@@ -497,6 +497,50 @@ async function openHomePrefs(browser, setup) {
 }
 
 const FIXTURES = {
+  async "repository-empty"(browser) {
+    const page = await openApp(browser);
+    await page.click("#set-btn");
+    await page.click("#set-repositories-open");
+    await page.waitForSelector("#repository-company option:nth-child(2)", {state: "attached"});
+    return page;
+  },
+  async "permission-pending"(browser) {
+    const page = await openApp(browser);
+    await page.evaluate(() => { window.__RICHOS_MOCK_PRESET__ = {pendingPermission: {
+      id: "affordance-request", binding: {entity_id: "depot"}, tool: "Write", input: {file_path: "/fictional/file"}
+    }}; });
+    await page.waitForSelector("#permission-sheet:not([hidden])");
+    return page;
+  },
+  async "provider-start-error"(browser) {
+    const page = await openApp(browser, undefined, {providerAuth: "signed-out"});
+    await page.waitForSelector("#provider-connect:not([hidden])");
+    await page.evaluate(() => { window.__overrides.provider_auth_start = {reject: true, value: "synthetic start failure"}; });
+    await page.click("#provider-connect");
+    await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("could not start"));
+    return page;
+  },
+  async "provider-poll-error"(browser) {
+    const page = await openApp(browser, undefined, {providerAuth: "signed-out", providerAuthHold: true});
+    await page.waitForSelector("#provider-connect:not([hidden])");
+    await page.evaluate(() => { window.__overrides.provider_auth_poll = {reject: true, value: "synthetic poll failure"}; });
+    await page.click("#provider-connect");
+    await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("could not be verified"));
+    return page;
+  },
+  async "provider-cancel-error"(browser) {
+    const page = await openApp(browser, undefined, {providerAuth: "signed-out", providerAuthHold: true});
+    await page.waitForSelector("#provider-connect:not([hidden])");
+    await page.evaluate(() => {
+      window.__overrides.provider_auth_cancel = {reject: true, value: "synthetic cancel failure"};
+      window.__overrides.provider_auth_poll = {value: {state: "connecting", message: "Sign-in could not be cancelled. Try again."}};
+    });
+    await page.click("#provider-connect");
+    await page.waitForSelector("#provider-cancel:not([hidden])");
+    await page.click("#provider-cancel");
+    await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("could not be cancelled"));
+    return page;
+  },
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
   async shell(browser) {
@@ -1127,6 +1171,7 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  "repository-empty", "permission-pending", "provider-start-error", "provider-poll-error", "provider-cancel-error",
   // Every correction-desk fixture renders its own words — there is no hardware behind any
   // of them, so the weaker control-presence-only proof would be a choice rather than a
   // limit.
