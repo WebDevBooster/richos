@@ -35,9 +35,8 @@
 //!    root inside the RichOS product repo, loudly, with no permissive fallback. Provisioning
 //!    refuses to CREATE one there, with the same posture and for the same reason — the
 //!    corpus is his private record and RichOS ships publicly. See
-//!    [`product_checkout_containing`], which walks up exactly as
-//!    `layout.js:productCheckoutContaining` does and additionally knows the marker loro's own
-//!    detector cannot see (below).
+//!    [`product_checkout_containing`], which checks every physical ancestor and additionally
+//!    knows the marker loro's own detector cannot see (below).
 //! 3. **NEVER TOUCH A CORPUS THAT ALREADY EXISTS.** A target that already holds `ceo/` or
 //!    `companies/` returns [`ProvisionError::AlreadyACorpus`] and writes nothing. The CEO's
 //!    live arrangement — the pointer at `richos-hq`, 626 records — must survive this code
@@ -160,12 +159,9 @@ pub struct ProductCheckout {
 
 /// The nearest product checkout at or above `dir`, or `None`.
 ///
-/// Walks up at most twelve levels, which is `layout.js:productCheckoutContaining`'s own
-/// limit, kept identical so the two refusals agree about what "inside" means. `dir` itself
-/// is checked first: "inside the product repo" has to include "is the product repo".
-///
-/// The path does not have to exist — provisioning is asked about a directory that is about
-/// to be created, and every ancestor of it does exist.
+/// Checks `dir` and every physical ancestor up to the filesystem root. A depth
+/// limit would let deeply nested destinations bypass the private-storage boundary.
+/// Missing final directories are allowed; existing symlinks are resolved first.
 pub fn product_checkout_containing(dir: &Path) -> Option<ProductCheckout> {
     product_checkout_at_physical_path(&physical_path(dir).ok()?)
 }
@@ -176,34 +172,46 @@ fn physical_path(path: &Path) -> std::io::Result<PathBuf> {
     let mut ancestor = path.to_path_buf();
     let mut missing = Vec::new();
     loop {
-        match std::fs::canonicalize(&ancestor) {
-            Ok(mut resolved) => {
-                for component in missing.iter().rev() {
-                    if component == ".." { resolved.pop(); }
-                    else if component != "." { resolved.push(component); }
-                }
-                return Ok(resolved);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                match std::fs::symlink_metadata(&ancestor) {
-                    Ok(_) => return Err(error),
-                    Err(meta_error) if meta_error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(meta_error) => return Err(meta_error),
-                }
-                let component = ancestor.components().next_back().ok_or(error)?;
-                missing.push(component.as_os_str().to_os_string());
-                if !ancestor.pop() {
-                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no resolvable path ancestor"));
+        if let Some(mut resolved) = canonical_if_present(&ancestor)? {
+            for component in missing.iter().rev() {
+                if component == ".." { resolved.pop(); }
+                else if component != "." { resolved.push(component); }
+                // A parent component can expose an existing symlink after a
+                // missing directory. Resolve it before examining the next part.
+                if let Some(physical) = canonical_if_present(&resolved)? {
+                    resolved = physical;
                 }
             }
-            Err(error) => return Err(error),
+            return Ok(resolved);
         }
+        let component = ancestor.components().next_back().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "no resolvable path ancestor")
+        })?;
+        missing.push(component.as_os_str().to_os_string());
+        if !ancestor.pop() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no resolvable path ancestor"));
+        }
+    }
+}
+
+// None means an absent directory, never an unresolved link or an access error.
+fn canonical_if_present(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    match std::fs::canonicalize(path) {
+        Ok(resolved) => Ok(Some(resolved)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::symlink_metadata(path) {
+                Err(meta_error) if meta_error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(meta_error) => Err(meta_error),
+                Ok(_) => Err(error),
+            }
+        }
+        Err(error) => Err(error),
     }
 }
 
 fn product_checkout_at_physical_path(dir: &Path) -> Option<ProductCheckout> {
     let mut d = dir.to_path_buf();
-    for _ in 0..12 {
+    loop {
         if d.join("loro").join("lib").join("store.js").is_file()
             && d.join("loro").join("bin").join("loro-context.mjs").is_file()
         {
@@ -862,6 +870,22 @@ mod tests {
         let through_missing = root.join("missing/../product/docs/corpus");
         assert!(matches!(provision(&req(through_missing, None)), Err(ProvisionError::InsideProductCheckout { .. })));
         assert!(!root.join("missing").exists());
+        let through_alias = root.join("missing/../alias/corpus");
+        assert!(matches!(provision(&req(through_alias, None)), Err(ProvisionError::InsideProductCheckout { .. })));
+        assert!(!root.join("missing").exists());
+        assert!(!repo.join("docs/corpus").exists());
+    }
+
+    #[test]
+    fn provisioning_refuses_deep_product_paths_before_writing() {
+        let root = tmp("deep-product");
+        let repo = root.join("product");
+        let marker = repo.join("richos/app/crates/richos-core/Cargo.toml");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(marker, "").unwrap();
+        let target = (0..20).fold(repo.join("docs"), |dir, n| dir.join(format!("level-{n}")));
+        assert!(matches!(provision(&req(target, None)), Err(ProvisionError::InsideProductCheckout { .. })));
+        assert!(!repo.join("docs").exists());
     }
 
     #[test]
@@ -876,6 +900,9 @@ mod tests {
         let report = provision(&req(target.clone(), None)).unwrap();
         assert_eq!(report.root, target);
         assert!(outside.join("new/corpus/ceo/pages/private").is_dir());
+        let through_parent = root.join("missing/../alias/second/corpus");
+        assert!(provision(&req(through_parent, None)).is_ok());
+        assert!(outside.join("second/corpus/ceo/pages/private").is_dir());
     }
 
     #[test]
