@@ -273,12 +273,13 @@ open has in step 6.
 
 ### Step 7 — Orientation tour (~15-20 min)
 
-With a staffed team and a wiki that already has real content, walk the CEO
+With a staffed team and any confirmed private knowledge, walk the CEO
 through, briefly:
 
 - `CLAUDE.md` (their now-filled operating manual) — just enough to know it
   exists and where the QA-pipeline bars live.
-- `ceo-wiki/wiki/000_index.md` — the pages the interview just created.
+- The external Loro corpus and the records the CEO confirmed during the interview.
+  An empty corpus is valid; interview answers are never published with the engine.
 - `ceo-inbox/` — the two subfolders and what each is for.
 - `ceo-briefings/` — where they'll see status without asking for it.
 - `team/NAMING.md` — the naming convention behind every teammate's name, in

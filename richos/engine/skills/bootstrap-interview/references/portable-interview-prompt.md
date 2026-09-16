@@ -28,8 +28,9 @@ at the end, to hand off what you said.
    interview: `skills/bootstrap-interview/SKILL.md`. It will detect the
    transcript automatically (its "Transcript mode") and continue from
    there — extracting your answers, filling `CLAUDE.md` and
-   `orchestration.config`, staffing your initial team, and seeding your
-   `ceo-wiki/` — without making you answer these same questions again live.
+   `orchestration.config`, staffing your initial team and proposing records for your external private
+   Loro corpus, without making you answer these same questions again live.
+   Knowledge writes still require confirmation.
 
 ---
 

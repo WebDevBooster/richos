@@ -10,7 +10,7 @@ A separate reviewed migration handles actual personal records later.
 
 
 Once you adopt the engine, your repo diverges from it on purpose: you fill in
-`CLAUDE.md`, staff real workers, grow a `ceo-wiki/`, and tune
+`CLAUDE.md`, staff real workers, build private Loro knowledge and tune
 `orchestration.config`. When the engine ships a new version — a hook hardening, a
 new skill, a fixed false-positive — you want *those* improvements without
 clobbering *your* filled-in work. That is the whole difference between "a repo I
@@ -334,8 +334,8 @@ engine's structural improvements** — never replace.
   which you may have deleted or filled after your first real one. Never let an
   upgrade re-drop an example over your content or wipe your pages.
 - **`ceo-wiki/AGENTS.md` / `README.md` / `PAGE-TYPES.md` / `PAGE-TEMPLATE.md`** —
-  the wiki *doctrine* is engine-owned in principle, but if you tuned it for your
-  taxonomy, treat as adopter-owned and merge.
+  legacy adopter files are preserved. The new generic authoring guide ships under
+  `loro/docs/`; it does not overwrite these files or migrate the corpus.
 - **`.claude/settings.local.json`** — this is committed and **must keep the two
   critical keys** (`env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"`,
   `worktree.baseRef: "head"`). If an upgrade touches it, merge — never let a

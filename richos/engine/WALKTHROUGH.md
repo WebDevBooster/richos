@@ -27,7 +27,7 @@ instead of three disconnected samples.
 
 ---
 
-## Step 0 — the CEO's request, and the wiki check
+## Step 0: the CEO's request and the Loro context check
 
 **CEO, to the orchestrator:** *"Add a CSV export button to the Orders list —
 customers keep asking for it."*
@@ -36,13 +36,13 @@ Per `CLAUDE.md`'s "The Orchestrator as COO" escalation ladder, the
 orchestrator's first move is never to just start working — it's to check
 whether this is already decided:
 
-> **Escalation ladder — step 1: consult the wiki first.** If `ceo-wiki/wiki/`
-> records a decision, preference, or precedent that answers the question,
-> act on it without asking.
+Consult the explicitly configured private Loro corpus for a relevant decision,
+preference or precedent. Use the active company scope and fetch the cited records
+before relying on them. Legacy adopters may still have a `ceo-wiki/` store; new
+installations use the external corpus described in [Loro](loro/README.md).
 
-The orchestrator reads `ceo-wiki/wiki/000_index.md`, then any relevant pages
-(`product-principles.md`, if one exists, for any standing rule about data
-exports; `product-architecture.md` for how the Orders list is built). In this
+The orchestrator retrieves the company's product principles and architecture
+context, if present, for any standing rule about data exports. In this
 story, nothing on file speaks to CSV export specifically — so the ladder's
 next rung applies:
 
@@ -309,9 +309,10 @@ documented, non-blocking gap named plainly, not buried.
 
 Per the write-back rule (`CLAUDE.md` → "The Orchestrator as COO"), if the CEO
 reacts to the feature with any stated preference — "always ship the toast
-follow-up within the week," say — that becomes a new `ceo-wiki/` page or
-update, cited as `(conversation with the CEO, <date>)`, so the next similar
-decision doesn't need asking again.
+follow-up within the week," say — Rich proposes a Loro record or correction with its conversation source. The
+existing confirmation desk writes it after confirmation, so the next similar
+decision can retrieve the recorded preference. Operational follow-ups belong in
+ECS and do not become knowledge corrections.
 
 ---
 
