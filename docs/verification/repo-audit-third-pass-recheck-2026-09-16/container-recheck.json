@@ -1,0 +1,14 @@
+{
+  "name": "container-mutation-recheck",
+  "commit": "0f3d25bd24b1e8595f1ab65dd9469db1ef46a9d8",
+  "command": [
+    "bash",
+    "scripts/ci-shard.sh",
+    "--units-file",
+    "/tmp/richos-audit3-container-recheck/units.txt",
+    "--receipt",
+    "/tmp/richos-audit3-container-recheck/receipts/containers.jsonl"
+  ],
+  "exit": 0,
+  "seconds": 272.7
+}

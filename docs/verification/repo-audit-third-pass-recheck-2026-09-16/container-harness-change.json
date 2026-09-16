@@ -1,0 +1,10 @@
+{
+  "full_campaign_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+  "container_recheck_revision": "0f3d25bd24b1e8595f1ab65dd9469db1ef46a9d8",
+  "merged_revision": "2262a18035dea994bfb96a7f14a26a5d5a846222",
+  "changed_paths": [
+    "richos/engine/scripts/lib/containers.mutation.sh"
+  ],
+  "container_harness_blob": "d3662be7c04c33af40e6145f5fcda433b9f0a4fd",
+  "all_other_files_identical": true
+}

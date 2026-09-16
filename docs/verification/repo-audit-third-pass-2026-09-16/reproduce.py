@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Reproduce audit findings in disposable fixtures. Requires macOS, Git, Node and cached Rust dependencies.
-Usage: python3 reproduce.py [repository-root] [output-directory]
+Usage: python3 reproduce.py [repository-root] [output-directory] [--expect-fixed]
 Only synthetic data and fixture-owned processes are used.
 """
-import importlib.util, json, os, pathlib, shutil, struct, subprocess, sys, tempfile, threading
-ROOT = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[3]
-OUT = pathlib.Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else pathlib.Path(tempfile.mkdtemp(prefix='richos-third-audit-results-'))
+import argparse, importlib.util, json, os, pathlib, shutil, struct, subprocess, sys, tempfile, threading
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('repository_root', nargs='?', type=pathlib.Path,
+                    default=pathlib.Path(__file__).resolve().parents[3])
+parser.add_argument('output_directory', nargs='?', type=pathlib.Path)
+parser.add_argument('--expect-fixed', action='store_true')
+args = parser.parse_args()
+ROOT = args.repository_root.resolve()
+OUT = (args.output_directory or pathlib.Path(tempfile.mkdtemp(prefix='richos-third-audit-results-'))).resolve()
 OUT.mkdir(parents=True, exist_ok=True)
 results = {}
 with tempfile.TemporaryDirectory(prefix='richos-third-probes-') as temp:
@@ -66,7 +72,10 @@ while True: time.sleep(.1)
     m.ws.record_end(f.sid,aid,'SubagentStop')
     # Reap the child normally as soon as SIGTERM finishes, so PID probing cannot confuse a zombie for a live process.
     waiter=threading.Thread(target=child.wait); waiter.start()
-    answer=m.ws.land(name,f.sid)
+    try:
+        answer=m.ws.land(name,f.sid)
+    except m.ws.SpecError as error:
+        answer=dict(rejected=str(error))
     waiter.join(timeout=10)
     results['land_shutdown_write']=dict(before=before,answer=answer,child_exit=child.returncode,child_stdout=child.stdout.read(),worktree_exists=os.path.exists(work),result_exists=os.path.exists(os.path.join(work,'shutdown-result.txt')),main_result_exists=os.path.exists(os.path.join(f.other,'shutdown-result.txt')))
 finally:
@@ -87,3 +96,19 @@ with tempfile.TemporaryDirectory(prefix='richos-ledger-audit-build-') as temp:
     results['torn_log_recovery'] = dict(exit=p.returncode, stdout=p.stdout)
 (OUT/'results.json').write_text(json.dumps(results,indent=2)+'\n')
 print(json.dumps(results,indent=2))
+
+if args.expect_fixed:
+    for kind in ['traversal', 'symlink']:
+        probe = results['host_'+kind]
+        assert not probe['product_record'] and not probe['product_audio'], probe
+        assert probe['responses'][0]['type'] == 'error', probe
+    assert results['host_normal']['audio_at_requested_path']
+    assert results['host_direct_zone_control']['privacy_refusal']
+    assert results['abandoned_session']['exit'] == 2
+    land = results['land_shutdown_write']
+    assert 'rejected' in land['answer'] and land['result_exists'] and land['worktree_exists'], land
+    log = results['torn_log_recovery']
+    assert log['exit'] == 0, log
+    assert 'new_prompt_survives_restart=true' in log['stdout'], log
+    assert 'pending_steering_after_restart=1' in log['stdout'], log
+    print('All four audit regressions are fixed.')

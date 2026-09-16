@@ -1,0 +1,68 @@
+{
+  "engine-shard-1": {
+    "name": "engine-shard-1",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 6952.7
+  },
+  "engine-shard-0": {
+    "name": "engine-shard-0",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 5387.1
+  },
+  "engine-receipt-verification": {
+    "name": "engine-receipt-verification",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 1,
+    "seconds": 0.4
+  },
+  "engine-shard-3": {
+    "name": "engine-shard-3",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 3947.3
+  },
+  "engine-shard-2": {
+    "name": "engine-shard-2",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 1,
+    "seconds": 4758.2
+  },
+  "engine-non-suites": {
+    "name": "engine-non-suites",
+    "commit": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "exit": 0,
+    "seconds": 95.0
+  },
+  "coverage": {
+    "original_units": 141,
+    "original_passed": 140,
+    "original_failed": [
+      {
+        "expected_rc": 0,
+        "rc": 1,
+        "seconds": 251.0,
+        "sha": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+        "shard": 3,
+        "shards": 4,
+        "unit": "scripts/lib/containers.test.sh",
+        "verdict": "FAIL"
+      }
+    ],
+    "unchanged_units_verified": 140,
+    "unchanged_coverage_exit": 0,
+    "corrected_unit": {
+      "expected_rc": 0,
+      "rc": 0,
+      "seconds": 271.2,
+      "sha": "0f3d25bd24b1e8595f1ab65dd9469db1ef46a9d8",
+      "shard": 0,
+      "shards": 12,
+      "unit": "scripts/lib/containers.test.sh",
+      "verdict": "PASS"
+    },
+    "corrected_coverage_exit": 0,
+    "receipt_revisions_kept_separate": true
+  }
+}

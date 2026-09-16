@@ -1,0 +1,17 @@
+[richos] LEDGER RECORD SKIPPED (DAMAGED): line 2 (22 bytes) — the line is not valid JSON (it stops making sense at column 22) — a torn write or damaged bytes
+[richos] LEDGER SUMMARY for /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ledger-audit-58909/ledger.jsonl: 2 records read, 1 applied, 1 skipped (0 from a newer version, 1 damaged, 0 undetermined). Nothing was deleted or rewritten.
+[richos] LEDGER RECORD SKIPPED (DAMAGED): line 2 (22 bytes) — the line is not valid JSON (it stops making sense at column 22) — a torn write or damaged bytes
+[richos] LEDGER SUMMARY for /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ledger-audit-58909/ledger.jsonl: 3 records read, 2 applied, 1 skipped (0 from a newer version, 1 damaged, 0 undetermined). Nothing was deleted or rewritten.
+[richos] INTAKE RECORD SKIPPED (DAMAGED): line 1 (22 bytes) — the line is not valid JSON (it stops making sense at column 22) — a torn write or damaged bytes
+[richos] INTAKE SUMMARY for /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ledger-audit-58909/intake.jsonl: 1 records read, 0 applied, 1 skipped (0 from a newer version, 1 damaged, 0 undetermined). These are things the CEO asked for that Rich has not acted on yet. Nothing was deleted or rewritten.
+[richos] INTAKE RECORD SKIPPED (DAMAGED): line 1 (22 bytes) — the line is not valid JSON (it stops making sense at column 22) — a torn write or damaged bytes
+[richos] INTAKE SUMMARY for /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-ledger-audit-58909/intake.jsonl: 2 records read, 1 applied, 1 skipped (0 from a newer version, 1 damaged, 0 undetermined). These are things the CEO asked for that Rich has not acted on yet. Nothing was deleted or rewritten.
+original_survived_tail_damage=true
+skipped_before_write=1
+record_prompt_received_returned_ok=true
+new_prompt_visible_in_process=true
+new_prompt_survives_restart=true
+skipped_after_restart=1
+steer_returned_ok=true
+pending_steering_before_restart=1
+pending_steering_after_restart=1

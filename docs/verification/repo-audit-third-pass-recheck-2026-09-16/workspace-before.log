@@ -1,0 +1,57 @@
+  FAIL  test_land_preserves_a_file_flushed_during_shutdown
+  FAIL  test_land_rechecks_commits_made_during_shutdown
+  FAIL  test_retry_preserves_new_uncommitted_work
+  FAIL  test_retry_preserves_new_unmerged_commits
+======================================================================
+FAIL: test_land_preserves_a_file_flushed_during_shutdown (__main__.LandingShutdown.test_land_preserves_a_file_flushed_during_shutdown)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 840, in test_land_preserves_a_file_flushed_during_shutdown
+    self.check_shutdown(False)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 826, in check_shutdown
+    with self.assertRaises(ws.SpecError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: SpecError not raised
+
+======================================================================
+FAIL: test_land_rechecks_commits_made_during_shutdown (__main__.LandingShutdown.test_land_rechecks_commits_made_during_shutdown)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 843, in test_land_rechecks_commits_made_during_shutdown
+    self.check_shutdown(True)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 826, in check_shutdown
+    with self.assertRaises(ws.SpecError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: SpecError not raised
+
+======================================================================
+FAIL: test_retry_preserves_new_uncommitted_work (__main__.LandingShutdown.test_retry_preserves_new_uncommitted_work)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 864, in test_retry_preserves_new_uncommitted_work
+    self.check_retry(False)
+    ~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 858, in check_retry
+    self.assertTrue(os.path.isfile(os.path.join(path, 'later.txt')))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_retry_preserves_new_unmerged_commits (__main__.LandingShutdown.test_retry_preserves_new_unmerged_commits)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 867, in test_retry_preserves_new_unmerged_commits
+    self.check_retry(True)
+    ~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/alex/ab/richos-wt/codex-audit3-fixes/richos/engine/mega-lander/tests/workspaces.test.py", line 858, in check_retry
+    self.assertTrue(os.path.isfile(os.path.join(path, 'later.txt')))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 4 tests in 4.661s
+
+FAILED (failures=4)
+=== workspaces spec tests: 4 run, 4 failed ===

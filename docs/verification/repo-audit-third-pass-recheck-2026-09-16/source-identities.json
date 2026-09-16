@@ -1,0 +1,66 @@
+[
+  {
+    "area": "engine",
+    "source_revision": "a6f1c1c1",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/engine",
+    "tree": "e42dde0ecc238701a607889ae3c501ce8e20a46d",
+    "identical": true
+  },
+  {
+    "area": "application",
+    "source_revision": "ea3221c2",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/app",
+    "tree": "cf382052d3abbf256e986d5ebce410470e689712",
+    "identical": true
+  },
+  {
+    "area": "capture-service",
+    "source_revision": "86cd7ff9",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/tools/richos-service",
+    "tree": "fdaa9d60da1da34d43dad2ac6b5662f064d96dcf",
+    "identical": true
+  },
+  {
+    "area": "browser-renderer",
+    "source_revision": "1dd7257e",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/app/ui",
+    "tree": "fffda7a4ec824bc1a768480a42c50d33b13a5dfd",
+    "identical": true
+  },
+  {
+    "area": "packaging-scripts",
+    "source_revision": "1dd7257e",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/app/scripts",
+    "tree": "abaaaa62bda5994e8f3ab275cfe34be02d891c15",
+    "identical": true
+  },
+  {
+    "area": "extension",
+    "source_revision": "1dd7257e",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/tools/richos-extension",
+    "tree": "40856073c3b96609d7b7f21ae98a62e94bb5ac02",
+    "identical": true
+  },
+  {
+    "area": "macos-companion",
+    "source_revision": "1dd7257e",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/tools/richos-service/companion-macos",
+    "tree": "90c5761903c9409f5f754427ceb9100a21d6ceb4",
+    "identical": true
+  },
+  {
+    "area": "windows-companion",
+    "source_revision": "1dd7257e",
+    "final_revision": "a6f1c1c1d69da350b12b1d74a37423b93143529f",
+    "path": "richos/tools/richos-service/companion-windows",
+    "tree": "755d24ecbe260848a9eb99fba1626268879d7076",
+    "identical": true
+  }
+]
