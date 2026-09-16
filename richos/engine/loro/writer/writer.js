@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parseFrontMatter, renderRecordFile, setFields } from '../lib/frontmatter.js';
 import { AUTHORITY_WEIGHT, KINDS, SCOPES, normalizeRecord, validateRecord } from '../lib/record.js';
 import { SOURCES } from '../lib/store.js';
+import { assertWritePath, makeWriteDirectory, writePrivateFile } from './storage.js';
 
 export class RefusedError extends Error {
   constructor(message, code = 5) {
@@ -71,15 +72,6 @@ export function refFor(root, file) {
   return `rec:${path.relative(root, file).split(path.sep).join('/').replace(/\.md$/, '')}`;
 }
 
-function assertInside(root, file) {
-  const a = path.resolve(file);
-  const b = path.resolve(root);
-  if (!a.startsWith(b + path.sep)) {
-    throw new RefusedError(`loro write: refusing to write outside the corpus: ${a}`);
-  }
-  return a;
-}
-
 function assertUsable(fields, body, id, now) {
   const rec = normalizeRecord(
     { ...fields, id, text: body, title: fields.title || '', promotionMethod: fields.provenance?.method },
@@ -136,7 +128,7 @@ export function appendRecord(opts) {
   if (!body) throw new RefusedError('loro write: a record with no body records nothing. Pass --body or --body-stdin.', 2);
 
   const target = resolvePartition(opts.corpusRoot, opts.partition);
-  const file = assertInside(opts.corpusRoot.root, path.join(target.dir, `${id}.md`));
+  const file = assertWritePath(opts.corpusRoot, path.join(target.dir, `${id}.md`));
   if (fs.existsSync(file)) {
     throw new RefusedError(
       `loro write: "${refFor(opts.corpusRoot.root, file)}" already exists. Refusing to overwrite it — ` +
@@ -168,8 +160,7 @@ export function appendRecord(opts) {
   const text = renderRecordFile(fields, body);
 
   if (!opts.dryRun) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text, 'utf8');
+    writePrivateFile(opts.corpusRoot, file, text, { createOnly: true });
   }
   return { ref: refFor(opts.corpusRoot.root, file), file, text, written: !opts.dryRun };
 }
@@ -296,6 +287,7 @@ export function locate(opts) {
 
 export function supersedeRecord(opts) {
   const found = locate({ ...opts, op: 'supersede' });
+  assertWritePath(opts.corpusRoot, found.file);
   if (found.record.supersededBy) {
     throw new RefusedError(
       `loro write: "${opts.ref}" is already superseded by "${found.record.supersededBy}". ` +
@@ -337,9 +329,11 @@ export function supersedeRecord(opts) {
   }
 
   if (!opts.dryRun) {
-    fs.mkdirSync(path.dirname(created.file), { recursive: true });
-    fs.writeFileSync(created.file, created.text, 'utf8');
-    fs.writeFileSync(found.file, oldText, 'utf8');
+    // Check both destinations before publishing either side of the correction.
+    assertWritePath(opts.corpusRoot, found.file);
+    assertWritePath(opts.corpusRoot, created.file);
+    writePrivateFile(opts.corpusRoot, created.file, created.text, { createOnly: true });
+    writePrivateFile(opts.corpusRoot, found.file, oldText);
   }
   return { ref: created.ref, supersededRef: opts.ref, file: created.file, oldFile: found.file, text: created.text };
 }
@@ -381,6 +375,7 @@ export function correctRecord(opts) {
     );
   }
   if (!found.writable.correct) throw new RefusedError(found.refusals.correct);
+  assertWritePath(opts.corpusRoot, found.file);
 
   const changes = {};
   const changed = [];
@@ -417,7 +412,7 @@ export function correctRecord(opts) {
   const parsed = parseFrontMatter(text);
   assertUsable(parsed.data, parsed.body, opts.ref, opts.now);
 
-  if (!opts.dryRun) fs.writeFileSync(found.file, text, 'utf8');
+  if (!opts.dryRun) writePrivateFile(opts.corpusRoot, found.file, text);
   return { ref: opts.ref, file: found.file, text, changed };
 }
 
@@ -443,7 +438,7 @@ export function createCompany(opts) {
   }
 
   const dir = path.join(corpusRoot.root, 'companies', id);
-  assertInside(corpusRoot.root, dir);
+  assertWritePath(corpusRoot, dir, 'directory');
   if (fs.existsSync(dir)) {
     throw new RefusedError(
       `loro write: company partition "${id}" already exists at ${dir}. Creating it again would either ` +
@@ -461,7 +456,9 @@ export function createCompany(opts) {
   const manifest = `${lines.join('\n')}\n`;
 
   if (opts.dryRun) return { created: false, id, dir, manifestPath, manifest, dirs };
-  for (const d of dirs) fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(manifestPath, manifest, 'utf8');
+  for (const d of dirs) assertWritePath(corpusRoot, d, 'directory');
+  assertWritePath(corpusRoot, manifestPath);
+  for (const d of dirs) makeWriteDirectory(corpusRoot, d);
+  writePrivateFile(corpusRoot, manifestPath, manifest, { createOnly: true });
   return { created: true, id, dir, manifestPath, manifest, dirs };
 }
