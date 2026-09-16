@@ -1549,7 +1549,9 @@ fn main() {
             // ninety lines later — which is how a GUI launch came to resolve the CEO's
             // corpus for reading and nothing at all for writing. `WiredMemory` carries the
             // writer that the SAME `LoroInstall` produced, so the two cannot disagree.
-            let wired = memory::wire_company_memory(&mut spine, &loro_provenance, &registry);
+            let resolution = resolve_engine();
+            let engine = resolution.dir.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/richos-engine"));
+            let wired = memory::wire_company_memory(&mut spine, &loro_provenance, &registry, &engine);
             let memory_status = wired.status;
             // AND THE RESOLUTION, kept whole. `home_field_data` compiles the home screen's
             // picture out of this and must not lock the spine to reach it.
@@ -1574,14 +1576,12 @@ fn main() {
             // the same reason the success line below names the binary instead of leaving a
             // working boot silent. When nothing answered, every place looked is printed:
             // "not found" without the list is what sends someone hunting.
-            let resolution = resolve_engine();
             eprintln!("[richos] engine directory: {}", resolution.describe());
             if resolution.source.is_none() {
                 for (source, path) in &resolution.tried {
                     eprintln!("[richos]   looked in {} ({})", path.display(), source.as_str());
                 }
             }
-            let engine = resolution.dir.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/richos-engine"));
             // THE ENGINE THE BOOT ACTUALLY FOUND, as opposed to the sentinel above. First-run
             // setup asks the same question through this value, so it never offers to install
             // something the boot already resolved — the dogfood checkout being the case that
@@ -3113,7 +3113,7 @@ fn provision_memory(
         target,
         home: home.clone(),
         companies,
-        compiler_source: None,
+        compiler_source: Some(state.engine_dir.lock().unwrap().join("loro")),
     })
     .map_err(|e| e.to_string())?;
 
@@ -3148,7 +3148,7 @@ fn provision_memory(
     // installs the reader into the spine and hands back the writer; the writer becomes the
     // desk through the same `install_correction_desk` the boot calls.
     let registry_now = state.registry.lock().unwrap().clone();
-    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry_now);
+    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry_now, &state.engine_dir.lock().unwrap());
     let mut status = wired.status;
 
     // AND THE HOME SCREEN'S PICTURE, IN THE SAME SESSION. Property 4 of this command is

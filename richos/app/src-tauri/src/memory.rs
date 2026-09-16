@@ -99,10 +99,13 @@ pub fn wire_company_memory(
     spine: &mut Spine,
     loro_provenance: &SharedSliceProvenance,
     registry: &EntityRegistry,
+    engine: &std::path::Path,
 ) -> WiredMemory {
     // ONE RESOLUTION. Everything below is built from this value and nothing below looks the
     // corpus up again.
-    let (install, tried) = match LoroInstall::locate(&CorpusPaths::from_process()) {
+    let mut paths = CorpusPaths::from_process();
+    paths.engine_dir = Some(engine.to_path_buf());
+    let (install, tried) = match LoroInstall::locate(&paths) {
         Ok(v) => v,
         // A CORPUS WITH NO COMPILER IS ITS OWN LINE. It is not a misconfiguration — it is a
         // provisioned corpus on a machine where the compiler has not been installed, which

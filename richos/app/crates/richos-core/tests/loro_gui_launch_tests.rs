@@ -76,6 +76,7 @@ fn gui_paths(home: &Path) -> CorpusPaths {
         env_corpus: None,
         env_root: None,
         env_tools: None,
+        engine_dir: None,
         env_node: None,
         home: Some(home.to_path_buf()),
         path_var: Some(LAUNCHD_PATH.to_string()),

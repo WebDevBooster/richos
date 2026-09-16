@@ -1,0 +1,3 @@
+FIXTURE — a customer install: the engine is present (so `resolveRoot` finds this directory), the
+CEO's second brain is at `engine/ceo-wiki/wiki/`, and there is deliberately NO top-level `wiki/`.
+That is the shipped shape, and it is the shape the compiler used to be blind to.

@@ -27,13 +27,8 @@
 #     ... exit 2
 #
 # and this harness had no notion of such a host, so it counted that suite as a failure.
-# On a public GitHub runner it always will be one: the fixture needs the loro compiler
-# (`bin/loro-context.mjs`, `bin/loro-write.mjs`), which is not tracked in this repository
-# at all — it lives in the private record repository, 37 files of it. No runner can have
-# it. So the whole workflow that points at this file was switched off rather than made to
-# lie, and SEVEN suites that pass perfectly on a runner have not run in CI since
-# 2026-09-01 to protect the reporting of the eighth. Measured on the runner, 2026-09-10:
-# `docs/verification/packaging-ci-2026-09-10/`.
+# Loro is delivered by the public engine. Missing GUI capabilities can still
+# be declared as host gaps; a missing public component is a product failure.
 #
 # THE DANGEROUS VERSION OF THIS FIX IS THE OBVIOUS ONE — treat exit 2 as a skip and move
 # on. That is how a suite stops running and nobody finds out, which is the defect this
@@ -60,8 +55,8 @@
 # days: `gui-boot.test.sh` had been dead on every host since `01e9b8d8` (2026-09-08) —
 # `update_startup::prepare` began reading an `Info.plist` the boot fixture had never
 # written, so the app exited on its first line and B1/B2 went red while B3-B8 went green
-# over the same dead boot. The declaration above was TRUE the whole time: no public runner
-# can hold the loro compiler. It was also the only thing standing between that death and
+# over the same dead boot. At that time the compiler was not publicly delivered.
+# The declared host gap was the only thing standing between that death and
 # somebody noticing, because the one machine that would have reported it is the operator's
 # own, and CI — the machine that runs this every day — was reading a legitimate host gap.
 #

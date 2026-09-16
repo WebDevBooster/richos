@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-06-01",
+  "note": "FIXTURE — a fictional company (Meridian Robotics). No real company or person appears here; this file exists only so the context-compiler tests have a deterministic entity vocabulary to expand queries through.",
+  "entities": [
+    {
+      "canonical": "Halstead Group",
+      "type": "customer",
+      "aliases": ["Halstead"],
+      "mangled": ["hall stead group", "halsted group", "hal stead"]
+    },
+    {
+      "canonical": "Meridian Robotics",
+      "type": "company",
+      "aliases": ["Meridian"],
+      "mangled": ["meridien robotics", "meridian robotix"]
+    },
+    {
+      "canonical": "Cobalt",
+      "type": "product",
+      "aliases": [],
+      "mangled": ["co bolt", "kobalt"],
+      "fuzzy": false
+    }
+  ]
+}

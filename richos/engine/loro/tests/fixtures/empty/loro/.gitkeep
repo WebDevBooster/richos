@@ -1,0 +1,2 @@
+Deliberately empty loro: the "thin/empty corpus" fixture. A compiler that only works against a rich
+corpus is a compiler that lies on day one, so degradation is a first-class tested case.

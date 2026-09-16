@@ -1151,6 +1151,8 @@ pub struct CorpusPaths {
     pub env_root: Option<String>,
     /// `$RICHOS_LORO_DIR`.
     pub env_tools: Option<String>,
+    /// Exact engine selected by the app. Its component is authoritative when supplied.
+    pub engine_dir: Option<PathBuf>,
     /// `$RICHOS_NODE_BIN`.
     pub env_node: Option<String>,
     /// `$HOME`.
@@ -1169,6 +1171,7 @@ impl CorpusPaths {
             env_corpus: var("LORO_CORPUS"),
             env_root: var("LORO_ROOT"),
             env_tools: var("RICHOS_LORO_DIR"),
+            engine_dir: var("RICHOS_ENGINE_DIR").or_else(|| var("RICHOS_ENGINE_ROOT")).map(PathBuf::from),
             env_node: var("RICHOS_NODE_BIN"),
             home: var("HOME").map(PathBuf::from),
             path_var: var("PATH"),
@@ -1375,6 +1378,8 @@ pub fn resolve_node_bin(p: &CorpusPaths) -> String {
 pub enum ToolsSource {
     /// `$RICHOS_LORO_DIR` — explicit, exclusive.
     EnvVar,
+    /// The component in the exact engine selected by the app.
+    EngineComponent,
     /// `<root>/loro` — the in-repo dogfood shape, where `repo_root_looks_valid` REQUIRED it
     /// to be. This is the one the CEO's own install resolves through today.
     RootsOwnLoro,
@@ -1387,6 +1392,7 @@ impl ToolsSource {
     pub fn as_str(self) -> &'static str {
         match self {
             ToolsSource::EnvVar => "RICHOS_LORO_DIR",
+            ToolsSource::EngineComponent => "the selected engine's loro component",
             ToolsSource::RootsOwnLoro => "the corpus root's own loro/ directory",
             ToolsSource::AppSupportLoroTools => "the loro-tools install in Application Support",
         }
@@ -1422,9 +1428,17 @@ pub fn resolve_tools(
         // not a loro checkout gets that fact, not a silent search past it.
         return Ok((Some((LoroTools::locate(v)?, ToolsSource::EnvVar)), tried));
     }
+    if let Some(engine) = &p.engine_dir {
+        let component = engine.join("loro");
+        return match LoroTools::locate(&component) {
+            Ok(tools) => Ok((Some((tools, ToolsSource::EngineComponent)), tried)),
+            Err(error) => Ok((None, vec![format!("{} (selected engine): {error}", component.display())])),
+        };
+    }
     let mut candidates: Vec<(PathBuf, ToolsSource)> =
         vec![(root.path().join("loro"), ToolsSource::RootsOwnLoro)];
     if let Some(home) = p.home.as_deref() {
+        candidates.insert(0, (crate::setup::engine_install_dir(home).join("loro"), ToolsSource::EngineComponent));
         candidates.push((crate::provision::compiler_install_dir(home), ToolsSource::AppSupportLoroTools));
     }
     for (dir, source) in candidates {

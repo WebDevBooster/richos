@@ -212,9 +212,8 @@ fn canonical_if_present(path: &Path) -> std::io::Result<Option<PathBuf>> {
 fn product_checkout_at_physical_path(dir: &Path) -> Option<ProductCheckout> {
     let mut d = dir.to_path_buf();
     loop {
-        if d.join("loro").join("lib").join("store.js").is_file()
-            && d.join("loro").join("bin").join("loro-context.mjs").is_file()
-        {
+        if [d.clone(), d.join("loro")].iter().any(|component|
+            component.join("lib/store.js").is_file() && component.join("bin/loro-context.mjs").is_file()) {
             return Some(ProductCheckout { dir: d, marker: CheckoutMarker::LoroCompilerSource });
         }
         if d.join("app").join("crates").join("richos-core").join("Cargo.toml").is_file() {
@@ -596,12 +595,14 @@ pub fn resolve_compiler_source(explicit: Option<&Path>, home: Option<&Path>) -> 
         if let Some(found) = consider(p.to_path_buf(), "given", &mut looked) {
             return (Some(found), looked);
         }
+        return (None, looked);
     }
     if let Ok(v) = std::env::var("RICHOS_LORO_SOURCE") {
         if !v.trim().is_empty() {
             if let Some(found) = consider(PathBuf::from(v.trim()), "RICHOS_LORO_SOURCE", &mut looked) {
                 return (Some(found), looked);
             }
+            return (None, looked);
         }
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -613,6 +614,9 @@ pub fn resolve_compiler_source(explicit: Option<&Path>, home: Option<&Path>) -> 
         }
     }
     if let Some(h) = home {
+        if let Some(found) = consider(crate::setup::engine_install_dir(h).join("loro"), "installed engine component", &mut looked) {
+            return (Some(found), looked);
+        }
         if let Some(found) = consider(compiler_install_dir(h), "already installed", &mut looked) {
             return (Some(found), looked);
         }
@@ -639,7 +643,11 @@ fn install_compiler(req: &ProvisionRequest) -> CompilerOutcome {
     if source == dest {
         return CompilerOutcome::AlreadyPresent(dest);
     }
-    match copy_tree(&source, &dest) {
+    if source.file_name().is_some_and(|name| name == "loro")
+        && source.parent().is_some_and(crate::setup::engine_looks_valid) {
+        return CompilerOutcome::AlreadyPresent(source);
+    }
+    match copy_compiler(&source, &dest) {
         Ok(files) => {
             // THE FRESHNESS STAMP. The posture the orchestration repo's freshness contract
             // states: an artifact carries the identity of what it came from, INSIDE it, so a
@@ -656,6 +664,21 @@ fn install_compiler(req: &ProvisionRequest) -> CompilerOutcome {
         }
         Err(e) => CompilerOutcome::Failed(e),
     }
+}
+
+fn copy_compiler(from: &Path, to: &Path) -> Result<usize, String> {
+    std::fs::create_dir_all(to).map_err(|error| error.to_string())?;
+    let mut copied = 0;
+    // Legacy explicit sources may also contain private memory or tests. Only
+    // executable component inputs belong in an installed compiler.
+    for name in ["bin", "lib", "writer"] {
+        if from.join(name).is_dir() { copied += copy_tree(&from.join(name), &to.join(name))?; }
+    }
+    if from.join("package.json").is_file() {
+        std::fs::copy(from.join("package.json"), to.join("package.json")).map_err(|error| error.to_string())?;
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<usize, String> {
@@ -1074,6 +1097,8 @@ mod tests {
         std::fs::write(source.join("bin").join("loro-context.mjs"), "// context").unwrap();
         std::fs::write(source.join("bin").join("loro-write.mjs"), "// write").unwrap();
         std::fs::write(source.join("lib").join("store.js"), "// store").unwrap();
+        std::fs::create_dir_all(source.join("memory")).unwrap();
+        std::fs::write(source.join("memory/private-sentinel.jsonl"), "PRIVATE_FIXTURE_DO_NOT_INSTALL").unwrap();
         let mut r = req(home.join("RichOS").join("corpus"), Some(home.clone()));
         r.compiler_source = Some(source.clone());
         let report = provision(&r).unwrap();
@@ -1083,6 +1108,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(crate::loro::LoroTools::locate(&dest).is_ok(), "the install passes the app's own tools test");
+        assert!(!dest.join("memory").exists(), "private data is not compiler input");
         let stamp = std::fs::read_to_string(dest.join("INSTALLED-FROM")).unwrap();
         assert!(stamp.contains(&source.display().to_string()), "{stamp}");
         assert!(stamp.contains("source-head:"), "{stamp}");
