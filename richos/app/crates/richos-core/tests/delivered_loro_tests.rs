@@ -98,6 +98,29 @@ fn desktop_corrections_preserve_the_company_ceo_and_unfiled_partitions() {
 }
 
 #[test]
+fn desktop_replacements_cannot_widen_private_memory() {
+    use richos_core::correction::{CliLoroWriter, LoroWriteBackend, ProposedWrite};
+    let fixture = Fixture::new();
+    let (install, _) = LoroInstall::locate(&fixture.paths(engine_source())).unwrap();
+    let install = install.unwrap();
+    cli(&install, true, &["append", "--id", "secret", "--kind", "fact", "--body",
+        "Synthetic confidential acquisition budget is forty million.", "--json"]);
+    let writer = CliLoroWriter::from_install(&install);
+    let mut proposal = ProposedWrite::Supersede { record_ref: "rec:ceo/records/secret".into(),
+        new_id: "replacement".into(), kind: "fact".into(), scope: Some("org-shared".into()),
+        body: "Synthetic confidential acquisition budget is fifty million.".into() };
+    assert!(writer.preview(&proposal, "Budget correction").unwrap_err().to_string().contains("refusing to widen"));
+    assert!(writer.commit(&proposal, "Budget correction").unwrap_err().to_string().contains("refusing to widen"));
+    assert_eq!(cli(&install, false, &["fetch", "--ref", "rec:ceo/records/secret"])["status"], "current");
+    assert!(!install.root().path().join("ceo/records/replacement.md").exists());
+    let slice = cli(&install, false, &["compile", "--topic", "confidential acquisition budget", "--audience", "worker"]);
+    assert!(slice["items"].as_array().unwrap().is_empty());
+    if let ProposedWrite::Supersede { scope, .. } = &mut proposal { *scope = None; }
+    writer.commit(&proposal, "Private budget correction").unwrap();
+    assert_eq!(cli(&install, false, &["fetch", "--ref", "rec:ceo/records/replacement"])["scope"], "ceo-private");
+}
+
+#[test]
 fn selected_engine_missing_loro_does_not_borrow_an_old_tools_install() {
     let fixture = Fixture::new();
     let paths = fixture.paths(fixture.0.join("missing-engine"));
