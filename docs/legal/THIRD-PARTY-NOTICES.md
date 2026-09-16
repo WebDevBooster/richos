@@ -326,3 +326,31 @@ copywriting entry above: Corey Haines's marketingskills at
 `68f5eaf64e858438db47e436d7a3bef0e9d69721`. The adjacent `LICENSE` reproduces the MIT
 notice and `README.md` records the extraction revision and SHA-256. The bytes are
 unmodified and retain the upstream spellings.
+
+## Engine 1.2.0 macOS runtime delivery
+
+The macOS arm64 engine asset adds the runtime built by
+`richos/app/scripts/build-runtimes.py`. This is generated delivery content, not
+a copy of the developer's installed tools. Exact public download URLs and
+SHA-256 pins are in `richos/app/scripts/runtime-sources.json`. The delivered
+`runtime/delivery.json` lists every file digest and symlink.
+
+| Work | Version | Delivered notices and source |
+|---|---|---|
+| CPython through python-build-standalone | 3.13.15, build 20260901 | Upstream Python distribution retained, including its `LICENSE*` files and bundled dependency notices |
+| Node.js | 24.21.0 | Upstream distribution retained, including `runtime/node/LICENSE` and its dependency notices |
+| jq | 1.8.2 | Upstream binary with `runtime/sources/JQ-COPYING` |
+| Git | 2.55.0 | `runtime/sources/GIT-COPYING` and exact corresponding source `git-2.55.0.tar.xz` |
+| GNU libiconv, statically linked into Git | 1.18 | `runtime/sources/ICONV-COPYING.LIB` and exact corresponding source `libiconv-1.18.tar.gz` |
+
+The Git and libiconv build instructions are the public runtime build script.
+Git is built with a relocatable prefix and system libraries; libiconv is built
+from the included source. No macOS system binary is copied. macOS supplies
+Bash and the system libraries used by this delivery. The complete upstream
+license texts govern each runtime and its dependencies. The Claude provider
+is installed separately through its own installer and is not redistributed in
+this runtime asset.
+
+Runtime preparation and inventory checks do not establish installed-app
+acceptance, signing or notarization. Those checks apply to the exact release
+candidate separately.

@@ -973,6 +973,38 @@ pub struct EngineReport {
     pub bytes: u64,
     /// The `INSTALLED-FROM` stamp's contents, so the operator's log carries what the file does.
     pub stamp: String,
+    /// Preserved predecessor, including any adopter-owned material in an old engine.
+    pub previous_at: Option<String>,
+}
+
+/// These are adopter-owned surfaces in the legacy engine contract. Preserve them
+/// at the same relative locations when replacing code. Unknown customized files
+/// also survive in the complete predecessor backup for later ownership review.
+const LEGACY_ADOPTION_PATHS: &[&str] = &[
+    "CLAUDE.md", "orchestration.config", ".claude/agents", "ceo-wiki",
+    "ceo-inbox", "ceo-briefings", "ceo-todos",
+];
+
+fn copy_adoption(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(source)?;
+    if let Some(parent) = destination.parent() { std::fs::create_dir_all(parent)?; }
+    if metadata.file_type().is_symlink() {
+        #[cfg(unix)] { return std::os::unix::fs::symlink(std::fs::read_link(source)?, destination); }
+        #[cfg(not(unix))] { return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "legacy symbolic links require an explicit platform adapter")); }
+    }
+    if metadata.is_dir() {
+        std::fs::create_dir_all(destination)?;
+        for entry in std::fs::read_dir(source)? {
+            let entry = entry?;
+            copy_adoption(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else if metadata.is_file() {
+        std::fs::copy(source, destination)?;
+    } else {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsupported legacy file type"));
+    }
+    std::fs::set_permissions(destination, metadata.permissions())?;
+    Ok(())
 }
 
 /// **Fetch the pinned engine release and install it, atomically.**
@@ -1069,6 +1101,38 @@ pub fn install_engine(
         });
     }
 
+    if pin.version == "1.2.0" {
+        crate::runtime::verify_engine(&root)
+            .map_err(|e| SetupError::EngineShapeInvalid { detail: e.to_string() })?;
+    }
+
+    // Carry known adopter data into the staged replacement before touching the old
+    // installation. The asset digest describes delivered code, not these private overlays.
+    let mut preserved = Vec::new();
+    for relative in LEGACY_ADOPTION_PATHS {
+        let source = dest.join(relative);
+        match std::fs::symlink_metadata(&source) {
+            Ok(_) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(SetupError::InstallFailed { what: "legacy data preservation".into(), detail: format!("{relative}: {error}") }),
+        }
+        let target = root.join(relative);
+        if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+            let removed = if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                std::fs::remove_dir_all(&target)
+            } else { std::fs::remove_file(&target) };
+            removed.map_err(|e| SetupError::InstallFailed { what: "legacy data preservation".into(), detail: e.to_string() })?;
+        }
+        copy_adoption(&source, &target).map_err(|e| SetupError::InstallFailed {
+            what: "legacy data preservation".into(), detail: format!("{relative}: {e}") })?;
+        preserved.push(*relative);
+    }
+    if !preserved.is_empty() {
+        let receipt = serde_json::json!({"schema":1,"preserved_paths":preserved,"personal_migration":false});
+        std::fs::write(root.join("ADOPTION-PRESERVED.json"), receipt.to_string()).map_err(|e| SetupError::InstallFailed {
+            what: "legacy data preservation".into(), detail: e.to_string() })?;
+    }
+
     // THE FRESHNESS STAMP, written before the swap so it is inside the directory that lands.
     // `provision.rs` writes the same shape for the loro compiler: identity baked INSIDE the
     // artifact, so a stale copy is detectable rather than silent.
@@ -1087,7 +1151,7 @@ pub fn install_engine(
     let previous = dest.with_file_name(format!(
         "{}.previous.{}",
         dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "engine".into()),
-        std::process::id()
+        uuid::Uuid::new_v4()
     ));
     let had_previous = dest.exists();
     if had_previous {
@@ -1107,9 +1171,9 @@ pub fn install_engine(
             detail: format!("could not put the new one in place: {e}"),
         });
     }
-    if had_previous {
-        let _ = std::fs::remove_dir_all(&previous);
-    }
+    // An older engine may contain adopter-owned doctrine, agents or wiki records.
+    // Preserve the complete predecessor. Cleanup requires a separate inventory;
+    // a successful code replacement is not permission to delete user knowledge.
     // `staging` is dropped here and its directory removed. The engine has already been renamed
     // OUT of it; what goes is the downloaded archive and the emptied `unpacked/`.
     drop(staging);
@@ -1120,5 +1184,6 @@ pub fn install_engine(
         sha256: pin.sha256.clone(),
         bytes,
         stamp,
+        previous_at: had_previous.then(|| previous.display().to_string()),
     })
 }

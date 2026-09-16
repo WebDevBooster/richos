@@ -14,6 +14,11 @@ impl Fixture {
             home: Some(self.0.join("home")),
             env_corpus: Some(self.0.join("corpus").display().to_string()),
             engine_dir: Some(engine),
+            // Source conformance uses an explicit developer runtime. Installed
+            // delivery is checked separately against the complete runtime asset.
+            env_node: Some(richos_core::loro::resolve_node_bin(&CorpusPaths {
+                path_var: std::env::var("PATH").ok(), ..Default::default()
+            })),
             path_var: std::env::var("PATH").ok(),
             ..Default::default()
         }
@@ -69,4 +74,11 @@ fn selected_engine_missing_loro_does_not_borrow_an_old_tools_install() {
     }
     let error = LoroInstall::locate(&paths).err().expect("an explicit engine must fail closed");
     assert!(error.to_string().contains("selected engine"));
+}
+
+#[test]
+fn selected_engine_node_never_falls_back_to_a_host_runtime() {
+    let paths = CorpusPaths { engine_dir: Some(PathBuf::from("/fictional/selected-engine")),
+        path_var: Some("/opt/homebrew/bin:/usr/bin".into()), ..Default::default() };
+    assert_eq!(richos_core::loro::resolve_node_bin(&paths), "/fictional/selected-engine/runtime/bin/node");
 }

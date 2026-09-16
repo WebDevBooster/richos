@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "platform": "aarch64-apple-darwin",
+  "sources": {
+    "python": {
+      "version": "3.13.15+20260901",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.13.15%2B20260901-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "sha256": "d3904bd6a072246e07aa0bdadee9a14e80521e42a943c0848059feb16a2816dc"
+    },
+    "node": {
+      "version": "24.21.0",
+      "url": "https://nodejs.org/download/release/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+      "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057"
+    },
+    "jq": {
+      "version": "1.8.2",
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-macos-arm64",
+      "sha256": "2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e",
+      "license_url": "https://raw.githubusercontent.com/jqlang/jq/jq-1.8.2/COPYING",
+      "license_sha256": "ad2b4a266b2268939c1446979759706077421cf906a203aa188c6f396e8cfd74"
+    },
+    "iconv": {
+      "version": "1.18",
+      "url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.18.tar.gz",
+      "sha256": "3b08f5f4f9b4eb82f151a7040bfd6fe6c6fb922efe4b1659c66ea933276965e8"
+    },
+    "git": {
+      "version": "2.55.0",
+      "url": "https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz",
+      "sha256": "457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357"
+    }
+  }
+}

@@ -134,7 +134,7 @@ make_fixture() {
 }
 
 # Runs the fixture's copy of the script. Never touches the real tree.
-run_fixture() { bash "$1/richos/app/scripts/make-engine-asset.sh" --out "$1/out" 2>&1; }
+run_fixture() { RICHOS_RUNTIME_DIR= bash "$1/richos/app/scripts/make-engine-asset.sh" --out "$1/out" 2>&1; }
 
 # ---------------------------------------------------------------------------------------
 # L1 / L2 — the two preconditions, each removed on its own
@@ -290,6 +290,9 @@ fi
 if [ -n "$REAL_TARBALL" ] && [ -d "$RX/engine" ]; then
     ( cd "$ROOT/richos/engine" && git ls-files ) | LC_ALL=C sort > "$WORK/real-expected"
     printf 'LICENSE\nTHIRD-PARTY-NOTICES.md\n' >> "$WORK/real-expected"
+    if [ -n "${RICHOS_RUNTIME_DIR:-}" ]; then
+        ( cd "$RICHOS_RUNTIME_DIR" && find . \( -type f -o -type l \) -print ) | sed 's|^\./|runtime/|' >> "$WORK/real-expected"
+    fi
     LC_ALL=C sort -u "$WORK/real-expected" -o "$WORK/real-expected"
     ( cd "$RX/engine" && find . \( -type f -o -type l \) -print ) | sed 's|^\./||' | LC_ALL=C sort > "$WORK/real-actual"
     LC_ALL=C comm -13 "$WORK/real-expected" "$WORK/real-actual" > "$WORK/real-extra"
@@ -298,9 +301,9 @@ else
     EXTRA_N="-1"
 fi
 if [ "$EXTRA_N" = "0" ]; then
-    ok "L14 every member of the real archive is a file git tracks ($(wc -l < "$WORK/real-actual" | tr -d ' ') members)"
+    ok "L14 every member of the real archive is tracked source or declared runtime ($(wc -l < "$WORK/real-actual" | tr -d ' ') members)"
 else
-    bad "L14 every member of the real archive is a file git tracks" \
+    bad "L14 every member of the real archive is tracked source or declared runtime" \
         "$EXTRA_N untracked member(s), starting with: $(head -3 "$WORK/real-extra" 2>/dev/null | tr '\n' ' ')
          Session snapshots, hook sha256 sidecars and __pycache__ are the known shapes; this
          case does not look for those names, it looks for anything git does not track."
@@ -335,7 +338,7 @@ if [ -f "$F_COMPLETE_TARBALL" ]; then
         > "$POISON/engine/.claude/state/agent-definitions-deadbeef.snapshot"
     ( cd "$POISON" && /usr/bin/tar -c -z -f "$WORK/poisoned.tar.gz" engine ) 2>/dev/null
 fi
-OUT="$(bash "$MEMBERS" "$WORK/poisoned.tar.gz" "$F_COMPLETE_ROOT" \
+OUT="$(RICHOS_RUNTIME_DIR= bash "$MEMBERS" "$WORK/poisoned.tar.gz" "$F_COMPLETE_ROOT" \
         LICENSE=LICENSE THIRD-PARTY-NOTICES.md=docs/legal/THIRD-PARTY-NOTICES.md 2>&1)"; CODE=$?
 if [ "$CODE" -ne 0 ] \
    && printf '%s' "$OUT" | grep -q 'member(s) that git does not track' \

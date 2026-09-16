@@ -509,23 +509,29 @@ fn a_failed_reinstall_leaves_the_engine_he_already_had() {
     assert_eq!(siblings_of(dest.parent().unwrap()), vec!["engine".to_string()]);
 }
 
-/// A successful REINSTALL over an existing engine replaces it and removes the old copy.
+/// A reinstall activates new code while retaining older adopter-owned material.
 #[test]
-fn a_successful_reinstall_replaces_the_previous_engine_and_removes_it() {
+fn a_successful_reinstall_preserves_the_previous_engine_and_adopter_records() {
     let root = scratch("replace");
     let home = root.join("home");
     let dest = engine_install_dir(&home);
     make_engine(&dest, "0.9.0");
     std::fs::write(dest.join("OLD"), b"stale\n").unwrap();
+    std::fs::create_dir_all(dest.join("ceo-wiki/wiki")).unwrap();
+    std::fs::write(dest.join("ceo-wiki/wiki/private.md"), b"fictional private adoption record\n").unwrap();
 
     let body = b"x";
     let digest = body_and_digest(&root, body);
-    install_engine(&FakeFetcher::new(body), &good_engine_plan("1.0.0"), &a_pin(&digest), &dest)
+    let report = install_engine(&FakeFetcher::new(body), &good_engine_plan("1.0.0"), &a_pin(&digest), &dest)
         .unwrap();
 
     assert_eq!(engine_version(&dest).as_deref(), Some("1.0.0"));
     assert!(!dest.join("OLD").exists(), "the old engine's files survived the swap");
-    assert_eq!(siblings_of(dest.parent().unwrap()), vec!["engine".to_string()]);
+    assert_eq!(std::fs::read(dest.join("ceo-wiki/wiki/private.md")).unwrap(), b"fictional private adoption record\n");
+    let previous = std::path::PathBuf::from(report.previous_at.unwrap());
+    assert_eq!(std::fs::read(previous.join("ceo-wiki/wiki/private.md")).unwrap(), b"fictional private adoption record\n");
+    assert_eq!(std::fs::read(previous.join("OLD")).unwrap(), b"stale\n");
+    assert_eq!(siblings_of(dest.parent().unwrap()).len(), 2);
 }
 
 /// **A PANIC LEAVES NO RESIDUE.** `Staging`'s `Drop` removes its directory on unwind, so a

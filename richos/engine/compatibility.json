@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "app_version": "1.2.0",
+  "engine_version": "1.2.0",
+  "archive_root": "engine",
+  "components": {
+    "loro": {"path": "loro", "context_schema": 1},
+    "ecs": {"path": "ecs", "app_protocol": 1, "import_schema": 1},
+    "mega_lander": {"path": "mega-lander"},
+    "ass_kicker": {"path": "ass-kicker"}
+  },
+  "runtime_requirements": ["python3", "node", "git", "bash", "jq"],
+  "provider": "claude-code-native-stream-json",
+  "acceptance": "Required separately for the exact installed candidate. This manifest is not an acceptance receipt."
+}

@@ -1355,6 +1355,11 @@ pub fn resolve_node_bin(p: &CorpusPaths) -> String {
     if let Some(v) = p.env_node.as_deref() {
         return v.to_string();
     }
+    if let Some(engine) = &p.engine_dir {
+        // A selected engine is authoritative even when its runtime is absent.
+        // Falling back here would hide an incomplete delivered installation.
+        return engine.join("runtime/bin/node").display().to_string();
+    }
     if let Some(path_var) = p.path_var.as_deref() {
         for dir in path_var.split(':').filter(|d| !d.is_empty()) {
             let candidate = Path::new(dir).join("node");

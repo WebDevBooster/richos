@@ -28,7 +28,8 @@
 #     shipped-artifact privacy pass removed from the executable, arriving through a different
 #     door into a different artifact, with nothing watching that door.
 #
-# So the source of truth is `git ls-files`, and a file that is not tracked is not in the asset.
+# Source files come from `git ls-files`. Since 1.2.0 a separately built runtime
+# also ships, checked against its complete digest inventory and tracked public-source recipe.
 # There is deliberately NO exclusion list: an allowlist of harmless ignored files drifts from
 # the ignored files that exist, and the next ignored artifact somebody invents has to be
 # excluded by construction rather than by having been thought of. Two consequences worth
@@ -83,6 +84,9 @@
 # script's output tells them exactly what to run. Nothing here touches the network.
 
 set -uo pipefail
+# macOS metadata is neither source nor a runtime dependency. Exclude resource
+# forks, Finder attributes and AppleDouble entries from every tar invocation.
+export COPYFILE_DISABLE=1
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
@@ -92,12 +96,14 @@ ENGINE_DIR="$PRODUCT_ROOT/engine"
 OUT_DIR="$PRODUCT_ROOT/app/target/engine-asset"
 TAG=""
 CHECK=0
+RUNTIME_DIR="${RICHOS_RUNTIME_DIR:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --out)   OUT_DIR="$2"; shift 2 ;;
         --tag)   TAG="$2"; shift 2 ;;
         --check) CHECK=1; shift ;;
+        --runtime-dir) RUNTIME_DIR="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
@@ -116,6 +122,14 @@ die() { echo "REFUSING — $*" >&2; exit 1; }
 
 VERSION="$(tr -d '[:space:]' < "$ENGINE_DIR/VERSION")"
 [ -n "$VERSION" ] || die "$ENGINE_DIR/VERSION is empty"
+if [ "$VERSION" = "1.2.0" ]; then
+    [ -n "$RUNTIME_DIR" ] || die "engine 1.2.0 requires --runtime-dir with a verified runtime build"
+fi
+if [ -n "$RUNTIME_DIR" ]; then
+    RUNTIME_DIR="$(cd "$RUNTIME_DIR" && pwd)" || die "runtime directory is missing"
+    python3 "$SELF_DIR/verify-runtime.py" "$RUNTIME_DIR" "$SELF_DIR/runtime-sources.json" \
+        || die "runtime verification failed"
+fi
 
 # ---------------------------------------------------------------------------------------
 # THE TRACKED SET, WHICH IS THE ONLY THING THAT MAY BE PACKAGED
@@ -198,12 +212,21 @@ build_into() {
     # reproducible. `cp` without `-p`: the mtime is pinned below for all members alike.
     cp "$LICENSE_SRC" "$staging/engine/LICENSE" || return 1
     cp "$NOTICES_SRC" "$staging/engine/THIRD-PARTY-NOTICES.md" || return 1
+    if [ -n "$RUNTIME_DIR" ]; then
+        # This directory was produced from pinned public distributions and checked
+        # against its complete file/link inventory. It is the only generated payload.
+        mkdir "$staging/engine/runtime" || return 1
+        ( cd "$RUNTIME_DIR" && /usr/bin/tar -cf - . ) \
+            | ( cd "$staging/engine/runtime" && /usr/bin/tar -xf - ) || return 1
+    fi
 
     # MODE, fixed. Read the executable bit off the COPY (which preserves the source's u+x
     # under any sane umask) and then flatten everything to two permissions. `-perm -u+x` is
     # the discriminant rather than any group/other bit precisely because those are the bits
     # a umask moves; u+x is also the only permission git records.
     find "$staging/engine" -type d -exec chmod 755 {} + || return 1
+    # BSD tar applies umask to symlink modes too; normalize the link, not its target.
+    find "$staging/engine" -type l -exec chmod -h 755 {} + || return 1
     find "$staging/engine" -type f -perm -u+x -exec chmod 755 {} + || return 1
     find "$staging/engine" -type f ! -perm -u+x -exec chmod 644 {} + || return 1
 
@@ -230,7 +253,7 @@ build_into() {
 
     # OWNER + GZIP, fixed. bsdtar writes the members in the order given on stdin.
     ( cd "$staging" \
-        && /usr/bin/tar --uid 0 --gid 0 --uname root --gname root \
+        && /usr/bin/tar --no-xattrs --no-acls --uid 0 --gid 0 --uname root --gname root \
                         -c -f - -T "$manifest" -n \
         | gzip -n -9 > "$out" ) || return 1
 
@@ -352,7 +375,7 @@ rm -rf "$VERIFY"
 # directions. The two files packaging adds are declared as pairs, and each pair's repo half
 # must itself be tracked, so a pair cannot become a way to smuggle something in.
 echo "=== every member accounted for, against git ==="
-bash "$MEMBERS_CHECK" "$TARBALL" "$REPO_ROOT" \
+RICHOS_RUNTIME_DIR="$RUNTIME_DIR" bash "$MEMBERS_CHECK" "$TARBALL" "$REPO_ROOT" \
     "LICENSE=${LICENSE_SRC#"$REPO_ROOT"/}" \
     "THIRD-PARTY-NOTICES.md=${NOTICES_SRC#"$REPO_ROOT"/}" \
     || die "the archive's contents are not what git tracks (above)"

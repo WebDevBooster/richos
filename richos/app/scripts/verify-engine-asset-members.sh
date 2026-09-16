@@ -102,6 +102,13 @@ for pair in "$@"; do
     PAIRS="$PAIRS $pair"
 done
 LC_ALL=C sort -u "$WORK/expected" -o "$WORK/expected"
+RUNTIME_DIR="${RICHOS_RUNTIME_DIR:-}"
+if [ -n "$RUNTIME_DIR" ]; then
+    python3 "$REPO_ROOT/richos/app/scripts/verify-runtime.py" "$RUNTIME_DIR" \
+        "$REPO_ROOT/richos/app/scripts/runtime-sources.json" --list >> "$WORK/expected" \
+        || die "runtime source inventory is invalid"
+    LC_ALL=C sort -u "$WORK/expected" -o "$WORK/expected"
+fi
 
 # ---------------------------------------------------------------------------------------
 # ACTUAL — what is in the archive, read out of the archive
@@ -114,6 +121,12 @@ mkdir -p "$WORK/x"
 STRAY_TOP="$( ( cd "$WORK/x" && ls -A ) | grep -v '^engine$' | tr '\n' ' ' )"
 [ -z "$STRAY_TOP" ] || die "the archive has top-level entries outside engine/: $STRAY_TOP"
 [ -d "$WORK/x/engine" ] || die "the archive has no engine/ directory"
+if [ -n "$RUNTIME_DIR" ]; then
+    cmp -s "$RUNTIME_DIR/delivery.json" "$WORK/x/engine/runtime/delivery.json" \
+        || die "packaged runtime inventory differs from the verified build"
+    python3 "$REPO_ROOT/richos/app/scripts/verify-runtime.py" "$WORK/x/engine/runtime" \
+        "$REPO_ROOT/richos/app/scripts/runtime-sources.json" || die "packaged runtime bytes failed verification"
+fi
 
 # ONLY directories, regular files and symlinks. A fifo or a device node in a release asset is
 # not something to discover on a customer's Mac.
@@ -163,4 +176,4 @@ done
 echo "  members             $ACT_N file(s)/symlink(s) in $DIR_N director(ies)"
 echo "  tracked by git      $LINE_COUNT, all present, none extra"
 echo "  packaged in        ${PAIRS:- none}, byte-identical to their tracked sources"
-echo "  untracked members   0"
+echo "  unexplained members 0"

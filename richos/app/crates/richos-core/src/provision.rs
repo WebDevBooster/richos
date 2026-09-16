@@ -533,7 +533,13 @@ fn create_company(tools_dir: Option<&Path>, root: &Path, id: &str, name: &str) -
         };
     };
     let write_bin = tools.join("bin").join("loro-write.mjs");
-    let node = crate::loro::resolve_node_bin(&crate::loro::CorpusPaths::from_process());
+    let mut paths = crate::loro::CorpusPaths::from_process();
+    if tools.file_name().is_some_and(|name| name == "loro") {
+        if let Some(engine) = tools.parent().filter(|p| p.join("compatibility.json").is_file()) {
+            paths.engine_dir = Some(engine.to_path_buf());
+        }
+    }
+    let node = crate::loro::resolve_node_bin(&paths);
     let out = std::process::Command::new(&node)
         .arg(&write_bin)
         .arg("create-company")
