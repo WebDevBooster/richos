@@ -405,6 +405,184 @@ fn an_explicit_override_that_cannot_be_used_says_why_and_still_does_not_fall_thr
 }
 
 // ===========================================================================================
+// THE RELEASE GATE — the app boots the engine its build pins, or refuses and says which
+//
+// Spec point 22 (`richos-hq docs/plans/nightly-channel-spec-2026-09-17.md`), from the CEO's
+// question on 2026-09-17: *"shouldn't all the data be separate from the app so that a rollback
+// or a manual re-install of the stable app version automatically always brings everything back
+// to the working state no matter what?"* It cannot, if the rolled-back app boots the newer
+// engine the later app installed — and the engine is what writes into the corpus.
+//
+// Every refusal below is paired with the POSITIVE CONTROL that makes it mean something: the
+// same fixture, the pin it actually carries, accepted.
+// ===========================================================================================
+
+/// The rollback, exactly: an engine installed at the place RichOS writes, carrying the release
+/// a NEWER app pinned, while this build pins the older one.
+#[test]
+fn an_engine_of_another_release_is_refused_and_both_versions_are_named() {
+    let root = scratch("release-rollback");
+    let home = root.join("home");
+    let installed = engine_install_dir(&home);
+    make_engine(&installed, "1.3.0");
+
+    let paths = SetupPaths { home: Some(home), ..Default::default() };
+    let found = find_engine_pinned(&paths, &[], &every_engine_is_usable, Some("1.2.0"));
+
+    assert!(!found.present, "an engine from another release was booted: {found:?}");
+    let places = found.looked_in.join(" | ");
+    assert!(places.contains(&installed.display().to_string()), "the engine on disk was not named: {places}");
+    assert!(places.contains("1.3.0"), "the release that is THERE is missing: {places}");
+    assert!(places.contains("1.2.0"), "the release this build needs is missing: {places}");
+    // The line about THIS directory says what is wrong with it. "Nothing that looks like the
+    // engine is there" is a true sentence about the empty candidates and a false one about a
+    // directory full of engine — the D1 sentence, which must not come back wearing a release.
+    let line = found
+        .looked_in
+        .iter()
+        .find(|l| l.starts_with(&installed.display().to_string()))
+        .unwrap_or_else(|| panic!("the installed engine got no line of its own: {places}"));
+    assert!(!line.contains("nothing that looks like the engine is there"), "{line}");
+
+    // THE POSITIVE CONTROL. Same fixture, same walk, the release it carries: accepted.
+    let matching = find_engine_pinned(&paths, &[], &every_engine_is_usable, Some("1.3.0"));
+    assert!(matching.present, "the pinned release was refused: {matching:?}");
+    assert_eq!(matching.at.as_deref(), Some(installed.display().to_string().as_str()));
+    assert_eq!(matching.detail.as_deref(), Some("version 1.3.0"));
+}
+
+/// **An operator's statement outranks the pin.** `$RICHOS_ENGINE_DIR` is exclusive and verbatim
+/// everywhere else (`locate-engine.sh` rule 1), and it is the escape hatch that makes the gate
+/// safe on a developer's machine — so it is not release-checked here either.
+#[test]
+fn an_explicit_override_is_taken_whatever_release_it_carries() {
+    let root = scratch("release-explicit");
+    let home = root.join("home");
+    let named = root.join("named-engine");
+    make_engine(&named, "0.0.0-someone-elses");
+    make_engine(&engine_install_dir(&home), "1.2.0");
+
+    let paths = SetupPaths {
+        home: Some(home),
+        engine_override: Some(named.clone()),
+        ..Default::default()
+    };
+    let found = find_engine_pinned(&paths, &[], &every_engine_is_usable, Some("1.2.0"));
+
+    assert!(found.present, "a named engine was refused for its release: {found:?}");
+    assert_eq!(found.at.as_deref(), Some(named.display().to_string().as_str()));
+    // EXCLUSIVE: the walk never reached the pinned engine sitting in the install directory.
+    // (`ComponentStatus::found` clears `looked_in`, so the assertion is on `at`, and the
+    // install directory is the thing that would have answered had it fallen through.)
+    assert_ne!(
+        found.at.as_deref(),
+        Some(engine_install_dir(root.join("home").as_path()).display().to_string().as_str()),
+        "the override fell through to an engine nobody named: {found:?}"
+    );
+}
+
+/// **THE DEVELOPER'S MACHINE, decided rather than left to be discovered.** Every `cargo run` and
+/// every `cargo test` in this repository is an UNPINNED build: `engine_pin` reads `option_env!`,
+/// a compile-time read, and nothing in a plain cargo invocation sets the three variables. A
+/// build that names no engine demands none — so the working tree's engine is accepted whatever
+/// its `VERSION` says, and the status still reports that this build cannot install one.
+#[test]
+fn a_build_with_no_pin_accepts_any_release_and_says_it_can_install_none() {
+    let root = scratch("release-unpinned");
+    let home = root.join("home");
+    let working_tree = root.join("richos/engine");
+    make_engine(&working_tree, "1.4.0-ahead-of-every-release");
+
+    assert_eq!(required_engine_version(), None, "the test build must carry no pin");
+    assert_eq!(engine_accepted(&working_tree, None), Ok(()));
+
+    let paths = SetupPaths { home: Some(home), ..Default::default() };
+    let status = detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, None);
+    assert!(status.engine.present, "an unpinned build refused an engine: {status:?}");
+    assert_eq!(status.engine.at.as_deref(), Some(working_tree.display().to_string().as_str()));
+    assert!(!status.engine_installable, "a build with no pin cannot install one");
+    assert_eq!(status.engine_pin_version, None);
+
+    // THE POSITIVE CONTROL for the same fixture: give the SAME build a pin and the same
+    // working tree is refused by name. This is what a developer sees after sourcing
+    // `engine-pin.env` from `make-engine-asset.sh` while the checkout has moved on.
+    let pinned = pin_from_parts("1.2.0", "https://example.invalid/engine.tar.gz", A_DIGEST).unwrap();
+    let pinned_status =
+        detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, Some(&pinned));
+    assert!(!pinned_status.engine.present, "{pinned_status:?}");
+    assert_eq!(pinned_status.engine_pin_version.as_deref(), Some("1.2.0"));
+    let places = pinned_status.engine.looked_in.join(" | ");
+    assert!(places.contains("1.4.0-ahead-of-every-release"), "{places}");
+    assert!(places.contains("1.2.0"), "{places}");
+}
+
+/// The four answers of the gate itself, including the one that is deliberately silent.
+#[test]
+fn the_release_gate_answers_shape_and_release_separately() {
+    let root = scratch("release-gate");
+    let right = root.join("right");
+    let wrong = root.join("wrong");
+    let blank = root.join("blank");
+    let empty = root.join("not-an-engine");
+    make_engine(&right, "1.2.0");
+    make_engine(&wrong, "1.1.0");
+    std::fs::create_dir_all(blank.join("scripts/hooks")).unwrap();
+    std::fs::write(blank.join("VERSION"), "   \n").unwrap();
+    std::fs::create_dir_all(&empty).unwrap();
+
+    assert_eq!(engine_accepted(&right, Some("1.2.0")), Ok(()));
+    assert_eq!(
+        engine_accepted(&wrong, Some("1.2.0")),
+        Err(EngineRejected::WrongRelease { found: Some("1.1.0".into()), needed: "1.2.0".into() })
+    );
+    // A `VERSION` that is there and says nothing is not a match, and does not pretend to name
+    // a version it could not read.
+    assert_eq!(
+        engine_accepted(&blank, Some("1.2.0")),
+        Err(EngineRejected::WrongRelease { found: None, needed: "1.2.0".into() })
+    );
+    assert_eq!(engine_accepted(&empty, Some("1.2.0")), Err(EngineRejected::NotEngineShaped));
+    assert_eq!(engine_accepted(&empty, None), Err(EngineRejected::NotEngineShaped));
+
+    let wrong_reason = EngineRejected::WrongRelease {
+        found: Some("1.1.0".into()),
+        needed: "1.2.0".into(),
+    }
+    .reason();
+    assert!(wrong_reason.contains("1.1.0") && wrong_reason.contains("1.2.0"), "{wrong_reason}");
+    let blank_reason =
+        EngineRejected::WrongRelease { found: None, needed: "1.2.0".into() }.reason();
+    assert!(blank_reason.contains("no readable version"), "{blank_reason}");
+}
+
+/// **THE LAST GATE — what stops the wrong engine WRITING.** A refused resolution does not end
+/// the launch: `main.rs::resolve_engine` hands the lease factory the last place it looked, and
+/// on macOS that is the application-support directory a newer app installed into. So the lease
+/// asks once more, at the door.
+#[test]
+fn the_lease_refuses_a_directory_this_build_does_not_boot_unless_an_operator_named_it() {
+    let root = scratch("release-lease");
+    let newer = root.join("newer");
+    let right = root.join("right");
+    let empty = root.join("nothing-here");
+    make_engine(&newer, "1.3.0");
+    make_engine(&right, "1.2.0");
+    std::fs::create_dir_all(&empty).unwrap();
+
+    let refusal = engine_boot_refusal(&newer, false, Some("1.2.0"))
+        .expect("a lease started in an engine from another release");
+    assert!(refusal.contains(&newer.display().to_string()), "{refusal}");
+    assert!(refusal.contains("1.3.0") && refusal.contains("1.2.0"), "{refusal}");
+
+    // POSITIVE CONTROLS, three of them — the states that must NOT be refused:
+    assert_eq!(engine_boot_refusal(&right, false, Some("1.2.0")), None, "the pinned engine");
+    assert_eq!(engine_boot_refusal(&newer, true, Some("1.2.0")), None, "an operator named it");
+    assert_eq!(engine_boot_refusal(&newer, false, None), None, "this build pins nothing");
+    // Not an engine at all is `verify_engine`'s sentence and preflight's, not this gate's.
+    assert_eq!(engine_boot_refusal(&empty, false, Some("1.2.0")), None, "not this gate's question");
+}
+
+// ===========================================================================================
 // THE PIN
 // ===========================================================================================
 
