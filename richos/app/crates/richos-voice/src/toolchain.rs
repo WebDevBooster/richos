@@ -54,7 +54,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The pin table, compiled in from the ONE place it lives. See the module docs.
-const MODEL_PINS_JSON: &str = include_str!("../../../../engine/voice/models/model-pins.json");
+///
+/// `pub(crate)` so `provision.rs` reads the SAME embedded string rather than adding a second
+/// `include_str!` of the same file. Two embeddings would compile and would be precisely the
+/// defect `model-pins.json`'s own header warns about: "two registries of truth is how the second
+/// unpinned consumer happened in the first place."
+pub(crate) const MODEL_PINS_JSON: &str = include_str!("../../../../engine/voice/models/model-pins.json");
 
 /// How loud a finding is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

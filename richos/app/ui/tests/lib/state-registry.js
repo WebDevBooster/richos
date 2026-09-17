@@ -2994,4 +2994,235 @@ module.exports = [
     "c": "FRAGMENT",
     "why": "A numeric record-count suffix in the saved-work disclosure."
   },
+  // -------------------------------------------------------------------------------------
+  // GETTING THE SPEECH MODEL (2026-09-17)
+  //
+  // `.github/README.md` said "Voice does not work yet … Speech needs a model this build does
+  // not download for you." It downloads it now, and these are every sentence that says so.
+  //
+  // THE SHAPE OF THE WHOLE BLOCK IS ONE RULE: a state RichOS can close by downloading
+  // something is ACTIONABLE and names the control that starts or restarts the download; a gap
+  // RichOS cannot close is NEEDS-SOMEONE-ELSE and names the party. Nothing here is
+  // INFORMATIONAL unless there is genuinely nothing to press — the two progress lines and the
+  // browser preview's refusal are the only three that qualify.
+  // -------------------------------------------------------------------------------------
+  {
+    "s": "I can hear you once I download my speech model. It's",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-get",
+    "fixture": "voice-model-offer",
+    "why":
+      "THE OFFER, and the head of the sentence the size is appended to. He presses  because he " +
+      "wants to talk; this is the honest answer and the button under it is the whole of what he " +
+      "has to do. The size is never typed in the UI — it arrives from model-costs.json via Rust.",
+  },
+  {
+    "s": ", and it's a one-time download.",
+    "c": "FRAGMENT",
+    "why": "Tail of the offer sentence above, after the size label is spliced in.",
+  },
+  {
+    "s": "Right now this disk has",
+    "c": "FRAGMENT",
+    "why":
+      "Opens the short-disk clause of the same offer sentence. The button STAYS in that case: " +
+      "free space is something he can change while the sentence is on screen, and the download " +
+      "re-reads the disk when pressed, so removing the control would leave him a state he can " +
+      "fix and nothing to press once he has.",
+  },
+  {
+    "s": "free and it needs about",
+    "c": "FRAGMENT",
+    "why": "Middle of the same short-disk clause, between the free figure and the needed one.",
+  },
+  {
+    "s": "an unknown amount",
+    "c": "FRAGMENT",
+    "why":
+      "What a size reads as when the platform declined to report free space. Deliberately not a " +
+      "refusal: unknown free space is not 'no room', so the offer still stands.",
+  },
+  {
+    "s": "Part of it is already here, so this picks up where it left off.",
+    "c": "FRAGMENT",
+    "why":
+      "Appended to the offer when a .part file survives an earlier attempt. It is the resume " +
+      "promise the fetch layer actually keeps, not reassurance.",
+  },
+  {
+    "s": "Getting my speech model ready…",
+    "c": "INFORMATIONAL",
+    "why":
+      "The instant between the press and the first byte. Nothing to do, and the Stop control is " +
+      "on the same row for the moment there is.",
+  },
+  {
+    "s": "Downloading my speech model —",
+    "c": "FRAGMENT",
+    "why": "Head of the progress line; the percentage and the total are appended per event.",
+  },
+  {
+    "s": "Checking my speech model is the one I expected…",
+    "c": "INFORMATIONAL",
+    "why":
+      "The verification pass: the transfer is done and the sha256 is being taken, which costs " +
+      "about a second per 500 MB. Its own sentence because a bar frozen at 100% under the " +
+      "download's words is where somebody decides the app has hung. Nothing to do; Stop is " +
+      "disabled here because there is no longer a transfer to stop.",
+  },
+  {
+    "s": "My ears are installed. Start listening whenever you're ready.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-listen",
+    "fixture": "voice-model-installed",
+    "why":
+      "The finish. The microphone is NOT opened for him: he pressed  minutes and half a " +
+      "gigabyte ago, and acting on that consent now would be acting on consent that has gone " +
+      "stale. One press, with the sentence in front of him.",
+  },
+  {
+    "s": "I couldn't set up my hearing just now. Ask me again in a moment.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "The fallback sentence for a failed event that carried no message of its own. No fixture: " +
+      "every real failure path supplies its own sentence (Finding::ceo_message), so driving this " +
+      "one would mean faking an event the backend does not emit — and the registry would then be " +
+      "vouching for a fixture rather than for the product.",
+  },
+  {
+    "s": "Downloading my speech model needs the desktop app — here in the preview, type to me.",
+    "c": "INFORMATIONAL",
+    "why":
+      "Browser-preview only: reachable solely when Bridge.isMock, exactly like the voice-mode " +
+      "line above it. Never renders in the shipped app, and the composer it points at is on screen.",
+  },
+  {
+    "s": "I've stopped the download. What arrived is saved, so asking me again picks up where it left off rather than starting over.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "fixture": "voice-model-failed",
+    "why":
+      "HE stopped it, so this is not a failure and must not wear one — but it renders in the " +
+      "failed row, and it says what it cost him (nothing) and what happens next. The control is " +
+      "there because the sentence invites him back.",
+  },
+  {
+    "s": "There isn't enough room on this disk for my speech model — it needs about {} free, and there's {}. Free up some space and ask me again. Nothing was downloaded.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "Rust format string; the two holes are sizes. Refused BEFORE a byte is requested, because " +
+      "finding out at 95% of 487.6 MB is the worst possible moment. 'Ask me again' is answered " +
+      "by the retry control, which re-reads the disk.",
+  },
+  {
+    "s": "The network sent me a sign-in page instead of my speech model — that's what hotel, airport and conference wifi does. Sign in to the network, then ask me again. Nothing was installed.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "The captive portal, named as a captive portal. THIS ROW IS WHY `worth_asking_again` EXISTS " +
+      "SEPARATELY FROM `retryable`: the automatic loop must not retry a portal (it would fetch " +
+      "the same login page) and the CEO absolutely must be able to, once he has signed in. One " +
+      "flag for both questions put this instruction on screen with no button under it.",
+  },
+  {
+    "s": "The server sent back an error instead of my speech model. Ask me again in a moment. Nothing was installed.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why": "An HTTP error or a plain-text body where a model was expected. Transient; asking again is the move.",
+  },
+  {
+    "s": "What came back isn't my speech model, so I didn't install it. Ask me again when you're on a network you trust.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "An archive, a non-GGML body, or a file longer than the pin. Shared by three failure kinds " +
+      "because they are one event to him: those were not the bytes we meant.",
+  },
+  {
+    "s": "What arrived isn't the speech model I was expecting, so I threw it away rather than listen to you through it. Ask me again when you're on a network you trust.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "The sha256 mismatch — right size, right magic, wrong bytes, which is the case the pin " +
+      "table exists for. Deleted rather than quarantined. Never retried automatically, and still " +
+      "his to ask for again on a network he trusts.",
+  },
+  {
+    "s": "The download stopped partway. I kept what arrived, so asking me again picks up where it left off rather than starting over.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why": "A truncated transfer with a usable prefix. The resume is real: the next attempt sends a Range header.",
+  },
+  {
+    "s": "The download stopped before anything useful arrived. Ask me again when the connection is steadier.",
+    "c": "ACTIONABLE",
+    "control": "#voice-model-retry",
+    "why":
+      "A transfer that died with nothing worth keeping, or with a prefix that was not a model " +
+      "prefix. Nothing is kept, and it says so rather than promising a resume it cannot perform.",
+  },
+  {
+    "s": "I don't have a speech model on this machine yet.",
+    "c": "INFORMATIONAL",
+    "why":
+      "Failure::Absent's sentence. Reached only if the finished file vanishes between the last " +
+      "write and the hash — a statement of fact with no instruction in it, and not a state he " +
+      "caused or can act on differently from the retry the row beside it already offers.",
+  },
+  {
+    "s": "I can't set up my hearing on this machine — whoever set RichOS up adds that. I can still read what you type.",
+    "c": "NEEDS-SOMEONE-ELSE",
+    "why":
+      "No decoder, or weights that are not the pinned weights. RichOS fetches pinned MODELS; " +
+      "whisper-cli is not pinned and cannot be, because a Homebrew binary's sha256 is a property " +
+      "of an arch and a bottle revision (model-pins.json says so). So there is nothing to offer " +
+      "and the sentence names who can do it instead.",
+  },
+  {
+    "s": "I can't prove the speech model this machine needs is the genuine one, so I won't download it — whoever set RichOS up can put that right. I can still read what you type.",
+    "c": "NEEDS-SOMEONE-ELSE",
+    "why":
+      "The resolver asked for a model with no row in model-pins.json. RichOS will not download " +
+      "what it cannot verify, and adding a pin is a commit — so it is somebody else's move, not his.",
+  },
+  {
+    "s": "I can't tell where to put my speech model on this machine — whoever set RichOS up can put that right. I can still read what you type.",
+    "c": "NEEDS-SOMEONE-ELSE",
+    "why":
+      "HOME is unset, which no double-click produces. A machine somebody configured, so the " +
+      "sentence names that somebody.",
+  },
+  {
+    "s": "I don't have a way to check that this speech model is genuine, so I won't install it — whoever set RichOS up can put that right. I can still read what you type.",
+    "c": "NEEDS-SOMEONE-ELSE",
+    "why":
+      "Failure::Unpinned's own sentence. It used to share the 'ask me again on a network you " +
+      "trust' line, and no network has anything to do with it — a pin table is a source file. " +
+      "Split out precisely so it does not invite him back to a refusal that cannot change.",
+  },
+  {
+    "s": "Download my speech model",
+    "c": "CONTROL",
+    "why": "The offer row's button. Survives being spoken aloud on its own, which every option in this app must.",
+  },
+  {
+    "s": "Stop the download",
+    "c": "CONTROL",
+    "why": "The in-flight row's button. Stops the transfer and keeps the prefix.",
+  },
+  {
+    "s": "Try the download again",
+    "c": "CONTROL",
+    "why": "The failed row's button, shown only when the backend says asking again could help.",
+  },
+  {
+    "s": "stopped on request",
+    "c": "NOT-RENDERED",
+    "why":
+      "An engineer's detail passed to PartFile::interrupted. It reaches Finding::describe on " +
+      "stderr and never Finding::ceo_message, so it cannot appear on his screen. What he reads " +
+      "for the same event is the STOPPED_BY_REQUEST sentence above.",
+  },
 ];

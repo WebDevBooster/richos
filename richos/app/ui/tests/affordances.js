@@ -547,6 +547,69 @@ const FIXTURES = {
     return openApp(browser);
   },
 
+  /// GETTING THE SPEECH MODEL — a machine with a decoder and no weights, which is the state a
+  /// fresh Mac that has run `brew install whisper-cpp` is actually in, and the one
+  /// `.github/README.md`'s "Voice does not work yet" described.
+  ///
+  /// NO MICROPHONE IS OPENED BY ANY OF THESE THREE, and that is the invariant they exist to hold
+  /// as much as the controls are. `enterVoiceMode` calls `start_voice_capture` only when readiness
+  /// says `ready`; in `model-missing` it opens this panel and touches no device. A fixture that
+  /// reached these rows through a hot mic would be rehearsing the 2026-09-04 defect.
+  async "voice-model-offer"(browser) {
+    const page = await openApp(browser, undefined, { voice: "model-missing" });
+    await page.waitForSelector("#talk-toggle:not([hidden])");
+    await page.click("#talk-toggle");
+    await page.waitForSelector("#voice-state-model-offer:not([hidden])");
+    return page;
+  },
+
+  /// The same machine, after a transfer that stopped. Driven through the real event the shell
+  /// emits (`rich://voice-model`, phase `failed`) rather than by writing into the DOM, so what is
+  /// asserted is the renderer's own response to the backend's own payload.
+  async "voice-model-failed"(browser) {
+    const page = await openApp(browser, undefined, { voice: "model-missing" });
+    await page.waitForSelector("#talk-toggle:not([hidden])");
+    await page.click("#talk-toggle");
+    await page.waitForSelector("#voice-state-model-offer:not([hidden])");
+    await page.evaluate(() =>
+      window.__RICHOS_MOCK__.voiceModelEmit({
+        phase: "failed",
+        modelId: "small.en",
+        received: 2438071,
+        total: 487614201,
+        totalLabel: "487.6 MB",
+        message:
+          "I've stopped the download. What arrived is saved, so asking me again picks up where it left off rather than starting over.",
+        askAgain: true,
+        at: Date.now(),
+      })
+    );
+    await page.waitForSelector("#voice-state-model-failed:not([hidden])");
+    return page;
+  },
+
+  /// And after it finished and verified.
+  async "voice-model-installed"(browser) {
+    const page = await openApp(browser, undefined, { voice: "model-missing" });
+    await page.waitForSelector("#talk-toggle:not([hidden])");
+    await page.click("#talk-toggle");
+    await page.waitForSelector("#voice-state-model-offer:not([hidden])");
+    await page.evaluate(() =>
+      window.__RICHOS_MOCK__.voiceModelEmit({
+        phase: "installed",
+        modelId: "small.en",
+        received: 487614201,
+        total: 487614201,
+        totalLabel: "487.6 MB",
+        message: null,
+        askAgain: false,
+        at: Date.now(),
+      })
+    );
+    await page.waitForSelector("#voice-state-model-installed:not([hidden])");
+    return page;
+  },
+
   /// THE LAUNCH THE CEO PERFORMS. A double-clicked bundle has working directory `/`, which
   /// owns no entity, so nothing resolves and nothing has ever been chosen — the app asks,
   /// blocks send, and renders the control that clears the block. Measured against the real

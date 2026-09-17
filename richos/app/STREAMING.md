@@ -498,14 +498,21 @@ The fourth family, and the only one emitted by a different crate:
 `richos/app/crates/richos-voice/src/event.rs` declares the names and payloads;
 `TauriVoiceEmitter` in `richos/app/src-tauri/src/main.rs` relays them to the webview verbatim.
 
+`rich://voice-model` is the one exception to that sentence and it is worth saying where: it is
+declared in `crates/richos-voice/src/provision.rs` rather than `event.rs`, because it reports on
+getting the speech model onto the machine rather than on the audio pipeline, and it is emitted
+through `voice_provision.rs`'s `ModelObserver` rather than through `VoiceObserver`. Same `rich://`
+convention, same camelCase payload, different subject.
+
 | Event name | When | Payload |
 |---|---|---|
 | `rich://voice-state` | The mic state changed, a new input level is available, or the input went silent / came back. | `{ state, level, bargeInArmed, noAudio, at }` |
 | `rich://voice-transcript` | An utterance was recognized and **already submitted to the spine as a turn**. | `{ text, durationMs, latencyMs, at }` |
 | `rich://voice-error` | Voice mode could not start, or had to stop. | `{ message, at }` |
+| `rich://voice-model` | Progress and outcome of getting the speech model this machine needs. `phase` is one of `started`, `progress`, `verifying`, `installed`, `failed`. | `{ phase, modelId, received, total, totalLabel, message, askAgain, at }` |
 | `rich://voice-notice` | Voice mode is **running**, but not the way it would on a better machine — today, that it started on a lighter recognizer than the best one, because the more accurate one is too slow here, there is not enough free memory for it, or the machine's speed could not be measured (`hardware.rs`, `Resolution::ceo_message`). Emitted **once**, at voice-mode start, and only when the product made that choice on the CEO's behalf. | `{ message, at }` |
 
-Five things a renderer of this family has to know, all of them structural rather than
+Seven things a renderer of this family has to know, all of them structural rather than
 stylistic:
 
 1. **`state` is the mic's real state, never an optimistic one.** It is one of
@@ -527,6 +534,18 @@ stylistic:
    reporting on. And unlike the other three, a notice is **not** dropped when the voice panel
    is closed — it is a sentence in the thread about a decision that holds for the whole
    session. It is silent when the machine got the best recognizer on the ladder, and when an engineer named the model outright.
+
+6. **`verifying` is its own phase and is not cosmetic.** The transfer is finished and the sha256
+   is being taken over 487,614,201 bytes, which costs about a second per 500 MB. A bar sitting at
+   100% under the download's own words is where a person decides the app has hung.
+7. **`askAgain` decides whether a control appears, and it is NOT "will the backend retry".**
+   Those are different questions and conflating them shipped an instruction with no control: a
+   captive portal must never be retried automatically (the next attempt fetches the same login
+   page) and the CEO absolutely must be able to ask again once he has signed in — which
+   `message` tells him to do in as many words. `Finding::worth_asking_again` answers this field;
+   `Finding::retryable` answers the internal loop and never reaches the webview. Like
+   `voice-notice`, this event is **not** dropped when the voice panel is closed: a download he
+   started and tabbed away from is still running.
 
 There is **no live partial transcript**: `whisper-cli` has no partial-hypothesis stream, so
 nothing arrives between the start of an utterance and its finished text. That is a stated

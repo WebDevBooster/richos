@@ -56,8 +56,15 @@
 //            says anything about them. "We have a contrast check now" does not cover canvas.
 //   CANNOT   SVG `fill`/`stroke`. The opening screen is almost entirely SVG — check 10
 //            counts what it therefore does not measure and prints the number.
-//   CANNOT   states no driver reaches: the voice panel mid-listen, the drill-down slideover,
+//   CANNOT   states no driver reaches: the voice panel MID-LISTEN, the drill-down slideover,
 //            the between-turns strip, streaming mid-flight. Named, not hidden.
+//   COVERS   and this one was in that CANNOT list until 2026-09-17: the voice panel's SPEECH-MODEL
+//            rows. The reason it was excluded — "reaching it needs a live audio device" — was
+//            true of every row the panel had. It is not true of these three: the offer, the
+//            transfer and the refusal all paint with no microphone opened, on a machine that
+//            cannot transcribe, which is the entire point of them. Three drivers walk them, so
+//            the ratios in `style.css`'s own comment block are now arithmetic this gate performs
+//            rather than arithmetic an engineer performed once.
 //
 // A NOTE ON THE DEBT LEDGER, because it is the one thing here that could be mistaken for a
 // weakened threshold. It is not. The threshold is 4.5/3.0 and never moves; every failure is
@@ -710,6 +717,82 @@ const SURFACES = [
   // three were not gaps — they were surfaces with real text on them, reachable in a browser
   // with nothing stubbed, that nobody had written a driver for. Every one of them is text
   // the CEO reads, and until this commit this file said nothing about any of it.
+  /// GETTING THE SPEECH MODEL — the three rows a machine with a decoder and no weights shows.
+  ///
+  /// NO MICROPHONE IS OPENED BY ANY OF THEM, which is why they are walkable at all where the
+  /// listening row is not: `enterVoiceMode` calls `start_voice_capture` only when readiness says
+  /// `ready`, and in `model-missing` it opens this panel and touches no device.
+  ///
+  /// THREE RATHER THAN ONE, because they do not share their colors. The offer and the refusal use
+  /// `--ink` with an `--attention` dot; the transfer uses `--ink-soft` plus a progress bar whose
+  /// fill and track are two more tokens, and a bar is a NON-TEXT INDICATOR owing 3:1 that no other
+  /// walk in this suite measures.
+  {
+    name: "voice-model-offer",
+    what: "the speech-model offer: what will be downloaded, how big, and the control that starts it",
+    preset: { voice: "model-missing" },
+    drive: async (p) => {
+      await p.waitForSelector("#talk-toggle:not([hidden])");
+      await p.click("#talk-toggle");
+      await p.waitForSelector("#voice-state-model-offer:not([hidden])");
+      // An EMPTY label means the row on screen is not the one this walk is named for — the size
+      // is composed from the offer payload, so its absence means the payload never arrived.
+      await p.waitForFunction(() => {
+        const e = document.getElementById("voice-model-offer-label");
+        return !!e && e.textContent.indexOf("MB") >= 0;
+      });
+    },
+  },
+  {
+    name: "voice-model-progress",
+    what: "the transfer: the progress line, and the bar's fill and track as non-text indicators",
+    preset: { voice: "model-missing" },
+    drive: async (p) => {
+      await p.waitForSelector("#talk-toggle:not([hidden])");
+      await p.click("#talk-toggle");
+      await p.waitForSelector("#voice-state-model-offer:not([hidden])");
+      await p.click("#voice-model-get");
+      await p.waitForSelector("#voice-state-model-progress:not([hidden])");
+      // A MEASURABLE BAR, not an empty track. At 0% the fill has zero width and there is nothing
+      // to measure, so the walk would report a pass over a shape it never saw. The figures are
+      // `small.en`'s real ones from engine/voice/models/model-pins.json.
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.voiceModelEmit({
+          phase: "progress", modelId: "small.en", received: 243807100, total: 487614201,
+          totalLabel: "487.6 MB", message: null, askAgain: false, at: Date.now(),
+        })
+      );
+      await p.waitForFunction(() =>
+        document.getElementById("voice-model-bar").style.width === "50%"
+      );
+    },
+  },
+  {
+    name: "voice-model-failed",
+    what: "a refusal he can act on, with the control that acts on it",
+    preset: { voice: "model-missing" },
+    drive: async (p) => {
+      await p.waitForSelector("#talk-toggle:not([hidden])");
+      await p.click("#talk-toggle");
+      await p.waitForSelector("#voice-state-model-offer:not([hidden])");
+      await p.click("#voice-model-get");
+      await p.waitForSelector("#voice-state-model-progress:not([hidden])");
+      // The captive portal, verbatim from `Finding::ceo_message` — the sentence a real first run
+      // on hotel wifi produces, and the one whose "then ask me again" needs the retry control
+      // beside it.
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.voiceModelEmit({
+          phase: "failed", modelId: "small.en", received: 3104, total: 487614201,
+          totalLabel: "487.6 MB", askAgain: true, at: Date.now(),
+          message: "The network sent me a sign-in page instead of my speech model — that's what " +
+            "hotel, airport and conference wifi does. Sign in to the network, then ask me again. " +
+            "Nothing was installed.",
+        })
+      );
+      await p.waitForSelector("#voice-state-model-failed:not([hidden])");
+      await p.waitForSelector("#voice-model-retry:not([hidden])");
+    },
+  },
   {
     name: "entity-view",
     what: "§3.5's company overview: its facts, its attention list and its thread list",

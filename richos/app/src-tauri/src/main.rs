@@ -89,6 +89,12 @@ use memory::MemoryStatus;
 /// `richos_core::setup` holds the decisions; this file holds the window's side of them.
 mod setup_view;
 
+/// GETTING THE SPEECH MODEL, so ".github/README.md: Voice does not work yet" can stop being
+/// true. The transport only — every rule about what the bytes are, whether there is room and
+/// whether what arrived is the model RichOS pinned lives in `richos_voice::provision`, which is
+/// pure enough to be tested without a network and is.
+mod voice_provision;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.
@@ -2018,6 +2024,9 @@ fn main() {
             voice_diagnostics,
             // --- row 3.30 (2026-09-05) — appended, never reordered ---
             voice_turn_cut_off,
+            // --- first-run speech model (2026-09-17) — appended, never reordered ---
+            provision_speech_model,
+            cancel_speech_model_download,
             // --- spoken corrections (2026-08-30) — appended, never reordered ---
             spoken_corrections_available,
             spoken_pending_corrections,
@@ -2275,14 +2284,24 @@ fn ensure_voice_state(app: &AppHandle) {
     app.manage(VoiceHandle::default());
 }
 
+/// The one in-flight model download, if there is one. Registered the same idempotent way, and
+/// SEPARATE from `VoiceHandle` on purpose: a model download has nothing to do with whether the
+/// microphone is open, happens when it is deliberately NOT open, and must survive the voice
+/// controller being torn down under it.
+fn ensure_model_fetch_state(app: &AppHandle) -> std::sync::Arc<voice_provision::ModelFetchState> {
+    app.manage(std::sync::Arc::new(voice_provision::ModelFetchState::default()));
+    app.state::<std::sync::Arc<voice_provision::ModelFetchState>>().inner().clone()
+}
+
 /// **CAN THIS MACHINE TURN SPEECH INTO WORDS?** Asked WITHOUT touching the microphone.
 ///
 /// `Recognizer::resolve` is `stt.rs`'s own resolution — `RICHOS_WHISPER_BIN`, then `PATH`,
 /// then the Homebrew prefixes for the binary; `RICHOS_VOICE_WHISPER_MODEL`/
-/// `RICHOS_WHISPER_MODEL`, then `RICHOS_MODEL_DIR`, then three per-user directories for the
-/// model. It reads paths and runs `command -v`; it opens no device, records nothing and
-/// asks macOS for no permission. The resolved recognizer is dropped: this is the question,
-/// not the answer's use.
+/// `RICHOS_WHISPER_MODEL`, then `RICHOS_MODEL_DIR`, then FOUR per-user directories for the
+/// model — `~/.config/richos/models` joined the walk on 2026-09-17 and is where
+/// `provision.rs` installs what it downloads. It reads paths and runs `command -v`; it opens
+/// no device, records nothing and asks macOS for no permission. The resolved recognizer is
+/// dropped: this is the question, not the answer's use.
 ///
 /// **ONE RESOLUTION, TWO CALLERS**, deliberately. [`voice_readiness`] answers it so the
 /// window can decide whether to OFFER voice at all, and [`start_voice_capture`] asks it
@@ -2292,6 +2311,14 @@ fn ensure_voice_state(app: &AppHandle) {
 /// **The shipping bundle carries no whisper binary and no model** (`tauri.conf.json`
 /// declares no `resources` and no `externalBin`), so on a customer's fresh Mac this is
 /// `Err`, and it is `Err` before the microphone is ever asked for.
+///
+/// **WHAT CHANGED ON 2026-09-17.** It is still `Err` on a fresh Mac, and it must be — a hot mic
+/// on a machine that cannot transcribe is the defect `voice_readiness` exists to prevent. What
+/// is new is that one of the two reasons for that `Err` is now something RichOS can fix by
+/// itself: `provision_speech_model` fetches the pinned weights this machine resolved to. The
+/// decoder is NOT fetchable and never will be here — `model-pins.json` explains why a Homebrew
+/// binary cannot carry a source pin — so `stt::readiness` separates the two and only the model
+/// gap is ever offered.
 fn speech_preflight() -> Result<(), String> {
     richos_voice::stt::Recognizer::resolve().map(|_| ()).map_err(|e| e.ceo_message())
 }
@@ -2319,13 +2346,67 @@ fn speech_preflight() -> Result<(), String> {
 /// `(async)` so the resolution's one `command -v` subprocess never runs on the IPC thread.
 #[tauri::command(async)]
 fn voice_readiness() -> serde_json::Value {
-    match speech_preflight() {
-        Ok(()) => serde_json::json!({ "available": true, "reason": serde_json::Value::Null }),
-        Err(reason) => {
-            eprintln!("[richos] voice: not offered on this machine — {reason}");
-            serde_json::json!({ "available": false, "reason": reason })
-        }
+    let readiness = richos_voice::stt::readiness();
+    let available = matches!(readiness, richos_voice::stt::SpeechReadiness::Ready(_));
+    let reason = readiness.ceo_message();
+    // SAID OUT LOUD EITHER WAY, and the ready branch is the one that was missing.
+    //
+    // Until 2026-09-17 this printed only on a refusal, so "voice works on this machine" was
+    // reported by SILENCE — in the one log `gui-boot.test.sh` exists to hold every line of to
+    // account, and on the one question a boot log most needs to answer after a model is
+    // installed. An absence is not a signal: it reads identically to a command that was never
+    // invoked, a frontend that never loaded, and a window that died before `init()`. The same
+    // rule the crash watchdog keeps about a worker's death applies to a capability's life.
+    //
+    // The ready line names the MODEL and why it was chosen, because "voice is on" and "voice is
+    // on with the weakest recognizer this machine could have taken" are different facts.
+    match (&readiness, &reason) {
+        (_, Some(r)) => eprintln!("[richos] voice: not ready on this machine ({}) — {r}", readiness.tag()),
+        (richos_voice::stt::SpeechReadiness::Ready(rec), None) => eprintln!(
+            "[richos] voice: ready on this machine ({}) — {}",
+            readiness.tag(),
+            rec.provenance_full()
+        ),
+        (_, None) => {}
     }
+    // THE OFFER IS PART OF THE READINESS ANSWER, not a second command the window has to know to
+    // ask. One round trip, one moment, one machine — the same reason `voice_readiness` and
+    // `start_voice_capture` share a resolution rather than each running their own.
+    let offer = if readiness.provisionable() { voice_provision::offer() } else { None };
+    serde_json::json!({
+        // UNCHANGED, and deliberately still means "can speech happen RIGHT NOW". The mock
+        // harness, the state registry and `app/ui/tests/setup.js` all read this key, and a model
+        // that has not been downloaded yet is not a machine that can hear.
+        "available": available,
+        "reason": reason,
+        // `ready` | `toolchain-missing` | `model-missing` | `refused` — a stable tag, never a
+        // sentence, because a UI that branches on prose breaks the day the prose improves.
+        "state": readiness.tag(),
+        // Present ONLY when RichOS can actually close the gap itself. Its absence is the
+        // instruction: no offer, no button.
+        "offer": offer,
+    })
+}
+
+/// **DOWNLOAD THE SPEECH MODEL THIS MACHINE RESOLVED TO.** Asked for by the CEO, never by a timer.
+///
+/// `(async)` because it is a half-gigabyte transfer: on the IPC thread it would freeze the window
+/// for the whole download. Progress, verification and the outcome arrive on `rich://voice-model`.
+#[tauri::command(async)]
+async fn provision_speech_model(app: AppHandle) -> Result<serde_json::Value, String> {
+    let state = ensure_model_fetch_state(&app);
+    let emitter = voice_provision::TauriModelEmitter { app };
+    voice_provision::fetch_model(&emitter, state).await
+}
+
+/// Stop the download that is running. A stop the CEO asked for is not a failure and does not
+/// wear one: what arrived is kept, so asking again resumes rather than starting over.
+#[tauri::command(async)]
+fn cancel_speech_model_download(app: AppHandle) -> serde_json::Value {
+    let state = ensure_model_fetch_state(&app);
+    let was_running = state.in_flight.load(std::sync::atomic::Ordering::SeqCst);
+    state.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    serde_json::json!({ "stopping": was_running })
 }
 
 /// Enter voice mode: open the mic and start listening. Returns the resolved audio
