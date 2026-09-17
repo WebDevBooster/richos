@@ -548,6 +548,12 @@ richos/app/
     src/{stt,tts}.rs         local whisper.cpp (small.en) / macOS `say` behind a trait
     src/controller.rs        four threads, CaptureBrain, the half-duplex taint rule
     tests/barge_in_composition.rs  the WIRING: echo defense + real interruptions
+    tests/echo_path_replay.rs  the CEO's OWN echo path, recorded once and replayed with no
+                              device: Mac mini speakers out, Elgato Wave:3 in, the path every
+                              synthetic rig here fails to model. Pins that the canceller does
+                              not claim confidence on it, and — the positive control — that the
+                              recording still reproduces the rule that did. Fixture made by
+                              `examples/aec_capture --save`; `--replay` re-reads it silently
     tests/voiced_acceptance.rs REAL `say` speech, every installed voice, through the voiced
                               gate — the acceptance half, so the refusal half cannot pass by
                               refusing everything. Prints the margin and the gate's cost
@@ -974,14 +980,14 @@ cargo test -p richos-core                       # 1146 tests + 5 doc-tests (1142
 #     Last run: PASS against 2.1.263 (docs/verification/inner-doctrine-live-2026-09-06/).
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 270 tests
+cargo test -p richos-voice                      # 276 tests
 #     …of which 253 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 270 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 276 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from richos/app/src-tauri/):

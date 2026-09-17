@@ -38,6 +38,11 @@ const APP = "file://" + path.join(UI_DIR, "index.html");
 /// markup is part of what the line breaker is given.
 const AUDIT_LINE = "Gantry learned from an email thread · <i>Legal &amp; Risk</i> → 1 new memory";
 
+/// The second sentence Ray caught on the shipped candidate's screen (candidate-.4 audit,
+/// defect 2, frame `a4-25-ticker-orphan-zoom.png`), where "memories" sat alone on line two.
+const ORPHANED_ON_SCREEN =
+  "Fathom learned from an email thread \u00b7 <i>Legal &amp; Risk</i> \u2192 7 new memories";
+
 /// How many live lines to collect. `ingest()` is driven directly rather than waited for, so
 /// this is a count of samples and not a stretch of time.
 const SAMPLES = 24;
@@ -48,10 +53,16 @@ const SAMPLES = 24;
 /// Shipped into the page as source text and called through `eval`, the same way
 /// `lib/contrast.js` ships its arithmetic: `page.evaluate` takes either a function or a string
 /// expression, and a string expression cannot be given an argument.
-const MEASURE = `(html) => {
+const MEASURE = `(html, forceStyle) => {
   const t = document.getElementById("home-ticker");
   t.innerHTML = html;
   t.classList.add("on");
+  // FORCING THE RESOLVED VALUE IS THE POINT, NOT A CONVENIENCE. See the header: this suite runs
+  // on Playwright's WebKit and the product runs on the system's, and they are eight major
+  // versions apart. Measuring only what THIS engine resolves is how a green run coexisted with
+  // two orphaned lines on the CEO's screen. Passing a value here measures the frame the OTHER
+  // engine would draw. Empty string = whatever the stylesheet resolves to, unmodified.
+  t.style.textWrapStyle = forceStyle || "";
   t.getBoundingClientRect();
   const r = document.createRange();
   r.selectNodeContents(t);
@@ -94,10 +105,12 @@ const MEASURE = `(html) => {
     widths: lines.map((l) => Math.round(l.right - l.left)),
     lastLineWords: words,
     boxWidth: Math.round(t.getBoundingClientRect().width),
+    resolved: getComputedStyle(t).textWrapStyle,
   };
 }`;
 
-const measure = (page, html) => page.evaluate((a) => eval("(" + a.fn + ")")(a.html), { fn: MEASURE, html });
+const measure = (page, html, forceStyle) =>
+  page.evaluate((a) => eval("(" + a.fn + ")")(a.html, a.forceStyle), { fn: MEASURE, html, forceStyle });
 
 /// A line is untidy when it wrapped and the last line carries exactly one word. That is the
 /// audit's own complaint, stated as something countable rather than as taste.
@@ -181,6 +194,52 @@ async function main() {
       `${measured.length} distinct line(s), ${wrapped.length} of them wrapped, 0 orphaned\n          ` +
       `longest: ${JSON.stringify(longest.text)} -> ${describe(longest)}`
     );
+  });
+
+  // ===========================================================================================
+  // THE ENGINE THE PRODUCT ACTUALLY RENDERS ON — added 2026-09-17, and it is why this suite was
+  // green while the CEO's screen was not.
+  // ===========================================================================================
+
+  await run.check("NEGATIVE CONTROL: with no wrap repair at all, the reported lines DO orphan", async () => {
+    // `auto` is what an engine without the repair draws, and it is not a hypothesis: it is the
+    // shipped candidate's own behavior, measured at 249/52px and 250/61px on the two sentences
+    // Ray caught. Without this check the one below could pass on sentences that never orphan in
+    // the first place — the empty-corpus failure in its smallest form.
+    const bare = [];
+    for (const html of [AUDIT_LINE, ORPHANED_ON_SCREEN]) bare.push(await measure(page, html, "auto"));
+    const stillFine = bare.filter((m) => !orphaned(m));
+    assertEqual(
+      stillFine.map((m) => `${JSON.stringify(m.text)} -> ${describe(m)}`),
+      [],
+      "sentences that no longer orphan even unrepaired, so they prove nothing about the repair"
+    );
+    return bare.map(describe).join("  ·  ");
+  });
+
+  await run.check("the repair holds under every wrap style the shipping engine could resolve", async () => {
+    // **THE CHECK THAT WOULD HAVE CAUGHT DEFECT 2.** Playwright ships WebKit 26.5; Tauri renders
+    // through the system WebKit, 18.6 on this Mac (Safari 18.6, WebKit 20621). Eight major
+    // versions. The previous fix was `text-wrap: pretty` and the comment beside it asserted
+    // "Safari has honored it since 17.5" — 17.5 is where `balance` shipped. So this suite
+    // measured a real rendered frame, honestly, on an engine the product does not have: it
+    // passed, and the lines orphaned on screen anyway.
+    //
+    // Measuring only the stylesheet's own resolved value can test THIS engine and nothing else.
+    // Forcing each value the property can resolve to measures the frame the OTHER engine would
+    // draw, which is the only thing available short of driving the system WebKit itself.
+    const sentences = [AUDIT_LINE, ORPHANED_ON_SCREEN];
+    const bad = [];
+    const notes = [];
+    for (const style of ["", "balance", "pretty"]) {
+      for (const html of sentences) {
+        const m = await measure(page, html, style);
+        if (orphaned(m)) bad.push(`${style || "as shipped"}: ${JSON.stringify(m.text)} -> ${describe(m)}`);
+        if (html === AUDIT_LINE) notes.push(`${style || "as shipped (" + m.resolved + ")"} ${m.widths.join("/")}px`);
+      }
+    }
+    assertEqual(bad, [], "wrap styles under which the line still ends with one word alone");
+    return notes.join("  ·  ");
   });
 
   await run.check("no page errors", async () => {

@@ -510,19 +510,42 @@ body.home-open {
          pretty            lines 353px / 94px     "1 new memory"
          balance           lines 237px / 209px    "· Legal & Risk → 1 new memory"
 
-     `pretty` and not `balance`: both clear the defect, and `balance` re-breaks every line the
-     engine writes rather than only the ones that break badly — it moves the separator to the
-     start of line two, which is a new typographic decision where this is a repair. `pretty`
-     is the one specified to avoid a short last line and it changes nothing about a sentence
-     that was already breaking well.
+     IT WAS `pretty` UNTIL 2026-09-17 AND THAT DID NOT REACH THE SCREEN. Ray walked the
+     shipped candidate and found two of four lines still orphaning — including the exact
+     sentence the fixing commit quotes (candidate-.4 audit, defect 2). The suite was green the
+     whole time.
 
-     A HINT, AND IT DEGRADES TO WHAT IS THERE NOW. An engine that does not know the value
-     ignores the declaration and wraps as before, so this can only improve the line; it is
-     never load-bearing. Tauri renders through WKWebView, Safari has honored it since 17.5,
-     and `tests/ticker-wrap.js` measures the RESULT on the rendered frame rather than
-     asserting the declaration, so a webview that ignores it fails the suite instead of
-     passing on a property nobody applied. */
-  text-wrap: pretty;
+     THE GAP IS THE ENGINE, and it is a version gap nobody had written down:
+
+         Playwright's bundled WebKit (what `ui/tests` runs)   26.5
+         this Mac's system WebKit (what Tauri's WKWebView is) 18.6  (Safari 18.6, WebKit 20621)
+
+     Eight major versions. The old comment here asserted "Safari has honored it since 17.5",
+     and 17.5 is where `balance` shipped — not `pretty`. So the suite measured a rendered
+     frame, honestly, on an engine the product does not have.
+
+     MEASURED ON THE RENDERED FRAME by `tests/ticker-wrap.js` itself, so these numbers are
+     re-derivable by running that suite rather than quoted from a session:
+
+         auto       394/52px and 397/61px    "memory" / "memories" ALONE  <- what 18.6 draws
+         balance    237/209px                 no orphan
+         pretty     352/94px                  no orphan
+
+     `auto` is not a hypothetical: it is the shipped build's behavior, and those are Ray's two
+     orphaned lines. The suite asserts it as a negative control, so a future sentence that
+     stops orphaning even unrepaired cannot make the repair look effective.
+
+     SO IT IS `balance`, and the taste argument that chose `pretty` over it was re-measured
+     rather than repeated: `balance` re-breaks only lines that WRAP — a one-line sentence is
+     228px under all three values, byte for byte — so "it re-breaks every line the engine
+     writes" was not true. What it costs is a more even break on lines that were already
+     breaking badly. A repair that does not reach the screen is not a repair, and this one
+     reaches both engines.
+
+     `tests/ticker-wrap.js` measures the RESULT on the rendered frame, and now measures it
+     under each value the shipping engine could resolve to rather than only the one Playwright
+     happens to support — which is the check that would have caught this. */
+  text-wrap: balance;
 }
 #home-live .ticker.on {
   opacity: 1;

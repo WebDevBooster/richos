@@ -60,6 +60,16 @@ struct Row {
     leak_rms: f32,
     delay_ms: f32,
     nanos: u64,
+    // ---- THE PLUMBING, added 2026-09-17 ------------------------------------------------
+    // Without these, a live ERLE of 0 dB has two completely different explanations and no
+    // way to choose between them: a filter that is running on a path it cannot predict, or
+    // a filter that never received a reference at all. `far_end_blocks` answers it outright
+    // and the two ring counters answer the follow-up. Section 6 prints them.
+    far_end_blocks: u64,
+    overruns: u64,
+    underruns: u64,
+    resets: u64,
+    delay_conf: f32,
 }
 
 fn dbfs(rms: f32) -> f32 {
@@ -157,6 +167,11 @@ fn main() {
             leak_rms: m.leak_floor_rms,
             delay_ms: m.delay_ms,
             nanos: t0.elapsed().as_nanos() as u64,
+            far_end_blocks: m.far_end_blocks,
+            overruns: m.reference_overruns,
+            underruns: m.reference_underruns,
+            resets: m.divergence_resets,
+            delay_conf: m.delay_confidence,
         });
     }) {
         Ok(c) => c,
@@ -337,5 +352,36 @@ fn main() {
     println!("  block period {block_us:.0} us -> median {:.3} % of one core, worst {:.3} %", 100.0 * p(0.5) / block_us, 100.0 * p(1.0) / block_us);
     if p(1.0) > block_us {
         println!("  *** WORST CASE EXCEEDS THE BLOCK PERIOD — this would drop audio. ***");
+    }
+
+    // ---- 6. THE PLUMBING ----------------------------------------------------------------
+    // ADDED 2026-09-17, because a headline of "ERLE 0 dB" was read off the running app as
+    // "the canceller is not learning at all" and there was nothing in this report that could
+    // confirm or refute it. Two very different faults produce the same headline:
+    //
+    //   the reference never arrived   -> far-end blocks 0, or underruns climbing. Plumbing.
+    //   the reference arrived and the
+    //     path is not linearly
+    //     predictable                 -> far-end blocks high, counters clean. Physics.
+    //
+    // aec_probe measures the second directly (magnitude-squared coherence is an upper bound
+    // on any linear filter). This section rules out the first, live, in the same run.
+    let last = rows[n - 1];
+    println!("\n-- 6. THE PLUMBING: DID THE REFERENCE ACTUALLY REACH THE FILTER? --");
+    println!("  blocks where the aligned reference was ACTIVE : {}", last.far_end_blocks);
+    println!("  reference ring overruns (samples)             : {}", last.overruns);
+    println!("  reference ring underruns (blocks)             : {}", last.underruns);
+    println!("  divergence resets                             : {}", last.resets);
+    println!("  delay estimate confidence (0..1)              : {:.2}", last.delay_conf);
+    if last.far_end_blocks == 0 {
+        println!("  >>> THE FILTER NEVER SAW A REFERENCE. This is a plumbing fault, not DSP:");
+        println!("      playout is not feeding ReferenceSink, or the aligned position is empty.");
+    } else if last.overruns > 0 || last.underruns > 0 {
+        println!("  >>> THE REFERENCE ARRIVED BUT NOT INTACT. Alignment rests on a continuous");
+        println!("      phase, and a lost block is a permanent shift rather than a lost 16 ms.");
+    } else {
+        println!("  >>> The reference arrived, intact and aligned, for every block above. Any");
+        println!("      shortfall in ERLE is a property of the echo PATH, not of the plumbing.");
+        println!("      aec_probe's coherence ceiling is the number that bounds it.");
     }
 }
