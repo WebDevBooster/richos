@@ -24,6 +24,34 @@ if (!window.RichBridge) {
 const Bridge = window.RichBridge;
 
 // ---------------------------------------------------------------------------------------
+// PATHS AND URLS BREAK AT THEIR OWN JOINTS, not mid-word (audit D7, 2026-09-17). A path or
+// URL carries no spaces, so it is one long "word" to the browser's line-breaker: left to
+// `overflow-wrap: anywhere` (or the older `word-break: break-all`) it slices wherever a line
+// happens to end, which is how the update-server URL split into `…/githubus` / `ercontent.com`
+// and the memory corpus path split into `…Ric` / `hOS/corpus` on the same nightly. A person
+// reading a path reads it in its segments, so the break has to land on a character that
+// already separates them — `/`, `.`, `-`, `_` — and nowhere else.
+//
+// `<wbr>` is the right tool rather than more CSS: a real, zero-width break opportunity the
+// browser only takes if the line actually needs it, so a path short enough to fit renders
+// with no visible change. `overflow-wrap: anywhere` stays on the CSS side as the fallback
+// for the one case `<wbr>` cannot help — a long run with NO separator in it at all (the
+// positive control in `tests/appearance.js`: a string with no separators still has to wrap
+// somewhere rather than overflow its box).
+const PATH_BREAK_CHARS = /([/.\-_])/;
+function wrapPathText(text) {
+  const frag = document.createDocumentFragment();
+  const parts = String(text == null ? "" : text).split(PATH_BREAK_CHARS);
+  for (const part of parts) {
+    if (part === "") continue;
+    frag.appendChild(document.createTextNode(part));
+    if (part.length === 1 && PATH_BREAK_CHARS.test(part)) frag.appendChild(document.createElement("wbr"));
+  }
+  return frag;
+}
+window.RichWrapPath = wrapPathText;
+
+// ---------------------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------------------
 const el = (id) => document.getElementById(id);
@@ -790,7 +818,10 @@ function showEntityView(entityId, mode) {
     const dt = document.createElement("dt");
     dt.textContent = k;
     const dd = document.createElement("dd");
-    dd.textContent = v;
+    // `v` is free text in general ("3", a company name) but "Source root" is a filesystem
+    // path — `wrapPathText` is a no-op break-opportunity insertion either way, so applying
+    // it unconditionally costs nothing on the non-path facts.
+    dd.appendChild(wrapPathText(v));
     facts.appendChild(dt);
     facts.appendChild(dd);
   };
@@ -4691,7 +4722,7 @@ function maybeAskAboutMemory() {
 
 function openMemorySetup(note, location, opts) {
   memorySetupNoteEl.textContent = note;
-  memorySetupLocationEl.textContent = location || "";
+  memorySetupLocationEl.replaceChildren(location ? wrapPathText(location) : document.createDocumentFragment());
   memorySetupLocationEl.hidden = !location;
   memorySetupGoEl.hidden = !opts.canProvision;
   memorySetupLaterEl.hidden = !opts.canProvision;

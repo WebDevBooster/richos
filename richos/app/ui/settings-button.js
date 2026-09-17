@@ -258,7 +258,7 @@ window.RichSettings = (function () {
       row.appendChild(said);
       return row;
     }
-    var sel = elem("select", "set-select", {
+    var sel = elem("select", "set-select chrome-select", {
       id: "set-company",
       "aria-labelledby": "set-company-label",
     });
@@ -277,7 +277,16 @@ window.RichSettings = (function () {
       if (state && options[i].id === state.chosen) o.setAttribute("selected", "selected");
       sel.appendChild(o);
     }
-    row.appendChild(sel);
+    // Custom chevron (audit D7, 2026-09-17) — see `.chrome-select` in style.css for why this
+    // is a real text glyph and not a background-image or an inline SVG. `selWrap`, not
+    // `wrap`: this function's own local wrapper, distinct from the module-level settings
+    // button wrapper of the same short name declared above.
+    var selWrap = elem("span", "chrome-select-wrap");
+    selWrap.appendChild(sel);
+    var chevron = elem("span", "chrome-select-chevron", { "aria-hidden": "true", "data-contrast-role": "indicator" });
+    chevron.textContent = "▾";
+    selWrap.appendChild(chevron);
+    row.appendChild(selWrap);
     return row;
   }
 

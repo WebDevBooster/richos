@@ -760,10 +760,16 @@
           <ul id="setup-items" class="setup-items"></ul>
           <p id="setup-account" class="setup-account" role="status"></p>
           <label id="provider-account-kind" hidden>Account type
-            <select id="provider-account-select">
-              <option value="subscription">Claude subscription</option>
-              <option value="console">Anthropic Console (API billing)</option>
-            </select>
+            <!-- Custom chevron (audit D7, 2026-09-17): a real text glyph in its own span,
+                 declared `data-contrast-role="indicator"` — see `.chrome-select` in
+                 style.css for why this is not a background-image or an inline SVG. -->
+            <span class="chrome-select-wrap">
+              <select id="provider-account-select" class="chrome-select">
+                <option value="subscription">Claude subscription</option>
+                <option value="console">Anthropic Console (API billing)</option>
+              </select>
+              <span class="chrome-select-chevron" aria-hidden="true" data-contrast-role="indicator">&#9662;</span>
+            </span>
           </label>
           <!-- PROGRESS, live. `role="status"` so it is announced rather than silently
                replaced; a download that takes minutes with a still window is the state this

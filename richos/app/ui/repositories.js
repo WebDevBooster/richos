@@ -29,7 +29,9 @@
     const company = companies.find(c => c.id === field("repository-company").value);
     const list = field("repository-list"); list.replaceChildren();
     for (const path of company?.repositories || []) {
-      const row = document.createElement("li"); row.textContent = path; row.style.overflowWrap = "anywhere"; list.appendChild(row);
+      // Break opportunities at `/`, `.`, `-`, `_` (audit D7, 2026-09-17) rather than
+      // leaving `overflow-wrap: anywhere` alone to pick a point mid-word.
+      const row = document.createElement("li"); row.appendChild(window.RichWrapPath(path)); row.style.overflowWrap = "anywhere"; list.appendChild(row);
     }
     if (!list.children.length) { const row = document.createElement("li"); row.textContent = "No repositories connected."; list.appendChild(row); }
     field("repository-connect").disabled = busy || !company;

@@ -1167,6 +1167,76 @@ async function main() {
     return "four versions, five states each, one source in the Rust and no second writer";
   });
 
+  // AUDIT D7, 2026-09-17: the update-server URL hard-wrapped mid-word — `…/githubus` /
+  // `ercontent.com` in the nightly screenshot — because `.update-endpoint` was
+  // `word-break: break-all`, which slices at ANY character. The fix is `main.js`'s
+  // `wrapPathText` (exposed as `window.RichWrapPath`, called from `updates.js`): it inserts
+  // a real `<wbr>` after every `/`, `.`, `-` and `_` in the endpoint, so a browser only
+  // breaks at one of those unless a run between them is itself too long to fit — which is
+  // what `overflow-wrap: anywhere` is left on the CSS side to catch.
+  await run.check("19. the endpoint URL breaks at its own joints, not mid-word", async () => {
+    const page = await openApp(browser);
+    await settled(page);
+    await openMenu(page);
+    // The audited URL itself, verbatim.
+    const auditedUrl = "https://raw.githubusercontent.com/WebDevBooster/richos/nightly-channel/latest.json";
+    await setState(page, view({ state: "upToDate", endpointIsPlaceholder: false, endpoint: auditedUrl, checkedAt: Date.now() }));
+    const audited = await page.evaluate(() => {
+      const n = document.getElementById("update-endpoint");
+      return { html: n.innerHTML, text: n.textContent };
+    });
+    assertEqual(
+      audited.text,
+      "Update server: " + auditedUrl,
+      "the full URL is still present as text — a break opportunity is invisible, not a truncation"
+    );
+    // A `<wbr>` after every one of the URL's own separators, and the separators are still
+    // literally in the text (the break sits AFTER them, not instead of them).
+    const afterEverySeparator = auditedUrl.replace(/([/.\-_])/g, "$1<wbr>");
+    assert(
+      audited.html.indexOf(afterEverySeparator) !== -1,
+      "expected a <wbr> after every '/', '.', '-' and '_' in the endpoint; got: " + audited.html
+    );
+    assert(
+      (audited.html.match(/<wbr>/g) || []).length === (auditedUrl.match(/[/.\-_]/g) || []).length,
+      "the number of <wbr>s does not match the number of separators in the URL — something is " +
+        "either double-inserting them or skipping one kind of separator"
+    );
+    // THE POSITIVE CONTROL — a run with NO separator at all still has to wrap rather than
+    // overflow the panel, which is exactly what `overflow-wrap: anywhere` is still on the
+    // CSS side for: `<wbr>` cannot help a string with nothing to break after.
+    const unbrokenRun = "https://" + "a".repeat(90) + ".example.com/x";
+    await setState(page, view({ state: "upToDate", endpointIsPlaceholder: false, endpoint: unbrokenRun, checkedAt: Date.now() }));
+    const control = await page.evaluate(() => {
+      const n = document.getElementById("update-endpoint");
+      const menu = document.getElementById("set-menu");
+      return {
+        text: n.textContent,
+        overflowWrap: getComputedStyle(n).overflowWrap,
+        endpointOverflowsMenu: n.getBoundingClientRect().right > menu.getBoundingClientRect().right + 1,
+      };
+    });
+    assertEqual(
+      control.text,
+      "Update server: " + unbrokenRun,
+      "the unbroken-run control's full text is present"
+    );
+    assertEqual(
+      control.overflowWrap,
+      "anywhere",
+      "`.update-endpoint` must keep `overflow-wrap: anywhere` as the fallback for a run `<wbr>` cannot break"
+    );
+    assert(
+      !control.endpointOverflowsMenu,
+      "a 90-character run with no separator pushed the endpoint past the menu's own right edge — " +
+        "`overflow-wrap: anywhere` did not do its one job once `<wbr>` ran out of options"
+    );
+    await page.close();
+    return "the audited URL breaks after its own separators (" +
+      (auditedUrl.match(/[/.\-_]/g) || []).length + " <wbr>s), and a 90-character run with none " +
+      "still wraps instead of overflowing the menu";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);

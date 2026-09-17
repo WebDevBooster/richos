@@ -1151,6 +1151,50 @@ async function main() {
     return made.length + " shots: " + made.join(", ");
   });
 
+  // AUDIT D7, 2026-09-17: the Home screen row's own button read "Company butt…" — clipped by
+  // an ellipsis nothing in style.css declared. The cause was structural rather than textual:
+  // a flex item's automatic minimum width collapses to 0 the instant its `overflow` is not
+  // `visible`, and a native `<button>` ships `overflow: hidden` / `text-overflow: ellipsis`
+  // from the OS chrome whether or not this file says so — so `.set-row`'s flexbox happily
+  // shrank the BUTTON below its own text before it ever touched the label next to it, which
+  // could already absorb the pressure by wrapping onto two lines ("Home" / "screen", visible
+  // in the same screenshot). The fix is `.set-row > button { flex-shrink: 0; overflow:
+  // visible; text-overflow: clip; }` — a container rule, not a text change, so this check
+  // reads `scrollWidth`/`clientWidth` rather than any particular string.
+  await run.check("17b  no row's own button is silently clipped by an ellipsis", async () => {
+    const page = track(await openApp(browser));
+    await openMenu(page);
+    const rows = await page.evaluate(() => {
+      const out = [];
+      for (const btn of document.querySelectorAll("#set-menu > .set-row > button")) {
+        out.push({
+          id: btn.id || "(no id)",
+          text: btn.textContent,
+          scrollWidth: btn.scrollWidth,
+          clientWidth: btn.clientWidth,
+        });
+      }
+      return out;
+    });
+    assert(rows.length > 0, "no button found directly inside a `.set-row` — did the menu's markup move?");
+    for (const row of rows) {
+      assert(
+        row.scrollWidth <= row.clientWidth,
+        row.id + " (\"" + row.text + "\") is clipped: scrollWidth " + row.scrollWidth +
+          " > clientWidth " + row.clientWidth + " — its own text does not fit its own box"
+      );
+    }
+    const home = rows.find((r) => r.id === "set-home-open");
+    assert(home, "#set-home-open (the row audit D7 named) was not among the buttons checked");
+    assertEqual(
+      home.text,
+      "Company buttons…",
+      "the Home screen row's button label changed; the check above still has to name what it read"
+    );
+    await page.close();
+    return rows.length + " row button(s) checked, none clipped: " + rows.map((r) => r.id).join(", ");
+  });
+
   await run.check("18  no page errors anywhere in this suite", async () => {
     assertEqual(allErrors, [], "uncaught errors or console errors during the walks above");
     return allErrors.length + " uncaught errors, " + allErrors.length + " console errors";
