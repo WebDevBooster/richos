@@ -36,6 +36,22 @@ def bounded(path, limit=1024 * 1024):
     return json.loads(path.read_text())
 
 
+def ecs(scope, request):
+    """Every ECS request carries this lease's seat, or names none and gets his.
+
+    The seat is what lets a background assignment still SPEAK after the CEO has
+    spoken. ecs_active_context is a cursor keyed by person_id, his turns rewrite
+    his row, and an assignment's binding frozen minutes ago is stale against it
+    from his next sentence onwards. A scope with no seat is the conversation's,
+    and its request is shaped exactly as it was before seats existed.
+    """
+    seat = scope.get("seat")
+    if seat is not None and (not isinstance(seat, str) or not seat.strip() or len(seat) > 1024):
+        raise ValueError("an app scope seat must be a nonempty bounded string")
+    return ECS.execute(scope["bridge"]["state_root"],
+                       request if seat is None else {**request, "seat": seat})
+
+
 def read_scope(path, require_action=True):
     value = bounded(Path(path), 16384)
     if value.get("version") != 1 or (require_action and value.get("actions_allowed") is not True):
@@ -47,7 +63,7 @@ def read_scope(path, require_action=True):
         expected = state() / "workspaces" / hashlib.sha256(identity.encode()).hexdigest()
         if os.environ.get("RICHOS_WORKSPACES_DIR") != str(expected):
             raise ValueError("the workspace authority is not in this thread's partition")
-        ECS.execute(value["bridge"]["state_root"], {"protocol":1, "command":"inspect", "binding":value["binding"]})
+        ecs(value, {"protocol":1, "command":"inspect", "binding":value["binding"]})
     return value
 
 
@@ -176,7 +192,7 @@ def project(scope, path, record):
         wid = work_unit_identity("richos-provider-v1", record["id"], scope["binding"]["entity_id"])
         offset, revision = 0, None
         while True:
-            page = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100,"include_closed":True}})
+            page = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100,"include_closed":True}})
             found = next((r for r in page["records"] if r["work_unit_id"] == wid), None)
             if found: revision = found["revision"]; break
             if page["next_offset"] is None: break
@@ -196,7 +212,7 @@ def project(scope, path, record):
     # A closed turn can be reconciled from a new turn in the SAME company/thread.
     if any(request["binding"][k] != scope["binding"][k] for k in ("entity_id","thread_id")):
         raise ValueError("an ECS outbox cannot cross company or thread scope")
-    receipt = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"observation-receipt",
+    receipt = ecs(scope, {"protocol":1,"command":"observation-receipt",
         "binding":scope["binding"],"request_id":request["request_id"]})
     if receipt["observed"]:
         if any(receipt[key] != request[key] for key in ("work","source_ref","expected_revision")):
@@ -205,7 +221,7 @@ def project(scope, path, record):
         request = {**request, "binding":scope["binding"]}
         record["ecs_pending"] = request
         save(path, record)
-        ECS.execute(scope["bridge"]["state_root"], request)
+        ecs(scope, request)
     record["ecs_sequence"] = record.get("ecs_sequence", 0) + 1
     record["ecs_projection"] = record.pop("ecs_pending_projection")
     record.pop("ecs_pending")
@@ -249,7 +265,7 @@ def prepare(scope_path, scope, args):
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
     obligation = text(args,"obligation_id")
-    item = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"item_id":obligation}})["item"]
+    item = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"item_id":obligation}})["item"]
     if item["status"] not in ("accepted","active","pending","blocked"):
         raise ValueError("dispatch requires an accepted open obligation")
     instruction = scope.get("user_instruction")
@@ -692,7 +708,7 @@ def complete(scope_path, scope, args):
         if path.exists():
             receipt = verify_completion(scope, identity)
         else:
-            item = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"inspect", "binding":scope["binding"], "query":{"item_id":obligation}})["item"]
+            item = ecs(scope, {"protocol":1, "command":"inspect", "binding":scope["binding"], "query":{"item_id":obligation}})["item"]
             if item["status"] not in ("accepted", "active", "pending", "blocked"):
                 raise ValueError("only an open assignment can be completed with new evidence")
             receipt = {"schema":1, "binding":scope["binding"], "obligation_id":obligation,
@@ -700,7 +716,7 @@ def complete(scope_path, scope, args):
                 "source_ref":instruction, "evidence_ref":"app-completion:"+identity, "verified":False}
             save(path, receipt)
         read_scope(scope_path)
-        result = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"complete-obligation",
+        result = ecs(scope, {"protocol":1, "command":"complete-obligation",
             "binding":scope["binding"], "completion_id":identity})
         receipt["verified"] = True
         save(path, receipt)

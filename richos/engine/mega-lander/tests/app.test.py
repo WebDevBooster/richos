@@ -373,5 +373,94 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(result["status"],"unknown");self.assertNotIn("ecs_pending",result)
         work=original(self.root/"ecs",{"protocol":1,"command":"inspect","binding":binding,"query":{"section":"work"}})
         self.assertEqual(len(work["records"]),1)
+    # ---------------------------------------------------------------- the work seat
+    def bind_seat(self,seat,turn,audience="worker",session=None,revision=None):
+        return self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"bind","seat":seat,
+            "scope":{"entity_id":"depot","thread_id":"thread-a","session_id":session or ("session-"+turn),
+                     "turn_id":turn,"audience":audience},
+            "request_id":"bind-"+(seat or "ceo")+"-"+turn,"source_ref":"ledger:thread-a:"+turn,
+            "expected_revision":revision})["binding"]
+
+    def three_ceo_turns(self):
+        """His next three sentences. Each one rewrites HIS cursor and bumps it."""
+        for number in (2,3,4):
+            self.scope["binding"]=self.bind_seat(None,"turn-%d"%number,audience="ceo",
+                                                 session=self.session,revision=number-1)
+            self.scope_path.write_text(json.dumps(self.scope))
+        self.assertEqual(self.scope["binding"]["revision"],4)
+
+    def work_lease(self,assignment="fixture-task",seat=None):
+        """A background lease's own scope file: its own seat, one per assignment.
+
+        Its turn_id IS the assignment, because a request cannot outlive a turn id
+        and a background assignment has to (5.3). Its grant stands while no turn
+        is open, which is the whole reason the work tools are reachable at all.
+        """
+        seat = seat or ("work-seat:"+assignment)
+        binding = self.bind_seat(seat,assignment)
+        path = self.root/("work-scope-"+assignment+".json")
+        path.write_text(json.dumps({**self.scope,"binding":binding,"seat":seat}))
+        return path,seat
+
+    def test_a_background_assignment_still_reports_after_three_ceo_turns(self):
+        """Acceptance 7.2, and the half that fails is the REPORT, not the read.
+
+        A running process that can no longer speak looks identical to a healthy one
+        from the outside, which is exactly why this gate went unnoticed twice. So
+        this walks it with the tool that WRITES.
+        """
+        ready=self.call("prepare",self.args)
+        self.app.dispatch_intent(self.scope,{"session_id":self.session,
+            "tool_use_id":"actual-native-id","tool_input":ready["agent_payload"]})
+        work,seat = self.work_lease()
+        self.three_ceo_turns()
+        store=self.store()
+        # THE TRAP THIS TEST EXISTS TO AVOID: with the two rows left sitting at the
+        # same revision the broken form passes. His row is at 4 and the assignment's
+        # is at 1, and only then is the report below a real question.
+        self.assertEqual((dict(store.current_context())["revision"],
+                          dict(store.current_context(seat))["revision"]),(4,1))
+        before=len(self.events(store,"work_unit.upserted"))
+        # The assignment speaks. This appends work_unit.upserted, which is fenced
+        # against the row belonging to the event's own person.
+        self.assertEqual(self.app.call(work,"inspect",{})["records"][0]["status"],"dispatching")
+        wrote=self.events(store,"work_unit.upserted")
+        self.assertEqual(len(wrote),before+1)
+        self.assertEqual(wrote[-1]["person_id"],seat)
+        # And his own conversation still sees the background record, because the
+        # entity and the thread stay single and shared.
+        units=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect",
+            "binding":self.scope["binding"],"query":{"section":"work"}})["records"]
+        self.assertEqual([row["status"] for row in units],["assigned"])
+
+    def store(self):
+        sys.path.insert(0,str(ENGINE/"ecs/core"))
+        from ecs_core import EventStore
+        return EventStore(self.root/"ecs")
+
+    def events(self,store,event_type):
+        conn=store.connect()
+        try:
+            return [dict(row) for row in conn.execute(
+                "SELECT person_id FROM ecs_events WHERE event_type=? ORDER BY sequence",
+                (event_type,)).fetchall()]
+        finally:
+            conn.close()
+
+    def test_every_request_from_a_work_lease_carries_its_seat(self):
+        self.call("prepare",self.args)
+        work,seat = self.work_lease()
+        seen=[]
+        real=self.app.ECS.execute
+        def watch(root,request):
+            seen.append(request.get("seat"));return real(root,request)
+        with patch.object(self.app.ECS,"execute",watch):
+            self.app.call(work,"inspect",{})
+            self.assertTrue(seen and all(value==seat for value in seen),seen)
+            # The control that makes the assertion mean something: the same tool on
+            # the conversation's scope names no seat at all, so a seat can never be
+            # something this adapter supplies by default.
+            seen.clear();self.call("inspect")
+            self.assertTrue(seen and all(value is None for value in seen),seen)
 
 if __name__=="__main__":unittest.main()
