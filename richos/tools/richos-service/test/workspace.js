@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCHEMA_VERSION } from '../lib/workspace/source-item.js';
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
@@ -30,7 +31,9 @@ import {
   readInstalledClientFile, clientSecretAccount, readClientSecret, storeClientSecret, expandHome,
 } from '../lib/workspace/client-secret.js';
 import { GoogleClient, GoneError } from '../lib/workspace/google-client.js';
-import { GoogleCalendarAdapter, ADAPTER_VERSION } from '../lib/workspace/adapters/google-calendar.js';
+import {
+  GoogleCalendarAdapter, ADAPTER_VERSION, CALENDAR_LIST_DEGRADED_REASON, normalizeCursorMap,
+} from '../lib/workspace/adapters/google-calendar.js';
 import {
   GoogleDriveAdapter, ADAPTER_VERSION as DRIVE_ADAPTER_VERSION, assertNoFileContent,
   DRIVE_METADATA_SCOPE, DRIVE_CONTENT_SCOPE,
@@ -907,7 +910,7 @@ await atest('listChanges pages through nextPageToken and returns the final nextS
     { items: [EVENT_ORG], nextPageToken: 'p2' },
     { items: [EVENT_PRIVATE], nextSyncToken: 'SYNC-NEXT' },
   ]);
-  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   const res = await a.listChanges(null);
   assert.equal(res.items.length, 2);
   assert.equal(res.nextSyncState.syncToken, 'SYNC-NEXT');
@@ -1221,7 +1224,7 @@ group('CORE end-to-end (§4) — the vendor-agnostic spine, mocked adapter, gove
 function coreEnv() {
   const zone = tmp();
   const client = clientMock([{ items: [EVENT_ORG, EVENT_PRIVATE, EVENT_EXTERNAL, EVENT_INJECTION], nextSyncToken: 'SYNC-1' }]);
-  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   return { zone, adapter };
 }
 
@@ -1267,7 +1270,7 @@ await atest('ingestOnce recovers from a 410 by resetting the cursor and doing a 
       return { items: [EVENT_ORG], nextSyncToken: 'FRESH' };
     },
   };
-  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   setSyncState('google', 'calendar', 'STALE-TOKEN', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId);
   const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now });
   assert.equal(summary.resynced, true);
@@ -1395,6 +1398,165 @@ await atest('legacy unscoped cursors are retired explicitly before a full source
     assert.equal(second.legacyCursorRetired, false);
     assert.deepEqual(seen, [null, 'scoped-new-token']);
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+// =================================================================================================
+group('Calendar multi-calendar sync (2026-09-17) — a person has several calendars, so the adapter '
+  + 'enumerates and syncs every one it can read, dedupes across them, and names what it read');
+
+/** A GoogleClient-shaped mock keyed by URL substring — for tests that need discovery + N calendars. */
+function urlMock(handlers) {
+  return {
+    async getJson(url) {
+      for (const [match, respond] of handlers) {
+        if (url.includes(match)) {
+          if (respond instanceof Error) throw respond;
+          return typeof respond === 'function' ? respond(url) : respond;
+        }
+      }
+      throw new Error(`urlMock: no handler matched ${url}`);
+    },
+  };
+}
+
+test('legacy explicit calendarId keeps the OLD per-(account,calendar) identity formula — cursors on disk before this change still resolve', () => {
+  const a = new GoogleCalendarAdapter({ accountId: 'acct', calendarId: 'work@x.com', client: null, now });
+  const expected = createHash('sha256')
+    .update(JSON.stringify(['google', 'calendar', 'acct', 'work@x.com'])).digest('hex');
+  assert.equal(a.sourceInstanceId, expected);
+});
+
+test('the new default (no calendarId) is account-scoped identity, distinct from the legacy per-calendar one', () => {
+  const legacy = new GoogleCalendarAdapter({ accountId: 'acct', calendarId: 'primary', client: null, now });
+  const multi = new GoogleCalendarAdapter({ accountId: 'acct', client: null, now });
+  assert.notEqual(multi.sourceInstanceId, legacy.sourceInstanceId);
+  const expected = createHash('sha256').update(JSON.stringify(['google', 'calendar', 'acct'])).digest('hex');
+  assert.equal(multi.sourceInstanceId, expected);
+});
+
+test('normalizeCursorMap: a flat legacy cursor migrates to the first calendar synced; a map passes through; absence is empty', () => {
+  assert.deepEqual(normalizeCursorMap('OLD-TOKEN', 'primary'), { primary: 'OLD-TOKEN' });
+  assert.deepEqual(normalizeCursorMap({ primary: 'X', other: 'Y' }, 'primary'), { primary: 'X', other: 'Y' });
+  assert.deepEqual(normalizeCursorMap(null, 'primary'), {});
+  assert.deepEqual(normalizeCursorMap(undefined, 'primary'), {});
+});
+
+await atest('multi-calendar: an account with three calendars syncs all three, named by label and count', async () => {
+  const client = urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal' },
+      { id: 'team-cal', summary: 'Coaching Ops team' },
+      { id: 'family-cal', summary: 'Family' },
+    ] }],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' }, summary: 'Personal event' }], nextSyncToken: 'TOK-primary' }],
+    ['calendars/team-cal/events', { items: [{ id: 't1', iCalUID: 'uid-t1', etag: '"t1"', start: { dateTime: '2025-08-02T10:00:00Z' }, summary: 'Team event' }], nextSyncToken: 'TOK-team' }],
+    ['calendars/family-cal/events', { items: [{ id: 'f1', iCalUID: 'uid-f1', etag: '"f1"', start: { dateTime: '2025-08-03T10:00:00Z' }, summary: 'Family event' }], nextSyncToken: 'TOK-family' }],
+  ]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.items.length, 3);
+  assert.deepEqual(res.calendars.map((c) => c.id).sort(), ['family-cal', 'primary', 'team-cal']);
+  assert.equal(res.calendars.find((c) => c.id === 'team-cal').label, 'Coaching Ops team');
+  assert.ok(res.calendars.every((c) => c.count === 1));
+  assert.deepEqual(res.nextSyncState.syncToken, { primary: 'TOK-primary', 'team-cal': 'TOK-team', 'family-cal': 'TOK-family' });
+  assert.equal(res.degraded, undefined);
+});
+
+await atest('multi-calendar: a hidden calendar is skipped — unhiding it makes it sync (positive control)', async () => {
+  const makeClient = (hidden) => urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal' },
+      { id: 'archive-cal', summary: 'Old Team', hidden },
+    ] }],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' } }], nextSyncToken: 'TOK-primary' }],
+    ['calendars/archive-cal/events', { items: [{ id: 'a1', iCalUID: 'uid-a1', etag: '"a1"', start: { dateTime: '2025-08-04T10:00:00Z' } }], nextSyncToken: 'TOK-archive' }],
+  ]);
+  const hidden = await new GoogleCalendarAdapter({ accountId: 'fixture-account', client: makeClient(true), now }).listChanges(null);
+  assert.equal(hidden.items.length, 1, 'the hidden calendar contributes nothing');
+  assert.deepEqual(hidden.calendars.map((c) => c.id), ['primary']);
+
+  const unhidden = await new GoogleCalendarAdapter({ accountId: 'fixture-account', client: makeClient(false), now }).listChanges(null);
+  assert.equal(unhidden.items.length, 2, 'unhidden, the same calendar now syncs — this is the positive control');
+  assert.deepEqual(unhidden.calendars.map((c) => c.id).sort(), ['archive-cal', 'primary']);
+});
+
+await atest('multi-calendar: calendarList.list refused (403, insufficient scope) degrades to primary only, named', async () => {
+  const scopeErr = new Error('insufficient scope for calendarList.list');
+  scopeErr.status = 403;
+  const client = urlMock([
+    ['calendarList', scopeErr],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' } }], nextSyncToken: 'TOK-primary' }],
+  ]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.degraded, CALENDAR_LIST_DEGRADED_REASON);
+  assert.deepEqual(res.calendars.map((c) => c.id), ['primary']);
+  assert.equal(res.items.length, 1);
+});
+
+await atest('multi-calendar: a network failure OTHER than insufficient scope still surfaces (never silently degraded)', async () => {
+  const serverErr = new Error('backend hiccup');
+  serverErr.status = 503;
+  const client = urlMock([['calendarList', serverErr]]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  await assert.rejects(() => a.listChanges(null), /backend hiccup/);
+});
+
+await atest("multi-calendar: a 410 on one calendar resets only that calendar's cursor", async () => {
+  let aCalls = 0;
+  const client = {
+    async getJson(url) {
+      if (url.includes('calendars/a/events')) {
+        aCalls += 1;
+        if (aCalls === 1) throw new GoneError('gone');
+        return { items: [{ id: 'a-fresh', iCalUID: 'uid-a-fresh', etag: '"af"', start: { dateTime: '2025-08-05T10:00:00Z' } }], nextSyncToken: 'FRESH-A' };
+      }
+      if (url.includes('calendars/b/events')) {
+        return { items: [{ id: 'b1', iCalUID: 'uid-b1', etag: '"b1"', start: { dateTime: '2025-08-06T10:00:00Z' } }], nextSyncToken: 'TOK-B-2' };
+      }
+      throw new Error(`unexpected url ${url}`);
+    },
+  };
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now });
+  const res = await a.listChanges({ syncToken: { a: 'STALE-A', b: 'TOK-B' } });
+  assert.equal(res.items.length, 2);
+  assert.deepEqual(res.nextSyncState.syncToken, { a: 'FRESH-A', b: 'TOK-B-2' });
+  assert.equal(res.calendars.find((c) => c.id === 'a').resynced, true, "calendar a lost its token and got a bounded full resync");
+  assert.equal(res.calendars.find((c) => c.id === 'b').resynced, false, "calendar b was never touched by a's 410");
+});
+
+await atest('multi-calendar: the same iCalUID on two calendars lands once, not twice (collector-path parity)', async () => {
+  const client = urlMock([
+    ['calendars/a/events', { items: [{ id: 'evtA', iCalUID: 'UID-SHARED', etag: '"a1"', start: { dateTime: '2025-08-12T15:00:00Z' }, summary: 'Shared meeting (calendar a copy)' }], nextSyncToken: 'TOK-A' }],
+    ['calendars/b/events', { items: [{ id: 'evtB', iCalUID: 'UID-SHARED', etag: '"b1"', start: { dateTime: '2025-08-12T15:00:00Z' }, summary: 'Shared meeting (calendar b copy)' }], nextSyncToken: 'TOK-B' }],
+  ]);
+  const res = await new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now }).listChanges(null);
+  assert.equal(res.items.length, 1, 'the same event on two calendars lands once, not twice');
+  assert.equal(res.items[0].id, 'evtA', 'the first calendar in order wins the merge');
+
+  const zone = tmp();
+  try {
+    const summary = await ingestOnce({
+      adapter: new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now }),
+      identity: IDENTITY, zone, repoRoot: zone, now,
+    });
+    assert.equal(summary.observed, 1);
+    assert.equal(summary.ingested, 1);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest("multi-calendar: an old flat cursor (from before this change) is read as the calendar it belonged to, not discarded", async () => {
+  let requestedToken = null;
+  const client = {
+    async getJson(url) {
+      requestedToken = new URL(url).searchParams.get('syncToken');
+      return { items: [], nextSyncToken: 'AFTER-MIGRATION' };
+    },
+  };
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['primary'], client, now });
+  const res = await adapter.listChanges({ syncToken: 'OLD-FLAT-TOKEN' });
+  assert.equal(requestedToken, 'OLD-FLAT-TOKEN', "the legacy string cursor is honored as primary's own token");
+  assert.deepEqual(res.nextSyncState.syncToken, { primary: 'AFTER-MIGRATION' });
 });
 
 // =================================================================================================
@@ -1875,7 +2037,7 @@ await atest('Drive and Calendar on one account keep independent cursors under th
   const zone = tmp();
   try {
     const drive = driveAdapter({ client: driveIngestClient() });
-    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
+    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
     await ingestOnce({ adapter: drive, identity: IDENTITY, zone, repoRoot: zone, now });
     await ingestOnce({ adapter: cal, identity: IDENTITY, zone, repoRoot: zone, now });
     const file = path.join(zone, '_sync_state.json');
@@ -2575,7 +2737,7 @@ await atest('Gmail, Drive and Calendar coexist in one zone without colliding (§
   const zone = tmp();
   try {
     const mail = gmailAdapter({ client: mailbox([MAIL_INTERNAL], { anchor: 'MAIL-1' }) });
-    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
+    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
     await ingestOnce({ adapter: mail, identity: IDENTITY, zone, repoRoot: zone, now });
     await ingestOnce({ adapter: cal, identity: IDENTITY, zone, repoRoot: zone, now });
     const file = path.join(zone, '_sync_state.json');

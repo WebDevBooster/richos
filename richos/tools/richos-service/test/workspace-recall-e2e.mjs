@@ -177,7 +177,7 @@ say('');
 say('1. SYNC — the real adapters, the real governance gate, the real evidence zone');
 
 const calendar = new GoogleCalendarAdapter({
-  accountId: 'fixture-account', now,
+  accountId: 'fixture-account', calendarId: 'primary', now,
   client: clientMock([['/events', { items: EVENTS, nextSyncToken: 'CAL-1' }]]),
 });
 const calendarSummary = await ingestOnce({ adapter: calendar, identity: IDENTITY, zone: ZONE, repoRoot: CORPUS, now });
