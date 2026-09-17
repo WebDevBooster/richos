@@ -553,10 +553,12 @@ module.exports = [
       "two voices could not be separated, and that audio was not used. " +
       "AND IT IS NOT A WARM-UP STATE ON HIS HARDWARE. Measured on his Mac on 2026-09-17 " +
       "(docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md): Mac mini Speakers out, " +
-      "Elgato Wave:3 in, steady-state ERLE −0.1 dB and a live residual of −36.6 dBFS against " +
-      "the −52.0 dBFS confidence threshold — 15.4 dB needed — while the coherence of that " +
-      "echo path caps any linear canceller at 4.3 dB. 11.1 dB short, permanently, so every " +
-      "spoken answer through the speakers produces one of these discards. " +
+      "Elgato Wave:3 in, steady-state ERLE of −0.5 to +0.7 dB across five live runs — nothing " +
+      "measurably removed — while confidence needs the residual to hold under −52.04 dBFS and " +
+      "the microphone reads −42 to −46 dBFS during Rich's speech. A recording of that exact " +
+      "path is committed as a test fixture and replays under `cargo test` without reaching " +
+      "confidence, so every spoken answer through the speakers produces one of these " +
+      "discards. " +
       "INFORMATIONAL, and it still makes NO capability claim: \"I can't hear you while I'm " +
       "speaking\" would be false twice, because talking over him for 5.008 s cuts him off " +
       "today and a confident canceller admits the utterance outright. It still states the " +

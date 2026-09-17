@@ -722,14 +722,15 @@ fn tap_to_stop_is_still_instant_once_the_canceller_is_confident() {
 // THE CANDIDATE-.4 BLOCKER: WHAT HAPPENS BEFORE THE CANCELLER IS CONFIDENT
 //
 // Everything above measures the pipeline where the canceller EARNS the short window. On the
-// CEO's own hardware it never does. Measured on his Mac on 2026-09-17 (the full traces are in
+// CEO's own hardware it does not. Measured on his Mac on 2026-09-17 (the full traces are in
 // `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`): Mac mini Speakers out, Elgato
-// Wave:3 in, steady-state ERLE -0.1 dB, live residual -36.6 dBFS against the -52.0 dBFS
-// `CONFIDENT_LEAK_RMS` demands — a 15.4 dB gap — and the magnitude-squared coherence of that
-// echo path caps ANY linear canceller at 4.3 dB full band. 11.1 dB short, permanently.
+// Wave:3 in, steady-state ERLE of -0.5 .. +0.7 dB across five live runs and 6.3 dB over one
+// recorded sentence, on a path where confidence needs the residual to hold under -52.04 dBFS
+// while the microphone reads -42 .. -46 dBFS. `tests/echo_path_replay.rs` replays the recording
+// of that path under `cargo test` and it does not reach confidence.
 //
-// So the unconfident branch is not a warm-up state there. It is the only state, and these two
-// tests pin what the product does in it.
+// So the unconfident branch is not a warm-up state there. It is the state he lives in, and these
+// two tests pin what the product does in it.
 // =========================================================================================
 
 /// **NEGATIVE PROBE — the defect that refused candidate .4.**
@@ -815,3 +816,4 @@ fn a_confident_canceller_admits_the_same_utterance_instead_of_discarding_it() {
     assert_eq!(tainted, 0, "a confident canceller still threw his words away as echo");
     assert!(turns >= 1, "his words were not discarded and still never became a turn");
 }
+

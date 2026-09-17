@@ -654,14 +654,24 @@ pub enum VoiceNotice {
     ///
     /// ## It is not a transient state on the CEO's hardware — measured
     ///
-    /// Measured on this Mac on 2026-09-17 (`examples/aec_live`, `examples/aec_probe`, both
-    /// pasted in `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`): Mac mini Speakers
-    /// out, Elgato Wave:3 in, steady-state ERLE **−0.1 dB**, live residual **−36.6 dBFS**, and
-    /// [`crate::aec::CONFIDENT_LEAK_RMS`] is **−52.0 dBFS** — so confidence needs **15.4 dB** of
-    /// cancellation. The magnitude-squared coherence of that path caps ANY linear canceller at
-    /// **4.3 dB** full band (7.6 dB over 300–3400 Hz). **11.1 dB short, permanently.** The
-    /// canceller never becomes confident there, so the taint rule is always in force and every
-    /// spoken answer through the speakers produces one of these discards.
+    /// Measured on this Mac on 2026-09-17 — five live runs of `examples/aec_live`, two of
+    /// `examples/aec_probe`, and one recorded pair replayed offline, all pasted in
+    /// `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`. Mac mini Speakers out, Elgato
+    /// Wave:3 in, at the CEO's own volume setting:
+    ///
+    /// ```text
+    ///   steady-state ERLE, five live runs      -0.5 .. +0.7 dB   (nothing removed)
+    ///   ERLE over the recorded sentence         6.3 dB
+    ///   microphone while Rich is audible      -42 .. -46 dBFS
+    ///   aec::CONFIDENT_LEAK_RMS               -52.04 dBFS
+    ///   far-active blocks under that threshold  77.6 %, longest run 1.376 s of the 2.000 s
+    ///   coherence ceiling for ANY linear filter single digits (4.3 dB full band on a click
+    ///                                           train, 7.6 dB over 300-3400 Hz)
+    /// ```
+    ///
+    /// The canceller is marginal there by measurement, not by opinion, and it does not reach
+    /// confidence. So the taint rule stays in force and every spoken answer through the speakers
+    /// produces one of these discards.
     ///
     /// That is what makes the wording load-bearing rather than cosmetic: this line is not a rare
     /// edge case he might see once, it is the line he meets after every spoken answer.
@@ -1383,11 +1393,12 @@ impl Drop for VoiceController {
 /// and then. On his actual hardware they are not.
 ///
 /// Measured on this Mac, 2026-09-17 (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`):
-/// Mac mini Speakers out, Elgato Wave:3 in, steady-state ERLE **−0.1 dB** against the **15.4 dB**
-/// that [`crate::aec::CONFIDENT_LEAK_RMS`] demands, with a coherence ceiling of **4.3 dB** for
-/// any linear canceller on that path. The canceller cannot become confident there, so Rich's own
-/// voice comes back into the microphone, opens an utterance, and is discarded as taint **after
-/// every single spoken answer**. Cleared-on-heard therefore means: he speaks, he is heard, the
+/// Mac mini Speakers out, Elgato Wave:3 in, steady-state ERLE of **−0.5 … +0.7 dB** across five
+/// live runs — nothing measurably removed — against a residual that would have to sit at
+/// **−52.04 dBFS** ([`crate::aec::CONFIDENT_LEAK_RMS`]) while the microphone reads −42 … −46 dBFS
+/// during Rich's speech. The canceller does not reach confidence there, so Rich's own voice comes
+/// back into the microphone, opens an utterance, and is discarded as taint **after every single
+/// spoken answer**. Cleared-on-heard therefore means: he speaks, he is heard, the
 /// latch clears, Rich answers, the echo is discarded, the notice fires. Once per answer, forever.
 ///
 /// The crate's own doctrine on every other notice here is that a line each time is a drip that
@@ -1487,9 +1498,9 @@ fn supervise(
                         // line changed again on 2026-09-17.** It said the canceller "has not
                         // proven itself YET" and that barge-in needed 5.008 s "UNTIL IT DOES".
                         // Both words promise a convergence that, on the CEO's own hardware,
-                        // never arrives: measured that day, the live residual is −36.6 dBFS
-                        // against a −52.0 dBFS threshold, and the coherence of that echo path
-                        // caps ANY linear canceller at 4.3 dB where 15.4 dB is needed
+                        // never arrives: measured that day across five live runs, the
+                        // steady-state ERLE is −0.5 … +0.7 dB and the microphone reads −42 … −46
+                        // dBFS while Rich speaks, against the −52.04 dBFS the threshold demands
                         // (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`). So the
                         // line now reports the GAP — measured ERLE, measured residual, the
                         // threshold it has to reach — and lets the reader see how far short it
@@ -1916,8 +1927,8 @@ mod tests {
     /// happen after EVERY spoken answer. So the old cycle was: he speaks → heard → latch clears
     /// → Rich answers → echo discarded → notice. One notice per answer, for the life of the
     /// session, about a condition nothing he does can change. The measurement behind "nothing
-    /// he does can change it" is in `HalfDuplexNotice`'s own doc comment: 4.3 dB of linear
-    /// headroom against 15.4 dB needed.
+    /// he does can change it" is in `HalfDuplexNotice`'s own doc comment: single-digit ERLE on a
+    /// path that would need the residual 6 dB under the VAD's speech floor.
     ///
     /// So being heard no longer clears it, and the latch has no clearing path at all.
     #[test]
