@@ -32,6 +32,9 @@ $ pgrep -fl richos-tauri      # session start
 
 $ pgrep -fl "RichOS.app/Contents/MacOS/richos-tauri"      # after the build
 15085 ./RichOS.app/Contents/MacOS/richos-tauri
+
+$ pgrep -fl "RichOS.app/Contents/MacOS/richos-tauri"      # at the handoff, checked again
+15085 ./RichOS.app/Contents/MacOS/richos-tauri
 ```
 
 Two different pids, so this was not one stale process — a candidate was replaced and QA
@@ -143,6 +146,52 @@ row is a fact about that row rather than about a scan that cannot fire.
 
 ---
 
+## 2.5 What the UI gates said, and the gap one of them found
+
+The full UI suite (46 suites) turned two red, both on this branch's work.
+
+**`affordances.js`** asserts every user-visible state string is classified and that any state
+the CEO can act on names a control present in the same view. Eleven new states were
+unclassified. Ten were annotations. **The eleventh was a product finding:**
+
+> *"Ready for you to approve."* is ACTIONABLE — the point of the state is that the last step
+> is his. **There is no approve control on that surface**, because the desk that would hold
+> his decision while he is away is §5.2/§5.7 and is not built: a request raised with no
+> visible turn is still denied outright (`permissions.rs:55`). Naming a control would have
+> been a claim about something that is not there.
+
+So the sentence changed rather than the classification: *"Ready for you to approve. Ask Rich
+to continue it when you are ready."* — §7.8's mandated phrase, plus the path that exists
+today, with the composer as its control. The registry row says why, and says that the
+sentence and the row change together when the queue lands.
+
+**A scanner blind spot the fix exposed, worth recording because it is a class rather than an
+instance.** `ui/tests/lib/state-strings.js` decides a Rust literal is CEO-facing from its own
+line and **the two above it**. One of these sentences was visible to the gate only because an
+unrelated `ok_or_else` happened to sit two lines up; adding a comment moved it out of the
+window and the gate silently stopped seeing a shipped sentence. Both are now named
+`const … : &str`, a form the scanner recognizes directly.
+
+**`docs-claims.js`** found the same shape one level out: `rich://work-notice` was a private
+constant, and that gate builds its inventory from `pub const NAME: &str = "rich://…"` — a
+shipped event outside the inventory of the check that exists to catch shipped events outside
+the inventory. It is `pub` now and documented in `app/STREAMING.md`.
+
+**Two of that suite's failures are NOT this branch's, and that was measured rather than
+assumed.** The suite was run at the merge base:
+
+```
+$ git checkout b2496b4c && node ui/tests/docs-claims.js
+  FAIL  every per-file test count in app/README.md is the count in that file
+        ["ledger_forward_compat_tests.rs: README says 20, the file has 25",
+         "setup.rs: README says 38, the file has 43"]
+  FAIL  every `cargo test -p <crate>` total in app/README.md is the tree's own total
+        README must distinguish direct tests from ignored checks
+```
+
+Byte-for-byte the two that remain here. `docs-claims.js` is red on main today, in two files
+this branch does not touch.
+
 ## 3. The tests, and the counts
 
 ```
@@ -156,6 +205,11 @@ OVERRIDE_REGULAR, nav.rs::readable. None introduced here.
 
 $ RICHOS_PLAYWRIGHT=… node ui/tests/background-work.js
 5 checks, 5 pass.
+
+$ RICHOS_PLAYWRIGHT=… node ui/tests/run.js
+46 planned, 46 ran, 0 skipped. affordances.js and docs-claims.js were red on the first
+pass; affordances.js is green after §2.5's fixes (94 checks, 0 failed), and
+docs-claims.js keeps only the two failures it already had at the merge base.
 ```
 
 The named invariants added:
@@ -179,7 +233,7 @@ The named invariants added:
 
 ---
 
-## 4. Three things found while building that the spec does not say
+## 4. Four things found while building that the spec does not say
 
 Each was found by reading the landed engine or by a test going red, not by reasoning, and
 each is built the way the engine forces rather than the way the spec's prose reads.
@@ -209,6 +263,13 @@ each is built the way the engine forces rather than the way the spec's prose rea
    after-the-turn half. Registration is therefore an app-owned MCP tool in the shape this
    app already ships one in (`richos_onboarding`), needing no engine change; `prepare` keeps
    its contract and is simply called later, by the work lease.
+
+4. **§7.8's own sentence has no control behind it in this build**, which §2.5 records in
+   full. The spec assumes §5.2's queue when it writes *"the approval request is waiting where
+   §7.6 puts it"*; that queue is not built, so the surface says what it can honestly offer
+   instead. This is the one place where the wording the spec mandates and the mechanism the
+   spec assumes came apart, and it is named here rather than resolved by weakening the
+   wording.
 
 ---
 
