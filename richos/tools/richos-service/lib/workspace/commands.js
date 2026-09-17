@@ -592,6 +592,11 @@ export async function connect(deps = {}) {
     }
     d.out(d.profile.consentNotice);
     ({ code } = await codePromise);
+    // Between the CEO's click and `CONNECTED` sits a token exchange and an identity probe — both
+    // network round trips with nothing printed in between until now. Say so the moment the code is
+    // in hand, so a wait here reads as progress rather than as the same hang this ceremony just had
+    // its loopback leg fixed for.
+    d.out('consent received — exchanging…');
   } catch (err) {
     d.out('');
     d.out(`NOT CONNECTED — ${String(err.message || err)}`);
