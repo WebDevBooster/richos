@@ -77,12 +77,19 @@ richos/app/
                               and visibility as a GATE (Timeline is not Serialize; the only
                               path to a webview is view(mode), which drops what the mode may
                               not see and removes the technical detail it may not read)
-    src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
+    src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract,
+                              and the EvidenceLookup Tier-E seam beside it
     src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane —
                               and RETAIN its provenance (SliceProvenance: which record each
                               line of the injected memory came from), which is what lets a
                               later correction name a record instead of guessing one. Nothing
                               is retained for a slice that was refused
+    src/evidence.rs          TIER E — the EVIDENCE LOOKUP: the CEO's own files, labeled as
+                              files, consulted ONLY when the compiled slice's own coverage says
+                              memory did not answer (none | adjacent). It is not a fifth loro
+                              source and it is never company memory; the block arrives verbatim
+                              from tools/richos-service and takes no characters from the memory
+                              lanes' budget. Writes nothing, promotes nothing, retains nothing
     src/correction.rs        the loro WRITE loop: propose, ASK the CEO, then write
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
@@ -416,6 +423,14 @@ richos/app/
                               re-prime Unavailable), the cross-entity guard still refuses
                               after a drop, and a thread reading another company's in-repo
                               record is told whose record it is
+    tests/evidence_lookup_tests.rs 25 Tier-E tests: the consult gate is EXACTLY none and
+                              adjacent, a compiler that reports no coverage label never opens
+                              the owner's files, a covered question spends no process at all,
+                              the block is injected verbatim BELOW the company-memory heading
+                              with the model told above it that the text is data and never an
+                              instruction, the spoken form carries the document's name and date
+                              and no URL, and the memory lanes' characters are byte-identical
+                              with and without a block
     tests/loro_gui_launch_tests.rs 15 tests for the launch nobody tests on (13 plus the two
                               subprocess children they drive): a double-click
                               carries HOME, USER and PATH and nothing else, and until
@@ -913,7 +928,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1031 tests + 5 doc-tests (1027 direct, 4 ignored)
+cargo test -p richos-core                       # 1061 tests + 5 doc-tests (1057 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1507,6 +1522,47 @@ See it end to end without launching the app:
 cargo run -p richos-core --example loro_reprime_demo -- "what did we decide about X?"
 cargo run -p richos-core --example loro_correction_demo   # provisions its own throwaway corpus
 ```
+
+### Tier E — the evidence lookup (the CEO's own files, and never company memory)
+
+Executes §1/§4 of the 2026-09-17 evidence-retrieval ruling. When the compiled slice's own
+`coverage` says memory did not answer — `none` or `adjacent`, and **only** those two — the
+turn looks in the CEO's Workspace evidence zone and appends one labeled block below the
+company-memory block, under `FROM YOUR FILES (evidence — not company memory)`.
+
+The two headings carry different epistemic weight and that difference is the whole point:
+`COMPANY MEMORY (loro)` means *the company holds this belief*; `FROM YOUR FILES` means *a
+document in your Drive says this, and nobody has concluded anything from it.* The block
+takes **no characters from the memory lanes' budget**, enters no memory page, promotes
+nothing and is retained nowhere.
+
+- `RICHOS_EVIDENCE_BIN` — `tools/richos-service/bin/richos-evidence.mjs`. Unset, the app
+  looks for that file **beside** `RICHOS_SERVICE_BIN` and uses it only if it is really
+  there. Neither present is the ordinary state of an install with no Workspace source: the
+  payload renders NOTHING about files, never a claim that the owner has none.
+- The evidence zone is derived from the corpus `LORO_CORPUS` already named, so the lookup
+  and the compiler cannot disagree about which corpus this is. **`LORO_ROOT` gets no
+  lookup** — the in-repo dogfood layout has no `ceo/evidence/`, and pointing one at it
+  would ask it to read the product checkout.
+- **There is no default zone, and the entry point refuses to invent one.** `config.js`
+  `corpusRoot()` falls back to `~/RichOS/corpus`, which is right for the interactive CLI
+  and wrong for a child process launched with launchd's empty environment; so
+  `richos-evidence lookup` exits 2 with the reason on stderr when nothing named a zone, and
+  reads nothing.
+- `rich` audience only in v1. A `worker` or `org` request is a reported refusal on both
+  sides of the process boundary.
+
+Everything the block may and may not contain — the 600-character Drive excerpt cap, the
+three-item cap, mail as subject/participants/dates with no body, quarantined items excluded
+on their stored flag, `scopeAllowed` against `governance.json` — belongs to
+`tools/richos-service/lib/workspace/evidence-lookup.js` and is not re-implemented here. The
+app runs a process and renders the result verbatim.
+
+```bash
+cargo run -p richos-core --example evidence_lookup_e2e   # temp HOME, temp corpus, real both sides
+```
+
+Transcript and findings: `docs/verification/2026-09-17-evidence-lookup-wired-end-to-end.md`.
 
 ## What is proven vs pending
 
