@@ -340,7 +340,19 @@ window.RichSettings = (function () {
    *  to be open, and the shell is already live underneath the curtain.
    */
   function buildMenu() {
-    var menu = elem("div", "setmenu", { id: "set-menu", "aria-label": "Settings", role: "menu" });
+    // `data-dismiss` IS THE DECLARATION THE GLOBAL ESCAPE HANDLER READS (CEO, 2026-09-17,
+    // item 1: "close any popup of any kind by simply tapping the escape key"). This menu has
+    // had its own Escape since it was written — the listener at the foot of `mount()` — and
+    // that one only fires because it is bound to `document`. The marker is what puts the menu
+    // into `main.js`'s DOM-derived enumeration as well, so the two agree on what is open and
+    // on which surface is topmost instead of racing. Both are idempotent (`close()` returns
+    // early when the menu is already hidden), so the overlap costs nothing.
+    var menu = elem("div", "setmenu", {
+      id: "set-menu",
+      "aria-label": "Settings",
+      role: "menu",
+      "data-dismiss": "escape",
+    });
     menu.hidden = true;
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)

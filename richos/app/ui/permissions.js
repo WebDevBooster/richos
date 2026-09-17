@@ -4,6 +4,13 @@
  const bridge=window.RichBridge;
  const panel=document.createElement("div");panel.id="permission-sheet";panel.className="overlay";panel.hidden=true;
  panel.setAttribute("role","dialog");panel.setAttribute("aria-modal","true");panel.setAttribute("aria-labelledby","permission-title");
+ // ESCAPE DECLINES, FROM ANYWHERE (CEO, 2026-09-17, item 1). The keydown listener below is on
+ // the PANEL, so it only ever fired while focus was inside it — true on open, false the moment
+ // a click lands anywhere else, and then the sheet could not be closed from the keyboard at
+ // all. `data-dismiss` hands the same act to main.js's document-level handler: not a second
+ // implementation of "decline", the button itself. A permission request has exactly one safe
+ // way out and it is Decline; nothing here may hide the question without answering it.
+ panel.setAttribute("data-dismiss","control:#permission-deny");
  panel.innerHTML=`<div class="overlay-panel overlay-panel--compact"><h2 id="permission-title" class="overlay-title">Allow this action?</h2>
  <p id="permission-scope" class="overlay-note"></p><p id="permission-description" class="overlay-note"></p>
  <pre id="permission-input" class="desk-preview" style="max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere"></pre>

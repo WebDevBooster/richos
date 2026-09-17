@@ -202,7 +202,7 @@
           </button>
         </div>
 
-        <div id="assertiveness-popover" class="popover" hidden>
+        <div id="assertiveness-popover" class="popover" data-dismiss="escape" hidden>
           <!-- YOUR NAME — the field the rail footer's unset state points at.
 
                It is here rather than in a settings screen of its own because this popover
@@ -617,7 +617,7 @@
            business-action governance is deferred to V2 by CEO decision for v1 and all 1.x,
            so there is no control here at all beyond Close. A window, not a cockpit. -->
       <div id="inspector-scrim" hidden></div>
-      <aside id="inspector" hidden aria-labelledby="inspector-title">
+      <aside id="inspector" data-dismiss="escape" hidden aria-labelledby="inspector-title">
         <div
           id="inspector-resizer"
           role="separator"
@@ -638,7 +638,7 @@
 
       <!-- Optional drill-down — summoned, never resident. -->
       <div id="slideover-backdrop" hidden></div>
-      <aside id="slideover" hidden aria-label="Under the hood">
+      <aside id="slideover" data-dismiss="escape" hidden aria-label="Under the hood">
         <div class="slideover-head">
           <span class="slideover-title">Under the hood</span>
         </div>
@@ -649,7 +649,7 @@
       <!-- SEARCH (§3.4): a command-palette overlay, never a replacement for the sidebar.
            Results group by entity; matching happens in Rust so no thread body is loaded
            into the renderer. -->
-      <div id="search-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-label="Search">
+      <div id="search-overlay" class="overlay" data-dismiss="escape" hidden role="dialog" aria-modal="true" aria-label="Search">
         <div class="overlay-panel">
           <input
             id="search-input"
@@ -669,7 +669,7 @@
 
       <!-- ENTITY PICKER (§3.3): the global New thread flow asks which entity BEFORE the
            first message. Never defaults to the last entity (§21). -->
-      <div id="entity-picker" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="entity-picker-title">
+      <div id="entity-picker" class="overlay" data-dismiss="escape" hidden role="dialog" aria-modal="true" aria-labelledby="entity-picker-title">
         <div class="overlay-panel overlay-panel--compact">
           <p id="entity-picker-title" class="overlay-title">Which entity is this work in?</p>
           <!-- THE BOOT CASE'S SECOND LINE, and the reason it is separate from the title.
@@ -750,7 +750,7 @@
            AND IT DOES NOT IMPLY ZERO-TOUCH. `#setup-account` carries row 3.14's second
            condition — he still needs his own Anthropic account and one sign-in, and RichOS
            cannot do that part. It sits above the button, not in a footnote after it. -->
-      <div id="setup-sheet" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <div id="setup-sheet" class="overlay" data-dismiss="control:#setup-later,#setup-close" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
         <div class="overlay-panel overlay-panel--compact">
           <p id="setup-title" class="overlay-title">There's a bit of setting up to do first.</p>
           <p id="setup-note" class="overlay-note"></p>
@@ -798,7 +798,7 @@
            target by name rather than falling back to one — `wiki/loro-structure.md`'s "no
            silent default", which exists because a default root silently compiles the
            vendor's memory, or nothing, and reports success either way. -->
-      <div id="memory-setup" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="memory-setup-title">
+      <div id="memory-setup" class="overlay" data-dismiss="control:#memory-setup-later,#memory-setup-close" hidden role="dialog" aria-modal="true" aria-labelledby="memory-setup-title">
         <div class="overlay-panel overlay-panel--compact">
           <p id="memory-setup-title" class="overlay-title">Where should I keep what you tell me?</p>
           <p id="memory-setup-note" class="overlay-note"></p>
@@ -831,7 +831,7 @@
            single empty list spanning both would say "nothing to correct" on a machine where
            one desk simply is not there — the exact distinction loro itself draws between
            "nothing recorded bears on this" and a fabricated answer. -->
-      <div id="corrections-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="corrections-title">
+      <div id="corrections-overlay" class="overlay" data-dismiss="escape" hidden role="dialog" aria-modal="true" aria-labelledby="corrections-title">
         <div class="overlay-panel overlay-panel--desk">
           <header class="desk-head">
             <p id="corrections-title" class="overlay-title">Corrections</p>
@@ -898,7 +898,7 @@
            surface's code rather than trusting this comment.
 
            NO PAGINATION. One scrolling column, however long the history gets. -->
-      <div id="feedback-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+      <div id="feedback-overlay" class="overlay" data-dismiss="escape" hidden role="dialog" aria-modal="true" aria-labelledby="feedback-title">
         <div class="overlay-panel overlay-panel--desk">
           <header class="desk-head">
             <p id="feedback-title" class="overlay-title">Feedback</p>
@@ -974,7 +974,7 @@
       </div>
 
       <!-- Thread row overflow: rename, pin, archive (§3.1). -->
-      <div id="thread-menu" class="menu" hidden role="menu" aria-label="Thread actions"></div>
+      <div id="thread-menu" class="menu" data-dismiss="escape" hidden role="menu" aria-label="Thread actions"></div>
     </div>
 
     <script src="mock.js"></script>

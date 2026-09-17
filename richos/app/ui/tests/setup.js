@@ -452,9 +452,28 @@ async function main() {
   //
   // The bar is not "warn him". It is that a mis-aimed click, and a stranger's habit of
   // clicking beside a dialog to be rid of it, cannot produce an app that looks set up and is
-  // not. So: the backdrop does nothing, Escape does nothing, the panel body does nothing, and
-  // the only ways out are the two buttons that say what they do.
-  await run.check("14  a mis-aimed click cannot skip the engine", async () => {
+  // not. So: the backdrop does nothing, the panel body does nothing, and the only ways out are
+  // the two buttons that say what they do.
+  //
+  // ESCAPE CHANGED SIDES ON 2026-09-17, BY THE CEO'S OWN RULING, and this paragraph is where
+  // the change is recorded rather than quietly made. Until that day this case asserted that
+  // Escape was INERT here, on the reasoning that "nobody added it to the list" is not a
+  // guarantee. His item 1 that morning: *"The user must always be able to close any popup of
+  // any kind by simply tapping the escape key on the keyboard i.e. without having to click
+  // anything"*. A sheet is a popup, so Escape closes this one too.
+  //
+  // WHAT THAT DOES NOT COST, and it is the reason the change is safe rather than a reversal of
+  // 704b4596. This case was never about Escape; it is about an ACCIDENT — a click aimed at a
+  // button that lands sixty pixels low. Escape is not a mis-aim, and it now does EXACTLY what
+  // the named way out does, because `data-dismiss="control:#setup-later,#setup-close"` on the
+  // element makes it press that button rather than hide the sheet behind its back. So:
+  //
+  //   * with "Not now" or "Close" on screen, Escape is that button — the same close, the same
+  //     handoff to the corpus question, and `run_setup` still never called;
+  //   * DURING THE INSTALL, when both buttons are hidden because dismissing mid-download is
+  //     precisely what must not happen, Escape does nothing at all. That is asserted below and
+  //     it is the half of the old invariant that actually mattered.
+  await run.check("14  a mis-aimed click cannot skip the engine, and Escape is the named button", async () => {
     for (const preset of ["missing-engine", "missing-both"]) {
       const page = await openApp(browser, { setup: preset, memory: "none", chosenEntity: null });
       await page.waitForSelector("#setup-sheet:not([hidden])");
@@ -482,13 +501,7 @@ async function main() {
           preset + ": a backdrop click advanced to the corpus question with no engine installed"
         );
       }
-      // AND ESCAPE IS INERT. It has never closed this sheet — the global handler names the
-      // overlays it closes and this is deliberately not one — and this is what keeps it that
-      // way, because "nobody added it to the list" is not a guarantee.
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(120);
-      assert(await page.isVisible("#setup-sheet"), preset + ": Escape dismissed the engine step");
-      // Nor does a click inside the panel that hits no control.
+      // A click inside the panel that hits no control does nothing either.
       await page.click("#setup-title");
       await page.waitForTimeout(120);
       assert(
@@ -505,9 +518,80 @@ async function main() {
       await page.click("#setup-later");
       await page.waitForSelector("#memory-setup:not([hidden])");
       assert(await page.isHidden("#setup-sheet"), preset + ": \"Not now\" must still close it");
-      bump(12);
+      bump(11);
       assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
       await page.close();
+
+      // ---- AND ESCAPE IS THAT SAME BUTTON, on a fresh copy of the same machine ----------
+      //
+      // CEO, 2026-09-17, item 1. Pressed from the COMPOSER, not from inside the panel: an
+      // Escape that only works while focus is already in the popup is the defect this ruling
+      // was given about, not a fix for it.
+      const byKey = await openApp(browser, { setup: preset, memory: "none", chosenEntity: null });
+      await byKey.waitForSelector("#setup-sheet:not([hidden])");
+      await byKey.evaluate(() => {
+        const input = document.getElementById("input");
+        if (input) input.focus();
+      });
+      await byKey.keyboard.press("Escape");
+      await byKey.waitForSelector("#memory-setup:not([hidden])");
+      assert(
+        await byKey.isHidden("#setup-sheet"),
+        preset + ": Escape must close this sheet the way its own named control does"
+      );
+      // THE SAME CLOSE, NOT A SECOND ONE. Nothing was installed, and the question that was
+      // held back is asked — which is `closeSetupSheet`'s handoff, reached through the button.
+      assertEqual(
+        await byKey.evaluate(() => window.__calls.filter((c) => c.cmd === "run_setup").length),
+        0,
+        preset + ": Escape must not have started an install"
+      );
+      bump(2);
+      assert(byKey.__errors.length === 0, "the shell logged errors: " + byKey.__errors.join(" | "));
+      await byKey.close();
+    }
+
+    // ---- MID-INSTALL, ESCAPE DOES NOTHING AT ALL ----------------------------------------
+    //
+    // This is the half of 704b4596 that matters, and it survives the CEO's ruling because of
+    // the FORM of the declaration rather than an exception to it: `data-dismiss` names "Not
+    // now" and "Close", `runSetup` hides both of them for the length of the run, and Escape
+    // can only ever press a control that is on screen. So the sheet is undismissable exactly
+    // while dismissing it would abandon a download, and nothing had to know that but the
+    // buttons.
+    //
+    // HELD THERE BY A `run_setup` THAT NEVER ANSWERS, not by a sleep. The mock's run finishes
+    // in about 60 ms, and a check that raced it would be measuring this machine.
+    {
+      const mid = await openApp(browser, { setup: "missing-engine", memory: "none", chosenEntity: null });
+      await mid.waitForSelector("#setup-sheet:not([hidden])");
+      await mid.evaluate(() => {
+        const bridge = window.RichBridge;
+        const real = bridge.invoke.bind(bridge);
+        bridge.invoke = (cmd, args) =>
+          cmd === "run_setup" ? new Promise(() => {}) : real(cmd, args);
+      });
+      await mid.click("#setup-go");
+      await mid.waitForSelector("#setup-progress:not([hidden])");
+      assert(await mid.isHidden("#setup-later"), "\"Not now\" must be off screen during the run");
+      assert(await mid.isHidden("#setup-close"), "\"Close\" must be off screen during the run");
+      await mid.evaluate(() => {
+        const input = document.getElementById("input");
+        if (input) input.focus();
+      });
+      await mid.keyboard.press("Escape");
+      await mid.waitForTimeout(120);
+      assert(
+        await mid.isVisible("#setup-sheet"),
+        "Escape dismissed the sheet mid-install, which is the download abandoned"
+      );
+      assert(
+        await mid.isHidden("#memory-setup"),
+        "Escape mid-install advanced to the corpus question with the engine half-installed"
+      );
+      bump(5);
+      assert(mid.__errors.length === 0, "the shell logged errors: " + mid.__errors.join(" | "));
+      await mid.close();
     }
     // AND IN THE SOURCE, so a later slice that re-adds the one-line convenience fails here
     // rather than on a customer's Mac.
@@ -527,8 +611,9 @@ async function main() {
     );
     bump(1);
     return (
-      "backdrop, Escape and the panel body are all inert; only the two buttons dismiss it — " +
-      "and the re-add is refused across all " + SOURCES.stateSources().length + " shipped UI file(s)"
+      "the backdrop and the panel body are inert and Escape is inert mid-install; the rest of " +
+      "the time Escape is the named button and nothing else — and the backdrop re-add is " +
+      "refused across all " + SOURCES.stateSources().length + " shipped UI file(s)"
     );
   });
 
