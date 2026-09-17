@@ -287,6 +287,117 @@ class GitTests(unittest.TestCase):
         self.assertEqual(current, info)
         self.assertEqual(json.loads(n.git("show", f"{oid}:latest.json")), self.manifest(info))
 
+    def fake_execute(self, out, calls=None):
+        calls = calls if calls is not None else []
+        def fake(*args, **kwargs):
+            calls.append(args)
+            if args[0] == "bash" and args[2] == "app":
+                (out / "latest.json").write_text(n.json_text(self.manifest_for(out)))
+        return fake, calls
+
+    def manifest_for(self, out):
+        # `out` is not part of `info`; the candidate's own recorded info supplies the
+        # version. Read it back rather than threading `info` through every caller.
+        info = json.loads((out / "build-info.json").read_text())
+        return self.manifest(info)
+
+    def test_build_stops_before_any_app_upload_or_channel_move(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "build-only"
+        fake, calls = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
+            n.build(info, out)
+        stages = [c[2] for c in calls if c[0] == "bash"]
+        # Not "verify-assets": that is finish()'s, and nothing here reached it.
+        self.assertEqual(stages, ["engine", "verify-engine", "app"])
+        uploads = [c for c in calls if c[:3] == ("gh", "release", "upload")]
+        # Only the engine asset -- never the app archive, the .sig or latest.json.
+        self.assertEqual(len(uploads), 1)
+        self.assertTrue(uploads[0][-1].endswith(".tar.gz"))
+        promote.assert_not_called()
+        self.assertEqual(n.channel(), (None, None))
+        self.assertTrue((out / n.CANDIDATE_MANIFEST).exists())
+
+    def test_finish_refuses_a_tampered_candidate(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "tampered"
+        fake, _ = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(info, out)
+        # Something touched a staged, already-recorded file after `build` ran --
+        # here the manifest `finish` is about to upload as `latest.json`.
+        (out / "latest.json").write_text("not what was signed")
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
+            with self.assertRaisesRegex(ValueError, "changed since it was built"):
+                n.finish(info, out)
+            promote.assert_not_called()
+        self.assertEqual(n.channel(), (None, None))
+
+    def test_finish_publishes_an_untouched_candidate(self):
+        """Positive control for the test above: the same candidate, unmodified, publishes."""
+        info = self.reserve()
+        out = Path(self.temp.name) / "untouched"
+        fake, calls = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(info, out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.finish(info, out)
+        stages = [c[2] for c in calls if c[0] == "bash"]
+        self.assertEqual(stages, ["engine", "verify-engine", "app", "verify-assets"])
+        oid, current = n.channel()
+        self.assertEqual(current, info)
+        self.assertEqual(json.loads(n.git("show", f"{oid}:latest.json")), self.manifest(info))
+
+    def test_finish_refuses_when_source_is_no_longer_an_ancestor_of_main(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "stale-main"
+        fake, _ = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(info, out)
+        # main gets force-pushed to an unrelated, parentless history -- one that does
+        # NOT contain the built source as an ancestor -- exactly what a walker being
+        # asked to wait for a QA verdict is exposed to.
+        empty_tree = n.git("hash-object", "-t", "tree", "/dev/null")
+        orphan = n.git("commit-tree", empty_tree, input="rewritten history\n")
+        n.git("push", "-q", "--force", "origin", f"{orphan}:main")
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.finish(info, out)
+            promote.assert_not_called()
+        self.assertEqual(n.channel(), (None, None))
+
+    def test_release_equals_build_then_finish(self):
+        """`release` (== `publish`) and an explicit `build` + `finish` reach the same state."""
+        fused_info = self.reserve()
+        fused_out = Path(self.temp.name) / "fused"
+        fused_fake, fused_calls = self.fake_execute(fused_out)
+        with patch.object(n, "execute", side_effect=fused_fake):
+            n.publish(fused_info, fused_out)
+        fused_stages = [c[2] for c in fused_calls if c[0] == "bash"]
+        fused_oid, fused_channel = n.channel()
+
+        n.git("checkout", "-q", "main")
+        # The source has not moved, so plan() would otherwise report "already
+        # published" for it -- force a second nightly of the same source, same as
+        # test_successful_source_skipped_but_manual_force_allocates.
+        split_info = n.prepare(self.plan(force=True))
+        split_out = Path(self.temp.name) / "split"
+        split_fake, split_calls = self.fake_execute(split_out)
+        with patch.object(n, "execute", side_effect=split_fake):
+            n.build(split_info, split_out)
+        with patch.object(n, "execute", side_effect=split_fake):
+            n.finish(split_info, split_out)
+        split_stages = [c[2] for c in split_calls if c[0] == "bash"]
+        split_oid, split_channel = n.channel()
+
+        self.assertEqual(fused_stages, split_stages)
+        self.assertEqual(fused_channel["version"], fused_info["version"])
+        self.assertEqual(split_channel["version"], split_info["version"])
+        self.assertEqual(json.loads(n.git("show", f"{fused_oid}:latest.json")),
+                         self.manifest(fused_info))
+        self.assertEqual(json.loads(n.git("show", f"{split_oid}:latest.json")),
+                         self.manifest(split_info))
+
 
 class ReleaseScriptTests(unittest.TestCase):
     def setUp(self):

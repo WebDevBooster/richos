@@ -6,6 +6,7 @@ The manual local runner serializes runs; Git ref creation/CAS rejects competing 
 """
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ MANIFEST = APP / "src-tauri/Cargo.toml"
 CONFIG = APP / "src-tauri/tauri.conf.json"
 LOCK = APP / "src-tauri/Cargo.lock"
 PROVENANCE = APP / "nightly-build.json"
+CANDIDATE_MANIFEST = "candidate.json"
 REPO = "WebDevBooster/richos"
 CHANNEL_REF = "refs/heads/nightly-channel"
 ENDPOINT = f"https://raw.githubusercontent.com/{REPO}/nightly-channel/latest.json"
@@ -214,7 +216,64 @@ def promote(info, manifest):
     return commit
 
 
-def publish(info, out):
+def _candidate_files(out):
+    """Every file under `out`, `candidate.json` itself excepted, as {relative path: sha256}."""
+    return {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(out.rglob("*")) if p.is_file() and p.name != CANDIDATE_MANIFEST}
+
+
+def write_candidate_manifest(info, out):
+    (out / CANDIDATE_MANIFEST).write_text(json_text({"info": info, "files": _candidate_files(out)}))
+
+
+def verify_candidate_manifest(info, out):
+    """Refuse a candidate whose recorded bytes no longer match what is on disk.
+
+    Covers the version, every asset's SHA and the updater signature file alike --
+    all of them are just files under `out`, so one hash pass over the recorded set
+    catches any of the three changing. A candidate that was never built here (no
+    manifest) or built for a different plan is refused the same way.
+    """
+    path = out / CANDIDATE_MANIFEST
+    if not path.exists():
+        raise ValueError(f"no {CANDIDATE_MANIFEST} in {out} -- run \"nightly.py build\" first")
+    recorded = json.loads(path.read_text())
+    if recorded["info"] != info:
+        raise ValueError("candidate was built for a different plan than the one given to publish")
+    mismatched = [f"{rel}: recorded {digest}, now {_candidate_files(out).get(rel, 'MISSING')}"
+                  for rel, digest in recorded["files"].items()
+                  if _candidate_files(out).get(rel) != digest]
+    if mismatched:
+        raise ValueError("candidate has changed since it was built; refusing to publish it:\n  "
+                         + "\n  ".join(mismatched))
+
+
+def verify_source_is_current(source_commit):
+    """Refuse a candidate built from a commit `main` no longer contains.
+
+    `git fetch` then compare against `FETCH_HEAD`, exactly like `Runner.checkout` in
+    nightly-local.py: a locally cached `origin/main` remote-tracking ref is not
+    guaranteed to exist or be current, and only an explicit fetch is.
+    """
+    git("fetch", "--no-tags", "origin", "main")
+    current_main = git("rev-parse", "FETCH_HEAD")
+    git("merge-base", "--is-ancestor", source_commit, current_main)
+
+
+def build(info, out):
+    """Produce the signed, notarized, engine-pinned candidate under `out`, and stop.
+
+    This is everything `publish` does up to and including compiling the app against
+    a verified engine pin. It still touches the network: the app's pin is a claim
+    about bytes already served from this release's tag
+    (make-release.sh:15-24), and the only way to make that claim true is to create
+    the (still-prerelease) release for this tag and put the engine asset there --
+    `verify-engine` inside `make-release.sh` (:296-317) is what actually refuses if
+    those bytes are not back on the wire; that refusal, not anything in
+    make-engine-asset.sh, is what makes an unpublished pin unbuildable. What `build`
+    does NOT do: upload the app itself, write `latest.json`, or move
+    `nightly-channel` -- nobody can install what this produces until `finish` runs.
+    """
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
     out.mkdir(parents=True, exist_ok=False)
@@ -235,9 +294,33 @@ def publish(info, out):
     execute("bash", release, "app", "--out", str(out), "--notes", f"Nightly {info['version']}")
     if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
         raise ValueError("build changed the tagged source tree; refusing artifact publication")
+    write_candidate_manifest(info, out)
+
+
+def finish(info, out):
+    """Publish a candidate `build` already produced: upload, verify, promote.
+
+    Refuses if the files `build` recorded no longer match what is on disk, or if
+    `info`'s source commit is no longer an ancestor of the current `main` --
+    someone could have force-pushed or rebased main while a walker was on the
+    candidate. Nobody can install anything published here before this runs.
+    """
+    # `build` and `finish` can run as separate processes, an arbitrary time apart
+    # (a QA walk in between), sharing the one dedicated worktree. If anything else
+    # re-checked it out in the meantime (a `check` or another `build`), this is the
+    # same guard `build` itself applies right after compiling, re-applied here
+    # because that guarantee does not survive a second process using the worktree.
+    if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
+        raise ValueError("the source worktree no longer matches this candidate's build "
+                         "commit; run \"nightly-local.py build\" again before publishing")
+    verify_candidate_manifest(info, out)
+    verify_source_is_current(info["source_commit"])
+    scripts = ROOT / APP / "scripts"
+    release = str(scripts / "make-release.sh")
+    engine_version = (ROOT / "richos/engine/VERSION").read_text().strip()
     assets = [str(p) for p in sorted(out.iterdir()) if p.name not in
               {"engine-pin.env", "engine-published.ok", "latest.json",
-               f"richos-engine-{engine_version}.tar.gz"}]
+               f"richos-engine-{engine_version}.tar.gz", CANDIDATE_MANIFEST}]
     execute("gh", "release", "upload", info["tag"], "--repo", REPO, *assets)
     execute("gh", "release", "upload", info["tag"], "--repo", REPO, str(out / "latest.json"))
     # This validates published bytes and their updater signature before the pointer moves.
@@ -247,12 +330,23 @@ def publish(info, out):
     print(f"Published {info['tag']}; nightly-channel at {channel_commit}", flush=True)
 
 
+def publish(info, out):
+    """`build` then `finish`, in one motion -- what `release` still does."""
+    build(info, out)
+    finish(info, out)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("plan")
     p.add_argument("--force", action="store_true")
     p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("build")
+    p.add_argument("--plan", type=Path, required=True)
+    p.add_argument("--out", type=Path, required=True)
+    p = sub.add_parser("finish")
+    p.add_argument("--out", type=Path, required=True)
     p = sub.add_parser("run")
     p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
@@ -261,6 +355,17 @@ def main():
         info = plan(args.force)
         args.output.write_text(json_text(info))
         print(json_text(info))
+    elif args.command == "build":
+        info = json.loads(args.plan.read_text())
+        if not info["build"]:
+            raise ValueError("plan did not request a build")
+        info = prepare(info)
+        build(info, args.out.resolve())
+        print(json_text(info))
+    elif args.command == "finish":
+        out = args.out.resolve()
+        candidate = json.loads((out / CANDIDATE_MANIFEST).read_text())
+        finish(candidate["info"], out)
     else:
         info = json.loads(args.plan.read_text())
         if not info["build"]:
