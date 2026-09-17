@@ -47,10 +47,13 @@ use std::path::{Path, PathBuf};
 /// A trait so the reconciliation is a pure comparison this suite can drive without a
 /// working copy, and so the one place that shells out to `git` is a single small
 /// implementation with its own test ([`GitRepositories`]).
-pub trait Repositories {
+pub trait Repositories: Send + Sync {
     /// What `git rev-parse HEAD` answers for this repository, or `None` when it could not
     /// be read. **`None` is never "unchanged"** — a repository that cannot be read is
     /// reported as unread.
+    ///
+    /// `Send + Sync` because the work host holds one and pins from its runner threads;
+    /// the readings are independent and neither implementation keeps state.
     fn head(&self, path: &str) -> Option<String>;
 }
 
