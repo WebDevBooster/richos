@@ -614,6 +614,7 @@ mod tests {
             title: title.into(),
             scope: "org-shared".into(),
             company: None,
+            provenance: Default::default(),
             line: Some(format!("• [{kind}] {title} — {line} (ref: {record_ref})")),
         }
     }
