@@ -84,6 +84,14 @@ workers remain open, the host stops its owned processes and retains workspaces
 and receipts for reconciliation. No background-while-closed promise is made.
 Recovery never converts interrupted execution into verified completion.
 
+A lease working outside the visible turn names its own ECS seat on every request,
+one seat per assignment, so its frozen binding survives whatever is said in the
+conversation meanwhile. Seats are reconciled in the same sweep as receipts: a
+seat whose assignment is settled or absent is released, a seat whose assignment
+is merely waiting for a decision is kept, and a seat that could not be released
+is reported rather than skipped. An assignment whose workers have all stopped is
+not settled -- that is the state where it is waiting for approval.
+
 ## Knowledge corrections
 
 Operational changes use ECS checkpoint/update contracts. Knowledge changes use
