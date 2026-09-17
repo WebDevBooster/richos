@@ -876,6 +876,69 @@ test('reconcile HOLDS a quarantined item and a single uncorroborated untrusted i
   assert.equal(reconcile(govern(EVENT_ORG)).promotionMethod, 'rich_inferred');
 });
 
+// ---- Kind-generality (§4.1 only): the same rules serve `document` without a vendor/source branch ---
+// A file's modification is NOT something that happened in the CEO's day. Synthesis must never put a
+// filename into the temporal skeleton as though it were a meeting.
+
+/** Build a governed `document` SourceItem straight from the §4.1 contract — no adapter involved. */
+function governedDoc(fields = {}) {
+  const item = buildSourceItem({
+    vendor: 'google', source: 'drive', kind: 'document', sourceItemId: 'google:drive:inst:file_1',
+    provenance: { fetchedAt: NOW, vendorEtag: 'v2', vendorUrl: 'https://drive.google.com/file/d/file_1/view' },
+    temporal: { occurredAt: NOW },
+    ...fields,
+  });
+  return classifyTrust(resolveActors(item, ceoIdentity(IDENTITY)), { now: NOW });
+}
+
+test('extractCandidates never manufactures an EVENT from a document (control: an event still yields one)', () => {
+  // The author also appears in the party list, exactly as a Calendar organizer appears in attendees.
+  const doc = governedDoc({
+    content: { title: 'Q3 Strategy.docx', text: 'Action items to follow.' },
+    actors: {
+      author: { name: 'Alice Nguyen', email: 'alice@acme.com' },
+      recipients: [{ name: 'Alice Nguyen', email: 'alice@acme.com' }, { name: 'The CEO', email: 'ceo@acme.com' }],
+    },
+  });
+  const fromDoc = extractCandidates(doc);
+  assert.equal(fromDoc.event, null, 'a document modification is not a meeting');
+  // POSITIVE CONTROL: the extractor is not simply returning null for everything.
+  assert.equal(extractCandidates(govern(EVENT_ORG)).event.type, 'event');
+  // A document still contributes its PEOPLE and its commitment cues (§4.5 + §4.4).
+  assert.deepEqual(fromDoc.entities.map((e) => e.canonical), ['Alice Nguyen']);
+  assert.ok(fromDoc.commitments.some((c) => /action\s+item/i.test(c.cue)));
+});
+
+test('isMemoryCandidate drops a REMOVED/trashed document (supersede signal), keeps a live one', () => {
+  const live = { content: { title: 'Q3 Strategy.docx', text: 'Notes.' }, actors: { recipients: [{ name: 'Alice Nguyen', email: 'alice@acme.com' }] } };
+  assert.equal(isMemoryCandidate(governedDoc(live)).candidate, true, 'positive control: a live doc IS a candidate');
+  for (const flag of ['removed', 'trashed']) {
+    const gone = governedDoc({ ...live, content: { ...live.content, structured: { [flag]: true } } });
+    const verdict = isMemoryCandidate(gone);
+    assert.equal(verdict.candidate, false, `a ${flag} document is withdrawn, not a new memory`);
+    assert.match(verdict.reason, /supersede signal/);
+  }
+});
+
+test('entity candidates come from recipients as well as attendees, and count a repeated person ONCE', () => {
+  // A Drive file whose owner is also its last modifier names Alice twice. Corroboration means "seen
+  // across many ITEMS" (entity-feed.js), so one item must not self-corroborate her into promotion.
+  const doc = governedDoc({
+    content: { title: 'Roadmap.gdoc', text: '' },
+    actors: {
+      author: { name: 'Alice Nguyen', email: 'alice@acme.com' },
+      recipients: [{ name: 'Alice Nguyen', email: 'alice@acme.com' }, { name: 'Alice Nguyen', email: 'alice@acme.com' }],
+    },
+  });
+  assert.deepEqual(extractCandidates(doc).entities.map((e) => e.canonical), ['Alice Nguyen']);
+  // POSITIVE CONTROL: two DIFFERENT people on one item both come through.
+  const two = governedDoc({
+    content: { title: 'Roadmap.gdoc', text: '' },
+    actors: { recipients: [{ name: 'Alice Nguyen', email: 'alice@acme.com' }, { name: 'Bob Ramirez', email: 'bob@acme.com' }] },
+  });
+  assert.deepEqual(extractCandidates(two).entities.map((e) => e.canonical).sort(), ['Alice Nguyen', 'Bob Ramirez']);
+});
+
 // =================================================================================================
 group('Entity-memory feed (§4.5) — the two flywheels converge, no-clobber via learnTerm');
 
