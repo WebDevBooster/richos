@@ -98,6 +98,16 @@ use std::path::{Path, PathBuf};
 /// The template, compiled in. Text, not a dependency — `richos-core` gains no build step.
 pub const DOCTRINE_TEMPLATE: &str = include_str!("../doctrine/inner-doctrine.md");
 
+/// **THE FRONT DESK'S JOB, in its own words** — the CEO's Two Riches page, note 3, as the
+/// standing instruction the conversation lease actually comes up with.
+///
+/// Compiled in beside the template above and for the same reason: it is text this app owns.
+/// The BACK END's job description is the engine's `mega-lander/DESKTOP.md` and stays there;
+/// `engine_profile::standing_doctrine` picks between the two by lease role. Until
+/// 2026-09-17 both leases got `DESKTOP.md`, which is why the front desk was instructed to
+/// prepare workers, review commits and integrate branches — the tools it no longer has.
+pub const FRONT_DESK_DOCTRINE: &str = include_str!("../doctrine/front-desk.md");
+
 /// The rendered file's name, inside this install's own configuration directory — beside
 /// `config.json` and `entities.json`, same directory, same durability posture.
 pub const DOCTRINE_FILENAME: &str = "inner-doctrine.md";
