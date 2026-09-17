@@ -8,6 +8,25 @@
 #   richos/app/scripts/package-app.sh --verify-only <path/to/RichOS.app> [--expect-notarized]
 #   richos/app/scripts/package-app.sh --sign developer-id --dry-run   # resolve, do not build
 #   richos/app/scripts/package-app.sh --updater            # ...and the signed update artifacts
+#   richos/app/scripts/package-app.sh --release             # THIS build IS the release make-release.sh tags
+#   richos/app/scripts/package-app.sh --nightly <version>   # THIS build IS the nightly nightly.py reserved
+#
+# DECLARED INTENT, AND WHAT A PLAIN RUN NOW IS
+# ---------------------------------------------
+# Every run is release, nightly, or (the default, with neither flag) a DEVELOPMENT BUILD —
+# and it is declared by the caller, never guessed. make-release.sh passes --release or
+# --nightly <version> itself, derived from the same VERSION shape it already branches on;
+# nothing here inspects the environment to decide.
+#
+# A development build's version can never be mistaken for a release: it is stamped
+# `{cargo-version}-dev.{shortsha}`, with `.dirty` appended when the tree has uncommitted
+# changes — the same shape `nightly.py` already uses for `-nightly.{day}.{n}`, with `dev` in
+# place of `nightly`. This is what closes CEO 2026-09-17 item 4's open half
+# (esc-20260917T081214Z-b466c998): the 2026-09-08 build he was handed was a plain run with
+# no declared intent, and it shipped Cargo.toml's bare, unreleased "1.0.3" verbatim because
+# nothing before this stopped it. `verify_bundle` now refuses that bare number outright
+# unless `--release` was declared; a `-dev.` or `-nightly.` version was never bare in the
+# first place, so neither path needs to declare anything to pass.
 #
 # WHY THIS FILE EXISTS
 # --------------------
@@ -206,6 +225,9 @@ verify_only=""
 expect_notarized=""
 dry_run=""
 updater="${RICHOS_UPDATER:-}"
+release_flag=""
+nightly_flag=""
+nightly_version=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -218,7 +240,14 @@ while [ $# -gt 0 ]; do
     --expect-notarized) expect_notarized=1; shift ;;
     --updater)     updater=1; shift ;;
     --dry-run)     dry_run=1; shift ;;
-    -h|--help)     sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --release)     release_flag=1; shift ;;
+    --nightly)     nightly_flag=1; nightly_version="${2:-}"
+                   # `shift 2` with nothing left after `--nightly` is a `set -e` exit under
+                   # bash's own exit-status-1-on-short-shift behavior, before the
+                   # "--nightly requires a version" refusal below ever runs.
+                   if [ "$#" -ge 2 ]; then shift 2; else shift; fi ;;
+    --nightly=*)   nightly_flag=1; nightly_version="${1#*=}"; shift ;;
+    -h|--help)     sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "error: unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -227,6 +256,30 @@ case "$sign_mode" in
   adhoc|developer-id) ;;
   *) echo "error: --sign must be 'adhoc' or 'developer-id', got: ${sign_mode}" >&2; exit 2 ;;
 esac
+
+# ---------------------------------------------------------------------------
+# DECLARED INTENT — release, nightly, or (the default, with neither flag) a
+# development build. Never guessed: make-release.sh passes --release or
+# --nightly <version> itself (derived from the VERSION shape it already
+# branches on), and nightly.py never calls this script directly. CEO
+# 2026-09-17 item 4, the open half of richos 62f716c3, closed by
+# esc-20260917T081214Z-b466c998.
+# ---------------------------------------------------------------------------
+if [ -n "$release_flag" ] && [ -n "$nightly_flag" ]; then
+  echo "error: --release and --nightly are mutually exclusive" >&2
+  exit 2
+fi
+if [ -n "$nightly_flag" ] && [ -z "$nightly_version" ]; then
+  echo "error: --nightly requires the version it is building, e.g. --nightly 1.2.0-nightly.20260917.1" >&2
+  exit 2
+fi
+if [ -n "$release_flag" ]; then
+  intent="release"
+elif [ -n "$nightly_flag" ]; then
+  intent="nightly"
+else
+  intent="dev"
+fi
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
@@ -241,7 +294,7 @@ BUNDLE_VERSION=""
 # so the two can never drift into checking different things.
 # ---------------------------------------------------------------------------
 verify_bundle() {
-  local app="$1" mode="$2" expect_stapled="${3:-}"
+  local app="$1" mode="$2" expect_stapled="${3:-}" intent="${4:-dev}" expected_version="${5:-}"
   local failures=()
 
   if [ ! -d "$app" ]; then
@@ -399,12 +452,13 @@ verify_bundle() {
   # main went on to 1.2.0 at d9cd1b6c. So a development build was stamped with a version
   # reserved for a release that never happened, handed to him, and had no way to say so.
   #
-  # THIS IS THE MOMENT THAT FACT IS KNOWABLE, so it is the moment it is said. A REFUSAL would
-  # be wrong here and the reason is exact: `make-release.sh` builds the bundle BEFORE it
-  # creates `v$VERSION` ("$TAG does not exist locally yet — create it on THIS commit"), so
-  # every genuine release build runs with no tag either. What separates the two cases is
-  # intent, which this script cannot read; what it can do is print the version, print whether
-  # a release of that version exists, and leave neither to be discovered on the CEO's Mac.
+  # THIS IS THE MOMENT THAT FACT IS KNOWABLE, so it is the moment it is checked. IT USED TO
+  # ONLY REPORT, on the theory that intent could not be read: `make-release.sh` builds the
+  # bundle BEFORE it creates `v$VERSION`, so every genuine release build ran with no tag
+  # either, and nothing distinguished it from the 2026-09-08 bundle at this point. That
+  # theory is now false — the caller declares intent (`$intent`, resolved from --release /
+  # --nightly / neither, above) — so the bare-version case below is a REFUSAL, closing the
+  # open half of this incident (CEO item 4, esc-20260917T081214Z-b466c998).
   local short_version
   short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
                      "$app/Contents/Info.plist" 2>/dev/null || true)"
@@ -412,22 +466,69 @@ verify_bundle() {
     failures+=("Contents/Info.plist has no CFBundleShortVersionString — this bundle cannot tell anyone which version it is, and the settings menu would render \"RichOS \" with nothing after it")
   else
     BUNDLE_VERSION="$short_version"
-    # The version this run INTENDED. Cargo.toml is the only copy (`make-release.sh` refuses a
-    # `version` key in tauri.conf.json for exactly that reason) — except for the one caller
-    # that overrides it on purpose: `updater-e2e.sh` builds 0.1.0 and 0.1.1 from one tree
-    # through RICHOS_EXTRA_TAURI_CONFIG, and both of those bundles are correct.
-    local intended
-    intended="$(sed -n 's/^version = "\(.*\)"/\1/p' "$src_tauri/Cargo.toml" 2>/dev/null | head -1 || true)"
-    if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
-      local overridden
-      overridden="$(printf '%s' "$RICHOS_EXTRA_TAURI_CONFIG" \
-        | python3 -c 'import json,sys
+    # THE RAW, UNRELEASED VERSION IN Cargo.toml — kept separate from `intended` below, and
+    # read regardless of any override, because it is the specific value that must never ship
+    # undeclared: `make-release.sh` sets it to the NEXT unreleased number (7bd1e727, "prepare
+    # version 1.0.3", is exactly that), and a plain build used to inherit it verbatim.
+    local cargo_version
+    cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$src_tauri/Cargo.toml" 2>/dev/null | head -1 || true)"
+
+    # The version this run INTENDED. `expected_version`, when the caller supplies it (the
+    # real build path always does — package-app.sh resolves it before compiling, from the
+    # same declared intent as the refusal below), is authoritative and skips both fallbacks.
+    # Without it — the --verify-only path, checking a bundle nobody here just built —
+    # Cargo.toml is the only copy (`make-release.sh` refuses a `version` key in
+    # tauri.conf.json for exactly that reason) — except for the one caller that overrides it
+    # on purpose: `updater-e2e.sh` builds 0.1.0 and 0.1.1 from one tree through
+    # RICHOS_EXTRA_TAURI_CONFIG, and both of those bundles are correct.
+    local intended="$expected_version"
+    if [ -z "$intended" ]; then
+      intended="$cargo_version"
+      if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
+        local overridden
+        overridden="$(printf '%s' "$RICHOS_EXTRA_TAURI_CONFIG" \
+          | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("version") or "")
 except Exception: print("")' 2>/dev/null || true)"
-      [ -n "$overridden" ] && intended="$overridden"
+        [ -n "$overridden" ] && intended="$overridden"
+      fi
     fi
-    if [ -n "$intended" ] && [ "$short_version" != "$intended" ]; then
-      failures+=("the bundle says it is $short_version and this build intended $intended. A manifest announcing one version over a bundle that is another is how an installed copy reports a version nobody shipped — the first version of the updater artifact line hit exactly this and announced 0.1.0 over a 0.1.1 bundle.")
+    if [ -n "$expected_version" ]; then
+      # The real build path already knows exactly what it intended (`target_version`,
+      # which accounts for --release / --nightly / the development stamp /
+      # RICHOS_EXTRA_TAURI_CONFIG, in that precedence) — checked exactly, no exemption.
+      if [ "$short_version" != "$intended" ]; then
+        failures+=("the bundle says it is $short_version and this build intended $intended. A manifest announcing one version over a bundle that is another is how an installed copy reports a version nobody shipped — the first version of the updater artifact line hit exactly this and announced 0.1.0 over a 0.1.1 bundle.")
+      fi
+    else
+      # No `expected_version` — a --verify-only call, checking a bundle nobody here just
+      # built — so `intended` fell back to the bare `cargo_version` above. A `-dev.` or
+      # `-nightly.` stamp of THAT SAME base is deliberately not equal to it and is not the
+      # thing this check exists to catch: that is a DIFFERENT base being announced (0.1.0
+      # over a 0.1.1 bundle), not a sanctioned pre-release suffix on the correct one.
+      case "$short_version" in
+        "${cargo_version}-dev."*|"${cargo_version}-nightly."*) ;;
+        *)
+          if [ -n "$intended" ] && [ "$short_version" != "$intended" ]; then
+            failures+=("the bundle says it is $short_version and this build intended $intended. A manifest announcing one version over a bundle that is another is how an installed copy reports a version nobody shipped — the first version of the updater artifact line hit exactly this and announced 0.1.0 over a 0.1.1 bundle.")
+          fi
+          ;;
+      esac
+    fi
+
+    # THE REFUSAL ITSELF. A version that is EXACTLY Cargo.toml's bare, unreleased number —
+    # plain X.Y.Z, no pre-release identifier at all — with nothing declaring --release for
+    # it, is precisely what he was handed: it tells whoever runs it "RichOS $short_version is
+    # up to date" about a number nobody ever shipped. Only --release exempts this;
+    # declaring --nightly does not, because a nightly build's Cargo.toml already carries its
+    # `-nightly.` suffix by the time this runs (nightly.py writes it in before calling
+    # make-release.sh) — if a nightly build ever produced a bare number anyway, that is a bug
+    # this refusal should also catch. A `-dev.` or `-nightly.` version never matches this
+    # pattern in the first place, so neither an ordinary development build nor a real
+    # nightly needs to declare anything to pass it.
+    if [ "$intent" != "release" ] && [ -n "$cargo_version" ] && [ "$short_version" = "$cargo_version" ] \
+       && printf '%s' "$short_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+      failures+=("this bundle's version is $short_version — Cargo.toml's bare, unreleased next version — and nothing declared --release for it. Pass --release for an actual release build (make-release.sh and nightly.py already do), or leave this as an ordinary run and it will stamp itself \"${short_version}-dev.<commit>\" instead, the way an undeclared build now does by default.")
     fi
   fi
 
@@ -465,6 +566,12 @@ say_version_identity() {
   [ -n "$BUNDLE_VERSION" ] || return 0
   say ""
   say "  version         : $BUNDLE_VERSION   (app/src-tauri/Cargo.toml, the only copy)"
+  case "$BUNDLE_VERSION" in
+    *-dev.*)
+      say "                    development build — not a release."
+      return 0
+      ;;
+  esac
   local tagged=""
   if command -v git >/dev/null 2>&1; then
     tagged="$(git -C "$src_tauri" rev-parse -q --verify "refs/tags/v$BUNDLE_VERSION^{commit}" 2>/dev/null || true)"
@@ -486,8 +593,9 @@ say_version_identity() {
 if [ -n "$verify_only" ]; then
   say "verifying an existing bundle: $verify_only"
   say "  expected signing mode: $sign_mode"
+  say "  declared intent      : $intent"
   [ -n "$expect_notarized" ] && say "  expected: a stapled notarization ticket"
-  if ! verify_bundle "$verify_only" "$sign_mode" "$expect_notarized"; then
+  if ! verify_bundle "$verify_only" "$sign_mode" "$expect_notarized" "$intent"; then
     exit 1
   fi
   say_version_identity
@@ -799,6 +907,77 @@ fi
 unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
 
 # ---------------------------------------------------------------------------
+# THE VERSION THIS BUILD WILL CARRY, decided by the intent declared above and
+# never inferred. release/nightly builds are UNCHANGED: Cargo.toml already
+# holds the number they will ship (make-release.sh refuses a `version` key in
+# tauri.conf.json for exactly that reason, and nightly.py writes its
+# `-nightly.` suffix into Cargo.toml before this script ever runs — --nightly
+# only cross-checks that the caller and Cargo.toml agree). A development
+# build — the default, with neither flag — gets a version nothing can mistake
+# for a release: Cargo.toml's base plus this commit,
+# `{cargo-version}-dev.{shortsha}`, with `.dirty` appended when the tree is
+# not clean. Applied the same way `updater-e2e.sh`'s own version override
+# already is proven to work: as an EARLIER --config overlay, so
+# RICHOS_EXTRA_TAURI_CONFIG (that one caller) still wins if it also sets
+# `version` — reflected below too, so what verify_bundle is told to expect is
+# what will actually get compiled.
+# ---------------------------------------------------------------------------
+cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$src_tauri/Cargo.toml" 2>/dev/null | head -1 || true)"
+if [ -z "$cargo_version" ]; then
+  warn "error: could not read a version from $src_tauri/Cargo.toml"
+  exit 3
+fi
+
+version_overlay=""
+target_version="$cargo_version"
+
+case "$intent" in
+  release)
+    : # unchanged — the bundle ships whatever Cargo.toml already says
+    ;;
+  nightly)
+    if [ -n "$nightly_version" ] && [ "$nightly_version" != "$cargo_version" ]; then
+      warn ""
+      warn "REFUSING — --nightly $nightly_version was declared and"
+      warn "$src_tauri/Cargo.toml says $cargo_version. nightly.py always writes the nightly"
+      warn "version into Cargo.toml before building; the two disagreeing means either the"
+      warn "wrong tree is checked out, or the wrong version was declared."
+      warn ""
+      exit 2
+    fi
+    ;;
+  dev)
+    dev_repo_root="$(git -C "$app_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+    dev_sha=""
+    [ -n "$dev_repo_root" ] && dev_sha="$(git -C "$dev_repo_root" rev-parse --short HEAD 2>/dev/null || true)"
+    if [ -z "$dev_sha" ]; then
+      warn ""
+      warn "REFUSING — this is a development build (neither --release nor --nightly was"
+      warn "declared) and this checkout has no git HEAD to stamp it with. A development"
+      warn "build is stamped {version}-dev.{commit} precisely so it can never be mistaken"
+      warn "for a release; run from a git checkout, or pass --release / --nightly <version>"
+      warn "for a build that genuinely is one."
+      warn ""
+      exit 2
+    fi
+    dev_dirty=""
+    if [ -n "$(git -C "$dev_repo_root" status --porcelain --untracked-files=all 2>/dev/null || true)" ]; then
+      dev_dirty=".dirty"
+    fi
+    target_version="${cargo_version}-dev.${dev_sha}${dev_dirty}"
+    version_overlay="{\"version\": \"${target_version}\"}"
+    ;;
+esac
+
+if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
+  extra_version="$(printf '%s' "$RICHOS_EXTRA_TAURI_CONFIG" \
+    | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("version") or "")
+except Exception: print("")' 2>/dev/null || true)"
+  [ -n "$extra_version" ] && target_version="$extra_version"
+fi
+
+# ---------------------------------------------------------------------------
 # --dry-run: everything decided, nothing built.
 #
 # The signing configuration is the part of a release that is wrong for weeks
@@ -812,6 +991,8 @@ if [ -n "$dry_run" ]; then
   say ""
   say "DRY RUN — the signing configuration resolved, and nothing was built."
   say ""
+  say "  intent              : $intent"
+  say "  version             : $target_version$( [ "$intent" = "dev" ] && printf ' (app/src-tauri/Cargo.toml + this commit; pass --release or --nightly <version> to change that)' )"
   say "  signing mode        : $sign_mode"
   if [ "$sign_mode" = "developer-id" ]; then
     say "  identity            : $wanted"
@@ -1008,6 +1189,16 @@ say ""
 # either way. It is also what lets a plain run work with no updater key at all.
 build_args=(tauri build --no-sign --bundles "$bundles")
 [ -n "$tauri_config_overlay" ] && build_args+=(--config "$tauri_config_overlay")
+# THE DEVELOPMENT-BUILD VERSION STAMP, resolved above. Applied as an overlay — not by
+# editing Cargo.toml — so release and nightly builds (which never set this) are byte-for-byte
+# what they always were, and so RICHOS_EXTRA_TAURI_CONFIG below can still win if it also
+# names `version` (order is what decides that, per tauri-cli's own --config merge).
+if [ -n "$version_overlay" ]; then
+  build_args+=(--config "$version_overlay")
+  say ""
+  say "  development build — stamping the version $target_version so it can never be"
+  say "  mistaken for a release. Pass --release or --nightly <version> to ship this as one."
+fi
 # ONE MORE OVERLAY, FOR THE ONE CALLER THAT NEEDS IT.
 #
 # `richos/app/scripts/updater-e2e.sh` builds two versions of the app and points them at a
@@ -1190,7 +1381,7 @@ say ""
 say "verifying the artefact that was produced (not the builder's exit code)..."
 expect_stapled=""
 [ "$sign_mode" = "developer-id" ] && [ "${RICHOS_NOTARIZE:-}" = "1" ] && expect_stapled=1
-if ! verify_bundle "$app_bundle" "$sign_mode" "$expect_stapled"; then
+if ! verify_bundle "$app_bundle" "$sign_mode" "$expect_stapled" "$intent" "$target_version"; then
   exit 1
 fi
 

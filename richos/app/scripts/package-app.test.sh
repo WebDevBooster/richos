@@ -60,9 +60,23 @@
 #   D8  a bundle with no CFBundleShortVersionString fails — it cannot say which version
 #       it is, and the settings menu would render "RichOS " with nothing after it
 #   D9  a bundle whose version is not the one this build intended fails
-#   D10 a version with no release behind it SAYS SO, at the build rather than on his Mac
+#   D10 a version with no release behind it SAYS SO, declared --release, at the build
 #   D11 ...and the one caller that overrides the version on purpose is not refused
 #   D12 ...and the other branch: a version that IS a release says so, and names the commit
+#   F1  a bare, undeclared version is refused unless --release says this bundle is one
+#   F2  ...and --release accepts the identical bare version
+#   F3  a nightly-suffixed version needs no declared intent — it was never "bare"
+#   F4  --nightly on that same version resolves
+#   F5  --nightly does NOT excuse a bare version — only --release does
+#   F6  --release and --nightly cannot both be declared
+#   F7  --nightly with no value is refused
+#   F8  a plain run with no declared intent is a development build, stamped {version}-dev.{commit}
+#   F9  --release keeps the bare Cargo.toml version, unstamped
+#   F10 --nightly refuses when Cargo.toml disagrees with the declared version
+#   F11 --nightly with the version Cargo.toml already carries resolves
+#   F12 a clean fixture tree's development stamp carries no .dirty suffix
+#   F13 an uncommitted change appends .dirty to the development stamp
+#   F14 a -dev. bundle is accepted with no declared intent, and says so
 #   E1  an exported API key does not satisfy the no-credentials case       [shim]
 #   E2  exported halves do not complete a half-supplied key                [shim]
 #   E3  an exported key does not outrank the case's own profile            [shim]
@@ -259,7 +273,7 @@ PLIST
 BUNDLE="$TMP/RichOS.app"
 make_bundle "$BUNDLE"
 
-run bash "$SBS" --verify-only "$BUNDLE"
+run bash "$SBS" --verify-only "$BUNDLE" --release
 expect "D1 a real ad-hoc bundle verifies in adhoc mode" 0 "OK: RichOS.app verifies"
 
 run bash "$SBS" --verify-only "$BUNDLE" --sign developer-id
@@ -324,8 +338,8 @@ run bash "$SBS" --verify-only "$BUNDLE"
 expect "D9 a bundle whose version is not the one this build intended fails" 1 "the bundle says it is 1.0.3 and this build intended 9.9.9"
 
 make_bundle "$BUNDLE"
-run bash "$SBS" --verify-only "$BUNDLE"
-expect "D10 a version with no release says so, in the run that makes the bundle" 0 "NO v9.9.9 RELEASE EXISTS"
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "D10 a version with no release says so, declared --release, in the run that makes the bundle" 0 "NO v9.9.9 RELEASE EXISTS"
 
 # AND THE ONE CALLER THAT OVERRIDES THE VERSION ON PURPOSE STILL WORKS. `updater-e2e.sh`
 # builds 0.1.0 and 0.1.1 out of one tree through RICHOS_EXTRA_TAURI_CONFIG; both of those
@@ -359,8 +373,107 @@ if [ -z "$SBG_SHA" ]; then
       "the fixture repository could not be created, so this branch was never exercised"
 else
   make_bundle "$BUNDLE"
-  run bash "$SBG/scripts/package-app.sh" --verify-only "$BUNDLE"
+  run bash "$SBG/scripts/package-app.sh" --verify-only "$BUNDLE" --release
   expect "D12 a version that IS a release says so, and names the commit" 0 "v9.9.9 is a release in this repository ($SBG_SHA)"
+fi
+
+echo ""
+echo "=== F. version intent — release, nightly, and the development-build default ==="
+# CEO 2026-09-17 item 4, the open half closed by esc-20260917T081214Z-b466c998: intent is
+# now DECLARED (--release / --nightly <version> / neither), never guessed, and a bare,
+# undeclared version is refused rather than merely reported.
+
+make_bundle "$BUNDLE"
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "F1 a bare, undeclared version is refused unless --release says this bundle is one" 1 "nothing declared --release for it"
+
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "F2 --release declares intent and the same bare version is accepted" 0 "OK: RichOS.app verifies"
+
+# A nightly-suffixed version was never "bare" in the first place — the regex the refusal
+# checks for is plain X.Y.Z, and a `-nightly.` version never matches it. Its own sandbox,
+# because `make_bundle`'s fixed 9.9.9 Cargo.toml would otherwise disagree with it.
+NIGHTLY_SB="$TMP/sandbox-nightly"; mkdir -p "$NIGHTLY_SB/scripts" "$NIGHTLY_SB/src-tauri/icons"
+ln -s "$SCRIPT" "$NIGHTLY_SB/scripts/package-app.sh"
+cp "$SB/src-tauri/icons/icon.icns" "$NIGHTLY_SB/src-tauri/icons/icon.icns"
+printf '[package]\nname = "richos-tauri"\nversion = "9.9.9-nightly.20260917.1"\n' > "$NIGHTLY_SB/src-tauri/Cargo.toml"
+NIGHTLY_BUNDLE="$TMP/RichOS-nightly.app"
+make_bundle "$NIGHTLY_BUNDLE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 9.9.9-nightly.20260917.1' "$NIGHTLY_BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+codesign --force --sign - --timestamp=none "$NIGHTLY_BUNDLE" >/dev/null 2>&1
+
+run bash "$NIGHTLY_SB/scripts/package-app.sh" --verify-only "$NIGHTLY_BUNDLE"
+expect "F3 a nightly-suffixed version needs no declared intent — it was never 'bare'" 0 "OK: RichOS-nightly.app verifies"
+
+run bash "$NIGHTLY_SB/scripts/package-app.sh" --verify-only "$NIGHTLY_BUNDLE" --nightly 9.9.9-nightly.20260917.1
+expect "F4 --nightly on that same version resolves" 0 "OK: RichOS-nightly.app verifies"
+
+# --nightly does NOT excuse a BARE version — only --release does. Back on the plain 9.9.9
+# fixture, declaring --nightly must not launder the exact failure --release is for.
+run bash "$SBS" --verify-only "$BUNDLE" --nightly 9.9.9
+expect "F5 --nightly does NOT excuse a bare version — only --release does" 1 "nothing declared --release for it"
+
+run bash "$SBS" --verify-only "$BUNDLE" --release --nightly 9.9.9
+expect "F6 --release and --nightly cannot both be declared" 2 "mutually exclusive"
+
+run bash "$SBS" --verify-only "$BUNDLE" --nightly
+expect "F7 --nightly with no value is refused" 2 "requires the version"
+
+# ---- F8-F11: the real script, --dry-run, against this repository's own tree -----------
+# --dry-run resolves the version without building, so these run the REAL script rather
+# than a sandbox: there is no bundle to check, only the declared configuration.
+APP_DIR="$(cd "$SRC_DIR/.." && pwd)"
+CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$APP_DIR/src-tauri/Cargo.toml" | head -1)"
+REAL_SHA="$(git -C "$SRC_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+
+run bash "$SCRIPT" --dry-run
+if [ "$CODE" = 0 ] && [ -n "$REAL_SHA" ] \
+   && printf '%s' "$OUT" | grep -q "intent              : dev" \
+   && printf '%s' "$OUT" | grep -Eq "version             : ${CARGO_VERSION}-dev\.${REAL_SHA}(\.dirty)? "; then
+  ok "F8 a plain run with no declared intent is a development build, stamped {version}-dev.{commit}"
+else
+  bad "F8 the default dry run did not show a dev-stamped version" "$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
+fi
+
+run bash "$SCRIPT" --release --dry-run
+expect "F9 --release keeps the bare Cargo.toml version, unstamped" 0 "version             : $CARGO_VERSION"
+
+run bash "$SCRIPT" --nightly "0.0.1-nightly.20260101.1" --dry-run
+expect "F10 --nightly refuses when Cargo.toml disagrees with the declared version" 2 "Cargo.toml says $CARGO_VERSION"
+
+run bash "$SCRIPT" --nightly "$CARGO_VERSION" --dry-run
+expect "F11 --nightly with the version Cargo.toml already carries resolves" 0 "version             : $CARGO_VERSION"
+
+# ---- F12-F14: a real, disposable git fixture, so .dirty is provable without touching
+# this repository's own tree -------------------------------------------------------------
+DEV_SB="$TMP/sandbox-dev"; mkdir -p "$DEV_SB/scripts" "$DEV_SB/src-tauri/icons"
+ln -s "$SCRIPT" "$DEV_SB/scripts/package-app.sh"
+cp "$SB/src-tauri/icons/icon.icns" "$DEV_SB/src-tauri/icons/icon.icns"
+printf '[package]\nname = "richos-tauri"\nversion = "9.9.9"\n' > "$DEV_SB/src-tauri/Cargo.toml"
+"${FIXTURE_GIT[@]}" -C "$DEV_SB" init -q . >/dev/null 2>&1
+"${FIXTURE_GIT[@]}" -C "$DEV_SB" add -A >/dev/null 2>&1
+"${FIXTURE_GIT[@]}" -C "$DEV_SB" commit -q -m fixture >/dev/null 2>&1
+DEV_SHA="$("${FIXTURE_GIT[@]}" -C "$DEV_SB" rev-parse --short HEAD 2>/dev/null || true)"
+
+if [ -z "$DEV_SHA" ]; then
+  bad "F12 a clean fixture tree's development stamp carries no .dirty suffix" \
+      "the fixture repository could not be created, so this branch was never exercised"
+  bad "F13 an uncommitted change appends .dirty to the development stamp" \
+      "the fixture repository could not be created, so this branch was never exercised"
+else
+  run bash "$DEV_SB/scripts/package-app.sh" --dry-run
+  expect "F12 a clean fixture tree's development stamp carries no .dirty suffix" 0 "version             : 9.9.9-dev.$DEV_SHA "
+
+  echo "dirty" >> "$DEV_SB/README-fixture.txt"
+  run bash "$DEV_SB/scripts/package-app.sh" --dry-run
+  expect "F13 an uncommitted change appends .dirty to the development stamp" 0 "version             : 9.9.9-dev.$DEV_SHA.dirty"
+
+  DEV_BUNDLE="$TMP/RichOS-dev.app"
+  make_bundle "$DEV_BUNDLE"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 9.9.9-dev.$DEV_SHA" "$DEV_BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+  codesign --force --sign - --timestamp=none "$DEV_BUNDLE" >/dev/null 2>&1
+  run bash "$DEV_SB/scripts/package-app.sh" --verify-only "$DEV_BUNDLE"
+  expect "F14 a -dev. bundle is accepted with no declared intent, and says so" 0 "development build — not a release"
 fi
 
 echo ""
