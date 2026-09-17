@@ -919,6 +919,39 @@ pub enum VoiceNotice {
     ///
     /// **Latched once per voice session**, not per run — see [`HalfDuplexNotice`]. What it
     /// describes is a standing property of the room and the hardware, not an event.
+    ///
+    /// ## It KEEPS this trigger after the half-duplex window was widened — decided, with the number
+    ///
+    /// On 2026-09-17 the window stopped being the playout queue's depth and became the whole of
+    /// Rich's answer, gaps and device tail included (`AudibleWindow`), and taint stopped being
+    /// decided once at `Started`. That makes this line fire on strictly more discards, so the
+    /// question was asked directly: is there anything left for it to say that is TRUE, or is
+    /// every discard on this path now indistinguishable from echo, leaving the sentence saying
+    /// nothing?
+    ///
+    /// **It is still true on every firing, and there is no honest narrower trigger.** Two
+    /// different things produce a tainted discard here — Rich's own echo, and the CEO genuinely
+    /// talking over Rich without meeting the 5.008 s debounce — and the line already refuses to
+    /// choose between them: every clause about him is conditional. That is not a hedge, it is
+    /// the measurement.
+    ///
+    /// The candidate narrower trigger was "fire only on a voiced residual standing above the
+    /// echo the canceller expects". It does not survive contact with the numbers:
+    ///
+    /// - **Voicing cannot separate them.** Rich's echo IS voiced speech, so `voiced.rs`'s pitch
+    ///   and harmonicity evidence answers yes to both. Only LEVEL is left.
+    /// - **Level cannot either, on this path.** Measured over the CEO's own recording with no
+    ///   near-end talker present, so every decibel of it is Rich
+    ///   (`tests/self_voice_replay.rs::separating_the_ceo_from_richs_echo_by_level_needs_a_margin_this_large`,
+    ///   447 far-active blocks): median residual **-48.6 dBFS**, p90 **-40.2**, p99 **-36.2**,
+    ///   peak **-34.3** — a spread of **14.3 dB** above the median. A level test would have to
+    ///   sit at -34.3 dBFS to stop firing on Rich alone, and the VAD's own absolute speech
+    ///   floor is 0.005 RMS = **-46.02 dBFS** (`vad.rs:86-91`). So the discriminator would sit
+    ///   **11.7 dB above the level at which the app is willing to call something speech at
+    ///   all**: it would stay silent for a CEO speaking normally and announce itself only when
+    ///   he raised his voice, which is the wrong way round.
+    ///
+    /// So the sentence stays, unchanged, latched once per session. It is what the app knows.
     CouldNotListenWhileSpeaking,
 }
 

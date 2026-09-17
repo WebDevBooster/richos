@@ -805,3 +805,63 @@ fn the_hold_is_the_sum_of_the_measured_terms_floored_at_one_tick() {
     let slow = audible_hold_secs(0.085, 0.040);
     assert!((slow - (0.085 + 0.040 + frames_to_secs(1))).abs() < 1e-6, "{slow}");
 }
+
+// =============================================================================================
+// WHAT IS LEFT FOR THE NOTICE TO SAY
+// =============================================================================================
+
+/// **COULD THE APP TELL THE CEO'S VOICE FROM RICH'S ECHO BY LEVEL? MEASURED, ON HIS PATH.**
+///
+/// With the half-duplex window covering the whole answer, every tainted discard on an
+/// unconfident canceller is audio that overlapped Rich. Two different things produce it — his
+/// echo, and the CEO genuinely talking over Rich without meeting the 5.008 s debounce — and the
+/// brief asks whether the second can be separated from the first, so the notice could fire only
+/// on a voiced residual that stands above the echo the canceller expects.
+///
+/// **Voicing cannot separate them**: Rich's echo IS voiced speech, so `voiced.rs`'s pitch and
+/// harmonicity evidence says yes to both. That leaves LEVEL, and level has to clear the
+/// residual's own block-to-block spread or the test fires on Rich alone.
+///
+/// This measures that spread over the CEO's own recording with no near-end talker present at
+/// all: every decibel of it is Rich, so anything inside it is indistinguishable from him by
+/// construction. The figure is printed, and the test asserts only that it is large — the exact
+/// value belongs in the log, not in an assertion that would break on a new fixture.
+#[test]
+fn separating_the_ceo_from_richs_echo_by_level_needs_a_margin_this_large() {
+    let mic = read("-mic.wav");
+    let reference = read("-reference.wav");
+    let (mut aec, ring) = EchoCanceller::new();
+    let n = mic.len().min(reference.len());
+    let mut residuals: Vec<f32> = Vec::new();
+    for b in 0..(n / AEC_BLOCK) {
+        let lo = b * AEC_BLOCK;
+        ring.push(&reference[lo..lo + AEC_BLOCK]);
+        let mut buf = [0.0f32; AEC_BLOCK];
+        buf.copy_from_slice(&mic[lo..lo + AEC_BLOCK]);
+        aec.process_block(&mut buf);
+        if aec.last_block().reference_rms > FAR_END_ACTIVE_RMS {
+            residuals.push(20.0 * rms(&buf).max(1e-9).log10());
+        }
+    }
+    assert!(residuals.len() > 100, "{} far-active blocks", residuals.len());
+    residuals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pct = |q: f32| residuals[((residuals.len() - 1) as f32 * q) as usize];
+    let (p50, p90, p99, max) = (pct(0.50), pct(0.90), pct(0.99), *residuals.last().unwrap());
+    let spread = max - p50;
+    println!(
+        "[measured] Rich's echo alone, {} far-active blocks: median {p50:.1} dBFS, p90 {p90:.1}, \
+         p99 {p99:.1}, peak {max:.1} — spread above the median {spread:.1} dB",
+        residuals.len()
+    );
+    println!(
+        "[measured] so a level test would have to sit at least {spread:.1} dB above the median \
+         before it stopped firing on Rich alone, i.e. the CEO would have to reach {:.1} dBFS at \
+         the microphone while the echo sits at {p50:.1} dBFS",
+        p50 + spread
+    );
+    assert!(
+        spread > 9.0,
+        "the residual's own spread is only {spread:.1} dB, so a level discriminator may now be \
+         worth building — re-derive the decision recorded in the verification note"
+    );
+}
