@@ -28,12 +28,16 @@
  * tests", and this is wiring time. An adapter that fails either one never reaches the ingest spine.
  */
 
-import { GOOGLE_SCOPES } from '../config.js';
+import { GOOGLE_SCOPES, MICROSOFT_SCOPES } from '../config.js';
 import { validateAdapter } from './adapter.js';
 import { assertPollingOnly } from './privacy.js';
 import { GoogleCalendarAdapter } from './adapters/google-calendar.js';
 import { GoogleDriveAdapter, DRIVE_METADATA_SCOPE } from './adapters/google-drive.js';
 import { GoogleGmailAdapter } from './adapters/google-gmail.js';
+import { MicrosoftCalendarAdapter } from './adapters/microsoft-calendar.js';
+import { MicrosoftOneDriveAdapter, ONEDRIVE_ALL_SCOPE } from './adapters/microsoft-onedrive.js';
+import { MicrosoftOutlookAdapter, MAIL_CONTENT_SCOPE } from './adapters/microsoft-outlook.js';
+import { normalizeGraphScope } from './microsoft-auth.js';
 
 /**
  * The sources RichOS knows about, in the CEO's own build order (§0: Calendar → Drive → Gmail).
@@ -99,9 +103,114 @@ export const GOOGLE_SOURCES = [
   },
 ];
 
+/**
+ * The Microsoft sources (P4) — the SAME shape as the Google table above, which is the whole point.
+ * The second vendor arrived exactly the way the comment on Gmail's entry predicted it would: three
+ * `create` lines against one interface, beside the first vendor's, with the core untouched.
+ *
+ * Two entries differ from their Google twins for reasons that are not symmetry-breaking:
+ *
+ *   - ONEDRIVE takes EITHER files grant, widest first, and runs `body` mode under both. Unlike
+ *     Drive — where the narrow grant (`drive.metadata.readonly`) means a real metadata-only mode —
+ *     Graph publishes no metadata-only files scope, so there is no narrower grant to degrade TO.
+ *     `Files.Read.All` is simply wider than `Files.Read` (it adds files shared with the CEO and
+ *     SharePoint); neither is degraded and neither is reported as such, because saying "degraded"
+ *     about a grant that reads everything the narrow one reads would be false.
+ *
+ *   - OUTLOOK declares both mail grants and passes `contentMode` under NEITHER. This is deliberate
+ *     and is the same stance `google-gmail.js`'s entry takes: if the CEO turns out to hold the wider
+ *     `Mail.Read`, RichOS still reads metadata only. A registry that switched message bodies on
+ *     because a wider grant happened to be present would be taking the §6.2 graduated-privacy
+ *     decision on his behalf from a config file. Holding a wider grant is not the same act as asking
+ *     RichOS to use it.
+ */
+export const MICROSOFT_SOURCES = [
+  {
+    source: 'calendar',
+    label: 'Calendar',
+    scope: MICROSOFT_SCOPES.calendar,
+    phase: 'P4',
+    create: (opts) => new MicrosoftCalendarAdapter(opts),
+  },
+  {
+    source: 'drive',
+    label: 'OneDrive',
+    scope: MICROSOFT_SCOPES.drive,
+    phase: 'P4',
+    note: 'documents and their text (matching the Drive decision §40)',
+    create: (opts) => new MicrosoftOneDriveAdapter(opts),
+    grants: [
+      { scope: ONEDRIVE_ALL_SCOPE, opts: { contentMode: 'body' } },
+      { scope: MICROSOFT_SCOPES.drive, opts: { contentMode: 'body' } },
+    ],
+  },
+  {
+    source: 'mail',
+    label: 'Outlook',
+    scope: MICROSOFT_SCOPES.mail,
+    phase: 'P4',
+    note: 'metadata-first (graduated privacy, §6.2 — Mail.ReadBasic: headers only, no body)',
+    create: (opts) => new MicrosoftOutlookAdapter(opts),
+    grants: [
+      { scope: MICROSOFT_SCOPES.mail, opts: {} },
+      // A wider grant is RECOGNIZED so the source still runs, and deliberately does not escalate.
+      {
+        scope: MAIL_CONTENT_SCOPE,
+        opts: {},
+        note: 'a wider mail grant is held; RichOS still reads metadata only until you ask otherwise',
+      },
+    ],
+  },
+];
+
+/** Every vendor's source table, keyed by the `vendor` value the adapters report. */
+export const VENDOR_SOURCES = {
+  google: GOOGLE_SOURCES,
+  microsoft: MICROSOFT_SOURCES,
+};
+
+/** The vendors this registry can wire. */
+export const VENDORS = Object.keys(VENDOR_SOURCES);
+
+/**
+ * The source table for a vendor. Throws rather than defaulting: silently wiring Google because a
+ * caller passed a typo is the class of failure this module exists to prevent.
+ * @param {'google'|'microsoft'} vendor
+ */
+export function sourcesForVendor(vendor) {
+  const table = VENDOR_SOURCES[vendor];
+  if (!table) {
+    throw new Error(`Workspace registry: unknown vendor "${vendor}" — known vendors are ${VENDORS.join(', ')}`);
+  }
+  return table;
+}
+
+/**
+ * Does a granted scope set contain `wanted`? The comparison is VENDOR-SPECIFIC, and that is not
+ * incidental complexity — it is the bug that would otherwise have shipped.
+ *
+ * Google returns the grant in exactly the spelling it was requested in, so an exact match is right
+ * and anything looser would be a way for a near-miss scope to pass. Entra returns Graph permissions
+ * in the SHORT form regardless of how they were requested, so an exact match against the
+ * fully-qualified URIs in `config.js:MICROSOFT_SCOPES` finds nothing at all — every Microsoft source
+ * would be skipped, and the CEO would be told he had not granted a scope he had just granted.
+ *
+ * @param {'google'|'microsoft'} vendor
+ * @returns {(granted:string[], wanted:string) => boolean}
+ */
+export function scopeMatcherFor(vendor) {
+  if (vendor === 'microsoft') {
+    return (granted, wanted) => {
+      const target = normalizeGraphScope(wanted).toLowerCase();
+      return granted.some((g) => normalizeGraphScope(g).toLowerCase() === target);
+    };
+  }
+  return (granted, wanted) => granted.includes(wanted);
+}
+
 /** The source entry for a name, or null. */
-export function sourceEntry(name) {
-  return GOOGLE_SOURCES.find((s) => s.source === name) || null;
+export function sourceEntry(name, vendor = 'google') {
+  return sourcesForVendor(vendor).find((s) => s.source === name) || null;
 }
 
 /**
@@ -113,9 +222,9 @@ export function grantsFor(entry) {
 }
 
 /** The scopes RichOS would request for a set of source names, in declaration order. */
-export function scopesForSources(names) {
+export function scopesForSources(names, vendor = 'google') {
   const want = new Set(names);
-  return GOOGLE_SOURCES.filter((s) => want.has(s.source)).map((s) => s.scope);
+  return sourcesForVendor(vendor).filter((s) => want.has(s.source)).map((s) => s.scope);
 }
 
 /** Split a grant (Google returns one space-delimited string) into a scope set. */
@@ -127,18 +236,26 @@ export function parseGrantedScopes(scope) {
 /**
  * Build the adapters the grant permits.
  *
+ * `vendor` defaults to `google` so every existing caller keeps its exact behavior — the Microsoft
+ * table is reached only by asking for it. Both vendors can be wired in one run by calling this twice;
+ * they hold separate grants, separate keychain entries and separate cursors, and a CEO may have
+ * connected either or both.
+ *
  * @param {{grantedScopes:string[], makeClient:() => object, accountId:string, now?:() => number,
- *   only?:string[]}} opts
- * @returns {{enabled:Array<{source:string, label:string, scope:string, adapter:object}>,
+ *   only?:string[], vendor?:'google'|'microsoft'}} opts
+ * @returns {{vendor:string, enabled:Array<{source:string, label:string, scope:string, adapter:object}>,
  *   skipped:Array<{source:string, label:string, scope:string, reason:string}>}}
  */
 export function buildRegistry(opts) {
-  const granted = new Set(opts.grantedScopes || []);
+  const vendor = opts.vendor || 'google';
+  const sources = sourcesForVendor(vendor);
+  const grantHas = scopeMatcherFor(vendor);
+  const granted = [...new Set(opts.grantedScopes || [])];
   const only = opts.only && opts.only.length ? new Set(opts.only) : null;
   const enabled = [];
   const skipped = [];
 
-  for (const entry of GOOGLE_SOURCES) {
+  for (const entry of sources) {
     if (only && !only.has(entry.source)) continue;
 
     if (!entry.create) {
@@ -147,7 +264,7 @@ export function buildRegistry(opts) {
     }
     // Widest grant the token actually carries. Nothing is inferred from what was REQUESTED: a
     // request is an intention and a grant is a fact, and only one of them decides what may be read.
-    const grant = grantsFor(entry).find((g) => granted.has(g.scope));
+    const grant = grantsFor(entry).find((g) => grantHas(granted, g.scope));
     if (!grant) {
       skipped.push({
         source: entry.source,
@@ -179,8 +296,12 @@ export function buildRegistry(opts) {
       scope: grant.scope,
       adapter,
       ...(grant.degraded ? { degraded: grant.degraded } : {}),
+      // A grant-level note is not a degradation and is reported separately from one: "you hold a
+      // wider mail grant and RichOS is still reading metadata only" is a fact the CEO should be able
+      // to see, and calling it "degraded" would misdescribe it in the one direction that matters.
+      ...(grant.note ? { grantNote: grant.note } : {}),
     });
   }
 
-  return { enabled, skipped };
+  return { vendor, enabled, skipped };
 }
