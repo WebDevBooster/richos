@@ -528,6 +528,31 @@ module.exports = [
       "\"Voice is still on.\" It is latched per run of refusals, so it states the refusal " +
       "once and never becomes a drip.",
   },
+  {
+    s: "I didn't catch that, so I haven't sent anything. I'm still listening.",
+    c: "INFORMATIONAL",
+    why:
+      "`VoiceNotice::DidNotCatchThat`, added 2026-09-17 for audit-3 §4 #4. Whisper RAN and " +
+      "returned non-speech noise — `(clears throat)` — which `stt::is_meaningful` refuses. " +
+      "It closes an ASYMMETRY between the two refusal paths that sit side by side in " +
+      "`RecognizerDesk::handle`: the pre-whisper gate in `voiced.rs` spoke on the FIRST " +
+      "refusal (`HeardNoVoice`, above), while this path said nothing at all until the THIRD " +
+      "in a row (`SoundButNoWords`). So the case where he definitely DID speak — a voice was " +
+      "measured, a stronger signal than the pre-whisper path ever has — was the quieter of " +
+      "the two. Ray walked it on the CEO's screen at frame `a3-15`: a 2.3 s utterance, and " +
+      "\"the window did not change at all\", leaving him unable to tell \"not heard\" from " +
+      "\"heard and discarded\" from \"broken\". " +
+      "INFORMATIONAL for the reason its two neighbors are: it invents no control, because " +
+      "the affordance for saying it again IS the open microphone and there is no button to " +
+      "point at — so it ends with a status, in the same three words `HeardNoVoice` ends " +
+      "with, rather than an imperative aimed at a reader. It is latched per run of discards " +
+      "and cleared by an admitted utterance, so it states the discard once and never becomes " +
+      "a drip; at the third discard `SoundButNoWords` takes over and this line stands aside, " +
+      "so a run produces two sentences in total and never two at once. It rides " +
+      "`rich://voice-notice`, not `rich://voice-error`: nothing failed and voice did not " +
+      "stop, and the notice listener in main.js is the only one of the four that is not " +
+      "suppressed when the voice panel is closed.",
+  },
 
   // ---- hardware.rs — which recognizer this machine got, said once at voice-mode start ---
   //

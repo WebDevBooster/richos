@@ -516,6 +516,37 @@ pub enum VoiceNotice {
     /// affordance for asking again is the open microphone, there is no button to point at,
     /// and an imperative with no control is a request wearing a status's clothes.
     ReplyCutOff,
+    /// **A VOICE WAS MEASURED, WHISPER RAN, AND THE WORDS IT RETURNED WERE NOT WORDS** —
+    /// whisper's documented non-speech noise (`(clears throat)`, `[BLANK_AUDIO]`), refused by
+    /// [`stt::is_meaningful`]. Dropping it is right. Saying nothing about it was not.
+    ///
+    /// **The defect this closes is an ASYMMETRY, not a missing feature** (audit-3 §4 #4,
+    /// frame `a3-15`). Two refusal paths sit side by side in [`RecognizerDesk::handle`] and
+    /// they treated the CEO completely differently:
+    ///
+    /// | path | when | what he was told |
+    /// |---|---|---|
+    /// | [`crate::voiced`] gate, pre-whisper | the audio carried no voice | [`VoiceNotice::HeardNoVoice`], on the FIRST refusal |
+    /// | [`stt::is_meaningful`], post-whisper | a voice, but no words | **nothing** until the THIRD in a row |
+    ///
+    /// So the case where he definitely DID speak — a voice was measured, which is a stronger
+    /// signal than the pre-whisper path ever has — was the quieter of the two. A 2.3 s
+    /// utterance came back `(clears throat)` and the window did not change at all: he could
+    /// not tell "not heard" from "heard and discarded" from "broken".
+    ///
+    /// **It is latched per RUN, exactly like [`VoiceNotice::HeardNoVoice`]**, and for that
+    /// notice's stated reason: an open mic can produce these back to back, and a line per
+    /// discard is a drip that trains him to ignore the one that matters. First discard says
+    /// it; the rest are stderr only; the latch clears the moment an utterance is admitted,
+    /// because that proves the input recovered. At [`SILENT_DISCARD_RUN`] the stronger
+    /// [`VoiceNotice::SoundButNoWords`] takes over and this one stands aside, so a run of
+    /// discards produces two sentences in total and never two at once.
+    ///
+    /// **It goes down `rich://voice-notice`, not `rich://voice-error`.** Nothing failed and
+    /// voice did not stop, which is the split `event.rs` draws. It also means the line is not
+    /// suppressed when the voice panel is closed — `main.js`'s notice listener is the only one
+    /// of the four that does not bail on `!voiceMode`.
+    DidNotCatchThat,
 }
 
 impl VoiceNotice {
@@ -560,6 +591,25 @@ impl VoiceNotice {
             VoiceNotice::ReplyCutOff => {
                 "I was cut off partway through that answer, so what you heard is all I got \
                  out. I'm still listening."
+            }
+            // OPENS WITH THE AUDIT'S OWN WORDS, and they are the right words: "I didn't catch
+            // that" is what a person says when they heard you and the words did not land. It
+            // is the honest description of this path — a voice WAS measured, so "I heard
+            // nothing" would be false, and naming whisper's `(clears throat)` would put an
+            // implementation detail in his ear.
+            //
+            // IT STATES THE CONSEQUENCE SECOND, for `HeardNoVoice`'s reason: the question a
+            // silent drop leaves open is whether something was sent anyway, and a fragment
+            // sent as if it were a whole sentence is the failure mode this crate has already
+            // shipped once. So the line closes that question before anything else.
+            //
+            // IT ENDS WITH A STATUS AND NOT AN INSTRUCTION. "Say that again" is an imperative
+            // aimed at a reader who has no button to press — the affordance for repeating
+            // himself IS the open microphone, and saying so is what tells him he can just
+            // speak. Same last three words as `HeardNoVoice`, deliberately: the two are the
+            // same event to him, and only the cause differs.
+            VoiceNotice::DidNotCatchThat => {
+                "I didn't catch that, so I haven't sent anything. I'm still listening."
             }
         }
     }
@@ -654,6 +704,10 @@ pub struct RecognizerDesk {
     said_sound_but_no_words: bool,
     /// [`VoiceNotice::HeardNoVoice`] has been said this run.
     said_heard_no_voice: bool,
+    /// [`VoiceNotice::DidNotCatchThat`] has been said this run of discards. Latched for the
+    /// reason [`Self::said_heard_no_voice`] is: the first discard speaks, the rest are stderr
+    /// only, and admitting an utterance clears it.
+    said_did_not_catch_that: bool,
 }
 
 impl Default for RecognizerDesk {
@@ -664,7 +718,12 @@ impl Default for RecognizerDesk {
 
 impl RecognizerDesk {
     pub fn new() -> RecognizerDesk {
-        RecognizerDesk { discards: 0, said_sound_but_no_words: false, said_heard_no_voice: false }
+        RecognizerDesk {
+            discards: 0,
+            said_sound_but_no_words: false,
+            said_heard_no_voice: false,
+            said_did_not_catch_that: false,
+        }
     }
 
     /// Decide one finished utterance.
@@ -709,12 +768,28 @@ impl RecognizerDesk {
         match transcribe(&utterance.samples) {
             Ok((text, latency_ms)) => {
                 if !stt::is_meaningful(&text) {
+                    // THE OPERATOR'S LINE STAYS EXACTLY AS IT WAS. It carries the transcript
+                    // that was thrown away, which is the one thing the CEO's sentence must
+                    // never carry, and audit-3 read the defect off it.
                     eprintln!("[richos-voice] discarded non-speech transcript: {text:?}");
                     self.discards += 1;
                     if self.discards >= SILENT_DISCARD_RUN && !self.said_sound_but_no_words {
+                        // THE STRONGER LINE TAKES OVER AND THE SHORT ONE STANDS ASIDE. Both
+                        // firing here would say the same thing twice in one breath; latching
+                        // the short one too means a longer run stays quiet after this.
                         self.said_sound_but_no_words = true;
+                        self.said_did_not_catch_that = true;
                         observer.on_voice_event(&VoiceEvent::Error {
                             message: VoiceNotice::SoundButNoWords.ceo_message().to_string(),
+                            at: now_millis(),
+                        });
+                    } else if !self.said_did_not_catch_that {
+                        // THE FIX FOR audit-3 §4 #4. He spoke, a voice was measured, and
+                        // until now the window did not change at all. A NOTICE, not an
+                        // error: voice is running and has made a call on his behalf.
+                        self.said_did_not_catch_that = true;
+                        observer.on_voice_event(&VoiceEvent::Notice {
+                            message: VoiceNotice::DidNotCatchThat.ceo_message().to_string(),
                             at: now_millis(),
                         });
                     }
@@ -722,6 +797,9 @@ impl RecognizerDesk {
                 }
                 self.discards = 0;
                 self.said_sound_but_no_words = false;
+                // An admitted utterance proves the input recovered, so the run is over and the
+                // next bad one speaks again.
+                self.said_did_not_catch_that = false;
                 observer.on_voice_event(&VoiceEvent::Transcript {
                     text: text.clone(),
                     duration_ms,
@@ -1267,6 +1345,21 @@ mod tests {
             .collect()
     }
 
+    /// `rich://voice-notice` only. A SEPARATE helper from `messages()` on purpose: the whole
+    /// point of audit-3 §4 #4's fix is which CHANNEL the sentence goes down, and a helper
+    /// that merged the two would pass whether the line was a notice or an error.
+    fn notices(rec: &Recorder) -> Vec<String> {
+        rec.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                VoiceEvent::Notice { message, .. } => Some(message.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn transcripts(rec: &Recorder) -> Vec<String> {
         rec.events
             .lock()
@@ -1393,6 +1486,152 @@ mod tests {
         );
         refuse(&mut desk, &rec);
         assert_eq!(messages(&rec).len(), 2, "the refusal went silent after a good turn");
+    }
+
+    /// INVARIANT — **audit-3 §4 #4, the exact frame `a3-15`.** One 2.3 s utterance, whisper
+    /// returns `(clears throat)`, and the window must not sit there unchanged.
+    ///
+    /// The numbers are the audit's: a 2.3 s recording, and whisper's real return value. What
+    /// is asserted is all three halves of the defect — he is TOLD, nothing was SENT, and the
+    /// operator's log line still carries the transcript (that last one by the `eprintln`
+    /// beside the emit, which this test cannot read and does not claim to).
+    #[test]
+    fn a_single_discarded_transcript_says_so_instead_of_changing_nothing() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        desk.handle(
+            &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 23)),
+            &rec,
+            |_| Ok(("(clears throat)".to_string(), 310)),
+            |t| panic!("a discarded transcript was submitted as his message: {t:?}"),
+        );
+        assert_eq!(
+            notices(&rec),
+            vec![VoiceNotice::DidNotCatchThat.ceo_message().to_string()],
+            "the discard was silent — the defect audit-3 §4 #4 recorded at frame a3-15"
+        );
+        assert!(transcripts(&rec).is_empty(), "whisper's noise reached the thread");
+        assert!(
+            messages(&rec).is_empty(),
+            "a working microphone raised a voice-ERROR; nothing failed and voice did not stop"
+        );
+    }
+
+    /// POSITIVE CONTROL for the test above. Without it that test would pass just as well if
+    /// the notice fired on EVERY utterance, which would be a worse product than the silence
+    /// it replaced.
+    #[test]
+    fn an_utterance_that_becomes_a_turn_raises_no_notice_at_all() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let sent = Mutex::new(Vec::<String>::new());
+        desk.handle(
+            &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 23)),
+            &rec,
+            |_| Ok(("Book the flight for Tuesday.".to_string(), 310)),
+            |t| sent.lock().unwrap().push(t),
+        );
+        assert_eq!(sent.into_inner().unwrap(), vec!["Book the flight for Tuesday.".to_string()]);
+        assert!(notices(&rec).is_empty(), "a good turn apologized for itself");
+        assert!(messages(&rec).is_empty());
+    }
+
+    /// INVARIANT: a RUN of discards produces two sentences in total, in order, and never two
+    /// in one breath. The short line speaks first because it is the first thing he needs; at
+    /// [`SILENT_DISCARD_RUN`] the stronger line takes over and the short one stands aside.
+    ///
+    /// The count is the thing being pinned. Before this change the run said NOTHING until the
+    /// third; a fix that made it say something every time would be a drip, which is the
+    /// failure `HeardNoVoice` documents at length.
+    #[test]
+    fn a_run_of_discards_speaks_once_then_escalates_once_and_never_both_at_once() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let discard = |desk: &mut RecognizerDesk, rec: &Recorder, seed: u64| {
+            desk.handle(
+                &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, seed)),
+                rec,
+                |_| Ok(("[BLANK_AUDIO]".to_string(), 300)),
+                |t| panic!("submitted: {t:?}"),
+            );
+        };
+
+        discard(&mut desk, &rec, 31);
+        assert_eq!(notices(&rec).len(), 1, "the first discard was silent");
+        assert!(messages(&rec).is_empty(), "the first discard escalated immediately");
+
+        discard(&mut desk, &rec, 37);
+        assert_eq!(notices(&rec).len(), 1, "the second discard repeated the line — a drip");
+        assert!(messages(&rec).is_empty());
+
+        // SILENT_DISCARD_RUN == 3: the stronger line, and NOT a second short one.
+        discard(&mut desk, &rec, 41);
+        assert_eq!(
+            messages(&rec),
+            vec![VoiceNotice::SoundButNoWords.ceo_message().to_string()],
+            "the run never escalated"
+        );
+        assert_eq!(notices(&rec).len(), 1, "both lines fired at once — he was told twice");
+
+        discard(&mut desk, &rec, 43);
+        assert_eq!(notices(&rec).len(), 1, "the run kept talking after it had said its piece");
+        assert_eq!(messages(&rec).len(), 1);
+    }
+
+    /// INVARIANT: the latch clears on a good turn, so the next bad one speaks again. Same
+    /// contract as `the_refusal_is_said_once_per_run_and_again_after_the_room_recovers`,
+    /// which is the neighboring refusal path — the two now behave the same way, and that
+    /// symmetry IS the fix.
+    #[test]
+    fn a_good_turn_clears_the_latch_so_the_next_discard_speaks_again() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let discard = |desk: &mut RecognizerDesk, rec: &Recorder, seed: u64| {
+            desk.handle(
+                &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, seed)),
+                rec,
+                |_| Ok(("(clears throat)".to_string(), 300)),
+                |_| {},
+            );
+        };
+        discard(&mut desk, &rec, 51);
+        assert_eq!(notices(&rec).len(), 1);
+
+        desk.handle(
+            &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 53)),
+            &rec,
+            |_| Ok(("Approved.".to_string(), 300)),
+            |_| {},
+        );
+        discard(&mut desk, &rec, 59);
+        assert_eq!(notices(&rec).len(), 2, "the discard went silent after a good turn");
+    }
+
+    /// INVARIANT: the two refusal paths say DIFFERENT sentences, because they are different
+    /// facts about the room. `HeardNoVoice` means no voice was measured at all; this one
+    /// means a voice WAS measured and the words did not survive. Collapsing them would tell
+    /// him his microphone is dead when it is working perfectly.
+    #[test]
+    fn the_two_refusal_paths_do_not_say_the_same_thing() {
+        let caught = VoiceNotice::DidNotCatchThat.ceo_message();
+        for other in [
+            VoiceNotice::HeardNoVoice.ceo_message(),
+            VoiceNotice::SoundButNoWords.ceo_message(),
+            VoiceNotice::ReplyCutOff.ceo_message(),
+        ] {
+            assert_ne!(caught, other);
+        }
+        // House discipline, asserted rather than trusted: it closes the "was anything sent?"
+        // question and ends with a status rather than an instruction.
+        assert!(caught.contains("haven't sent anything"));
+        assert!(caught.ends_with("I'm still listening."));
+        // NAMES NO MACHINERY — the same bar `the_silent_discard_notice_names_no_control_and_no
+        // _machinery` holds `SoundButNoWords` to. The transcript that was thrown away is the
+        // operator's `eprintln`, never his sentence.
+        assert!(!caught.contains('/'), "{caught}");
+        assert!(!caught.chars().any(|c| c.is_ascii_digit()), "{caught}");
+        assert!(!caught.to_lowercase().contains("whisper"), "{caught}");
+        assert!(!caught.to_lowercase().contains("transcri"), "{caught}");
     }
 
     /// INVARIANT: the two CEO-facing voice notices are different sentences answering
