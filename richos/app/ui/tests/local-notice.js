@@ -143,6 +143,80 @@ async function main() {
     return "the sentence renders verbatim";
   });
 
+  await run.check("a background result SURVIVES his next sentence — Frank's defect (a)", async () => {
+    // **THE DEFECT, in the shipped build.** A background result is handed over ONCE:
+    // `take_work_notices` marks it delivered in the durable register (`assignment.rs`), the
+    // shell renders it through `addLocalNotice`, and his next sentence ends in
+    // `rich://turn-completed`, which calls `loadTimeline()` -> `applySnapshot`, which cleared
+    // `model.items` outright. The result was off the screen AND already marked delivered, so
+    // nothing would ever show it again.
+    const page = await openFixture(browser);
+    const first = snapshotWithRichSpeaking();
+    await page.evaluate(
+      ([snapshot, text]) => {
+        window.__render(snapshot, {});
+        window.RichTimeline.addLocalNotice(window.__model, text, 1787948600000);
+      },
+      [first, "Landing the three branches is ready for you to approve."]
+    );
+    await page.evaluate(() => window.__renderOnly());
+    assertEqual(await page.locator(".tl-notice").count(), 1, "the result did not render at all");
+
+    // HIS NEXT SENTENCE: a new turn arrives and the thread is reloaded, exactly as
+    // `rich://turn-completed` does it.
+    await page.evaluate(() => {
+      const later = {
+        entityId: "northwind",
+        threadId: "thr_fem",
+        mode: "ceo",
+        bindingRevision: 1,
+        items: [
+          {
+            id: "turn_two:text:0",
+            entityId: "northwind",
+            threadId: "thr_fem",
+            turnId: "turn_two",
+            bindingRevision: 1,
+            createdAt: 1787949900000,
+            sequence: 0,
+            slot: "stream",
+            visibility: "ceo",
+            kind: "rich_message",
+            phase: "unknown",
+            text: "On it.",
+          },
+        ],
+      };
+      window.RichTimeline.applySnapshot(window.__model, later);
+      window.__renderOnly();
+    });
+    assertEqual(
+      await page.locator(".tl-notice").count(),
+      1,
+      "his next sentence destroyed a background result he had already been handed"
+    );
+    assert(
+      (await page.locator(".tl-notice").innerText()).includes("ready for you to approve"),
+      "the result survived as something else"
+    );
+
+    // AND IT IS IN TIME ORDER, not shunted to the end: the notice was raised before that
+    // turn, so it renders before it. Appending would have said "this just happened".
+    const order = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#messages .tl-notice, #messages article.tl-rich")).map((n) =>
+        n.classList.contains("tl-notice") ? "notice" : "message"
+      )
+    );
+    // The reload's snapshot is the truth for LEDGER rows, so the first turn's message is gone
+    // with it — the notice and the new turn are what remain, and the notice comes first
+    // because it happened first. Appending would have put it under "On it." and said "this
+    // just happened".
+    assertEqual(JSON.stringify(order), JSON.stringify(["notice", "message"]), "order: " + order.join(","));
+    assertEqual(page.__errors.length, 0, "the renderer logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "the result is still on screen after a reload, and it sits where it happened";
+  });
+
   for (const theme of ["dark", "light"]) {
     await run.check(`the notice clears WCAG AA in ${theme} mode, computed`, async () => {
       const page = await withBoth(browser, theme);
