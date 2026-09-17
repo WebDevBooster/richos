@@ -282,6 +282,11 @@ core gains no vendor branch.
 trash are excluded from the first sweep on purpose — the junk folder is the one corpus an attacker
 fully controls.
 
+**A Google account with no Gmail mailbox behind it** (the shape built on a non-Gmail address, e.g. an
+`@icloud.com` login) makes `users/me/profile` answer `400 FAILED_PRECONDITION`; the adapter reads that
+as a stated account condition rather than a failure, `sync` reports it as `unavailable` and still exits
+`0`, and the next sync retries on its own with no reconnect once the account gains a mailbox.
+
 ## Run the tests
 
 ```
