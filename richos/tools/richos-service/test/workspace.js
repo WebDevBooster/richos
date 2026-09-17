@@ -47,9 +47,9 @@ import { tallyCorroboration, promoteEntities } from '../lib/workspace/entity-fee
 import { ingestOnce } from '../lib/workspace/core.js';
 import {
   validateClientConfig, saveClientConfig, loadClientConfig, clientConfigTemplate, identityFrom,
-  DEFAULT_REDIRECT_URI, CLIENT_ID_PLACEHOLDER,
+  requestableScopes, DEFAULT_REDIRECT_URI, CLIENT_ID_PLACEHOLDER,
 } from '../lib/workspace/client-config.js';
-import { buildRegistry, parseGrantedScopes, scopesForSources, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
+import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
 import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
@@ -2363,18 +2363,32 @@ test('the unedited guide template is REFUSED — PROBE: the same config with a r
 });
 
 test('a scope RichOS does not declare is refused — widening the grant is a consent-screen decision', () => {
+  // `gmail.readonly` is the live example: §40 widened DRIVE to bodies and said in the same breath
+  // that mail stays metadata-first, so this is exactly the escalation nobody may take by config edit.
   const withInvented = validateClientConfig({
     clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
-    scopes: ['https://www.googleapis.com/auth/drive.readonly'], // the BROADER scope §6.2 names and config.js does not pin
+    scopes: [GMAIL_CONTENT_SCOPE],
   });
   assert.equal(withInvented.ok, false);
-  assert.ok(withInvented.problems.some((p) => p.includes('drive.readonly')));
+  assert.ok(withInvented.problems.some((p) => p.includes('gmail.readonly')));
   // PROBE: every scope config.js DOES declare is accepted.
   const declared = validateClientConfig({
     clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
     scopes: Object.values(GOOGLE_SCOPES),
   });
   assert.equal(declared.ok, true, declared.problems.join('; '));
+});
+
+test('a config written BEFORE the CEO widened Drive (§40) is still accepted, not refused', () => {
+  // The narrower Drive scope is not a typo — the registry can still run it, in metadata mode. A
+  // validator that refused it would break an existing installation to enforce a preference.
+  const older = validateClientConfig({
+    clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
+    scopes: [GOOGLE_SCOPES.calendar, DRIVE_METADATA_SCOPE],
+  });
+  assert.equal(older.ok, true, older.problems.join('; '));
+  assert.ok(requestableScopes().includes(DRIVE_METADATA_SCOPE));
+  assert.ok(!requestableScopes().includes(GMAIL_CONTENT_SCOPE), 'PROBE: the list is not simply permissive');
 });
 
 test('an omitted scope list means CALENDAR ONLY — the least-privilege grant the guide sets up', () => {
@@ -2440,6 +2454,29 @@ test('an ungranted Gmail scope skips the mailbox by name — PROBE: granting it 
   const withMail = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.mail] });
   assert.deepEqual(withMail.enabled.map((e) => e.source), ['calendar', 'mail']);
 });
+
+test('an authorization predating §40 runs Drive in METADATA mode and SAYS SO — PROBE: the widened grant reads bodies', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const older = buildRegistry({ ...args, grantedScopes: [DRIVE_METADATA_SCOPE] });
+  const drive = older.enabled.find((e) => e.source === 'drive');
+  assert.ok(drive, 'a source that still has a usable grant is not switched off by a widened default');
+  assert.equal(drive.adapter.contentMode, 'metadata');
+  assert.match(drive.degraded, /predates the widened Drive scope/);
+  assert.match(drive.degraded, /Re-run connect/, 'and it names the sentence that fixes it');
+
+  const current = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.drive] });
+  const wide = current.enabled.find((e) => e.source === 'drive');
+  assert.equal(wide.adapter.contentMode, 'body');
+  assert.equal(wide.degraded, undefined, 'the full grant is not "limited"');
+
+  // Neither mode is a literal in the registry: both scopes come from config.js or the adapter.
+  assert.deepEqual(grantsFor(sourceEntryForTest('drive')).map((g) => g.scope), [GOOGLE_SCOPES.drive, DRIVE_METADATA_SCOPE]);
+});
+
+/** Local helper so the assertion above reads as a question about the registry, not about an import. */
+function sourceEntryForTest(name) {
+  return GOOGLE_SOURCES.find((s) => s.source === name);
+}
 
 test('a source declared in the scope table but not yet BUILT is reported as pending, never pretended', () => {
   // The P4 shape: a second vendor's scope arrives before its adapter. Proven on the branch the
@@ -2515,6 +2552,9 @@ function googleHttpMock(opts = {}) {
     }
     if (u.pathname.endsWith('/changes/startPageToken')) return httpResponse(200, JSON.stringify({ startPageToken: '1001' }));
     if (u.pathname.endsWith('/drive/v3/changes')) return httpResponse(200, JSON.stringify({ changes: opts.driveChanges || [], newStartPageToken: '1002' }));
+    // A Drive body (§40): an export or a media read, and NOT JSON — the client's `getText` path.
+    if (/\/drive\/v3\/files\/[^/]+\/export$/.test(u.pathname)) return httpResponse(200, 'Q3 plan: ship the thing.');
+    if (/\/drive\/v3\/files\/[^/]+$/.test(u.pathname) && u.searchParams.get('alt') === 'media') return httpResponse(200, 'plain bytes');
     if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
     if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
     if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
@@ -2726,6 +2766,51 @@ await atest('sync --once runs ONE pass through ALL THREE adapters into the evide
     const cursors = JSON.parse(fs.readFileSync(path.join(f.zone, '_sync_state.json'), 'utf8'));
     assert.equal(Object.keys(cursors).length, 3);
   } finally { f.cleanup(); }
+});
+
+await atest('connect asks for the WIDENED Drive scope, so the consent screen shows it (the §40 re-consent seam)', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: FULL_GRANT })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+      clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com',
+      sources: ['calendar', 'drive', 'mail'],
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.ok(requested.includes(GOOGLE_SCOPES.drive), 'the widened scope is what Google is asked for');
+    assert.equal(GOOGLE_SCOPES.drive, 'https://www.googleapis.com/auth/drive.readonly', 'PROBE: and that is the §40 scope');
+    assert.ok(!requested.includes(DRIVE_METADATA_SCOPE), 'the narrower one is a fallback for old tokens, never a request');
+    assert.ok(!requested.includes(GMAIL_CONTENT_SCOPE), 'and mail stays metadata-first — §40 decided that too');
+  } finally { f.cleanup(); }
+});
+
+await atest('an OLD grant still pulls Drive, metadata-only, and every pull says LIMITED out loud', async () => {
+  const older = `${GOOGLE_SCOPES.calendar} ${DRIVE_METADATA_SCOPE}`;
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar, DRIVE_METADATA_SCOPE] });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: older }))));
+    const mock = googleHttpMock({ grantedScope: older });
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: mock.http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results.find((x) => x.source === 'drive').summary.ingested, 1, 'his documents did not go dark');
+    assert.match(f.text(), /limited:\s+Drive — metadata only/);
+    assert.ok(!mock.calls.some((c) => /\/export|alt=media/.test(c.url)), 'and not one byte of a body was requested');
+  } finally { f.cleanup(); }
+
+  // PROBE: the same command on the widened grant DOES read the text, so the check above is about the
+  // grant and not about a body path that never runs.
+  const g = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    const mock = googleHttpMock({ grantedScope: FULL_GRANT });
+    g.lines.length = 0;
+    await sync(g.deps({ http: mock.http }));
+    assert.ok(mock.calls.some((c) => /\/export/.test(c.url)), 'the document text was exported');
+    assert.ok(!g.text().includes('limited:'), 'and nothing is limited');
+  } finally { g.cleanup(); }
 });
 
 await atest('the mailbox is polled METADATA-ONLY through the command path — no format=full, ever', async () => {

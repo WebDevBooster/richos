@@ -306,7 +306,10 @@ export async function connect(deps = {}) {
   d.out('');
   d.out(`CONNECTED — ${config.accountId}`);
   d.out(`${L('tokens')}stored in the OS keychain (service ${tm.service}). Nothing written to any RichOS file or server.`);
-  for (const e of enabled) d.out(`${L('enabled')}${e.label} — ${e.scope}`);
+  for (const e of enabled) {
+    d.out(`${L('enabled')}${e.label} — ${e.scope}`);
+    if (e.degraded) d.out(`            LIMITED: ${e.degraded}`);
+  }
   for (const s of skipped) d.out(`${L('skipped')}${s.label} — ${s.reason}`);
   if (health.msUntilRefreshExpiry != null) {
     d.out(`${L('expires')}${new Date(d.now() + health.msUntilRefreshExpiry).toISOString()}  (${health.state}; External+Testing apps expire after ~7 days — re-run connect to re-consent)`);
@@ -361,6 +364,7 @@ export async function status(deps = {}) {
     const cursor = getSyncState('google', e.source, d.syncStateFile, e.adapter.sourceInstanceId);
     const run = getRunState('google', e.source, e.adapter.sourceInstanceId, d.runStateFile);
     d.out(`${L(e.label.toLowerCase())}ON — ${cursor ? 'delta cursor stored (next poll is incremental)' : 'no cursor yet (next poll is a bounded full sync)'}`);
+    if (e.degraded) d.out(`            LIMITED: ${e.degraded}`);
     d.out(`            last sync: ${describeRun(run)}`);
   }
   for (const s of skipped) d.out(`${L(s.label.toLowerCase())}off — ${s.reason}`);
@@ -416,6 +420,11 @@ export async function sync(deps = {}) {
 
   const { enabled, skipped } = registryFor(record, config, tm, d);
   for (const s of skipped) d.out(`${L('skipped')}${s.label} — ${s.reason}`);
+  for (const e of enabled) {
+    // A source running narrower than it could is said out loud on every pull, not only in `status`:
+    // the counts below look identical either way, and that is exactly how a silent downgrade hides.
+    if (e.degraded) d.out(`${L('limited')}${e.label} — ${e.degraded}`);
+  }
   if (!enabled.length) {
     d.out('nothing to sync: the grant enables no source RichOS has an adapter for.');
     return { exitCode: 1, polled: false, results: [] };

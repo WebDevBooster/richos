@@ -10,6 +10,10 @@
  * The answer is derived from `config.js:GOOGLE_SCOPES`, never from a second list:
  *
  *   - A source whose scope is in the grant gets an adapter.
+ *   - A source that can run under MORE THAN ONE grant (Drive: document text under `drive.readonly`
+ *     since §40, metadata only under the older `drive.metadata.readonly`) takes the widest grant the
+ *     token actually carries, and a narrower one is reported as DEGRADED — named, with the sentence
+ *     that fixes it. Neither "fine" nor "broken" would be true of that state.
  *   - A source whose scope is NOT in the grant is SKIPPED AND NAMED, with the scope it would need.
  *     Silently running fewer sources than the CEO believes are running is the never-silent failure
  *     this layer exists to avoid; "Drive: skipped, you did not grant drive.metadata.readonly" is a
@@ -28,7 +32,7 @@ import { GOOGLE_SCOPES } from '../config.js';
 import { validateAdapter } from './adapter.js';
 import { assertPollingOnly } from './privacy.js';
 import { GoogleCalendarAdapter } from './adapters/google-calendar.js';
-import { GoogleDriveAdapter } from './adapters/google-drive.js';
+import { GoogleDriveAdapter, DRIVE_METADATA_SCOPE } from './adapters/google-drive.js';
 import { GoogleGmailAdapter } from './adapters/google-gmail.js';
 
 /**
@@ -52,8 +56,28 @@ export const GOOGLE_SOURCES = [
     label: 'Drive',
     scope: GOOGLE_SCOPES.drive,
     phase: 'P2',
-    note: 'metadata only — never a file body',
+    note: 'documents and their text (CEO decision §40)',
     create: (opts) => new GoogleDriveAdapter(opts),
+    // THE RE-CONSENT SEAM §40 DEPENDS ON. The CEO widened Drive to `drive.readonly` on 2026-09-17,
+    // and a token minted before that morning holds `drive.metadata.readonly`. Gating Drive on the
+    // widened scope alone would switch his documents OFF until he re-consented — a working source
+    // going dark because a default changed under it. Gating on the NARROW one would be worse: the
+    // adapter defaults to body mode and refuses construction without the wide grant, so Drive would
+    // throw on every poll.
+    //
+    // So the grant chooses the mode, widest first, and the narrow case is reported as DEGRADED
+    // rather than as either "fine" or "broken". The first scope is read from the config registry,
+    // the second from the adapter's own constant — neither is a literal typed here, so when the CEO
+    // re-rules Drive's width again nothing in this file has to be found and edited.
+    grants: [
+      { scope: GOOGLE_SCOPES.drive, opts: { contentMode: 'body' } },
+      {
+        scope: DRIVE_METADATA_SCOPE,
+        opts: { contentMode: 'metadata' },
+        degraded: 'metadata only — this authorization predates the widened Drive scope (§40). '
+          + 'Re-run connect to consent, and RichOS will read document text too.',
+      },
+    ],
   },
   {
     // Gmail landed on main (49caef3f) while this registry was being written, so it is registered
@@ -78,6 +102,14 @@ export const GOOGLE_SOURCES = [
 /** The source entry for a name, or null. */
 export function sourceEntry(name) {
   return GOOGLE_SOURCES.find((s) => s.source === name) || null;
+}
+
+/**
+ * The grants a source can run under, widest first. A source that declares none runs under its own
+ * scope and nothing else — which is every source but Drive.
+ */
+export function grantsFor(entry) {
+  return entry.grants && entry.grants.length ? entry.grants : [{ scope: entry.scope, opts: {} }];
 }
 
 /** The scopes RichOS would request for a set of source names, in declaration order. */
@@ -113,7 +145,10 @@ export function buildRegistry(opts) {
       skipped.push({ source: entry.source, label: entry.label, scope: entry.scope, reason: entry.pending || 'not built yet' });
       continue;
     }
-    if (!granted.has(entry.scope)) {
+    // Widest grant the token actually carries. Nothing is inferred from what was REQUESTED: a
+    // request is an intention and a grant is a fact, and only one of them decides what may be read.
+    const grant = grantsFor(entry).find((g) => granted.has(g.scope));
+    if (!grant) {
       skipped.push({
         source: entry.source,
         label: entry.label,
@@ -128,15 +163,23 @@ export function buildRegistry(opts) {
       accountId: opts.accountId,
       now: opts.now,
       // The grant itself, not a claim about it: an adapter with a graduated-privacy escalation
-      // (Gmail) checks what was actually granted before it will read anything wider.
+      // (Drive's bodies, Gmail's) checks what was actually granted before it reads anything wider,
+      // and refuses at construction if the mode and the grant disagree.
       scopes: [...granted],
+      ...(grant.opts || {}),
     });
     const problems = [...validateAdapter(adapter), ...assertPollingOnly(adapter)];
     if (problems.length) {
       // Loud, at wiring time, before a single item is fetched.
       throw new Error(`Workspace registry refuses the ${entry.label} adapter: ${problems.join('; ')}`);
     }
-    enabled.push({ source: entry.source, label: entry.label, scope: entry.scope, adapter });
+    enabled.push({
+      source: entry.source,
+      label: entry.label,
+      scope: grant.scope,
+      adapter,
+      ...(grant.degraded ? { degraded: grant.degraded } : {}),
+    });
   }
 
   return { enabled, skipped };

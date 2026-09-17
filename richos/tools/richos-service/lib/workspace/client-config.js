@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import { GOOGLE_SCOPES, workspaceClientConfigPath } from '../config.js';
 import { writePrivateFile } from '../private-files.js';
 import { assertLoopbackRedirect } from './privacy.js';
+import { GOOGLE_SOURCES, grantsFor } from './registry.js';
 
 /**
  * The loopback redirect the setup guide's Step 5 pins. Pinned here too, rather than left to a caller,
@@ -40,6 +41,19 @@ export const CLIENT_ID_PLACEHOLDER = 'PASTE_YOUR_CLIENT_ID';
 /** Every scope RichOS is allowed to ask for, by source. Nothing outside this map is requestable. */
 export function declaredScopes() {
   return { ...GOOGLE_SCOPES };
+}
+
+/**
+ * Every scope a config may legitimately ask for: the current declared scope for each source, PLUS any
+ * narrower grant a registered adapter can still run under. The second half is why an authorization
+ * taken before the CEO widened Drive (§40) keeps working — the registry can run
+ * `drive.metadata.readonly` in metadata mode, so a config that asks for it is not a mistake to refuse.
+ * Anything else is: it would mean requesting a permission no adapter here knows what to do with.
+ */
+export function requestableScopes() {
+  const out = new Set(Object.values(GOOGLE_SCOPES));
+  for (const entry of GOOGLE_SOURCES) for (const g of grantsFor(entry)) out.add(g.scope);
+  return [...out];
 }
 
 /** The source a declared scope belongs to, or null if nothing declares it. */
@@ -102,11 +116,11 @@ export function validateClientConfig(raw) {
 
   let scopes = Array.isArray(src.scopes) ? src.scopes.map((s) => String(s).trim()).filter(Boolean) : [];
   if (!scopes.length) scopes = [GOOGLE_SCOPES.calendar]; // the guide's Step 3 enables Calendar and nothing else
-  const declared = Object.values(GOOGLE_SCOPES);
+  const requestable = requestableScopes();
   for (const s of scopes) {
-    if (!declared.includes(s)) {
+    if (!requestable.includes(s)) {
       problems.push(
-        `scope "${s}" is not one RichOS declares (config.js GOOGLE_SCOPES). Requestable scopes are: ${declared.join(', ')}. ` +
+        `scope "${s}" is not one RichOS declares (config.js GOOGLE_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
           'Widening what you consent to is a decision on the Google consent screen, not a config edit.',
       );
     }
