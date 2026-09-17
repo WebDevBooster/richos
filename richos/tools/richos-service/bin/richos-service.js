@@ -614,6 +614,10 @@ function main() {
           ...(flag('account') ? { accountId: String(flag('account')) } : {}),
           ...(sources.length ? { sources, only: sources } : {}),
           ...(flag('forget-cursors') === true ? { forgetCursors: true } : {}),
+          // Promotion is ON by default (§4.4 step 4): a sync exists so loro can ANSWER from what was
+          // pulled. `--no-promote` is the diagnostic pull, and it says so in the output rather than
+          // just quietly doing less.
+          ...(flag('no-promote') === true ? { promote: false } : {}),
         },
       })
         .then((r) => process.exit(r.exitCode))

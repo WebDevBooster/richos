@@ -57,6 +57,7 @@ import {
 import { getSyncState, forgetInstances as forgetCursorsFor } from './sync-state.js';
 import { getRunState, recordRun, describeRun, forgetInstances as forgetRunsFor } from './run-state.js';
 import { ingestOnce } from './core.js';
+import { runPromotion, describePromotion } from './promote-run.js';
 
 export { SUPPORTED_VENDORS };
 
@@ -100,6 +101,12 @@ function resolve(deps = {}) {
     tenant: deps.tenant || null,
     clientSecret: deps.clientSecret || null,
     accountId: deps.accountId || null,
+    // Promotion is ON by default: a sync exists so Rich can answer from the CEO's calendar, and
+    // evidence nobody promoted answers nothing. `--no-promote` is the diagnostic pull.
+    promote: deps.promote !== false,
+    // Where the loro writer component lives. Injected only by the suite, which runs against the
+    // in-repo one; in production `promotion-writer.js` resolves it (RICHOS_LORO_DIR, then in-repo).
+    loroDir: deps.loroDir || null,
     timeoutMs: deps.timeoutMs,
     keychainService: deps.keychainService,
     forgetCursors: Boolean(deps.forgetCursors),
@@ -857,10 +864,37 @@ export async function sync(deps = {}) {
   if (many) d.out('');
   d.out(`${L('evidence')}${d.zone}`);
 
-  if (!polled) return { exitCode: 1, polled: false, results };
+  // ── PROMOTION (§4.4 step 4) — ONCE PER SYNC RUN, NOT ONCE PER ACCOUNT ──────────────────────────
+  // The pull is not the point; being able to ANSWER from what was pulled is. Until this call existed
+  // a sync ended with evidence on disk and loro still unable to say what happened on Tuesday.
+  //
+  // It runs after EVERY account has been polled, and exactly once, because `promoteFromEvidence`
+  // reads the ZONE — which holds every account's and every vendor's evidence. Inside the loop it
+  // would redo all of it per account, which is why the engineer who wired multi-account left it out
+  // rather than putting it in the wrong place.
+  //
+  // Gated on `polled`: a run that reached nothing has nothing new to promote, and a promotion line on
+  // a run that never reached the vendor would read as progress that did not happen.
+  let promotion = null;
+  if (!d.promote) {
+    d.out(`${L('promoted')}skipped — --no-promote, so this was a diagnostic pull: the evidence is stored and`);
+    d.out("            loro's memory was NOT updated. Run sync again without the flag to promote it.");
+  } else if (polled) {
+    promotion = await runPromotion({ zone: d.zone, now: d.now, ...(d.loroDir ? { loroDir: d.loroDir } : {}) });
+    for (const line of describePromotion(promotion, L)) d.out(line);
+  }
+
+  if (!polled) return { exitCode: 1, polled: false, results, promotion };
   // An account that could not be polled is a non-zero exit even when every account that DID poll
-  // succeeded — the CEO asked for all of them.
-  return { exitCode: failures ? 2 : (refused ? 1 : 0), polled: true, results };
+  // succeeded — the CEO asked for all of them. A promotion that FAILED is the same class of problem
+  // as a source that failed: the pull worked and the memory it exists to build did not get written.
+  const promotionFailed = Boolean(promotion && promotion.failed && promotion.failed.length);
+  return {
+    exitCode: (failures || promotionFailed) ? 2 : (refused ? 1 : 0),
+    polled: true,
+    results,
+    promotion,
+  };
 }
 
 // =================================================================================================
@@ -968,7 +1002,8 @@ export const USAGE = [
   '  richos-service workspace connect microsoft --client-id <application (client) id> --tenant <directory (tenant) id|consumers> --account you@co.com [--source calendar --source drive --source mail]',
   '                                                                          # the two ids are Step 3 of the Microsoft 365 setup guide; no secret — it is a public client',
   '  richos-service workspace status [google|microsoft] [--account you@co.com]         # every account of that vendor unless one is named',
-  '  richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar]      # --once is the only mode: no daemon',
+  '  richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar] [--no-promote]',
+  '                                                                          # --once is the only mode: no daemon. Promotes what it pulled into loro memory unless --no-promote',
   '  richos-service workspace disconnect google|microsoft --account you@co.com [--forget-cursors]',
   '',
   '  The two vendors are separate everywhere: separate consent, separate client config file, separate',

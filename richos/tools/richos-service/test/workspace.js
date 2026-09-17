@@ -88,6 +88,8 @@ import {
 // (run state) are two different files, and hardcoding either name lets a test drift from the product.
 import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } from '../lib/config.js';
 import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
+import { corpusFromZone } from '../lib/workspace/promote-run.js';
+import { promotionLedgerPath } from '../lib/workspace/promotion.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
 
 let passed = 0;
@@ -5649,6 +5651,280 @@ await atest('a second Microsoft account ADDS itself, exactly as the Google side 
     const written = JSON.parse(fs.readFileSync(f.clientConfigFile, 'utf8'));
     assert.equal(written.tenant, MS_TENANT, 'one tenant: it is one app registration in one directory');
     assert.deepEqual(written.accounts.map((a) => a.accountId), [MS_ACCOUNT, SECOND]);
+  } finally { f.cleanup(); }
+});
+
+
+// =================================================================================================
+group('`sync` PROMOTES what it pulled (§4.4 step 4) — the step between evidence and an answer');
+
+/**
+ * A whole isolated CORPUS, with the Workspace evidence zone in the place the product puts it.
+ *
+ * The zone is NOT a scratch directory here: it is `<corpus>/ceo/unfiled/evidence/workspace`, exactly
+ * what `config.js:evidenceRoot` produces, because that relationship is the thing under test. The
+ * promotion step derives its corpus BACKWARD from the zone, so a zone assembled by hand somewhere
+ * else would be testing a path the product never takes.
+ */
+function corpusFixture(opts = {}) {
+  const root = tmp();
+  const corpus = path.join(root, 'corpus');
+  for (const rel of ['ceo/records', 'ceo/pages', 'ceo/unfiled']) {
+    fs.mkdirSync(path.join(corpus, rel), { recursive: true });
+  }
+  const zone = path.join(corpus, 'ceo', 'unfiled', 'evidence', 'workspace');
+  fs.mkdirSync(zone, { recursive: true });
+  const clientConfigFile = path.join(zone, '_oauth_client.json');
+  saveClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    redirectUri: DEFAULT_REDIRECT_URI,
+    accounts: (opts.accounts || ['ceo@acme.com']).map((accountId) => ({
+      accountId, scopes: opts.scopes || [GOOGLE_SCOPES.calendar],
+    })),
+  }, clientConfigFile);
+  const lines = [];
+  const backend = memorySecretBackend();
+  storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
+  return {
+    root, corpus, zone, clientConfigFile, backend, lines,
+    entitiesFile: path.join(corpus, 'ceo', 'entities.json'),
+    records: () => (fs.existsSync(path.join(corpus, 'ceo', 'unfiled'))
+      ? fs.readdirSync(path.join(corpus, 'ceo', 'unfiled')).filter((f) => f.endsWith('.md'))
+      : []),
+    text: () => lines.join('\n'),
+    deps: (extra = {}) => ({
+      zone, clientConfigFile, backend, linkBase: corpus, now,
+      out: (line) => lines.push(line),
+      ...extra,
+    }),
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+/** A recursive listing of a tree, or null when it is not there — the "nothing was touched" probe. */
+function treeSnapshot(dir) {
+  if (!fs.existsSync(dir)) return null;
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) { out.push(`d ${full}`); walk(full); } else {
+        const st = fs.statSync(full);
+        out.push(`f ${full} ${st.size} ${st.mtimeMs}`);
+      }
+    }
+  };
+  walk(dir);
+  return out.join('\n');
+}
+
+test('THE DERIVATION IS THE PRODUCT CONFIGURATION: corpusFromZone(workspaceZone()) === corpusRoot()', () => {
+  // The claim the whole isolation argument rests on. If this is false, promotion either writes
+  // nowhere on the CEO's real machine or writes somewhere a test can reach — and both are silent.
+  //
+  // The environment is set explicitly rather than inherited: earlier groups in this file set
+  // RICHOS_WORKSPACE_ZONE, and an assertion about the PRODUCT's own configuration must not be
+  // answered by whatever a previous test left behind.
+  const savedZone = process.env.RICHOS_WORKSPACE_ZONE;
+  const savedCorpus = process.env.LORO_CORPUS;
+  try {
+    delete process.env.RICHOS_WORKSPACE_ZONE;
+    process.env.LORO_CORPUS = path.join(os.tmpdir(), 'richos-derivation-probe');
+    assert.equal(corpusFromZone(workspaceZone()), corpusRoot());
+    // ...and with no corpus configured at all, which is the CEO's real machine before he sets one.
+    delete process.env.LORO_CORPUS;
+    assert.equal(corpusFromZone(workspaceZone()), corpusRoot());
+  } finally {
+    if (savedZone === undefined) delete process.env.RICHOS_WORKSPACE_ZONE; else process.env.RICHOS_WORKSPACE_ZONE = savedZone;
+    if (savedCorpus === undefined) delete process.env.LORO_CORPUS; else process.env.LORO_CORPUS = savedCorpus;
+  }
+  assert.equal(corpusFromZone(path.join('/srv/x', 'companies', 'acme', 'evidence', 'workspace')), '/srv/x');
+  // POSITIVE CONTROL for the negative below: the two shapes above ARE recognized, so a null from
+  // anything else is a real answer about the path rather than the matcher being broken.
+  assert.equal(corpusFromZone('/tmp/scratch/whatever'), null);
+  assert.equal(corpusFromZone(path.join('/srv/x', 'ceo', 'evidence', 'workspace')), null, 'the partition must be complete');
+  assert.equal(corpusFromZone(''), null);
+});
+
+await atest('sync PROMOTES: the pull ends with records in the corpus and a promoted: line that says so', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // Alice is on BOTH meetings on purpose: the entity feed's corroboration threshold is 2, so a
+    // one-off invitee is deliberately not learned and a single-event fixture would assert nothing.
+    const EVENT_ORG_2 = {
+      ...EVENT_ORG,
+      id: 'evt_org2', etag: '"org2v1"', summary: 'Q3 plan review',
+      start: { dateTime: '2025-08-19T15:00:00Z' }, end: { dateTime: '2025-08-19T16:00:00Z' },
+    };
+    const r = await sync(f.deps({
+      http: googleHttpMock({ calendarItems: [EVENT_ORG, EVENT_ORG_2, EVENT_INJECTION] }).http,
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+
+    assert.equal(r.promotion.ran, true, f.text());
+    assert.equal(r.promotion.corpus, f.corpus, 'derived from the zone this sync read, not from the environment');
+    assert.equal(r.promotion.events, 2, 'the two meetings; the prompt-injection invite is quarantined');
+    assert.equal(r.promotion.entities, 2, 'Alice and Bob, each seen on both meetings');
+    assert.ok(r.promotion.held.length, 'and every absence carries its reason');
+    assert.deepEqual(r.promotion.failed, []);
+
+    // THE LINE THE CEO READS.
+    assert.match(f.text(), /promoted:   2 events into memory, \d+ (person|people) learned, \d+ items? held/);
+    assert.match(f.text(), /held: \d+ × /, 'held is reported BY CAUSE, never as a bare number');
+    assert.match(f.text(), new RegExp(`memory:     ${f.corpus.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')}`));
+
+    // ...and the records really are on disk, which is what makes the line true.
+    const records = f.records();
+    assert.equal(records.length, 2, records.join(', '));
+    assert.ok(records.every((n) => n.startsWith('ws-google-calendar-')), records.join(', '));
+    const body = fs.readFileSync(path.join(f.corpus, 'ceo', 'unfiled', records[0]), 'utf8');
+    assert.match(body, /workspace:google:calendar/, 'each record cites the evidence it came from');
+
+    // §4.5: the people are learned from the same pass, into the corpus's own vocabulary file.
+    assert.ok(fs.existsSync(f.entitiesFile), 'created on a machine that has never transcribed a call');
+    const entities = JSON.parse(fs.readFileSync(f.entitiesFile, 'utf8'));
+    assert.ok(entities.entities.some((e) => e.canonical === 'Alice Nguyen'),
+      JSON.stringify(entities.entities.map((e) => e.canonical)));
+  } finally { f.cleanup(); }
+});
+
+await atest('promotion runs ONCE for a sync over two accounts, not once per account', async () => {
+  const f = corpusFixture({ accounts: ['ceo@acme.com', 'ceo@other.com'] });
+  try {
+    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@acme.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@other.com' }));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results.length, 2, 'both accounts were polled');
+
+    // ONE pass over the zone, covering both accounts' evidence — not two passes over the same zone.
+    const promotedLines = f.text().split('\n').filter((l) => l.startsWith('promoted:'));
+    assert.equal(promotedLines.length, 1, f.text());
+
+    // Both accounts' items went through THAT one pass. The same meeting is a different SourceItem
+    // per account (the id carries the account's source instance), and the two are judged separately:
+    // `EVENT_ORG` is an internal meeting for ceo@acme.com and an outside one for ceo@other.com, so
+    // one is promoted and the other is held WITH ITS REASON. Asserting "2 promoted" would have been
+    // asserting my expectation rather than what the governance gate actually decides.
+    const heldTotal = r.promotion.held.reduce((n, h) => n + h.count, 0);
+    assert.equal(r.promotion.events + heldTotal, 2, JSON.stringify(r.promotion));
+    assert.ok(r.promotion.events >= 1, JSON.stringify(r.promotion));
+    assert.ok(r.promotion.held.every((h) => h.reason && h.reason.length > 10), 'no silent absence');
+
+    // The ledger holds each promoted item once, which is what a second pass would have violated.
+    const ledger = fs.readFileSync(promotionLedgerPath(f.zone), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(ledger.length, r.promotion.events);
+    assert.equal(new Set(ledger.map((e) => e.sourceItemId)).size, ledger.length, 'no item promoted twice');
+
+    // And a SECOND sync promotes nothing new rather than re-writing the same records.
+    const recordsAfterFirst = f.records().length;
+    f.lines.length = 0;
+    const again = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
+    assert.equal(again.promotion.events, 0);
+    assert.equal(f.records().length, recordsAfterFirst, 'the same records, not a second copy of each');
+  } finally { f.cleanup(); }
+});
+
+await atest('--no-promote is a DIAGNOSTIC pull: it says so, and it writes no memory', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http, promote: false }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.promotion, null);
+    assert.match(f.text(), /promoted:   skipped — --no-promote/);
+    assert.match(f.text(), /memory was NOT updated/, 'doing less is SAID, never just done');
+    assert.equal(f.records().length, 0, 'nothing reached the corpus');
+    assert.equal(fs.existsSync(f.entitiesFile), false);
+    // The evidence WAS pulled, which is the whole point of the flag.
+    assert.equal(r.results[0].summary.ingested, 1);
+
+    // POSITIVE CONTROL: the identical sync WITHOUT the flag promotes, so the assertions above are
+    // about the flag and not about a promotion path that is broken for everyone.
+    f.lines.length = 0;
+    const promoted = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(promoted.promotion.ran, true, f.text());
+    assert.equal(f.records().length, 1);
+  } finally { f.cleanup(); }
+});
+
+await atest('THE ISOLATION GUARANTEE: a sync with an injected zone touches no corpus, and says why', async () => {
+  // This is the reason promotion was left unwired until now. Every sync test in this suite injects a
+  // temporary `zone` and sets no LORO_CORPUS, so a promotion resolving its corpus from the ambient
+  // environment would have written the CEO's real `~/RichOS` from a unit test on his own machine.
+  const home = os.homedir();
+  const realCorpus = path.join(home, 'RichOS');
+  const before = treeSnapshot(realCorpus);
+
+  const f = wsFixture(); // the ordinary fixture: a scratch zone, exactly like every other sync test
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results[0].summary.ingested, 1, 'the pull itself worked');
+
+    // Promotion did not run, and the refusal names the cause and the fix rather than being silent.
+    assert.equal(r.promotion.ran, false);
+    assert.match(r.promotion.reason, /not inside a loro corpus/);
+    assert.match(f.text(), /promoted:   not run — this evidence zone is not inside a loro corpus/);
+    assert.match(f.text(), /RICHOS_WORKSPACE_ZONE|LORO_CORPUS/, 'and names what would fix it');
+  } finally { f.cleanup(); }
+
+  assert.equal(treeSnapshot(realCorpus), before,
+    `a unit test must not be able to write ${realCorpus} — this is the assertion the whole derivation exists for`);
+});
+
+await atest('a promotion that cannot RUN refuses loudly, and the pull it could not promote is still honest', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // No loro writer where the caller says it is. `promotion-writer.js` refuses rather than handing
+    // back a writer that silently drops promotions, and that refusal has to reach the CEO's terminal.
+    const r = await sync(f.deps({ http: googleHttpMock().http, loroDir: path.join(f.root, 'no-loro-here') }));
+    assert.equal(r.promotion.ran, false);
+    assert.match(f.text(), /promoted:   not run — /);
+    // MEASURED, not assumed: `loroWriter` takes an explicit `loroDir` AHEAD of `resolveLoroDir`, so
+    // an explicitly-wrong directory surfaces Node's own module error rather than the curated
+    // "the loro writer is not installed" sentence. That is still loud and still names the exact path
+    // — which is what this test is about — and the gap is recorded in the handoff rather than
+    // papered over by asserting a sentence the code does not produce on this path.
+    assert.match(r.promotion.reason, /no-loro-here[/\\]writer[/\\]writer\.js/);
+    assert.equal(f.records().length, 0);
+    // The PULL still succeeded and is still reported honestly — a refusal to promote is not a
+    // reason to throw away the evidence or to claim the sync did not happen.
+    assert.equal(r.results[0].summary.ingested, 1);
+    assert.match(f.text(), /calendar:   observed 1, ingested 1/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a promotion that FAILS AT THE WRITE is a non-zero sync, never a success with a small number in it', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // The partition directory is made read-only AFTER the evidence path below it exists, so the pull
+    // still writes its evidence and only the RECORD write fails — which is the shape that matters:
+    // the sync worked and the memory it exists to build did not get written.
+    const partition = path.join(f.corpus, 'ceo', 'unfiled');
+    fs.chmodSync(partition, 0o555);
+    let r;
+    try {
+      r = await sync(f.deps({ http: googleHttpMock().http }));
+    } finally {
+      fs.chmodSync(partition, 0o755);
+    }
+    assert.equal(r.promotion.ran, true, 'the pass RAN — it is the write inside it that failed');
+    assert.ok(r.promotion.failed.length, JSON.stringify(r.promotion));
+    assert.equal(r.exitCode, 2, 'the same exit code a failed source gets, for the same reason');
+    assert.match(f.text(), /FAILED: /);
+    assert.equal(r.results[0].summary.ingested, 1, 'and the pull is still reported truthfully');
   } finally { f.cleanup(); }
 });
 
