@@ -514,6 +514,90 @@ class DesktopWork(unittest.TestCase):
                          [("fixture-task","settled")])
         self.assertEqual(report["retained"],[])
 
+    def ceo_thread_seat(self,thread,turn="turn-1",revision=None):
+        """His front desk for ANOTHER conversation thread, bound the way that
+        thread's own front desk binds it: the derived seat, its own thread, the
+        ceo audience."""
+        seat="ceo-thread:"+thread
+        self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"bind","seat":seat,
+            "scope":{"entity_id":"depot","thread_id":thread,"session_id":"session-"+thread,
+                     "turn_id":turn,"audience":"ceo"},
+            "request_id":f"bind-{seat}-{turn}","source_ref":f"ledger:{thread}:{turn}",
+            "expected_revision":revision})
+        return seat
+
+    def ledger(self,*threads):
+        """The app's own record of which conversation threads exist, at the path
+        the app actually writes it to: `$RICHOS_APP_STATE/conversation-ledger.jsonl`
+        (src-tauri/src/main.rs:1461, whose data_dir is the engine's state root)."""
+        path=Path(os.environ["RICHOS_APP_STATE"])/"conversation-ledger.jsonl"
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text("".join(json.dumps({"event":"ThreadCreated","thread_id":t,
+            "title":"a conversation","at":1}) +"\n" for t in threads)
+            # A turn record between them, so the reader is walking a real ledger
+            # and not a list of thread rows.
+            + json.dumps({"event":"TurnStarted","turn_id":"t-1","thread_id":threads[0] if threads else "",
+                          "at":2})+"\n")
+        return path
+
+    def test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is(self):
+        """HIS SEAT IS ONE PER CONVERSATION THREAD, and until 2026-09-17 nothing
+        would ever have reconciled one: `reconcile_seats` enumerated every seat
+        and then skipped everything whose audience was not `worker`, so an
+        orphan thread seat -- a seat for a thread the app's own record has never
+        heard of -- would have lived forever.
+
+        The question asked of one of his is NOT `assignment_state`: it has no
+        assignment. It is whether that conversation thread still exists, which
+        only the app knows (ecs/CONTRACT.md), so it is read from the app's own
+        conversation ledger. Every case below is paired with the one fact
+        changed:
+
+          a live thread's seat   -> KEPT, and the ledger is the only difference
+          a dead thread's seat   -> RELEASED, with the revision it was
+                                    enumerated at, which is the store's own
+                                    independent liveness proof
+          ceo-default            -> refused by name, and still there afterwards
+          the ledger unreadable  -> reported as unreconciled, never released:
+                                    absence is not evidence
+        """
+        mine=self.ceo_thread_seat("thread-a")          # THIS conversation's own seat
+        live=self.ceo_thread_seat("thread-live")
+        dead=self.ceo_thread_seat("thread-dead")
+        def seats():
+            return sorted(row["person_id"] for row in self.app.ECS.execute(self.root/"ecs",
+                {"protocol":1,"command":"seats","binding":self.scope["binding"]})["seats"])
+        self.assertEqual(seats(),sorted(["ceo-default",mine,live,dead]))
+        # THE UNDECIDABLE CASE FIRST, and it is the control for every release
+        # below: with no ledger to read, NOTHING is released. The seat of the
+        # conversation this is running IN is not even a candidate -- it is kept
+        # on a fact that needs no file.
+        report=self.call("inspect")["seats"]
+        self.assertEqual(report["released"],[])
+        self.assertEqual(sorted(row["seat"] for row in report["unreconciled"]),sorted([live,dead]))
+        self.assertIn("could not be read",report["unreconciled"][0]["reason"])
+        self.assertIn((mine,"this conversation"),
+                      [(row["seat"],row.get("reason")) for row in report["retained"]])
+        self.assertEqual(seats(),sorted(["ceo-default",mine,live,dead]))
+        # NOW THE APP'S RECORD EXISTS AND NAMES ONE OF THE TWO. That single fact
+        # decides them in opposite directions.
+        self.ledger("thread-a","thread-live")
+        report=self.call("inspect")["seats"]
+        self.assertEqual([(row["seat"],row["reason"]) for row in report["released"]],
+                         [(dead,"thread absent")])
+        self.assertIn((live,"open"),[(row["seat"],row.get("reason")) for row in report["retained"]])
+        self.assertEqual(report["unreconciled"],[])
+        # HIS LEGACY CURSOR IS UNTOUCHED, and so are the live thread's seat and
+        # this conversation's own.
+        self.assertEqual(seats(),sorted(["ceo-default",mine,live]))
+        # AND IT IS REFUSED BY NAME, not merely left alone by a filter: asked
+        # directly, for his legacy cursor, the store says no.
+        with self.assertRaisesRegex(Exception,"never reconciled away"):
+            self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"release-seat",
+                "binding":self.scope["binding"],"person_id":"ceo-default","reason":"never",
+                "request_id":"refuse-default","source_ref":"app-reconcile:refuse-default"})
+        self.assertEqual(seats(),sorted(["ceo-default",mine,live]))
+
     def test_a_seat_that_cannot_be_released_is_reported_rather_than_ignored(self):
         self.work_lease(assignment="no-such-assignment")
         real=self.app.ecs

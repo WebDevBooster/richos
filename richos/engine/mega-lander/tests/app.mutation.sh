@@ -129,4 +129,44 @@ mutant waited-for-land-not-read "test_the_second_lander_waits_for_the_first_and_
     '            if False:' \
     "the lander that waited would report that it waited and never what it waited THROUGH, although the holder's own land is sitting in the history beside the lock it just released."
 
+# --- 12. HIS OWN THREAD SEATS ARE RECONCILED AT ALL ---------------------
+# The before-state, and it is a one-line filter: `reconcile_seats` enumerated
+# every seat and skipped everything whose audience was not `worker`, so one of
+# his per-thread seats was walked past on every pass, forever.
+mutant his-thread-seat-skipped "test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is" "$A" \
+    '        his = ECS.is_ceo_row(row) and row["person_id"] != ECS.PERSON_ID' \
+    '        his = False' \
+    "his per-thread seats would be enumerated and then skipped again, so a seat for a conversation thread that no longer exists would live forever -- with nothing reporting it, because a skip is silent."
+
+# --- 13. A SEAT IS NEVER RELEASED ON AN ABSENCE -------------------------
+# Whether a thread exists is the app's knowledge. "The app's record could not be
+# read" and "the app has no such thread" are two different answers, and only one
+# of them is a fact about the thread.
+mutant unreadable-ledger-treated-as-no-threads "test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is" "$A" \
+    '        if not path.is_file():{NL}            return None' \
+    '        if not path.is_file():{NL}            return set()' \
+    "a missing conversation ledger would read as \"no thread exists\", so the first reconcile on a machine where that file has not been written yet would delete EVERY one of his thread seats -- the live one included. Absence is never evidence."
+
+# --- 14. A LIVE THREAD'S SEAT IS NEVER RELEASED -------------------------
+mutant live-thread-seat-released "test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is" "$A" \
+    '                if row["thread_id"] in known[0]:' \
+    '                if False:' \
+    "every one of his thread seats would be released whatever the app's record says, so the front desk of a live conversation would lose its cursor mid-turn -- which is the collision the per-thread seat was introduced to end, arriving from the other side."
+
+# --- 15. AND THE RELEASE CARRIES THE REVISION IT WAS ENUMERATED AT ------
+# The store's own independent liveness proof: a seat that has bound a turn since
+# the enumeration belongs to a demonstrably live thread.
+mutant release-without-the-enumerated-revision "test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is" "$A" \
+    '                            "expected_revision":int(row["revision"]),' \
+    '                            "expected_revision":None,' \
+    "the release would carry no proof of what was enumerated, so the store could not refuse a seat that had bound a turn in the meantime -- and the engine would be racing the front desk it is cleaning up after."
+
+# --- 16. THE SEAT OF THE CONVERSATION THIS IS RUNNING IN -----------------
+# The one seat that needs no file to decide, and the one whose loss would be
+# felt immediately.
+mutant this-conversations-own-seat-not-kept "test_his_orphan_thread_seat_is_reconciled_and_a_live_threads_never_is" "$A" \
+    '                if row["thread_id"] == binding["thread_id"]:' \
+    '                if False:' \
+    "this conversation's OWN thread seat would be decided by a file instead of by the fact that it is the one calling, so an unreadable ledger would report the running thread's own seat as unreconciled -- and a ledger that had lost that one record would release it."
+
 mutation_end

@@ -893,6 +893,52 @@ def assignment_state(scope, assignment):
     return "open" if item["status"] in OPEN_ASSIGNMENT_STATUSES else "settled"
 
 
+def conversation_threads():
+    """WHICH CONVERSATION THREADS EXIST -- the app's own knowledge, read from the
+    app's own record, because the store does not have it and says so: "Whether a
+    conversation thread still exists is the app's knowledge; what the store can
+    prove is movement" (ecs/CONTRACT.md).
+
+    `conversation-ledger.jsonl` under `$RICHOS_APP_STATE`. The two are the same
+    directory by construction rather than by convention: `src-tauri/src/main.rs`
+    opens the ledger at `data_dir.join("conversation-ledger.jsonl")` (:1461) and
+    hands that same `data_dir` to `EngineProfile::prepare` (:1852 ->
+    engine_profile.rs:45-53), which canonicalizes it and exports it as
+    `RICHOS_APP_STATE` (:205).
+
+    A THREAD IS NEVER DELETED FROM THAT LOG. `KNOWN_EVENT_TAGS` in ledger.rs has
+    `ThreadCreated` and no removal of any kind, so "this thread still exists" is
+    "the ledger names it", and an orphan seat is one for a thread the app's own
+    record has never heard of -- a ledger replaced or reset out from under a
+    store that kept its seats.
+
+    RETURNS None RATHER THAN AN EMPTY SET when the question could not be asked:
+    no file, an unreadable one, or one that names no thread at all. Absence is
+    never evidence, and here the difference between "no threads" and "could not
+    look" is the difference between deleting every one of his seats and deleting
+    none of them."""
+    try:
+        path = state() / "conversation-ledger.jsonl"
+        if not path.is_file():
+            return None
+        threads = set()
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                # The cheap filter first: this file carries every turn and every
+                # assistant delta, and a thread record is a few lines in it.
+                if '"ThreadCreated"' not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue            # a record this build cannot read names no thread
+                if isinstance(row, dict) and row.get("event") == "ThreadCreated" and row.get("thread_id"):
+                    threads.add(str(row["thread_id"]))
+        return threads or None
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def reconcile_seats(scope):
     """Orphan seats, walked beside orphan grants and for the same reason (6.3a).
 
@@ -902,18 +948,70 @@ def reconcile_seats(scope):
     REPORTED, because a reconciliation that silently skips what it could not do
     is a clean bill of health signed by nobody.
 
-    HIS OWN CURSOR IS NEVER TOUCHED HERE. A work seat is identified positively,
-    by its own audience, and never as "everything that is not his" -- which is
-    precisely the reasoning that would delete his cursor after a crash. The
-    engine refuses his seat by name as well.
+    TWO KINDS OF SEAT ARE RECONCILED HERE, AND THEY ARE ASKED DIFFERENT
+    QUESTIONS. A work seat is one per assignment, and its question is the
+    obligation's state. HIS OWN SEAT IS ONE PER CONVERSATION THREAD since
+    2026-09-17 (ecs/CONTRACT.md), and its question is whether that thread still
+    exists -- which only the app knows, so `assignment_state` is not asked of it
+    at all. Until this arm existed his thread seats were enumerated by `seats`
+    and then skipped by the `audience != "worker"` filter above, so an orphan
+    one would have lived forever.
+
+    HIS LEGACY CURSOR IS NEVER TOUCHED, AND NEITHER IS A LIVE THREAD'S SEAT.
+    Both kinds are identified POSITIVELY -- a work seat by its own audience, one
+    of his by `ECS.is_ceo_row`, which re-derives the seat from the row's own
+    thread rather than comparing a person against a literal. `ceo-default` is
+    refused by name here and refused again in the store. "Everything that is not
+    his" is the reasoning that deletes his cursor after a crash, and "everything
+    that is not ceo-default" is the same mistake one thread later.
+
+    A RELEASE OF ONE OF HIS CARRIES THE REVISION IT WAS ENUMERATED AT, which is
+    the store's own independent liveness proof: a seat that has bound a turn
+    since the enumeration belongs to a demonstrably live thread and the release
+    is refused rather than racing the front desk that is using it.
     """
     binding = scope["binding"]
     report = {"released": [], "retained": [], "unreconciled": []}
+    known = []          # the app's thread list, read at most once and only if one of his is here
     for row in ecs(scope, {"protocol":1,"command":"seats","binding":binding})["seats"]:
-        if row["audience"] != "worker":
+        his = ECS.is_ceo_row(row) and row["person_id"] != ECS.PERSON_ID
+        if not his and row["audience"] != "worker":
             continue
-        if row["entity_id"] != binding["entity_id"] or row["thread_id"] != binding["thread_id"]:
-            continue  # another company or thread's partition is not this scope's to reconcile
+        if row["entity_id"] != binding["entity_id"]:
+            continue  # another company's partition is not this scope's to reconcile
+        if not his and row["thread_id"] != binding["thread_id"]:
+            continue  # a work seat is bound inside this thread; another thread's is not ours
+        if his:
+            # One of his thread seats is in ANOTHER thread by construction --
+            # that is what makes it reconcilable from here at all -- so the
+            # boundary it keeps is the company's, checked above.
+            seat = row["person_id"]
+            try:
+                if row["thread_id"] == binding["thread_id"]:
+                    report["retained"].append({"seat":seat, "thread":row["thread_id"],
+                                               "reason":"this conversation"})
+                    continue
+                if not known:
+                    known.append(conversation_threads())
+                if known[0] is None:
+                    report["unreconciled"].append({"seat":seat, "thread":row["thread_id"],
+                        "reason":"the app's conversation ledger could not be read, so whether that "
+                                 "thread still exists is unknown -- and an unknown is never a release"})
+                    continue
+                if row["thread_id"] in known[0]:
+                    report["retained"].append({"seat":seat, "thread":row["thread_id"], "reason":"open"})
+                    continue
+                ecs(scope, {"protocol":1,"command":"release-seat","binding":binding,
+                            "person_id":seat, "reason":"thread absent",
+                            "expected_revision":int(row["revision"]),
+                            "request_id":f"reconcile-seat:{seat}:{row['revision']}",
+                            "source_ref":f"app-reconcile:{seat}:{row['revision']}"})
+                report["released"].append({"seat":seat, "thread":row["thread_id"],
+                                           "reason":"thread absent"})
+            except Exception as error:
+                report["unreconciled"].append({"seat":seat, "thread":row["thread_id"],
+                                               "reason":str(error)[:400]})
+            continue
         assignment, seat = row["turn_id"], row["person_id"]
         try:
             state = assignment_state(scope, assignment)
