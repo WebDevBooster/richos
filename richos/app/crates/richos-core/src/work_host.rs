@@ -266,7 +266,15 @@ impl WorkHost {
         self.inner.lock().unwrap().cancel = None;
 
         // 5. What state it is in is read from evidence, never from the turn ending.
-        let stopped = self.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id);
+        //
+        // **A quit that arrived while the turn was in flight counts as a stop here**, and
+        // it has to: `shutdown` marks every open assignment `interrupted`, and a runner
+        // that then wrote its own verdict over the top would turn a quit into "still
+        // running" — the one state a quit must never produce.
+        let stopped = {
+            let inner = self.inner.lock().unwrap();
+            inner.shutting_down || inner.stopped.iter().any(|id| *id == record.id)
+        };
         match outcome {
             Err(why) => {
                 let sentence = honest(&why.to_string());
@@ -442,6 +450,22 @@ impl WorkHost {
         self.wake.notify_all();
         if let Some(handle) = cancel {
             handle.shutdown();
+        }
+        // **Let the runner put the live assignment down before sweeping.** The sweep below
+        // is a write, and so is the runner's own last write; racing them is how a quit ends
+        // with a receipt that says `running`. Bounded, because a lease that will not answer
+        // its cancel must not hold the app open — after the bound the sweep runs anyway and
+        // the honest state is still `interrupted`.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        {
+            let mut inner = self.inner.lock().unwrap();
+            while inner.live.is_some() {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                inner = self.wake.wait_timeout(inner, left).unwrap().0;
+            }
         }
         if let Ok(open) = assignment::open(&self.state) {
             for record in open {

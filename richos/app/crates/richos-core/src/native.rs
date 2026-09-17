@@ -172,7 +172,51 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// already reasons about.
 pub const STOP_REASON_CANCELLED: &str = "cancelled";
 
-/// The stop reason `prompt` returns when the agent did NOT answer the cancelled turn within
+/// **Which of the two leases this is** — the background-work spec §2.1's second connection,
+/// made a type rather than a boolean so every place that has to care says which one it
+/// means.
+///
+/// The two differ in what the CHILD is given, not in how the host holds it:
+///
+/// | | `Conversation` | `Work` |
+/// |---|---|---|
+/// | `richos_continuity` in its MCP config | yes | **no** — spec §5.8a-ii seam 1 |
+/// | continuity tools required to start a turn | yes (`:1960-1962`) | no, because it was not given them |
+/// | its preparation calls `bridge.brief` | yes (`:1972`) | **no** — seam 2 |
+/// | ECS seat | the CEO's | its own, one per assignment (§5.8c) |
+/// | audience | `ceo` | `worker` |
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaseRole {
+    Conversation,
+    Work,
+}
+
+/// The three role decisions, as functions, **because the call sites use these and the tests
+/// assert on these.** A test that re-stated the condition would be a second copy of the
+/// rule that agrees with the first only until somebody edits one of them — which is the
+/// shape of a negative test that passes for its own reasons.
+///
+/// Seam 2 of the background-work spec §5.8a-ii: a work lease must not come down
+/// `prepare_work_turn`'s path, because that path calls `bridge.brief` and the brief is the
+/// CEO's.
+fn work_preparation_refusal(role: LeaseRole) -> Option<&'static str> {
+    (role == LeaseRole::Work).then_some("A background work connection does not take conversation turns.")
+}
+
+/// And the other way round: a conversation lease does not take background assignments.
+fn assignment_binding_refusal(role: LeaseRole) -> Option<&'static str> {
+    (role == LeaseRole::Conversation)
+        .then_some("The conversation's connection does not take background assignments.")
+}
+
+/// Spec §5.8a-ii's stated consequence of seam 1: the readiness assertion is about what
+/// THIS lease was configured with. A work lease was deliberately not given the continuity
+/// tools, so a lease-blind check would refuse its turn and it would never start.
+fn requires_continuity_tools(role: LeaseRole) -> bool {
+    role == LeaseRole::Conversation
+}
+
+/// The stop reason `prompt` returns when the agent did NOT answer the stopped turn within
 /// [`CANCEL_GRACE_MS`] of being told to.
 ///
 /// A distinct string because it is a distinct fact: the CEO's stop still stands and the
@@ -848,6 +892,40 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
     Ok(())
 }
 
+/// The per-lease MCP config the app writes when it spawns a child.
+///
+/// **Extracted from `spawn_with_tools` so it can be asserted without spawning anything.**
+/// The background-work spec's §5.8a-ii seam 1 is a claim about what is IN this object and
+/// what is not, and a claim of that shape is worth nothing if the only way to check it is
+/// to start a provider. The negative — `richos_continuity` absent from a work lease's
+/// config — is exactly the kind of assertion the spec's own checker had to be rebuilt to
+/// be able to make.
+///
+/// - `richos_onboarding` is served by the app's own executable and is on both leases.
+/// - `richos_continuity` is on the **conversation** lease only (seam 1). The work lease
+///   never calls `checkpoint`, `receipt` or `brief`; leaving the server registered would
+///   have given it un-prompted access, because `permissions.rs:58-59` auto-allows both of
+///   that server's tools on a process-global tool-name match that discriminates on nothing
+///   per-lease, and its own gate is `actions_allowed`, which §5.4's standing grant supplies.
+/// - `richos_work` is on both, because the work lease is the one that needs it most.
+fn mcp_config(executable: &Path, onboarding_scope: &Path,
+    continuity: Option<(&crate::ecs::EcsBridge, &Path)>,
+    profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole) -> Value {
+    let mut config = json!({"mcpServers": {"richos_onboarding": {
+        "type": "stdio", "command": executable,
+        "args": ["--onboarding-mcp", onboarding_scope]
+    }}});
+    if let Some((bridge, scope)) = continuity.filter(|_| role == LeaseRole::Conversation) {
+        config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
+            "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
+    }
+    if let (Some(profile), Some((bridge, scope))) = (profile, continuity) {
+        config["mcpServers"]["richos_work"] = json!({"type":"stdio", "command":bridge.python,
+            "args":[profile.engine.join("mega-lander/app.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
+    }
+    config
+}
+
 impl NativeClient {
     /// Spawn `claude`, run the `initialize` handshake, and return a client whose session id
     /// is already known.
@@ -863,10 +941,10 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None)
+        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None, LeaseRole::Conversation)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>, role: LeaseRole) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -880,18 +958,7 @@ impl NativeClient {
             None => child_args(&session_id),
         };
         if let Some((executable, scope)) = onboarding {
-            let mut config = json!({"mcpServers": {"richos_onboarding": {
-                "type": "stdio", "command": executable,
-                "args": ["--onboarding-mcp", scope]
-            }}});
-            if let Some((bridge, scope)) = continuity {
-                config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
-                    "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
-            }
-            if let (Some(profile), Some((bridge, scope))) = (profile, continuity) {
-                config["mcpServers"]["richos_work"] = json!({"type":"stdio", "command":bridge.python,
-                    "args":[profile.engine.join("mega-lander/app.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
-            }
+            let config = mcp_config(executable, scope, continuity, profile, role);
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         // The supervisor observes parent death, including a crash where Rust
@@ -1866,6 +1933,9 @@ pub struct NativeCognition {
     onboarding_scope: Option<std::path::PathBuf>,
     continuity: Option<(crate::ecs::EcsBridge, std::path::PathBuf)>,
     engine_profile: Option<crate::engine_profile::EngineProfile>,
+    /// Conversation or work (background-work spec §2.1). Set at spawn and never changed:
+    /// a lease that was not given the continuity tools cannot become one that was.
+    role: LeaseRole,
 }
 
 impl NativeCognition {
@@ -1884,7 +1954,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None, engine_profile: None })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None, engine_profile: None, role: LeaseRole::Conversation })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -1893,9 +1963,9 @@ impl NativeCognition {
         let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
         std::fs::create_dir_all(&scopes)?;
         let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
-        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, None, control)?;
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None, engine_profile: None })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None, engine_profile: None, role: LeaseRole::Conversation })
     }
     pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
         executable: &Path, bridge: crate::ecs::EcsBridge,
@@ -1907,9 +1977,9 @@ impl NativeCognition {
         let scope = scopes.join(format!("{identity}.json"));
         let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), None, control)?;
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)), engine_profile: None })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)), engine_profile: None, role: LeaseRole::Conversation })
     }
 
     /// Settings-isolated desktop lease from verified engine delivery.
@@ -1926,12 +1996,45 @@ impl NativeCognition {
         // hook sees an explicit closed grant, never a guessed active scope.
         std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), control)?;
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: Some(scope),
-            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile) })
+            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile), role: LeaseRole::Conversation })
     }
 
+    /// **The WORK lease** — the background-work spec §2.1's second compute lease, in the
+    /// same process, owned by the work host rather than by the spine.
+    ///
+    /// It is `start_with_engine`'s sibling and differs from it in exactly three places,
+    /// each of which is the spec's, not a convenience:
+    ///
+    /// 1. `LeaseRole::Work`, so its MCP config omits `richos_continuity` (§5.8a-ii seam 1).
+    /// 2. It takes **no** `TurnControl`. §4.2: *"The work lease is never attached to the
+    ///    conversation's `TurnControl`."* `start_with_engine` itself is safe to call with
+    ///    one — the argument is used only for the stop-claim check at handshake (`:1073`)
+    ///    — so the refusal is specifically about `set_cancel`, and the cleanest way to make
+    ///    it structural is to have nothing to pass.
+    /// 3. Its scope file starts with `actions_allowed: false` for the same reason the
+    ///    conversation's does, and is opened per assignment by
+    ///    [`Cognition::bind_work_assignment`] rather than at turn start.
+    pub fn start_work_lease(bin: &Path, doctrine: &Path, skills: &Path,
+        executable: &Path, bridge: crate::ecs::EcsBridge, profile: crate::engine_profile::EngineProfile)
+        -> Result<Self, NativeError> {
+        bridge.request("hello", json!({})).map_err(|e| NativeError::Protocol(e.to_string()))?;
+        let scopes = profile.state.join("scopes");
+        std::fs::create_dir_all(&scopes)?;
+        let identity = uuid::Uuid::new_v4();
+        let scope = scopes.join(format!("{identity}-onboarding.json"));
+        let continuity_scope = scopes.join(format!("{identity}-work.json"));
+        std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
+        let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
+            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
+        let session_id = client.session_id().to_string();
+        Ok(Self { client, session_id, onboarding_scope: Some(scope),
+            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile), role: LeaseRole::Work })
+    }
+
+    pub fn role(&self) -> LeaseRole { self.role }
 }
 
 impl Drop for NativeCognition {
@@ -1953,11 +2056,31 @@ impl Cognition for NativeCognition {
     }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
         source: crate::ledger::Source, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        // **SEAM 2 OF THE SPEC'S §5.8a-ii, and it is the one that fires first** — because it
+        // is the HOST calling `brief` on the lease's behalf, which no allow-list touches.
+        // This function is the only non-test writer of an ECS tool scope, and on its way
+        // there it calls `bridge.brief(&scope)` (`:1972` at `5e7a632e`) — the command
+        // §5.8a reproduces raising on a work seat. So the rule cannot be kept by
+        // restricting the model: the work lease's preparation must not come down this path
+        // at all. It has its own, in `bind_work_assignment`, which binds the seat, writes
+        // the scope, and stops.
+        if let Some(refusal) = work_preparation_refusal(self.role) {
+            return Err(CognitionError::Protocol(refusal.into()));
+        }
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
             return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
         }
-        if self.client.reader_state.lock().map(|s| s.continuity_tools_loaded).ok() != Some(true) {
+        // **THE READINESS CHECK IS ABOUT WHAT THIS LEASE WAS CONFIGURED WITH, NOT ABOUT A
+        // GLOBAL EXPECTATION** — the background-work spec §5.8a-ii's stated consequence of
+        // seam 1, which *"must land in the same commit as the omission"*. A work lease is
+        // deliberately not given the continuity tools, so a lease-blind assertion here
+        // would refuse its turn outright and it would never start.
+        //
+        // For the conversation lease nothing changes: it is still refused unless the
+        // child's own init frame listed both continuity tools (`:1255`).
+        if requires_continuity_tools(self.role)
+            && self.client.reader_state.lock().map(|s| s.continuity_tools_loaded).ok() != Some(true) {
             return Err(CognitionError::Protocol("The selected engine's continuity tools did not load".into()));
         }
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().work_tools_loaded {
@@ -1983,10 +2106,79 @@ impl Cognition for NativeCognition {
                 use sha2::Digest;
                 Some(crate::ecs::UserInstruction {ledger_ref:format!("ledger:{}:{turn}",binding.thread_id()),
                     sha256:format!("{:x}",sha2::Sha256::digest(text.as_bytes()))})
-            } else {None} })
+            } else {None}, seat: None })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
         if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
+        Ok(())
+    }
+
+    /// The work lease's preparation — **the sibling path of `prepare_work_turn`, and its
+    /// whole point is what it does not do.**
+    ///
+    /// It binds the assignment's own seat, writes the scope, opens the standing grant, and
+    /// stops. No `brief`, no `sync-loro-receipts`, no priming prompt: those write and read
+    /// the CEO's executive continuity, the work lease has no business in it, and
+    /// `audience: "worker"` (§5.8c) exists precisely to keep this lease out of it.
+    ///
+    /// **The readiness checks it DOES keep** are the ones about what this lease was given:
+    /// the engine plugin, the work tools, and automatic permission checks. The continuity
+    /// tools are deliberately absent, so they are deliberately not asserted.
+    fn bind_work_assignment(&mut self, work: &crate::cognition::WorkAssignment) -> Result<(), CognitionError> {
+        if let Some(refusal) = assignment_binding_refusal(self.role) {
+            return Err(CognitionError::Protocol(refusal.into()));
+        }
+        let Some((bridge, path)) = &self.continuity else {
+            return Err(CognitionError::Protocol("This work connection has no continuity scope.".into()));
+        };
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
+            return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
+        }
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().work_tools_loaded {
+            return Err(CognitionError::Protocol("The desktop work tools did not load".into()));
+        }
+        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().automatic_permissions {
+            return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
+        }
+        let binding = bridge
+            .bind_work_seat(&work.entity_id, &work.thread_id, &self.session_id, &work.assignment_id, &work.seat)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        // **The standing action grant (§5.4), and the frozen instruction (§3.6).**
+        // `actions_allowed: true` with no visible turn is the whole of what lets a
+        // background lease reach the work tools at all (`mega-lander/app.py:41-42`); the
+        // instruction reference is the one from the turn in which he gave the assignment,
+        // so the engine's completion gate checks a durable instruction rather than a live
+        // one, and its meaning — his, visible, host-attested — is unchanged.
+        crate::ecs::write_scope(path, &crate::ecs::ToolScope {
+            version: 1,
+            actions_allowed: true,
+            bridge: bridge.clone(),
+            binding,
+            user_instruction: Some(crate::ecs::UserInstruction {
+                ledger_ref: work.instruction_ledger_ref.clone(),
+                sha256: work.instruction_sha256.clone(),
+            }),
+            seat: Some(work.seat.clone()),
+        })
+        .map_err(|e| CognitionError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Revoke the standing grant — spec §5.4, per assignment, by name.
+    ///
+    /// **A grant that cannot be revoked forces the lease down** rather than being left
+    /// open, which is the rule the conversation lease already follows at turn end
+    /// (`:2041-2055`). A background lease holding an un-revokable standing grant with no
+    /// visible turn is strictly worse than that case, so it gets the same answer.
+    fn revoke_work_assignment(&mut self) -> Result<(), CognitionError> {
+        let Some((_, path)) = &self.continuity else { return Ok(()) };
+        if !path.exists() { return Ok(()); }
+        if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
+            let _ = self.client.child.kill();
+            let _ = self.client.child.wait();
+            let _ = std::fs::remove_file(path);
+            return Err(CognitionError::Io(error.to_string()));
+        }
         Ok(())
     }
 
@@ -2081,6 +2273,141 @@ impl Cognition for NativeCognition {
 #[cfg(test)]
 mod native_driver_tests {
     use super::*;
+
+    // ---- the background-work spec's §5.8a-ii seams ------------------------------------
+
+    fn fixture_bridge(root: &Path) -> crate::ecs::EcsBridge {
+        crate::ecs::EcsBridge {
+            python: root.join("runtime/bin/python3"),
+            component: root.join("engine/ecs"),
+            state_root: root.join("ecs"),
+        }
+    }
+
+    fn fixture_profile(root: &Path) -> crate::engine_profile::EngineProfile {
+        crate::engine_profile::EngineProfile {
+            engine: root.join("engine"),
+            coordination: root.join("coordination"),
+            plugin: root.join("plugin"),
+            state: root.join("engine-state"),
+            runtime: crate::runtime::EngineRuntime {
+                root: root.join("runtime"),
+                python: root.join("runtime/bin/python3"),
+                node: root.join("runtime/bin/node"),
+                git: root.join("runtime/bin/git"),
+                versions: Default::default(),
+            },
+            work_scope: None,
+            permissions: std::sync::Arc::new(crate::permissions::PermissionDesk::default()),
+        }
+    }
+
+    /// **SEAM 1.** The work lease's MCP config does not register `richos_continuity`, and
+    /// the conversation lease's does.
+    ///
+    /// The negative is the load-bearing half, so it has a positive control in the same
+    /// test: the identical call with `LeaseRole::Conversation` DOES register the server,
+    /// which is what makes its absence evidence rather than a config that never had it.
+    ///
+    /// **Why the omission and not an allow-list entry** (spec §5.8a-ii): `permissions.rs`
+    /// auto-allows `mcp__richos_continuity__checkpoint` and `…__inspect` on a
+    /// process-global tool-name match, and those are exactly the two tools that server
+    /// exposes — so the desk cannot tell the two leases apart and the work lease would have
+    /// had un-prompted checkpoint access. That coupling is asserted here too, against the
+    /// live `permissions.rs` decision, so a later edit that removed the auto-allow would
+    /// tell whoever is reading this why this test exists.
+    #[test]
+    fn a_work_leases_config_omits_the_continuity_server_and_keeps_the_work_server() {
+        let root = std::env::temp_dir().join(format!("mcp-config-{}", uuid::Uuid::new_v4()));
+        let bridge = fixture_bridge(&root);
+        let profile = fixture_profile(&root);
+        let scope = root.join("scope.json");
+        let continuity = root.join("continuity.json");
+        let executable = root.join("RichOS");
+
+        let work = mcp_config(&executable, &scope, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
+        let servers = &work["mcpServers"];
+        assert!(servers.get("richos_continuity").is_none(), "the work lease was given the continuity server");
+        assert!(servers.get("richos_work").is_some(), "the work lease was not given the work server");
+        assert!(servers.get("richos_onboarding").is_some());
+
+        // Positive control: the same call for the conversation DOES register it.
+        let chat = mcp_config(&executable, &scope, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Conversation);
+        assert!(chat["mcpServers"].get("richos_continuity").is_some(), "the conversation lost its continuity server");
+        assert!(chat["mcpServers"].get("richos_work").is_some());
+
+        // And the reason the omission is the enforcement rather than the desk: the desk
+        // auto-allows both of that server's tools, with nothing per-lease to discriminate on.
+        let grant = root.join("grant.json");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&grant, json!({"version":1,"actions_allowed":true,"binding":{"entity_id":"depot",
+            "thread_id":"thread","session_id":"session","turn_id":"turn","audience":"ceo","revision":1}}).to_string()).unwrap();
+        let desk = crate::permissions::ScopedPermissions {
+            desk: std::sync::Arc::new(crate::permissions::PermissionDesk::default()),
+            scope: grant,
+        };
+        for tool in ["mcp__richos_continuity__checkpoint", "mcp__richos_continuity__inspect"] {
+            assert!(
+                matches!(desk.decide(&json!({"tool_name": tool, "input": {}})), PermissionDecision::Allow { .. }),
+                "{tool} is no longer auto-allowed; seam 1's reasoning needs re-reading"
+            );
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// **SEAM 2**, the one that fires first, because it is the HOST calling `brief` rather
+    /// than the model asking for it: `prepare_work_turn` is the only non-test writer of an
+    /// ECS tool scope and calls `bridge.brief(&scope)` on its way there, which spec §5.8a
+    /// reproduces raising on a work seat. A work lease must not come down that path at all.
+    ///
+    /// Asserted without a child process by driving the role gate directly. The positive
+    /// control is the other arm: `bind_work_assignment` is refused on a conversation lease,
+    /// so neither role can quietly take the other's path.
+    #[test]
+    fn neither_lease_can_take_the_others_preparation_path() {
+        // The refusals are decided before anything else in either function, so a lease
+        // value with no live child is enough to exercise exactly the gate under test.
+        assert_eq!(
+            work_preparation_refusal(LeaseRole::Work),
+            Some("A background work connection does not take conversation turns.")
+        );
+        assert_eq!(work_preparation_refusal(LeaseRole::Conversation), None);
+        assert_eq!(
+            assignment_binding_refusal(LeaseRole::Conversation),
+            Some("The conversation's connection does not take background assignments.")
+        );
+        assert_eq!(assignment_binding_refusal(LeaseRole::Work), None);
+    }
+
+    /// The readiness assertion is per-lease (spec §5.8a-ii's stated consequence): a work
+    /// lease was deliberately not given the continuity tools, so requiring them would have
+    /// refused its turn outright and it would never have started. The conversation lease
+    /// still requires them.
+    #[test]
+    fn the_continuity_tools_readiness_check_is_about_what_this_lease_was_given() {
+        assert!(requires_continuity_tools(LeaseRole::Conversation));
+        assert!(!requires_continuity_tools(LeaseRole::Work));
+    }
+
+    /// A work seat is never the CEO's, and is never bound against an engine that would
+    /// silently write his row instead (spec §5.8/§5.8c). Both refusals are checked, and the
+    /// engine-capability one is checked against a bridge that cannot answer at all — which
+    /// is the ambiguity case, and it resolves to refusing.
+    #[test]
+    fn a_work_seat_is_refused_rather_than_written_onto_the_ceos_row() {
+        let root = std::env::temp_dir().join(format!("seat-refusal-{}", uuid::Uuid::new_v4()));
+        let bridge = fixture_bridge(&root);
+        let ceo = bridge.bind_work_seat("depot", "thread", "session", "assign-7", crate::entity::PERSON_DEFAULT);
+        assert!(ceo.is_err(), "a work seat was allowed to be the CEO's own");
+        let shaped = bridge.bind_work_seat("depot", "thread", "session", "assign-7", "work seat with spaces");
+        assert!(shaped.is_err());
+        // The bridge points at nothing, so the capability probe cannot answer — and an
+        // unanswerable probe refuses rather than binding.
+        assert!(!bridge.supports_work_seats());
+        let unknown = bridge.bind_work_seat("depot", "thread", "session", "assign-7", "work-seat-assign-7");
+        assert!(unknown.is_err(), "a seat was bound against an engine that cannot hold one");
+        assert!(unknown.unwrap_err().to_string().contains("overwrite the CEO's own"));
+    }
 
     // ---- the undocumented flag, and the loud-failure contract -------------------------
 

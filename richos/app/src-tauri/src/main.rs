@@ -232,6 +232,58 @@ impl LeaseFactory for EngineLeaseFactory {
     fn spawn_cancellable(&self, control: &TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
         self.spawn_chat(Some(control), None)
     }
+
+    /// **The second lease** — the background-work spec §2.1's work lease, in this same
+    /// process, owned by the work host.
+    ///
+    /// It goes through the same release gate, the same runtime verification and the same
+    /// engine profile as the conversation's, because a work lease that skipped any of them
+    /// would be the wrong engine writing into the CEO's corpus with fewer eyes on it, not
+    /// more. What it does NOT get is a `TurnControl` — §4.2: the work lease is never
+    /// attached to the conversation's cancel slot, and the shape of `spawn_work` is where
+    /// that is enforced, because there is nothing here to pass one through.
+    ///
+    /// **A refusal here is a failed registration** (spec §1.4 and §2.1): the gate can
+    /// refuse before any lease exists, and that has nothing to do with the work. The work
+    /// host reports it in those words rather than leaving it to surface later as a worker
+    /// that never speaks.
+    fn spawn_work(&self, binding: &richos_core::entity::ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+        let dir = self
+            .engine_dir
+            .lock()
+            .map(|d| d.clone())
+            .unwrap_or_else(|_| PathBuf::from("/nonexistent/richos-engine"));
+        let bin = self
+            .claude_bin
+            .lock()
+            .map(|b| b.clone())
+            .unwrap_or_else(|_| PathBuf::from("claude"));
+        let doctrine = richos_core::doctrine::ensure_rendered(
+            &self.data_dir,
+            &richos_core::doctrine::identity_from_config(&self.data_dir),
+        )
+        .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let skills = richos_core::skills::ensure_rendered(&self.data_dir)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let executable = std::env::current_exe().map_err(|e| CognitionError::Io(e.to_string()))?;
+        if let Some(why) = richos_core::setup::engine_boot_refusal(
+            &dir,
+            self.explicit_engine,
+            richos_core::setup::required_engine_version().as_deref(),
+        ) {
+            return Err(CognitionError::Io(why));
+        }
+        let runtime = richos_core::runtime::verify_engine(&dir)
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?;
+        profile.permissions = self.permissions.clone();
+        let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cog = richos_core::native::NativeCognition::start_work_lease(&bin, &doctrine, &skills, &executable, bridge, profile)?;
+        Ok(Box::new(cog))
+    }
 }
 
 impl EngineLeaseFactory {

@@ -47,6 +47,23 @@ pub struct ToolScope {
     pub binding: Binding,
     #[serde(default)]
     pub user_instruction: Option<UserInstruction>,
+    /// **The ECS seat this scope's binding lives on** — the background-work spec §5.8's
+    /// second cursor, one per assignment (§5.8c), or `None` for the CEO's own seat.
+    ///
+    /// **`version` stays `1`, and that is a decision rather than an oversight.** The
+    /// engine's work adapter refuses any scope whose version is not exactly 1 —
+    /// `if value.get("version") != 1 … raise ValueError` (`richos/engine/mega-lander/app.py:41`)
+    /// — so bumping it here would refuse every work tool call on every engine that has not
+    /// landed the same bump in the same minute. An ADDED optional field is invisible to a
+    /// Python reader that does not ask for it and is read by one that does, which is what
+    /// makes the two sides landable in either order. `#[serde(default)]` keeps every scope
+    /// already on disk readable.
+    ///
+    /// Spec §5.8b's change table calls this *"a versioned change both sides must land
+    /// together"*. The seat FIELD is not; the engine's handling of it is, and
+    /// [`EcsBridge::supports_work_seats`] is how the app finds out rather than assuming.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<String>,
 }
 
 pub fn write_scope(path: &Path, scope: &ToolScope) -> Result<(), EcsError> {
@@ -150,6 +167,79 @@ impl EcsBridge {
             "expected_revision":current.pointer("/binding/revision"),
             "source_ref":format!("ledger:{thread}:{turn}"),
             "request_id":format!("{session}:{turn}")
+        }))?;
+        serde_json::from_value(result["binding"].clone()).map_err(|e| EcsError(e.to_string()))
+    }
+
+    /// **Does this engine know what a seat is?** A read-only probe, run before the first
+    /// work bind, because the alternative is unacceptable.
+    ///
+    /// Spec §5.8's seat is a second row in `ecs_active_context`, keyed `person_id TEXT
+    /// PRIMARY KEY` (`richos/engine/ecs/migrations/001_initial.sql:57-58`). An engine that
+    /// has not landed the seat ignores the extra field — Python's `json` keeps no
+    /// `deny_unknown_fields` — and binds **the CEO's row**, with `audience: "worker"` on
+    /// it. That is not a degraded outcome; it is his cursor overwritten by a background
+    /// assignment, and the failure would be silent.
+    ///
+    /// The probe is positive rather than a version string: ask `current` for a seat that
+    /// **cannot exist**. An engine that understands the field answers with no binding for
+    /// it; an engine that ignores it answers with whatever row it has, which is his. So a
+    /// returned binding here is proof the field was ignored.
+    ///
+    /// A transport failure answers `false` — the ambiguity resolves to not writing
+    /// (`work_gate.rs:57-62`'s standing rule).
+    pub fn supports_work_seats(&self) -> bool {
+        let probe = format!("richos-seat-probe-{}", uuid::Uuid::new_v4());
+        match self.request("current", json!({"seat": probe})) {
+            Ok(result) => result.get("binding").is_none_or(Value::is_null),
+            Err(_) => false,
+        }
+    }
+
+    /// Bind a WORK seat — spec §5.8's second cursor, §5.8c's one-per-assignment, §5.8b's
+    /// split bind.
+    ///
+    /// **It refuses rather than degrading.** If the engine does not understand the seat,
+    /// this does not fall back to `bind` — a fallback here writes the CEO's row.
+    ///
+    /// **The `audience` is `worker`, not `ceo`.** `bind` hard-codes `"ceo"` (`:149` below)
+    /// and the audience decides visibility: `ceo` sees `worker`, `rich` and `ceo_private`
+    /// records while `worker` sees only `worker` (`ecs_inspect.py:30-31`). A background
+    /// lease has no business reading his private records, and spec §5.8c names that
+    /// narrowing as the thing the seat buys that a shared row cannot.
+    ///
+    /// **The `turn_id` is the ASSIGNMENT, not a turn.** Spec §5.3: a request cannot outlive
+    /// its `turn_id` today, so the work lease's binding needs a stable identity that is not
+    /// a turn — the assignment. It is carried in the turn field because the binding's six
+    /// fields are fixed by the engine's own `BINDING_FIELDS`
+    /// (`richos/engine/ecs/adapters/app.py:13`) and `fence` demands all six exactly.
+    pub fn bind_work_seat(&self, entity: &str, thread: &str, session: &str, assignment: &str, seat: &str)
+        -> Result<Binding, EcsError> {
+        if seat.is_empty() || seat.len() > 128
+            || !seat.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            return Err(EcsError("a work seat must be a bounded, plain identifier".into()));
+        }
+        if seat == crate::entity::PERSON_DEFAULT {
+            return Err(EcsError("background work is never bound on the CEO's own seat".into()));
+        }
+        if !self.supports_work_seats() {
+            return Err(EcsError(
+                "the selected engine cannot hold a separate seat for background work, and \
+                 binding one here would overwrite the CEO's own".into(),
+            ));
+        }
+        let current = self.request("current", json!({"seat": seat}))?;
+        if let Ok(binding) = serde_json::from_value::<Binding>(current["binding"].clone()) {
+            if binding.entity_id == entity && binding.thread_id == thread
+                && binding.session_id == session && binding.turn_id == assignment
+                && binding.audience == "worker" { return Ok(binding); }
+        }
+        let result = self.request("bind", json!({
+            "seat": seat,
+            "scope": {"entity_id":entity,"thread_id":thread,"session_id":session,"turn_id":assignment,"audience":"worker"},
+            "expected_revision":current.pointer("/binding/revision"),
+            "source_ref":format!("ledger:{thread}:{assignment}"),
+            "request_id":format!("{session}:{assignment}")
         }))?;
         serde_json::from_value(result["binding"].clone()).map_err(|e| EcsError(e.to_string()))
     }
