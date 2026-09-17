@@ -57,6 +57,11 @@
 #   D5  a missing NSMicrophoneUsageDescription fails
 #   D6  a bundle whose signature was removed fails
 #   D7  --expect-notarized fires the stapled-ticket check
+#   E1  an exported API key does not satisfy the no-credentials case       [shim]
+#   E2  exported halves do not complete a half-supplied key                [shim]
+#   E3  an exported key does not outrank the case's own profile            [shim]
+#   E4  an exported key does not turn the Apple-ID refusal into a pass     [shim]
+#   E5  an exported RICHOS_SIGNING_IDENTITY does not reach discovery       [shim]
 #   Z   the operator's real keychain inventory is unchanged by this suite
 set -uo pipefail
 
@@ -73,7 +78,26 @@ ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n         %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
 
 # --- run the script, capture output and code ------------------------------
-run() { OUT="$("$@" 2>&1)"; CODE=$?; return 0; }
+#
+# EVERY CASE RUNS WITH THE OPERATOR'S OWN SIGNING VARIABLES REMOVED, and that is
+# not tidiness. On 2026-09-16 this suite was the single red gate of the first
+# nightly release attempt: C1, C2, C7 and C8 failed on the CEO's Mac and on no
+# other machine, because nightly-local.py exported his real App Store Connect API
+# key into every gate. "No credentials" then had a complete key; "half a key" got
+# its missing halves from the environment; the profile case lost to the key that
+# package-app.sh prefers. The refusals were right. Their environment was not.
+#
+# A verdict that depends on what the operator happens to have exported is the
+# failure this repository keeps paying for in both directions: green over a check
+# that never ran, red over a defect that never happened. So the suite states its
+# own environment instead of inheriting one.
+#
+# The unset runs inside the command substitution's subshell, BEFORE the case's own
+# `env NAME=value` assignments are applied, so a case still gets exactly what it
+# sets and nothing more. The parent shell is untouched, which is what lets section
+# E export a hostile credential set and prove the isolation from the outside.
+isolate() { unset "${!RICHOS_NOTARY_@}" "${!TAURI_SIGNING_@}" "${!APPLE_@}" RICHOS_NOTARIZE RICHOS_SIGNING_IDENTITY; }
+run() { OUT="$(isolate; "$@" 2>&1)"; CODE=$?; return 0; }
 
 expect() {   # expect <name> <wanted-code> <substring>
   local name="$1" want="$2" needle="$3"
@@ -266,6 +290,36 @@ expect "D6 a bundle whose signature was removed fails" 1 "codesign --verify --de
 make_bundle "$BUNDLE"
 run bash "$SBS" --verify-only "$BUNDLE" --sign developer-id --expect-notarized
 expect "D7 --expect-notarized runs the stapled-ticket check" 1 "no valid stapled notarization ticket"
+
+echo ""
+echo "=== E. the operator's environment cannot reach a case ==="
+# The negative control for the isolation above, and the regression test for the
+# 2026-09-16 nightly. Export a COMPLETE, hostile credential set — the shape
+# nightly-local.py actually put in front of this suite — and re-run the four cases
+# that went red, plus one identity case. Every verdict must be the C-section one.
+# Without `isolate` in `run`, E1, E2, E4 and E5 go red here for the same reason
+# their C counterparts did, so this section cannot pass by accident.
+export RICHOS_NOTARIZE=1
+export RICHOS_NOTARY_KEY="$KEY" RICHOS_NOTARY_KEY_ID=LEAKED12345 RICHOS_NOTARY_ISSUER=leaked-issuer
+export RICHOS_NOTARY_PROFILE=leaked-profile
+export APPLE_ID=leaked@example.invalid APPLE_PASSWORD=leak-leak-leak-leak APPLE_TEAM_ID=LEAKTEAM01
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=leaked
+export RICHOS_SIGNING_IDENTITY="Developer ID Application: Leaked (LEAK00000)"
+
+run notarize
+expect "E1 [shim] an exported API key does not satisfy 'no credentials'" 2 "no APPLE_PASSWORD path"
+run notarize RICHOS_NOTARY_KEY_ID=ABCDE12345
+expect "E2 [shim] exported halves do not complete a half-supplied key" 2 "RICHOS_NOTARY_KEY RICHOS_NOTARY_ISSUER"
+run notarize RICHOS_NOTARY_PROFILE=richos
+expect "E3 [shim] an exported key does not outrank the case's profile" 0 "keychain profile 'richos'"
+run notarize APPLE_ID=a@b.com APPLE_PASSWORD=abcd-efgh-ijkl-mnop APPLE_TEAM_ID=TEAM00001
+expect "E4 [shim] an exported key does not excuse the Apple-ID refusal" 2 "no APPLE_PASSWORD path"
+run shimmed env SHIM_IDENTITIES=0 bash "$SCRIPT" --sign developer-id --dry-run
+expect "E5 [shim] an exported RICHOS_SIGNING_IDENTITY does not reach discovery" 2 "install-signing-cert.sh"
+
+unset RICHOS_NOTARIZE RICHOS_NOTARY_KEY RICHOS_NOTARY_KEY_ID RICHOS_NOTARY_ISSUER RICHOS_NOTARY_PROFILE
+unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+unset TAURI_SIGNING_PRIVATE_KEY_PATH TAURI_SIGNING_PRIVATE_KEY_PASSWORD RICHOS_SIGNING_IDENTITY
 
 echo ""
 echo "=== Z. this suite touched nothing of the operator's ==="
