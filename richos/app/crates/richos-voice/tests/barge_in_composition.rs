@@ -229,7 +229,7 @@ fn speech_starting_just_before_rich_falls_silent_is_not_treated_as_echo() {
         brain.push_frame(&tone.frame(0.25), true, false);
     }
     let msgs = brain.push_frame(&tone.frame(0.25), true, false);
-    let started_tainted = msgs.iter().any(|m| matches!(m, CapMsg::Started { tainted: true }));
+    let started_tainted = msgs.iter().any(|m| matches!(m, CapMsg::Started { tainted: true, .. }));
     assert!(started_tainted, "premise: onset here IS inside Rich's playout");
 
     // Rich stops; the CEO keeps going and finishes.

@@ -2243,6 +2243,7 @@ mod tests {
             intake_id: None,
             upstream_failure: None,
             interruption: None,
+            rich_audible: None,
         }
     }
 

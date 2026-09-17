@@ -82,7 +82,7 @@ fn main() {
     let ctl = match VoiceController::start(
         VoiceOptions { source: AudioSource::Device, ..VoiceOptions::default() },
         watch.clone(),
-        Arc::new(|t: String| println!("  (utterance: {t:?})")),
+        Arc::new(|t: String, rich: bool| println!("  (utterance: {t:?}, heard-rich={rich})")),
     ) {
         Ok(c) => c,
         Err(e) => {

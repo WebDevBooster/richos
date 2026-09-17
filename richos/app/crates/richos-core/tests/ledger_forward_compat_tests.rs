@@ -147,6 +147,7 @@ fn digesting_a_ledger_does_not_touch_the_original() {
 
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Event, Ledger, SkipKind, KNOWN_EVENT_TAGS};
+use richos_core::ledger::Source;
 
 /// Copy a fixture into scratch, edit its lines, and open the copy.
 fn open_edited(stem: &str, edit: impl FnOnce(Vec<String>) -> Vec<String>) -> (Ledger, PathBuf) {
@@ -783,4 +784,109 @@ fn every_record_this_build_appends_carries_its_writer_schema_version() {
         0,
         "our own stamped file has nothing unreadable in it"
     );
+}
+
+/// **THE PROVENANCE FIELD NEVER DEFAULTS TO A CLAIM — `PromptReceived::rich_audible`.**
+///
+/// Added 2026-09-17 to close the gap the voice pipeline's own handoff named (`c712ccd5`): a
+/// spoken turn carried `source: "jam"` and nothing else, so an echo-born turn and a genuine one
+/// were indistinguishable after the fact.
+///
+/// **The reason it is `Option<bool>` and not a `bool` is exactly what this test holds.** Slice 3b
+/// declined an always-`None` field because it *"reads as never echo-born, worse than the gap"* —
+/// and a defaulting `bool` is worse still: every record in `v1-current.jsonl` was written before
+/// this field existed, and `#[serde(default)]` on a `bool` would deserialize all of them to
+/// `false`, silently asserting that Rich was PROVABLY SILENT during audio nobody measured.
+///
+/// So: absent means `None`, `None` means "not recorded", and it is never read as "no".
+#[test]
+fn an_old_ledger_loads_with_no_provenance_claim_at_all() {
+    let src = fixtures().join("v1-current.jsonl");
+    let raw = std::fs::read_to_string(&src).unwrap();
+
+    // PREMISE, checked rather than assumed: the fixture predates the field.
+    assert!(
+        !raw.contains("rich_audible"),
+        "the fixture already carries the field, so this test proves nothing about old records"
+    );
+    let spoken = raw
+        .lines()
+        .filter(|l| l.contains("\"PromptReceived\"") && l.contains("\"source\":\"jam\""))
+        .count();
+    assert!(spoken >= 1, "premise: the fixture has at least one spoken turn to read back");
+
+    let dir = scratch("v1-current-provenance");
+    let dst = dir.join("ledger.jsonl");
+    std::fs::copy(&src, &dst).unwrap();
+    let ledger = Ledger::open(&dst).unwrap();
+
+    let turns: Vec<_> = ledger.turns().iter().collect();
+    assert!(!turns.is_empty(), "premise: the fixture projects turns");
+    for t in &turns {
+        assert_eq!(
+            t.rich_audible, None,
+            "turn {} claims a measurement of Rich's audible window that nobody took",
+            t.id
+        );
+    }
+}
+
+/// The write side, both values, through the real API and back off disk.
+///
+/// `Some(true)` and `Some(false)` are two different MEASUREMENTS and must survive as two
+/// different values; a typed turn must write the field at all, so the bytes of an ordinary
+/// message do not grow a provenance claim.
+#[test]
+fn a_spoken_turn_records_its_provenance_and_a_typed_turn_records_none() {
+    let dir = scratch("provenance-round-trip");
+    let path = dir.join("ledger.jsonl");
+    let mut ledger = Ledger::open(&path).unwrap();
+    let entity = EntityId::parse("richos").unwrap();
+    let thread = ledger.create_thread("provenance", &entity).unwrap();
+    let binding = ledger.thread_binding(&thread).unwrap();
+
+    let audible = ledger
+        .record_prompt_received_spoken(&binding, "stop counting", Source::Jam, true)
+        .unwrap();
+    let silent = ledger
+        .record_prompt_received_spoken(&binding, "book the flight", Source::Jam, false)
+        .unwrap();
+    let typed = ledger.record_prompt_received(&binding, "typed message", Source::Text).unwrap();
+
+    // ---- on disk -----------------------------------------------------------------------
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let mut by_turn: Vec<(String, Option<bool>)> = Vec::new();
+    for line in raw.lines().filter(|l| l.contains("\"PromptReceived\"")) {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        by_turn.push((
+            v["turn_id"].as_str().unwrap().to_string(),
+            v.get("rich_audible").map(|x| x.as_bool().unwrap()),
+        ));
+    }
+    assert_eq!(
+        by_turn,
+        vec![
+            (audible.clone(), Some(true)),
+            (silent.clone(), Some(false)),
+            (typed.clone(), None),
+        ],
+        "the bytes do not carry the three states apart"
+    );
+    // ABSENT, not `null` and not `false`: `skip_serializing_if` is what makes a typed turn's
+    // record byte-identical to what it was before this field existed.
+    let typed_line = raw
+        .lines()
+        .find(|l| l.contains(&typed) && l.contains("\"PromptReceived\""))
+        .unwrap();
+    assert!(
+        !typed_line.contains("rich_audible"),
+        "a typed turn grew a provenance field: {typed_line}"
+    );
+
+    // ---- and back through the reader ---------------------------------------------------
+    let reread = Ledger::open(&path).unwrap();
+    assert_eq!(reread.history_health().skipped, 0, "our own file has nothing unreadable in it");
+    let got: Vec<(String, Option<bool>)> =
+        reread.turns().iter().map(|t| (t.id.clone(), t.rich_audible)).collect();
+    assert_eq!(got, vec![(audible, Some(true)), (silent, Some(false)), (typed, None)]);
 }

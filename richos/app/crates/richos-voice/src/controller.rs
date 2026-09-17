@@ -325,10 +325,11 @@ impl Default for VoiceOptions {
 /// `Utterance`, which is the whole point and happens once per sentence the CEO speaks.
 #[derive(Debug)]
 pub enum CapMsg {
-    /// The CEO started talking. `tainted` = it began while Rich was audible.
-    Started { tainted: bool },
-    /// An utterance completed and is worth recognizing.
-    Utterance(Box<Utterance>),
+    /// The CEO started talking. `tainted` = it began while Rich was audible; `rich_audible` =
+    /// the same observation WITHOUT the two escapes — see [`AdmittedUtterance::rich_audible`].
+    Started { tainted: bool, rich_audible: bool },
+    /// An utterance completed and is worth recognizing, with its provenance.
+    Utterance(Box<AdmittedUtterance>),
     /// An utterance completed but was discarded (too short, or tainted echo).
     Discarded { tainted: bool },
     /// The post-open silent-input verdict CHANGED (`noaudio.rs`). `silent` = the stream is
@@ -344,6 +345,62 @@ pub enum CapMsg {
     BargeIn { mid_utterance: bool },
 }
 
+/// **AN ADMITTED UTTERANCE AND WHAT THE CAPTURE PATH KNEW ABOUT RICH'S OWN VOICE.**
+///
+/// The gap this closes, from the voice pipeline's own handoff (richos `c712ccd5`): a
+/// `PromptReceived` with `source: Source::Jam` carried **no provenance at all**, so an
+/// echo-born spoken turn and a genuine one were indistinguishable after the fact. Candidate
+/// .5 left `"1, 2, 3, 4, 5."` — Rich's own counting — in the CEO's thread as the CEO's
+/// message, and it is still sitting there because it was a real message; nothing recorded
+/// which of the two it was.
+///
+/// A struct rather than a second field on [`Utterance`] because [`UtteranceRecorder`] knows
+/// nothing about Rich and must not start to: it buffers audio, and whose audio it is is a fact
+/// the [`CaptureBrain`] owns.
+#[derive(Debug, Clone)]
+pub struct AdmittedUtterance {
+    pub utterance: Box<Utterance>,
+    /// **Was Rich's audible window open during ANY part of this recording?**
+    ///
+    /// Observed at exactly the two points taint is — at `Started`, over the
+    /// [`ECHO_LOOKBACK_FRAMES`] the recorder actually reaches back through, and re-evaluated
+    /// on every frame for as long as the utterance is alive — **but without taint's two
+    /// escapes.** `tainted` is `echo_is_in_the_recording && !barged && !confident`; this is
+    /// `echo_is_in_the_recording` alone.
+    ///
+    /// That difference is the entire point. An utterance reaches this struct only by being
+    /// admitted, and the two ways an admitted utterance can nevertheless have been recorded
+    /// while Rich was audible are precisely those escapes:
+    ///
+    /// - **a barge-in cleared the taint** — the CEO deliberately talked over him, and that is
+    ///   a positive signal that the near-end talker is the CEO;
+    /// - **the canceller was confident** — it measured its residual 6 dB under the VAD's
+    ///   speech floor for 2.000 s and vouched for it.
+    ///
+    /// Both produce genuine turns. So `true` is **not** a claim that this is echo; it is the
+    /// narrow, measured fact that the window overlapped the audio, which is the one thing
+    /// nothing downstream can reconstruct and the one thing a later investigation needs.
+    pub rich_audible: bool,
+}
+
+/// **A STRICT WRAPPER, so an [`AdmittedUtterance`] still reads as the utterance it carries.**
+///
+/// `Deref` because this type adds an annotation and takes nothing away: everything that was
+/// true of the `Utterance` is still true, and every existing reader — the endpointer's own
+/// integration tests, `self_voice_replay`, `barge_in_composition` — asks it the same questions
+/// it always did. Without this, adding one provenance field would rewrite a dozen assertions
+/// that have nothing to do with provenance, and a diff that large around an audio path is how
+/// a real regression gets reviewed past.
+///
+/// Source code that reads the provenance uses the explicit `u.utterance` / `u.rich_audible`
+/// pair, so the one place the two facts are handled together says which is which.
+impl std::ops::Deref for AdmittedUtterance {
+    type Target = Utterance;
+    fn deref(&self) -> &Utterance {
+        &self.utterance
+    }
+}
+
 /// Everything the audio callback decides, in one place, with no I/O and no locks.
 ///
 /// The callback is a THIN adapter over this: it hands over a frame plus two booleans and
@@ -351,6 +408,10 @@ pub enum CapMsg {
 /// COMPOSITION is unit-testable — testing the monitor and the recorder separately would
 /// leave the wiring between them (which is where the bugs live) untested.
 pub struct CaptureBrain {
+    /// Rich's audible window overlapped the utterance currently being recorded. The same
+    /// observation `tainted` is built on, MINUS the barge-in and confidence escapes — see
+    /// [`AdmittedUtterance::rich_audible`]. Cleared with `tainted` when an utterance ends.
+    rich_audible: bool,
     vad: Vad,
     recorder: UtteranceRecorder,
     monitor: BargeInMonitor,
@@ -385,6 +446,7 @@ impl CaptureBrain {
     /// exactly as they were before `aec.rs` existed.
     pub fn new() -> Self {
         CaptureBrain {
+            rich_audible: false,
             vad: Vad::default(),
             recorder: UtteranceRecorder::new(),
             monitor: BargeInMonitor::default(),
@@ -566,7 +628,14 @@ impl CaptureBrain {
             // (`AudibleWindow`), so "Rich was audible" finally means what it says.
             let echo_is_in_the_recording = speaking || self.quiet_frames < ECHO_LOOKBACK_FRAMES;
             self.tainted = echo_is_in_the_recording && !self.barged && !confident;
-            out.push(CapMsg::Started { tainted: self.tainted });
+            // **THE PROVENANCE, WHICH IS THE SAME OBSERVATION WITHOUT TAINT'S TWO ESCAPES.**
+            // A barge-in and a confident canceller both ADMIT an utterance recorded while Rich
+            // was audible, and both are right to — but until 2026-09-17 nothing then recorded
+            // that his voice had been in the room while those words were captured. Written
+            // here rather than derived later because `quiet_frames` and the lookback are only
+            // true at this instant. See `AdmittedUtterance::rich_audible`.
+            self.rich_audible = echo_is_in_the_recording;
+            out.push(CapMsg::Started { tainted: self.tainted, rich_audible: self.rich_audible });
         } else if recording && !self.tainted && speaking && !self.barged && !confident {
             // **TAINT IS RE-EVALUATED FOR AS LONG AS THE UTTERANCE IS ALIVE.** Rich became
             // audible during an utterance that had already started, and the canceller cannot
@@ -576,20 +645,33 @@ impl CaptureBrain {
             self.tainted = true;
         }
 
+        // **THE PROVENANCE IS RE-EVALUATED TOO, AND WITH NO CONDITIONS BUT ONE.** Deliberately
+        // NOT folded into the branch above: that one honors `!barged && !confident`, and those
+        // are exactly the two cases where an utterance carrying Rich's voice is admitted anyway.
+        // Folding them together would record `false` for the only turns worth investigating.
+        if recording && speaking {
+            self.rich_audible = true;
+        }
+
         if let Some(utterance) = finished {
             if self.tainted && !self.barged {
                 out.push(CapMsg::Discarded { tainted: true });
             } else {
-                out.push(CapMsg::Utterance(Box::new(utterance)));
+                out.push(CapMsg::Utterance(Box::new(AdmittedUtterance {
+                    utterance: Box::new(utterance),
+                    rich_audible: self.rich_audible,
+                })));
             }
             self.tainted = false;
             self.barged = false;
+            self.rich_audible = false;
         } else if stopped {
             // Recording ended without an utterance: too short to be a sentence (a cough, a
             // chair). Never reaches whisper, never reaches the CEO.
             out.push(CapMsg::Discarded { tainted: self.tainted });
             self.tainted = false;
             self.barged = false;
+            self.rich_audible = false;
         } else if !speaking && !recording {
             // Rich has fallen silent and nothing is in flight: forget the interruption.
             self.barged = false;
@@ -1229,14 +1311,15 @@ impl RecognizerDesk {
     /// the narrow noise-phrase filter, and it is the SAME path typed text takes.
     pub fn handle<T, S>(
         &mut self,
-        utterance: &Utterance,
+        admitted: &AdmittedUtterance,
         observer: &dyn VoiceObserver,
         transcribe: T,
         submit: S,
     ) where
         T: FnOnce(&[f32]) -> Result<(String, u64), stt::SttError>,
-        S: FnOnce(String),
+        S: FnOnce(String, bool),
     {
+        let utterance = &admitted.utterance;
         let duration_ms = (utterance.duration_secs() * 1000.0) as u64;
 
         // ---- 1. THE AUDIO, BEFORE ANY TRANSCRIPT EXISTS ---------------------------------
@@ -1311,7 +1394,10 @@ impl RecognizerDesk {
                     latency_ms,
                     at: now_millis(),
                 });
-                submit(text);
+                // **THE PROVENANCE TRAVELS WITH THE WORDS, and this is the only place it
+                // can.** `submit` is what becomes a ledger record; by the time anything
+                // downstream sees the text, every fact about the audio it came from is gone.
+                submit(text, admitted.rich_audible);
             }
             Err(e) => {
                 eprintln!("[richos-voice] stt failed: {e}");
@@ -1335,7 +1421,7 @@ impl VoiceController {
     pub fn start(
         opts: VoiceOptions,
         observer: Arc<dyn VoiceObserver>,
-        submit: Arc<dyn Fn(String) + Send + Sync>,
+        submit: Arc<dyn Fn(String, bool) + Send + Sync>,
     ) -> Result<VoiceController, VoiceStartError> {
         let recognizer = Recognizer::resolve().map_err(VoiceStartError::Stt)?;
 
@@ -1376,8 +1462,10 @@ impl VoiceController {
 
         let (cap_tx, cap_rx) = channel::<CapMsg>();
         let (speak_tx, speak_rx) = channel::<SpeakMsg>();
-        let (utt_tx, utt_rx) = channel::<Box<Utterance>>();
-        let (submit_tx, submit_rx) = channel::<String>();
+        let (utt_tx, utt_rx) = channel::<Box<AdmittedUtterance>>();
+        // `(text, rich_audible)` rather than `String`: the provenance has to reach the ledger
+        // writer, and this serialized hop is the only thing between the recognizer and it.
+        let (submit_tx, submit_rx) = channel::<(String, bool)>();
         let force_barge = Arc::new(AtomicBool::new(false));
         // The canceller's live state, lossless and signed — see `AecShared`. One relaxed store
         // per frame from the audio thread, readable by anyone without a lock.
@@ -1473,13 +1561,13 @@ impl VoiceController {
                 // and only reaches whisper if the recording earned it, and it is a separate
                 // type so that ordering is testable rather than merely visible.
                 let mut desk = RecognizerDesk::sharing(notices);
-                while let Ok(utterance) = utt_rx.recv() {
+                while let Ok(admitted) = utt_rx.recv() {
                     desk.handle(
-                        &utterance,
+                        &admitted,
                         observer.as_ref(),
                         |samples| recognizer.transcribe(samples, &scratch),
-                        |text| {
-                            let _ = submit_tx.send(text);
+                        |text, rich_audible| {
+                            let _ = submit_tx.send((text, rich_audible));
                         },
                     );
                 }
@@ -1488,8 +1576,8 @@ impl VoiceController {
 
         // ---- submit thread (one turn at a time, in order) --------------------------------
         threads.push(std::thread::spawn(move || {
-            while let Ok(text) = submit_rx.recv() {
-                submit(text);
+            while let Ok((text, rich_audible)) = submit_rx.recv() {
+                submit(text, rich_audible);
             }
         }));
 
@@ -2014,7 +2102,7 @@ fn supervise(
     playout: Arc<Playout>,
     observer: Arc<dyn VoiceObserver>,
     cap_rx: Receiver<CapMsg>,
-    utt_tx: Sender<Box<Utterance>>,
+    utt_tx: Sender<Box<AdmittedUtterance>>,
     shared_aec: Arc<AecShared>,
     input_latency: crate::capture::InputLatency,
     notices: Arc<Mutex<RefusalNotices>>,
@@ -2036,12 +2124,12 @@ fn supervise(
         // 1. Drain the audio thread's messages.
         loop {
             match cap_rx.try_recv() {
-                Ok(CapMsg::Started { tainted }) => {
+                Ok(CapMsg::Started { tainted, rich_audible }) => {
                     // **PRINTED WHETHER TRUE OR FALSE** — Ray's walk could not tell an admitted
                     // utterance from a discarded one in the log, because only discards printed.
                     // An invariant you can only ever see violated is not one you can audit.
                     eprintln!(
-                        "[richos-voice] {} utterance START tainted={tainted} (Rich audible={})",
+                        "[richos-voice] {} utterance START tainted={tainted} heard-rich={rich_audible} (Rich audible={})",
                         wall_clock_utc(),
                         shared.speaking.load(Ordering::Relaxed)
                     );
@@ -2053,9 +2141,10 @@ fn supervise(
                 }
                 Ok(CapMsg::Utterance(u)) => {
                     eprintln!(
-                        "[richos-voice] {} utterance END ADMITTED — {:.3} s, on to the recognizer (Rich audible={})",
+                        "[richos-voice] {} utterance END ADMITTED — {:.3} s, heard-rich={}, on to the recognizer (Rich audible={})",
                         wall_clock_utc(),
-                        u.samples.len() as f32 / crate::vad::SAMPLE_RATE as f32,
+                        u.utterance.samples.len() as f32 / crate::vad::SAMPLE_RATE as f32,
+                        u.rich_audible,
                         shared.speaking.load(Ordering::Relaxed)
                     );
                     if let Ok(mut m) = machine.lock() {
@@ -2273,13 +2362,23 @@ mod tests {
     /// the endpointer WOULD have counted — deliberately generous, because the point of these
     /// tests is that the desk does not trust that count. It was the count being wrong that
     /// put words in the CEO's mouth.
-    fn utterance(samples: Vec<f32>) -> Utterance {
+    fn utterance(samples: Vec<f32>) -> AdmittedUtterance {
+        admitted(samples, false)
+    }
+
+    /// The same, with the provenance the capture path would have attached. `rich_audible: true`
+    /// is an utterance the app ADMITTED that was nevertheless recorded while Rich was audible —
+    /// a barge-in, or a confident canceller. See [`AdmittedUtterance::rich_audible`].
+    fn admitted(samples: Vec<f32>, rich_audible: bool) -> AdmittedUtterance {
         let total = (samples.len() / crate::vad::VAD_FRAME_SAMPLES) as u32;
-        Utterance {
-            samples,
-            reason: EndReason::Silence,
-            speech_frames: total,
-            total_frames: total,
+        AdmittedUtterance {
+            utterance: Box::new(Utterance {
+                samples,
+                reason: EndReason::Silence,
+                speech_frames: total,
+                total_frames: total,
+            }),
+            rich_audible,
         }
     }
 
@@ -2340,7 +2439,7 @@ mod tests {
                 &utterance(audio),
                 &rec,
                 |_| panic!("{what} reached whisper — the gate is not in front of it"),
-                |t| panic!("{what} was submitted as the CEO's message: {t:?}"),
+                |t, _| panic!("{what} was submitted as the CEO's message: {t:?}"),
             );
             assert!(transcripts(&rec).is_empty(), "{what} produced a transcript event");
             assert_eq!(
@@ -2368,7 +2467,7 @@ mod tests {
                 assert!(!samples.is_empty(), "whisper was handed nothing");
                 Ok(("Renegotiate Acme and get me the number by Thursday.".to_string(), 470))
             },
-            |t| sent.lock().unwrap().push(t),
+            |t, _| sent.lock().unwrap().push(t),
         );
         assert!(saw_whisper.load(Ordering::Relaxed), "a real voice never reached whisper");
         assert_eq!(
@@ -2391,7 +2490,7 @@ mod tests {
             &utterance(framed(synthetic_voice(0.30, 210.0, 150.0, -26.0), -55.0, 5)),
             &rec,
             |_| Ok(("Yes.".to_string(), 320)),
-            |t| sent.lock().unwrap().push(t),
+            |t, _| sent.lock().unwrap().push(t),
         );
         assert_eq!(sent.into_inner().unwrap(), vec!["Yes.".to_string()]);
     }
@@ -2407,7 +2506,7 @@ mod tests {
             &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 11)),
             &rec,
             |_| Ok(("Thank you.".to_string(), 300)),
-            |t| panic!("whisper's silence noise was submitted: {t:?}"),
+            |t, _| panic!("whisper's silence noise was submitted: {t:?}"),
         );
         assert!(transcripts(&rec).is_empty());
     }
@@ -2420,7 +2519,7 @@ mod tests {
         let rec = Recorder::default();
         let mut desk = RecognizerDesk::new();
         let refuse = |desk: &mut RecognizerDesk, rec: &Recorder| {
-            desk.handle(&utterance(hiss(2.0, -40.0, 13)), rec, |_| panic!("reached whisper"), |_| {});
+            desk.handle(&utterance(hiss(2.0, -40.0, 13)), rec, |_| panic!("reached whisper"), |_, _| {});
         };
         refuse(&mut desk, &rec);
         refuse(&mut desk, &rec);
@@ -2432,7 +2531,7 @@ mod tests {
             &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 17)),
             &rec,
             |_| Ok(("Approved.".to_string(), 300)),
-            |_| {},
+            |_, _| {},
         );
         refuse(&mut desk, &rec);
         assert_eq!(messages(&rec).len(), 2, "the refusal went silent after a good turn");
@@ -2453,7 +2552,7 @@ mod tests {
             &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 23)),
             &rec,
             |_| Ok(("(clears throat)".to_string(), 310)),
-            |t| panic!("a discarded transcript was submitted as his message: {t:?}"),
+            |t, _| panic!("a discarded transcript was submitted as his message: {t:?}"),
         );
         assert_eq!(
             notices(&rec),
@@ -2479,7 +2578,7 @@ mod tests {
             &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 23)),
             &rec,
             |_| Ok(("Book the flight for Tuesday.".to_string(), 310)),
-            |t| sent.lock().unwrap().push(t),
+            |t, _| sent.lock().unwrap().push(t),
         );
         assert_eq!(sent.into_inner().unwrap(), vec!["Book the flight for Tuesday.".to_string()]);
         assert!(notices(&rec).is_empty(), "a good turn apologized for itself");
@@ -2502,7 +2601,7 @@ mod tests {
                 &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, seed)),
                 rec,
                 |_| Ok(("[BLANK_AUDIO]".to_string(), 300)),
-                |t| panic!("submitted: {t:?}"),
+                |t, _| panic!("submitted: {t:?}"),
             );
         };
 
@@ -2541,7 +2640,7 @@ mod tests {
                 &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, seed)),
                 rec,
                 |_| Ok(("(clears throat)".to_string(), 300)),
-                |_| {},
+                |_, _| {},
             );
         };
         discard(&mut desk, &rec, 51);
@@ -2551,7 +2650,7 @@ mod tests {
             &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 53)),
             &rec,
             |_| Ok(("Approved.".to_string(), 300)),
-            |_| {},
+            |_, _| {},
         );
         discard(&mut desk, &rec, 59);
         assert_eq!(notices(&rec).len(), 2, "the discard went silent after a good turn");
@@ -2756,6 +2855,196 @@ mod tests {
         assert_ne!(warm.leak_text(), "not measured");
     }
 
+    /// **THE PROVENANCE IS WRITTEN WHERE TAINT IS, AND IT SURVIVES TAINT'S TWO ESCAPES.**
+    ///
+    /// The gap (`c712ccd5`): `PromptReceived` carried `source: Source::Jam` and nothing else, so
+    /// an echo-born spoken turn and a genuine one were indistinguishable after the fact.
+    ///
+    /// The subtle half, and the reason this cannot be derived from `tainted`: taint is
+    /// `echo_is_in_the_recording && !barged && !confident`, so **a barge-in sets `tainted` to
+    /// false on audio Rich was audible for**. That utterance is then ADMITTED, becomes a turn,
+    /// and is exactly the turn a later investigation would ask about. `rich_audible` records the
+    /// observation without the escapes.
+    #[test]
+    fn an_admitted_utterance_records_whether_rich_was_audible_for_it() {
+        use crate::vad::VAD_FRAME_SAMPLES;
+        let loud = vec![0.2f32; VAD_FRAME_SAMPLES];
+        let quiet = vec![0.0f32; VAD_FRAME_SAMPLES];
+
+        // ---- (a) Rich silent throughout: admitted, and the record says so -----------------
+        let mut brain = CaptureBrain::new();
+        let mut out = Vec::new();
+        for _ in 0..(ECHO_LOOKBACK_FRAMES + 5) {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        for _ in 0..120 {
+            out.extend(brain.push_frame(&loud, false, false));
+        }
+        for _ in 0..80 {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        let admitted: Vec<bool> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Utterance(u) => Some(u.rich_audible),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(admitted, vec![false], "Rich was never audible and the record claims he was");
+
+        // ---- (b) a BARGE-IN over Rich: admitted BECAUSE the taint was cleared, and the
+        //          record must still say his voice was in the room ---------------------------
+        //
+        // **THE "TAP TO STOP" MUST LAND WHILE THE RECORDER IS ALREADY RUNNING**, and finding
+        // that out was itself worth the test. Pressing it in silence clears `barged` again on
+        // the SAME frame: the onset takes `SPEECH_ONSET_FRAMES` = 7 frames to confirm, so
+        // `recording` is still false, and the chain's last arm (`!speaking && !recording`) runs
+        // and forgets the interruption. Measured, not reasoned: a first attempt pressed it on
+        // frame 1 and the utterance came back `Discarded { tainted: true }`.
+        let mut brain = CaptureBrain::new();
+        let mut out = Vec::new();
+        for _ in 0..(ECHO_LOOKBACK_FRAMES + 5) {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        // The CEO starts talking in a quiet room: born clean.
+        for _ in 0..60 {
+            out.extend(brain.push_frame(&loud, false, false));
+        }
+        // Rich starts answering over him, and he taps to stop — mid-utterance, which is the
+        // only shape that keeps `barged` set.
+        out.extend(brain.push_frame(&loud, true, true));
+        for _ in 0..40 {
+            out.extend(brain.push_frame(&loud, true, false));
+        }
+        for _ in 0..80 {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+
+        let started: Vec<(bool, bool)> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Started { tainted, rich_audible } => Some((*tainted, *rich_audible)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            started,
+            vec![(false, false)],
+            "premise: the utterance must be born clean, in a quiet room"
+        );
+        assert!(
+            out.iter().any(|m| matches!(m, CapMsg::BargeIn { mid_utterance: true })),
+            "premise: the tap-to-stop must have registered WHILE recording, or `barged` is \
+             cleared again and taint comes back"
+        );
+        let discarded = out.iter().filter(|m| matches!(m, CapMsg::Discarded { .. })).count();
+        assert_eq!(discarded, 0, "premise: the barge-in must have ADMITTED this utterance");
+        let admitted: Vec<bool> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Utterance(u) => Some(u.rich_audible),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            admitted,
+            vec![true],
+            "the one turn worth investigating recorded that Rich was NOT audible for it — this \
+             is the case `tainted` alone cannot express, because the barge-in cleared it"
+        );
+    }
+
+    /// The other write point: Rich becomes audible PARTWAY THROUGH an utterance that began in
+    /// silence. `rich_audible` is re-evaluated for as long as the utterance is alive, with no
+    /// conditions — unlike taint, which stops re-evaluating once `barged` or `confident`.
+    #[test]
+    fn rich_becoming_audible_mid_utterance_is_recorded_even_when_taint_is_cleared() {
+        use crate::vad::VAD_FRAME_SAMPLES;
+        let loud = vec![0.2f32; VAD_FRAME_SAMPLES];
+        let quiet = vec![0.0f32; VAD_FRAME_SAMPLES];
+        let mut brain = CaptureBrain::new();
+        let mut out = Vec::new();
+
+        // Quiet room; the CEO starts talking and the utterance is born clean.
+        for _ in 0..(ECHO_LOOKBACK_FRAMES + 5) {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        for _ in 0..60 {
+            out.extend(brain.push_frame(&loud, false, false));
+        }
+        // He taps to stop WHILE talking, which sets `barged` for the rest of the utterance and
+        // stops taint ever coming back — see the note in the test above about why the frame it
+        // lands on matters.
+        out.extend(brain.push_frame(&loud, false, true));
+        for _ in 0..20 {
+            out.extend(brain.push_frame(&loud, false, false));
+        }
+        // NOW Rich becomes audible, mid-sentence, with taint permanently cleared.
+        for _ in 0..40 {
+            out.extend(brain.push_frame(&loud, true, false));
+        }
+        for _ in 0..80 {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+
+        let started: Vec<(bool, bool)> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Started { tainted, rich_audible } => Some((*tainted, *rich_audible)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            started,
+            vec![(false, false)],
+            "premise: the utterance must be born clean, with Rich inaudible"
+        );
+        let admitted: Vec<bool> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Utterance(u) => Some(u.rich_audible),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            admitted,
+            vec![true],
+            "Rich spoke over the middle of it and the record does not say so"
+        );
+    }
+
+    /// **THE PROVENANCE REACHES `submit`, which is the only place it can reach the ledger.**
+    /// By the time anything downstream holds the text, every fact about the audio is gone.
+    #[test]
+    fn the_provenance_travels_with_the_words_to_the_submit_callback() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let seen = Mutex::new(Vec::<(String, bool)>::new());
+
+        desk.handle(
+            &admitted(framed(synthetic_voice(1.5, 190.0, 130.0, -26.0), -55.0, 91), true),
+            &rec,
+            |_| Ok(("Stop counting.".to_string(), 300)),
+            |t, rich| seen.lock().unwrap().push((t, rich)),
+        );
+        // POSITIVE CONTROL in the same test: the other value survives the same path, so this
+        // cannot be passing on a hard-coded `true`.
+        desk.handle(
+            &admitted(framed(synthetic_voice(1.5, 190.0, 130.0, -26.0), -55.0, 93), false),
+            &rec,
+            |_| Ok(("Book the flight.".to_string(), 300)),
+            |t, rich| seen.lock().unwrap().push((t, rich)),
+        );
+
+        assert_eq!(
+            seen.into_inner().unwrap(),
+            vec![
+                ("Stop counting.".to_string(), true),
+                ("Book the flight.".to_string(), false),
+            ]
+        );
+    }
+
     /// **DEFECT 1 OF THE CANDIDATE-.6 WALK, REPLAYED: THREE CARDS BECOME ONE.**
     ///
     /// Ray's first-spoken-answer sequence, in the order his log and his screen recorded it
@@ -2783,7 +3072,7 @@ mod tests {
             &utterance(framed(synthetic_voice(1.6, 190.0, 130.0, -26.0), -55.0, 71)),
             &rec,
             |_| Ok(("Please count slowly out loud from 1 to 20.".to_string(), 300)),
-            |_| {},
+            |_, _| {},
         );
         assert_eq!(notices(&rec).len(), 0);
         assert_eq!(messages(&rec).len(), 0);
@@ -2802,14 +3091,14 @@ mod tests {
 
         // 3. Card 2's cause: an ADMITTED utterance that carried no voice. `hiss` never reaches
         //    whisper, which the panicking transcriber proves.
-        desk.handle(&utterance(hiss(2.0, -40.0, 73)), &rec, |_| panic!("reached whisper"), |_| {});
+        desk.handle(&utterance(hiss(2.0, -40.0, 73)), &rec, |_| panic!("reached whisper"), |_, _| {});
 
         // 4. Card 3's cause: a voice whisper could not turn into words.
         desk.handle(
             &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 79)),
             &rec,
             |_| Ok(("[BLANK_AUDIO]".to_string(), 310)),
-            |t| panic!("submitted: {t:?}"),
+            |t, _| panic!("submitted: {t:?}"),
         );
 
         // ONE card in total, counting BOTH channels — `HeardNoVoice` rides `voice-error` and
@@ -2875,7 +3164,7 @@ mod tests {
             &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 83)),
             &rec,
             |_| Ok(("(clears throat)".to_string(), 310)),
-            |t| panic!("submitted: {t:?}"),
+            |t, _| panic!("submitted: {t:?}"),
         );
         assert_eq!(
             notices(&rec),
@@ -2953,7 +3242,7 @@ mod tests {
         let started_tainted: Vec<bool> = out
             .iter()
             .filter_map(|m| match m {
-                CapMsg::Started { tainted } => Some(*tainted),
+                CapMsg::Started { tainted, .. } => Some(*tainted),
                 _ => None,
             })
             .collect();
@@ -3424,7 +3713,7 @@ mod tests {
         let ctl = VoiceController::start(
             VoiceOptions { source: AudioSource::Wav(quiet), scratch_dir: dir.clone() },
             observer.clone(),
-            Arc::new(|_t: String| {}),
+            Arc::new(|_t: String, _: bool| {}),
         )
         .expect("voice mode should start");
 
@@ -3519,7 +3808,7 @@ mod tests {
         let ctl = VoiceController::start(
             VoiceOptions { source: AudioSource::Wav(wav_path), scratch_dir: dir.clone() },
             observer.clone(),
-            Arc::new(move |text: String| {
+            Arc::new(move |text: String, _rich_audible: bool| {
                 heard2.lock().unwrap().push(text);
             }),
         )
@@ -3593,7 +3882,7 @@ mod tests {
         let ctl = VoiceController::start(
             VoiceOptions { source: AudioSource::Wav(room), scratch_dir: dir.clone() },
             observer.clone(),
-            Arc::new(move |text: String| sink.lock().unwrap().push(text)),
+            Arc::new(move |text: String, _: bool| sink.lock().unwrap().push(text)),
         )
         .expect("voice mode should start with an injected source");
         // 12.000 s of audio + 0.800 s hangover + the gate; generous, because a false pass
@@ -3626,7 +3915,7 @@ mod tests {
         let ctl2 = VoiceController::start(
             VoiceOptions { source: AudioSource::Wav(spoken), scratch_dir: dir.clone() },
             observer2.clone(),
-            Arc::new(move |text: String| sink2.lock().unwrap().push(text)),
+            Arc::new(move |text: String, _: bool| sink2.lock().unwrap().push(text)),
         )
         .expect("voice mode should start with an injected source");
         std::thread::sleep(Duration::from_millis(8_000));

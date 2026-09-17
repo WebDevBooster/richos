@@ -1616,10 +1616,44 @@ impl Spine {
     }
 
     pub fn submit_prompt(&mut self, text: &str, source: Source) -> Result<String, SpineError> {
+        self.submit_prompt_inner(text, source, None)
+    }
+
+    /// A SPOKEN prompt, carrying what the capture path measured about Rich's own audible
+    /// window while the audio was being recorded.
+    ///
+    /// **It exists because `source: Source::Jam` was the whole of a spoken turn's provenance,
+    /// and that is not enough to tell an echo-born turn from a genuine one after the fact**
+    /// (the voice pipeline's own handoff, richos `c712ccd5`). Candidate .5 left a bubble in the
+    /// CEO's thread that was Rich's own counting, and the ledger cannot say so today.
+    ///
+    /// Separate from [`Self::submit_prompt`] rather than an extra argument on it, so that a
+    /// typed turn writes `None` by CONSTRUCTION. See `Event::PromptReceived::rich_audible`:
+    /// `None` is "not recorded" and is never to be read as "no".
+    pub fn submit_prompt_spoken(
+        &mut self,
+        text: &str,
+        source: Source,
+        rich_audible: bool,
+    ) -> Result<String, SpineError> {
+        self.submit_prompt_inner(text, source, Some(rich_audible))
+    }
+
+    fn submit_prompt_inner(
+        &mut self,
+        text: &str,
+        source: Source,
+        rich_audible: Option<bool>,
+    ) -> Result<String, SpineError> {
         let binding = self.ensure_active_thread()?;
         // (1) persist-before-send, under a verified scope — the message is durable before
         //     any risk, and it is never durable without an entity.
-        let turn_id = self.ledger.record_prompt_received(&binding, text, source)?;
+        let turn_id = match rich_audible {
+            Some(audible) => {
+                self.ledger.record_prompt_received_spoken(&binding, text, source, audible)?
+            }
+            None => self.ledger.record_prompt_received(&binding, text, source)?,
+        };
 
         // ADDITIVE (§13): the turn is durably `received`, so its first authoritative state
         // transition is emittable — §11's `queued`, the state whose timeline treatment is

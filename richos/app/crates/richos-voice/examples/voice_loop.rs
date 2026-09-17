@@ -198,13 +198,20 @@ fn main() {
 
     let submit_spine = spine.clone();
     let submit_clock = clock.clone();
-    let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
-        println!("[{:>6} ms] submitting to the spine as Source::Jam", submit_clock.ms());
-        let mut s = submit_spine.lock().unwrap();
-        if let Err(e) = s.submit_prompt(&text, Source::Jam) {
-            eprintln!("submit failed: {e}");
-        }
-    });
+    let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
+        Arc::new(move |text: String, rich_audible: bool| {
+            println!(
+                "[{:>6} ms] submitting to the spine as Source::Jam (heard-rich={rich_audible})",
+                submit_clock.ms()
+            );
+            let mut s = submit_spine.lock().unwrap();
+            // `submit_prompt_spoken`, so the ledger records whether Rich's audible window was
+            // open while this was captured. `submit_prompt` would write `None` there, which
+            // means "not recorded" and would throw away the one fact voice mode knows.
+            if let Err(e) = s.submit_prompt_spoken(&text, Source::Jam, rich_audible) {
+                eprintln!("submit failed: {e}");
+            }
+        });
 
     let ctl = match VoiceController::start(
         VoiceOptions { source, scratch_dir: scratch.clone() },
