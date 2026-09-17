@@ -84,7 +84,7 @@ module.exports = [
     why: "The same card's body. The outcome is unknowable; picking the message back up is his move.",
   },
   {
-    s: "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+    s: "I hit a snag mid-thought and had to stop before I finished.",
     c: "ACTIONABLE",
     control: ".tl-intervention button.tl-intervention-action",
     fixture: "failed-turn",
@@ -114,7 +114,7 @@ module.exports = [
     s:
       "I couldn't start that, because I'm not connected to your Anthropic account right " +
       "now — either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
-      "connect it in Settings, under Account connection, and I'll pick this straight back up.",
+      "connect it in Settings, under Account connection, and then send this to me again.",
     c: "ACTIONABLE",
     control: "#rail-settings",
     fixture: null,
@@ -150,7 +150,7 @@ module.exports = [
     fixture: null,
     why:
       "`InterruptionCause::StoppedByCeo`. Nothing failed, so there is nothing to retry and " +
-      "no control belongs on the card — a 'pick it back up' button here would dress his own " +
+      "no control belongs on the card — a control that hands his words back would dress his own " +
       "deliberate stop as an error. It issues no instruction and asks for nothing.",
   },
   {
@@ -604,7 +604,7 @@ module.exports = [
     c: "INFORMATIONAL",
     why:
       "§14's card when there is no message to restore. Deliberately carries NO control: a " +
-      "'Pick it back up' that picks up nothing is worse than none.",
+      "that puts nothing back is worse than none.",
   },
   {
     s: "Everything I'd already written above is saved.",
@@ -743,7 +743,16 @@ module.exports = [
   // -------------------------------------------------------------------------------------
   { s: "+ New thread", c: "CONTROL", why: "#rail-new-thread." },
   { s: "Start a new thread instead", c: "CONTROL", why: "#unbound-new-thread — §21's way out." },
-  { s: "Pick it back up", c: "CONTROL", why: "The retry button on both intervention cards." },
+  {
+    s: "Put it back in the box",
+    c: "CONTROL",
+    why:
+      "`timeline.js`'s RETRY_LABEL — the one control on both intervention cards. It read " +
+      "\"Pick it back up\" until the 2026-09-17 nightly's D6 measured what pressing it did: " +
+      "his text went back in the composer, with no new turn and no log line. The behavior " +
+      "is right (resending spends his subscription and starts work, so it is his to " +
+      "trigger) and the words were the defect, so the label is now what it does.",
+  },
   { s: "Jump to latest", c: "CONTROL", why: "#jump-latest accessible name." },
   { s: "Close worker details", c: "CONTROL", why: "#inspector-close accessible name." },
   { s: "open worker details", c: "CONTROL", why: "Worker chip accessible name." },
@@ -1554,6 +1563,50 @@ module.exports = [
       "`pinnedByEnvironment` is true, and `requireCompanyChoice` returns before opening the " +
       "picker in the same condition. It is " +
       "the guard for a caller that is not this UI. If it ever renders, the bug is ours.",
+  },
+  {
+    s: "first-run setup is incomplete",
+    c: "NOT-RENDERED",
+    why:
+      "`send_message` could not attach a lease AND `setup_view::detect` found something missing on disk. The CEO gets `SETUP_INCOMPLETE_*` instead; this is the operator half. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "no compute lease and no factory",
+    c: "NOT-RENDERED",
+    why:
+      "The same refusal with nothing missing on disk, so the cause is the account rather than the install. The CEO gets `LEASE_UNAVAILABLE_MESSAGE`. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "no active thread",
+    c: "NOT-RENDERED",
+    why:
+      "No thread is open to file the message under. The CEO gets the open-a-conversation line. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "the active thread changed between render and send",
+    c: "NOT-RENDERED",
+    why:
+      "The window sent against a thread id that is no longer active. The CEO gets the conversation-changed sentence. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
   },
   {
     s: "entity not resolved from {}: {e}",

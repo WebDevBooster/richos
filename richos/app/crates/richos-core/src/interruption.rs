@@ -163,11 +163,17 @@ impl InterruptionCause {
             //
             // It also reads better aloud. `Settings → Account connection` was the first
             // form, and an arrow is read aloud as nothing at all.
+            // AND IT DOES NOT PROMISE TO RESUME. This arm ended "…and I'll pick this
+            // straight back up" for one commit, which is the nightly's D6 in a new place:
+            // connecting the account clears the CAUSE, and it does not restart a turn that
+            // is already terminal. He sends it again, and his message is saved so he can.
+            // A sentence that says otherwise is a promise the app cannot keep, which is the
+            // whole of what D6 was about.
             InterruptionCause::NotSignedIn => {
                 "I couldn't start that, because I'm not connected to your Anthropic account \
                  right now — either nobody has signed in on this Mac yet, or the sign-in ran \
-                 out. You can connect it in Settings, under Account connection, and I'll \
-                 pick this straight back up."
+                 out. You can connect it in Settings, under Account connection, and then \
+                 send this to me again."
             }
             InterruptionCause::CredentialRejected => {
                 "I couldn't start that. There is an account credential set up on this Mac and \

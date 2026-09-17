@@ -2069,6 +2069,19 @@
     return { node: wrap, row, hasActivity };
   }
 
+  /// **THE ONE LABEL FOR THE ONE ACTION** — the nightly's D6.
+  ///
+  /// It read "Pick it back up", and the audit measured what pressing it did: his text went
+  /// back in the composer. No new turn, no log line, nothing picked back up. The words
+  /// promised that Rich would resume and he does not — deliberately, because resending
+  /// spends his subscription and starts work, and that is his to trigger.
+  ///
+  /// So the label is what the control actually does, and the phrasing is lifted from the
+  /// one sentence in this file that was already accurate about it — the unknown card's
+  /// *"Your message is safe — I'll put it back in the box for you."* Declared once, used by
+  /// both cards, because the CEO's job is identical in each.
+  const RETRY_LABEL = "Put it back in the box";
+
   /// §5.5 — a system intervention. Exactly ONE is reachable in this build.
   ///
   /// §5.5 lists six: waiting for a CEO answer, action approval, permission, connection
@@ -2152,7 +2165,7 @@
       if (outage.retryMessage) card.appendChild(elem("p", "tl-intervention-note", outage.retryMessage));
     } else {
       card.appendChild(elem("p", "tl-intervention-body",
-        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up."));
+        "I hit a snag mid-thought and had to stop before I finished."));
       card.appendChild(elem("p", "tl-intervention-note",
         "Everything I'd already written above is saved."));
     }
@@ -2160,11 +2173,29 @@
     return card;
   }
 
-  /// The failure card's one control, extracted so the classified path and the generic path
-  /// cannot drift into two verbs for one action. `opts.retry` puts his text back in the
-  /// composer and focuses it; it does NOT resend — resending has side effects and is his.
+  /// **THE CONTROL SAYS WHAT IT DOES** — the nightly's D6.
+  ///
+  /// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D6:
+  /// *"The message says 'say the word and I'll pick it back up'; the button says 'Pick it
+  /// back up'. Pressing it PUTS HIS TEXT BACK IN THE COMPOSER — no new turn, no log line.
+  /// Returning the text is useful behavior; the words promise that Rich will resume, and he
+  /// does not."*
+  ///
+  /// **The behavior is right and it is the words that changed.** Resending has side effects
+  /// — it spends his subscription and starts work — so it is his to trigger, which is the
+  /// rule `renderUnknownCard` below already states. A control that silently resent would be
+  /// a worse product, not a more honest one.
+  ///
+  /// So the label is now what actually happens, and it borrows the metaphor from the one
+  /// sentence in this file that was already accurate about it: *"Your message is safe — I'll
+  /// put it back in the box for you."* One verb across both cards, because the CEO's job is
+  /// identical in each and two phrasings for one action is two things to learn.
+  ///
+  /// The generic body above lost *"say the word and I'll pick it back up"* in the same pass,
+  /// for the same reason: it was the sentence that made the promise the button could not
+  /// keep.
   function retryControl(turn, opts) {
-    const retry = elem("button", "tl-intervention-action", "Pick it back up");
+    const retry = elem("button", "tl-intervention-action", RETRY_LABEL);
     retry.type = "button";
     retry.id = "retry:" + turn.turnId;
     retry.addEventListener("click", () => opts.retry(turn));
@@ -2188,8 +2219,8 @@
   /// effects and it is his to take (main.js `retryTurn`).
   ///
   /// NO BUTTON WHEN THERE IS NOTHING TO PUT BACK. A turn first witnessed mid-flight has no
-  /// `turn.user.text`, and a control labelled "Pick it back up" that picks up nothing is
-  /// worse than no control — so the note says what is true instead and claims nothing.
+  /// `turn.user.text`, and a control that puts nothing back is worse than no control — so
+  /// the note says what is true instead and claims nothing.
   function renderUnknownCard(turn, opts) {
     const card = elem("aside", "tl-intervention tl-intervention--quiet");
     card.setAttribute("role", "note");
@@ -2201,7 +2232,7 @@
         ? "Anything I'd written is above. Your message is safe — I'll put it back in the box for you."
         : "Anything I'd written is above. Nothing of yours was lost."));
     if (canRetry) {
-      const retry = elem("button", "tl-intervention-action", "Pick it back up");
+      const retry = elem("button", "tl-intervention-action", RETRY_LABEL);
       retry.type = "button";
       retry.id = "resume:" + turn.turnId;
       retry.addEventListener("click", () => opts.retry(turn));

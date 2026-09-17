@@ -66,6 +66,8 @@ const ONLY_HIS_WORDS = "Your message is saved. I hadn't written any of my answer
 
 // The two generic sentences, which must NOT appear when a cause is known.
 const GENERIC_BODY = "I hit a snag mid-thought and had to stop";
+// The one label for the one action, after D6. `timeline.js`'s `RETRY_LABEL`.
+const RETRY_LABEL = "Put it back in the box";
 const GENERIC_NOTE = "Everything I'd already written above is saved.";
 
 // ---------------------------------------------------------------------------------------
@@ -274,12 +276,51 @@ async function main() {
     const c = await cardText(page);
     assertEqual(c.body, [TRANSIENT], "the body is the authored transient sentence");
     assertEqual(c.actionCount, 1, "exactly one control");
-    assertEqual(c.action, "Pick it back up", "same verb as every other failure — one thing to learn");
+    assertEqual(c.action, RETRY_LABEL, "same verb as every other failure — one thing to learn");
     assert(
       c.notes.some((n) => n.includes("31 characters of the answer")),
       "what IS on disk is counted: " + JSON.stringify(c.notes)
     );
-    return "Pick it back up — present, and the partial reply counted";
+    return RETRY_LABEL + " — present, and the partial reply counted";
+  });
+
+  // =====================================================================================
+  // D6 — THE CONTROL SAYS WHAT IT DOES
+  //
+  // Audit §D6: the message said "say the word and I'll pick it back up" and the button said
+  // "Pick it back up". Pressing it put his text back in the composer — no new turn, no log
+  // line. Returning the text is the RIGHT behavior (resending spends his subscription and
+  // starts work, so it is his to trigger); the words were the defect.
+  // =====================================================================================
+
+  await run.check("the control promises only what it does, and then does it", async () => {
+    // Rendered with a RECORDING handler in place of the fixture's no-op, so the behavior
+    // half of this check is a real observation rather than an assumption about the label.
+    await page.evaluate((s) => {
+      window.__retryCalls = [];
+      window.__render(s, { retry: (t) => window.__retryCalls.push(t.turnId) });
+    }, snapshot(transientItem(), { withPartial: true }));
+    await page.waitForSelector(".tl-intervention-action");
+
+    const label = await page.textContent(".tl-intervention-action");
+    assertEqual(label, RETRY_LABEL, "the label must be what pressing it does");
+    assert(!/pick it back up/i.test(label), "the old promise must be gone: " + label);
+
+    // NOTHING ON THE CARD PROMISES A RESUME either — the label was only half of D6.
+    const c = await cardText(page);
+    const whole = c.body.concat(c.notes).join(" ");
+    assert(
+      !/pick (it|this) back up|I'll resume|carry on from where/i.test(whole),
+      "a sentence still promises that Rich resumes: " + whole
+    );
+
+    // THE POSITIVE CONTROL. A label that matched a control which no longer worked would be
+    // the same defect wearing better copy, so the press is made and observed.
+    await page.click(".tl-intervention-action");
+    const calls = await page.evaluate(() => window.__retryCalls.slice());
+    assertEqual(calls.length, 1, "one press, one call");
+    assertEqual(calls[0], TURN, "and it acts on this turn");
+    return `label=${JSON.stringify(label)}, one press -> one handler call, no resume promise`;
   });
 
   await run.check("an unclassified turn still falls back to the generic card", async () => {
