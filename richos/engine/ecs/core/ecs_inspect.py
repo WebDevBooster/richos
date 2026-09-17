@@ -13,7 +13,8 @@ SECTIONS = (
 
 def inspect_records(store: EventStore, *, section: str | None = None,
                     offset: int = 0, limit: int = 20, sequence: int | None = None,
-                    item_id: str | None = None, query: str | None = None, include_closed: bool = False) -> dict:
+                    item_id: str | None = None, query: str | None = None, include_closed: bool = False,
+                    person_id: str = PERSON_ID) -> dict:
     if section is not None and section not in SECTIONS:
         raise ValidationError("unknown inspection section")
     if offset < 0 or not 1 <= limit <= 100:
@@ -23,7 +24,12 @@ def inspect_records(store: EventStore, *, section: str | None = None,
     conn = store.connect()
     try:
         conn.execute("BEGIN")
-        context = conn.execute("SELECT * FROM ecs_active_context WHERE person_id=?", (PERSON_ID,)).fetchone()
+        # A background inspection reads its OWN cursor and its own audience. The
+        # audience decides visibility below, and a work seat binds audience "worker",
+        # which sees only worker records -- a background lease has no business
+        # reading the CEO's private ones. With one shared row that narrowing is
+        # impossible, which is one of the things the seat buys.
+        context = conn.execute("SELECT * FROM ecs_active_context WHERE person_id=?", (person_id,)).fetchone()
         if context is None:
             raise ScopeError("no active context; nothing to inspect")
         entity, thread = context["entity_id"], context["thread_id"]
