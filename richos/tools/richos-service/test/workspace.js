@@ -105,7 +105,7 @@ import {
 import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } from '../lib/config.js';
 import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
 import { corpusFromZone } from '../lib/workspace/promote-run.js';
-import { promotionLedgerPath } from '../lib/workspace/promotion.js';
+import { promotionLedgerPath, readEvidenceZone } from '../lib/workspace/promotion.js';
 import { planRepair, repairLedgerPath } from '../lib/workspace/repair.js';
 import { DEFAULT_MIN_CORROBORATION } from '../lib/workspace/entity-feed.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
@@ -273,6 +273,34 @@ test('resolveOrgRelation: self > internal (same domain) > external > unknown', (
   assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, id), 'internal');
   assert.equal(resolveOrgRelation({ email: 'dave@partner.com' }, id), 'external');
   assert.equal(resolveOrgRelation({ name: 'no email' }, id), 'unknown');
+});
+
+test('A CONTAINER THE ACCOUNT OWNS IS THE ACCOUNT — and one it merely subscribes to is not', () => {
+  // The defect this rule exists for: Google gives every event on a SECONDARY calendar that
+  // calendar's own address as its organizer, so the CEO's own calendars authored their own events,
+  // the address matched no domain of his, and every one resolved external → untrusted → HELD.
+  const OWNED = 'c_richostest@group.calendar.google.com';
+  const SUBSCRIBED = 'en.uk#holiday@group.v.calendar.google.com'; // dialect-exempt: Google's own calendar id
+  const id = ceoIdentity({ ...IDENTITY, selfCalendars: [OWNED] });
+
+  assert.equal(resolveOrgRelation({ email: OWNED }, id), 'self',
+    'a calendar he owns is him — without this, nothing on any secondary calendar can be promoted');
+  assert.equal(resolveOrgRelation({ email: SUBSCRIBED }, id), 'external',
+    'and a calendar he only subscribes to is NOT, even though Google flags its organizer `self` too');
+  assert.equal(resolveOrgRelation({ email: 'dave@partner.com' }, id), 'external',
+    'the positive control: a real outsider is still an outsider');
+  assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, id), 'internal',
+    'and a colleague is still a colleague');
+
+  // Owning `c_…@group.calendar.google.com` must never make the DOMAIN his: every other Google user's
+  // secondary calendars live under it, and a domain claim would hand the whole vendor to him.
+  assert.ok(!id.orgDomains.includes('group.calendar.google.com'),
+    'a container address is matched by address, never widened into an org domain');
+  assert.equal(resolveOrgRelation({ email: 'c_somebodyelse@group.calendar.google.com' }, id), 'external',
+    "so a stranger's secondary calendar is a stranger");
+
+  // An identity that names no containers behaves exactly as it did before the rule existed.
+  assert.equal(resolveOrgRelation({ email: OWNED }, ceoIdentity(IDENTITY)), 'external');
 });
 
 test('classifyScope: 2+ internal participants → org-shared', () => {
@@ -1474,6 +1502,61 @@ await atest('multi-calendar: an account with three calendars syncs all three, na
   assert.ok(res.calendars.every((c) => c.count === 1));
   assert.deepEqual(res.nextSyncState.syncToken, { primary: 'TOK-primary', 'team-cal': 'TOK-team', 'family-cal': 'TOK-family' });
   assert.equal(res.degraded, undefined);
+});
+
+await atest('multi-calendar: the poll says which calendars the account OWNS, and the gate reads it', async () => {
+  // An event on a secondary calendar is organized BY THAT CALENDAR, so the whole question of whether
+  // it is the CEO's own is the question of whether he owns the container. Before this, he did not
+  // own anything as far as governance could tell: every event on every secondary calendar he owns
+  // resolved external → untrusted → HELD, and his "RichOS test" calendar was invisible to memory.
+  const OWNED = 'c_richostest@group.calendar.google.com';
+  const SUBSCRIBED = 'c_partnerteam@group.calendar.google.com';
+  const meeting = (id, calendarId) => ({
+    id,
+    iCalUID: `${id}@google.com`,
+    etag: `"${id}"`,
+    summary: 'Board prep',
+    description: 'Assemble the board pack: pilot status, pricing, hiring.',
+    start: { dateTime: '2025-08-01T10:00:00Z' },
+    end: { dateTime: '2025-08-01T11:00:00Z' },
+    // Google's own shape for an event nobody named an organizer for, on either calendar: the
+    // container authors it, and `self` is true because the copy lives on that very calendar.
+    organizer: { email: calendarId, self: true },
+    attendees: [
+      { email: 'ceo@acme.com', self: true, responseStatus: 'accepted' },
+      { email: 'alice@acme.com', displayName: 'Alice Internal', responseStatus: 'accepted' },
+    ],
+  });
+  const client = urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal', accessRole: 'owner' },
+      { id: OWNED, summary: 'RichOS test', accessRole: 'owner' },
+      { id: SUBSCRIBED, summary: 'Northwind partner calendar', accessRole: 'reader' },
+    ] }],
+    ['calendars/primary/events', { items: [], nextSyncToken: 'TOK-primary' }],
+    [`calendars/${encodeURIComponent(OWNED)}/events`, { items: [meeting('owned1', OWNED)], nextSyncToken: 'TOK-owned' }],
+    [`calendars/${encodeURIComponent(SUBSCRIBED)}/events`, { items: [meeting('sub1', SUBSCRIBED)], nextSyncToken: 'TOK-sub' }],
+  ]);
+  const adapter = new GoogleCalendarAdapter({ accountId: 'ceo@acme.com', client, now });
+
+  const res = await adapter.listChanges(null);
+  assert.equal(res.calendars.find((c) => c.id === OWNED).owned, true, 'the adapter reports ownership…');
+  assert.equal(res.calendars.find((c) => c.id === SUBSCRIBED).owned, false, '…and non-ownership');
+
+  const zone = tmp();
+  try {
+    const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+    assert.equal(summary.ingested, 2, 'both are evidence — nothing is dropped for being somebody else\'s');
+    const byId = new Map(readEvidenceZone(zone).map((e) => [e.item.sourceItemId.split(':').pop(), e.item]));
+
+    assert.equal(byId.get('owned1').actors.author.orgRelation, 'self',
+      'a calendar he owns is him, so the meeting on it is his');
+    assert.equal(byId.get('owned1').trust.class, 'unverified', 'and it is not quarantined as an outsider\'s');
+    assert.equal(byId.get('sub1').actors.author.orgRelation, 'external',
+      'a calendar he only subscribes to is NOT him — the vendor flags `self` on both, which is why '
+      + 'the flag is not what this rule reads');
+    assert.equal(byId.get('sub1').trust.class, 'untrusted', 'so the immune system still holds it');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
 await atest('multi-calendar: a hidden calendar is skipped — unhiding it makes it sync (positive control)', async () => {

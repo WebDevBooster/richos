@@ -318,6 +318,30 @@ export function mockGoogleCalendar(opts = {}) {
   const accountId = opts.accountId;
   const calendars = new Map();
   calendars.set(accountId, { id: accountId, summary: 'Primary', primary: true, accessRole: 'owner', events: new Map() });
+  // A calendar the account SUBSCRIBES to and does not own — the CEO's real account carries one
+  // (`Holidays in United Kingdom`, 119 events read by the sync that found the ownership defect).
+  // Off by default so the seeding tests still count calendars; `runMockedAcceptance` turns it on,
+  // because it is the control that keeps "a container the account owns is the account" from
+  // becoming "any calendar in the list is the account".
+  for (const sub of opts.subscribed || []) {
+    const events = new Map();
+    for (const ev of sub.events || []) {
+      events.set(ev.id, {
+        etag: `"sub-${ev.id}"`,
+        htmlLink: `https://calendar.google.com/event?eid=${ev.id}`,
+        iCalUID: `${ev.id}@google.com`,
+        status: 'confirmed',
+        // Authored by the calendar it lives on, exactly as Google hands back every event on a
+        // calendar nobody named an organizer for — `self` and all.
+        creator: { email: sub.id, self: true },
+        organizer: { email: sub.id, displayName: sub.summary, self: true },
+        ...ev,
+      });
+    }
+    calendars.set(sub.id, {
+      id: sub.id, summary: sub.summary, accessRole: sub.accessRole || 'reader', events,
+    });
+  }
   let etagCounter = 0;
   let calendarCounter = 0;
   const calls = [];
@@ -554,8 +578,34 @@ export async function runMockedAcceptance(opts = {}) {
   const backend = memorySecretBackend();
   storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
 
-  const google = mockGoogleCalendar({ accountId });
   const NOW = Date.parse('2026-09-17T10:00:00Z');
+  // THE CONTROL FOR THE OWNERSHIP RULE, and it is deliberately meeting-shaped rather than
+  // holiday-shaped: a description and two attendees, so promotion would take it on any other
+  // grounds. The only thing standing between it and the CEO's memory is that he does not OWN the
+  // calendar it lives on — which is the whole of what `selfCalendars` is allowed to mean. A control
+  // with no description and no attendees would be held by the solo-block rule and would pass while
+  // the ownership rule was broken.
+  const SUBSCRIBED_CALENDAR_ID = 'c_partnerteam@group.calendar.google.com';
+  const SUBSCRIBED_EVENT_ID = 'submeeting01';
+  const google = mockGoogleCalendar({
+    accountId,
+    subscribed: [{
+      id: SUBSCRIBED_CALENDAR_ID,
+      summary: 'Northwind partner calendar (shared with you)',
+      accessRole: 'reader',
+      events: [{
+        id: SUBSCRIBED_EVENT_ID,
+        summary: 'Partner team planning',
+        description: 'Their planning session; we have read access to the calendar and nothing else.',
+        start: { dateTime: '2026-09-25T09:00:00Z', timeZone: 'Europe/London' },
+        end: { dateTime: '2026-09-25T10:00:00Z', timeZone: 'Europe/London' },
+        attendees: [
+          { email: 'dana.reyes@northwind.example.com', displayName: 'Dana Reyes', responseStatus: 'accepted' },
+          { email: accountId, displayName: 'You', self: true, responseStatus: 'accepted' },
+        ],
+      }],
+    }],
+  });
   const quiet = [];
   const deps = (extra = {}) => ({
     zone,
@@ -587,12 +637,32 @@ export async function runMockedAcceptance(opts = {}) {
 
   // 3. The check.
   const result = checkZone({ zone });
+
+  // …and the control, read off the same zone by the product's own reader: the subscribed calendar's
+  // meeting must be INGESTED (it is evidence, and evidence is never dropped) and NOT promoted, held
+  // for external authorship rather than for being empty.
+  const subscribedSourceId = [...readEvidenceZone(zone)]
+    .map((e) => e.item.sourceItemId)
+    .find((id) => id.endsWith(`:${SUBSCRIBED_EVENT_ID}`)) || null;
+  const subscribedEntry = subscribedSourceId
+    ? readEvidenceZone(zone).find((e) => e.item.sourceItemId === subscribedSourceId)
+    : null;
+  const subscribedControl = {
+    calendarId: SUBSCRIBED_CALENDAR_ID,
+    sourceItemId: subscribedSourceId,
+    ingested: Boolean(subscribedEntry),
+    promoted: subscribedSourceId ? readPromotionLedger(zone).has(subscribedSourceId) : false,
+    authorRelation: subscribedEntry ? subscribedEntry.item.actors.author.orgRelation : null,
+    heldReason: subscribedEntry ? promotionDecision(subscribedEntry.item).reason : null,
+  };
+
   result.mock = {
     root,
     zone,
     corpus,
     seeded,
     synced,
+    subscribedControl,
     // The two grants really are two keychain items, and this is the assertion that says so.
     seedGrant: backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${accountId}`),
     productGrant: backend.get('com.richos.workspace.google', `oauth-tokens ${accountId}`),
@@ -642,6 +712,17 @@ async function main(argv) {
       assert.deepEqual(writesOnReadOnlyToken, [], 'the product grant never attempted a write');
       console.log(`grants:     seed and product hold different tokens; ${result.mock.google.calls.length} calls, `
         + 'no write was attempted on the read-only grant.');
+
+      // The ownership rule's control, asserted rather than described.
+      const sub = result.mock.subscribedControl;
+      assert.ok(sub.ingested, 'a meeting on a calendar the account does not own is still evidence');
+      assert.equal(sub.authorRelation, 'external',
+        'and a calendar he merely subscribes to is NOT him, however loudly the vendor flags it `self`');
+      assert.equal(sub.promoted, false, 'so it is not promoted into his memory');
+      assert.match(sub.heldReason, /single untrusted item/,
+        'held for external authorship — not for being empty, which is why the control has a description');
+      console.log(`control:    ${sub.calendarId} is read-only to this account; its meeting was ingested `
+        + 'as evidence, resolved external, and held.');
       return result.ok ? 0 : 1;
     } finally {
       cleanupMockedAcceptance(result);

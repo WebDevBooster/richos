@@ -48,11 +48,13 @@
  *      dry run has no real id to use, and no decision below depends on the id's value.
  *   4. An event's `organizer` is THE CALENDAR IT LIVES ON unless the write named one (only
  *      `events.import` may). On the primary calendar that address is the account's own; on a
- *      SECONDARY calendar it is `…@group.calendar.google.com`, which the governance gate reads as
- *      external — so a meeting created natively on a secondary calendar is `untrusted` and is HELD.
- *      That is not a prediction this file makes about the product; it is what the product's own
- *      decision function answers when asked, and `board-prep-shared` exists to put it in front of a
- *      reader instead of leaving it to be discovered on the CEO's real calendar.
+ *      SECONDARY calendar it is `…@group.calendar.google.com` — an address that authors events
+ *      without being a person. `board-prep-shared` exists to put that in front of a reader instead
+ *      of leaving it to be discovered on the CEO's real calendar, and it did its job: until
+ *      `governance.js` learned that a container the account OWNS is the account, every event on
+ *      every secondary calendar he owns resolved external → `untrusted` → HELD. What this file
+ *      predicts for that fixture is still not written down here — it is whatever the product's own
+ *      decision function answers, which is why the row moved the moment the rule did.
  *
  * PURE. No fs, no network, no keychain — `calendar-seed.js` is the runtime that writes any of this to
  * a real account, and it is the only file here that can.
@@ -518,8 +520,15 @@ export function seedAdapter(accountId, now = () => Date.now()) {
 export function expectationsFor(plan, opts = {}) {
   const now = Number.isFinite(opts.now) ? opts.now : plan.now || Date.now();
   const adapter = seedAdapter(plan.accountId, () => now);
-  const identity = ceoIdentity({ selfEmails: [plan.accountId], orgDomains: opts.orgDomains || [] });
   const calendarIds = opts.calendarIds || {};
+  const identity = ceoIdentity({
+    selfEmails: [plan.accountId],
+    orgDomains: opts.orgDomains || [],
+    // Every calendar this set lands on is one the account OWNS — the primary, and the "RichOS test"
+    // calendar this tool created. That is the same fact `ingestOnce` reads off the adapter's own
+    // `owned` report on a real poll, so the prediction and the product are asking one question.
+    selfCalendars: Object.values(calendarIds).filter(Boolean),
+  });
   // The ids Google actually gave, once there has been a run to give them. Empty before that, which
   // is a dry run, which falls back to the planned stand-ins (header fact 3b).
   const eventIds = opts.eventIds || {};

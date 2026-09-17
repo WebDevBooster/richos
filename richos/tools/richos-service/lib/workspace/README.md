@@ -50,6 +50,14 @@ pipeline serve six adapters across two vendors.
 
 - **Scope** (`governance.js`): CEO-private vs org-shared vs external; ambiguity → the **more private**
   scope. A suspicion never silently becomes org fact.
+- **An author is not always a person** (`governance.js`): an event on a Google SECONDARY calendar is
+  organized by that calendar's own address (`c_…@group.calendar.google.com`), so a container the
+  account **owns** resolves as the account — otherwise every event on every secondary calendar the
+  CEO owns is externally authored, untrusted and held forever. Ownership is the test, **not** the
+  vendor's `organizer.self` flag: that flag only says "the organizer is this calendar", which is
+  equally true of `Holidays in United Kingdom` and of any calendar somebody else shares with him.
+  The adapter reports `owned` per calendar and `ingestOnce` folds those addresses into the identity
+  before the gate runs.
 - **Immune system** (`immune.js`): external-authored = `untrusted`; superseded/expired = `stale`;
   prompt-injection patterns → **quarantine** (excluded from extraction, still visible as evidence).
   A single untrusted item never promotes to org belief without corroboration.
