@@ -78,6 +78,7 @@ import {
 import {
   MicrosoftCalendarAdapter, parseGraphDateTime, eventBodyText,
   CALENDAR_SCOPE, EVENT_SELECT, ADAPTER_VERSION as MS_CAL_ADAPTER_VERSION,
+  normalizeCursorMap as msNormalizeCursorMap,
 } from '../lib/workspace/adapters/microsoft-calendar.js';
 import {
   MicrosoftOneDriveAdapter, assertNoFileContent as assertNoOneDriveContent, planBody as planOneDriveBody,
@@ -4179,8 +4180,11 @@ const MS_EVENT_SOLO = {
 };
 const MS_EVENT_TOMBSTONE = { id: 'AAMkAD_gone', '@removed': { reason: 'deleted' } };
 
+// `calendarId: 'primary'` pins the LEGACY single-calendar path so every test written before
+// multi-calendar sync existed keeps exercising exactly what it always tested — discovery-mode tests
+// construct `MicrosoftCalendarAdapter` directly rather than through this helper.
 function msCalendar(opts = {}) {
-  return new MicrosoftCalendarAdapter({ client: graphMock([]), accountId: MS_ACCOUNT, now, ...opts });
+  return new MicrosoftCalendarAdapter({ client: graphMock([]), accountId: MS_ACCOUNT, now, calendarId: 'primary', ...opts });
 }
 
 // =================================================================================================
@@ -4573,6 +4577,99 @@ test('eventBodyText prefers the body, falls back to bodyPreview, and survives ne
   assert.match(eventBodyText(MS_EVENT_ORG), /Action items to follow/);
   assert.equal(eventBodyText({ bodyPreview: 'just the preview' }), 'just the preview');
   assert.equal(eventBodyText({}), '');
+});
+
+// =================================================================================================
+group('Microsoft Calendar multi-calendar sync (2026-09-17) — same defect, same fix as Google\'s, '
+  + 'except this scope genuinely covers discovery so it runs for real');
+
+test('legacy explicit calendarId keeps the OLD per-(account,calendar) identity formula', () => {
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarId: 'work-cal', client: graphMock([]), now });
+  const expected = createHash('sha256')
+    .update(JSON.stringify(['microsoft', 'calendar', MS_ACCOUNT, 'work-cal'])).digest('hex');
+  assert.equal(a.sourceInstanceId, expected);
+});
+
+test('the new default (no calendarId) is account-scoped identity, distinct from the legacy per-calendar one', () => {
+  const legacy = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarId: 'primary', client: graphMock([]), now });
+  const multi = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, client: graphMock([]), now });
+  assert.notEqual(multi.sourceInstanceId, legacy.sourceInstanceId);
+  const expected = createHash('sha256').update(JSON.stringify(['microsoft', 'calendar', MS_ACCOUNT])).digest('hex');
+  assert.equal(multi.sourceInstanceId, expected);
+});
+
+test('normalizeCursorMap (Microsoft): a flat legacy deltaLink migrates to the first calendar; a map passes through', () => {
+  assert.deepEqual(msNormalizeCursorMap(DELTA_LINK, 'cal-a'), { 'cal-a': DELTA_LINK });
+  assert.deepEqual(msNormalizeCursorMap({ 'cal-a': 'X' }, 'cal-a'), { 'cal-a': 'X' });
+  assert.deepEqual(msNormalizeCursorMap(null, 'cal-a'), {});
+});
+
+await atest('multi-calendar: an account with three calendars syncs all three, named by label and count', async () => {
+  const client = graphMock([
+    ['/me/calendars?', { value: [
+      { id: 'cal-personal', name: 'Calendar', isDefaultCalendar: true },
+      { id: 'cal-team', name: 'Coaching Ops team' },
+      { id: 'cal-family', name: 'Family' },
+    ] }],
+    ['/me/calendars/cal-personal/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'p1', iCalUId: 'uid-p1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=P' }],
+    ['/me/calendars/cal-team/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 't1', iCalUId: 'uid-t1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=T' }],
+    ['/me/calendars/cal-family/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'f1', iCalUId: 'uid-f1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=F' }],
+  ]);
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.items.length, 3);
+  assert.deepEqual(res.calendars.map((c) => c.id).sort(), ['cal-family', 'cal-personal', 'cal-team']);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-team').label, 'Coaching Ops team');
+  assert.ok(res.calendars.every((c) => c.count === 1));
+});
+
+await atest("multi-calendar: a 410 on one calendar resets only that calendar's cursor", async () => {
+  const client = {
+    async getJson(url) {
+      const s = String(url);
+      // The FIRST request per calendar re-requests its STORED token URL verbatim (no calendar id
+      // embedded in it) — only a reset (token: null) re-derives the URL from the calendar's own id.
+      if (s.includes('STALE-A')) throw new GoneError('gone');
+      if (s.includes('/me/calendars/cal-a/calendarView/delta')) {
+        return { value: [{ ...MS_EVENT_ORG, id: 'a-fresh', iCalUId: 'uid-a-fresh' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=FRESH-A' };
+      }
+      if (s.includes('TOK-B')) {
+        return { value: [{ ...MS_EVENT_ORG, id: 'b1', iCalUId: 'uid-b1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=TOK-B-2' };
+      }
+      throw new Error(`unexpected url ${url}`);
+    },
+  };
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a', 'cal-b'], client, now });
+  const res = await a.listChanges({ syncToken: { 'cal-a': 'https://graph.microsoft.com/v1.0/x?$deltatoken=STALE-A', 'cal-b': 'https://graph.microsoft.com/v1.0/x?$deltatoken=TOK-B' } });
+  assert.equal(res.items.length, 2);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-a').resynced, true);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-b').resynced, false);
+  assert.match(res.nextSyncState.syncToken['cal-a'], /FRESH-A/);
+  assert.match(res.nextSyncState.syncToken['cal-b'], /TOK-B-2/);
+});
+
+await atest('multi-calendar: the same iCalUId on two calendars lands once, not twice (collector-path parity)', async () => {
+  const client = graphMock([
+    ['/me/calendars/cal-a/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'evtA', iCalUId: 'UID-SHARED' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=A' }],
+    ['/me/calendars/cal-b/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'evtB', iCalUId: 'UID-SHARED' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=B' }],
+  ]);
+  const res = await new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a', 'cal-b'], client, now }).listChanges(null);
+  assert.equal(res.items.length, 1, 'the same event on two calendars lands once, not twice');
+  assert.equal(res.items[0].id, 'evtA', 'the first calendar in order wins the merge');
+});
+
+await atest("multi-calendar: an old flat cursor (from before this change) is read as the calendar it belonged to", async () => {
+  let requestedUrl = null;
+  const client = {
+    async getJson(url) {
+      requestedUrl = url;
+      return { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=AFTER' };
+    },
+  };
+  const adapter = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a'], client, now });
+  const res = await adapter.listChanges({ syncToken: DELTA_LINK });
+  assert.equal(requestedUrl, DELTA_LINK, "the legacy deltaLink string is honored as cal-a's own token");
+  assert.deepEqual(res.nextSyncState.syncToken, { 'cal-a': 'https://graph.microsoft.com/v1.0/x?$deltatoken=AFTER' });
 });
 
 // =================================================================================================
@@ -5619,6 +5716,13 @@ function msHttpMock(opts = {}) {
       }));
     }
     const u = new URL(url);
+    // Calendar discovery (2026-09-17): `GET /me/calendars`, distinct from a per-calendar
+    // `/me/calendars/{id}/calendarView/delta`, which is why this checks for the EXACT bare path.
+    if (u.pathname.endsWith('/me/calendars')) {
+      return httpResponse(200, JSON.stringify({
+        value: opts.calendars || [{ id: 'MS-CAL-DEFAULT', name: 'Calendar', isDefaultCalendar: true }],
+      }));
+    }
     if (u.pathname.includes('/calendarView/delta')) {
       return httpResponse(200, JSON.stringify({
         value: opts.calendarItems || [MS_EVENT_ORG],
