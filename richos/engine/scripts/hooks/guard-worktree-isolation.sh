@@ -1039,6 +1039,26 @@ fi
 #   7g. a DRY EVALUATION (scripts/spawn.sh, before the call is made) runs every
 #       check above through `check-spawn` and writes nothing. See the block at
 #       C7_VERB for why it cannot be used to skip a registration.
+#
+# THIS HOOK'S BUDGET IS PART OF CLAUSE 7, AND A KILL IS NOT A REFUSAL.
+# The registration is a WRITE, and it is the last thing this guard does. On
+# 2026-09-17 the platform killed this hook at 10.027s against a 10s budget
+# (orchestrator transcript, `hook_cancelled … timedOut: true`, tool_use_id
+# toolu_01C3dCBDwFksv5tBHramMDch) and then LAUNCHED THE AGENT ANYWAY two
+# seconds later — so point 3's "if registration fails, the spawn does not
+# happen" was not violated by any decision in this file; the decision was never
+# reached. The registration's own longest wait is the registry lock, which
+# waits up to 30s (mega-lander/workspaces.py, class Lock), and point 5's gate
+# inside register_spawn budgets 4s of auto-landing on top of that, so a 10s
+# hook could be killed mid-write while doing exactly what it should. The budget
+# in hooks/hooks.json is therefore 60s — larger than the longest wait inside
+# it, and the same budget guard-owned-state.sh already carries.
+# A LARGER BUDGET IS NOT A FIX: the platform decides when to kill a hook, so
+# the spawn-without-a-registration case is repaired rather than merely made
+# rarer — `bind_agent` (PostToolUse[Agent]) and `observe_platform_binding`
+# (every land/status afterwards) adopt the platform's own record of which agent
+# the call became. Neither certifies the spawn: they record what happened, and
+# the record says it was reconciled.
 # ---------------------------------------------------------------------------
 C7_PROBLEMS=()
 for _c in "mega-lander/workspaces.py" "scripts/hooks/workspace-lifecycle.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
