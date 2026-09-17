@@ -43,24 +43,35 @@
   //   title      `--ink` on `--card`        12.06:1 dark   18.07:1 light   (needs 4.5:1)
   //   detail     `--ink-soft` on `--card`    5.78:1 dark    6.36:1 light   (needs 4.5:1)
   //   stop control, 16px, same `--ink-soft`  5.78:1 dark    6.36:1 light   (needs 4.5:1)
+  //   approve and decline, 16px, the same    5.78:1 dark    6.36:1 light   (needs 4.5:1)
   // `--ink-soft` is `rgba(223,228,238,0.64)` over `#182440` and `rgba(12,19,34,0.68)` over
-  // `#fdfcf8`; both were composited before the ratio was taken. Nothing here is exempt.
+  // `#fdfcf8`; both were composited before the ratio was taken. Nothing here is exempt —
+  // every ratio above is re-measured under WebKit by `ui/tests/background-work.js` in both
+  // themes rather than trusted from this comment.
   const STATES = {
     registered: "Written down. Nothing has been prepared yet.",
     preparing: "Getting a workspace ready.",
     running: "Running.",
-    // §0 row 7's mandated phrase, plus the affordance that actually exists TODAY. The
-    // approval desk that would hold his decision while he is away is §5.2/§5.7 and is not
-    // built, so a sentence implying a button here would be a claim about a control that is
-    // not on this surface. Asking Rich to continue it is a real path and the composer is a
-    // real control, which is the same answer the saved-record limit gives one screen over.
-    blocked: "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    // §0 row 7's mandated phrase, with the control behind it at last: the desk holds his
+    // decision while he is away (§5.2/§5.7), so the row carries Approve and Decline and
+    // the sentence stops pointing him at the composer.
+    blocked: "Ready for you to approve. Nothing in your repository has been changed yet.",
+    // THE SAME STATE WITH NO QUESTION ON THE DESK, and it is a real case rather than a
+    // defensive branch: the queue lives in the running process, so an assignment that
+    // stopped at his decision before a relaunch is `blocked` with nothing left to press.
+    // Naming a control that is not there would be the failure slice 1's affordance gate
+    // caught; the composer is a real path and this sentence names it.
+    blockedNoRequest: "Ready for you to approve. Ask Rich to continue it when you are ready.",
     settled: "Finished.",
     failed: "Stopped before it finished. Ask Rich what it needs.",
     interrupted: "Stopped.",
   };
 
-  function renderAssignments(view, parent, onStop) {
+  /// `onDecide(requestId, allow)` answers the ONE exact request this assignment is waiting
+  /// on him for. It is a request id and not an assignment id on purpose: what he approves is
+  /// one action, and the press has to carry which one (spec §5.2's *"one exact action"*
+  /// survives the queue).
+  function renderAssignments(view, parent, onStop, onDecide) {
     if (view.error) {
       const note = document.createElement("p");
       note.className = "overlay-note";
@@ -84,9 +95,38 @@
       detail.className = "overlay-note";
       // The state's own sentence, then whatever the backend recorded about it. Two plain
       // sentences rather than a code and a label.
-      detail.textContent = STATES[row.state] || "Its state could not be read.";
+      const waiting = row.awaitingYou || null;
+      const key = row.state === "blocked" && !waiting ? "blockedNoRequest" : row.state;
+      detail.textContent = STATES[key] || "Its state could not be read.";
       if (row.detail) detail.textContent += " " + row.detail;
       item.append(title, detail);
+      if (waiting) {
+        // WHAT HE IS BEING ASKED, in the backend's own words for it — one phrase, written
+        // in one place (`work_host.rs`'s `plain_action`), so the receipt and this row can
+        // never describe one step two ways.
+        const asked = document.createElement("p");
+        asked.className = "overlay-note assignment-asked";
+        asked.textContent = "Waiting on you: " + (waiting.asked || "a step it cannot take without you") + ".";
+        const decisions = document.createElement("div");
+        decisions.className = "assignment-decisions";
+        // **Each control names its own assignment.** The same reason the stop control does:
+        // a button labeled only "Approve" beside three assignments is one he cannot use
+        // without counting rows, and spoken aloud it would name nothing at all.
+        const approve = document.createElement("button");
+        approve.type = "button";
+        approve.className = "slideover-close assignment-approve";
+        approve.textContent = "Approve this";
+        approve.setAttribute("aria-label", "Approve " + row.title);
+        approve.addEventListener("click", () => onDecide && onDecide(waiting.requestId, true));
+        const decline = document.createElement("button");
+        decline.type = "button";
+        decline.className = "slideover-close assignment-decline";
+        decline.textContent = "Decline this";
+        decline.setAttribute("aria-label", "Decline " + row.title);
+        decline.addEventListener("click", () => onDecide && onDecide(waiting.requestId, false));
+        decisions.append(approve, decline);
+        item.append(asked, decisions);
+      }
       if (row.canStop) {
         const stop = document.createElement("button");
         stop.type = "button";

@@ -1885,11 +1885,29 @@
         case "pending_permission":
           return window.__RICHOS_MOCK_PRESET__?.pendingPermission || null;
         case "answer_permission": {
-          const pending = window.__RICHOS_MOCK_PRESET__?.pendingPermission;
-          if (!pending || pending.id !== args.requestId) return Promise.reject("That action is no longer waiting for permission.");
-          window.__RICHOS_MOCK_PRESET__.permissionAnswer = args.allow;
-          window.__RICHOS_MOCK_PRESET__.pendingPermission = null;
-          return null;
+          const preset = window.__RICHOS_MOCK_PRESET__ || {};
+          const pending = preset.pendingPermission;
+          if (pending && pending.id === args.requestId) {
+            preset.permissionAnswer = args.allow;
+            preset.pendingPermission = null;
+            return null;
+          }
+          // A BACKGROUND request, answered from the assignment surface rather than from the
+          // sheet (background-work spec §5.2, §5.7). Same command, same one-exact-action
+          // rule; what differs is where the question was shown. The mock moves the row the
+          // way the backend does — approved goes back to running, declined stops — so the
+          // surface under test re-reads a state that really changed.
+          for (const rows of Object.values(preset.assignments || {})) {
+            const row = (rows || []).find((r) => r.awaitingYou && r.awaitingYou.requestId === args.requestId);
+            if (!row) continue;
+            preset.assignmentAnswers = preset.assignmentAnswers || [];
+            preset.assignmentAnswers.push({id: row.id, allow: args.allow});
+            row.awaitingYou = null;
+            row.state = args.allow ? "running" : "interrupted";
+            row.canStop = !!args.allow;
+            return null;
+          }
+          return Promise.reject("That action is no longer waiting for permission.");
         }
         case "repository_connections":
           return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};
@@ -2074,6 +2092,21 @@
           if (preset.workSummaryError) throw new Error(preset.workSummaryError);
           return preset.workSummaries?.[args.threadId] || {items: [], omitted: 0};
         }
+        // THE ASSIGNMENTS HE GAVE (background-work spec §1, §5.2, §7.8), shaped exactly
+        // like `get_assignments` in `main.rs` — including `awaitingYou`, which carries the
+        // ONE exact request an assignment is waiting on him for and is what turns "ready
+        // for you to approve" into a control rather than a sentence.
+        case "get_assignments": {
+          const preset = window.__RICHOS_MOCK_PRESET__ || {};
+          if (preset.assignmentsError) throw new Error(preset.assignmentsError);
+          return {assignments: preset.assignments?.[args.threadId] || []};
+        }
+        // Durable notices are read at the thread open and at every turn boundary. Empty
+        // here: this harness drives the surface, not the delivery lane.
+        case "take_work_notices":
+          return [];
+        case "stop_assignment":
+          return null;
         case "get_worker_status":
           return {
             active: 1,

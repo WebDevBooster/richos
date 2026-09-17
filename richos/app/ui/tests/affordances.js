@@ -504,6 +504,49 @@ const FIXTURES = {
     await page.waitForSelector("#repository-company option:nth-child(2)", {state: "attached"});
     return page;
   },
+  /// **THE ASSIGNMENT WAITING FOR HIM** (background-work spec §5.2, §7.6, §7.8).
+  ///
+  /// Driven through the shell the CEO uses: the chip that counts what is waiting, the pane
+  /// it opens, and the row rendered by the shipping `work-summary.js` from the shipping
+  /// `get_assignments` shape — `awaitingYou` and all. Nothing here writes into the DOM.
+  ///
+  /// **The chip is part of the fixture rather than an implementation detail of it.** Every
+  /// other part of that chip is fed by `get_worker_status`, which is empty whenever no turn
+  /// is open — the entire window background work lives in — so without the assignment counts
+  /// there is no chip, no pane, and no way to reach the approve control at all.
+  async "assignment-waiting"(browser) {
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          {
+            id: "assignment-one",
+            title: "landing the three branches",
+            state: "blocked",
+            detail: "The work has run and stopped at a step that is yours to approve: putting the finished work into your repository.",
+            repositories: [],
+            registeredAtMs: 1,
+            canStop: true,
+            onTheConnection: false,
+            awaitingYou: {
+              requestId: "affordance-work-request",
+              asked: "putting the finished work into your repository",
+              tool: "mcp__richos_work__integrate",
+              description: "",
+              raisedAtMs: 2,
+            },
+          },
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    await page.waitForFunction(() =>
+      document.getElementById("drill-chip-zone").textContent.includes("1 waiting for you")
+    );
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-approve");
+    return page;
+  },
   async "permission-pending"(browser) {
     const page = await openApp(browser);
     await page.evaluate(() => { window.__RICHOS_MOCK_PRESET__ = {pendingPermission: {
@@ -1235,6 +1278,10 @@ const FIXTURES = {
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
   "repository-empty", "permission-pending", "provider-start-error", "provider-poll-error", "provider-cancel-error",
+  // The assignment surface renders its own words out of `work-summary.js`, with nothing but
+  // software behind it — and §7.8 says the wording IS the test, so the sentence is asserted
+  // present rather than only the control beneath it.
+  "assignment-waiting",
   // Every correction-desk fixture renders its own words — there is no hardware behind any
   // of them, so the weaker control-presence-only proof would be a choice rather than a
   // limit.

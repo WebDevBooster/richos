@@ -829,7 +829,7 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
 /// Anything unrecognized falls back to a phrase that claims nothing about what the step
 /// does — a made-up description of an action he is about to authorize would be worse than
 /// no description at all.
-fn plain_action(tool: &str) -> &'static str {
+pub fn plain_action(tool: &str) -> &'static str {
     match tool {
         "mcp__richos_work__integrate" => "putting the finished work into your repository",
         "Bash" => "running a command on your Mac",

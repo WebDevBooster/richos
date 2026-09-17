@@ -2528,6 +2528,12 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
             // not whichever one happens to be first.
             let waiting = state.work.pending_decision(row).map(|request| serde_json::json!({
                 "requestId": request.id,
+                // WHAT HE IS BEING ASKED, in his language and composed in ONE place.
+                // `mcp__richos_work__integrate` is a wire identifier; the question is
+                // whether to change his repository. The phrase comes from the same function
+                // that writes the blocked receipt's own sentence, so the surface and the
+                // record cannot drift into two descriptions of one step.
+                "asked": richos_core::work_host::plain_action(&request.tool),
                 "tool": request.tool,
                 "description": request.description,
                 "raisedAtMs": request.raised_at_ms,
