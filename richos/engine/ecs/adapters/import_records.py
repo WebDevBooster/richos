@@ -179,12 +179,23 @@ def preview(root, envelope, target):
             "items": results, "executing": False}
 
 
-def apply(root, envelope, binding):
-    from app import fence
+def apply(root, envelope, binding, seat=None, person_id=PERSON_ID):
+    """Apply a batch under the CALLING seat's fence.
+
+    ``target`` keeps ``ceo-default`` whoever is calling: it is part of the batch
+    and item receipt digests, so an envelope imported from one of his conversation
+    threads is still read as already imported from another. Only the fence and the
+    domain append follow the seat -- ``continuity.item_opened`` is a
+    CONVERSATIONAL_EVENT and is fenced against the row belonging to the event's
+    own person, so on a per-thread seat the default literal fenced against another
+    thread's row. Both parameters default to the values this function used to
+    hard-code, so the callers that predate seats are unchanged.
+    """
+    from app import fenced
     target = {"person_id": PERSON_ID, "entity_id": binding["entity_id"], "thread_id": binding["thread_id"]}
     validate_envelope(envelope)
     store = EventStore(Path(root))
-    fence(store, binding)
+    fenced(store, binding, seat)
     directory = Path(root) / "imports"
     prepare_private_dir(directory)
     fd = os.open(directory / ".lock", os.O_CREAT | os.O_RDWR, 0o600)
@@ -205,12 +216,13 @@ def apply(root, envelope, binding):
                       "imported_at": imported_at}
             append_receipt(root, intent)
             try:
-                fence(store, binding)
+                fenced(store, binding, seat)
                 event_key = "neutral-import:" + row["key"] + ":" + item["digest"]
                 existing = store.existing_event(event_key)
                 if existing is None:
                     store.append("continuity.item_opened", entity_id=binding["entity_id"],
                         thread_id=binding["thread_id"], session_id=binding["session_id"],
+                        person_id=person_id,
                         active_context_revision=binding["revision"], source_ref=item["provenance"]["ref"],
                         idempotency_key=event_key, actor_kind="importer", actor_id="neutral-import-v1",
                         payload={"item_id": row["target_id"], "item_type": "open_loop", "title": item["payload"]["title"],
