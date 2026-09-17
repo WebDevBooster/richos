@@ -12,6 +12,18 @@
  * It is a second item in the same service, not a field in the token record, so a grant that is
  * revoked, expired or replaced never takes the client's own identity with it.
  *
+ * ONE MANAGER IS ONE ACCOUNT (2026-09-17). The token record is keyed `oauth-tokens <accountId>` in
+ * the same service — the shape the client secret already uses for its own key — so the CEO's second
+ * Google account is an ADDITION to the keychain rather than an overwrite of the first. The accountId
+ * is REQUIRED at construction and there is no fallback to an unqualified key: a manager that quietly
+ * defaulted to the shared item would revoke or refresh whichever account happened to own it.
+ *
+ * THE ONE RECORD THAT PREDATES THAT KEY is the CEO's live grant, written at the bare `oauth-tokens`
+ * account before this change. It is ADOPTED rather than abandoned: the first manager constructed with
+ * `adoptLegacyTokens` (the config's first account) copies it to its own key, READS THE COPY BACK to
+ * prove the write landed, and only then deletes the old item. Copy-verify-delete, in that order —
+ * a delete that ran before a failed write would have cost him a re-consent.
+ *
  * The one genuinely awkward case (§6.1 / roadmap): the CEO's OAuth app is External + Testing, whose
  * sensitive/restricted-scope refresh tokens EXPIRE ~7 DAYS after issuance. This manager tracks the
  * refresh-token issue time and surfaces a LOUD, never-silent re-auth prompt as that window closes —
@@ -48,11 +60,27 @@ export const ACCESS_TOKEN_SKEW_MS = 60 * 1000;
  */
 
 const SERVICE = 'com.richos.workspace.google';
-const ACCOUNT = 'oauth-tokens';
+
+/** The keychain account prefix a grant is stored under. `oauth-tokens <the Google address>`. */
+export const TOKEN_ACCOUNT_PREFIX = 'oauth-tokens';
+
+/**
+ * The single-account key every grant used before accounts became a list. Nothing WRITES here any
+ * more; it is read exactly once, by the adopting manager, and deleted the moment the copy is proven.
+ */
+export const LEGACY_TOKEN_ACCOUNT = 'oauth-tokens';
+
+/** The keychain account one Google address's grant lives at. */
+export function tokenAccount(accountId) {
+  const id = String(accountId || '').trim().toLowerCase();
+  if (!id) throw new Error('a Google grant is stored against an account address, and none was given');
+  return `${TOKEN_ACCOUNT_PREFIX} ${id}`;
+}
 
 export class TokenManager {
   /**
-   * @param {{config:import('./oauth.js').OAuthConfig, backend:SecretBackend, http:import('./oauth.js').HttpFn,
+   * @param {{config:import('./oauth.js').OAuthConfig & {accountId?:string}, backend:SecretBackend,
+   *   http:import('./oauth.js').HttpFn, accountId?:string, adoptLegacyTokens?:boolean,
    *   service?:string, account?:string, now?:() => number}} opts
    */
   constructor(opts) {
@@ -60,7 +88,11 @@ export class TokenManager {
     this.backend = opts.backend;
     this.http = opts.http;
     this.service = opts.service || SERVICE;
-    this.account = opts.account || ACCOUNT;
+    this.accountId = String(opts.accountId || (opts.config && opts.config.accountId) || '').trim().toLowerCase();
+    // `account` stays overridable for a caller that knows the exact key it wants; otherwise the
+    // address decides it, and a manager with no address is refused rather than given a shared item.
+    this.account = opts.account || tokenAccount(this.accountId);
+    this.adoptLegacyTokens = Boolean(opts.adoptLegacyTokens);
     this.now = opts.now || (() => Date.now());
     // Enforce the privacy invariant on the chosen storage location at construction time.
     assertLocalTokenLocation({ backend: 'keychain', service: this.service });
@@ -95,13 +127,33 @@ export class TokenManager {
 
   /** Read the persisted token record (or null if the CEO has not consented yet). */
   load() {
-    const raw = this.backend.get(this.service, this.account);
+    const raw = this.backend.get(this.service, this.account) ?? this.adoptLegacyRecord();
     if (!raw) return null;
     try {
       return JSON.parse(raw);
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Move the one pre-list grant onto this account's own key, ONCE. Copy, read the copy back, then
+   * delete — so an adoption interrupted at any point leaves a readable grant somewhere rather than
+   * a re-consent. Returns the raw record it adopted, or null when there is nothing to adopt.
+   * @returns {string|null}
+   */
+  adoptLegacyRecord() {
+    if (!this.adoptLegacyTokens || this.account === LEGACY_TOKEN_ACCOUNT) return null;
+    const legacy = this.backend.get(this.service, LEGACY_TOKEN_ACCOUNT);
+    if (!legacy) return null;
+    this.backend.set(this.service, this.account, legacy);
+    if (this.backend.get(this.service, this.account) !== legacy) {
+      // The copy did not land. Say nothing about the value, keep the original, and let the caller
+      // carry on against the legacy record it just read.
+      return legacy;
+    }
+    this.backend.remove(this.service, LEGACY_TOKEN_ACCOUNT);
+    return legacy;
   }
 
   /** Persist a token record to the OS secure store. */
@@ -204,7 +256,11 @@ export class TokenManager {
     return next.accessToken;
   }
 
-  /** Local disconnect: revoke vendor-side (best-effort) AND delete the keychain entry. */
+  /**
+   * Local disconnect: revoke vendor-side (best-effort) AND delete the keychain entry — THIS
+   * account's entry and no other. `load()` first, so an unadopted legacy record is pulled onto this
+   * key and revoked rather than left behind holding a live refresh token.
+   */
   async disconnect() {
     const rec = this.load();
     if (rec && rec.refreshToken) {
@@ -215,6 +271,11 @@ export class TokenManager {
       }
     }
     this.backend.remove(this.service, this.account);
+    // Only when adoption's copy-back failed does this still exist; removing it is the guarantee that
+    // "disconnected" means no readable grant for this account anywhere in the store.
+    if (this.adoptLegacyTokens && this.account !== LEGACY_TOKEN_ACCOUNT) {
+      this.backend.remove(this.service, LEGACY_TOKEN_ACCOUNT);
+    }
     return { disconnected: true };
   }
 }

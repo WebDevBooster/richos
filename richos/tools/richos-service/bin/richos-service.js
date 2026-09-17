@@ -21,6 +21,7 @@
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
  *   richos-service workspace ...         # the CEO's own Google Workspace source: connect / status / sync / disconnect
+ *                                        # --account <address> picks one of several connected Google accounts
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
