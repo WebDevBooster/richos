@@ -640,12 +640,17 @@ export function workspaceSyncStatePath(zone = workspaceZone()) {
 
 /**
  * Least-privilege READ-ONLY Google scopes (§6.2). Calendar is P1 (smallest privacy surface, temporal
- * skeleton first); Drive/Gmail are wired in P2/P3. `calendar.events.readonly` is the narrowest that
+ * skeleton first), Drive is P2; Gmail is wired in P3. `calendar.events.readonly` is the narrowest that
  * lists events. NO write scopes — this layer observes, it never modifies the CEO's cloud.
+ *
+ * `drive.metadata.readonly` is the narrower of the two options §6.2 lists, and it is a BINDING choice
+ * rather than a placeholder: it cannot read file bodies, so the Drive adapter is metadata-only and
+ * refuses any payload carrying content (`adapters/google-drive.js`). Widening to `drive.readonly`
+ * would change what the CEO consents to on the OAuth screen (§6.1) — his decision, not a code change.
  */
 export const GOOGLE_SCOPES = {
   calendar: 'https://www.googleapis.com/auth/calendar.events.readonly',
-  drive: 'https://www.googleapis.com/auth/drive.metadata.readonly', // P2
+  drive: 'https://www.googleapis.com/auth/drive.metadata.readonly', // P2 — metadata only, no bodies
   mail: 'https://www.googleapis.com/auth/gmail.metadata', // P3, metadata-first (graduated privacy)
 };
 
