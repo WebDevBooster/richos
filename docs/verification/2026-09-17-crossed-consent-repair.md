@@ -45,6 +45,60 @@ Two things the run shows that are easy to miss:
 The dry run's listing afterwards is byte-identical to the one before it — the test asserts that on
 the ledger bytes and the evidence directory names, and the transcript shows it.
 
+## Running it on the REAL corpus — the two commands, in order
+
+**Nothing below was run.** This branch never touched `~/RichOS` and never made a Google call; the
+expected numbers come from the crossed run's own output
+(`richos-hq/docs/verification/2026-09-17-crossed-consent-sync-output.txt`), not from the corpus.
+Read the dry run against them before applying.
+
+```
+richos-service workspace repair --since 2026-09-17T07:32:00Z --until 2026-09-17T07:33:00Z
+richos-service workspace repair --since 2026-09-17T07:32:00Z --until 2026-09-17T07:33:00Z --apply
+```
+
+### What the dry run MUST show before `--apply` is safe
+
+1. **`would remove 64 of N rows`**, or very close to it — the crossed run reported `gmail: observed
+   63, ingested 63` under the personal account and `drive: observed 3, ingested 1` under the
+   Workspace account. 63 + 1 = 64 rows. A number far from 64 means the window is wrong, not that the
+   repair is wrong.
+2. **Every listed row is stamped `2026-09-17T07:32:…Z`.** If a row dated `02:4…Z` appears, STOP: the
+   window has reached into the CORRECT earlier run, and those rows and their evidence are the real
+   ones.
+3. **`evidence: would delete <the same 64> revision directories`**, each path under
+   `…/ceo/evidence/unfiled/workspace/google/{gmail,drive}/…`.
+4. **`cursors: would reset …`** naming only instances written at `07:32…Z`. Expect up to five (both
+   accounts' calendars, both drives, the personal account's gmail); the Workspace account's gmail
+   FAILED in that run and therefore wrote no cursor. Each reset means the next sync is a bounded full
+   sync for that source, deduped by the repaired ledger.
+5. **No `REFUSED:` line.** One means a revision on disk is not the one its row claims. Do not apply:
+   report it, because that is a different problem from the crossed run.
+
+### The order around it, which matters more than either command
+
+1. **Re-consent both accounts FIRST** — `workspace connect google --account <each address>`, with the
+   browser signed in as that account. `connect` now verifies the grant's identity before storing it
+   and refuses a consent from the other account by name, so this is the step that stops the damage
+   recurring. A repair applied while the keychain still holds the crossed grants is undone by the
+   very next sync.
+2. **Then the dry run, then `--apply`.**
+3. **Then one `workspace sync google --once`**, which is a bounded full sync for every reset cursor
+   and lands each account's real data under its own source instance.
+
+### What the repair will NOT do, and what is left for the CEO
+
+- **Memory records are not removed.** The `memory:` line names every promoted record left citing
+  removed evidence, with its ref. On this corpus expect **zero**: the crossed run reported
+  `promoted: 0 events into memory`.
+- **People are not un-learned.** The `people:` line names every entity whose §4.5 corroboration falls
+  below the threshold once the duplicated evidence stops counting — the crossed run reported
+  `5 people learned`, and any of those that only cleared the threshold because the same message was
+  counted twice will appear here. Deciding whether a name leaves `entities.json` is the CEO's, and
+  the line gives him the list to decide from.
+- `_last_sync.json` still shows the crossed run's tally until the next sync overwrites it. It is a
+  tally, not evidence.
+
 ## The run
 
 ```
