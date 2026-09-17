@@ -553,8 +553,15 @@
                    textarea itself (which the walker would otherwise still check as a FIELD)
                    onto this plain `<div>` (which it would not, on its own — see check 3's
                    `CONTROLS` selector in lib/contrast.js). -->
+              <!-- WHY THE BOX IS OFF, ATTACHED TO THE BOX (candidate-.2 defect #6).
+                   `#composer-blocked` sits directly above and says what will not happen and
+                   why; a sighted reader gets it from proximity and a screen-reader user got
+                   it from nothing at all. `aria-describedby` makes it this control's own
+                   description. It costs nothing while send is allowed: an `aria-describedby`
+                   pointing at a `hidden` element contributes no description, and
+                   `#composer-blocked` is hidden in every state but a block. -->
               <div id="input-shell" data-contrast-role="indicator">
-                <textarea id="input" rows="1" placeholder="Talk to Rich…"></textarea>
+                <textarea id="input" rows="1" placeholder="Talk to Rich…" aria-describedby="composer-blocked"></textarea>
               </div>
               <!-- §9.2: "a stop button replaces or sits beside send when the composer is
                    empty". Empty + working shows stop alone; words in the box show both, so

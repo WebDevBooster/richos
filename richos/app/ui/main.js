@@ -4050,17 +4050,53 @@ const COMPANY_UNCHOSEN_BLOCK =
   "I don't know which company this work is for yet, so I won't file it anywhere. Pick one " +
   "and I'll take it from there.";
 
+/// WHAT THE BOX ITSELF SAYS WHILE IT IS SWITCHED OFF — candidate-.2 defect #6.
+///
+/// The audit: *"With the company deferred, the composer is switched off but still reads 'Talk
+/// to Rich…', shows no disabled styling, and silently discards every keystroke."* Measured on
+/// the running page before this: `disabled false`, `opacity 1`, `cursor auto`, `placeholder
+/// "Talk to Rich…"`, send enabled — and Enter did nothing, leaving the typed word sitting in a
+/// box that would never take it.
+///
+/// `showUnboundView` had already written the rule down, three hundred lines above and for the
+/// other blocked state: *"an inviting 'Talk to Rich…' above a dead field is the composer
+/// telling a small lie about what it will do."* The company block simply never picked it up.
+/// This is that same treatment, not a new idea.
+///
+/// ONE SENTENCE FOR ALL THREE COMPANY BLOCKS, and it is true in each: no company chosen yet,
+/// no company known at all, and a company pinned from outside the window that cannot be made
+/// sense of. In every one of them Rich does not know the company. It says nothing about who
+/// fixes it or when — the line directly above the box says that, in the register each case
+/// needs, and `aria-describedby` now attaches it to the box so a screen reader gets the why
+/// with the control rather than near it.
+const COMPANY_BLOCK_PLACEHOLDER = "Send is off until I know the company";
+
+/// Switch the box off, or back on, and keep the placeholder honest either way. Split out
+/// because three call sites need it and a fourth (the pinned branch) used to set only two of
+/// the five things that make a composer look switched off.
+function setComposerLive(live) {
+  inputEl.disabled = !live;
+  sendBtn.disabled = !live;
+  idlePlaceholder = live ? "Talk to Rich…" : COMPANY_BLOCK_PLACEHOLDER;
+  inputEl.placeholder = idlePlaceholder;
+}
+
 function showCompanyBlock() {
   const line = companyBlockLine();
   sendBlockedReason = line;
   composerBlockedEl.textContent = line;
   composerBlockedEl.hidden = false;
   chooseCompanyRowEl.hidden = false;
+  setComposerLive(false);
 }
 
 function clearCompanyBlock() {
   if (sendBlockedReason === COMPANY_UNCHOSEN_BLOCK || sendBlockedReason === COMPANY_NONE_KNOWN_BLOCK) {
     sendBlockedReason = null;
+    // ONLY WHEN THIS BLOCK IS THE ONE THAT LIFTED. The unbound-thread block switches the same
+    // box off for a different reason and owns its own placeholder; re-arming the composer on
+    // the way past would put "Talk to Rich…" back over a field that still cannot send.
+    setComposerLive(true);
   }
   composerBlockedEl.hidden = true;
   chooseCompanyRowEl.hidden = true;
@@ -4093,6 +4129,7 @@ function requireCompanyChoice() {
     composerBlockedEl.textContent = COMPANY_PINNED_BLOCK;
     composerBlockedEl.hidden = false;
     chooseCompanyRowEl.hidden = true;
+    setComposerLive(false);
     return;
   }
   showCompanyBlock();

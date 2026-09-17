@@ -1245,6 +1245,26 @@ module.exports = [
       "reopens the picker if he dismissed it.",
   },
   {
+    s: "Send is off until I know the company",
+    c: "ACTIONABLE",
+    control: "#choose-company-btn",
+    fixture: "company-unchosen",
+    why:
+      "The composer's placeholder while a company block is up — candidate-.2 defect #6. The " +
+      "box used to read 'Talk to Rich…' over a field that would take his sentence and refuse " +
+      "to send it, which `showUnboundView` had already named for the OTHER blocked state: " +
+      "'an inviting Talk to Rich… above a dead field is the composer telling a small lie " +
+      "about what it will do'. Same treatment, same reason, and the sibling row 'Send is off " +
+      "for this thread' is the one this follows. " +
+      "ONE STRING FOR THREE BLOCKS, and the class is the one that fits the two he can clear: " +
+      "no company chosen and no company known are both his, and `#choose-company-btn` sits " +
+      "directly beneath. The third — a company pinned from outside the window that cannot be " +
+      "made sense of — is NEEDS-SOMEONE-ELSE, and it is `COMPANY_PINNED_BLOCK`'s own row that " +
+      "carries that, rendered in the line immediately above the box and attached to the box " +
+      "itself by `aria-describedby`. The placeholder says only what the box will do and names " +
+      "neither a party nor an instruction, which is why it does not have to.",
+  },
+  {
     s: "I'll keep everything you tell me under the company you pick, and I'll remember it — you won't be asked again. You can change it later in Settings.",
     c: "ACTIONABLE",
     control: "#entity-picker-list .picker-item",
