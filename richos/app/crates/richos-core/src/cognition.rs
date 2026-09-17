@@ -46,6 +46,47 @@ pub trait LeaseFactory: Send {
     fn spawn_cancellable(&self, _control: &crate::steering::TurnControl) -> Result<Box<dyn Cognition>, CognitionError> {
         self.spawn()
     }
+
+    /// Spawn the SECOND lease — the background-work spec's work lease (§2.1).
+    ///
+    /// **It is a separate method rather than an argument, because the two leases differ in
+    /// what the CHILD is given, not in how the host holds it.** The work lease's per-lease
+    /// MCP config omits `richos_continuity` (spec §5.8a-ii seam 1: *"the tool is not there
+    /// to call"*) and its preparation never calls `brief` (seam 2). A boolean on
+    /// `spawn_scoped` would have let a caller ask for a conversation lease and get a work
+    /// one, which is the shape of a mistake that is invisible until his continuity
+    /// checkpoints have a worker's records in them.
+    ///
+    /// **No `TurnControl`.** Spec §4.2: *"The work lease is never attached to the
+    /// conversation's `TurnControl`."* The signature is the enforcement — there is no
+    /// argument here to pass one through, so the one-line convenience of reusing the
+    /// attach path cannot be taken by accident.
+    ///
+    /// The default is an honest refusal: a build with no second lease says so rather than
+    /// silently handing back a conversation lease that would take the spine's turn gate
+    /// with it.
+    fn spawn_work(&self, _binding: &crate::entity::ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+        Err(CognitionError::Protocol(
+            "This RichOS cannot open a second connection for background work.".into(),
+        ))
+    }
+}
+
+/// Everything a work lease needs to bind ONE background assignment.
+///
+/// Spec §5.8c — **one seat per assignment**, created with it and revoked with it, named by
+/// the assignment's own identity and never chosen by the model. Spec §3.6 — the
+/// instruction reference is the one from the turn in which he gave the assignment, frozen
+/// for its life, so the engine's completion gate checks a durable instruction rather than
+/// a live one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkAssignment {
+    pub entity_id: String,
+    pub thread_id: String,
+    pub assignment_id: String,
+    pub seat: String,
+    pub instruction_ledger_ref: String,
+    pub instruction_sha256: String,
 }
 
 /// ONE item leaving a turn's drain loop, in the order it actually happened.
@@ -152,6 +193,37 @@ pub trait Cognition: Send {
     /// lane.
     fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
         Vec::new()
+    }
+
+    /// Bind this lease's ECS seat for ONE background assignment and write its tool scope.
+    ///
+    /// **This is the work lease's sibling of `prepare_work_turn`, and the whole reason it
+    /// is a different method is what it does NOT do.** `prepare_work_turn` calls
+    /// `bridge.brief(&scope)` on its way to writing the scope (`native.rs:1972`). Spec
+    /// §5.8a-ii names that as the seam that fires first — the HOST calling `brief` on the
+    /// work lease's behalf, which no allow-list touches — and §5.8a shows it raising on a
+    /// work seat (`RevisionConflict: expected 1, actual 2`, the third review's probe 2
+    /// line G). So the work lease binds its seat, writes its scope, and stops. His
+    /// executive continuity is his.
+    ///
+    /// It also turns the standing action grant ON (spec §5.4): the engine's work adapter
+    /// refuses every work tool without it (`mega-lander/app.py:41-42`), so a background
+    /// lease can only use them by holding a grant with no visible turn. That grant is
+    /// revoked by [`Cognition::revoke_work_assignment`], per assignment, by name.
+    ///
+    /// The default is a refusal, not a no-op: a lease that is not a work lease must not
+    /// quietly accept an assignment binding and then behave like a conversation.
+    fn bind_work_assignment(&mut self, _assignment: &WorkAssignment) -> Result<(), CognitionError> {
+        Err(CognitionError::Protocol(
+            "This connection cannot take a background assignment.".into(),
+        ))
+    }
+
+    /// Revoke the standing action grant this lease is holding (spec §5.4: a grant and its
+    /// seat are created together and revoked together, per assignment). Idempotent, and
+    /// safe to call on a lease that never held one.
+    fn revoke_work_assignment(&mut self) -> Result<(), CognitionError> {
+        Ok(())
     }
 }
 
