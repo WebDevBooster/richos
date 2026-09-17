@@ -154,8 +154,13 @@ DOWNLOAD_BASE="https://github.com/$REPO/releases/download/$TAG"
 ENGINE_URL="$DOWNLOAD_BASE/$ENGINE_ASSET"
 UPDATE_URL="$DOWNLOAD_BASE/$UPDATE_ASSET"
 ENDPOINT="https://github.com/$REPO/releases/latest/download/$MANIFEST_ASSET"
+# IS_NIGHTLY also decides the intent `cmd_app` declares to package-app.sh below — the
+# caller states it explicitly rather than package-app.sh guessing (CEO 2026-09-17 item 4,
+# esc-20260917T081214Z-b466c998). This is the one place that shape is already derived.
+IS_NIGHTLY=0
 case "$VERSION" in
   *-nightly.*)
+    IS_NIGHTLY=1
     python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from nightly import nightly_key; nightly_key(sys.argv[2])' "$here" "$VERSION" \
       || die "invalid nightly version (Python 3.11+ is required)"
     ENDPOINT="https://raw.githubusercontent.com/$REPO/nightly-channel/$MANIFEST_ASSET"
@@ -409,13 +414,20 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
   local notarize_env=()
   [ "$NOTARIZE" = "1" ] && notarize_env+=(RICHOS_NOTARIZE=1)
 
+  # DECLARED, NOT GUESSED: package-app.sh no longer infers a release from being called by
+  # this script — a plain invocation of it is a development build by default, stamped
+  # {version}-dev.{commit} (CEO 2026-09-17 item 4, esc-20260917T081214Z-b466c998). This is
+  # the caller stating its own already-derived intent explicitly.
+  local intent_args=(--release)
+  [ "$IS_NIGHTLY" = "1" ] && intent_args=(--nightly "$VERSION")
+
   env "${notarize_env[@]+"${notarize_env[@]}"}" \
       RICHOS_ENGINE_VERSION="$RICHOS_ENGINE_VERSION" \
       RICHOS_ENGINE_URL="$RICHOS_ENGINE_URL" \
       RICHOS_ENGINE_SHA256="$RICHOS_ENGINE_SHA256" \
       RICHOS_UPDATE_BASE_URL="$DOWNLOAD_BASE" \
       RICHOS_UPDATE_NOTES="$NOTES" \
-      bash "$here/package-app.sh" --sign "$SIGN_MODE" --updater || exit 1
+      bash "$here/package-app.sh" --sign "$SIGN_MODE" --updater "${intent_args[@]}" || exit 1
 
   local bundle="$src_tauri/target/release/bundle/macos/RichOS.app"
   local tarball="$bundle.tar.gz"
