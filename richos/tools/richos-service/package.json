@@ -9,7 +9,7 @@
     "richos-service": "bin/richos-service.js"
   },
   "scripts": {
-    "test": "npm run test:transcription && node test/workspace.js && node test/promotion.js && node test/migrate-evidence-zone.js && node test/evidence-lookup.js && node test/richos-evidence-bin.mjs && node test/workspace-recall-e2e.mjs && node test/evidence-lookup-e2e.mjs",
+    "test": "npm run test:transcription && node test/workspace.js && node test/promotion.js && node test/migrate-evidence-zone.js && node test/evidence-lookup.js && node test/richos-evidence-bin.mjs && node test/workspace-recall-e2e.mjs && node test/evidence-lookup-e2e.mjs && node test/calendar-seed-acceptance.mjs --mock",
     "test:transcription": "node ../../engine/voice/tests/run.mjs && node test/run.js && node ../../engine/voice/tests/consumers.test.mjs --without-rust",
     "test:workspace": "node test/workspace.js",
     "test:promotion": "node test/promotion.js",
@@ -18,6 +18,7 @@
     "test:evidence-bin": "node test/richos-evidence-bin.mjs",
     "test:evidence-lookup-e2e": "node test/evidence-lookup-e2e.mjs",
     "test:recall": "node test/workspace-recall-e2e.mjs",
+    "test:calendar-seed": "node test/calendar-seed-acceptance.mjs --mock",
     "test:e2e": "node test/e2e.mjs",
     "test:mutation": "node test/mutation-audit.mjs",
     "demo:repair": "node test/crossed-consent-repair-demo.mjs"

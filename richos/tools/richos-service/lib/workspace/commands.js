@@ -62,6 +62,7 @@ import { getRunState, recordRun, describeRun, forgetInstances as forgetRunsFor }
 import { ingestOnce } from './core.js';
 import { runPromotion, describePromotion } from './promote-run.js';
 import { planRepair, applyRepair, describeRepair, parseInstant } from './repair.js';
+import { runCalendarSeed } from './calendar-seed.js';
 
 export { SUPPORTED_VENDORS };
 
@@ -135,6 +136,12 @@ function resolve(deps = {}) {
     until: deps.until ?? null,
     apply: Boolean(deps.apply),
     dryRun: Boolean(deps.dryRun),
+    // `seed-calendar`'s own two flags, and the keychain service its grant lives under. The service
+    // is overridable ONLY so the suite can drive the real command against an in-memory store; the
+    // default is a name nothing in the sync path reads (see calendar-seed.js).
+    teardown: Boolean(deps.teardown),
+    setId: deps.setId || null,
+    seedKeychainService: deps.seedKeychainService,
   };
 }
 
@@ -1217,6 +1224,49 @@ export async function repair(deps = {}) {
 }
 
 // =================================================================================================
+// seed-calendar — A TEST TOOL, with its own consent
+// =================================================================================================
+
+/**
+ * Plant a designed, reproducible test calendar on ONE account — and hold the write consent that does
+ * in a keychain item the sync path cannot read (`calendar-seed.js` is the whole argument).
+ *
+ * It lives beside the four product commands rather than inside them because everything ABOVE this
+ * line is the CEO's read-only source and this is a fixture generator for it. What it shares with them
+ * is the plumbing that must not be duplicated: the client config, the account list, the secure store.
+ * What it does not share is the grant.
+ */
+export async function seedCalendar(deps = {}) {
+  const d = resolve(deps);
+  const bad = checkVendor(d);
+  if (bad) return bad;
+  if (d.vendor !== 'google') {
+    // Not an oversight to be filled in later: the fixtures are Google Calendar event resources, and
+    // Graph's write surface is a different API with a different consent. Saying so is the honest
+    // answer; quietly seeding Google because the vendor argument was ignored is not.
+    d.out(`seed-calendar is a Google Calendar tool — there is no ${d.words.label} fixture set.`);
+    return { exitCode: 1 };
+  }
+
+  const loaded = requireClientConfig(d);
+  if (loaded.exitCode) return { exitCode: loaded.exitCode };
+  const config = loaded.config;
+
+  const backendResult = resolveBackend(d);
+  if (backendResult.error) {
+    d.out(`cannot reach a secure token store: ${backendResult.error}`);
+    return { exitCode: 1 };
+  }
+
+  // ONE account per run, exactly like `connect`: a consent screen belongs to one account, and so
+  // does a calendar full of fixtures.
+  const chosen = selectAccounts(config, d, { one: true, verb: 'seed' });
+  if (chosen.exitCode) return { exitCode: chosen.exitCode };
+
+  return runCalendarSeed({ d, account: chosen.views[0], backend: backendResult.backend });
+}
+
+// =================================================================================================
 // dispatch + the line `doctor` prints
 // =================================================================================================
 
@@ -1232,6 +1282,10 @@ export const USAGE = [
   '  richos-service workspace repair --since <ISO instant> [--until <ISO instant>] [--apply]',
   '                                                                          # undo ONE sync run: its ledger rows, its evidence and the cursors it moved.',
   '                                                                          # Reports and changes nothing unless --apply. Vendor-free: one zone holds them all.',
+  '  richos-service workspace seed-calendar --account you@co.com [--set <id>] [--dry-run] [--teardown]',
+  '                                                                          # A TEST TOOL: plants a designed, reproducible fixture calendar. It asks for its OWN',
+  '                                                                          # write consent, kept in its own keychain item — your read-only grant is untouched.',
+  '                                                                          # --dry-run prints the expected promotion outcome per fixture and writes nothing.',
   '',
   '  The two vendors are separate everywhere: separate consent, separate client config file, separate',
   '  keychain entries, separate cursors. Connect either or both; disconnecting one touches nothing of the other.',
@@ -1270,6 +1324,7 @@ export async function runWorkspace(args) {
     case 'sync': return sync(deps);
     case 'disconnect': return disconnect(deps);
     case 'repair': return repair(deps);
+    case 'seed-calendar': return seedCalendar(deps);
     default:
       out(`unknown workspace command "${sub}".`);
       out('usage:');
