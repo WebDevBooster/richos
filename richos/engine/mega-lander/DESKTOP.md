@@ -20,7 +20,10 @@ For an authorized implementation assignment:
    for the generic worker, linked to the obligation and exact connected target.
    Supply a concrete brief with the requested result and meaningful validation.
    The tool creates the isolated implementation worktree and returns one exact
-   `agent_payload`. Submit it unchanged to Agent once. Do not replace the returned
+   `agent_payload`. If this same worker also needs a workspace in other
+   connected repositories, name them in `repos`; it gets one isolated worktree
+   per repository, all under the one worker. Submit it unchanged to Agent
+   once. Do not replace the returned
    target with the provider's native coordination worktree.
 4. Wait for the actual worker through TaskOutput with `block: true`, then inspect
    its observed result. All workers must settle before your turn ends. Stop and
