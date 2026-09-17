@@ -14,10 +14,10 @@
  * would have written into the CEO'S REAL `~/RichOS` from a unit test. That is not a test problem to be
  * papered over with an env var in a fixture — it is the wrong dependency. A sync's promotion must land
  * beside the evidence THAT SYNC read, and the evidence zone is inside the corpus by construction
- * (`config.js:evidenceRoot` → `<corpus>/{ceo/unfiled|companies/<id>}/evidence`). So the corpus is
+ * (`config.js:evidenceRoot` → `<corpus>/{ceo/evidence/unfiled|companies/<id>/evidence}`). So the corpus is
  * derived BACKWARD from the zone the sync actually used:
  *
- *     <corpus>/ceo/unfiled/evidence/workspace        ->  <corpus>
+ *     <corpus>/ceo/evidence/unfiled/workspace        ->  <corpus>
  *     <corpus>/companies/<id>/evidence/workspace     ->  <corpus>
  *     anything else                                  ->  null, and promotion does not run
  *
@@ -52,7 +52,7 @@ import { loroWriter } from './promotion-writer.js';
 
 /** The two partition shapes `evidenceRoot()` can produce, longest first. */
 const EVIDENCE_TAILS = [
-  ['ceo', 'unfiled', 'evidence', 'workspace'],
+  ['ceo', 'evidence', 'unfiled', 'workspace'], // the zone moved out of the compiled tree (cc/norm-opus-zone1, 2026-09-17)
   ['companies', null, 'evidence', 'workspace'], // `null` matches any one company id
 ];
 
