@@ -102,6 +102,19 @@ struct Shared {
     queued: AtomicUsize,
     /// Callback size actually observed, in mono frames. This is the stop latency.
     callback_frames: AtomicUsize,
+    /// **THE DEVICE'S OWN REPORTED OUTPUT LATENCY, in microseconds.** Not a guess and not a
+    /// constant: cpal hands the output callback an [`cpal::OutputStreamTimestamp`] carrying
+    /// the instant the callback was invoked and the instant the samples written in it will
+    /// reach the DAC. On the macOS host that difference is the device's buffer in frames over
+    /// its sample rate (`cpal-0.17.3/src/host/coreaudio/macos/device.rs:898-908`), which is
+    /// exactly the quantity that matters here: how long AFTER a sample leaves
+    /// [`Playout::queue`]'s `VecDeque` the room actually hears it.
+    ///
+    /// It exists because `queued_samples() > 0` — the thing `is_playing()` returns and the
+    /// thing the capture path's `speaking` flag was derived from — goes FALSE the instant the
+    /// last sample is popped into the device, while Rich is still audible for this long
+    /// afterwards. An utterance recorded in that window is Rich, and it used to be admitted.
+    device_latency_us: AtomicUsize,
 }
 
 /// A live output stream. Dropping it closes the device.
@@ -139,6 +152,7 @@ impl Playout {
             queue: Mutex::new(VecDeque::new()),
             queued: AtomicUsize::new(0),
             callback_frames: AtomicUsize::new(0),
+            device_latency_us: AtomicUsize::new(0),
         });
         let cb_shared = shared.clone();
         // Preallocated: the output callback must not allocate. `ReferenceSink` owns the rate
@@ -150,7 +164,13 @@ impl Playout {
         let stream = device
             .build_output_stream(
                 &config,
-                move |out: &mut [f32], _| {
+                move |out: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                    // THE DEVICE REPORTS ITS OWN LATENCY; we record it rather than assume one.
+                    // `playback` is when these samples reach the DAC, `callback` is now.
+                    let ts = info.timestamp();
+                    if let Some(d) = ts.playback.duration_since(&ts.callback) {
+                        cb_shared.device_latency_us.store(d.as_micros() as usize, Ordering::Relaxed);
+                    }
                     let ch = channels.max(1) as usize;
                     let mono_wanted = out.len() / ch;
                     // The callback size IS the barge-in stop latency. Record what the device
@@ -228,6 +248,27 @@ impl Playout {
     pub fn stop_latency_secs(&self) -> f32 {
         let frames = self.shared.callback_frames.load(Ordering::Relaxed);
         frames as f32 / self.device_rate.max(1) as f32
+    }
+
+    /// **HOW LONG RICH IS STILL AUDIBLE AFTER THE QUEUE EMPTIES**, measured, in seconds.
+    ///
+    /// The queue draining is not Rich falling silent. `fill_output` moves samples out of the
+    /// `VecDeque` and into the device; the device then takes [`Playout::device_latency_secs`]
+    /// to emit them, and only then does the microphone hear the last of the sentence. Anything
+    /// captured before that point contains Rich, however empty the queue looks.
+    ///
+    /// Both terms are measurements taken from the running stream — the device's reported
+    /// output latency and the callback period the device actually used — and the larger is
+    /// taken because a host that cannot report a latency still buffers at least one callback.
+    /// Before the first callback has run both are zero, which is correct: nothing has played.
+    pub fn audible_tail_secs(&self) -> f32 {
+        self.device_latency_secs().max(self.stop_latency_secs())
+    }
+
+    /// The device's own reported output latency, in seconds — see [`Shared::device_latency_us`].
+    /// Zero until the first output callback has run.
+    pub fn device_latency_secs(&self) -> f32 {
+        self.shared.device_latency_us.load(Ordering::Relaxed) as f32 / 1_000_000.0
     }
 }
 
@@ -314,5 +355,22 @@ mod tests {
         assert_eq!(p.queued_samples(), 0, "the device never drained the queue");
         assert!(p.stop_latency_secs() > 0.0, "no callback size observed");
         assert!(p.stop_latency_secs() < 0.2, "stop latency implausibly large");
+
+        // **THE TAIL, MEASURED ON THIS MACHINE.** Printed so the number that gates the
+        // half-duplex window is read off the device rather than asserted in a document, and
+        // bounded on both sides: zero would mean the device reported nothing and the callback
+        // period was zero too, and a fifth of a second would mean the reading is not a buffer.
+        let (dev, cb, tail) =
+            (p.device_latency_secs(), p.stop_latency_secs(), p.audible_tail_secs());
+        println!(
+            "[measured] device={:.1} ms callback={:.1} ms -> audible tail {:.1} ms on {}",
+            dev * 1000.0,
+            cb * 1000.0,
+            tail * 1000.0,
+            p.device_label
+        );
+        assert!(dev > 0.0, "the device reported no output latency");
+        assert!(tail >= cb && tail >= dev, "the tail is not the larger of the two");
+        assert!(tail < 0.2, "{tail:.3} s of output latency is not a device buffer");
     }
 }
