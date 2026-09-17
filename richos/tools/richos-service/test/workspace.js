@@ -19,7 +19,7 @@ import path from 'node:path';
 import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCHEMA_VERSION } from '../lib/workspace/source-item.js';
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
 import { detectInjection, classifyTrust, promotionGuard, INJECTION_PATTERNS } from '../lib/workspace/immune.js';
-import { assertDirectGoogleEndpoint, assertEvidenceOutsideProductRepo, assertLocalTokenLocation, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
+import { assertDirectGoogleEndpoint, assertEvidenceOutsideProductRepo, assertLocalTokenLocation, assertLoopbackRedirect, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
 import { workspaceLedgerPath as auditLedgerPath, REPO_ROOT, corpusRoot, dropZone, workspaceZone } from '../lib/config.js';
 import { entitiesFilePath } from '../lib/entities.js';
 import { pkcePair, buildAuthUrl, exchangeCode, refreshAccessToken, revokeToken } from '../lib/workspace/oauth.js';
@@ -45,6 +45,14 @@ import { getSyncState, setSyncState, resetSyncState } from '../lib/workspace/syn
 import { isMemoryCandidate, extractCandidates, reconcile } from '../lib/workspace/synthesis.js';
 import { tallyCorroboration, promoteEntities } from '../lib/workspace/entity-feed.js';
 import { ingestOnce } from '../lib/workspace/core.js';
+import {
+  validateClientConfig, saveClientConfig, loadClientConfig, clientConfigTemplate, identityFrom,
+  requestableScopes, DEFAULT_REDIRECT_URI, CLIENT_ID_PLACEHOLDER,
+} from '../lib/workspace/client-config.js';
+import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
+import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
+import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
+import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
 
 let passed = 0;
 const failures = [];
@@ -2242,6 +2250,762 @@ await atest('Gmail, Drive and Calendar coexist in one zone without colliding (§
     assert.ok(fs.existsSync(evidenceDir(mail.toSourceItem(MAIL_INTERNAL), zone)));
     assert.ok(fs.existsSync(evidenceDir(cal.toSourceItem(EVENT_ORG), zone)));
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+group('Consent ceremony (§6.1) — the loopback leg, and why it is not the listener §4.3 forbids');
+
+test('assertLoopbackRedirect accepts loopback and refuses a routable host — PROBE: the same URI on 127.0.0.1 passes', () => {
+  assert.equal(assertLoopbackRedirect('http://127.0.0.1:47121/callback').port, '47121');
+  assert.equal(assertLoopbackRedirect('http://[::1]:47121/callback').port, '47121');
+  assert.throws(() => assertLoopbackRedirect('http://richos.example.com:47121/callback'), /non-loopback host/);
+  assert.throws(() => assertLoopbackRedirect('http://192.168.1.10:47121/callback'), /non-loopback host/);
+});
+
+test('assertLoopbackRedirect demands an explicit port, so the listener never binds one by accident', () => {
+  assert.throws(() => assertLoopbackRedirect('http://127.0.0.1/callback'), /explicit port/);
+  assert.equal(assertLoopbackRedirect('http://127.0.0.1:1/callback').port, '1'); // PROBE: a port is all it wanted
+});
+
+test('the consent page clears WCAG AA in BOTH themes — computed, not eyeballed', () => {
+  // The CEO's browser lands on this page; it is text a person reads, so it declares its own colors
+  // rather than inheriting a default that a dark-mode browser would invert unpredictably.
+  const srgb = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => srgb(parseInt(hex.slice(i, i + 2), 16) / 255));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const html = renderConsentPage({ ok: true, heading: 'RichOS is connected', detail: 'You can close this tab.' });
+  assert.ok(html.includes('#1a1a1a') && html.includes('#ffffff'), 'light pair is declared');
+  assert.ok(html.includes('#f2f2f2') && html.includes('#121212'), 'dark pair is declared');
+  assert.ok(html.includes('prefers-color-scheme: dark'), 'the dark theme is handled, not left to invert');
+  assert.ok(ratio('#1a1a1a', '#ffffff') >= 4.5, `light mode is ${ratio('#1a1a1a', '#ffffff').toFixed(2)}:1`);
+  assert.ok(ratio('#f2f2f2', '#121212') >= 4.5, `dark mode is ${ratio('#f2f2f2', '#121212').toFixed(2)}:1`);
+});
+
+test('the consent page never renders a token, a code or an address', () => {
+  const html = renderConsentPage({ ok: true, heading: 'RichOS is connected', detail: 'You can close this tab and go back to the terminal.' });
+  // The tab stays open in a browser, sits in history, and may be screen-shared.
+  assert.ok(!/code=|access_token|refresh_token|client_id|[\w.]+@[\w.]+/.test(html), 'the page carries nothing sensitive');
+});
+
+/** Poll until a predicate is true (the listener reports its bound port asynchronously). */
+async function waitFor(fn, ms = 2000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+await atest('the consent listener hands back the code the browser redirects to loopback, then closes the port', async () => {
+  let info = null;
+  const p = awaitAuthorizationCode({ redirectUri: 'http://127.0.0.1:0/callback', state: 'st-1', timeoutMs: 5000, onListening: (i) => { info = i; } });
+  await waitFor(() => info);
+  const res = await fetch(`http://127.0.0.1:${info.port}/callback?code=auth-code-abc&state=st-1`);
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.match(body, /RichOS is connected/);
+  assert.deepEqual(await p, { code: 'auth-code-abc' });
+  // The port is given back. A ceremony that leaves a socket open is the listening port §4.3 forbids.
+  await assert.rejects(() => fetch(`http://127.0.0.1:${info.port}/callback?code=x&state=st-1`), /fetch failed|ECONNREFUSED/);
+});
+
+/** Start the listener and capture how it settles (the rejection arrives while we are mid-fetch). */
+function listenForConsent(state) {
+  let info = null;
+  const outcome = awaitAuthorizationCode({
+    redirectUri: 'http://127.0.0.1:0/callback', state, timeoutMs: 5000, onListening: (i) => { info = i; },
+  }).then((v) => ({ ok: true, value: v }), (err) => ({ ok: false, error: err }));
+  return { outcome, port: () => waitFor(() => info).then((i) => i.port) };
+}
+
+await atest('a consent redirect carrying the WRONG state is refused — the code is never accepted', async () => {
+  const l = listenForConsent('st-real');
+  const res = await fetch(`http://127.0.0.1:${await l.port()}/callback?code=attacker-code&state=st-forged`);
+  assert.equal(res.status, 400);
+  const settled = await l.outcome;
+  assert.equal(settled.ok, false);
+  assert.match(settled.error.message, /wrong "state"/);
+});
+
+await atest('a consent redirect carrying error= fails loudly and stores nothing', async () => {
+  const l = listenForConsent('st-1');
+  const res = await fetch(`http://127.0.0.1:${await l.port()}/callback?error=access_denied&state=st-1`);
+  assert.equal(res.status, 400);
+  const settled = await l.outcome;
+  assert.equal(settled.ok, false);
+  assert.match(settled.error.message, /access_denied/);
+});
+
+test('consentState is unguessable and never repeats', () => {
+  const seen = new Set();
+  for (let i = 0; i < 50; i += 1) seen.add(consentState());
+  assert.equal(seen.size, 50);
+  assert.ok([...seen].every((s) => s.length >= 20), 'at least 128 bits of state');
+});
+
+// =================================================================================================
+group('OAuth client config (§6.1, the setup guide Step 5) — the CEO\'s own app, never RichOS\'s');
+
+test('the unedited guide template is REFUSED — PROBE: the same config with a real client id is accepted', () => {
+  const template = JSON.parse(clientConfigTemplate());
+  const bad = validateClientConfig(template);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.problems.some((p) => p.includes(CLIENT_ID_PLACEHOLDER)));
+  const good = validateClientConfig({ ...template, clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com' });
+  assert.equal(good.ok, true, good.problems.join('; '));
+});
+
+test('a scope RichOS does not declare is refused — widening the grant is a consent-screen decision', () => {
+  // `gmail.readonly` is the live example: §40 widened DRIVE to bodies and said in the same breath
+  // that mail stays metadata-first, so this is exactly the escalation nobody may take by config edit.
+  const withInvented = validateClientConfig({
+    clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
+    scopes: [GMAIL_CONTENT_SCOPE],
+  });
+  assert.equal(withInvented.ok, false);
+  assert.ok(withInvented.problems.some((p) => p.includes('gmail.readonly')));
+  // PROBE: every scope config.js DOES declare is accepted.
+  const declared = validateClientConfig({
+    clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
+    scopes: Object.values(GOOGLE_SCOPES),
+  });
+  assert.equal(declared.ok, true, declared.problems.join('; '));
+});
+
+test('a config written BEFORE the CEO widened Drive (§40) is still accepted, not refused', () => {
+  // The narrower Drive scope is not a typo — the registry can still run it, in metadata mode. A
+  // validator that refused it would break an existing installation to enforce a preference.
+  const older = validateClientConfig({
+    clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
+    scopes: [GOOGLE_SCOPES.calendar, DRIVE_METADATA_SCOPE],
+  });
+  assert.equal(older.ok, true, older.problems.join('; '));
+  assert.ok(requestableScopes().includes(DRIVE_METADATA_SCOPE));
+  assert.ok(!requestableScopes().includes(GMAIL_CONTENT_SCOPE), 'PROBE: the list is not simply permissive');
+});
+
+test('an omitted scope list means CALENDAR ONLY — the least-privilege grant the guide sets up', () => {
+  const v = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com' });
+  assert.deepEqual(v.config.scopes, [GOOGLE_SCOPES.calendar]);
+  assert.equal(v.config.redirectUri, DEFAULT_REDIRECT_URI, 'and the loopback the guide pins');
+});
+
+test('the account the grant belongs to is REQUIRED — no granted scope can tell RichOS who it is', () => {
+  const missing = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com' });
+  assert.equal(missing.ok, false);
+  assert.ok(missing.problems.some((p) => p.startsWith('accountId is missing')));
+  const notEmail = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'the-ceo' });
+  assert.ok(notEmail.problems.some((p) => p.includes('does not look like an email')));
+});
+
+test('the account doubles as the governance identity — the CEO\'s own domain is internal (§5.1)', () => {
+  const id = ceoIdentity(identityFrom({ accountId: 'ceo@acme.com' }));
+  assert.equal(resolveOrgRelation({ email: 'ceo@acme.com' }, id), 'self');
+  assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, id), 'internal');
+  assert.equal(resolveOrgRelation({ email: 'dave@partner.com' }, id), 'external');
+});
+
+test('saveClientConfig round-trips through a private 0600 file', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, '_oauth_client.json');
+    saveClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com', redirectUri: DEFAULT_REDIRECT_URI, scopes: [GOOGLE_SCOPES.calendar] }, file);
+    assert.equal((fs.statSync(file).mode & 0o777), 0o600);
+    assert.equal(loadClientConfig(file).accountId, 'ceo@acme.com');
+    assert.equal(loadClientConfig(path.join(dir, 'absent.json')), null, 'a missing config is a state, not a crash');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// =================================================================================================
+group('Adapter registry — what the CEO GRANTED decides what runs, and a skip is always named');
+
+test('a scope that is not granted is an adapter that does not run — PROBE: granting it turns it on', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const calOnly = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar] });
+  assert.deepEqual(calOnly.enabled.map((e) => e.source), ['calendar']);
+  const driveSkip = calOnly.skipped.find((s) => s.source === 'drive');
+  assert.ok(driveSkip.reason.includes(GOOGLE_SCOPES.drive), 'the skip names the scope it would need');
+  const both = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive] });
+  assert.deepEqual(both.enabled.map((e) => e.source), ['calendar', 'drive']);
+});
+
+test('all three built sources register from one grant — Calendar, Drive and Gmail', () => {
+  const r = buildRegistry({ accountId: 'ceo@acme.com', now, makeClient: () => ({}), grantedScopes: Object.values(GOOGLE_SCOPES) });
+  assert.deepEqual(r.enabled.map((e) => e.source), ['calendar', 'drive', 'mail']);
+  assert.deepEqual(r.skipped, [], 'a full grant skips nothing');
+  const mail = r.enabled.find((e) => e.source === 'mail');
+  assert.equal(mail.adapter.constructor.name, 'GoogleGmailAdapter');
+  assert.equal(mail.adapter.contentMode, 'metadata', 'the registry never escalates the mailbox to bodies');
+  assert.deepEqual(mail.adapter.requiredScopes, [GOOGLE_SCOPES.mail]);
+});
+
+test('an ungranted Gmail scope skips the mailbox by name — PROBE: granting it turns the mailbox on', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const without = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar] });
+  const mail = without.skipped.find((s) => s.source === 'mail');
+  assert.ok(mail.reason.includes(GOOGLE_SCOPES.mail), 'the skip names the scope it would need');
+  const withMail = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.mail] });
+  assert.deepEqual(withMail.enabled.map((e) => e.source), ['calendar', 'mail']);
+});
+
+test('an authorization predating §40 runs Drive in METADATA mode and SAYS SO — PROBE: the widened grant reads bodies', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const older = buildRegistry({ ...args, grantedScopes: [DRIVE_METADATA_SCOPE] });
+  const drive = older.enabled.find((e) => e.source === 'drive');
+  assert.ok(drive, 'a source that still has a usable grant is not switched off by a widened default');
+  assert.equal(drive.adapter.contentMode, 'metadata');
+  assert.match(drive.degraded, /predates the widened Drive scope/);
+  assert.match(drive.degraded, /Re-run connect/, 'and it names the sentence that fixes it');
+
+  const current = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.drive] });
+  const wide = current.enabled.find((e) => e.source === 'drive');
+  assert.equal(wide.adapter.contentMode, 'body');
+  assert.equal(wide.degraded, undefined, 'the full grant is not "limited"');
+
+  // Neither mode is a literal in the registry: both scopes come from config.js or the adapter.
+  assert.deepEqual(grantsFor(sourceEntryForTest('drive')).map((g) => g.scope), [GOOGLE_SCOPES.drive, DRIVE_METADATA_SCOPE]);
+});
+
+/** Local helper so the assertion above reads as a question about the registry, not about an import. */
+function sourceEntryForTest(name) {
+  return GOOGLE_SOURCES.find((s) => s.source === name);
+}
+
+test('a source declared in the scope table but not yet BUILT is reported as pending, never pretended', () => {
+  // The P4 shape: a second vendor's scope arrives before its adapter. Proven on the branch the
+  // registry actually takes, using a synthetic entry rather than on a source that is now built.
+  const pending = { source: 'calendar', label: 'Someday', scope: 'https://www.googleapis.com/auth/someday', create: null, pending: 'not built yet (P4)' };
+  const saved = GOOGLE_SOURCES.splice(0, GOOGLE_SOURCES.length, pending);
+  try {
+    const r = buildRegistry({ accountId: 'ceo@acme.com', now, makeClient: () => ({}), grantedScopes: [pending.scope] });
+    assert.deepEqual(r.enabled, [], 'a granted scope with no adapter still runs nothing');
+    assert.match(r.skipped[0].reason, /not built yet/);
+  } finally { GOOGLE_SOURCES.splice(0, GOOGLE_SOURCES.length, ...saved); }
+});
+
+test('every registered adapter satisfies the interface AND the poll-only invariant at WIRING time', () => {
+  const r = buildRegistry({ accountId: 'ceo@acme.com', now, makeClient: () => ({}), grantedScopes: Object.values(GOOGLE_SCOPES) });
+  for (const e of r.enabled) {
+    assert.deepEqual(validateAdapter(e.adapter), [], `${e.label} conforms`);
+    assert.deepEqual(assertPollingOnly(e.adapter), [], `${e.label} exposes no push method`);
+  }
+});
+
+test('the registry derives its scopes from config.js — there is no second list to drift', () => {
+  for (const entry of GOOGLE_SOURCES) assert.equal(entry.scope, GOOGLE_SCOPES[entry.source]);
+  assert.deepEqual(scopesForSources(['drive', 'calendar']), [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive], 'declaration order, not argument order');
+  assert.deepEqual(parseGrantedScopes(' a  b\nc '), ['a', 'b', 'c'], 'Google returns one space-delimited string');
+});
+
+// =================================================================================================
+group('`richos-service workspace …` — the commands the setup guide tells the CEO to run');
+
+const FAKE_CLIENT_ID = 'test-client-1234.apps.googleusercontent.com';
+const FAKE_ACCESS = 'fake-access-token-for-tests';
+const FAKE_REFRESH = 'fake-refresh-token-for-tests';
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+
+function httpResponse(status, body, headers = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
+    json: async () => JSON.parse(body),
+    headers: { get: (k) => headers[String(k).toLowerCase()] ?? null },
+  };
+}
+
+/**
+ * A mocked GOOGLE — the token endpoint, the revoke endpoint, and both read APIs — behind the same
+ * fetch-shaped transport the real commands use. No live account, and every call is recorded so a test
+ * can assert what was sent (and, for PKCE, what was NOT).
+ */
+function googleHttpMock(opts = {}) {
+  const calls = [];
+  const grantedScope = opts.grantedScope ?? GOOGLE_SCOPES.calendar;
+  const http = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
+    if (url.startsWith(TOKEN_URL)) {
+      if (opts.tokenStatus && opts.tokenStatus !== 200) return httpResponse(opts.tokenStatus, JSON.stringify({ error: opts.tokenError || 'invalid_grant' }));
+      return httpResponse(200, JSON.stringify({
+        access_token: FAKE_ACCESS,
+        ...(opts.noRefreshToken ? {} : { refresh_token: opts.refreshToken || FAKE_REFRESH }),
+        expires_in: 3600,
+        scope: grantedScope,
+        token_type: 'Bearer',
+      }));
+    }
+    if (url.startsWith(REVOKE_URL)) return httpResponse(200, '');
+    const u = new URL(url);
+    if (u.pathname.includes('/calendar/v3/')) {
+      return httpResponse(200, JSON.stringify(u.searchParams.get('syncToken')
+        ? { items: opts.calendarDelta || [EVENT_ORG], nextSyncToken: 'CAL-2' }
+        : { items: opts.calendarItems || [EVENT_ORG], nextSyncToken: 'CAL-1' }));
+    }
+    if (u.pathname.endsWith('/changes/startPageToken')) return httpResponse(200, JSON.stringify({ startPageToken: '1001' }));
+    if (u.pathname.endsWith('/drive/v3/changes')) return httpResponse(200, JSON.stringify({ changes: opts.driveChanges || [], newStartPageToken: '1002' }));
+    // A Drive body (§40): an export or a media read, and NOT JSON — the client's `getText` path.
+    if (/\/drive\/v3\/files\/[^/]+\/export$/.test(u.pathname)) return httpResponse(200, 'Q3 plan: ship the thing.');
+    if (/\/drive\/v3\/files\/[^/]+$/.test(u.pathname) && u.searchParams.get('alt') === 'media') return httpResponse(200, 'plain bytes');
+    if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
+    if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
+    if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
+    if (/\/users\/me\/messages\/[^/]+$/.test(u.pathname)) return httpResponse(200, JSON.stringify(MAIL_INTERNAL));
+    if (u.pathname.endsWith('/users/me/messages')) {
+      return httpResponse(200, JSON.stringify({ messages: (opts.mailRefs || [MAIL_INTERNAL]).map((m) => ({ id: m.id, threadId: m.threadId })) }));
+    }
+    return httpResponse(404, '{}');
+  };
+  return { http, calls };
+}
+
+/** A whole isolated Workspace install: its own zone, its own client config, its own in-memory keychain. */
+function wsFixture(opts = {}) {
+  const zone = tmp();
+  const clientConfigFile = path.join(zone, '_oauth_client.json');
+  if (opts.config !== false) {
+    saveClientConfig({
+      clientId: FAKE_CLIENT_ID,
+      accountId: 'ceo@acme.com',
+      redirectUri: DEFAULT_REDIRECT_URI,
+      scopes: opts.scopes || [GOOGLE_SCOPES.calendar],
+    }, clientConfigFile);
+  }
+  const lines = [];
+  const backend = memorySecretBackend();
+  return {
+    zone, clientConfigFile, backend, lines,
+    text: () => lines.join('\n'),
+    record: () => {
+      const raw = backend.get('com.richos.workspace.google', 'oauth-tokens');
+      return raw ? JSON.parse(raw) : null;
+    },
+    deps: (extra = {}) => ({
+      zone, clientConfigFile, backend, linkBase: zone, now,
+      out: (line) => lines.push(line),
+      ...extra,
+    }),
+    cleanup: () => fs.rmSync(zone, { recursive: true, force: true }),
+  };
+}
+
+/** The connect ceremony with the browser + loopback legs stubbed (both are proven above, live). */
+function connectStubs(mock, extra = {}) {
+  return {
+    http: mock.http,
+    awaitCode: async () => ({ code: 'auth-code-abc' }),
+    openBrowser: async () => true,
+    ...extra,
+  };
+}
+
+await atest('connect REFUSES before the CEO has done Step 5, and prints the file to create', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock())));
+    assert.equal(r.exitCode, 1);
+    assert.ok(f.text().includes(f.clientConfigFile), 'names the exact path');
+    assert.ok(f.text().includes('"clientId"'), 'and prints the template to paste there');
+    assert.equal(f.record(), null, 'nothing was stored');
+  } finally { f.cleanup(); }
+});
+
+await atest('connect completes the ceremony against a mocked Google and stores the grant in the keychain', async () => {
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock();
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.deepEqual(r.enabled, ['calendar']);
+    const rec = f.record();
+    assert.equal(rec.refreshToken, FAKE_REFRESH);
+    assert.equal(rec.appMode, 'external-testing', 'the 7-day countdown is anchored');
+    assert.equal(rec.refreshTokenObtainedAt, NOW);
+    const exchange = mock.calls.find((c) => c.url.startsWith(TOKEN_URL));
+    assert.match(exchange.body, /code_verifier=/, 'PKCE, not a secret');
+    assert.ok(!exchange.body.includes('client_secret'), 'RichOS has no client secret to send');
+  } finally { f.cleanup(); }
+});
+
+await atest('connect NEVER prints a token — PROBE: the keychain record does hold one', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    assert.ok(!f.text().includes(FAKE_ACCESS), 'no access token in the output');
+    assert.ok(!f.text().includes(FAKE_REFRESH), 'no refresh token in the output');
+    assert.equal(f.record().accessToken, FAKE_ACCESS, 'the token exists — it is just never displayed');
+  } finally { f.cleanup(); }
+});
+
+await atest('connect refuses a grant with NO refresh token rather than working for one hour and going quiet', async () => {
+  const f = wsFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({ noRefreshToken: true }))));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /no refresh token/);
+    assert.equal(f.record(), null, 'and stores nothing at all');
+  } finally { f.cleanup(); }
+  // PROBE: the identical flow WITH a refresh token connects — so the refusal is about the grant.
+  const g = wsFixture();
+  try {
+    assert.equal((await connect(g.deps(connectStubs(googleHttpMock())))).exitCode, 0);
+  } finally { g.cleanup(); }
+});
+
+await atest('connect refuses loudly when Google rejects the code exchange', async () => {
+  const f = wsFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({ tokenStatus: 400, tokenError: 'invalid_grant' }))));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /NOT CONNECTED/);
+    assert.match(f.text(), /invalid_grant/);
+  } finally { f.cleanup(); }
+});
+
+await atest('re-running connect RE-CONSENTS — the guide\'s 2-click recovery from the 7-day expiry', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    const later = NOW + 8 * 24 * 60 * 60 * 1000; // the grant has lapsed
+    const stale = f.record();
+    assert.equal(stale.refreshToken, FAKE_REFRESH);
+    const r = await connect(f.deps({
+      ...connectStubs(googleHttpMock({ refreshToken: 'fake-refresh-token-round-2' })),
+      now: () => later,
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(f.record().refreshToken, 'fake-refresh-token-round-2', 'the new grant replaced the old one');
+    assert.equal(f.record().refreshTokenObtainedAt, later, 'and the countdown re-anchored');
+  } finally { f.cleanup(); }
+});
+
+await atest('status before consent says NOT CONNECTED and names the command that fixes it', async () => {
+  const f = wsFixture();
+  try {
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 1);
+    assert.equal(r.connected, false);
+    assert.match(f.text(), /NOT CONNECTED/);
+    assert.match(f.text(), /workspace connect google/);
+  } finally { f.cleanup(); }
+});
+
+await atest('status reports health, the sources that run, and the ones that do not — BY NAME', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.health, 'healthy');
+    assert.deepEqual(r.enabled, ['calendar']);
+    assert.match(f.text(), /drive:\s+off — the grant does not include/);
+    assert.match(f.text(), /no cursor yet/);
+    assert.match(f.text(), /last sync: never run/);
+  } finally { f.cleanup(); }
+});
+
+await atest('status surfaces the 7-day warning BEFORE the outage, and the expiry after it', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const warn = await status(f.deps({ http: googleHttpMock().http, now: () => NOW + 6.5 * 24 * 3600 * 1000 }));
+    assert.equal(warn.health, 'refresh-expiring-soon');
+    assert.equal(warn.exitCode, 0, 'expiring soon is a warning, not yet a failure');
+    assert.match(f.text(), /Re-authorize soon/);
+    f.lines.length = 0;
+    const dead = await status(f.deps({ http: googleHttpMock().http, now: () => NOW + 8 * 24 * 3600 * 1000 }));
+    assert.equal(dead.health, 'refresh-expired');
+    assert.equal(dead.exitCode, 1, 'an expired grant is a non-zero exit, never a quiet one');
+  } finally { f.cleanup(); }
+});
+
+await atest('sync REFUSES to poll when the grant needs re-consent — loud, and nothing is fetched', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    const mock = googleHttpMock();
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: mock.http, now: () => NOW + 8 * 24 * 3600 * 1000 }));
+    assert.equal(r.exitCode, 1);
+    assert.equal(r.polled, false);
+    assert.match(f.text(), /AUTH —/);
+    assert.equal(mock.calls.length, 0, 'not one request was made');
+    // PROBE: the same call inside the window polls.
+    f.lines.length = 0;
+    assert.equal((await sync(f.deps({ http: googleHttpMock().http }))).polled, true);
+  } finally { f.cleanup(); }
+});
+
+/** The full grant, read off the scope registry rather than spelled out — §40 may re-rule Drive's width. */
+const FULL_GRANT = Object.values(GOOGLE_SCOPES).join(' ');
+
+await atest('sync --once runs ONE pass through ALL THREE adapters into the evidence zone', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.deepEqual(r.results.map((x) => x.source), ['calendar', 'drive', 'mail']);
+    for (const res of r.results) assert.equal(res.summary.ingested, 1, `${res.source} ingested its one item`);
+    for (const dir of ['calendar', 'drive', 'mail']) {
+      assert.ok(fs.existsSync(path.join(f.zone, 'google', dir)), `${dir} evidence on disk`);
+    }
+    assert.ok(fs.existsSync(path.join(f.zone, '_workspace_ingest.jsonl')), 'and the ingest ledger');
+    // Three sources, three independent cursors under one zone — no resync disturbs another.
+    const cursors = JSON.parse(fs.readFileSync(path.join(f.zone, '_sync_state.json'), 'utf8'));
+    assert.equal(Object.keys(cursors).length, 3);
+  } finally { f.cleanup(); }
+});
+
+await atest('connect asks for the WIDENED Drive scope, so the consent screen shows it (the §40 re-consent seam)', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: FULL_GRANT })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+      clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com',
+      sources: ['calendar', 'drive', 'mail'],
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.ok(requested.includes(GOOGLE_SCOPES.drive), 'the widened scope is what Google is asked for');
+    assert.equal(GOOGLE_SCOPES.drive, 'https://www.googleapis.com/auth/drive.readonly', 'PROBE: and that is the §40 scope');
+    assert.ok(!requested.includes(DRIVE_METADATA_SCOPE), 'the narrower one is a fallback for old tokens, never a request');
+    assert.ok(!requested.includes(GMAIL_CONTENT_SCOPE), 'and mail stays metadata-first — §40 decided that too');
+  } finally { f.cleanup(); }
+});
+
+await atest('an OLD grant still pulls Drive, metadata-only, and every pull says LIMITED out loud', async () => {
+  const older = `${GOOGLE_SCOPES.calendar} ${DRIVE_METADATA_SCOPE}`;
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar, DRIVE_METADATA_SCOPE] });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: older }))));
+    const mock = googleHttpMock({ grantedScope: older });
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: mock.http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results.find((x) => x.source === 'drive').summary.ingested, 1, 'his documents did not go dark');
+    assert.match(f.text(), /limited:\s+Drive — metadata only/);
+    assert.ok(!mock.calls.some((c) => /\/export|alt=media/.test(c.url)), 'and not one byte of a body was requested');
+  } finally { f.cleanup(); }
+
+  // PROBE: the same command on the widened grant DOES read the text, so the check above is about the
+  // grant and not about a body path that never runs.
+  const g = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    const mock = googleHttpMock({ grantedScope: FULL_GRANT });
+    g.lines.length = 0;
+    await sync(g.deps({ http: mock.http }));
+    assert.ok(mock.calls.some((c) => /\/export/.test(c.url)), 'the document text was exported');
+    assert.ok(!g.text().includes('limited:'), 'and nothing is limited');
+  } finally { g.cleanup(); }
+});
+
+await atest('the mailbox is polled METADATA-ONLY through the command path — no format=full, ever', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    const mock = googleHttpMock({ grantedScope: FULL_GRANT });
+    await sync(f.deps({ http: mock.http }));
+    const fetches = mock.calls.filter((c) => /\/users\/me\/messages\/[^/]+/.test(c.url));
+    assert.ok(fetches.length > 0, 'PROBE: the mailbox really was fetched');
+    for (const c of fetches) {
+      assert.match(c.url, /format=metadata/, 'metadata-first is what the registry wires');
+      assert.ok(!c.url.includes('format=full'), 'and nothing here can ask for a body');
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('a second sync dedups instead of re-ingesting — idempotent through the command, not just the spine', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const first = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(first.results[0].summary.ingested, 1);
+    const second = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(second.results[0].summary.ingested, 0);
+    assert.equal(second.results[0].summary.deduped, 1);
+  } finally { f.cleanup(); }
+});
+
+await atest('sync SKIPS an ungranted source by name rather than quietly covering less than the CEO thinks', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock()))); // calendar only
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.deepEqual(r.results.map((x) => x.source), ['calendar']);
+    assert.match(f.text(), /skipped:\s+Drive — the grant does not include/);
+    assert.match(f.text(), /skipped:\s+Gmail — the grant does not include/);
+  } finally { f.cleanup(); }
+});
+
+await atest('sync records what it did, and status reads the outcome off that record', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    await sync(f.deps({ http: googleHttpMock().http }));
+    f.lines.length = 0;
+    await status(f.deps({ http: googleHttpMock().http }));
+    assert.match(f.text(), /last sync: .* observed 1, ingested 1, deduped 0/);
+    assert.match(f.text(), /delta cursor stored/);
+    const runFile = path.join(f.zone, '_last_sync.json');
+    assert.equal(getRunState('google', 'calendar', null, runFile), null, 'the record is keyed by source INSTANCE, not by source alone');
+  } finally { f.cleanup(); }
+});
+
+test('the last-run record is a tally — never an item, a title, a cursor or a token', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, '_last_sync.json');
+    const written = recordRun({
+      vendor: 'google', source: 'calendar', instance: 'inst-1', at: NOW,
+      summary: {
+        polled: true, observed: 3, ingested: 2, deduped: 1, quarantined: 0, resynced: false,
+        health: { state: 'healthy' },
+        // Everything below is what a real summary also carries — and none of it may be persisted here.
+        events: [{ title: 'Q3 Leadership Sync' }], commitments: [], entityCandidates: [],
+        nextSyncState: { syncToken: 'CAL-1' },
+      },
+    }, file);
+    assert.deepEqual(Object.keys(written).sort(), ['at', 'deduped', 'healthState', 'ingested', 'observed', 'ok', 'polled', 'quarantined', 'resynced'].sort());
+    const raw = fs.readFileSync(file, 'utf8');
+    assert.ok(!raw.includes('Q3 Leadership Sync') && !raw.includes('CAL-1'), 'no item content, no cursor');
+    assert.match(describeRun(written), /observed 3, ingested 2, deduped 1/);
+    assert.equal(describeRun(null), 'never run');
+    assert.equal(getRunState('google', 'calendar', 'inst-1', file).ingested, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+await atest('disconnect revokes vendor-side and forgets the grant locally', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    const mock = googleHttpMock();
+    f.lines.length = 0;
+    const r = await disconnect(f.deps({ http: mock.http }));
+    assert.equal(r.exitCode, 0);
+    assert.ok(mock.calls.some((c) => c.url.startsWith(REVOKE_URL)), 'Google was asked to invalidate it');
+    assert.equal(f.record(), null, 'and the keychain entry is gone');
+    assert.match(f.text(), /DISCONNECTED/);
+    // PROBE: a second disconnect is a clean no-op, not a crash.
+    assert.equal((await disconnect(f.deps({ http: mock.http }))).disconnected, false);
+  } finally { f.cleanup(); }
+});
+
+await atest('disconnect keeps the cursors by default and drops them with --forget-cursors', async () => {
+  const f = wsFixture();
+  const syncFile = () => fs.existsSync(path.join(f.zone, '_sync_state.json'));
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(syncFile(), true);
+    await disconnect(f.deps({ http: googleHttpMock().http }));
+    assert.equal(syncFile(), true, 'reconnecting resumes where it stopped');
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    await disconnect(f.deps({ http: googleHttpMock().http, forgetCursors: true }));
+    assert.equal(syncFile(), false, '--forget-cursors means the next sync is a bounded full sync');
+  } finally { f.cleanup(); }
+});
+
+await atest('a scheduler flag is REFUSED BY NAME — PROBE: --once is accepted and polls', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const daemon = await runWorkspace({ sub: 'sync', schedulerFlags: ['daemon'], deps: f.deps({ http: googleHttpMock().http }) });
+    assert.equal(daemon.exitCode, 1);
+    assert.match(f.text(), /"--daemon" is not a thing RichOS does/);
+    f.lines.length = 0;
+    const once = await runWorkspace({ sub: 'sync', schedulerFlags: ['once'], deps: f.deps({ http: googleHttpMock().http }) });
+    assert.equal(once.exitCode, 0, f.text());
+  } finally { f.cleanup(); }
+});
+
+await atest('an unknown vendor is refused by name instead of half-running', async () => {
+  const f = wsFixture();
+  try {
+    const r = await runWorkspace({ sub: 'status', deps: f.deps({ vendor: 'microsoft' }) });
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /not a Workspace vendor RichOS can connect yet/);
+  } finally { f.cleanup(); }
+});
+
+await atest('doctor\'s workspace line reports state and never throws on an unset-up machine', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    assert.match(doctorLine(f.deps()), /not set up/);
+    saveClientConfig({ clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com', redirectUri: DEFAULT_REDIRECT_URI, scopes: [GOOGLE_SCOPES.calendar] }, f.clientConfigFile);
+    assert.match(doctorLine(f.deps()), /not connected/);
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    assert.match(doctorLine(f.deps()), /ceo@acme\.com — healthy, Calendar/);
+  } finally { f.cleanup(); }
+});
+
+// -------------------------------------------------------------------------------------------------
+// THE ONE END-TO-END A READER CAN FOLLOW: the CEO's own three commands, in his own order, against a
+// mocked Google. connect -> sync --once -> status, with nothing stubbed but the browser, the loopback
+// leg and the network.
+// -------------------------------------------------------------------------------------------------
+await atest('END TO END: connect google -> sync --once -> status, exactly as the setup guide reads', async () => {
+  // The config has NOT been written yet: this starts where the CEO does, holding a Client ID from
+  // the Google Cloud console and nothing else.
+  const f = wsFixture({ config: false });
+  try {
+    // 1. The guide's Step 5 + Step 6, in one command, with the sources he wants.
+    const connected = await runWorkspace({
+      sub: 'connect',
+      deps: f.deps({
+        ...connectStubs(googleHttpMock({ grantedScope: FULL_GRANT })),
+        clientId: FAKE_CLIENT_ID,
+        accountId: 'ceo@acme.com',
+        sources: ['calendar', 'drive', 'mail'],
+      }),
+    });
+    assert.equal(connected.exitCode, 0, f.text());
+    assert.match(f.text(), new RegExp(`config:\\s+wrote ${f.clientConfigFile.replace(/[.]/g, '\\.')}`), 'and it told him where it went');
+    assert.match(f.text(), /CONNECTED — ceo@acme\.com/);
+    for (const label of ['Calendar', 'Drive', 'Gmail']) {
+      assert.match(f.text(), new RegExp(`enabled:\\s+${label}`));
+    }
+    // The config on disk now reproduces this consent without the flags.
+    assert.deepEqual(loadClientConfig(f.clientConfigFile).scopes, Object.values(GOOGLE_SCOPES));
+
+    // 2. richos-service workspace sync google --once
+    f.lines.length = 0;
+    const synced = await runWorkspace({ sub: 'sync', schedulerFlags: ['once'], deps: f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }) });
+    assert.equal(synced.exitCode, 0, f.text());
+    for (const label of ['calendar', 'drive', 'mail']) {
+      assert.match(f.text(), new RegExp(`${label}:\\s+observed 1, ingested 1, deduped 0`));
+    }
+
+    // 3. richos-service workspace status
+    f.lines.length = 0;
+    const reported = await runWorkspace({ sub: 'status', deps: f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }) });
+    assert.equal(reported.exitCode, 0, f.text());
+    assert.match(f.text(), /auth:\s+HEALTHY/);
+    for (const label of ['calendar', 'drive', 'mail']) {
+      assert.match(f.text(), new RegExp(`${label}:\\s+ON — delta cursor stored`));
+    }
+    assert.match(f.text(), /last sync: .*ingested 1/);
+
+    // And the CEO's material is where it is supposed to be: his zone, not the product repo.
+    for (const dir of ['calendar', 'drive', 'mail']) assert.ok(fs.existsSync(path.join(f.zone, 'google', dir)));
+    assert.ok(!f.text().includes(FAKE_ACCESS) && !f.text().includes(FAKE_REFRESH), 'and no token was ever printed');
+  } finally { f.cleanup(); }
 });
 
 // =================================================================================================
