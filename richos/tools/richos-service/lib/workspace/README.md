@@ -1,4 +1,4 @@
-# Workspace source — Google (P1 Calendar, P2 Drive, P3 Gmail)
+# Workspace source — Google (P1 Calendar, P2 Drive, P3 Gmail) and Microsoft 365 (P4)
 
 The CEO-information-perimeter ingest layer: reads the CEO's **own** Google Workspace and turns it into
 governed loro evidence. Built to
@@ -66,7 +66,8 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 219 tests:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 287 tests**
+(`npm run -s test:workspace` → `287 passed, 0 failed`)**:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
@@ -75,7 +76,7 @@ normalization, pagination), the **Drive adapter** (see below), the **Gmail adapt
 synthesis, the entity feed, the full `ingestOnce` spine end-to-end for all three sources, and — since
 this layer stopped being a library with no caller — the **four CLI commands** (see below).
 
-The **Gmail** cases (30 of the 173) cover history-based delta sync (first page, continuation, an empty
+The **Gmail** cases (30 of them) cover history-based delta sync (first page, continuation, an empty
 page, a repeated message deduped, and an aged-out `historyId` → resync), the bounded first sweep and
 its anchor ordering, metadata-mode fetch shape, normalization into the §4.1 envelope, address parsing,
 the governance gate over a mailbox, the promotion refusals, the bulk-mail filter, source identity
@@ -287,12 +288,69 @@ fully controls.
 as a stated account condition rather than a failure, `sync` reports it as `unavailable` and still exits
 `0`, and the next sync retries on its own with no reconnect once the account gains a mailbox.
 
+## Microsoft 365 (P4) — the second vendor, which is an adapter set and not a rewrite
+
+The roadmap's promise was that *"the product lets the user choose Google or Microsoft and switch
+(vendor-agnostic core + adapters — already the design); Microsoft is a later adapter, not a rewrite."*
+This is the measurement of it: **`core.js` is byte-identical** to its pre-Microsoft blob
+(`git rev-parse HEAD:…/core.js` → `9205d467…` before and after). The second vendor cost three adapter
+classes, a transport, an auth ceremony and two additive wiring lines — exactly what §3.x predicted.
+
+| | Calendar | OneDrive | Outlook |
+|---|---|---|---|
+| Delta primitive | `calendarView/delta` | `driveItem` delta | message delta (per folder) |
+| Scope (§6.2) | `Calendars.Read` | `Files.Read` | `Mail.ReadBasic` |
+| Content | invite body, as text | document text | **metadata only** |
+| Cursor | `@odata.deltaLink` (a URL) | same | same |
+
+Connect is **not wired yet** — `workspace connect microsoft` needs `commands.js` and
+`client-config.js`. Everything below it is built and mock-verified.
+
+**Three things a reader should not have to discover by reading the code:**
+
+**1. The guarantees are NOT equal across the three sources, and mail — the riskiest — is the
+strongest.** `Mail.ReadBasic` excludes `body`, `bodyPreview`, `uniqueBody` and attachments at
+Microsoft's *permission* layer, so under that grant the API will not return them to any caller,
+correct code or not. OneDrive has no such backstop: **Graph publishes no metadata-only files scope**,
+so where Drive's metadata mode is enforced by Google with the adapter's refusal as a second line,
+OneDrive's metadata mode is enforced *only* by this codebase — by never constructing a `/content`
+request, and by refusing a payload that carries one anyway. Same words, weaker guarantee.
+
+**2. Graph redirects document downloads out of the allow-list, and `fetch` would follow.** `/content`
+answers `302` to a pre-authenticated SharePoint host. `microsoft-client.js:getContent` therefore pins
+`redirect: 'manual'`, validates the target against a pinned suffix list, and does not re-attach the
+bearer token to the second hop. `@microsoft.graph.downloadUrl` is deliberately never used — it is the
+same bypass wearing a convenience property.
+
+**3. Graph times are unmarked local strings.** `{"dateTime":"2025-08-12T15:00:00.0000000",
+"timeZone":"UTC"}` has no `Z`, so `Date.parse` alone means *local* time — correct on a UTC machine and
+silently hours out everywhere else, in a product whose value is knowing when things happened.
+`parseGraphDateTime` applies the declared zone (via `Intl`, so daylight saving is the platform's
+problem and not a hand-maintained table) and returns `null` for a zone it cannot resolve rather than
+guessing. `Prefer: outlook.timezone="UTC"` is pinned alongside it, because Graph otherwise answers in
+whatever zone the mailbox is set to.
+
+**Entra differs from Google in two ways worth knowing before debugging either:** Entra publishes **no
+`revocation_endpoint`** (checked in its own discovery document), so `disconnect` deletes the local
+token and says plainly that the consent record still stands, with the URL to finish it — it never
+reports a revocation it could not perform. And Entra reports a grant in the **short** form
+(`Calendars.Read`) while RichOS requests the fully-qualified URI; `normalizeGraphScope` reconciles
+them, without which every Microsoft source would be skipped and the CEO told he had not granted a
+scope he had just granted.
+
+Setup guide for the CEO's own app registration: `richos-hq/docs/guides/microsoft-365-setup.md`.
+
 ## Run the tests
 
 ```
-npm run test:workspace     # this layer (mocked Google API)
+npm run test:workspace     # this layer (mocked Google + Microsoft APIs)
 npm test                   # transcription + workspace suites
 ```
+
+`npm run -s test:workspace` → **287 passed, 0 failed** (45 of them Microsoft). No live Microsoft call
+is made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
+been mutation-probed — neutered in turn, with the suite confirmed red each time and green after
+restore — because a negative test that passes because nothing ever reaches it is worth nothing.
 
 ## Source identity and existing stores
 
