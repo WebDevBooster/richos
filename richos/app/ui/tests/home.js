@@ -1666,8 +1666,63 @@ async function main() {
       return !window.__loro.domLabelRects.some(hits) && !window.__loro.nodeLabelRects.some(hits);
     })()`;
 
+    // THE PRECONDITION WAS AN ASSERTION, AND THAT IS WHAT MADE IT FLAKY
+    // (`esc-20260917T113423Z-bdc63632`). `ingest()` also fires on its OWN cadence, independent
+    // of this check calling it: first auto-fire at field-time t>7s, then every
+    // `7000 + rnd()*5000` = 7,000-12,000ms after that (`home/field-engine.js:838,593`), and each
+    // line it raises lives 2,600ms (`:743`). By the time this check runs, `withField()` plus
+    // every check ahead of it in this file has already spent well past 7s of field time, so
+    // whether a line HAPPENS to be up here is a coin flip driven by wall-clock timing of
+    // everything that ran before — not by anything this check does. Two identical runs on one
+    // tree disagreed for exactly that reason: run A found one up, run B did not.
+    //
+    // So this waits for the fact instead of asserting it, on a bounded budget: the auto line's
+    // own longest life (2,600ms) plus its longest gap (12,000ms) is 14,600ms, and 20,000ms —
+    // the same budget `waitForFact` uses elsewhere in this file for a slow-boot allowance — is a
+    // refusal past that, not a courtesy. NEITHER `pause()` NOR `resume()` is called: the field's
+    // own cadence runs exactly as a real launch's does, because pausing it to make this
+    // precondition convenient would stop testing the product that ships.
+    //
+    // "the field's quiet pass reads zero over the right half" was considered and DROPPED: it is
+    // never zero. `computeQuiet()`'s group 6 is `[#home-live .cap, #home-working]`, which sits
+    // in the right half and is never removed from the quiet-groups list — measured, standalone,
+    // three times: 57,564/156,640 erased/touched in ALL THREE of before/during/after, ticker
+    // state included, because the ticker itself stopped being a quiet group in the CEO's own fix
+    // above and so cannot move that number by design. Waiting for "zero" there would wait
+    // forever and turn every run into a timeout; waiting for `!on` is the actual precondition
+    // this check needs and the actual thing that was racing.
+    //
+    // `!on` ALONE WAS NOT ENOUGH, measured the hard way: the very first full-suite run of the
+    // `!on`-only wait passed the "before" gate clean and then failed on "after" with "the line is
+    // still up, so 'after' is not after anything" — a SECOND, auto-fired line landing during this
+    // check's own drive. `ingest()` called from outside (as this check calls it) does not reset
+    // the field's own clock (`lastIngest`/`nextIngestGap` — only the scheduler's own firing does,
+    // `field-engine.js:838`), so that clock keeps counting down in the background regardless of
+    // what this check does, and a line already scheduled to land in a few hundred ms will land
+    // ON TOP of the one this check drives. So this also waits for enough headroom on that clock
+    // before starting, via the read-only `autoIngestDueInMs` accessor added for exactly this
+    // (`home/field-engine.js`, next to `ingest`) — nothing about the clock's own behavior changes.
+    //
+    // THE HEADROOM THRESHOLD IS DERIVED, NOT GUESSED. This check's own driven cycle, summed from
+    // the constants above rather than assumed: 1,250ms for the spark to land (`:730`) + 2,600ms
+    // the line stays up (`:743`) + 900ms this file waits after it goes (below) = 4,750ms
+    // deterministic, plus whatever a dozen or so `page.evaluate`/`waitForFunction` round trips
+    // cost on top of that — not separately measured here, but bounded by construction: 6,000ms
+    // clears the 4,750ms deterministic floor with 1,250ms of margin for that overhead, and stays
+    // BELOW the auto clock's guaranteed minimum gap (7,000ms — `rnd()` is `[0,1)` so
+    // `7000 + rnd()*5000` never goes under 7,000). That second property is what makes the wait
+    // actually terminate rather than block forever: every time the auto clock resets, due-in
+    // jumps to 7,000-12,000ms, which is always > 6,000ms, so there is always a real window to be
+    // caught. The five-consecutive-green run below is the check on the 1,250ms margin actually
+    // holding in practice, not just on paper.
+    await waitForFact(
+      page,
+      "no temporary line is up, and the field's own auto-ingest clock has at least 6000ms of headroom before this check's own drive would race it",
+      "!document.getElementById('home-ticker').classList.contains('on') && window.__loro.autoIngestDueInMs > 6000",
+      20000
+    );
     const before = await page.evaluate(AREA);
-    assert(!before.on, "a line was already up before this check drove one");
+    assert(!before.on, "a line was already up before this check drove one, even after waiting for it to clear");
 
     await page.evaluate(() => window.__loro.ingest());
     await waitForFact(page, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 20000);
