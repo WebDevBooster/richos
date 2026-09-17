@@ -312,6 +312,42 @@ pub fn wire_company_memory(
         ),
     }
     compiler.set_provenance_sink(std::sync::Arc::clone(loro_provenance));
+    // TIER E — THE EVIDENCE LOOKUP (the 2026-09-17 evidence-retrieval ruling §1/§4).
+    //
+    // Wired HERE and from the SAME `install`, because the lookup's evidence zone and the
+    // compiler's corpus are two halves of one answer: the zone is `<corpus>/ceo/evidence/…`,
+    // and resolving the corpus a second time is the second-answer-to-an-answered-question
+    // this file's own header calls out. It is attached AFTER the compiler for the same reason
+    // it is gated on it — without a coverage label nothing is ever looked at.
+    //
+    // Three states, and all three are ordinary:
+    //   - no `RICHOS_EVIDENCE_BIN` / no `richos-evidence.mjs` beside the service entry point
+    //     -> `Ok(None)`, and the payload keeps `EvidenceTier::NotWired`, which the priming
+    //     prompt renders as NOTHING rather than as a claim that the CEO has no such files.
+    //   - an in-repo dogfood root -> `Ok(None)` too: that layout has no evidence zone, and
+    //     pointing the lookup at one would ask it to read the product checkout.
+    //   - a pointer that was given and is wrong -> the reason is printed, once, at boot.
+    match richos_core::evidence::CliEvidenceLookup::from_env(compiler.root()) {
+        Ok(Some(lookup)) => {
+            eprintln!(
+                "[richos] loro Tier E: the evidence lookup is wired — {} over {} (the CEO's own \
+                 files, consulted ONLY when a compiled slice reports coverage none/adjacent, and \
+                 never compiled into company memory)",
+                lookup.tools().bin().display(),
+                lookup.zone().path().display()
+            );
+            spine.set_evidence_lookup(Box::new(lookup));
+        }
+        Ok(None) => eprintln!(
+            "[richos] loro Tier E: no evidence lookup for this install — a turn memory cannot \
+             answer will say so and stop there, rather than looking in the CEO's files. \
+             RICHOS_EVIDENCE_BIN names the entry point."
+        ),
+        Err(e) => eprintln!(
+            "[richos] loro Tier E: the evidence lookup was configured and could not be used \
+             ({e}) — the turn is unaffected and his files are simply not consulted."
+        ),
+    }
     spine.set_loro_context_compiler(Box::new(compiler));
     spine.set_loro_provenance(std::sync::Arc::clone(loro_provenance));
     WiredMemory { status, writer, install: Some(install) }
