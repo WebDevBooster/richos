@@ -20,6 +20,18 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 SCHEMA_VERSION = 1
 PERSON_ID = "ceo-default"
+# HIS SEAT, ONE PER CONVERSATION THREAD. PERSON_ID is the single legacy cursor and
+# stays exactly that: the seat is explicit or absent, and absent still means this
+# row, so every call shape that predates seats is untouched. A conversation thread
+# that names its own seat gets its own row instead, because ecs_active_context is
+# person_id PRIMARY KEY: with N front desks on one row, thread B's bind upserts
+# thread A's cursor out from under A's open turn, and A's next checkpoint fails
+# with ScopeError "stale app binding" -- which with_fresh_active_fence's own
+# docstring says "is not a race" and never retries, so it dead-letters the turn.
+# The seat is DERIVED from the thread rather than chosen, so "is this the CEO" is
+# answered by re-deriving it (is_ceo_row below) and never by a literal comparison
+# against PERSON_ID, and so a seat cannot be pointed at a thread it does not name.
+CEO_SEAT_PREFIX = "ceo-thread:"
 DEFAULT_BUDGET_CHARS = 12_000
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,255}$")
 SECRET_VALUE_PATTERNS = (
@@ -164,6 +176,41 @@ class AppendResult:
 
 
 
+
+
+def ceo_seat(thread_id: str) -> str:
+    """The CEO's seat for one conversation thread. Derived, never invented.
+
+    The app derives the same string (``format!("ceo-thread:{thread_id}")``) before
+    it binds, so both sides can name the seat without either one storing a mapping
+    that could drift from the other.
+    """
+    if not isinstance(thread_id, str) or not thread_id.strip():
+        raise ValidationError("a CEO seat is derived from a nonempty thread id")
+    seat = CEO_SEAT_PREFIX + thread_id
+    if len(seat) > 1024:
+        raise ValidationError("thread id is too long to name a CEO seat")
+    return seat
+
+
+def is_ceo_row(row: Optional[Mapping[str, Any]]) -> bool:
+    """Is this cursor HIS -- positively, by derivation and audience.
+
+    Never "everything that is not a worker": that is the reasoning that hands a
+    background lease his continuity the moment it binds an audience it should not
+    have. A row is his when it IS the legacy cursor, or when its person re-derives
+    from its own thread AND its audience is ``ceo``. A work seat named after an
+    assignment can satisfy neither, whatever audience it asks for -- and
+    _on_thread_activated refuses the ask as well, so the two checks agree.
+    """
+    if row is None:
+        return False
+    if row["person_id"] == PERSON_ID:
+        return True
+    return (row["audience"] == "ceo"
+            and isinstance(row["person_id"], str)
+            and row["person_id"].startswith(CEO_SEAT_PREFIX)
+            and row["person_id"] == CEO_SEAT_PREFIX + str(row["thread_id"]))
 
 
 FENCE_ATTEMPTS = 8
@@ -798,6 +845,23 @@ class EventStore:
         audience = p.get("audience", "worker")
         if audience not in {"worker", "rich", "ceo"}:
             raise ValidationError("active context audience must be worker, rich or ceo")
+        # WHO MAY TAKE A SEAT SHAPED LIKE HIS, enforced at the append rather than in
+        # one adapter: a CEO-shaped person must re-derive from the thread it is
+        # activating and must carry the ceo audience, and the ceo audience is his
+        # alone. Without the second half a work lease could bind audience "ceo" and
+        # read the ceo_private records inspect_records shows that audience. Not
+        # enforced on replay: a journal written before this rule must still rebuild,
+        # and nothing can be forged by replaying events that are already durable.
+        person = event["person_id"]
+        if not event.get("replay"):
+            if isinstance(person, str) and person.startswith(CEO_SEAT_PREFIX) and (
+                    person != CEO_SEAT_PREFIX + str(event["thread_id"]) or audience != "ceo"):
+                raise ScopeError(
+                    "a CEO thread seat must be derived from the thread it activates and carry the ceo audience"
+                )
+            if audience == "ceo" and person != PERSON_ID and not (
+                    isinstance(person, str) and person.startswith(CEO_SEAT_PREFIX)):
+                raise ScopeError("the ceo audience belongs to the conversation's own seats")
         conn.execute(
             """
             INSERT INTO ecs_active_context(
@@ -833,8 +897,13 @@ class EventStore:
         out of the journal on the next rebuild.
 
         WHOSE SEAT THIS CAN BE, identified positively rather than by elimination:
-        only a row whose audience is ``worker``. "Everything that is not his" is
-        exactly the reasoning that deletes the CEO's cursor after a crash.
+        a row whose audience is ``worker``, or one of HIS OWN per-thread seats --
+        which is a seat for a conversation thread that no longer exists, and is an
+        orphan for exactly the reason an abandoned assignment's seat is. The legacy
+        cursor ``ceo-default`` is never releasable by anybody. "Everything that is
+        not his" is exactly the reasoning that deletes the CEO's cursor after a
+        crash; "everything that is not ceo-default" would delete a LIVE thread's
+        seat, which is the same mistake one thread later.
         """
         active = conn.execute(
             "SELECT * FROM ecs_active_context WHERE person_id = ?", (event["person_id"],)
@@ -843,9 +912,13 @@ class EventStore:
             # Releasing a seat that is already gone is the reconciliation's own
             # idempotence, not a conflict to raise at whoever is cleaning up.
             return
-        if active["audience"] != "worker":
+        if active["person_id"] == PERSON_ID:
             raise ScopeError(
-                "only a worker seat can be released; the conversation's own cursor is not reconcilable"
+                "the conversation's own cursor is not reconcilable"
+            )
+        if active["audience"] != "worker" and not is_ceo_row(active):
+            raise ScopeError(
+                "only a worker seat or one of his own thread seats can be released"
             )
         self._expect(active, event["expected_revision"], "active context")
         conn.execute(
@@ -2593,7 +2666,14 @@ class EventStore:
                     "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
                     "FROM ecs_active_context ORDER BY person_id"
                 ).fetchall()]
-                active = next((row for row in seats if row["person_id"] == PERSON_ID), None)
+                his = [row for row in seats if is_ceo_row(row)]
+                # With a seat per conversation thread there is no single "the"
+                # cursor, and inventing one would be the same lie in a new shape.
+                # The legacy row when it exists, his one seat when there is exactly
+                # one, and otherwise nothing -- with every one of his listed beside
+                # the full seat list.
+                active = next((row for row in his if row["person_id"] == PERSON_ID),
+                              his[0] if len(his) == 1 else None)
             else:
                 active = conn.execute(
                     "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
@@ -2612,6 +2692,7 @@ class EventStore:
             "counts": counts,
             "active_context": active,
             "active_contexts": seats,
+            "ceo_seats": [row for row in seats if is_ceo_row(row)],
             "db_path": str(self.db_path),
             "shadow_mode": True,
             "content_injection": self.injection_enabled(),
