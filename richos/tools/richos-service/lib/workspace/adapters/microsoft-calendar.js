@@ -42,11 +42,40 @@
  *
  * The adapter is a thin normalizer over an injected MicrosoftGraphClient — no auth logic, no
  * governance, no storage. It talks to ONE vendor API and turns raw into a `SourceItem`.
+ *
+ * ── A PERSON HAS SEVERAL CALENDARS (2026-09-17) ──────────────────────────────────────────────────
+ * The same defect `google-calendar.js` had, and the same two-mode fix — see that file's docblock for
+ * the full reasoning; only what differs for Graph is recorded here.
+ *
+ *   - LEGACY / EXPLICIT SINGLE CALENDAR (`opts.calendarId` given): byte-identical to the old
+ *     behavior, `primary` addressed via `/me/calendarView/delta` exactly as before.
+ *   - MULTI-CALENDAR (the default): `GET /me/calendars` enumerates the account's calendars, and each
+ *     is synced via `/me/calendars/{id}/calendarView/delta` — including the default calendar, which
+ *     this adapter addresses by its discovered id rather than special-casing `isDefaultCalendar`,
+ *     since Graph documents the two forms as equivalent for that calendar. `opts.calendarIds` skips
+ *     discovery, as on the Google side.
+ *
+ * IDENTITY: same decision as Google — the source instance is the ACCOUNT in multi-calendar mode
+ * (`hash(['microsoft','calendar',accountId])`, no calendar component), so the cursor persisted for
+ * that instance becomes a map keyed by calendar id rather than a bare `@odata.deltaLink` string. A
+ * flat cursor written before this change is read as the first calendar's own link.
+ *
+ * SCOPE (checked, not assumed — unlike Google, this one is GOOD news): Microsoft's own least-privilege
+ * table for `GET /me/calendars` lists `Calendars.ReadBasic` as least-privileged and `Calendars.Read`
+ * (the scope this adapter is pinned to, `config.js:MICROSOFT_SCOPES.calendar`, unchanged by this
+ * file) as an accepted higher permission — so discovery runs for real under the current grant. No
+ * scope-degraded fallback path exists here for that reason; a non-scope failure still surfaces rather
+ * than being silently swallowed, exactly as Google's adapter treats anything that isn't a 403.
+ *
+ * DEDUP ACROSS CALENDARS: Graph's own `iCalUId` is "a unique identifier for an event across
+ * calendars" (its own resource reference) while `id` is not — the SAME cross-calendar-stable
+ * identity Google's `iCalUID` provides. The adapter merges same-poll duplicates by `iCalUId`+start
+ * before anything reaches the ledger, exactly as the Google adapter does.
  */
 
 import { createHash } from 'node:crypto';
 import { buildSourceItem } from '../source-item.js';
-import { GRAPH_BASE } from '../microsoft-client.js';
+import { GRAPH_BASE, GoneError } from '../microsoft-client.js';
 
 export const ADAPTER_VERSION = '1.0.0';
 
@@ -69,7 +98,7 @@ export const DEFAULT_FORWARD_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
  * adding a field should never silently change what lands in the CEO's evidence zone.
  */
 export const EVENT_SELECT = [
-  'id', 'subject', 'body', 'bodyPreview', 'start', 'end', 'location', 'organizer', 'attendees',
+  'id', 'iCalUId', 'subject', 'body', 'bodyPreview', 'start', 'end', 'location', 'organizer', 'attendees',
   'isCancelled', 'isAllDay', 'isOrganizer', 'seriesMasterId', 'type', 'webLink', 'changeKey',
   'lastModifiedDateTime', 'createdDateTime', 'sensitivity', 'showAs',
 ];
@@ -77,8 +106,8 @@ export const EVENT_SELECT = [
 export class MicrosoftCalendarAdapter {
   /**
    * @param {{client:import('../microsoft-client.js').MicrosoftGraphClient, accountId:string,
-   *   calendarId?:string, fullSyncWindowMs?:number, forwardWindowMs?:number, maxResults?:number,
-   *   now?:() => number}} opts
+   *   calendarId?:string, calendarIds?:string[], fullSyncWindowMs?:number, forwardWindowMs?:number,
+   *   maxResults?:number, now?:() => number}} opts
    */
   constructor(opts) {
     if (typeof opts.accountId !== 'string' || !opts.accountId.trim()) {
@@ -86,12 +115,25 @@ export class MicrosoftCalendarAdapter {
     }
     this.accountId = opts.accountId.trim();
     this.client = opts.client;
+
+    // LEGACY mode: an explicit single calendar id, byte-identical to the pre-2026-09-17 behavior.
     // `primary` means the signed-in user's default calendar, addressed as `/me/calendarView`. A named
     // calendar is addressed through `/me/calendars/{id}/calendarView`. No shared or delegated mailbox
     // path exists here: the roadmap is explicit that this is the CEO's own calendar.
-    this.calendarId = opts.calendarId || 'primary';
-    this.sourceInstanceId = createHash('sha256')
-      .update(JSON.stringify(['microsoft', 'calendar', this.accountId, this.calendarId])).digest('hex');
+    this.legacyCalendarId = typeof opts.calendarId === 'string' && opts.calendarId ? opts.calendarId : null;
+    // MULTI mode, explicit list: skips discovery (tests, and a deliberate fallback if ever needed).
+    this.explicitCalendarIds = Array.isArray(opts.calendarIds) && opts.calendarIds.length
+      ? [...new Set(opts.calendarIds)]
+      : null;
+    this.multiCalendar = !this.legacyCalendarId;
+
+    this.calendarId = this.legacyCalendarId || 'primary';
+
+    this.sourceInstanceId = this.multiCalendar
+      ? createHash('sha256').update(JSON.stringify(['microsoft', 'calendar', this.accountId])).digest('hex')
+      : createHash('sha256')
+        .update(JSON.stringify(['microsoft', 'calendar', this.accountId, this.calendarId])).digest('hex');
+
     this.fullSyncWindowMs = opts.fullSyncWindowMs ?? DEFAULT_FULL_SYNC_WINDOW_MS;
     this.forwardWindowMs = opts.forwardWindowMs ?? DEFAULT_FORWARD_WINDOW_MS;
     this.maxResults = opts.maxResults || 250;
@@ -111,26 +153,118 @@ export class MicrosoftCalendarAdapter {
   }
 
   /**
+   * `GET /me/calendars`, paginated via `@odata.nextLink`. Least-privileged for this call is
+   * `Calendars.ReadBasic`; `Calendars.Read` (this adapter's pinned scope) is an accepted higher
+   * permission, so this genuinely runs under the current grant (see module docblock).
+   * @returns {Promise<{id:string, label:string}[]>}
+   */
+  async listCalendars() {
+    const entries = [];
+    let url = (() => {
+      const u = new URL(`${GRAPH_BASE}/me/calendars`);
+      u.searchParams.set('$select', 'id,name,isDefaultCalendar');
+      u.searchParams.set('$top', String(this.maxResults));
+      return u.toString();
+    })();
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop
+      const page = await this.client.getJson(url);
+      for (const c of page.value || []) {
+        if (!c.id) continue;
+        entries.push({ id: c.id, label: c.name || c.id, isDefault: c.isDefaultCalendar === true });
+      }
+      if (page['@odata.nextLink']) {
+        url = page['@odata.nextLink'];
+        continue;
+      }
+      break;
+    }
+    entries.sort((a, b) => (a.isDefault ? -1 : b.isDefault ? 1 : a.id.localeCompare(b.id)));
+    return entries;
+  }
+
+  /**
    * Poll for changes. `syncState` is the opaque cursor the core persisted last time (or null for a
-   * first run / after a 410 reset); for Graph its content is an `@odata.deltaLink` URL. Pages through
-   * `@odata.nextLink` until Graph returns the deltaLink that anchors the next poll.
-   * @param {{syncToken?:string}|null} syncState
-   * @returns {Promise<{items:any[], nextSyncState:{syncToken:string}}>}
+   * first run / after a 410 reset). In LEGACY mode this is byte-identical to the original single
+   * calendar loop. In MULTI mode it enumerates calendars, syncs each with its own delta link, merges
+   * the results (deduping the same event seen on two calendars), and persists one cursor MAP.
+   * @param {{syncToken?:string|Object<string,string|null>}|null} syncState
+   * @returns {Promise<{items:any[], nextSyncState:{syncToken:*},
+   *   calendars?:Array<{id:string,label:string,count:number,resynced:boolean}>}>}
    */
   async listChanges(syncState) {
+    if (!this.multiCalendar) {
+      return this.listChangesForCalendar(this.calendarId, syncState ? syncState.syncToken : null);
+    }
+
+    const calendars = this.explicitCalendarIds
+      ? this.explicitCalendarIds.map((id) => ({ id, label: id }))
+      : await this.listCalendars();
+    const resolved = calendars.length ? calendars : [{ id: 'primary', label: 'Calendar' }];
+
+    const priorMap = normalizeCursorMap(syncState ? syncState.syncToken : null, resolved[0].id);
+    const nextMap = {};
+    const report = [];
+    const merged = [];
+    const seen = new Set(); // cross-calendar de-dup key: iCalUId (or id) + start
+
+    for (const cal of resolved) {
+      const priorToken = priorMap[cal.id] ?? null;
+      let resynced = false;
+      let calResult;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        calResult = await this.listChangesForCalendar(cal.id, priorToken);
+      } catch (err) {
+        if (err instanceof GoneError) {
+          // A 410 on ONE calendar resets only that calendar's cursor — every other calendar's items
+          // from this poll still land, and its own cursor is untouched.
+          // eslint-disable-next-line no-await-in-loop
+          calResult = await this.listChangesForCalendar(cal.id, null);
+          resynced = true;
+        } else {
+          throw err;
+        }
+      }
+      nextMap[cal.id] = calResult.nextSyncState.syncToken;
+      let landedCount = 0;
+      for (const ev of calResult.items) {
+        const key = dedupKeyFor(ev);
+        if (key) {
+          if (seen.has(key)) continue; // same event, already landed from an earlier calendar this poll
+          seen.add(key);
+        }
+        merged.push(ev);
+        landedCount += 1;
+      }
+      report.push({ id: cal.id, label: cal.label, count: landedCount, resynced });
+    }
+
+    return { items: merged, nextSyncState: { syncToken: nextMap }, calendars: report };
+  }
+
+  /**
+   * The original single-calendar delta loop, now reusable per calendar id. Pages through
+   * `@odata.nextLink` until Graph returns the deltaLink that anchors the next poll.
+   * @param {string} calendarId
+   * @param {string|null} token  a stored `@odata.deltaLink` URL, or null for a bounded full sync
+   * @returns {Promise<{items:any[], nextSyncState:{syncToken:string|null}}>}
+   */
+  async listChangesForCalendar(calendarId, token) {
     const items = [];
-    let url = syncState && syncState.syncToken ? String(syncState.syncToken) : this.buildDeltaUrl();
+    let url = token ? String(token) : this.buildDeltaUrl(calendarId);
     let deltaLink = null;
     for (;;) {
-      // Throws GoneError(410) when Graph has aged the delta token out; the CORE resets the cursor
+      // Throws GoneError(410) when Graph has aged the delta token out; the caller resets the cursor
       // and re-runs a bounded full sync, deduped by the ingest ledger so nothing double-lands.
+      // eslint-disable-next-line no-await-in-loop
       const page = await this.client.getJson(url, { prefer: this.preferHeaders() });
       for (const ev of page.value || []) items.push(ev);
       if (page['@odata.nextLink']) {
         url = page['@odata.nextLink'];
         continue;
       }
-      deltaLink = page['@odata.deltaLink'] || (syncState && syncState.syncToken) || null;
+      deltaLink = page['@odata.deltaLink'] || token || null;
       break;
     }
     return { items, nextSyncState: { syncToken: deltaLink } };
@@ -146,10 +280,11 @@ export class MicrosoftCalendarAdapter {
   }
 
   /** Build the first-run `calendarView/delta` URL over a bounded window in BOTH directions (§4.3). */
-  buildDeltaUrl() {
-    const base = this.calendarId === 'primary'
+  buildDeltaUrl(calendarId) {
+    const id = calendarId || this.calendarId;
+    const base = id === 'primary'
       ? `${GRAPH_BASE}/me/calendarView/delta`
-      : `${GRAPH_BASE}/me/calendars/${encodeURIComponent(this.calendarId)}/calendarView/delta`;
+      : `${GRAPH_BASE}/me/calendars/${encodeURIComponent(id)}/calendarView/delta`;
     const u = new URL(base);
     u.searchParams.set('startDateTime', new Date(this.now() - this.fullSyncWindowMs).toISOString());
     u.searchParams.set('endDateTime', new Date(this.now() + this.forwardWindowMs).toISOString());
@@ -394,4 +529,35 @@ function cheapScopeHint(attendees, removed) {
   const others = attendees.filter((a) => a.orgRelation !== 'self');
   if (others.length === 0) return 'ceo-private'; // solo/self block
   return 'unknown'; // governance resolves domains and decides
+}
+
+/**
+ * The cross-calendar identity key for de-dup: `iCalUId` (Graph's own "unique identifier for an event
+ * across calendars" — an event's `id` is NOT) plus the start time, so distinct recurring instances
+ * stay distinct. Falls back to the event's own `id`/tombstone id when `iCalUId` is absent, which only
+ * ever narrows the merge back to "same calendar, same id" — never a false collapse across calendars.
+ * @param {any} raw
+ * @returns {string|null}
+ */
+function dedupKeyFor(raw) {
+  const id = raw && (raw.id || (raw['@removed'] && raw.id));
+  if (!id) return null;
+  const uid = raw.iCalUId || id;
+  const start = raw.start && raw.start.dateTime ? raw.start.dateTime : '';
+  return `${uid}|${start}`;
+}
+
+/**
+ * Migrate the persisted cursor into a per-calendar map. A cursor written before multi-calendar sync
+ * existed is a bare `@odata.deltaLink` URL belonging to whichever calendar was synced back then —
+ * `firstCalendarId` — so it is read as that calendar's own link rather than discarded.
+ * @param {string|Object<string,string|null>|null|undefined} cursor
+ * @param {string} firstCalendarId
+ * @returns {Object<string,string|null>}
+ */
+export function normalizeCursorMap(cursor, firstCalendarId) {
+  if (!cursor) return {};
+  if (typeof cursor === 'string') return { [firstCalendarId]: cursor };
+  if (typeof cursor === 'object') return { ...cursor };
+  return {};
 }
