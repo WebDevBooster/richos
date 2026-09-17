@@ -550,6 +550,56 @@
                 <span class="voice-label">Rich is speaking</span>
                 <button id="voice-barge-in" type="button" class="voice-barge-in">tap to stop</button>
               </div>
+
+              <!-- GETTING THE SPEECH MODEL (2026-09-17). Four rows, in the panel that is
+                   already here rather than a new screen: the CEO pressed ◉ because he wants
+                   to talk, and sending him to a settings sheet to answer "not yet" would be
+                   answering a different question from the one he asked.
+
+                   THE MIC IS NOT OPEN IN ANY OF THEM. `enterVoiceMode` only calls
+                   `start_voice_capture` when readiness says `ready`; in `model-missing` it
+                   opens this panel and touches no device. That is the same hot-mic invariant
+                   the 2026-09-04 fix established, kept rather than relaxed: a panel that says
+                   "listening…" over a machine that cannot transcribe is the defect, and none
+                   of these rows says it.
+
+                   EVERY ROW NAMES ITS CONTROL, because every one of these is a state the CEO
+                   can act on. A state he could change, rendered without the control that
+                   changes it, is a request wearing a status's clothes — the rule
+                   `#voice-state-no-audio` above had to learn. -->
+              <div class="voice-state" id="voice-state-model-offer" hidden>
+                <span class="voice-dot voice-dot--attention"></span>
+                <span class="voice-label voice-label--attention" id="voice-model-offer-label"></span>
+                <button id="voice-model-get" type="button" class="voice-retry">Download my speech model</button>
+              </div>
+              <div class="voice-state" id="voice-state-model-progress" hidden>
+                <!-- --working, NOT --listening. A pulsing accent dot is this panel's grammar for a
+                     hot microphone, and no device is open on this screen. -->
+                <span class="voice-dot voice-dot--working"></span>
+                <span class="voice-label" id="voice-model-progress-label"></span>
+                <!-- aria-hidden because the LABEL beside it already carries the percentage in
+                     words. A second announcement of the same number, several times a second,
+                     is what makes a screen reader unusable during a download. -->
+                <span class="voice-progress" aria-hidden="true"><i id="voice-model-bar"></i></span>
+                <button id="voice-model-stop" type="button" class="voice-retry">Stop the download</button>
+              </div>
+              <div class="voice-state" id="voice-state-model-failed" hidden>
+                <span class="voice-dot voice-dot--attention"></span>
+                <span class="voice-label voice-label--attention" id="voice-model-failed-label"></span>
+                <!-- SHOWN ONLY WHEN ASKING AGAIN COULD ACTUALLY HELP. The backend says which
+                     (`retryable` on rich://voice-model), so a corrupted download never grows a
+                     button that would just corrupt it again. -->
+                <button id="voice-model-retry" type="button" class="voice-retry" hidden>Try the download again</button>
+              </div>
+              <div class="voice-state" id="voice-state-model-installed" hidden>
+                <span class="voice-dot voice-dot--attention"></span>
+                <span class="voice-label voice-label--attention">My ears are installed. Start listening whenever you're ready.</span>
+                <!-- THE MICROPHONE IS NOT OPENED FOR HIM. He pressed ◉ some minutes and half a
+                     gigabyte ago; opening a live mic on the strength of that would be acting on
+                     consent that has gone stale. One press, now, with the sentence in front of
+                     him. -->
+                <button id="voice-model-listen" type="button" class="voice-retry">Start listening</button>
+              </div>
               <p class="voice-footnote">headphones recommended · tap <span class="voice-footnote-glyph">◉</span> to end voice</p>
             </div>
           </div>

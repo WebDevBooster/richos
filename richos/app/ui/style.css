@@ -1314,6 +1314,91 @@ body.bp-narrow .first-run {
   cursor: default;
 }
 
+/* GETTING THE SPEECH MODEL (2026-09-17) — the offer, the transfer, the refusal and the
+   finish, in the panel that already exists.
+
+   NO NEW COLORS AND NO NEW SIZES. Every rule below reuses a token already painted in this
+   same panel, and the rows reuse `.voice-state`, `.voice-dot`, `.voice-label` and
+   `.voice-retry` unchanged. The only new rule carrying a color at all is the progress track,
+   and both of its values are tokens from two feet up this file.
+
+   EVERY RATIO COMPUTED, BOTH THEMES, against the ground these rows actually sit on —
+   `#composer-row` declares no background, so the panel paints on `--ground`: #0c1322 dark,
+   #eae6dd light. WCAG 2.x relative luminance, alpha composited onto that ground.
+
+     WHAT                          TOKEN            DARK      LIGHT    FLOOR
+     offer + failure lines         --ink           14.55:1   14.90:1    4.5   (normal text)
+     progress line                 --ink-soft       6.49:1    5.83:1    4.5   (normal text)
+     button labels (.voice-retry)  --ink-faint      6.16:1    4.99:1    4.5   (normal text)
+     progress bar FILL             --ink-soft       6.49:1    5.83:1    3.0   (non-text)
+     progress track BORDER         --line-control   4.57:1    3.35:1    3.0   (non-text)
+     attention dot                 --attention      7.88:1    5.42:1    3.0   (non-text)
+
+   NOTHING HERE IS EXEMPT AND NOTHING HERE CLAIMS TO BE. These four rows are the whole
+   conversation about whether this machine can hear: an offer he has to weigh, a transfer he
+   is watching, a refusal he has to act on, and a finish. Every one is text a person is
+   expected to take in, so every one takes the 16px floor (1rem, inherited from
+   `.voice-label`) and the 4.5:1 tier.
+
+   `--accent` is NOT used for the bar, and that is the one deliberate departure from what the
+   eye would reach for. Light `--gold` computes 3.15:1 on the light ground — a pass against
+   the 3:1 non-text floor with 0.15 to spare, and a FAIL the moment it is faded by a percent,
+   which is exactly how the old live-mark pulse reached 2.14:1. A progress fill is a shape
+   that gets animated; it does not get a token with no margin.
+
+   One note on provenance: this file's own `--ink-soft` light comment says 5.86:1 where the
+   derivation above gives 5.83:1 — a rounding difference in the alpha composite, not a
+   disagreement worth chasing, and both sit far above the 4.5 floor. Stated rather than
+   quietly matched, because adopting the number in an adjacent comment is how a measurement
+   becomes a rumor. */
+/* THE DOWNLOAD IS ALIVE, AND THE MICROPHONE IS NOT OPEN. Two claims that must not be made with
+   one dot.
+
+   The transfer row first reused `.voice-dot--listening`, which is `--accent` and pulses at 1.6s.
+   That is this panel's established grammar for A HOT MICROPHONE, sitting inches from the talk
+   button, on a screen where no device is open at all — and "a meter that moves when nothing is
+   being said would be the same lie as a fake listening dot" is this file's own rule about exactly
+   that confusion, written two rules up about the level meter.
+
+   So: `--ink-soft`, at the calmer 2.4s tempo the speaking dot already uses. Still unmistakably
+   alive, in none of the palette's two voice colors. 6.49:1 dark / 5.83:1 light on the ground,
+   against a 3:1 non-text floor. */
+.voice-dot--working {
+  background: var(--ink-soft);
+  animation: soft-pulse 2.4s infinite ease-in-out;
+}
+
+.voice-progress {
+  /* Sized in ch so it holds its proportion beside the label rather than fighting the level
+     meter's fixed 14px for the same row. */
+  width: 7ch;
+  height: 4px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  /* INDICATOR GRADE, NOT DIVIDER GRADE — the same reasoning `#input` states for its own
+     border. An empty track is the only thing on screen saying "there is a bar here at all",
+     so it owes 3:1, and `--line` does not pay it. */
+  border: 1px solid var(--line-control);
+  overflow: hidden;
+}
+
+.voice-progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ink-soft);
+  /* The backend emits one event per 0.5%, so the bar advances in 200 visible steps. The
+     transition is what keeps that reading as movement rather than as a stutter — the same
+     90ms the level meter uses, for the same reason. */
+  transition: width 90ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-progress i {
+    transition: none;
+  }
+}
+
 .voice-footnote {
   font-size: 0.875rem;
   color: var(--ink-faint);

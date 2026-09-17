@@ -2461,8 +2461,55 @@
               // the preview reports what the product reports.
               reason:
                 "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+              // NO DECODER, so there is nothing RichOS can download that would help. `offer`
+              // is absent, and its absence is what keeps the talk button off this machine.
+              state: "toolchain-missing",
+              offer: null,
             };
-          return { available: true, reason: null };
+          // A MACHINE WITH A DECODER AND NO WEIGHTS — the state the 2026-09-17 provisioning
+          // work exists for, and the one a fresh Mac that has run `brew install whisper-cpp`
+          // is actually in. `available` is still false (speech cannot happen right now) and
+          // `offer` is present, so the talk button appears and opens on the offer row.
+          //
+          // THE NUMBERS ARE THE REAL ONES. 487,614,201 bytes is `small.en` in
+          // engine/voice/models/model-pins.json, which is what a machine with no weights at
+          // all resolves to (hardware.rs's safe rung); 536,375,622 is that plus the 10%
+          // headroom `Pin::required_free_bytes` computes. A preview that rehearses this state
+          // with invented sizes rehearses a different product.
+          // AND IT STOPS BEING MODEL-MISSING ONCE THE MODEL IS INSTALLED, which is what the real
+          // backend does: `stt::readiness` resolves the file from disk on the next call, so the
+          // answer genuinely changes mid-session. A mock that kept answering "model-missing"
+          // after emitting `installed` would let a suite prove the finish screen while quietly
+          // making the step after it unreachable — and would have hidden the fact that
+          // `#voice-model-listen` re-asks readiness before it opens anything.
+          if ((preset.voice === "model-missing" || mockVoiceModel.offer) && !mockVoiceModel.installed)
+            return {
+              available: false,
+              reason:
+                "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+              state: "model-missing",
+              offer: mockVoiceModel.offer || {
+                modelId: "small.en",
+                bytes: 487614201,
+                sizeLabel: "487.6 MB",
+                needFreeBytes: 536375622,
+                freeBytes: 91234567890,
+                enoughRoom: true,
+                alreadyHave: 0,
+                singleWitness: false,
+              },
+            };
+          return { available: true, reason: null, state: "ready", offer: null };
+
+        // The download itself. The preview never opens a socket: a suite drives the phases
+        // through `voiceModelSet`, which is the same shape `rich://voice-model` carries.
+        case "provision_speech_model":
+          mockVoiceModel.calls.push("provision_speech_model");
+          if (mockVoiceModel.rejectWith) throw new Error(mockVoiceModel.rejectWith);
+          return { status: "installed" };
+        case "cancel_speech_model_download":
+          mockVoiceModel.calls.push("cancel_speech_model_download");
+          return { stopping: true };
 
         case "update_relaunch":
           // Compatibility endpoint is a read. No live update restarts a session.
@@ -3039,6 +3086,13 @@
     return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
   }
 
+  /// Speech-model provisioning, for the preview and for the suites.
+  ///
+  /// `offer` overrides what `voice_readiness` answers; `calls` records which commands the
+  /// surface actually issued, which is how a suite proves the Stop button stops rather than
+  /// merely looking pressed.
+  const mockVoiceModel = { offer: null, calls: [], rejectWith: null, installed: false };
+
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
     // ---- the update path (RICH-TODOs row 12) ------------------------------------------
@@ -3055,6 +3109,31 @@
     /// Which update commands the surface actually issued, in order. Asserting on this is
     /// how a suite proves the Restart button restarts rather than merely looking pressed.
     updateCalls() { return mockUpdate.calls.slice(); },
+    /// ---- getting the speech model (2026-09-17) ---------------------------------------
+    /// Put `voice_readiness` into the model-missing state with a given offer, or `null` to
+    /// go back to the preview's ordinary "voice needs the desktop app" answer.
+    ///
+    ///     __RICHOS_MOCK__.voiceOfferSet({ sizeLabel: "487.6 MB", enoughRoom: false, ... });
+    voiceOfferSet(offer) {
+      mockVoiceModel.offer = offer || null;
+      return mockVoiceModel.offer;
+    },
+    /// Emit one `rich://voice-model` event, exactly as the shell emits it. Phases:
+    /// started | progress | verifying | installed | failed.
+    ///
+    /// `installed` also flips what `voice_readiness` answers, because that is what installing a
+    /// model does on a real machine.
+    voiceModelEmit(payload) {
+      if (payload && payload.phase === "installed") mockVoiceModel.installed = true;
+      const subs = listeners["rich://voice-model"];
+      if (subs) subs.forEach((cb) => cb({ payload: { ...payload } }));
+      return { ...payload };
+    },
+    /// Which provisioning commands the surface issued, in order.
+    voiceModelCalls() { return mockVoiceModel.calls.slice(); },
+    /// Make `provision_speech_model` reject with a sentence, the way the real command does
+    /// when there is no decoder, no pin, or nowhere to put the file.
+    voiceModelRejectWith(message) { mockVoiceModel.rejectWith = message || null; },
     /// ---- his own loro on the home screen (2026-09-06) ---------------------------------
     /// Give `home_field_data` a corpus to answer with, or `null` to go back to answering
     /// that there is none. The default is NONE, so a suite that wants his loro on the screen

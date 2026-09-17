@@ -91,6 +91,20 @@ const voiceNoAudioEl = el("voice-state-no-audio");
 const voiceSpeakingEl = el("voice-state-speaking");
 const bargeInBtn = el("voice-barge-in");
 const voiceRetryBtn = el("voice-retry");
+// Getting the speech model (2026-09-17). Four rows in the SAME panel — the CEO pressed  to
+// talk, and answering "not yet" on a different screen answers a different question.
+const voiceModelOfferEl = el("voice-state-model-offer");
+const voiceModelOfferLabel = el("voice-model-offer-label");
+const voiceModelGetBtn = el("voice-model-get");
+const voiceModelProgressEl = el("voice-state-model-progress");
+const voiceModelProgressLabel = el("voice-model-progress-label");
+const voiceModelBar = el("voice-model-bar");
+const voiceModelStopBtn = el("voice-model-stop");
+const voiceModelFailedEl = el("voice-state-model-failed");
+const voiceModelFailedLabel = el("voice-model-failed-label");
+const voiceModelRetryBtn = el("voice-model-retry");
+const voiceModelInstalledEl = el("voice-state-model-installed");
+const voiceModelListenBtn = el("voice-model-listen");
 const slideoverEl = el("slideover");
 const slideoverBackdrop = el("slideover-backdrop");
 const slideoverBody = el("slideover-body");
@@ -322,6 +336,19 @@ let voiceMode = false;
 /// is offered and cannot work. The opposite failure (voice quietly unoffered on a machine
 /// that could have run it) costs a feature nobody was promised.
 let voiceAvailable = false;
+/// WHICH gap this machine has: "ready" | "toolchain-missing" | "model-missing" | "refused".
+///
+/// A SECOND VARIABLE RATHER THAN A WIDENED `voiceAvailable`, because the two answer different
+/// questions and one of them must not drift. `voiceAvailable` means "speech can happen RIGHT
+/// NOW" and decides the greeting's voice invitation; this one means "what is in the way", and
+/// decides whether the panel opens on an offer instead of a microphone.
+let voiceState = "toolchain-missing";
+/// What RichOS would download, from `voice_readiness`. `null` whenever there is nothing it can
+/// do — and its absence is the instruction, never a reason to render a disabled button.
+let voiceModelOffer = null;
+/// Is a model download running right now? Set from `rich://voice-model`, never from a timer and
+/// never inferred from the absence of an event.
+let voiceModelBusy = false;
 let savedWork = {items: [], omitted: 0};
 let workStatusRead = 0;
 let workStatusBusy = false;
@@ -3076,20 +3103,111 @@ function richVoiceSays(text) {
 
 /// Ask the backend whether voice can work here, and shape the surface to the answer.
 ///
-/// ONE READ, AT LAUNCH. Nothing installs a speech model while the app is running — the
-/// first-run setup sheet installs Claude Code and the engine and neither is whisper — so
-/// re-asking would be a round trip that cannot change its answer.
+/// **THE "ONE READ, AT LAUNCH" COMMENT THAT USED TO SIT HERE IS NOW FALSE, AND DELETING IT IS
+/// PART OF THE CHANGE.** It said: *"Nothing installs a speech model while the app is running …
+/// so re-asking would be a round trip that cannot change its answer."* That was true until
+/// 2026-09-17. `provision_speech_model` installs one, from inside this window, while it is
+/// open — so the answer CAN change, and this is called again the moment it does.
+///
+/// WHEN THE TALK BUTTON IS OFFERED, and the rule is the old one applied to a new fact. It was
+/// "offer it only when speech can happen", whose REASON was that an affordance which is offered
+/// and cannot work costs a demo. On a machine missing only the model the button now leads
+/// somewhere real — a download, then speech — so the reason no longer applies there and the
+/// button appears. On a machine with no decoder at all it still leads nowhere, and it is still
+/// not offered.
+///
+/// THE GREETING'S VOICE INVITATION IS NOT WIDENED WITH IT. "You can type, or tap  to talk to
+/// me" names a control and therefore promises it works; a machine that must first download half
+/// a gigabyte does not get that sentence. `voiceAvailable` stays the strict answer for exactly
+/// that reason.
 async function refreshVoiceReadiness() {
   const r = await invokeQuiet("voice_readiness");
   voiceAvailable = !!(r && r.available === true);
-  // NOT OFFERED, rather than offered-and-inert. A dimmed control at a demo invites a press
-  // and then a refusal in front of an audience; a control that is not there costs nothing.
-  // `start_voice_capture` still refuses with Rich's own sentence for anything that reaches
-  // it another way, so this is the affordance half of the fix and not the whole of it.
-  talkToggleBtn.hidden = !voiceAvailable;
+  voiceState = (r && typeof r.state === "string") ? r.state : (voiceAvailable ? "ready" : "toolchain-missing");
+  voiceModelOffer = (r && r.offer) || null;
+  // NOT OFFERED, rather than offered-and-inert, for everything RichOS genuinely cannot fix.
+  // `start_voice_capture` still refuses with Rich's own sentence for anything that reaches it
+  // another way, so this is the affordance half of the fix and not the whole of it.
+  talkToggleBtn.hidden = !(voiceAvailable || voiceModelOffer);
+}
+
+/// Which of the four model rows is on screen, if any. Exactly one, or none.
+///
+/// A SINGLE FUNCTION WITH THE WHOLE TRUTH IN IT, for the reason `renderVoiceState` is written
+/// the same way: a panel assembled by four independent `hidden` toggles is a panel that can
+/// show "downloading" and "that download failed" at once, and the CEO would be right either
+/// way about which one he believed.
+function renderVoiceModelState(which) {
+  voiceModelOfferEl.hidden = which !== "offer";
+  voiceModelProgressEl.hidden = which !== "progress";
+  voiceModelFailedEl.hidden = which !== "failed";
+  voiceModelInstalledEl.hidden = which !== "installed";
+  // The listening row and the model rows are mutually exclusive by construction: the mic is
+  // never open while a model is being fetched, so a model row on screen means the audio rows
+  // are off.
+  if (which) {
+    voiceListeningEl.hidden = true;
+    voiceNoAudioEl.hidden = true;
+    voiceSpeakingEl.hidden = true;
+  }
+}
+
+/// The offer sentence, built from what the backend measured rather than from a constant.
+///
+/// THE SIZE IS NOT TYPED ANYWHERE IN THIS FILE. It arrives as `sizeLabel`, formatted in Rust
+/// from `model-costs.json`, whose figure a Rust test holds equal to the `model-pins.json` byte
+/// count the transfer is actually verified against. A number in a UI string is a number that
+/// drifts from the thing it describes.
+function voiceOfferSentence(offer) {
+  if (!offer) return "";
+  const head = "I can hear you once I download my speech model. It's " + offer.sizeLabel +
+    ", and it's a one-time download.";
+  if (offer.enoughRoom === false) {
+    // SAID, AND THE BUTTON STAYS. Free space is not a fixed property of the machine — he can
+    // change it while this sentence is on screen — and the download re-checks the disk at the
+    // moment it is pressed. A control that re-asks a question is a real control; removing it
+    // would leave him a state he can fix and nothing to press when he has.
+    return head + " Right now this disk has " + provisionFreeLabel(offer) +
+      " free and it needs about " + provisionNeedLabel(offer) +
+      ". Free up some space, then ask me again.";
+  }
+  if (offer.alreadyHave > 0) {
+    return head + " Part of it is already here, so this picks up where it left off.";
+  }
+  return head;
+}
+
+/// Sizes a person can read. Deliberately the SAME rule as `provision::human` in Rust — 2 decimal
+/// places at GB, 1 at MB and kB — so the two surfaces never quote the same file differently.
+function provisionHuman(bytes) {
+  const n = Number(bytes);
+  if (!isFinite(n)) return "an unknown amount";
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + " GB";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + " MB";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + " kB";
+  return n + " bytes";
+}
+function provisionFreeLabel(offer) {
+  return offer.freeBytes == null ? "an unknown amount" : provisionHuman(offer.freeBytes);
+}
+function provisionNeedLabel(offer) {
+  return provisionHuman(offer.needFreeBytes);
 }
 
 async function enterVoiceMode() {
+  // THE OFFER PATH OPENS NO DEVICE. `start_voice_capture` is not called at all here, so there
+  // is no permission dialog, no orange recording indicator and no "listening…" row on a machine
+  // that cannot yet transcribe — the same hot-mic invariant the 2026-09-04 fix established,
+  // kept rather than relaxed by the feature that makes the machine able to transcribe later.
+  if (!voiceAvailable && voiceModelOffer) {
+    voiceMode = true;
+    talkToggleBtn.setAttribute("aria-pressed", "true");
+    composerEl.hidden = true;
+    voicePanelEl.hidden = false;
+    voiceModelOfferLabel.textContent = voiceOfferSentence(voiceModelOffer);
+    renderVoiceModelState(voiceModelBusy ? "progress" : "offer");
+    return;
+  }
   try {
     await Bridge.invoke("start_voice_capture", { threadId: activeThreadId });
   } catch (e) {
@@ -3106,6 +3224,7 @@ async function enterVoiceMode() {
   talkToggleBtn.setAttribute("aria-pressed", "true");
   composerEl.hidden = true;
   voicePanelEl.hidden = false;
+  renderVoiceModelState(null);
   renderVoiceState("listening", false);
   renderVoiceLevel(0);
 }
@@ -3168,6 +3287,112 @@ voiceRetryBtn.addEventListener("click", async () => {
     );
   } finally {
     voiceRetryBtn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------------------
+// GETTING THE SPEECH MODEL. Four controls and one event.
+// ---------------------------------------------------------------------------------------
+
+/// Start the download. The ONLY thing that starts one — there is no timer, no launch hook and
+/// no retry loop anywhere in this file, because half a gigabyte off somebody's connection is
+/// not a thing an app decides on its own.
+async function startModelDownload() {
+  if (voiceModelBusy) return;
+  voiceModelBusy = true;
+  voiceModelProgressLabel.textContent = "Getting my speech model ready…";
+  voiceModelBar.style.width = "0%";
+  renderVoiceModelState("progress");
+  try {
+    await Bridge.invoke("provision_speech_model");
+    // THE OUTCOME IS NOT READ FROM HERE. `rich://voice-model` reports it, and it reports the
+    // same thing to a window that reloaded mid-download — so taking the verdict from this
+    // resolved promise would be a second source of truth that is right slightly more often.
+  } catch (e) {
+    // The command rejected before any event could be emitted (no decoder, no pin, nowhere to
+    // put it). Rich's own sentence comes back as the rejection.
+    voiceModelBusy = false;
+    voiceModelFailedLabel.textContent = Bridge.isMock || String(e).startsWith("mock:")
+      ? "Downloading my speech model needs the desktop app — here in the preview, type to me."
+      : String(e);
+    voiceModelRetryBtn.hidden = true;
+    renderVoiceModelState("failed");
+  }
+}
+
+voiceModelGetBtn.addEventListener("click", startModelDownload);
+voiceModelRetryBtn.addEventListener("click", startModelDownload);
+
+voiceModelStopBtn.addEventListener("click", () => {
+  // The button goes quiet immediately so a second press cannot queue a second stop, and the
+  // ROW does not change until the backend says it stopped. A panel that flips to "stopped" on
+  // the press is claiming an outcome it has not been told.
+  voiceModelStopBtn.disabled = true;
+  Bridge.invoke("cancel_speech_model_download").catch(() => {});
+});
+
+voiceModelListenBtn.addEventListener("click", async () => {
+  // He has a model now. This is the first moment the microphone may open, and it opens because
+  // he pressed a button whose label says so.
+  renderVoiceModelState(null);
+  await exitVoiceMode();
+  await refreshVoiceReadiness();
+  if (voiceAvailable) await enterVoiceMode();
+});
+
+/// Progress, verification and outcome of a model download.
+///
+/// **RENDERED WHETHER OR NOT VOICE MODE IS OPEN**, unlike `rich://voice-state`. A download the
+/// CEO started and then tabbed away from is still running, and a window that dropped its events
+/// because a panel was closed would show him a stale offer for a model that finished installing
+/// four minutes ago.
+Bridge.listen("rich://voice-model", ({ payload }) => {
+  const phase = payload && payload.phase;
+  if (phase === "started" || phase === "progress") {
+    voiceModelBusy = true;
+    const total = Number(payload.total) || 0;
+    const got = Number(payload.received) || 0;
+    const pct = total > 0 ? Math.min(100, Math.round((got / total) * 100)) : 0;
+    voiceModelBar.style.width = pct + "%";
+    voiceModelProgressLabel.textContent =
+      "Downloading my speech model — " + pct + "% of " + payload.totalLabel + ".";
+    voiceModelStopBtn.disabled = false;
+    if (voiceMode) renderVoiceModelState("progress");
+    return;
+  }
+  if (phase === "verifying") {
+    voiceModelBusy = true;
+    voiceModelBar.style.width = "100%";
+    // ITS OWN SENTENCE, because it is its own wait. Hashing this file takes about a second, and
+    // a bar frozen at 100% with the download's words still under it is where somebody decides
+    // the app has hung.
+    voiceModelProgressLabel.textContent = "Checking my speech model is the one I expected…";
+    voiceModelStopBtn.disabled = true;
+    if (voiceMode) renderVoiceModelState("progress");
+    return;
+  }
+  if (phase === "installed") {
+    voiceModelBusy = false;
+    // The answer to "can this machine hear" has changed, so it is asked again. This is the
+    // round trip the old "one read, at launch" comment said could never matter.
+    refreshVoiceReadiness();
+    if (voiceMode) renderVoiceModelState("installed");
+    return;
+  }
+  if (phase === "failed") {
+    voiceModelBusy = false;
+    voiceModelFailedLabel.textContent = payload.message ||
+      "I couldn't set up my hearing just now. Ask me again in a moment.";
+    // THE BACKEND DECIDES WHETHER ASKING AGAIN COULD HELP, not this file, and the field is
+    // `askAgain` rather than `retryable` because those are two different questions —
+    // `Finding::worth_asking_again` in provision.rs states the difference and the defect that
+    // separating them removed. A sentence that ends "Sign in to the network, then ask me again"
+    // needs this button; the automatic attempt loop, which would just fetch the same login page,
+    // does not run for it. A UI inferring either from the wording would guess wrong the first
+    // time the wording improved.
+    voiceModelRetryBtn.hidden = payload.askAgain !== true;
+    voiceModelStopBtn.disabled = false;
+    if (voiceMode) renderVoiceModelState("failed");
   }
 });
 
