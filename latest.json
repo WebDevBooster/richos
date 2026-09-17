@@ -1,0 +1,11 @@
+{
+  "version": "1.2.0-nightly.20260917.6",
+  "notes": "Nightly 1.2.0-nightly.20260917.6",
+  "pub_date": "2026-09-17T21:23:31Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRSy9TakprWWtoTDYrNEhZakVFcTJ3M0Q5Q3dWTzYwbytIbHFwN1EyZnpNZkl5MmkwVmdWdWVZd1pBNjBnakVVVjRDUjI2MjliRFNuSFVvemgvSEFIQ3JUZFgyN2YrbndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjgwMjAxCWZpbGU6UmljaE9TLmFwcC50YXIuZ3oKYXcvczNrcE5uQ0ppM2hLVlBJRGlHUUxWNEFyd0liWWlXM0tDV0k4bG9EVm00MGdaZjk0UW5xTm0vQjVOckNMcWgyb0tBRjRrdWZCeC9mcklTYzlaQkE9PQo=",
+      "url": "https://github.com/WebDevBooster/richos/releases/download/v1.2.0-nightly.20260917.6/RichOS.app.tar.gz"
+    }
+  }
+}
