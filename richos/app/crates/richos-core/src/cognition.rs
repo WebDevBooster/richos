@@ -84,9 +84,32 @@ pub struct WorkAssignment {
     pub entity_id: String,
     pub thread_id: String,
     pub assignment_id: String,
+    /// The ECS obligation. **It is what the seat's `turn_id` carries**, because the
+    /// engine's seat reconciler maps a seat to its assignment through exactly that field
+    /// (`richos/engine/mega-lander/app.py:704`).
+    pub obligation_id: String,
     pub seat: String,
     pub instruction_ledger_ref: String,
     pub instruction_sha256: String,
+}
+
+/// What the OBLIGATION says, which is the only thing allowed to say an assignment is
+/// finished.
+///
+/// **Not the workers.** The engine states the rule in its own voice: *"An assignment whose
+/// workers have all stopped is NOT settled: that is exactly the state where it has run,
+/// stopped at integrate and is waiting for him"*
+/// (`richos/engine/mega-lander/app.py:664-669`). The app built the opposite of this before
+/// that engine landed — all workers observed ending, therefore settled — which would have
+/// told the CEO a thing was finished at the precise moment it was waiting for him.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObligationState {
+    /// `candidate`, `accepted`, `active`, `pending` or `blocked` (`app.py:660`).
+    Open,
+    /// The obligation itself is closed.
+    Settled,
+    /// No such obligation. Never read as finished.
+    Absent,
 }
 
 /// ONE item leaving a turn's drain loop, in the order it actually happened.
@@ -224,6 +247,17 @@ pub trait Cognition: Send {
     /// safe to call on a lease that never held one.
     fn revoke_work_assignment(&mut self) -> Result<(), CognitionError> {
         Ok(())
+    }
+
+    /// Read the obligation's own state on this lease's seat — the one answer allowed to
+    /// settle an assignment (see [`ObligationState`]).
+    ///
+    /// The default is an error, and the caller must treat an error as *still running*:
+    /// spec §6.1's rule that anything unwitnessed counts as open, never as zero.
+    fn obligation_state(&self, _obligation: &str) -> Result<ObligationState, CognitionError> {
+        Err(CognitionError::Protocol(
+            "This connection cannot read an obligation.".into(),
+        ))
     }
 }
 

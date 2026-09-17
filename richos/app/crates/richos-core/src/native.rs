@@ -656,6 +656,8 @@ struct OperationCancellation {
 enum ActionGrant {
     Onboarding(std::path::PathBuf),
     Continuity(std::path::PathBuf),
+    /// The assignment register's grant (`assignment_tools.rs`). Conversation leases only.
+    Assignments(std::path::PathBuf),
 }
 
 impl ActionGrant {
@@ -663,10 +665,23 @@ impl ActionGrant {
         match self {
             Self::Onboarding(path) => crate::onboarding_tools::set_actions_allowed(path, allowed),
             Self::Continuity(path) => crate::ecs::set_actions_allowed(path, allowed).map_err(|e| e.to_string()),
+            // **An absent assignment scope is not a failure to grant; it is nothing to
+            // grant.** The scope is written by `prepare_work_turn`, which is the first
+            // point at which a company and a conversation exist — so before a thread is
+            // bound there is no file, and opening or closing a grant over it is not a
+            // meaningful operation. It fails CLOSED either way: with no scope the register
+            // tool refuses on its own ("RichOS has not opened this conversation for
+            // assignments"), and a deleted scope is the strongest revocation there is.
+            //
+            // A scope that EXISTS and cannot be written is still a hard failure, which is
+            // what takes the lease down in the loop above — the same rule the other two
+            // grants follow.
+            Self::Assignments(path) if !path.exists() => Ok(()),
+            Self::Assignments(path) => crate::assignment_tools::set_actions_allowed(path, allowed),
         }
     }
     fn path(&self) -> &Path {
-        match self { Self::Onboarding(path) | Self::Continuity(path) => path }
+        match self { Self::Onboarding(path) | Self::Continuity(path) | Self::Assignments(path) => path }
     }
 }
 
@@ -712,6 +727,9 @@ pub struct NativeClient {
 struct ReaderState {
     permissions: Option<crate::permissions::ScopedPermissions>,
     work_tools_loaded: bool,
+    /// Did the child list `mcp__richos_assignments__record`? A fact from its own init
+    /// inventory, never from the config having been accepted (`assignment_tools.rs`).
+    assignment_tool_loaded: bool,
     automatic_permissions: bool,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
@@ -765,6 +783,7 @@ impl Default for ReaderState {
         ReaderState {
             permissions: None,
             work_tools_loaded: false,
+            assignment_tool_loaded: false,
             automatic_permissions: false,
             context_only: false,
             session_model: None,
@@ -908,13 +927,23 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
 ///   that server's tools on a process-global tool-name match that discriminates on nothing
 ///   per-lease, and its own gate is `actions_allowed`, which §5.4's standing grant supplies.
 /// - `richos_work` is on both, because the work lease is the one that needs it most.
-fn mcp_config(executable: &Path, onboarding_scope: &Path,
+fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Path,
     continuity: Option<(&crate::ecs::EcsBridge, &Path)>,
     profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole) -> Value {
     let mut config = json!({"mcpServers": {"richos_onboarding": {
         "type": "stdio", "command": executable,
         "args": ["--onboarding-mcp", onboarding_scope]
     }}});
+    // **The turn-ending tool, on the CONVERSATION lease only** (`assignment_tools.rs`).
+    // A work lease that could register more assignments would be a model giving itself
+    // work, which is nobody's decision to make — and §1.1's boundary is about HIS turn, so
+    // the tool belongs where his turn is.
+    if role == LeaseRole::Conversation {
+        config["mcpServers"][crate::assignment_tools::SERVER_NAME] = json!({
+            "type": "stdio", "command": executable,
+            "args": ["--assignments-mcp", assignments_scope]
+        });
+    }
     if let Some((bridge, scope)) = continuity.filter(|_| role == LeaseRole::Conversation) {
         config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
             "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
@@ -944,7 +973,7 @@ impl NativeClient {
         Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None, LeaseRole::Conversation)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>, role: LeaseRole) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>, role: LeaseRole) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -957,8 +986,8 @@ impl NativeClient {
             Some((d, s)) => chat_child_args(&session_id, desktop_doctrine.as_deref().unwrap_or(d), s),
             None => child_args(&session_id),
         };
-        if let Some((executable, scope)) = onboarding {
-            let config = mcp_config(executable, scope, continuity, profile, role);
+        if let Some((executable, scope, assignments)) = onboarding {
+            let config = mcp_config(executable, scope, assignments, continuity, profile, role);
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         // The supervisor observes parent death, including a crash where Rust
@@ -1082,7 +1111,14 @@ impl NativeClient {
             pending,
             current_prompt,
             operation_cancel: Arc::new(Mutex::new(OperationCancellation::default())),
-            action_grants: onboarding.map(|(_, path)| ActionGrant::Onboarding(path.into())).into_iter()
+            // The assignments grant rides with the other two: open at turn start, closed at
+            // turn end, by the same all-or-nothing loop. So `richos_assignments.record`
+            // is reachable in exactly the window `richos_onboarding` is — a visible CEO
+            // turn — and in no other, which is what spec §5.1 says about a request with no
+            // turn open, kept by construction rather than by a check inside the tool alone.
+            action_grants: onboarding.map(|(_, path, _)| ActionGrant::Onboarding(path.into())).into_iter()
+                .chain(onboarding.filter(|_| role == LeaseRole::Conversation)
+                    .map(|(_, _, path)| ActionGrant::Assignments(path.into())))
                 .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into()))).collect(),
             reader_closed,
             between,
@@ -1323,6 +1359,7 @@ impl NativeClient {
                 .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
             st.work_tools_loaded = ["mcp__richos_work__repositories", "mcp__richos_work__prepare", "mcp__richos_work__inspect", "mcp__richos_work__integrate", "mcp__richos_work__complete"].iter()
                 .all(|name| msg["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))));
+            st.assignment_tool_loaded = crate::assignment_tools::loaded_from_init(&msg);
             st.automatic_permissions = msg["permissionMode"] == "auto";
             st.engine_plugin_loaded = msg["plugins"].as_array().is_some_and(|plugins|
                 plugins.iter().any(|plugin| plugin["name"] == "richos-app-engine"));
@@ -1931,7 +1968,15 @@ pub struct NativeCognition {
     client: NativeClient,
     session_id: String,
     onboarding_scope: Option<std::path::PathBuf>,
+    /// The `richos_assignments` scope (`assignment_tools.rs`), written at turn start and
+    /// closed at turn end with the other grants. `None` on a work lease, which never gets
+    /// that server: a background connection does not give itself more work.
+    assignments_scope: Option<std::path::PathBuf>,
     continuity: Option<(crate::ecs::EcsBridge, std::path::PathBuf)>,
+    /// The work seat's binding and its seat name, once this lease has taken an assignment.
+    /// Held so the host can read the OBLIGATION on that seat — the one thing allowed to
+    /// settle an assignment (`mega-lander/app.py:664-669`).
+    work_binding: Option<(crate::ecs::Binding, String)>,
     engine_profile: Option<crate::engine_profile::EngineProfile>,
     /// Conversation or work (background-work spec §2.1). Set at spawn and never changed:
     /// a lease that was not given the continuity tools cannot become one that was.
@@ -1954,7 +1999,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None, continuity: None, engine_profile: None, role: LeaseRole::Conversation })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, assignments_scope: None, continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -1962,10 +2007,12 @@ impl NativeCognition {
         executable: &Path, control: Option<&crate::steering::TurnControl>) -> Result<Self, NativeError> {
         let scopes = doctrine.parent().unwrap_or(cwd).join("onboarding-scopes");
         std::fs::create_dir_all(&scopes)?;
-        let scope = scopes.join(format!("{}.json", uuid::Uuid::new_v4()));
-        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope)), None, None, control, LeaseRole::Conversation)?;
+        let identity = uuid::Uuid::new_v4();
+        let scope = scopes.join(format!("{identity}.json"));
+        let assignments = scopes.join(format!("{identity}-assignments.json"));
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope, &assignments)), None, None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: None, engine_profile: None, role: LeaseRole::Conversation })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
     }
     pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
         executable: &Path, bridge: crate::ecs::EcsBridge,
@@ -1976,10 +2023,11 @@ impl NativeCognition {
         let identity = uuid::Uuid::new_v4();
         let scope = scopes.join(format!("{identity}.json"));
         let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
+        let assignments = scopes.join(format!("{identity}-assignments.json"));
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), None, control, LeaseRole::Conversation)?;
+            Some((executable, &scope, &assignments)), Some((&bridge, &continuity_scope)), None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), continuity: Some((bridge, continuity_scope)), engine_profile: None, role: LeaseRole::Conversation })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
     }
 
     /// Settings-isolated desktop lease from verified engine delivery.
@@ -1995,11 +2043,12 @@ impl NativeCognition {
         // SessionStart and the first internal prime precede entity binding. The
         // hook sees an explicit closed grant, never a guessed active scope.
         std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
+        let assignments = scopes.join(format!("{identity}-assignments.json"));
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), control, LeaseRole::Conversation)?;
+            Some((executable, &scope, &assignments)), Some((&bridge, &continuity_scope)), Some(&profile), control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope),
-            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile), role: LeaseRole::Conversation })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments),
+            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Conversation })
     }
 
     /// **The WORK lease** — the background-work spec §2.1's second compute lease, in the
@@ -2027,11 +2076,12 @@ impl NativeCognition {
         let scope = scopes.join(format!("{identity}-onboarding.json"));
         let continuity_scope = scopes.join(format!("{identity}-work.json"));
         std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
+        let assignments = scopes.join(format!("{identity}-assignments.json"));
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
-            Some((executable, &scope)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
+            Some((executable, &scope, &assignments)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope),
-            continuity: Some((bridge, continuity_scope)), engine_profile: Some(profile), role: LeaseRole::Work })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: None,
+            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work })
     }
 
     pub fn role(&self) -> LeaseRole { self.role }
@@ -2043,6 +2093,7 @@ impl Drop for NativeCognition {
         let _ = self.client.child.wait();
         if let Some(profile) = &self.engine_profile { let _ = std::fs::remove_dir_all(&profile.plugin); }
         if let Some((_, path)) = &self.continuity { let _ = std::fs::remove_file(path); }
+        if let Some(path) = &self.assignments_scope { let _ = std::fs::remove_file(path); }
         if let Some(path) = &self.onboarding_scope {
             let _ = std::fs::remove_file(path);
         }
@@ -2067,6 +2118,9 @@ impl Cognition for NativeCognition {
         if let Some(refusal) = work_preparation_refusal(self.role) {
             return Err(CognitionError::Protocol(refusal.into()));
         }
+        // Read before the `&self.continuity` borrow, because the assignment scope below
+        // needs it and the register lives in the engine state root beside the receipts.
+        let profile_state = self.engine_profile.as_ref().map(|p| p.state.clone());
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
             return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
@@ -2089,7 +2143,7 @@ impl Cognition for NativeCognition {
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().automatic_permissions {
             return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
         }
-        let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn)
+        let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn, None, "ceo")
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let knowledge_receipts = bridge.request("sync-loro-receipts", json!({"binding":scope}));
         let mut brief = bridge.brief(&scope).map_err(|e| CognitionError::Io(e.to_string()))?;
@@ -2108,6 +2162,26 @@ impl Cognition for NativeCognition {
                     sha256:format!("{:x}",sha2::Sha256::digest(text.as_bytes()))})
             } else {None}, seat: None })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        // **The assignment register's scope, written in the same place and from the same
+        // attested instruction.** `richos_assignments.record` is how this turn ENDS when
+        // he asks for background work (spec §1.1 and `assignment_tools.rs`), and
+        // everything that decides where the record lands — the company, the conversation,
+        // the ledger reference and its digest — is fixed here rather than supplied by the
+        // model. The digest is the same one written above: the CEO's exact ledger text,
+        // hashed once, in the one place that has it.
+        if let (Some(path), Some(state_root)) = (&self.assignments_scope, &profile_state) {
+            use sha2::Digest;
+            crate::assignment_tools::write_scope(path, &crate::assignment_tools::AssignmentToolScope {
+                version: 1,
+                actions_allowed: false,
+                state_root: state_root.clone(),
+                entity_id: binding.entity_id().to_string(),
+                thread_id: binding.thread_id().to_string(),
+                instruction_ledger_ref: format!("ledger:{}:{turn}", binding.thread_id()),
+                instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
+            })
+            .map_err(CognitionError::Io)?;
+        }
         let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
         if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
         Ok(())
@@ -2141,8 +2215,9 @@ impl Cognition for NativeCognition {
             return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
         }
         let binding = bridge
-            .bind_work_seat(&work.entity_id, &work.thread_id, &self.session_id, &work.assignment_id, &work.seat)
+            .bind_work_seat(&work.entity_id, &work.thread_id, &self.session_id, &work.obligation_id, &work.seat)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        let binding_for_reads = binding.clone();
         // **The standing action grant (§5.4), and the frozen instruction (§3.6).**
         // `actions_allowed: true` with no visible turn is the whole of what lets a
         // background lease reach the work tools at all (`mega-lander/app.py:41-42`); the
@@ -2161,7 +2236,22 @@ impl Cognition for NativeCognition {
             seat: Some(work.seat.clone()),
         })
         .map_err(|e| CognitionError::Io(e.to_string()))?;
+        self.work_binding = Some((binding_for_reads, work.seat.clone()));
         Ok(())
+    }
+
+    /// The obligation behind the assignment this lease is carrying — read on ITS seat.
+    ///
+    /// This is what settles an assignment, and nothing else does. The engine says why in
+    /// its own words: *"An assignment whose workers have all stopped is NOT settled: that
+    /// is exactly the state where it has run, stopped at integrate and is waiting for
+    /// him"* (`richos/engine/mega-lander/app.py:664-669`).
+    fn obligation_state(&self, obligation: &str) -> Result<crate::cognition::ObligationState, CognitionError> {
+        let (Some((bridge, _)), Some((binding, seat))) = (&self.continuity, &self.work_binding) else {
+            return Err(CognitionError::Protocol("This connection is not carrying an assignment.".into()));
+        };
+        bridge.obligation_state(binding, Some(seat), obligation)
+            .map_err(|e| CognitionError::Io(e.to_string()))
     }
 
     /// Revoke the standing grant — spec §5.4, per assignment, by name.
@@ -2325,16 +2415,23 @@ mod native_driver_tests {
         let continuity = root.join("continuity.json");
         let executable = root.join("RichOS");
 
-        let work = mcp_config(&executable, &scope, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
+        let assignments = root.join("assignments.json");
+
+        let work = mcp_config(&executable, &scope, &assignments, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
         let servers = &work["mcpServers"];
         assert!(servers.get("richos_continuity").is_none(), "the work lease was given the continuity server");
         assert!(servers.get("richos_work").is_some(), "the work lease was not given the work server");
         assert!(servers.get("richos_onboarding").is_some());
+        // And it cannot register more assignments for itself (`assignment_tools.rs`).
+        assert!(servers.get(crate::assignment_tools::SERVER_NAME).is_none(),
+            "the work lease was given the assignment register");
 
-        // Positive control: the same call for the conversation DOES register it.
-        let chat = mcp_config(&executable, &scope, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Conversation);
+        // Positive control: the same call for the conversation DOES register both.
+        let chat = mcp_config(&executable, &scope, &assignments, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Conversation);
         assert!(chat["mcpServers"].get("richos_continuity").is_some(), "the conversation lost its continuity server");
         assert!(chat["mcpServers"].get("richos_work").is_some());
+        assert!(chat["mcpServers"].get(crate::assignment_tools::SERVER_NAME).is_some(),
+            "the conversation has no way to end a turn on a receipt");
 
         // And the reason the omission is the enforcement rather than the desk: the desk
         // auto-allows both of that server's tools, with nothing per-lease to discriminate on.

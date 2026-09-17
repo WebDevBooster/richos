@@ -71,7 +71,10 @@ pub struct LiveAssignment {
 }
 
 struct Inner {
-    queue: VecDeque<Assignment>,
+    /// Each queued assignment carries the thread binding it was registered under. The
+    /// binding is minted by the ledger and is the only thing that can say which company a
+    /// thread belongs to (`entity.rs`), so the host never reconstructs one from a record.
+    queue: VecDeque<(ThreadBinding, Assignment)>,
     /// The assignment that is ON the lease right now. At most one: a lease runs one prompt
     /// at a time, so the host serializes assignments onto it and says so rather than
     /// pretending three of them are in flight.
@@ -101,6 +104,9 @@ pub struct WorkHost {
     inner: Mutex<Inner>,
     wake: Condvar,
     notifier: Arc<dyn WorkNotifier>,
+    /// Every assignment this host has ever taken on, so a boundary sweep cannot adopt one
+    /// twice. Its own lock, because `enqueue` consults it while holding `inner`.
+    seen: Mutex<std::collections::HashSet<String>>,
 }
 
 impl WorkHost {
@@ -120,6 +126,7 @@ impl WorkHost {
             }),
             wake: Condvar::new(),
             notifier,
+            seen: Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -134,13 +141,15 @@ impl WorkHost {
     /// A failure here is a **failed registration** and the caller says so in those words
     /// (spec §1.4, [`assignment::failed_registration_sentence`]). It is never softened into
     /// "I have started it", because at this point nothing has been started.
-    pub fn register(self: &Arc<Self>, request: &Registration) -> Result<assignment::Receipt, String> {
+    pub fn register(
+        self: &Arc<Self>,
+        binding: &ThreadBinding,
+        request: &Registration,
+    ) -> Result<assignment::Receipt, String> {
         let receipt = assignment::register(&self.state, request).map_err(|e| e.to_string())?;
         let record = assignment::read(&self.state, &request.entity_id, &request.thread_id, &receipt.id)
             .map_err(|e| e.to_string())?;
-        let mut inner = self.inner.lock().unwrap();
-        if inner.shutting_down {
-            drop(inner);
+        if !self.enqueue(binding, record) {
             let _ = assignment::advance(
                 &self.state,
                 &request.entity_id,
@@ -151,9 +160,49 @@ impl WorkHost {
             );
             return Err("RichOS is closing down. Nothing was started.".into());
         }
-        inner.queue.push_back(record);
-        self.wake.notify_all();
         Ok(receipt)
+    }
+
+    /// **Pick up assignments that were registered by the tool process, at the turn
+    /// boundary.** This is §7.1's decision made literal: the assignment was written down
+    /// inside his turn by the app-owned `richos_assignments` server, the turn ended on that
+    /// receipt, and everything the work costs starts here — after it.
+    ///
+    /// **It is a directory read at a boundary, not a timer.** Spec §6.3 refuses anything
+    /// that restarts work by itself, and the September 9 shape it names is a retry loop.
+    /// Nothing here retries: an assignment is adopted once, when the turn that created it
+    /// ends, and a record already known to this host is skipped.
+    ///
+    /// Returns how many were adopted. Zero is the ordinary answer.
+    pub fn adopt_registered(self: &Arc<Self>, binding: &ThreadBinding) -> usize {
+        let Ok(rows) = assignment::read_all(&self.state, &binding.entity_id().to_string(), binding.thread_id())
+        else {
+            return 0;
+        };
+        let mut adopted = 0;
+        for record in rows.into_iter().filter(|row| row.state == AssignmentState::Registered) {
+            if self.seen.lock().unwrap().contains(&record.id) {
+                continue;
+            }
+            if self.enqueue(binding, record) {
+                adopted += 1;
+            }
+        }
+        adopted
+    }
+
+    /// Put one assignment on the queue exactly once. `false` means the host is closing.
+    fn enqueue(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.shutting_down {
+            return false;
+        }
+        if !self.seen.lock().unwrap().insert(record.id.clone()) {
+            return true;
+        }
+        inner.queue.push_back((binding.clone(), record));
+        self.wake.notify_all();
+        true
     }
 
     /// Start the runner. One thread, because one lease runs one prompt at a time.
@@ -164,15 +213,15 @@ impl WorkHost {
     /// assignment dispatches, not in a second provider connection per assignment. The work
     /// lease's turn per assignment is short: it prepares, dispatches and returns, and the
     /// run afterwards reports through receipts and hooks rather than by holding the turn.
-    pub fn start(self: &Arc<Self>, binding: ThreadBinding) -> std::thread::JoinHandle<()> {
+    pub fn start(self: &Arc<Self>) -> std::thread::JoinHandle<()> {
         let host = Arc::clone(self);
         std::thread::Builder::new()
             .name("richos-work-host".into())
-            .spawn(move || host.run(binding))
+            .spawn(move || host.run())
             .expect("the work host thread could not be started")
     }
 
-    fn run(self: Arc<Self>, binding: ThreadBinding) {
+    fn run(self: Arc<Self>) {
         loop {
             let next = {
                 let mut inner = self.inner.lock().unwrap();
@@ -186,7 +235,7 @@ impl WorkHost {
                     inner = self.wake.wait(inner).unwrap();
                 }
             };
-            let Some(record) = next else { return };
+            let Some((binding, record)) = next else { return };
             if self.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
                 self.settle_stopped(&record);
                 continue;
@@ -220,6 +269,7 @@ impl WorkHost {
             entity_id: record.entity_id.clone(),
             thread_id: record.thread_id.clone(),
             assignment_id: record.id.clone(),
+            obligation_id: record.obligation_id.clone(),
             seat: record.seat.clone(),
             instruction_ledger_ref: record.instruction_ledger_ref.clone(),
             instruction_sha256: record.instruction_sha256.clone(),
@@ -285,12 +335,23 @@ impl WorkHost {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
-            Ok(_) => match self.settlement() {
-                Settlement::Settled => {
-                    advance(AssignmentState::Settled, "Every worker this assignment started was observed ending.");
+            Ok(_) => match self.outcome(record) {
+                Outcome::Settled => {
+                    advance(AssignmentState::Settled, "The obligation behind this assignment is closed.");
                     self.raise(record, NoticeKind::Settled, &assignment::says::settled(&record.title));
                 }
-                Settlement::StillRunning(detail) => {
+                Outcome::ReadyToApprove => {
+                    advance(
+                        AssignmentState::Blocked,
+                        "The work has run and stopped at the step that would change your repository.",
+                    );
+                    self.raise(
+                        record,
+                        NoticeKind::ReadyToApprove,
+                        &assignment::says::ready_to_approve(&record.title),
+                    );
+                }
+                Outcome::StillRunning(detail) => {
                     // §0's honest sentence: "anything we cannot witness counts as still
                     // running", never "nothing is running".
                     advance(AssignmentState::Running, &detail);
@@ -370,6 +431,47 @@ impl WorkHost {
         Settlement::Settled
     }
 
+    /// **What the assignment's state actually is once its work turn has ended — and the
+    /// order of the two questions is the whole of it.**
+    ///
+    /// 1. **Are this lease's workers all observed ending?** (spec §2.9, the work lease's
+    ///    own session). If not, it is still running, and anything unwitnessed counts as
+    ///    running rather than as zero.
+    /// 2. **Only then, is the OBLIGATION closed?** The engine is explicit that the workers
+    ///    do not get to answer this: *"An assignment whose workers have all stopped is NOT
+    ///    settled: that is exactly the state where it has run, stopped at integrate and is
+    ///    waiting for him"* (`richos/engine/mega-lander/app.py:664-669`).
+    ///
+    /// **The app built the opposite of this before that engine landed** — every worker
+    /// observed ending, therefore settled — and it would have told him a thing was finished
+    /// at the precise moment it was waiting for him, which is spec §0 row 7's one sentence
+    /// inverted. An obligation this build cannot read is `StillRunning`, never `Settled`.
+    fn outcome(&self, record: &Assignment) -> Outcome {
+        if let Settlement::StillRunning(detail) = self.settlement() {
+            return Outcome::StillRunning(detail);
+        }
+        let state = {
+            let lease = self.lease.lock().unwrap();
+            match lease.as_ref() {
+                Some(lease) => lease.obligation_state(&record.obligation_id),
+                None => Err(CognitionError::Protocol("The work connection closed.".into())),
+            }
+        };
+        match state {
+            Ok(crate::cognition::ObligationState::Settled) => Outcome::Settled,
+            Ok(crate::cognition::ObligationState::Open) => Outcome::ReadyToApprove,
+            // An obligation that is not there is not a finished one. It is a record this
+            // build cannot account for, and the honest answer is that it is unresolved.
+            Ok(crate::cognition::ObligationState::Absent) => Outcome::StillRunning(
+                "The record behind this assignment could not be found, so nothing is being called finished."
+                    .into(),
+            ),
+            Err(_) => Outcome::StillRunning(
+                "The record behind this assignment could not be read, so this counts as still running.".into(),
+            ),
+        }
+    }
+
     /// Stop ONE assignment — spec §4.2's per-assignment stop control, *"where the work is
     /// already visible"*.
     ///
@@ -391,7 +493,7 @@ impl WorkHost {
             if live {
                 inner.cancel.clone()
             } else {
-                inner.queue.retain(|queued| queued.id != id);
+                inner.queue.retain(|(_, queued)| queued.id != id);
                 None
             }
         };
@@ -503,10 +605,26 @@ impl WorkHost {
     }
 }
 
-/// What the work lease's own evidence says, and the two answers it is allowed to give.
+/// What the work lease's own EVIDENCE says about its workers (spec §2.9) — and note that
+/// `Settled` here means *"every worker this lease started was observed ending"*, which is
+/// necessary and **not sufficient** for the assignment to be finished. [`Outcome`] is the
+/// thing that decides that.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Settlement {
     Settled,
+    StillRunning(String),
+}
+
+/// What the ASSIGNMENT is, once its work turn has ended. Three answers, and the middle one
+/// is the whole point of the feature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The obligation is closed.
+    Settled,
+    /// The workers are done and the obligation is still open: the work ran, reached the
+    /// step that would change his repository, and stopped there (spec §0 row 7, §5.4,
+    /// §7.8). What he is told is *"ready for you to approve"*, never *"done"*.
+    ReadyToApprove,
     StillRunning(String),
 }
 
@@ -574,6 +692,9 @@ mod tests {
         cancel: Arc<Fence>,
         /// How long the scripted turn takes, so a stop can arrive while one is in flight.
         step: std::time::Duration,
+        /// What the OBLIGATION says. `None` means it cannot be read at all, which must
+        /// never settle anything.
+        obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
     }
 
     impl Cognition for WorkLease {
@@ -607,6 +728,12 @@ mod tests {
             self.revoked.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+        fn obligation_state(&self, _obligation: &str) -> Result<crate::cognition::ObligationState, CognitionError> {
+            match *self.obligation.lock().unwrap() {
+                Some(state) => Ok(state),
+                None => Err(CognitionError::Protocol("the obligation could not be read".into())),
+            }
+        }
     }
 
     struct WorkFactory {
@@ -614,6 +741,7 @@ mod tests {
         revoked: Arc<AtomicUsize>,
         fence: Arc<Fence>,
         step: std::time::Duration,
+        obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -627,6 +755,7 @@ mod tests {
                 revoked: self.revoked.clone(),
                 cancel: self.fence.clone(),
                 step: self.step,
+                obligation: self.obligation.clone(),
             }))
         }
     }
@@ -647,6 +776,7 @@ mod tests {
         fence: Arc<Fence>,
         notices: Arc<Recorder>,
         binding: ThreadBinding,
+        obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -659,22 +789,25 @@ mod tests {
         let revoked = Arc::new(AtomicUsize::new(0));
         let fence = Arc::new(Fence::default());
         let notices = Arc::new(Recorder(Mutex::new(Vec::new())));
+        let obligation = Arc::new(Mutex::new(None));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
             fence: fence.clone(),
             step: std::time::Duration::from_millis(step_ms),
+            obligation: obligation.clone(),
         };
         let host = WorkHost::new(&state, Box::new(factory), notices.clone());
-        Harness { root, state, host, bound, revoked, fence, notices, binding }
+        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation }
     }
 
     fn registration(harness: &Harness) -> Registration {
         Registration {
             entity_id: harness.binding.entity_id().to_string(),
             thread_id: harness.binding.thread_id().to_string(),
-            turn_id: "turn-7".into(),
-            instruction_text: "land these three branches".into(),
+            obligation_id: "obligation-7".into(),
+            instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
+            instruction_sha256: "a".repeat(64),
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
         }
@@ -695,9 +828,9 @@ mod tests {
     #[test]
     fn registering_returns_before_the_work_starts_and_the_work_still_runs() {
         let h = harness(400);
-        let _runner = h.host.start(h.binding.clone());
+        let _runner = h.host.start();
         let started = std::time::Instant::now();
-        let receipt = h.host.register(&registration(&h)).unwrap();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         let took = started.elapsed();
         assert!(took < std::time::Duration::from_millis(100), "registration took {took:?}");
         // Positive control: the thing it did NOT wait for really does take longer.
@@ -715,17 +848,24 @@ mod tests {
     #[test]
     fn each_assignment_reaches_the_work_lease_on_its_own_seat_and_gives_the_grant_back() {
         let h = harness(5);
-        let _runner = h.host.start(h.binding.clone());
-        let first = h.host.register(&registration(&h)).unwrap();
-        let second = h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let second = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
         assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
         let bound = h.bound.lock().unwrap().clone();
         assert_eq!(bound.len(), 2);
         assert_ne!(bound[0].seat, bound[1].seat);
+        // The seat's `turn_id` on the wire is the OBLIGATION, which is what the engine's
+        // reconciler reads back (`mega-lander/app.py:704`).
+        assert_eq!(bound[0].obligation_id, "obligation-7");
+        assert_eq!(bound[1].obligation_id, "obligation-8");
         assert_eq!(bound[0].assignment_id, first.id);
         assert_eq!(bound[1].assignment_id, second.id);
         for one in &bound {
-            assert!(one.seat.starts_with("work-seat-"));
+            assert!(one.seat.starts_with("work-seat:"));
             assert_ne!(one.seat, "ceo-default");
             // §3.6: the instruction reference is the turn he gave it in, frozen.
             assert_eq!(one.instruction_ledger_ref, "ledger:thread-one:turn-7");
@@ -746,8 +886,8 @@ mod tests {
         use crate::steering::TurnControl;
         let h = harness(3000);
         let control = TurnControl::open(h.root.join("steering")).unwrap();
-        let _runner = h.host.start(h.binding.clone());
-        h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        h.host.register(&h.binding, &registration(&h)).unwrap();
         until_live(&h.host);
 
         // Positive control: the control CAN hold a handle, so its emptiness means something.
@@ -768,8 +908,8 @@ mod tests {
     #[test]
     fn the_per_assignment_stop_interrupts_it_and_never_settles_it() {
         let h = harness(3000);
-        let _runner = h.host.start(h.binding.clone());
-        let receipt = h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         until_live(&h.host);
         h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
@@ -791,8 +931,8 @@ mod tests {
         let h = harness(5);
         // Before a lease exists there is no session at all: unattributed, so still running.
         assert!(matches!(h.host.settlement(), Settlement::StillRunning(_)));
-        let _runner = h.host.start(h.binding.clone());
-        let receipt = h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         assert_eq!(h.host.lease_session().as_deref(), Some("work-session-one"));
         // The work lease's own evidence directory is missing, so the honest answer is
@@ -812,6 +952,71 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
+    /// **Spec §0 row 7 and §7.8, and the engine's own rule at `mega-lander/app.py:664-669`:
+    /// an assignment whose workers have all stopped is NOT settled — it is waiting for
+    /// him.**
+    ///
+    /// The three cases run against identical worker evidence (readable, empty: every worker
+    /// this lease started was observed ending), so the ONLY thing that differs is what the
+    /// obligation says. That is the test: with the workers' verdict held constant, an
+    /// assignment is `blocked` while its obligation is open, `settled` only when the
+    /// obligation is closed, and `running` when the obligation cannot be read at all.
+    ///
+    /// **Written this way because the obvious wrong build passes any weaker version.** The
+    /// app settled on the workers alone before the engine landed, and every assertion about
+    /// worker evidence would still have been green.
+    #[test]
+    fn workers_all_ending_means_ready_to_approve_and_only_the_obligation_can_settle_it() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        // Identical, readable, empty worker evidence for every case below.
+        let folder = h.state.join("evidence").join("work-session-one");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+        let _runner = h.host.start();
+
+        // 1. The obligation is OPEN: ready for him to approve, and never "done".
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let waiting = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &waiting.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked, "an assignment waiting for him was called something else");
+        assert_ne!(row.state, AssignmentState::Settled);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::ReadyToApprove);
+        assert!(notice.text.contains("ready for you to approve"));
+        for forbidden in ["done", "finished", "complete", "landed"] {
+            assert!(!notice.text.to_lowercase().contains(forbidden), "{}", notice.text);
+        }
+
+        // 2. The obligation is CLOSED: settled, with the same worker evidence.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        let closed = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &closed.id).unwrap().state,
+            AssignmentState::Settled
+        );
+
+        // 3. The obligation cannot be read: still running. Never settled, never approved.
+        *h.obligation.lock().unwrap() = None;
+        let unknown = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &unknown.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Running);
+        assert!(row.detail.contains("still running"));
+
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// Spec §1.4 and §2.1: a lease that refuses to exist is a FAILED REGISTRATION reported
     /// as one, not a worker that never speaks.
     #[test]
@@ -827,8 +1032,8 @@ mod tests {
             }
         }
         let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone());
-        let _runner = host.start(h.binding.clone());
-        let receipt = host.register(&registration(&h)).unwrap();
+        let _runner = host.start();
+        let receipt = host.register(&h.binding, &registration(&h)).unwrap();
         assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.state, AssignmentState::Failed);
@@ -848,24 +1053,27 @@ mod tests {
     #[test]
     fn quit_stops_the_work_lease_by_name_and_settles_nothing() {
         let h = harness(3000);
-        let _runner = h.host.start(h.binding.clone());
-        let receipt = h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         until_live(&h.host);
         h.host.shutdown();
         assert_eq!(h.fence.shutdowns.load(Ordering::SeqCst), 1, "quit did not reach the work lease");
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.state, AssignmentState::Interrupted);
         // And a registration arriving after quit is refused rather than queued forever.
-        assert!(h.host.register(&registration(&h)).is_err());
+        assert!(h.host.register(&h.binding, &registration(&h)).is_err());
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
     #[test]
     fn a_queued_assignment_that_is_stopped_never_starts() {
         let h = harness(3000);
-        let _runner = h.host.start(h.binding.clone());
-        let first = h.host.register(&registration(&h)).unwrap();
-        let queued = h.host.register(&registration(&h)).unwrap();
+        let _runner = h.host.start();
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let queued = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
         until_live(&h.host);
         h.host.stop_assignment("depot", "thread-one", &queued.id).unwrap();
         let row = assignment::read(&h.state, "depot", "thread-one", &queued.id).unwrap();
@@ -882,7 +1090,8 @@ mod tests {
         let record = Assignment {
             schema: 1,
             id: "assignment-id-that-must-not-appear".into(),
-            seat: "work-seat-assignment-id-that-must-not-appear".into(),
+            obligation_id: "obligation-that-must-not-appear".into(),
+            seat: "work-seat:obligation-that-must-not-appear".into(),
             entity_id: "depot".into(),
             thread_id: "thread-one".into(),
             instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
@@ -899,7 +1108,8 @@ mod tests {
         assert!(brief.contains("landing the three branches"));
         assert!(brief.contains("/fictional/project"));
         assert!(!brief.contains("assignment-id-that-must-not-appear"));
-        assert!(!brief.contains("work-seat-"));
+        assert!(!brief.contains("work-seat:"));
+        assert!(!brief.contains("obligation-that-must-not-appear"));
         assert!(!brief.contains("ledger:"));
         // Row 7 travels in the brief as an instruction, not only as a refusal.
         assert!(brief.contains("wait for him to approve"));

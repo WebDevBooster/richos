@@ -115,9 +115,20 @@ pub struct Notice {
 pub struct Assignment {
     pub schema: u32,
     pub id: String,
+    /// **The ECS obligation this assignment is the work of**, and the engine's join key for
+    /// everything about it. `richos_work.prepare` refuses without an accepted open
+    /// obligation (`richos/engine/mega-lander/app.py:267-270`), and the seat reconciler
+    /// maps a seat back to its assignment through exactly this value
+    /// (`app.py:704`: `assignment, seat = row["turn_id"], row["person_id"]`).
+    pub obligation_id: String,
     /// The ECS seat this assignment's work runs on — spec §5.8c, one seat per assignment,
-    /// created with it and revoked with it. Derived from the id here, never chosen by the
-    /// model, and never the CEO's own seat.
+    /// created with it and released with it.
+    ///
+    /// **Its spelling is `work-seat:<obligation_id>` and that is a contract, not a
+    /// preference.** The engine reads two fields off the seat row to reconcile it
+    /// (`app.py:700-704`): `audience` must be `worker`, and `turn_id` must be the
+    /// obligation. The person spelling is the app's, and this is the one the engine's own
+    /// tests use, so a seat written here is a seat that reconciler recognizes.
     pub seat: String,
     pub entity_id: String,
     pub thread_id: String,
@@ -139,14 +150,24 @@ pub struct Assignment {
 }
 
 /// What a caller must supply to register. Everything else is derived here, so a model
-/// cannot choose an id, a seat, a turn or a company.
+/// cannot choose an id, a seat, a company or an instruction.
+///
+/// **The instruction arrives already attested, and that is deliberate.** The digest is of
+/// the CEO's exact ledger text and is computed by the host at turn start
+/// (`native.rs`'s `prepare_work_turn`); nothing here recomputes it from a string a model
+/// supplied, and his words are not copied into a second file to make that possible.
 #[derive(Clone, Debug)]
 pub struct Registration {
     pub entity_id: String,
     pub thread_id: String,
-    pub turn_id: String,
-    /// The exact CEO text this assignment was taken from, for the instruction digest.
-    pub instruction_text: String,
+    /// The ECS obligation this assignment carries out. Opened by the conversation before
+    /// it records the assignment; the engine refuses a dispatch without an accepted open
+    /// one (`mega-lander/app.py:267-270`).
+    pub obligation_id: String,
+    /// `ledger:<thread>:<turn>` for the turn he gave the assignment in (spec §3.6).
+    pub instruction_ledger_ref: String,
+    /// The host's SHA-256 of that turn's exact ledger text.
+    pub instruction_sha256: String,
     pub title: String,
     pub repositories: Vec<String>,
 }
@@ -270,18 +291,30 @@ fn usable_identity(value: &str) -> bool {
 /// Nothing here spawns, prepares, binds or waits. The caller gets a [`Receipt`] and ends
 /// the turn with it (spec §1.1); the work host picks the assignment up afterwards.
 pub fn register(state: &Path, request: &Registration) -> Result<Receipt, AssignmentError> {
-    use sha2::{Digest, Sha256};
     if !usable_identity(&request.thread_id) {
         return Err(AssignmentError("this conversation cannot be identified".into()));
     }
     if request.entity_id.is_empty() || request.entity_id.len() > 128 {
         return Err(AssignmentError("this conversation has no company binding".into()));
     }
-    if request.turn_id.is_empty() || request.turn_id.len() > 128 {
+    // The instruction must be the host's, attested, and from a turn — spec §3.6's whole
+    // point is that the reference is real and frozen, not that it is present.
+    if !request.instruction_ledger_ref.starts_with(&format!("ledger:{}:", request.thread_id))
+        || request.instruction_ledger_ref.len() > 512
+    {
         return Err(AssignmentError("this assignment has no visible turn behind it".into()));
     }
-    if request.instruction_text.trim().is_empty() {
-        return Err(AssignmentError("an assignment must quote what the CEO actually asked for".into()));
+    if request.instruction_sha256.len() != 64
+        || !request.instruction_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(AssignmentError("this assignment has no attested instruction behind it".into()));
+    }
+    // The obligation is the engine's join key and becomes the seat's `turn_id`, so it must
+    // be a plain bounded identifier. A colon is refused because the seat is spelled
+    // `work-seat:<obligation_id>` and an obligation carrying one would make that spelling
+    // ambiguous to read back.
+    if !usable_identity(&request.obligation_id) {
+        return Err(AssignmentError("this assignment names no obligation to carry out".into()));
     }
     if request.repositories.len() > 32 {
         return Err(AssignmentError("that is more repositories than one assignment can name".into()));
@@ -292,16 +325,39 @@ pub fn register(state: &Path, request: &Registration) -> Result<Receipt, Assignm
         }
     }
     let title = sanitize_title(&request.title)?;
+    // **One OPEN assignment per obligation, refused here rather than discovered later.**
+    //
+    // The seat is `work-seat:<obligation_id>` because the engine's reconciler reads the
+    // seat row's `turn_id` as the obligation (`mega-lander/app.py:704`) — so the seat's
+    // cardinality is the obligation's. Two open assignments on one obligation would be one
+    // seat shared by two, which is spec §5.8c's reproduced failure exactly: the table is
+    // keyed by person, registering the second upserts the first one's cursor, and the
+    // first's frozen binding is stale from then on.
+    //
+    // The engine makes the same refusal one level down — *"this obligation already has
+    // unresolved work; inspect its receipt before retrying"* (`app.py:314-317`) — so this
+    // agrees with it rather than inventing a second rule.
+    if read_all(state, &request.entity_id, &request.thread_id)?
+        .iter()
+        .any(|row| row.obligation_id == request.obligation_id && row.state.is_open())
+    {
+        return Err(AssignmentError(
+            "there is already an assignment running for that piece of work".into(),
+        ));
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let at = now_ms();
     let record = Assignment {
         schema: 1,
-        seat: format!("work-seat-{id}"),
+        // `work-seat:<obligation_id>` — the spelling the engine's reconciler and its own
+        // tests use (`mega-lander/app.py:700-714`).
+        seat: format!("work-seat:{}", request.obligation_id),
+        obligation_id: request.obligation_id.clone(),
         id: id.clone(),
         entity_id: request.entity_id.clone(),
         thread_id: request.thread_id.clone(),
-        instruction_ledger_ref: format!("ledger:{}:{}", request.thread_id, request.turn_id),
-        instruction_sha256: format!("{:x}", Sha256::digest(request.instruction_text.as_bytes())),
+        instruction_ledger_ref: request.instruction_ledger_ref.clone(),
+        instruction_sha256: request.instruction_sha256.clone(),
         title: title.clone(),
         repositories: request.repositories.clone(),
         state: AssignmentState::Registered,
@@ -555,12 +611,19 @@ mod tests {
         path
     }
 
+    /// The host's digest of the CEO's exact ledger text, as `prepare_work_turn` computes it.
+    fn instruction_digest() -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(b"land these three branches"))
+    }
+
     fn registration() -> Registration {
         Registration {
             entity_id: "depot".into(),
             thread_id: "thread-one".into(),
-            turn_id: "turn-7".into(),
-            instruction_text: "land these three branches".into(),
+            obligation_id: "obligation-7".into(),
+            instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
+            instruction_sha256: instruction_digest(),
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
         }
@@ -582,8 +645,11 @@ mod tests {
     fn registration_is_a_write_and_never_pays_for_preparation() {
         let state = root();
         let started = std::time::Instant::now();
-        for _ in 0..10 {
-            register(&state, &registration()).unwrap();
+        for n in 0..10 {
+            // A distinct obligation each time: one open assignment per obligation, because
+            // the seat is spelled from it (see the seat test below).
+            register(&state, &Registration { obligation_id: format!("obligation-{n}"), ..registration() })
+                .unwrap();
         }
         let elapsed = started.elapsed();
         assert!(
@@ -614,22 +680,37 @@ mod tests {
         std::fs::remove_dir_all(state).unwrap();
     }
 
-    /// Spec §5.8c: one seat per assignment. Two assignments sharing a seat is the tenth
-    /// gate reproduced inside the work lease, so the seats must differ by construction.
+    /// **Spec §5.8c, in the shape the landed engine forces it into.** One seat per
+    /// assignment, and the seat is spelled from the OBLIGATION because that is the field
+    /// the engine's reconciler reads back (`mega-lander/app.py:704`). So the cardinality
+    /// this test defends is the obligation's: two seats differ because two obligations do,
+    /// and a second open assignment on ONE obligation is refused rather than silently
+    /// given the first one's seat — which is §5.8c's reproduced failure, the CEO replaced
+    /// by the work lease's own next assignment.
     #[test]
     fn every_assignment_gets_its_own_seat_and_no_assignment_gets_the_ceo_seat() {
         let state = root();
         let first = register(&state, &registration()).unwrap();
-        let second = register(&state, &registration()).unwrap();
+        let second = register(
+            &state,
+            &Registration { obligation_id: "obligation-8".into(), ..registration() },
+        )
+        .unwrap();
         let rows = read_all(&state, "depot", "thread-one").unwrap();
         let seats: Vec<_> = rows.iter().map(|r| r.seat.clone()).collect();
         assert_eq!(seats.len(), 2);
         assert_ne!(seats[0], seats[1]);
         assert_ne!(first.id, second.id);
+        assert!(seats.contains(&"work-seat:obligation-7".to_string()), "{seats:?}");
+        assert!(seats.contains(&"work-seat:obligation-8".to_string()), "{seats:?}");
         for seat in &seats {
-            assert!(seat.starts_with("work-seat-"), "{seat}");
             assert_ne!(seat, "ceo-default");
         }
+        // A SECOND open assignment on obligation-7 would share its seat, so it is refused.
+        assert!(register(&state, &registration()).is_err());
+        // Positive control: once the first has settled, its obligation is free again.
+        advance(&state, "depot", "thread-one", &first.id, AssignmentState::Settled, "Closed.").unwrap();
+        assert!(register(&state, &registration()).is_ok());
         std::fs::remove_dir_all(state).unwrap();
     }
 
@@ -641,8 +722,7 @@ mod tests {
         let receipt = register(&state, &registration()).unwrap();
         let row = read(&state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.instruction_ledger_ref, "ledger:thread-one:turn-7");
-        use sha2::{Digest, Sha256};
-        assert_eq!(row.instruction_sha256, format!("{:x}", Sha256::digest(b"land these three branches")));
+        assert_eq!(row.instruction_sha256, instruction_digest());
         advance(&state, "depot", "thread-one", &receipt.id, AssignmentState::Running, "Worker start recorded.")
             .unwrap();
         let later = read(&state, "depot", "thread-one", &receipt.id).unwrap();
@@ -727,7 +807,11 @@ mod tests {
         let mine = register(&state, &registration()).unwrap();
         let elsewhere = register(
             &state,
-            &Registration { thread_id: "thread-two".into(), ..registration() },
+            &Registration {
+                thread_id: "thread-two".into(),
+                instruction_ledger_ref: "ledger:thread-two:turn-3".into(),
+                ..registration()
+            },
         )
         .unwrap();
         assert_eq!(open(&state).unwrap().len(), 2);
@@ -760,13 +844,18 @@ mod tests {
         assert!(register(&state, &bad_thread).is_err());
         let no_entity = Registration { entity_id: String::new(), ..registration() };
         assert!(register(&state, &no_entity).is_err());
-        let no_turn = Registration { turn_id: String::new(), ..registration() };
+        let no_turn = Registration { instruction_ledger_ref: String::new(), ..registration() };
         assert!(register(&state, &no_turn).is_err());
-        let no_instruction = Registration { instruction_text: "   ".into(), ..registration() };
+        // A reference for a DIFFERENT thread is refused too: an assignment cannot borrow
+        // an instruction the CEO gave in another conversation.
+        let wrong_thread =
+            Registration { instruction_ledger_ref: "ledger:thread-two:turn-7".into(), ..registration() };
+        assert!(register(&state, &wrong_thread).is_err());
+        let no_instruction = Registration { instruction_sha256: "not-a-digest".into(), ..registration() };
         assert!(register(&state, &no_instruction).is_err());
         let too_many = Registration { repositories: vec!["/r".to_string(); 33], ..registration() };
         assert!(register(&state, &too_many).is_err());
-        // Positive control: the same shape with all four fixed does register.
+        // Positive control: the same shape with all of them fixed does register.
         assert!(register(&state, &registration()).is_ok());
         std::fs::remove_dir_all(state).unwrap();
     }

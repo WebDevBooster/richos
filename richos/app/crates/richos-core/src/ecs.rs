@@ -157,18 +157,76 @@ impl EcsBridge {
         reply.get("result").cloned().ok_or_else(|| EcsError("missing component result".into()))
     }
 
-    pub fn bind(&self, entity: &str, thread: &str, session: &str, turn: &str) -> Result<Binding, EcsError> {
-        let current = self.request("current", json!({}))?;
-        if let Ok(binding) = serde_json::from_value::<Binding>(current["binding"].clone()) {
-            if binding.entity_id == entity && binding.thread_id == thread && binding.session_id == session && binding.turn_id == turn && binding.audience == "ceo" { return Ok(binding); }
+    /// Every request for a seated caller carries that seat at the TOP LEVEL, beside
+    /// `binding` — the engine reads it with `seat_of(request)`, and an absent seat is the
+    /// conversation's own cursor, unchanged from before seats existed
+    /// (`richos/engine/ecs/adapters/app.py:40-42, 122`).
+    fn seated(seat: Option<&str>, mut fields: Value) -> Value {
+        if let (Some(seat), Some(object)) = (seat, fields.as_object_mut()) {
+            object.insert("seat".into(), json!(seat));
         }
-        let result = self.request("bind", json!({
-            "scope": {"entity_id":entity,"thread_id":thread,"session_id":session,"turn_id":turn,"audience":"ceo"},
+        fields
+    }
+
+    /// Bind a cursor. **`seat` and `audience` are parameters now, and that is the whole of
+    /// the app side of the background-work spec's §5.8.**
+    ///
+    /// - `seat: None`, `audience: "ceo"` is the conversation, byte-for-byte the call this
+    ///   made before seats existed.
+    /// - `seat: Some(…)`, `audience: "worker"` is a background assignment's own cursor —
+    ///   a second row, so his turns rewriting his row leave it alone, and a narrower
+    ///   audience, so a background lease cannot read his private records
+    ///   (`ecs_inspect.py:30-31`, spec §5.8c).
+    ///
+    /// **The `current` probe carries the seat too.** Without it the compare-and-set would
+    /// read the CEO's row and could decide a work seat was already current. The engine's
+    /// `current` returns `{"binding": null}` for a seat that does not exist yet
+    /// (`adapters/app.py:122-125`), which is what makes the probe mean something.
+    pub fn bind(&self, entity: &str, thread: &str, session: &str, turn: &str,
+        seat: Option<&str>, audience: &str) -> Result<Binding, EcsError> {
+        let current = self.request("current", Self::seated(seat, json!({})))?;
+        if let Ok(binding) = serde_json::from_value::<Binding>(current["binding"].clone()) {
+            if binding.entity_id == entity && binding.thread_id == thread && binding.session_id == session && binding.turn_id == turn && binding.audience == audience { return Ok(binding); }
+        }
+        let result = self.request("bind", Self::seated(seat, json!({
+            "scope": {"entity_id":entity,"thread_id":thread,"session_id":session,"turn_id":turn,"audience":audience},
             "expected_revision":current.pointer("/binding/revision"),
             "source_ref":format!("ledger:{thread}:{turn}"),
             "request_id":format!("{session}:{turn}")
-        }))?;
+        })))?;
         serde_json::from_value(result["binding"].clone()).map_err(|e| EcsError(e.to_string()))
+    }
+
+    /// The obligation behind a background assignment: `open`, `settled` or `absent`.
+    ///
+    /// **Read from the obligation and never from its workers**, and the open set is
+    /// MIRRORED from the engine rather than reasoned out here
+    /// (`richos/engine/mega-lander/app.py:660`, `:680`), because the engine's seat
+    /// reconciler releases a seat on exactly this judgment and two different opinions about
+    /// what "settled" means is worse than either one of them.
+    ///
+    /// The engine's own sentence for why this is not the workers' verdict: *"An assignment
+    /// whose workers have all stopped is NOT settled: that is exactly the state where it
+    /// has run, stopped at integrate and is waiting for him"* (`app.py:664-669`).
+    pub fn obligation_state(&self, binding: &Binding, seat: Option<&str>, obligation: &str)
+        -> Result<crate::cognition::ObligationState, EcsError> {
+        use crate::cognition::ObligationState;
+        /// `OPEN_ASSIGNMENT_STATUSES`, mirrored from `mega-lander/app.py:660`.
+        const OPEN: [&str; 5] = ["candidate", "accepted", "active", "pending", "blocked"];
+        if obligation.is_empty() || obligation.len() > 1024 {
+            return Ok(ObligationState::Absent);
+        }
+        match self.request("inspect", Self::seated(seat, json!({
+            "binding": binding, "query": {"item_id": obligation}
+        }))) {
+            Ok(value) => match value.pointer("/item/status").and_then(Value::as_str) {
+                None => Ok(ObligationState::Absent),
+                Some(status) if OPEN.contains(&status) => Ok(ObligationState::Open),
+                Some(_) => Ok(ObligationState::Settled),
+            },
+            Err(error) if error.0.contains("item is absent") => Ok(ObligationState::Absent),
+            Err(error) => Err(error),
+        }
     }
 
     /// **Does this engine know what a seat is?** A read-only probe, run before the first
@@ -213,10 +271,9 @@ impl EcsBridge {
     /// a turn — the assignment. It is carried in the turn field because the binding's six
     /// fields are fixed by the engine's own `BINDING_FIELDS`
     /// (`richos/engine/ecs/adapters/app.py:13`) and `fence` demands all six exactly.
-    pub fn bind_work_seat(&self, entity: &str, thread: &str, session: &str, assignment: &str, seat: &str)
+    pub fn bind_work_seat(&self, entity: &str, thread: &str, session: &str, obligation: &str, seat: &str)
         -> Result<Binding, EcsError> {
-        if seat.is_empty() || seat.len() > 128
-            || !seat.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        if seat.is_empty() || seat.len() > 1024 || seat.trim().is_empty() || seat.contains(['\n', '\0']) {
             return Err(EcsError("a work seat must be a bounded, plain identifier".into()));
         }
         if seat == crate::entity::PERSON_DEFAULT {
@@ -228,20 +285,12 @@ impl EcsBridge {
                  binding one here would overwrite the CEO's own".into(),
             ));
         }
-        let current = self.request("current", json!({"seat": seat}))?;
-        if let Ok(binding) = serde_json::from_value::<Binding>(current["binding"].clone()) {
-            if binding.entity_id == entity && binding.thread_id == thread
-                && binding.session_id == session && binding.turn_id == assignment
-                && binding.audience == "worker" { return Ok(binding); }
-        }
-        let result = self.request("bind", json!({
-            "seat": seat,
-            "scope": {"entity_id":entity,"thread_id":thread,"session_id":session,"turn_id":assignment,"audience":"worker"},
-            "expected_revision":current.pointer("/binding/revision"),
-            "source_ref":format!("ledger:{thread}:{assignment}"),
-            "request_id":format!("{session}:{assignment}")
-        }))?;
-        serde_json::from_value(result["binding"].clone()).map_err(|e| EcsError(e.to_string()))
+        // **`turn_id` is the OBLIGATION.** Not a turn, and not the app's own assignment id:
+        // the engine's seat reconciler maps a seat back to its assignment by reading exactly
+        // this field off the row (`mega-lander/app.py:704`), so a seat whose `turn_id` were
+        // anything else could never be reconciled — it would be retained forever or
+        // released as an orphan, depending on which way the lookup failed.
+        self.bind(entity, thread, session, obligation, Some(seat), "worker")
     }
 
     pub fn brief(&self, binding: &Binding) -> Result<String, EcsError> {

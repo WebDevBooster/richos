@@ -164,6 +164,34 @@ impl MachineryObserver for TauriMachineryEmitter {
     }
 }
 
+/// **The push half of the background-work return path** (spec §3.4).
+///
+/// The UI's three-second work poll is gated on `mainView === "conversation" &&
+/// !document.hidden` (`ui/main.js`), so a result that lands while he is elsewhere would
+/// otherwise wait for him to come back and look. This is how it arrives when he IS there.
+///
+/// **It is best-effort and nothing depends on it.** The durable record is the assignment's
+/// own notice, held until delivered (`assignment.rs`), and the surface reads it at launch
+/// as well — which is what makes a result survive him not being there at all, and is why
+/// dropping this event costs a moment rather than a message.
+///
+/// The event name follows `rich://voice-notice`, the existing precedent for a line that
+/// arrives from outside a turn and lands on the calm timeline (spec §3.8).
+const EVENT_WORK_NOTICE: &str = "rich://work-notice";
+
+struct WorkNotice {
+    app: AppHandle,
+}
+
+impl richos_core::work_host::WorkNotifier for WorkNotice {
+    fn raised(&self, thread_id: &str, notice: &richos_core::assignment::PendingNotice) {
+        let _ = self.app.emit(
+            EVENT_WORK_NOTICE,
+            serde_json::json!({"threadId": thread_id, "notice": notice}),
+        );
+    }
+}
+
 /// The rotation/recovery seam (richos_core::LeaseFactory): spawns a fresh, un-primed
 /// lease exactly like the boot path (`NativeCognition::start`), so the spine can rotate at
 /// a context watermark or recover from a mid-turn crash without knowing anything about the
@@ -351,6 +379,14 @@ impl EngineLeaseFactory {
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
     permissions: Arc<richos_core::permissions::PermissionDesk>,
+    /// **The second compute lease and the actor that owns it** — the background-work spec
+    /// §2.1's work host.
+    ///
+    /// It is beside the spine rather than inside it, and it holds no reference to it: a
+    /// background assignment must not be able to take the mutex `send_message` holds for
+    /// the whole of a turn (`:561`, still held at `:582`), which is the whole of §0 row 3.
+    /// Read WITHOUT that lock everywhere it is read, like `control`.
+    work: Arc<richos_core::work_host::WorkHost>,
     provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
     spine: Mutex<Spine>,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
@@ -645,7 +681,30 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
              and open it again; if it still isn't here, whoever set RichOS up needs to look.",
         )?
         .to_string();
-    spine.messages(&thread).map_err(|e| e.to_string())
+    let messages = spine.messages(&thread).map_err(|e| e.to_string())?;
+    // ===================================================================================
+    // THE TURN BOUNDARY, AND THE ONE LINE THAT MAKES §7.1's DECISION REAL
+    // ===================================================================================
+    //
+    // The turn is over: the prompt ran, the reply is reconciled, and the mutex goes back
+    // below. If Rich wrote an assignment down during it — `richos_assignments.record`,
+    // which returns a receipt and nothing else — the work starts HERE, after the turn, on
+    // the work lease. Background-work spec §7.1: *"registration is the receipt, and
+    // `prepare` runs on the work lease after the turn has ended."*
+    //
+    // **The spine lock is dropped first, on purpose.** The work host must never be reached
+    // while it is held; that is §0 row 3's whole point, and doing the adoption inside the
+    // guard would have put the one lock this feature exists to escape back on the path.
+    //
+    // **It is a directory read at a boundary, not a timer.** Adoption happens once per
+    // assignment, at the end of the turn that created it. Nothing here retries and nothing
+    // restarts work by itself (spec §6.3).
+    let binding = spine.ledger().thread_binding(&thread).ok();
+    drop(spine);
+    if let Some(binding) = binding {
+        state.work.adopt_registered(&binding);
+    }
+    Ok(messages)
 }
 
 /// **A TYPED MESSAGE THAT NEVER BECAME A TURN, ON THE OPERATOR'S LOG** — the nightly's D4.
@@ -1080,7 +1139,28 @@ fn main() {
         }
     };
     let mut args = std::env::args_os().skip(1);
-    if args.next().as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
+    let first = args.next();
+    // The ASSIGNMENT REGISTER's stdio server (`richos-core`'s `assignment_tools.rs`), in
+    // the same shape and for the same reason as the onboarding one below it: this
+    // executable, spawned as a child of the running app, reading a scope the app wrote for
+    // the current turn. It is how a conversation turn ENDS on a receipt (background-work
+    // spec §1.1), and a failure here is stderr its parent captures plus the startup log —
+    // never an alert, because `activation.rs`'s parent-pid condition is false by
+    // construction in a child.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--assignments-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing assignment scope".to_string())
+            .and_then(|scope| richos_core::assignment_tools::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("assignment tool server: {error}"),
+                "RichOS could not start the helper it uses to write down work you have asked for.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
         let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
             .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))
                 .map_err(|e| e.to_string()));
@@ -1753,20 +1833,36 @@ fn main() {
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
-            spine.set_lease_factory(Box::new(EngineLeaseFactory {
+            // Whether THIS launch was told which engine to use. `EnvEngineDir` and
+            // `EnvEngineRoot` are the only two sources that are a statement rather than a
+            // search (`engine.rs` candidates 1 and 2).
+            let explicit_engine = matches!(
+                resolution.source,
+                Some(engine::EngineSource::EnvEngineDir) | Some(engine::EngineSource::EnvEngineRoot)
+            );
+            let lease_factory = || EngineLeaseFactory {
                 permissions: permissions.clone(),
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
-                // Whether THIS launch was told which engine to use. `EnvEngineDir` and
-                // `EnvEngineRoot` are the only two sources that are a statement rather than a
-                // search (`engine.rs` candidates 1 and 2).
-                explicit_engine: matches!(
-                    resolution.source,
-                    Some(engine::EngineSource::EnvEngineDir)
-                        | Some(engine::EngineSource::EnvEngineRoot)
-                ),
-            }));
+                explicit_engine,
+            };
+            spine.set_lease_factory(Box::new(lease_factory()));
+            // **THE WORK HOST — the background-work spec §2.1's second lease, and a SECOND
+            // factory instance rather than a shared one.** The factory is stateless except
+            // for the two cells it reads, and both are `Arc`s, so the work host sees the
+            // same engine directory and the same `claude` path the moment first-run setup
+            // rewrites them. Giving the spine's factory away instead would have coupled the
+            // two leases' lifetimes, which is the thing §2.1 exists to separate.
+            //
+            // It is started here and runs for the life of the process. With nothing
+            // registered it is a thread parked on a condition variable; it never polls.
+            let work = richos_core::work_host::WorkHost::new(
+                &data_dir.join("engine-state"),
+                Box::new(lease_factory()),
+                Arc::new(WorkNotice { app: app.handle().clone() }),
+            );
+            work.start();
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
             // ==============================================================================
@@ -2034,6 +2130,7 @@ fn main() {
 
             app.manage(AppState {
                 permissions,
+                work,
                 provider_auth: Mutex::new(Default::default()),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
@@ -2154,6 +2251,9 @@ fn main() {
             set_assertiveness,
             get_worker_status,
             get_work_status,
+            get_assignments,
+            take_work_notices,
+            stop_assignment,
             raise_proactive_message,
             // --- loro (2026-08-29) — appended, never reordered ---
             loro_available,
@@ -2295,6 +2395,15 @@ fn main() {
                 if let Some(state) = handle.try_state::<AppState>() {
                     let _ = state.control.request_stop();
                     state.control.shutdown_lease();
+                    // **The WORK lease is stopped BY NAME, because nothing else reaches it**
+                    // (background-work spec §2.5). `shutdown_lease` above walks one cancel
+                    // handle — `TurnControl`'s single slot — and the work lease is
+                    // deliberately not in it (§4.2). Destructors are not guaranteed to run
+                    // on this path (tao's event loop ends in `process::exit`), and the
+                    // supervisor's 100 ms parent-death poll is a backstop, not the promise.
+                    // Every assignment still open becomes `interrupted`; nothing becomes
+                    // `settled` on the way out.
+                    state.work.shutdown();
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
                     }
@@ -2370,6 +2479,89 @@ fn get_work_status(state: State<AppState>, thread_id: String) -> Result<richos_c
         spine.ledger().thread_binding(&thread_id).map_err(|e| e.to_string())?.entity_id().clone()
     };
     richos_core::work_status::read(&state.data_dir.join("engine-state"), entity.as_str(), &thread_id)
+}
+
+// =======================================================================================
+// BACKGROUND WORK — the return path, and the per-assignment stop
+//
+// Background-work spec §3 and §4.2. All three read the work host and the assignment
+// register, and NONE of them takes the spine's lock: they are the surface for work that
+// runs between turns, and `get_worker_status` is empty in exactly that window
+// (`:2300-2306`), which §7 names as the reason four acceptance steps cannot be walked
+// today.
+// =======================================================================================
+
+/// The assignments on this conversation, running or finished, oldest first.
+///
+/// **It answers between turns, which is the whole point.** The one surface that shows
+/// running workers today returns an empty view whenever no turn is open on that thread,
+/// and background work lives entirely in that window.
+#[tauri::command(async)]
+fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
+    let entity = assignment_scope(&state, &thread_id)?;
+    let rows = richos_core::assignment::read_all(
+        &state.data_dir.join("engine-state"),
+        entity.as_str(),
+        &thread_id,
+    )
+    .map_err(|e| e.to_string())?;
+    let live = state.work.live().map(|live| live.id);
+    Ok(serde_json::json!({
+        "assignments": rows.iter().map(|row| serde_json::json!({
+            "id": row.id,
+            "title": row.title,
+            "state": row.state.as_str(),
+            "detail": row.detail,
+            "repositories": row.repositories,
+            "registeredAtMs": row.registered_at_ms,
+            "canStop": row.state.is_open(),
+            "onTheConnection": live.as_deref() == Some(row.id.as_str()),
+        })).collect::<Vec<_>>()
+    }))
+}
+
+/// Everything he has not been told yet — **and taking them marks them told.**
+///
+/// Spec §3.4: the notice is durable, so it survives him being away and it survives a
+/// relaunch; this is the read the surface does on launch as well as on the pushed event,
+/// and the durable flag is what stops him hearing the same thing twice.
+#[tauri::command(async)]
+fn take_work_notices(
+    state: State<AppState>,
+    thread_id: String,
+) -> Result<Vec<richos_core::assignment::PendingNotice>, String> {
+    let entity = assignment_scope(&state, &thread_id)?;
+    richos_core::assignment::take_pending_notices(
+        &state.data_dir.join("engine-state"),
+        entity.as_str(),
+        &thread_id,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// **The per-assignment stop** (spec §4.2). Not `stop_turn`, which is the conversation's
+/// and stays the conversation's — *"OK, go with recommended"*, the CEO, 2026-09-17.
+#[tauri::command(async)]
+fn stop_assignment(state: State<AppState>, thread_id: String, assignment_id: String) -> Result<(), String> {
+    let entity = assignment_scope(&state, &thread_id)?;
+    state.work.stop_assignment(entity.as_str(), &thread_id, &assignment_id)
+}
+
+/// Which company this thread belongs to, answered WITHOUT waiting on a running turn.
+///
+/// The same two conditions `get_work_status` carries, named rather than discovered: a live
+/// turn on a DIFFERENT thread is refused honestly, and with no turn at all this depends on
+/// `try_lock`, which fails during exactly the window a turn holds the spine. Neither blocks
+/// delivery on the assignment's own thread (spec §3.2).
+fn assignment_scope(state: &State<AppState>, thread_id: &str) -> Result<EntityId, String> {
+    if let Some(active) = state.control.active_turn() {
+        if active.thread_id != thread_id {
+            return Err("Another conversation is working. Your assignments will refresh when it settles.".into());
+        }
+        return active.entity_id.ok_or_else(|| "This conversation has no company binding.".into());
+    }
+    let spine = state.spine.try_lock().map_err(|_| "Your assignments are changing. Please try again.")?;
+    Ok(spine.ledger().thread_binding(thread_id).map_err(|e| e.to_string())?.entity_id().clone())
 }
 
 /// The proactive-attention SEAM (architecture §2.3/§4.2, UX §5): persistence + the live
