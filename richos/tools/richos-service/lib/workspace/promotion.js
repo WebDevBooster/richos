@@ -42,9 +42,15 @@
  * # Idempotence, and temporal memory
  *
  * A promotion ledger (`_workspace_promotions.jsonl`, the same append-only pattern as the ingest
- * ledger) maps `sourceItemId` → the record ref that carries it. Re-running the pass over unchanged
- * evidence writes nothing. A CHANGED item (new `vendorEtag`, hence a new evidence revision) is a new
- * record that SUPERSEDES its predecessor — never an overwrite (loro-architecture #3).
+ * ledger) records one line per promoted REVISION: `(sourceItemId, vendorEtag)` → the record ref that
+ * carries it. Re-running the pass over unchanged evidence writes nothing. A CHANGED item (new
+ * `vendorEtag`, hence a new evidence revision) is a new record that SUPERSEDES its predecessor —
+ * never an overwrite (loro-architecture #3).
+ *
+ * The ledger is read BY REVISION and not just by item, and that is the whole of the 2026-09-17 fix:
+ * the evidence zone keeps every revision forever, so a pass sees the old ones again on every run and
+ * must recognize the ones it has already promoted. See `readPromotionHistory` for what went wrong
+ * when it could only see the newest.
  *
  * PURE where it decides anything: every function above `promoteFromEvidence` takes literals and
  * returns literals, so the mapping is testable without a corpus, a writer or a Google account. The
@@ -381,15 +387,46 @@ export function readEvidenceZone(zone = workspaceZone(), opts = {}) {
   return out;
 }
 
-/** The promotion ledger as a map `sourceItemId` → the newest entry for it. */
-export function readPromotionLedger(zone = workspaceZone()) {
+/**
+ * One promoted REVISION's key. `(sourceItemId, vendorEtag)` — the ingest ledger's key exactly
+ * (`ledger.js:alreadyIngested`), because the two ledgers answer the same question about the same
+ * thing and a promotion ledger keyed any more loosely cannot answer it at all (see
+ * `readPromotionHistory`).
+ * @param {string} sourceItemId
+ * @param {string} vendorEtag
+ */
+export function revisionKey(sourceItemId, vendorEtag) {
+  return `${sourceItemId}\n${vendorEtag ?? ''}`;
+}
+
+/**
+ * The promotion ledger read as BOTH things a pass needs to know, in one parse.
+ *
+ *   head       `sourceItemId` → the newest entry for it: WHAT A NEW REVISION SUPERSEDES.
+ *   revisions  every `(sourceItemId, vendorEtag)` ever promoted: WHAT HAS ALREADY BEEN WRITTEN.
+ *
+ * THE SECOND ONE IS NOT A CONVENIENCE, AND ITS ABSENCE WAS THE DEFECT (reproduced 2026-09-17, the
+ * CEO's third live run of the seeded test calendar: `sync` exited 2 with fourteen refusals reading
+ * *"already exists. Refusing to overwrite it"*). The evidence zone is IMMUTABLE and cumulative — an
+ * item that changed twice at the source leaves THREE revision directories, and `readEvidenceZone`
+ * returns all three on every pass. Asked only "is this the newest promoted etag?", the pass answered
+ * "no" for the oldest revision — which it had promoted on the first sync — and tried to write that
+ * record a second time. The writer refused, and it was right to: the record existed and a belief is
+ * superseded, never silently replaced. The bug was never in the refusal; it was in re-offering a
+ * revision that had already become memory.
+ *
+ * @param {string} [zone]
+ * @returns {{head:Map<string,Object>, revisions:Set<string>}}
+ */
+export function readPromotionHistory(zone = workspaceZone()) {
   const file = promotionLedgerPath(zone);
-  const map = new Map();
+  const head = new Map();
+  const revisions = new Set();
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
   } catch {
-    return map;
+    return { head, revisions };
   }
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -400,9 +437,21 @@ export function readPromotionLedger(zone = workspaceZone()) {
     } catch {
       continue; // a damaged line must not stop a promotion pass; it is an append-only log, not truth
     }
-    if (entry && entry.sourceItemId) map.set(entry.sourceItemId, entry);
+    if (!entry || !entry.sourceItemId) continue;
+    head.set(entry.sourceItemId, entry);
+    revisions.add(revisionKey(entry.sourceItemId, entry.vendorEtag));
   }
-  return map;
+  return { head, revisions };
+}
+
+/**
+ * The promotion ledger as a map `sourceItemId` → the newest entry for it.
+ *
+ * The HEAD half of `readPromotionHistory`, derived from it rather than re-parsed, so the two readers
+ * can never disagree about what the newest row is.
+ */
+export function readPromotionLedger(zone = workspaceZone()) {
+  return readPromotionHistory(zone).head;
 }
 
 function appendPromotion(zone, entry) {
@@ -429,21 +478,49 @@ export function promoteFromEvidence(opts) {
     throw new Error('promoteFromEvidence: a write function is required — this module never writes to the corpus itself');
   }
   const zone = opts.zone || workspaceZone();
-  const ledger = readPromotionLedger(zone);
+  const { head, revisions } = readPromotionHistory(zone);
   const promoted = [];
   const skipped = [];
   const failed = [];
 
+  // Oldest observation first (`readEvidenceZone` sorts on `fetchedAt`), so when one pass sees two new
+  // revisions of the same item they chain in the order the source produced them: A ← B ← C.
   for (const { item, governance, evidenceLink } of readEvidenceZone(zone)) {
     const key = item.sourceItemId;
-    const seen = ledger.get(key);
-    if (seen && seen.vendorEtag === (item.provenance?.vendorEtag ?? '')) {
-      skipped.push({ sourceItemId: key, reason: 'already promoted (unchanged revision)', ref: seen.ref });
+    const etag = item.provenance?.vendorEtag ?? '';
+    const seen = head.get(key);
+    if (revisions.has(revisionKey(key, etag))) {
+      // THIS EXACT REVISION IS ALREADY MEMORY. Whether it is still the current one is worth saying
+      // out loud — "unchanged" and "since superseded" are two different states of the CEO's calendar
+      // and a reader of the sync summary should not have to guess which one held an item back.
+      const current = seen && seen.vendorEtag === etag;
+      skipped.push({
+        sourceItemId: key,
+        reason: current
+          ? 'already promoted (unchanged revision)'
+          : 'already promoted (an earlier revision, since superseded)',
+        ref: current ? seen.ref : null,
+      });
       continue;
     }
     const decision = promotionDecision(item);
     if (!decision.promote) {
       skipped.push({ sourceItemId: key, reason: decision.reason });
+      continue;
+    }
+    // An UNSEEN revision that was observed BEFORE the one already promoted is not news — it is an
+    // older version of the truth arriving late (a full resync after a lost sync token replays the
+    // zone). Superseding a newer record with it would move memory backwards, and `supersededBy`
+    // would then point at the older belief. Rows written before this field existed carry no
+    // `fetchedAt`, and an unknown one never blocks — a legacy ledger must not start refusing work.
+    const fetchedAt = Number.isFinite(item.provenance?.fetchedAt) ? item.provenance.fetchedAt : null;
+    const headFetchedAt = Number.isFinite(seen?.fetchedAt) ? seen.fetchedAt : null;
+    if (seen && fetchedAt !== null && headFetchedAt !== null && fetchedAt < headFetchedAt) {
+      skipped.push({
+        sourceItemId: key,
+        reason: 'an older revision than the one already promoted — memory never moves backwards',
+        ref: seen.ref,
+      });
       continue;
     }
     const request = promotedRecordFor(item, { ...governance, evidenceLink }, {
@@ -457,12 +534,18 @@ export function promoteFromEvidence(opts) {
       const result = opts.dryRun ? { ref: `rec:(dry-run):${request.id}` } : opts.write(request);
       const entry = {
         sourceItemId: key,
-        vendorEtag: item.provenance?.vendorEtag ?? '',
+        vendorEtag: etag,
         ref: result.ref,
         supersedes: request.supersedes || null,
+        fetchedAt,
         promotedAt: (opts.now ? opts.now() : Date.now()),
       };
       if (!opts.dryRun) appendPromotion(zone, entry);
+      // The pass's own view of the ledger moves with it. Without this a second new revision in the
+      // SAME pass would supersede the record the first one just retired, and the writer would refuse
+      // it — correctly — with "is already superseded by".
+      head.set(key, entry);
+      revisions.add(revisionKey(key, etag));
       promoted.push({ ...entry, id: request.id, scope: request.scope, title: request.title });
     } catch (error) {
       failed.push({ sourceItemId: key, id: request.id, error: String(error.message || error) });
