@@ -702,8 +702,19 @@ export function workspaceRunStatePath(zone = workspaceZone()) {
 
 /**
  * Least-privilege READ-ONLY Google scopes (§6.2). Calendar is P1 (smallest privacy surface, temporal
- * skeleton first), Drive is P2; Gmail is wired in P3. `calendar.events.readonly` is the narrowest that
- * lists events. NO write scopes — this layer observes, it never modifies the CEO's cloud.
+ * skeleton first), Drive is P2; Gmail is wired in P3. NO write scopes — this layer observes, it never
+ * modifies the CEO's cloud.
+ *
+ * Calendar was pinned to `calendar.events.readonly` — the narrowest that lists events, but NOT one of
+ * the scopes `calendarList.list` accepts (Google's own method reference: `calendar.readonly`,
+ * `calendar`, `calendar.calendarlist` or `calendar.calendarlist.readonly`) — so discovering the
+ * account's other calendars was never possible under it, and every install ran primary-only,
+ * reported as DEGRADED (`adapters/google-calendar.js:CALENDAR_LIST_DEGRADED_REASON`). Asked "read
+ * events" vs "read calendars, so every calendar syncs", the CEO answered **yes** to the wider one on
+ * 2026-09-17 (`richos-hq/wiki/ceo-decisions.md` §44), so Calendar is now `calendar.readonly`: the
+ * adapter's own discovery call succeeds once an account re-consents, the next `connect` is what
+ * carries that re-consent, and a deployment still holding the old events-only grant is degraded to
+ * primary-only rather than silently given the wider read — exactly the shape §40 set for Drive.
  *
  * Drive was pinned to `drive.metadata.readonly` — the narrower of the two options §6.2 lists — because
  * widening changes what the CEO consents to on the OAuth screen (§6.1), which is HIS decision and not
@@ -714,7 +725,7 @@ export function workspaceRunStatePath(zone = workspaceZone()) {
  * that decision and stays metadata-first (§40: "graduated privacy for mail was not asked").
  */
 export const GOOGLE_SCOPES = {
-  calendar: 'https://www.googleapis.com/auth/calendar.events.readonly',
+  calendar: 'https://www.googleapis.com/auth/calendar.readonly', // P1 — every calendar, per CEO decision §44
   drive: 'https://www.googleapis.com/auth/drive.readonly', // P2 — bodies, per CEO decision §40
   mail: 'https://www.googleapis.com/auth/gmail.metadata', // P3, metadata-first (graduated privacy)
 };

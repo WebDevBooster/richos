@@ -33,6 +33,7 @@ import {
 import { GoogleClient, GoneError } from '../lib/workspace/google-client.js';
 import {
   GoogleCalendarAdapter, ADAPTER_VERSION, CALENDAR_LIST_DEGRADED_REASON, normalizeCursorMap,
+  CALENDAR_LIST_SCOPE, CALENDAR_EVENTS_ONLY_SCOPE,
 } from '../lib/workspace/adapters/google-calendar.js';
 import {
   GoogleDriveAdapter, ADAPTER_VERSION as DRIVE_ADAPTER_VERSION, assertNoFileContent,
@@ -2888,6 +2889,19 @@ test('a config written BEFORE the CEO widened Drive (§40) is still accepted, no
   assert.ok(!requestableScopes().includes(GMAIL_CONTENT_SCOPE), 'PROBE: the list is not simply permissive');
 });
 
+test('a config written BEFORE the CEO widened Calendar (§44) is still accepted, not refused', () => {
+  // Same shape as Drive above: the narrower `calendar.events.readonly` is not a typo — the registry
+  // can still run it, primary-calendar-only. A validator that refused it would break an existing
+  // installation to enforce a preference.
+  const older = validateClientConfig({
+    clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com',
+    scopes: [CALENDAR_EVENTS_ONLY_SCOPE],
+  });
+  assert.equal(older.ok, true, older.problems.join('; '));
+  assert.ok(requestableScopes().includes(CALENDAR_EVENTS_ONLY_SCOPE));
+  assert.ok(requestableScopes().includes(GOOGLE_SCOPES.calendar), 'PROBE: the current, widened scope is still requestable too');
+});
+
 test('an omitted scope list means CALENDAR ONLY — the least-privilege grant the guide sets up', () => {
   const v = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com' });
   assert.deepEqual(v.config.accounts[0].scopes, [GOOGLE_SCOPES.calendar]);
@@ -2970,6 +2984,27 @@ test('an authorization predating §40 runs Drive in METADATA mode and SAYS SO �
 
   // Neither mode is a literal in the registry: both scopes come from config.js or the adapter.
   assert.deepEqual(grantsFor(sourceEntryForTest('drive')).map((g) => g.scope), [GOOGLE_SCOPES.drive, DRIVE_METADATA_SCOPE]);
+});
+
+test('an authorization predating §44 runs Calendar PRIMARY-ONLY and SAYS SO — PROBE: the widened grant lists every calendar', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const older = buildRegistry({ ...args, grantedScopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  const calendar = older.enabled.find((e) => e.source === 'calendar');
+  assert.ok(calendar, 'a source that still has a usable grant is not switched off by a widened default');
+  assert.match(calendar.degraded, /predates the widened Calendar scope/);
+  assert.match(calendar.degraded, /workspace connect google/, 'and it names the command that fixes it');
+
+  const current = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar] });
+  const wide = current.enabled.find((e) => e.source === 'calendar');
+  assert.equal(wide.degraded, undefined, 'the full grant is not "limited"');
+
+  // Neither scope is a literal in the registry: both come from config.js or the adapter.
+  assert.deepEqual(
+    grantsFor(sourceEntryForTest('calendar')).map((g) => g.scope),
+    [GOOGLE_SCOPES.calendar, CALENDAR_EVENTS_ONLY_SCOPE],
+  );
+  assert.equal(GOOGLE_SCOPES.calendar, 'https://www.googleapis.com/auth/calendar.readonly', 'PROBE: and that is the §44 scope');
+  assert.equal(GOOGLE_SCOPES.calendar, CALENDAR_LIST_SCOPE, 'the config pin and the adapter constant name the same scope');
 });
 
 /** Local helper so the assertion above reads as a question about the registry, not about an import. */
@@ -3466,6 +3501,43 @@ await atest('an OLD grant still pulls Drive, metadata-only, and every pull says 
     await sync(g.deps({ http: mock.http }));
     assert.ok(mock.calls.some((c) => /\/export/.test(c.url)), 'the document text was exported');
     assert.ok(!g.text().includes('limited:'), 'and nothing is limited');
+  } finally { g.cleanup(); }
+});
+
+await atest('connect asks for the WIDENED Calendar scope, so the consent screen shows it (the §44 re-consent seam)', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+      clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com',
+      sources: ['calendar'],
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.ok(requested.includes(GOOGLE_SCOPES.calendar), 'the widened scope is what Google is asked for');
+    assert.equal(GOOGLE_SCOPES.calendar, 'https://www.googleapis.com/auth/calendar.readonly', 'PROBE: and that is the §44 scope');
+    assert.ok(!requested.includes(CALENDAR_EVENTS_ONLY_SCOPE), 'the narrower one is a fallback for old tokens, never a request');
+  } finally { f.cleanup(); }
+});
+
+await atest('status names the re-consent for an account whose grant predates the widened Calendar scope (§44)', async () => {
+  const f = wsFixture({ scopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }))));
+    f.lines.length = 0;
+    await status(f.deps({ http: googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }).http }));
+    assert.match(f.text(), /LIMITED:\s+primary calendar only.*§44/, 'status says so in one line');
+    assert.match(f.text(), /workspace connect google/, 'and names the command that fixes it');
+  } finally { f.cleanup(); }
+
+  // PROBE: an account that already holds the widened grant is not "limited".
+  const g = wsFixture({ scopes: [GOOGLE_SCOPES.calendar] });
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }))));
+    g.lines.length = 0;
+    await status(g.deps({ http: googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }).http }));
+    assert.ok(!g.text().includes('LIMITED:'), 'the widened grant reads no LIMITED line');
   } finally { g.cleanup(); }
 });
 
