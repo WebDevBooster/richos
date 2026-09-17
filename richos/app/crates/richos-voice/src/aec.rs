@@ -550,6 +550,8 @@ pub struct EchoCanceller {
     freeze_hangover: u32,
     diverging_run: u32,
     confident_run: u32,
+    /// Set once `confident_run` has ever reached the hold. See `confident()`.
+    confident_latched: bool,
     /// Has the filter ever reached `ADAPT_PROTECT_ERLE_DB`? Latched; cleared only by a reset.
     protect_latched: bool,
     far_end_blocks: u64,
@@ -605,6 +607,7 @@ impl EchoCanceller {
             freeze_hangover: 0,
             diverging_run: 0,
             confident_run: 0,
+            confident_latched: false,
             protect_latched: false,
             far_end_blocks: 0,
             reference_underruns: 0,
@@ -638,19 +641,102 @@ impl EchoCanceller {
     /// Three conditions, all of them measured:
     /// 1. The filter has seen at least [`CONFIDENCE_WARMUP_BLOCKS`] (2.000 s) of Rich actually
     ///    speaking, so it has had something to learn from.
-    /// 2. The tracked residual floor is below [`CONFIDENT_LEAK_RMS`] — 6 dB under the VAD's
-    ///    absolute speech threshold.
+    /// 2. **Every one of [`CONFIDENCE_HOLD_BLOCKS`] consecutive far-active blocks** had its own
+    ///    residual below [`CONFIDENT_LEAK_RMS`] — 6 dB under the VAD's absolute speech
+    ///    threshold. See [`EchoCanceller::confidence_condition`] for why this is the block's own
+    ///    residual and no longer a smoothed estimate of it, and what the estimate cost on the
+    ///    CEO's hardware.
     /// 3. No reference has been lost to a ring overrun, which would mean the alignment the
     ///    whole estimate rests on is stale.
+    ///
+    /// ## IT LATCHES, and that is not laziness — it is what makes barge-in possible at all
+    ///
+    /// Condition 2 is evaluated on the residual, and **the CEO's own voice is in the residual**:
+    /// he is near-end, the canceller removes only Rich, so when he speaks the residual rises and
+    /// the run resets. Without the latch, `confident()` goes false the instant he opens his
+    /// mouth — and `confident()` is precisely what licenses the 0.400 s barge-in window he is
+    /// opening his mouth to use. The window would therefore never be in force at the one moment
+    /// it exists for.
+    ///
+    /// That is not a hypothetical. It was measured as a test failure:
+    /// `barge_in_composition::a_four_hundred_millisecond_interruption_cuts_rich_off_and_becomes_a_turn`
+    /// went red on the unlatched form with *"0.400 s of the CEO talking over Rich did not
+    /// interrupt him"*, which is the feature removing itself.
+    ///
+    /// **What the latch asserts is a property of the ECHO PATH**, not of this second: the
+    /// speakers, the room and the microphone are what they are, and they do not change because
+    /// somebody started talking. When they DO change — a device swap, or a filter that has
+    /// diverged far enough to be wiped — [`EchoCanceller::reset_filter`] clears the latch with
+    /// everything else the filter had learned, which is the honest place for it to be cleared.
+    /// A ring overrun withdraws it immediately and without a reset, because then the alignment
+    /// the whole measurement rests on is stale.
     pub fn confident(&self) -> bool {
-        self.confident_run >= CONFIDENCE_HOLD_BLOCKS && self.ring.overrun_samples() == 0
+        self.confident_latched && self.ring.overrun_samples() == 0
     }
 
     /// The instantaneous form of the confidence test, before the hold. Split out so the hold
     /// is visibly a debounce rather than buried in a boolean.
-    fn confidence_condition(&self) -> bool {
+    /// **THE CLAIM, MEASURED — not an estimate of it.** `e_rms` is THIS block's residual, the
+    /// audio that actually reached the VAD, the endpointer and the recorder.
+    ///
+    /// ## What this used to be, and why an estimate could not carry the claim
+    ///
+    /// It read `self.residual_typ_rms < CONFIDENT_LEAK_RMS` — a smoothed average, filtered to
+    /// exclude blocks where the near-end detector suspected the CEO was talking. Both
+    /// properties are right for what that estimate is FOR (predicting how much echo to expect
+    /// at a given reference level), and both are fatal when it is asked to decide confidence on
+    /// a path where the canceller removes nothing:
+    ///
+    /// - **the `!near_end` filter throws away the loud blocks.** Uncancelled echo is speech, so
+    ///   it trips the near-end detector — and those are precisely the blocks the threshold is
+    ///   about. What survives into the average is the quiet ones.
+    /// - **the average is frozen while Rich is silent**, so a value that dipped under the
+    ///   threshold as a sentence trailed off keeps satisfying the condition through the whole
+    ///   gap before the next one.
+    ///
+    /// ## Measured on the CEO's hardware, 2026-09-17 — three variants, five runs each
+    ///
+    /// Mac mini Speakers out, Elgato Wave:3 in, `examples/aec_live --secs 30`, full traces in
+    /// `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`. Steady-state ERLE was −0.5 …
+    /// +0.7 dB in every run — the canceller removes nothing measurable on this path — so every
+    /// CONFIDENT below is false, and each one retires the taint rule and shortens the barge-in
+    /// debounce from 5.008 s to 0.400 s on a signal still carrying Rich at full strength.
+    ///
+    /// ```text
+    ///   shipped (smoothed estimate)                   2 of 5 CONFIDENT   ~5.1 s
+    ///   + estimate measured only while far-active     4 of 5 CONFIDENT   ~5.1 s
+    ///   + the hold counted only while far-active      4 of 5 CONFIDENT   5.4-19.7 s
+    ///   this: the BLOCK's own residual                0 of 5 CONFIDENT
+    /// ```
+    ///
+    /// The two middle rows are recorded because they are the evidence: tightening WHERE and
+    /// WHEN the estimate was taken made it worse, which is what identified the estimator itself
+    /// as the problem rather than its sampling.
+    ///
+    /// **What each false CONFIDENT cost, in the same runs:** 60 and 62 near-end false positives
+    /// per ~1218 blocks, and **3 occasions in 30 seconds where Rich would have cut himself
+    /// off** — the one regression the CEO's brief names: *"a regression here makes Rich
+    /// interrupt himself mid-sentence, which is worse than the current cost."*
+    ///
+    /// ## Why the direct form is not merely stricter, it is the right claim
+    ///
+    /// [`EchoCanceller::confident`] means: leftover echo is, by measurement, incapable of
+    /// reaching the threshold that decides a barge-in. That sentence is about what the residual
+    /// DOES, block by block, and [`CONFIDENCE_HOLD_BLOCKS`] consecutive far-active blocks under
+    /// [`CONFIDENT_LEAK_RMS`] is that sentence written down. No smoothing, no exclusions,
+    /// nothing to be skewed.
+    ///
+    /// **Headphones are unaffected**, which is the case this must not break: the microphone
+    /// never hears Rich, so every block's residual is the room noise floor — measured at
+    /// −67.9 dBFS on this machine, 15.9 dB under the threshold — and confidence still arrives
+    /// after 2.000 s of far-active blocks.
+    ///
+    /// **And the CEO's own voice makes it conservative in the safe direction.** If he talks over
+    /// Rich the residual rises, the run resets, and the long debounce comes back until he stops.
+    /// That is the correct bias: the failure it prevents is Rich interrupting himself.
+    fn confidence_condition(&self, e_rms: f32) -> bool {
         self.far_end_blocks >= CONFIDENCE_WARMUP_BLOCKS as u64
-            && self.residual_typ_rms < CONFIDENT_LEAK_RMS
+            && e_rms < CONFIDENT_LEAK_RMS
             && self.ring.overrun_samples() == 0
     }
 
@@ -692,6 +778,7 @@ impl EchoCanceller {
         self.residual_typ_rms = 1.0;
         self.residual_seeded = false;
         self.confident_run = 0;
+        self.confident_latched = false;
         self.protect_latched = false;
         self.d_power_smooth = 0.0;
         self.e_power_smooth = 0.0;
@@ -1051,6 +1138,13 @@ impl EchoCanceller {
             // The TYPICAL residual, over blocks where we do not suspect the CEO is talking.
             // Symmetric and slow (0.02 = a ~0.8 s time constant), so it is a genuine average
             // rather than a floor, and an occasional missed near-end block barely moves it.
+            //
+            // **It is a REPORTED number and no longer a verdict.** Until 2026-09-17
+            // `confidence_condition` compared this estimate against `CONFIDENT_LEAK_RMS`, and
+            // on a path with no cancellation the `!self.near_end` filter on this very line is
+            // what made that unsafe: uncancelled echo trips the near-end detector, so the loud
+            // blocks — the only ones the threshold is about — are the ones excluded from the
+            // average. See `confidence_condition` for the measurement that replaced it.
             if !self.near_end {
                 if self.residual_seeded {
                     self.residual_typ_rms += (e_rms - self.residual_typ_rms) * 0.02;
@@ -1068,10 +1162,49 @@ impl EchoCanceller {
             }
         }
 
-        if self.confidence_condition() {
-            self.confident_run = self.confident_run.saturating_add(1);
-        } else {
-            self.confident_run = 0;
+        // **THE HOLD IS COUNTED IN EVIDENCE, NOT IN WALL CLOCK.**
+        //
+        // This used to run on every block, and `CONFIDENCE_HOLD_BLOCKS` therefore meant 2.000 s
+        // of elapsed time rather than 2.000 s of anything being tested. `residual_typ_rms` is
+        // only updated while the reference is active, so during a silence it is FROZEN at its
+        // last value — and a frozen number that happens to sit under the threshold satisfies
+        // `confidence_condition()` 125 times in a row without a single new observation.
+        //
+        // Rich is silent for a long time in every real session: between sentences, while the
+        // next one synthesizes, and for the whole of the CEO's turn. The gap at the end of a
+        // sentence is the worst case, because the residual is decaying with the echo tail as
+        // the reference falls away, so the value that gets frozen is close to the room noise
+        // floor rather than close to the echo.
+        //
+        // **This was measured before it was written, and the first attempt at a fix made it
+        // worse, which is what identified the mechanism.** On the CEO's hardware, five runs of
+        // `examples/aec_live --secs 30` each (Mac mini Speakers, Elgato Wave:3; traces in
+        // `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`):
+        //
+        // ```text
+        //   shipped                                         2 of 5 runs CONFIDENT at ~5.1 s
+        //   + residual measured only while far-active        4 of 5 runs CONFIDENT at ~5.1 s
+        //   + this: the hold counted only while far-active   see the doc's table
+        // ```
+        //
+        // Tightening WHERE the residual is measured made the freeze happen more often, not
+        // less. Both changes are needed and neither is sufficient: one decides what the number
+        // means, this one decides when it is allowed to count toward a verdict.
+        //
+        // Silence neither helps nor hurts — the run is HELD, not reset. Resetting would demand
+        // 2.000 s of unbroken loud speech, which natural speech does not contain, and would
+        // make the short barge-in window unreachable on headphones too. Holding means the
+        // canceller earns confidence from 2.000 s of blocks in which its claim was actually
+        // under test.
+        if far_active {
+            if self.confidence_condition(e_rms) {
+                self.confident_run = self.confident_run.saturating_add(1);
+                if self.confident_run >= CONFIDENCE_HOLD_BLOCKS {
+                    self.confident_latched = true;
+                }
+            } else {
+                self.confident_run = 0;
+            }
         }
 
         self.last = BlockStats {

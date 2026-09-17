@@ -72,3 +72,7 @@ path = "examples/aec_transcribe.rs"
 [[example]]
 name = "aec_probe"
 path = "examples/aec_probe.rs"
+
+[[example]]
+name = "aec_capture"
+path = "examples/aec_capture.rs"
