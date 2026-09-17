@@ -2035,7 +2035,7 @@ impl Spine {
                 // promise about saved work that did not exist, and a retry that could not
                 // succeed. The statement below is authored in `interruption.rs` from the
                 // classification and from counts read off the ledger.
-                let statement = self.record_interruption(turn_id, &e.to_string());
+                let (cause, statement) = self.record_interruption(turn_id, &e.to_string());
                 self.emit(StreamEvent::TurnError {
                     thread_id: thread_id.to_string(),
                     turn_id: turn_id.to_string(),
@@ -2046,7 +2046,35 @@ impl Spine {
                 // signal (this `Err`) just fired — attempt ONE automatic respawn +
                 // replay if a factory is attached. A genuinely dead recovery path (no
                 // factory, or the fresh spawn ALSO fails) surfaces the error honestly.
-                let will_recover = allow_recovery && self.lease_factory.is_some();
+                // **AND ONLY WHEN A REPLAY COULD ACTUALLY HELP** — the dev walk's N4
+                // (`docs/verification/2026-09-17-main-aa0165cc-dev-walk-audit.md`). Its
+                // evidence is the app's own ledger, from ONE press of Enter:
+                //
+                //     PromptReceived   turn_7ba34774…  "What is 17 times 3? …"   at …297651
+                //     TurnInterrupted  turn_7ba34774…  "cognition io: …"         at …297664
+                //     ActionRecorded   act_fa1397b0…   crash_recovery
+                //     PromptReceived   turn_0cc5570d…  "What is 17 times 3? …"   at …297673
+                //
+                // **One keystroke, two prompts, 22 ms apart**, and the audit names the
+                // principle exactly: *"An immediate automatic replay is the right instinct
+                // for a crash and the wrong one for a refusal the app has already read."*
+                //
+                // On that walk both attempts were refused locally so nothing was charged.
+                // On a build that reaches the model it is two requests for one question —
+                // and against a permanent condition, an expired subscription say, the replay
+                // can never succeed and he pays for it anyway.
+                //
+                // The discriminator is the classification written one line above, and that
+                // is the point of having classified at all: `offers_retry` is already the
+                // answer to "can asking again help?", and it is the same fact that decides
+                // whether a retry CONTROL is drawn for him. The app cannot coherently tell
+                // him a retry is pointless and then perform one itself, 22 ms later, without
+                // asking. One fact, both decisions.
+                //
+                // `Transient` and `Unknown` still recover, which is the whole of what this
+                // seam was built for (continuity §5.3) — a crashed child is exactly the case
+                // a silent respawn should cover, and it still does.
+                let will_recover = allow_recovery && cause.offers_retry() && self.lease_factory.is_some();
                 // ADDITIVE (§13). THE TWO CASES ARE DIFFERENT STATEMENTS, and emitting the
                 // wrong one is how the wire and a reload stop agreeing:
                 //   - no recovery ahead  -> `failed`, and the turn stays visible as failed;
@@ -2618,7 +2646,11 @@ impl Spine {
     /// terminal and durable at this point; losing the explanation degrades the surface to
     /// its generic card, which is exactly the fallback a pre-2026-09-17 record gets. Raising
     /// here would convert a cosmetic loss into a lost error path.
-    fn record_interruption(&mut self, turn_id: &str, reason: &str) -> String {
+    fn record_interruption(
+        &mut self,
+        turn_id: &str,
+        reason: &str,
+    ) -> (crate::interruption::InterruptionCause, String) {
         let cause = crate::interruption::classify(reason);
         let loss = self.turn_loss(turn_id);
         let record = crate::interruption::InterruptionRecord::new(cause, &loss);
@@ -2632,7 +2664,7 @@ impl Spine {
         if let Err(e) = self.ledger.record_interruption_cause(turn_id, &record) {
             eprintln!("[richos] the reason for that interruption could not be written down: {e}");
         }
-        statement
+        (cause, statement)
     }
 
     /// **Everything that happens when a turn dies to the upstream API, in the order the
