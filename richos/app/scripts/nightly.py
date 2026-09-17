@@ -305,6 +305,14 @@ def finish(info, out):
     someone could have force-pushed or rebased main while a walker was on the
     candidate. Nobody can install anything published here before this runs.
     """
+    # `build` and `finish` can run as separate processes, an arbitrary time apart
+    # (a QA walk in between), sharing the one dedicated worktree. If anything else
+    # re-checked it out in the meantime (a `check` or another `build`), this is the
+    # same guard `build` itself applies right after compiling, re-applied here
+    # because that guarantee does not survive a second process using the worktree.
+    if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
+        raise ValueError("the source worktree no longer matches this candidate's build "
+                         "commit; run \"nightly-local.py build\" again before publishing")
     verify_candidate_manifest(info, out)
     verify_source_is_current(info["source_commit"])
     scripts = ROOT / APP / "scripts"
