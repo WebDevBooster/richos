@@ -2140,6 +2140,12 @@ class EventStore:
                 entity_id=entity_id,
                 thread_id=thread_id,
                 session_id=session_id or context["session_id"],
+                # checkpoint.compiled is a CONVERSATIONAL_EVENT, so _reduce fences it
+                # against the row belonging to the EVENT's own person. Left to
+                # default, it carried the revision read from THIS person's row to
+                # the ceo-default row -- which on a per-thread seat is another
+                # thread's row, or none at all.
+                person_id=person_id,
                 source_ref=f"ecs:scope-sequence:{entity_id}:{thread_id}:{base['seq']}",
                 idempotency_key=(
                     f"checkpoint:{entity_id}:{thread_id}:{base['seq']}:{budget_chars}:{audience}"
