@@ -151,7 +151,7 @@ test('formatWhen returns null for an item with no time rather than inventing one
 group('The body Rich reads back — provenance survives truncation, and the claim stays honest');
 
 test('renderEventBody orders it WHEN, WHERE FROM, WHO, notes — because truncation cuts the end', () => {
-  const body = renderEventBody(event(), { evidenceLink: 'ceo/unfiled/evidence/workspace/x/item.json' });
+  const body = renderEventBody(event(), { evidenceLink: 'ceo/evidence/unfiled/workspace/x/item.json' });
   const dayAt = body.indexOf('Tuesday, September 15, 2026');
   const linkAt = body.indexOf('https://calendar.google.com/event?eid=evt_pricing');
   const peopleAt = body.indexOf('Alice Nguyen');

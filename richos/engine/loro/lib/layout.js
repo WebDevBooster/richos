@@ -9,7 +9,24 @@ export const CORPUS_ENV = 'LORO_CORPUS';
 
 export const ROOT_ENV = 'LORO_ROOT';
 
-const NEVER_WALK = ['raw', 'node_modules'];
+/**
+ * Directory names the compiler never descends into, wherever they appear under an allowlisted
+ * page or record directory.
+ *
+ * `evidence` is here as a SECOND, INDEPENDENT barrier, not as the primary one. The primary barrier
+ * is the closed allowlist in `repoPaths`/`corpusPaths` below — evidence trees live outside every
+ * enumerated page and record directory, and that is what makes "evidence is NEVER compiled" true by
+ * construction. This list is what holds when a writer puts an evidence tree inside an allowlisted
+ * directory anyway, which is exactly what happened: `evidenceRoot()` resolved its unfiled branch to
+ * `ceo/unfiled/evidence`, inside the recursively-walked `ceo/unfiled` record directory, so the only
+ * thing keeping raw transcripts out of compiled memory was that their files were named `item.json`
+ * and `content.txt` rather than `*.md` (`pipeline.js` writes `transcript.md`). Two barriers, so
+ * neither one is load-bearing alone.
+ *
+ * Note this excludes a MATCHING SUBDIRECTORY, never the walk's own starting directory — an
+ * allowlisted directory named `evidence` would still be walked, and none is.
+ */
+const NEVER_WALK = ['raw', 'node_modules', 'evidence'];
 
 const CEO_WIKI_NON_MEMORY = ['000_index.md', 'zzz_log.md'];
 

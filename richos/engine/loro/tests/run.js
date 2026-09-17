@@ -102,6 +102,18 @@ function withTempCorpus(fn) {
   w('companies/northwind/evidence/meeting.md', page('Raw call note', [
     ['Transcript', 'EVIDENCE, not memory. If this ever appears in a compiled slice the evidence boundary has failed and raw material is being served as company truth.'],
   ]));
+  // The same file at the two CEO-LEVEL paths, because the company path above is the happy case and
+  // production does not use it: `evidenceRoot()` resolves to the unfiled branch whenever no company
+  // is bound, which is the default. `ceo/unfiled/evidence/` is the path production wrote to before
+  // 2026-09-17 and it sits INSIDE the `ceo/unfiled` record directory, which is walked recursively;
+  // `ceo/evidence/unfiled/` is where it writes now, outside every allowlisted directory. Both must
+  // stay out of the compiled corpus, and the first one only does because `neverWalk()` says so.
+  w('ceo/unfiled/evidence/meetings/sess-1/transcript.md', page('Raw call note', [
+    ['Transcript', 'EVIDENCE at the pre-2026-09-17 production path. A transcript inside a walked record directory, kept out by neverWalk() alone.'],
+  ]));
+  w('ceo/evidence/unfiled/meetings/sess-2/transcript.md', page('Raw call note', [
+    ['Transcript', 'EVIDENCE at the current production path, outside every allowlisted page and record directory.'],
+  ]));
   w('companies/northwind/inbox/dropped.md', page('Dropped note', [
     ['Untriaged', 'A drop in the inbox is transient by definition; the inbox is the only directory that is supposed to be empty, and it is never the record.'],
   ]));
@@ -301,6 +313,44 @@ test('pages: evidence, inbox and mirrors are NEVER compiled (evidence is not tru
   const corpus = withTempCorpus((dir) => loadCorpus({ root: dir, layout: 'corpus', now: NOW }));
   const leaked = corpus.records.filter((r) => /\/(evidence|inbox|mirrors)\//.test(r.provenance.path || ''));
   assert.deepEqual(leaked.map((r) => r.id), []);
+});
+
+// The test above passed for the right reason only at the fixture's company path. This one pins the
+// CEO-LEVEL paths, which is what production actually writes to, and it carries its own positive
+// control: a negative assertion over a corpus that never received the files would pass for the
+// wrong reason, so the fixture's own prose sections are asserted to compile first.
+//
+// Reproduced RED before `neverWalk()` gained `evidence`, with this fixture:
+//   total records compiled: 1
+//   LEAKED -> rec:ceo/unfiled/evidence/meetings/sess-1/transcript
+//      path: ceo/unfiled/evidence/meetings/sess-1/transcript.md
+//     scope: ceo-private | kind: passage
+test('pages: a transcript at the CEO-LEVEL evidence path is NEVER compiled — pre-move and post-move', () => {
+  const seen = withTempCorpus((dir) => {
+    const corpus = loadCorpus({ root: dir, layout: 'corpus', now: NOW });
+    return {
+      paths: corpus.records.map((r) => r.provenance.path || ''),
+      total: corpus.records.length,
+      onDisk: [
+        'ceo/unfiled/evidence/meetings/sess-1/transcript.md',
+        'ceo/evidence/unfiled/meetings/sess-2/transcript.md',
+      ].filter((rel) => fs.existsSync(path.join(dir, rel))),
+    };
+  });
+
+  // POSITIVE CONTROL 1 — the files this test is about are really on disk in the fixture.
+  assert.deepEqual(seen.onDisk, [
+    'ceo/unfiled/evidence/meetings/sess-1/transcript.md',
+    'ceo/evidence/unfiled/meetings/sess-2/transcript.md',
+  ], 'the fixture must actually write both CEO-level transcripts, or this test proves nothing');
+  // POSITIVE CONTROL 2 — the corpus compiled something, so an empty result is not the reason.
+  assert.ok(seen.total > 0, 'the fixture corpus must compile SOME records');
+
+  // ceo/unfiled/evidence/** — the pre-2026-09-17 path, inside a recursively-walked record
+  // directory. Held out by `neverWalk()` and by nothing else.
+  assert.deepEqual(seen.paths.filter((p) => p.startsWith('ceo/unfiled/evidence/')), []);
+  // ceo/evidence/** — the current path, outside every allowlisted page and record directory.
+  assert.deepEqual(seen.paths.filter((p) => p.startsWith('ceo/evidence/')), []);
 });
 
 test('corpus: a loro with no memory, no wiki and no entities loads as EMPTY, not as an error', () => {

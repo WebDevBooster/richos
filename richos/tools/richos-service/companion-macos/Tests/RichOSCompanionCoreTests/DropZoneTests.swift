@@ -31,7 +31,7 @@ final class DropZoneTests: XCTestCase {
 
     func testUnconfiguredDefaultMatchesThePipelinesUnconfiguredDefault() throws {
         let z = try DropZone.resolve(explicit: nil, env: [:], home: home, productRepo: repo)
-        XCTAssertEqual(z.path, "/Users/tester/RichOS/corpus/ceo/unfiled/evidence/meetings")
+        XCTAssertEqual(z.path, "/Users/tester/RichOS/corpus/ceo/evidence/unfiled/meetings")
         XCTAssertEqual(z.source, .corpus)
         XCTAssertNil(z.company)
     }
@@ -46,7 +46,7 @@ final class DropZoneTests: XCTestCase {
     func testLoroCorpusMovesTheWholeTreeIncludingTilde() throws {
         let z = try DropZone.resolve(
             explicit: nil, env: ["LORO_CORPUS": "~/other-corpus"], home: home, productRepo: repo)
-        XCTAssertEqual(z.path, "/Users/tester/other-corpus/ceo/unfiled/evidence/meetings")
+        XCTAssertEqual(z.path, "/Users/tester/other-corpus/ceo/evidence/unfiled/meetings")
     }
 
     // MARK: - Overrides, and which one wins
@@ -72,7 +72,7 @@ final class DropZoneTests: XCTestCase {
         let z = try DropZone.resolve(
             explicit: "", env: ["RICHOS_DROP_ZONE": "", "LORO_CORPUS": "  "],
             home: home, productRepo: repo)
-        XCTAssertEqual(z.path, "/Users/tester/RichOS/corpus/ceo/unfiled/evidence/meetings")
+        XCTAssertEqual(z.path, "/Users/tester/RichOS/corpus/ceo/evidence/unfiled/meetings")
     }
 
     // MARK: - The refusal. This is the one that stops a public leak.
