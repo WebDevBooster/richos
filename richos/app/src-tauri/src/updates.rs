@@ -137,7 +137,18 @@ pub struct UpdateView {
     /// `unconfigured` | `idle` | `checking` | `upToDate` | `available` | `downloading`
     /// | `installing` | `ready` | `failed`
     pub state: &'static str,
-    /// The version running right now — `tauri.conf.json`'s `version`, via the package.
+    /// The version running right now, and the ONLY thing the window may ever call the version.
+    ///
+    /// ITS SOURCE IS `app/src-tauri/Cargo.toml`, not `tauri.conf.json` — this line used to say
+    /// the opposite and `tauri.conf.json` has never carried a `version` key at all;
+    /// `make-release.sh` refuses one outright ("it OVERRIDES Cargo.toml, so the version would
+    /// be written in two places and the wrong one could win silently"), and tauri-utils then
+    /// takes the number from the Cargo manifest. So: Cargo.toml -> `CARGO_PKG_VERSION` ->
+    /// `package_info().version` -> here -> `ui/updates.js`, one hop each and no branch.
+    ///
+    /// WRITTEN ONCE, AT `init`, AND NEVER AGAIN. No arm of check, download or install touches
+    /// it, so a manifest cannot rename the build the CEO is running — proven by
+    /// `current_version_has_exactly_one_writer` below and by `ui/tests/updates.js` check 18.
     pub current_version: String,
     /// The version the manifest offers, once a check has found one.
     pub available_version: Option<String>,
@@ -931,5 +942,71 @@ mod tests {
             "never checked is not the same as checked and clean"
         );
         assert!(v.available_version.is_none());
+    }
+
+    // ===================================================================================
+    // THE VERSION ON SCREEN IS THE RUNNING BUILD'S (CEO, 2026-09-17, item 4)
+    // ===================================================================================
+    //
+    // His words: *"The RichOS app is currently lying about the current version saying
+    // "RichOS 1.0.3 is up to date." even though the current version is 1.0.2. Make sure the
+    // app always displays the correct version."*
+    //
+    // MEASURED, BECAUSE THE FIX DEPENDS ON WHERE 1.0.3 CAME FROM. The bundle he was running
+    // IS 1.0.3 — `~/Applications/RichOS.app/Contents/Info.plist` says
+    // `CFBundleShortVersionString = 1.0.3`, dated 2026-09-08 12:01. The number entered the
+    // tree at 7bd1e727 (2026-09-07, "prepare version 1.0.3"), which set Cargo.toml's version
+    // to the NEXT UNRELEASED stable release, as `scripts/nightly.py` requires. No v1.0.3 tag
+    // and no 1.0.3 release ever existed, and main went on to 1.2.0 at d9cd1b6c. So this file
+    // reported the running build honestly and the running build was never a release.
+    //
+    // WHAT THESE TWO TESTS HOLD is the half that is this file's to keep: the number comes
+    // from the package the bundle was compiled as, and NOTHING renames it afterwards. The
+    // other half — that a build which is not a release must not be stamped with a bare
+    // release number — is a property of the build scripts, not of this file.
+
+    /// The view carries whatever version it was constructed with, unaltered. It is a straight
+    /// carry rather than a formatter for a reason: a pre-release version
+    /// (`1.2.0-nightly.20260917.1`) is the one form that must survive to the screen intact,
+    /// because it is the form that tells the CEO he is not on a release.
+    #[test]
+    fn the_view_carries_the_running_version_verbatim() {
+        for version in ["1.0.2", "1.0.3", "1.2.0-nightly.20260917.1", "0.1.0"] {
+            let v = UpdateView::new(version.into(), "https://example.com/u".into(), false);
+            assert_eq!(
+                v.current_version, version,
+                "the view rewrote the version it was given"
+            );
+        }
+    }
+
+    /// `current_version` IS ASSIGNED ONCE AND NEVER AGAIN, read off this file's own source.
+    ///
+    /// The lie the CEO reported would become a real one here the day some arm of check,
+    /// download or install writes the manifest's version into this field: the window would
+    /// then name a build he is not running and have no way to know it. A behavioral test
+    /// cannot see the writer that has not been added yet, so this reads the source — the same
+    /// technique `ui/tests/setup.js` uses to keep a one-line convenience from coming back.
+    #[test]
+    fn current_version_has_exactly_one_writer() {
+        let src = include_str!("updates.rs");
+        // Construction (`current_version,` as a struct-literal shorthand and the `new`
+        // parameter) is not an assignment; `x.current_version = ...` is.
+        let writers: Vec<&str> = src
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with("//") && !line.starts_with("///"))
+            .filter(|line| {
+                line.contains("current_version")
+                    && line.contains('=')
+                    && !line.contains("==")
+                    && !line.contains("assert")
+            })
+            .collect();
+        assert!(
+            writers.is_empty(),
+            "`current_version` is written after construction, so the running build can be \
+             renamed by something that is not the bundle it is: {writers:?}"
+        );
     }
 }

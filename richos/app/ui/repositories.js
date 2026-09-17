@@ -5,6 +5,11 @@
   const sheet = document.createElement("div");
   sheet.id = "repositories-sheet"; sheet.className = "overlay"; sheet.hidden = true;
   sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-labelledby", "repositories-title");
+  // ESCAPE CLOSES IT FROM ANYWHERE (CEO, 2026-09-17, item 1). The keydown listener below is
+  // bound to the SHEET and so only fired while focus was inside it. `data-dismiss` names the
+  // sheet's own Close button for main.js's document-level handler, which means Escape inherits
+  // `close()`'s refusal to close mid-connect rather than working around it.
+  sheet.setAttribute("data-dismiss", "control:#repository-close");
   sheet.innerHTML = `<div class="overlay-panel overlay-panel--compact">
     <h2 id="repositories-title" class="overlay-title">Connected repositories</h2>
     <p class="overlay-note">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p>
@@ -24,7 +29,9 @@
     const company = companies.find(c => c.id === field("repository-company").value);
     const list = field("repository-list"); list.replaceChildren();
     for (const path of company?.repositories || []) {
-      const row = document.createElement("li"); row.textContent = path; row.style.overflowWrap = "anywhere"; list.appendChild(row);
+      // Break opportunities at `/`, `.`, `-`, `_` (audit D7, 2026-09-17) rather than
+      // leaving `overflow-wrap: anywhere` alone to pick a point mid-word.
+      const row = document.createElement("li"); row.appendChild(window.RichWrapPath(path)); row.style.overflowWrap = "anywhere"; list.appendChild(row);
     }
     if (!list.children.length) { const row = document.createElement("li"); row.textContent = "No repositories connected."; list.appendChild(row); }
     field("repository-connect").disabled = busy || !company;

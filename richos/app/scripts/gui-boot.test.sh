@@ -433,8 +433,12 @@ declare_rules() {
     '[richos] window: displays could not be read: unavailable' \
     'The display query failed; a fallback is not a display-backed placement.'
   refused 'window fallback' \
-    '[richos] window: fallback 1400x880 pt centered by the platform, min 1024x700 — no display could be read; the preferred size is the last resort and the platform is left to center it' \
-    'The preferred constants carry no evidence that the window fits an attached display.'
+    '[richos] window: fallback 1024x700 pt centered by the platform, min 1024x700 — no display could be read; the smallest size the UI is designed for is the last resort and the platform is left to center it' \
+    'A constant carries no evidence that the window fits an attached display. The number
+       changed on 2026-09-17 (window_geometry.rs: the blind path opens at the smallest size
+       the UI declares, not the largest it would like) and this fixture is the shipped
+       sentence, so it changes with it — what it proves here, that a fallback is not a
+       display-backed placement, is unchanged.'
   refused 'window missing reason' \
     '[richos] window: derived 1400x880 pt at (260,102), min 1024x700 — unknown' \
     'A placement without the measured display and decision cannot resolve this proof.'

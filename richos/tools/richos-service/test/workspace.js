@@ -13,6 +13,8 @@
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -63,7 +65,15 @@ import { tokenAccount, LEGACY_TOKEN_ACCOUNT } from '../lib/workspace/token-manag
 import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
-import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import { connect, status, sync, disconnect, seedCalendar, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import {
+  planFixtures, expectationsFor, seedICalUid, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
+} from '../lib/workspace/calendar-fixtures.js';
+import { seedManifestPath, SEED_KEYCHAIN_SERVICE } from '../lib/workspace/calendar-seed.js';
+import {
+  mockGoogleCalendar, runMockedAcceptance, cleanupMockedAcceptance, describeAcceptance,
+} from './calendar-seed-acceptance.mjs';
+import { resolveGrantedIdentity, sameAddress, canonicalAddress, GOOGLE_IDENTITY_PROBES } from '../lib/workspace/identity.js';
 
 // ---- MICROSOFT 365 (P4) — the second vendor's imports, kept together ---------------------------
 import {
@@ -95,7 +105,9 @@ import {
 import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } from '../lib/config.js';
 import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
 import { corpusFromZone } from '../lib/workspace/promote-run.js';
-import { promotionLedgerPath } from '../lib/workspace/promotion.js';
+import { promotionLedgerPath, readEvidenceZone } from '../lib/workspace/promotion.js';
+import { planRepair, repairLedgerPath } from '../lib/workspace/repair.js';
+import { DEFAULT_MIN_CORROBORATION } from '../lib/workspace/entity-feed.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
 
 let passed = 0;
@@ -261,6 +273,34 @@ test('resolveOrgRelation: self > internal (same domain) > external > unknown', (
   assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, id), 'internal');
   assert.equal(resolveOrgRelation({ email: 'dave@partner.com' }, id), 'external');
   assert.equal(resolveOrgRelation({ name: 'no email' }, id), 'unknown');
+});
+
+test('A CONTAINER THE ACCOUNT OWNS IS THE ACCOUNT — and one it merely subscribes to is not', () => {
+  // The defect this rule exists for: Google gives every event on a SECONDARY calendar that
+  // calendar's own address as its organizer, so the CEO's own calendars authored their own events,
+  // the address matched no domain of his, and every one resolved external → untrusted → HELD.
+  const OWNED = 'c_richostest@group.calendar.google.com';
+  const SUBSCRIBED = 'en.uk#holiday@group.v.calendar.google.com'; // dialect-exempt: Google's own calendar id
+  const id = ceoIdentity({ ...IDENTITY, selfCalendars: [OWNED] });
+
+  assert.equal(resolveOrgRelation({ email: OWNED }, id), 'self',
+    'a calendar he owns is him — without this, nothing on any secondary calendar can be promoted');
+  assert.equal(resolveOrgRelation({ email: SUBSCRIBED }, id), 'external',
+    'and a calendar he only subscribes to is NOT, even though Google flags its organizer `self` too');
+  assert.equal(resolveOrgRelation({ email: 'dave@partner.com' }, id), 'external',
+    'the positive control: a real outsider is still an outsider');
+  assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, id), 'internal',
+    'and a colleague is still a colleague');
+
+  // Owning `c_…@group.calendar.google.com` must never make the DOMAIN his: every other Google user's
+  // secondary calendars live under it, and a domain claim would hand the whole vendor to him.
+  assert.ok(!id.orgDomains.includes('group.calendar.google.com'),
+    'a container address is matched by address, never widened into an org domain');
+  assert.equal(resolveOrgRelation({ email: 'c_somebodyelse@group.calendar.google.com' }, id), 'external',
+    "so a stranger's secondary calendar is a stranger");
+
+  // An identity that names no containers behaves exactly as it did before the rule existed.
+  assert.equal(resolveOrgRelation({ email: OWNED }, ceoIdentity(IDENTITY)), 'external');
 });
 
 test('classifyScope: 2+ internal participants → org-shared', () => {
@@ -1462,6 +1502,61 @@ await atest('multi-calendar: an account with three calendars syncs all three, na
   assert.ok(res.calendars.every((c) => c.count === 1));
   assert.deepEqual(res.nextSyncState.syncToken, { primary: 'TOK-primary', 'team-cal': 'TOK-team', 'family-cal': 'TOK-family' });
   assert.equal(res.degraded, undefined);
+});
+
+await atest('multi-calendar: the poll says which calendars the account OWNS, and the gate reads it', async () => {
+  // An event on a secondary calendar is organized BY THAT CALENDAR, so the whole question of whether
+  // it is the CEO's own is the question of whether he owns the container. Before this, he did not
+  // own anything as far as governance could tell: every event on every secondary calendar he owns
+  // resolved external → untrusted → HELD, and his "RichOS test" calendar was invisible to memory.
+  const OWNED = 'c_richostest@group.calendar.google.com';
+  const SUBSCRIBED = 'c_partnerteam@group.calendar.google.com';
+  const meeting = (id, calendarId) => ({
+    id,
+    iCalUID: `${id}@google.com`,
+    etag: `"${id}"`,
+    summary: 'Board prep',
+    description: 'Assemble the board pack: pilot status, pricing, hiring.',
+    start: { dateTime: '2025-08-01T10:00:00Z' },
+    end: { dateTime: '2025-08-01T11:00:00Z' },
+    // Google's own shape for an event nobody named an organizer for, on either calendar: the
+    // container authors it, and `self` is true because the copy lives on that very calendar.
+    organizer: { email: calendarId, self: true },
+    attendees: [
+      { email: 'ceo@acme.com', self: true, responseStatus: 'accepted' },
+      { email: 'alice@acme.com', displayName: 'Alice Internal', responseStatus: 'accepted' },
+    ],
+  });
+  const client = urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal', accessRole: 'owner' },
+      { id: OWNED, summary: 'RichOS test', accessRole: 'owner' },
+      { id: SUBSCRIBED, summary: 'Northwind partner calendar', accessRole: 'reader' },
+    ] }],
+    ['calendars/primary/events', { items: [], nextSyncToken: 'TOK-primary' }],
+    [`calendars/${encodeURIComponent(OWNED)}/events`, { items: [meeting('owned1', OWNED)], nextSyncToken: 'TOK-owned' }],
+    [`calendars/${encodeURIComponent(SUBSCRIBED)}/events`, { items: [meeting('sub1', SUBSCRIBED)], nextSyncToken: 'TOK-sub' }],
+  ]);
+  const adapter = new GoogleCalendarAdapter({ accountId: 'ceo@acme.com', client, now });
+
+  const res = await adapter.listChanges(null);
+  assert.equal(res.calendars.find((c) => c.id === OWNED).owned, true, 'the adapter reports ownership…');
+  assert.equal(res.calendars.find((c) => c.id === SUBSCRIBED).owned, false, '…and non-ownership');
+
+  const zone = tmp();
+  try {
+    const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, linkBase: zone, now });
+    assert.equal(summary.ingested, 2, 'both are evidence — nothing is dropped for being somebody else\'s');
+    const byId = new Map(readEvidenceZone(zone).map((e) => [e.item.sourceItemId.split(':').pop(), e.item]));
+
+    assert.equal(byId.get('owned1').actors.author.orgRelation, 'self',
+      'a calendar he owns is him, so the meeting on it is his');
+    assert.equal(byId.get('owned1').trust.class, 'unverified', 'and it is not quarantined as an outsider\'s');
+    assert.equal(byId.get('sub1').actors.author.orgRelation, 'external',
+      'a calendar he only subscribes to is NOT him — the vendor flags `self` on both, which is why '
+      + 'the flag is not what this rule reads');
+    assert.equal(byId.get('sub1').trust.class, 'untrusted', 'so the immune system still holds it');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
 await atest('multi-calendar: a hidden calendar is skipped — unhiding it makes it sync (positive control)', async () => {
@@ -2841,6 +2936,74 @@ await atest('a consent redirect carrying error= fails loudly and stores nothing'
   assert.match(settled.error.message, /access_denied/);
 });
 
+// THE HANG THIS FIXED (2026-09-17): a socket that connects and never sends a request — a browser's
+// speculative preconnect, exactly what sat on the CEO's re-consent for ~4 minutes — has no HTTP
+// parser attached, so `server.close()`'s callback (which the old code awaited to settle the promise)
+// waits for it forever. The fix settles the moment the code arrives and the confirmation page has
+// been flushed, then tears the server down without making the result wait on that teardown.
+await atest('an idle socket that never sends a request does NOT delay settlement once the real callback lands', async () => {
+  let info = null;
+  const p = awaitAuthorizationCode({
+    redirectUri: 'http://127.0.0.1:0/callback', state: 'st-idle', timeoutMs: 5000,
+    onListening: (i) => { info = i; },
+  });
+  await waitFor(() => info);
+
+  // A raw TCP connection that speaks no HTTP at all — the shape of a browser preconnect.
+  const idle = net.connect(info.port, '127.0.0.1');
+  await new Promise((resolve, reject) => {
+    idle.once('connect', resolve);
+    idle.once('error', reject);
+  });
+
+  const res = await fetch(`http://127.0.0.1:${info.port}/callback?code=auth-code-idle&state=st-idle`);
+  assert.equal(res.status, 200);
+
+  // The promise must settle promptly even though `idle` is still open and has sent nothing.
+  try {
+    const settled = await Promise.race([
+      p.then((v) => ({ raced: false, v })),
+      new Promise((resolve) => setTimeout(() => resolve({ raced: true }), 1000)),
+    ]);
+    assert.equal(settled.raced, false, 'the ceremony must not wait on an idle, request-less socket');
+    assert.deepEqual(settled.v, { code: 'auth-code-idle' });
+  } finally {
+    // Close the never-spoke socket regardless of outcome — a regression here otherwise leaves the
+    // listener's promise (and its underlying server) pending, keeping the test process alive.
+    idle.destroy();
+    p.catch(() => {});
+  }
+});
+
+await atest('a keep-alive client that delivers the code and holds its socket open still resolves within a second', async () => {
+  let info = null;
+  const p = awaitAuthorizationCode({
+    redirectUri: 'http://127.0.0.1:0/callback', state: 'st-keepalive', timeoutMs: 5000,
+    onListening: (i) => { info = i; },
+  });
+  await waitFor(() => info);
+
+  const agent = new http.Agent({ keepAlive: true });
+  const start = Date.now();
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port: info.port, path: '/callback?code=auth-code-ka&state=st-keepalive',
+      agent, headers: { Connection: 'keep-alive' },
+    }, (rr) => {
+      rr.resume();
+      rr.on('end', () => resolve(rr.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(status, 200);
+
+  const value = await p;
+  assert.deepEqual(value, { code: 'auth-code-ka' });
+  assert.ok(Date.now() - start < 1000, 'settlement must not wait on the client\'s own keep-alive socket');
+  agent.destroy();
+});
+
 test('consentState is unguessable and never repeats', () => {
   const seen = new Set();
   for (let i = 0; i < 50; i += 1) seen.add(consentState());
@@ -3067,6 +3230,11 @@ function httpResponse(status, body, headers = {}) {
 function googleHttpMock(opts = {}) {
   const calls = [];
   const grantedScope = opts.grantedScope ?? GOOGLE_SCOPES.calendar;
+  // WHOSE account this mocked Google belongs to. Every one of the three identity probes answers with
+  // it, because on a real account they all name the same owner — and a test that wants the
+  // crossed-consent failure sets it to somebody else, which is the only way to produce that failure
+  // without two live Google accounts.
+  const identityEmail = opts.identityEmail ?? 'ceo@acme.com';
   const http = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
     if (url.startsWith(TOKEN_URL)) {
@@ -3086,6 +3254,17 @@ function googleHttpMock(opts = {}) {
     }
     if (url.startsWith(REVOKE_URL)) return httpResponse(200, '');
     const u = new URL(url);
+    // --- the identity probes (`lib/workspace/identity.js`), each answering with this account's own
+    // address exactly as the real API does. They come FIRST so the broad calendar branch below
+    // cannot swallow the primary-calendar read.
+    if (u.pathname === '/calendar/v3/calendars/primary') {
+      if (opts.calendarIdentityStatus) return httpResponse(opts.calendarIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ id: identityEmail, summary: 'Primary' }));
+    }
+    if (u.pathname === '/drive/v3/about') {
+      if (opts.driveIdentityStatus) return httpResponse(opts.driveIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ user: { emailAddress: identityEmail } }));
+    }
     if (u.pathname.includes('/calendar/v3/')) {
       return httpResponse(200, JSON.stringify(u.searchParams.get('syncToken')
         ? { items: opts.calendarDelta || [EVENT_ORG], nextSyncToken: 'CAL-2' }
@@ -3097,7 +3276,12 @@ function googleHttpMock(opts = {}) {
     if (/\/drive\/v3\/files\/[^/]+\/export$/.test(u.pathname)) return httpResponse(200, 'Q3 plan: ship the thing.');
     if (/\/drive\/v3\/files\/[^/]+$/.test(u.pathname) && u.searchParams.get('alt') === 'media') return httpResponse(200, 'plain bytes');
     if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
-    if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
+    if (u.pathname.endsWith('/users/me/profile')) {
+      // A Google account with NO MAILBOX answers this with 400 FAILED_PRECONDITION — the state the
+      // CEO's personal account is actually in, and the reason the identity check tries more than one.
+      if (opts.noMailbox) return httpResponse(400, JSON.stringify({ error: { code: 400, status: 'FAILED_PRECONDITION' } }));
+      return httpResponse(200, JSON.stringify({ emailAddress: identityEmail, historyId: '2001' }));
+    }
     if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
     if (/\/users\/me\/messages\/[^/]+$/.test(u.pathname)) return httpResponse(200, JSON.stringify(MAIL_INTERNAL));
     if (u.pathname.endsWith('/users/me/messages')) {
@@ -3256,6 +3440,170 @@ await atest('connect refuses loudly when Google rejects the code exchange', asyn
     assert.match(f.text(), /invalid_grant/);
   } finally { f.cleanup(); }
 });
+
+
+// -------------------------------------------------------------------------------------------------
+group('`connect` VERIFIES WHOSE CONSENT IT RECEIVED (the 2026-09-17 crossed-grant defect)');
+// -------------------------------------------------------------------------------------------------
+
+await atest('a consent belonging to the OTHER account is REFUSED and nothing is stored — PROBE: the matching one stores', async () => {
+  // THE FAILURE, reproduced: the command was run for one address and the browser was signed in as the
+  // other. Before this check, the grant was filed under the address that was typed and every sync
+  // afterwards read the wrong account's cloud.
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'someone.else@leadersadapt.example' });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 1, f.text());
+    assert.equal(f.record(), null, 'NOTHING was stored — not under either address');
+    assert.equal(f.backend.get('com.richos.workspace.google', 'oauth-tokens someone.else@leadersadapt.example'), null,
+      'and it was not helpfully filed under the address Google reported either');
+    // ONE sentence, naming BOTH addresses — which is the only form in which the CEO can see what
+    // happened without going to look for it.
+    assert.match(f.text(), /NOT CONNECTED — that consent belongs to someone\.else@leadersadapt\.example, not ceo@acme\.com\./);
+    // The accidental grant is not left standing on his account.
+    assert.ok(mock.calls.some((c) => c.url.startsWith(REVOKE_URL)), 'the discarded grant was revoked at Google');
+    assert.match(f.text(), /revoked at Google/);
+  } finally { f.cleanup(); }
+
+  // PROBE: the identical ceremony whose identity MATCHES connects and stores. The refusal is about
+  // the identity and nothing else.
+  const g = wsFixture();
+  try {
+    const r = await connect(g.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    assert.equal(r.exitCode, 0, g.text());
+    assert.equal(g.record().refreshToken, FAKE_REFRESH);
+    assert.match(g.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { g.cleanup(); }
+});
+
+await atest('the identity is read with the token JUST EXCHANGED, before the keychain is touched', async () => {
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'ceo@acme.com' });
+    await connect(f.deps(connectStubs(mock)));
+    const probe = mock.calls.find((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(probe, 'the probe ran');
+    assert.equal(probe.auth, `Bearer ${FAKE_ACCESS}`,
+      'with the access token from THIS exchange — a check against the keychain would verify the wrong grant');
+    const exchangeAt = mock.calls.findIndex((c) => c.url.startsWith(TOKEN_URL));
+    const probeAt = mock.calls.findIndex((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(exchangeAt < probeAt, 'and after the exchange, which is the only moment the answer exists');
+  } finally { f.cleanup(); }
+});
+
+await atest('the check asks for NO new scope — the consent screen is exactly what it was', async () => {
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar] });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.deepEqual(requested, [GOOGLE_SCOPES.calendar], 'one scope asked for, and it is the source scope');
+    for (const forbidden of ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/userinfo.email']) {
+      assert.ok(!requested.includes(forbidden), `${forbidden} would change the consent screen — the CEO's decision, not ours`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('an account with NO MAILBOX is verified by the next probe, not abandoned at the first failure', async () => {
+  // Exactly the CEO's personal account: no Gmail mailbox at all, so `users/me/profile` answers 400
+  // FAILED_PRECONDITION — a fact about the mailbox, not a reason to stop asking.
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.mail, GOOGLE_SCOPES.calendar] });
+  try {
+    const mock = googleHttpMock({
+      identityEmail: 'ceo@acme.com',
+      noMailbox: true,
+      grantedScope: `${GOOGLE_SCOPES.mail} ${GOOGLE_SCOPES.calendar}`,
+    });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.via, 'Calendar', 'Gmail could not answer, so the primary calendar did');
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a grant no probe can answer CONNECTS and says NOT VERIFIED — never silently', async () => {
+  // `calendar.events.readonly` is the pre-§44 width the registry supports on purpose and reports as
+  // LIMITED. It can name no account, and refusing it would turn a working connect into a failure over
+  // a question nobody can answer — so the absence is stored with the grant and SAID.
+  const f = wsFixture({ scopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }))));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /Calendar: not granted, so it was not asked/,
+      'and it names which probe could not run, rather than shrugging');
+    assert.equal(f.record().identity.email, null, 'the record carries the absence, so status can repeat it');
+
+    f.lines.length = 0;
+    await status(f.deps({ http: googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }).http }));
+    assert.match(f.text(), /identity:   NOT VERIFIED/, 'every status says it again');
+  } finally { f.cleanup(); }
+});
+
+await atest('status reports a stored grant that belongs to the WRONG account, and exits non-zero', async () => {
+  // A record written by a build that verified nothing, or a keychain item edited by hand. The CEO's
+  // machine held two of these on 2026-09-17 and nothing said so.
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    const rec = f.record();
+    f.backend.set('com.richos.workspace.google', tokenAccount('ceo@acme.com'),
+      JSON.stringify({ ...rec, identity: { email: 'the.other@leadersadapt.example', via: 'Drive', verifiedAt: NOW } }));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 1, 'a crossed grant is not a healthy status');
+    assert.match(f.text(), /identity:   WRONG ACCOUNT/);
+    assert.match(f.text(), /belongs to the\.other@leadersadapt\.example/);
+    assert.equal(r.accounts[0].identity.matched, false);
+  } finally { f.cleanup(); }
+});
+
+await atest('status prints the verified identity beside the account it is filed under', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified at connect, via Calendar\)/);
+    assert.equal(r.accounts[0].identity.matched, true);
+  } finally { f.cleanup(); }
+});
+
+test('sameAddress is case-insensitive everywhere and dot-insensitive ONLY where Google says so', () => {
+  assert.ok(sameAddress('CEO@Acme.com', 'ceo@acme.com'), 'case never distinguishes a mailbox');
+  assert.ok(sameAddress('c.e.o@gmail.com', 'ceo@gmail.com'), "gmail.com ignores dots — Google's own rule");
+  assert.ok(sameAddress('ceo+workspace@googlemail.com', 'ceo@googlemail.com'), 'and a +tag is a delivery alias');
+  // PROBE: the narrowness is the point. Two Workspace mailboxes that differ by a dot are two people.
+  assert.ok(!sameAddress('c.e.o@acme.com', 'ceo@acme.com'), 'a hosted domain decides its own local parts');
+  assert.ok(!sameAddress('personal@icloud.example', 'work@leadersadapt.example'), 'the shape of the two accounts in the incident');
+  assert.ok(!sameAddress('', 'ceo@acme.com'), 'an empty answer never matches anything');
+});
+
+await atest('resolveGrantedIdentity tries every granted probe in order and reports what each one said', async () => {
+  const asked = [];
+  const result = await resolveGrantedIdentity({
+    probes: GOOGLE_IDENTITY_PROBES,
+    grantedScopes: [GOOGLE_SCOPES.drive, GOOGLE_SCOPES.calendar],
+    matches: (granted, scope) => granted.includes(scope),
+    get: async (url) => {
+      asked.push(url);
+      if (url.includes('/drive/v3/about')) throw Object.assign(new Error('google GET failed: 500 upstream'), { status: 500 });
+      return { id: 'ceo@acme.com' };
+    },
+  });
+  assert.equal(result.email, 'ceo@acme.com');
+  assert.equal(result.via, 'Calendar');
+  assert.equal(asked.length, 2, 'Gmail was not granted, so it was never asked');
+  assert.deepEqual(result.skipped, ['Gmail']);
+  assert.match(result.attempts[0].error, /500/, "the first probe's failure is kept, not swallowed");
+});
+
 
 await atest('connect --client-file puts the secret in the KEYCHAIN — never in a file, never in a log line', async () => {
   const f = wsFixture({ clientSecret: false });
@@ -5393,11 +5741,11 @@ async function connectTwo(f, opts = {}) {
   const scope = opts.grantedScope ?? FULL_GRANT;
   const sources = opts.sources || ['calendar', 'drive', 'mail'];
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope, identityEmail: ACCT_A })),
     clientId: FAKE_CLIENT_ID, accountId: ACCT_A, sources,
   }));
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope, identityEmail: ACCT_B })),
     accountId: ACCT_B, sources,
   }));
   return { a: 'AT-account-a', b: 'AT-account-b' };
@@ -5745,7 +6093,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     writeV1Config(f.clientConfigFile);
     f.lines.length = 0;
     // The old shape connects — the CEO's existing install does not need a migration step he runs.
-    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a'))));
+    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a', { identityEmail: ACCT_A }))));
     assert.equal(r.exitCode, 0, f.text());
     assert.equal(r.account, ACCT_A);
     assert.match(f.text(), /now lists accounts \(your existing account is unchanged\)/);
@@ -5755,7 +6103,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     assert.deepEqual(onDisk.accounts[0].orgDomains, ['acme.com'], 'his org domains survived the rewrite');
 
     // PROBE: a second account goes on beside the migrated one, which is the point of migrating.
-    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b')), accountId: ACCT_B }));
+    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b', { identityEmail: ACCT_B })), accountId: ACCT_B }));
     assert.deepEqual(accountsOf(loadClientConfig(f.clientConfigFile)).map((a) => a.accountId), [ACCT_A, ACCT_B]);
     assert.ok(f.record(ACCT_A) && f.record(ACCT_B));
   } finally { f.cleanup(); }
@@ -6008,6 +6356,23 @@ await atest('connect microsoft completes the Entra ceremony and stores the grant
     // NEVER A GUESSED CLOCK: Entra publishes no lifetime, so no countdown is printed.
     assert.doesNotMatch(f.text(), /expire[sd] after ~7 days/);
     assert.match(f.text(), /publishes no fixed lifetime/);
+  } finally { f.cleanup(); }
+});
+
+await atest('connect microsoft says its identity is NOT VERIFIED rather than implying a check Graph cannot answer', async () => {
+  // The Google side proves whose consent it received from the scopes it already holds. Graph names the
+  // signed-in user only under `User.Read`, which is not in MICROSOFT_SCOPES and which RichOS may not
+  // add on its own — so this side reports the gap in Microsoft's own terms. A printed "verified" here
+  // would be the same class of invention `vendors.js` was written to keep out of this file.
+  const f = msFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(msHttpMock())));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /User\.Read/, "and it names WHY, in the vendor's own vocabulary");
+    assert.doesNotMatch(f.text(), /\(verified/, 'nothing here claims a verification that did not happen');
+    assert.equal(f.record().identity.email, null, 'the absence travels with the grant');
   } finally { f.cleanup(); }
 });
 
@@ -6402,8 +6767,8 @@ await atest('sync PROMOTES: the pull ends with records in the corpus and a promo
 await atest('promotion runs ONCE for a sync over two accounts, not once per account', async () => {
   const f = corpusFixture({ accounts: ['ceo@acme.com', 'ceo@other.com'] });
   try {
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@acme.com' }));
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@other.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })), accountId: 'ceo@acme.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@other.com' })), accountId: 'ceo@other.com' }));
     f.lines.length = 0;
     const r = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
     assert.equal(r.exitCode, 0, f.text());
@@ -6535,6 +6900,526 @@ await atest('a promotion that FAILS AT THE WRITE is a non-zero sync, never a suc
     assert.match(f.text(), /FAILED: /);
     assert.equal(r.results[0].summary.ingested, 1, 'and the pull is still reported truthfully');
   } finally { f.cleanup(); }
+});
+
+
+// -------------------------------------------------------------------------------------------------
+group('`workspace repair` — undoing ONE sync run (the crossed-consent cleanup)');
+// -------------------------------------------------------------------------------------------------
+
+const REPAIR_RUN_ONE = Date.parse('2026-09-17T02:46:00Z');
+const REPAIR_RUN_TWO = Date.parse('2026-09-17T07:32:41Z');
+const REPAIR_WINDOW = { since: '2026-09-17T07:32:00Z', until: '2026-09-17T07:33:00Z' };
+
+/** A fake adapter over fixed raws — the §3.x interface, so the spine that writes is the real one. */
+function repairAdapter({ source, account, raws, cursor, at }) {
+  const sourceInstanceId = createHash('sha256').update(`google|${source}|${account}`).digest('hex').slice(0, 16);
+  return {
+    vendor: 'google',
+    source,
+    sourceInstanceId,
+    async listChanges() { return { items: raws.map((r) => ({ id: r.id })), nextSyncState: { syncToken: cursor } }; },
+    async fetchItem(ref) { return raws.find((r) => r.id === ref.id); },
+    toSourceItem(raw) {
+      return {
+        schemaVersion: 1,
+        sourceItemId: `google:${source}:${sourceInstanceId}:${raw.id}`,
+        vendor: 'google',
+        source,
+        kind: raw.kind,
+        content: { title: raw.title, text: raw.text || '', structured: raw.structured || {} },
+        actors: raw.actors,
+        temporal: { occurredAt: raw.occurredAt || at, modifiedAt: raw.occurredAt || at },
+        provenance: { fetchedAt: at, vendorEtag: raw.etag, vendorUrl: `https://example.invalid/${raw.id}`, adapterVersion: 'test-1' },
+      };
+    },
+  };
+}
+
+const REPAIR_DANA = { name: 'Dana Reyes', email: 'dana@northwind.example', orgRelation: 'external' };
+const REPAIR_MORGAN = { name: 'Morgan Lee', email: 'morgan@northwind.example', orgRelation: 'external' };
+const REPAIR_SELF = { name: 'Alex', email: 'work@leadersadapt.example', orgRelation: 'self' };
+const REPAIR_MAIL = [
+  { id: 'msg-1', kind: 'email', etag: 'e1', title: 'Q3 pricing', text: 'the pricing question',
+    actors: { author: REPAIR_DANA, recipients: [REPAIR_SELF], attendees: [] } },
+  // MORGAN IS ON ONE MESSAGE ONLY. Seen once the §4.5 threshold holds the name; ingest that one
+  // message twice under two source instances and the same single sighting promotes a person.
+  { id: 'msg-2', kind: 'email', etag: 'e2', title: 'Re: Q3 pricing', text: 'following up',
+    actors: { author: REPAIR_DANA, recipients: [REPAIR_SELF, REPAIR_MORGAN], attendees: [] } },
+];
+
+/** The CEO's shape: one correct run, then one crossed run that re-ingests the same mail as another account. */
+async function crossedZone() {
+  const zone = path.join(tmp(), 'corpus', 'ceo', 'evidence', 'unfiled', 'workspace');
+  fs.mkdirSync(zone, { recursive: true });
+  const identity = { selfEmails: ['work@leadersadapt.example'], orgDomains: ['leadersadapt.example'] };
+  const run = async (adapter, at) => {
+    // `sync-state.js` stamps cursors with the wall clock (in production that IS the run's instant),
+    // so the clock is held while the pass runs or the window could never find the cursor it wrote.
+    const realNow = Date.now;
+    Date.now = () => at;
+    try {
+      await ingestOnce({ adapter, identity, zone, linkBase: zone, now: () => at });
+    } finally { Date.now = realNow; }
+  };
+  await run(repairAdapter({ source: 'mail', account: 'work@leadersadapt.example', raws: REPAIR_MAIL, cursor: 'hist-11846', at: REPAIR_RUN_ONE }), REPAIR_RUN_ONE);
+  await run(repairAdapter({ source: 'mail', account: 'personal@icloud.example', raws: REPAIR_MAIL, cursor: 'hist-11846', at: REPAIR_RUN_TWO }), REPAIR_RUN_TWO);
+  return zone;
+}
+
+const repairLines = () => { const lines = []; return { lines, out: (l) => lines.push(l), text: () => lines.join('\n') }; };
+
+await atest('repair --dry-run names every row, file and cursor it would touch, and changes NOTHING', async () => {
+  const zone = await crossedZone();
+  try {
+    const before = fs.readFileSync(auditLedgerPath(zone), 'utf8');
+    const beforeFiles = JSON.stringify(fs.readdirSync(path.join(zone, 'google', 'mail')).sort());
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, out: o.out, now } });
+    assert.equal(r.exitCode, 0, o.text());
+    assert.equal(r.dryRun, true);
+    assert.equal(r.plan.ledger.removing.length, 2, 'the crossed run ingested two rows');
+    assert.equal(r.plan.ledger.total, 4, 'and the correct run before it is untouched');
+    assert.equal(r.plan.cursors.resetting.length, 1, "the crossed account's cursor, and only it");
+    assert.match(o.text(), /would remove 2 of 4 rows/);
+    assert.match(o.text(), /\(dry run — nothing was changed\. Re-run with --apply\.\)/);
+
+    assert.equal(fs.readFileSync(auditLedgerPath(zone), 'utf8'), before, 'the ledger is byte-identical');
+    assert.equal(JSON.stringify(fs.readdirSync(path.join(zone, 'google', 'mail')).sort()), beforeFiles,
+      'and every evidence directory is still there');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair --apply removes exactly the plan: the crossed rows, their evidence, their cursor', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.equal(r.exitCode, 0, o.text());
+    assert.equal(r.done.rowsRemoved, 2);
+    assert.equal(r.done.evidenceRemoved.length, 2);
+    assert.equal(r.done.cursorsReset.length, 1);
+
+    const rows = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(rows.length, 2, 'the correct run survives in full');
+    assert.ok(rows.every((row) => row.observedAt === REPAIR_RUN_ONE), 'and every surviving row is its own');
+    for (const dir of r.done.evidenceRemoved) assert.ok(!fs.existsSync(dir), `${dir} is gone`);
+
+    // The cursor is reset the way the core resets one after a 410 — the next poll is a bounded full
+    // sync the repaired ledger dedups against, not a re-pull of the world into duplicate evidence.
+    const cursors = JSON.parse(fs.readFileSync(path.join(zone, '_sync_state.json'), 'utf8'));
+    const reset = Object.entries(cursors).filter(([, v]) => v.cursor === null);
+    assert.equal(reset.length, 1);
+    assert.equal(Object.values(cursors).filter((v) => v.cursor === 'hist-11846').length, 1,
+      "the account that was right keeps its place in its own mailbox");
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair REPORTS the people whose corroboration was double-counted — and removes none of them', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    // Morgan is on ONE message. The crossed run counted that one sighting a second time, which is
+    // what carried the name over the threshold — the memory corruption the brief names.
+    assert.deepEqual(r.plan.entities.falling.map((e) => [e.canonical, e.before, e.after]),
+      [['Morgan Lee', 2, 1]], o.text());
+    assert.equal(r.plan.entities.threshold, DEFAULT_MIN_CORROBORATION, "promotion's own threshold, not a second copy of it");
+    assert.match(o.text(), /Morgan Lee: 2 → 1/);
+    assert.match(o.text(), /NOT removed by repair/);
+    // Dana is on both messages and stays corroborated without the duplicates: a name that was really
+    // earned is not reported as lost.
+    assert.ok(!r.plan.entities.falling.some((e) => e.canonical === 'Dana Reyes'));
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair NEVER deletes a memory record — it names each one whose evidence is going', async () => {
+  const zone = await crossedZone();
+  try {
+    // A promoted record for an item the crossed run ingested. Repair must report it and leave both
+    // the record and its promotion-ledger row exactly where they are.
+    const crossed = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean)
+      .map((l) => JSON.parse(l)).find((row) => row.observedAt === REPAIR_RUN_TWO);
+    fs.appendFileSync(promotionLedgerPath(zone), `${JSON.stringify({
+      sourceItemId: crossed.sourceItemId, vendorEtag: crossed.vendorEtag, ref: 'rec:ceo:unfiled:a-record', promotedAt: REPAIR_RUN_TWO,
+    })}\n`);
+    const promotionsBefore = fs.readFileSync(promotionLedgerPath(zone), 'utf8');
+
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.deepEqual(r.plan.promotions.orphaned.map((p) => p.ref), ['rec:ceo:unfiled:a-record']);
+    assert.match(o.text(), /rec:ceo:unfiled:a-record/);
+    assert.match(o.text(), /NOT removed by repair/);
+    assert.match(o.text(), /decision for the CEO and a write for the loro writer/);
+    assert.equal(fs.readFileSync(promotionLedgerPath(zone), 'utf8'), promotionsBefore,
+      'the promotion ledger is untouched — this command does not decide what memory stops existing');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair REFUSES a revision that is not the one its row claims, and keeps that row', async () => {
+  const zone = await crossedZone();
+  try {
+    // Somebody else's revision at the path this row resolves to. Deleting it because the path matched
+    // would be the one unrecoverable mistake this command could make.
+    const crossed = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean)
+      .map((l) => JSON.parse(l)).filter((row) => row.observedAt === REPAIR_RUN_TWO);
+    const planned = planRepair({ zone, since: Date.parse(REPAIR_WINDOW.since), until: Date.parse(REPAIR_WINDOW.until) });
+    const victim = planned.evidence.dirs[0].dir;
+    const stored = JSON.parse(fs.readFileSync(path.join(victim, 'item.json'), 'utf8'));
+    fs.writeFileSync(path.join(victim, 'item.json'), JSON.stringify({ ...stored, sourceItemId: 'google:mail:somebody:else' }, null, 2));
+
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.equal(r.exitCode, 1, 'a refusal inside a repair is not a success');
+    assert.match(o.text(), /REFUSED:/);
+    assert.match(o.text(), /the revision on disk is not the one this row claims/);
+    assert.ok(fs.existsSync(path.join(victim, 'item.json')), 'the unconfirmed revision is still there');
+    const rows = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.ok(rows.some((row) => row.sourceItemId === crossed[0].sourceItemId || row.sourceItemId === crossed[1].sourceItemId),
+      'and its ledger row was kept with it');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair writes an AUDIT row holding the rows it removed, so the undo is itself undoable', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    const audit = fs.readFileSync(repairLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].rows.length, 2, 'the removed rows are kept VERBATIM, not counted');
+    assert.equal(audit[0].since, Date.parse(REPAIR_WINDOW.since));
+    assert.equal(audit[0].evidenceRemoved.length, 2);
+    assert.match(o.text(), /audit:      .*_workspace_repairs\.jsonl/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair refuses a window it cannot read, and a mode that contradicts itself', async () => {
+  const zone = await crossedZone();
+  try {
+    let o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /a run is identified by the window it wrote in/);
+
+    o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, since: 'last tuesday', out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /--since is not a time RichOS can read: "last tuesday"/);
+
+    o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, dryRun: true, out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /--apply and --dry-run are opposite instructions/);
+
+    o = repairLines();
+    const backwards = await runWorkspace({ sub: 'repair', deps: { zone, since: REPAIR_WINDOW.until, until: REPAIR_WINDOW.since, out: o.out, now } });
+    assert.equal(backwards.exitCode, 1);
+    assert.match(o.text(), /--until is before --since/);
+
+    // PROBE: an empty window is not an error — it is an answer, and it says which one.
+    o = repairLines();
+    const empty = await runWorkspace({ sub: 'repair', deps: { zone, since: '2020-01-01T00:00:00Z', until: '2020-01-02T00:00:00Z', out: o.out, now } });
+    assert.equal(empty.exitCode, 0);
+    assert.equal(empty.nothing, true);
+    assert.match(o.text(), /nothing to undo/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair is VENDOR-FREE and reaches no other store: one zone holds every account', async () => {
+  const zone = await crossedZone();
+  try {
+    // A second vendor's rows in the same zone, outside the window, are not this run's business.
+    const before = fs.readFileSync(auditLedgerPath(zone), 'utf8');
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, out: o.out, now } });
+    assert.ok(!o.text().includes('vendor:'), 'no vendor is named as an input — the window is the handle');
+    assert.equal(r.plan.zone, zone);
+    assert.equal(fs.readFileSync(auditLedgerPath(zone), 'utf8'), before);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+
+// =================================================================================================
+group('`workspace seed-calendar` — a DESIGNED test calendar, with its own write consent');
+// =================================================================================================
+
+const SEED_ACCOUNT = 'ceo@acme.com';
+const SEED_CALENDAR_ID = 'c_seedtest@group.calendar.google.com';
+const seedCalendarIds = { primary: SEED_ACCOUNT, seed: SEED_CALENDAR_ID };
+
+/** The seeding tool driven against a Google that remembers what was written to it. */
+function seedStubs(google, extra = {}) {
+  return {
+    http: google.http,
+    awaitCode: async () => ({ code: 'seed-auth-code' }),
+    openBrowser: async () => true,
+    ...extra,
+  };
+}
+
+test('the fixture set is a function of (account, set id, clock) — nothing about it is random', () => {
+  const args = { accountId: SEED_ACCOUNT, setId: 'unit', now: NOW };
+  assert.equal(JSON.stringify(planFixtures(args)), JSON.stringify(planFixtures(args)),
+    'two plans from the same inputs are byte-identical — which is what makes a re-run an update');
+  const other = planFixtures({ ...args, setId: 'other' });
+  const a = planFixtures(args).fixtures.map((f) => f.writes[0].eventId);
+  const b = other.fixtures.map((f) => f.writes[0].eventId);
+  assert.equal(a.filter((id) => b.includes(id)).length, 0, 'a different set id is a different set of events');
+
+  // Google's event-id grammar is base32hex, 5–1024 characters. A key like `weekly-sync` is not.
+  for (const fixture of planFixtures(args).fixtures) {
+    for (const write of fixture.writes) {
+      assert.match(write.eventId, /^[0-9a-v]{5,1024}$/, `${fixture.key} has a legal Google event id`);
+    }
+  }
+});
+
+test('AN IMPORT CARRIES AN iCalUID AND NO id — the pair is what Google refused', () => {
+  // The live 2026-09-17 seed run: three `events.import` POSTs, three `400 Invalid resource id
+  // value`, and every `events.insert` carrying the SAME pinned id landed. Google's reference says
+  // why — the iCalUID and the id "are not identical and only one of them should be supplied at event
+  // creation time" — so the grammar was never the problem and the FIELD BEING THERE was.
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  const imports = plan.fixtures.filter((f) => f.method === 'import');
+  assert.equal(imports.length, 2, 'partner-review and cross-calendar-dup are the imported fixtures');
+
+  for (const fixture of imports) {
+    for (const write of fixture.writes) {
+      assert.equal(write.body.id, undefined,
+        `${fixture.key} must not pin an id on an import — that is the 400 the CEO's account returned`);
+      assert.equal(write.body.iCalUID, seedICalUid('unit', fixture.key),
+        `${fixture.key} pins the iCalUID instead, which is what an import is FOR`);
+      // The stand-in survives for the dry run, which has no real id to print.
+      assert.match(write.eventId, /^[0-9a-v]{5,1024}$/);
+    }
+  }
+  // One UID across both copies of the duplicate, and nothing else shares it.
+  const dup = imports.find((f) => f.key === 'cross-calendar-dup');
+  assert.equal(new Set(dup.writes.map((w) => w.body.iCalUID)).size, 1, 'two calendars, ONE iCalUID');
+
+  for (const fixture of plan.fixtures.filter((f) => f.method !== 'import')) {
+    for (const write of fixture.writes) {
+      assert.equal(write.body.id, write.eventId, `${fixture.key} is inserted, so its id is still pinned`);
+      assert.equal(write.body.iCalUID, undefined, `${fixture.key} does not supply the other half of the pair`);
+    }
+  }
+});
+
+await atest('the mocked Google REFUSES an import that carries an id, exactly as the real one did', async () => {
+  // A mock that took the body Google rejects is a mock that cannot fail on the defect it is here to
+  // catch — and that is precisely what happened: the whole loop was green while the live run was
+  // refused three times. This asserts the refusal directly, so the mock's fidelity is itself tested.
+  const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(SEED_ACCOUNT)}/events/import`;
+  const post = (body) => google.http(url, {
+    method: 'POST',
+    headers: { authorization: 'Bearer mock-access-readwrite', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const ok = { iCalUID: 'uid-1@richos-seed.example.com', start: { date: '2026-09-20' }, end: { date: '2026-09-21' } };
+
+  const refused = await post({ ...ok, id: 'rs0123456789' });
+  assert.equal(refused.status, 400, 'an id on an import is refused');
+  assert.match(JSON.parse(await refused.text()).error.message, /Invalid resource id value/,
+    "and refused in Google's own words, so a reader recognizes the live failure");
+
+  const accepted = await post(ok);
+  assert.equal(accepted.status, 200, 'the same write without the id lands');
+  assert.equal((await accepted.json()).iCalUID, ok.iCalUID, 'under the UID it asked for');
+});
+
+test('every seeded event carries the set marker AND its fixture key — teardown is exact, re-runs update', () => {
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  for (const fixture of plan.fixtures) {
+    for (const write of fixture.writes) {
+      const priv = write.body.extendedProperties.private;
+      assert.equal(priv[SEED_PROPERTY], 'unit');
+      assert.equal(priv[SEED_KEY_PROPERTY], fixture.key);
+    }
+  }
+});
+
+test('THE SET COVERS EVERY PROMOTION RULE — and the coverage is DERIVED, not claimed', () => {
+  // Each assertion asks the pipeline's own decision function what it would do, so this test fails
+  // the day a rule changes rather than the day somebody notices the fixtures stopped exercising it.
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  const ex = expectationsFor(plan, { calendarIds: seedCalendarIds, now: NOW });
+  const reasons = new Set(ex.rows.map((r) => r.reason));
+
+  assert.ok(ex.rows.some((r) => r.promote), 'at least one fixture promotes — the case the CEO\'s own entries could not produce');
+  assert.ok(reasons.has('solo block, no attendees or description — noise, stays evidence'),
+    'the hold his five hand-typed meetings hit is in the set as a POSITIVE CONTROL');
+  assert.ok(reasons.has('withdrawn at the source — a supersede signal, not a new memory'),
+    'a withdrawn meeting is held, and held for that reason rather than for a generic one');
+  assert.ok(reasons.has('single untrusted item — needs corroboration from a trusted source'),
+    'an externally-authored meeting is held by the immune system');
+
+  const weekly = ex.rows.filter((r) => r.fixture === 'weekly-sync');
+  assert.equal(weekly.length, 8, 'the recurring series expands into its occurrences');
+  assert.equal(new Set(weekly.map((r) => r.dedupKey)).size, 8,
+    'ONE iCalUID across the occurrences must not collapse them — the start is part of the dedup key');
+
+  const merged = ex.groups.filter((g) => g.members.length > 1);
+  assert.equal(merged.length, 1, 'exactly one cross-calendar duplicate');
+  assert.equal(merged[0].members.length, 2);
+  assert.ok(!merged[0].members[0].groupAmbiguous, 'both copies are judged the same, so WHICH one lands does not matter');
+
+  assert.ok(ex.entities.learned.length >= 1, 'somebody crosses the corroboration threshold');
+  assert.ok(ex.entities.held.length >= 1, 'and somebody seen once does not');
+  assert.equal(ex.entities.threshold, DEFAULT_MIN_CORROBORATION, 'at the product\'s own threshold');
+
+  // The Meet link is text, never a person: the only names that come out of that fixture are attendees.
+  const meet = ex.rows.find((r) => r.fixture === 'meet-link');
+  assert.ok(meet.title.includes('Meet'));
+  assert.ok(meet.people.every((p) => p.email.includes('@')), 'a URL never becomes an entity candidate');
+});
+
+await atest('seed-calendar --dry-run prints the expectation table and touches NOTHING', async () => {
+  const f = wsFixture();
+  try {
+    const r = await seedCalendar(f.deps({
+      dryRun: true,
+      // Any network call or any consent attempt in a dry run is a failure, so both throw.
+      http: () => { throw new Error('a dry run reached the network'); },
+      awaitCode: () => { throw new Error('a dry run asked for consent'); },
+      openBrowser: () => { throw new Error('a dry run opened a browser'); },
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /DRY RUN/);
+    assert.match(f.text(), /https:\/\/www\.googleapis\.com\/auth\/calendar/, 'it says which scope it would ask for');
+    assert.match(f.text(), /EXPECTED PROMOTION OUTCOME/);
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'no manifest was written');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'no grant was stored');
+  } finally { f.cleanup(); }
+});
+
+await atest('THE SEEDING GRANT IS ITS OWN KEYCHAIN ITEM — status cannot see it, disconnect cannot remove it', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    const seeded = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(seeded.exitCode, 0, f.text());
+    const seedGrant = f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`);
+    assert.ok(seedGrant, 'the write grant is stored under the seed service');
+    assert.equal(f.record(), null, 'and the product service holds nothing — a seed run is not a connect');
+
+    // `status` reports the PRODUCT's grant. A write grant sitting beside it must not show up as one.
+    f.lines.length = 0;
+    await status(f.deps({ http: google.http }));
+    assert.match(f.text(), /NOT CONNECTED/, 'the product is still not connected, which is the truth');
+    assert.ok(!f.text().includes(SEED_KEYCHAIN_SERVICE), 'and the seeding grant is not reported as a connection');
+
+    // Connect the product for real, then disconnect it: the seed grant is untouched by both.
+    f.lines.length = 0;
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    assert.ok(f.record(), 'the product grant exists now');
+    await disconnect(f.deps({ http: googleHttpMock().http }));
+    assert.equal(f.record(), null, 'the product grant is gone');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), seedGrant,
+      'and the seeding grant is exactly as it was — disconnect deletes the item it owns, and no other');
+  } finally { f.cleanup(); }
+});
+
+await atest('seed-calendar REFUSES a consent that belongs to a different account, and writes nothing', async () => {
+  const f = wsFixture();
+  try {
+    // The browser was signed in as somebody else — the 2026-09-17 crossed-grant failure, on a tool
+    // that WRITES. Here an unverifiable or mismatched identity is a refusal, never a warning.
+    const google = mockGoogleCalendar({ accountId: 'someone.else@acme.com' });
+    const r = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(r.exitCode, 1, f.text());
+    assert.match(f.text(), /NOT SEEDED — that consent belongs to someone\.else@acme\.com, not ceo@acme\.com\./);
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'nothing was stored');
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'and nothing was written');
+    const writes = google.calls.filter((c) => c.method !== 'GET' && !c.url.includes('oauth2.googleapis.com'));
+    assert.deepEqual(writes, [], 'not one calendar write was attempted');
+  } finally { f.cleanup(); }
+});
+
+await atest('a SECOND seed run of the same set updates in place — no second copy of anything', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    const first = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(first.exitCode, 0, f.text());
+    const countEvents = () => [...google.calendars.values()].reduce((n, c) => n + c.events.size, 0);
+    const after = countEvents();
+    const calendars = google.calendars.size;
+
+    f.lines.length = 0;
+    const second = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(second.exitCode, 0, f.text());
+    assert.equal(countEvents(), after, 'the same events, not a second set of them');
+    assert.equal(google.calendars.size, calendars, 'and one test calendar, not two');
+    assert.deepEqual(
+      second.manifest.events.map((e) => e.eventId).sort(),
+      first.manifest.events.map((e) => e.eventId).sort(),
+      'the second run addressed the first run\'s events — an inserted id is a function of the set, '
+      + 'and an IMPORTED id is Google\'s, found again by its iCalUID',
+    );
+    assert.ok(second.manifest.events.some((e) => e.action.startsWith('updated')),
+      'and it said so: a re-run UPDATES rather than creating');
+    // The three imports are the copies with no pinned id, so they are the ones idempotence could
+    // quietly lose. Named here rather than left inside the totals above.
+    for (const key of ['partner-review', 'cross-calendar-dup']) {
+      const copies = second.manifest.events.filter((e) => e.fixture === key);
+      assert.ok(copies.length >= 1, `${key} was written`);
+      assert.ok(copies.every((e) => e.action === 'updated'),
+        `${key} was found by its iCalUID and updated in place, never imported a second time`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('--teardown removes every event it made, the calendar it created, and the grant itself', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(google.calendars.size, 2, 'the second calendar exists');
+
+    f.lines.length = 0;
+    const gone = await seedCalendar(f.deps({ ...seedStubs(google), teardown: true }));
+    assert.equal(gone.exitCode, 0, f.text());
+    assert.equal(google.calendars.size, 1, 'the calendar this tool created is gone');
+    const primary = google.calendars.get(SEED_ACCOUNT);
+    const alive = [...primary.events.values()].filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
+    assert.deepEqual(alive, [], 'and nothing it seeded on the primary calendar is still standing');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'the grant is deleted');
+    assert.ok(google.calls.some((c) => c.url.startsWith('https://oauth2.googleapis.com/revoke')),
+      'and revoked at Google first — "torn down" is not a local-only claim');
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'the manifest is gone with it');
+  } finally { f.cleanup(); }
+});
+
+await atest('seed-calendar is a GOOGLE tool and says so rather than seeding the wrong vendor', async () => {
+  const f = wsFixture();
+  try {
+    const r = await seedCalendar(f.deps({ vendor: 'microsoft', http: () => { throw new Error('reached the network'); } }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /seed-calendar is a Google Calendar tool/);
+  } finally { f.cleanup(); }
+});
+
+await atest('THE WHOLE LOOP, MOCKED: seed → sync → promote → acceptance, with every row as predicted', async () => {
+  // The acceptance script's own mocked mode, run as a test. It writes fixtures into a Google that
+  // remembers them, pulls them back through the ORDINARY product path, and diffs what the pipeline
+  // did against what the pipeline's own decision function said it would do.
+  const lines = [];
+  const result = await runMockedAcceptance({ out: (l) => lines.push(l) });
+  try {
+    for (const line of describeAcceptance(result)) lines.push(line);
+    assert.equal(result.ok, true, lines.join('\n'));
+    assert.ok(result.rows.length >= 11, 'every fixture is checked');
+    assert.ok(result.rows.every((r) => r.pass));
+    assert.ok(result.entities.every((e) => e.pass));
+    assert.deepEqual(result.problems, [], 'the stored expectation and a fresh derivation agree');
+
+    // The separation, asserted where it can actually be violated: the product's grant is read-only,
+    // and the mocked Google refuses a write that carries it.
+    assert.ok(result.mock.seedGrant && result.mock.productGrant);
+    assert.notEqual(result.mock.seedGrant, result.mock.productGrant);
+    const readOnlyWrites = result.mock.google.calls.filter((c) => c.method !== 'GET'
+      && c.token === 'mock-access-readonly' && !c.url.includes('oauth2.googleapis.com'));
+    assert.deepEqual(readOnlyWrites, [], 'the sync path never attempted a write');
+  } finally { cleanupMockedAcceptance(result); }
 });
 
 // =================================================================================================

@@ -111,8 +111,7 @@ export function awaitAuthorizationCode(opts) {
           ok: false,
           heading: 'Google did not grant access',
           detail: `Google reported "${err}". Nothing was stored. You can run the connect command again.`,
-        }));
-        finish(new Error(`Google refused the consent request: ${err}`));
+        }), () => finish(new Error(`Google refused the consent request: ${err}`)));
         return;
       }
       if (state !== opts.state) {
@@ -121,8 +120,7 @@ export function awaitAuthorizationCode(opts) {
           ok: false,
           heading: 'Sign-in could not be verified',
           detail: 'The response did not match the request RichOS started. Nothing was stored. Run the connect command again.',
-        }));
-        finish(new Error('consent redirect carried the wrong "state" — refusing the authorization code'));
+        }), () => finish(new Error('consent redirect carried the wrong "state" — refusing the authorization code')));
         return;
       }
       if (!code) {
@@ -130,8 +128,7 @@ export function awaitAuthorizationCode(opts) {
           ok: false,
           heading: 'No authorization returned',
           detail: 'Google sent no authorization code. Nothing was stored. Run the connect command again.',
-        }));
-        finish(new Error('consent redirect carried no authorization code'));
+        }), () => finish(new Error('consent redirect carried no authorization code')));
         return;
       }
 
@@ -139,11 +136,14 @@ export function awaitAuthorizationCode(opts) {
         ok: true,
         heading: 'RichOS is connected',
         detail: 'You can close this tab and go back to the terminal.',
-      }));
-      finish(null, { code });
+      }), () => finish(null, { code }));
     });
 
-    function respond(res, status, body) {
+    // `onFlushed`, when given, runs once the response has been fully handed off to the OS for
+    // transmission (`res`'s `finish` event) — the earliest point it is safe to settle the ceremony's
+    // promise and safe to tear the connection down without truncating what the browser is showing.
+    function respond(res, status, body, onFlushed) {
+      if (onFlushed) res.once('finish', onFlushed);
       res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(body);
     }
@@ -152,9 +152,24 @@ export function awaitAuthorizationCode(opts) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      // Close AFTER the response has been flushed; the browser tab is the CEO's only confirmation.
-      setImmediate(() => server.close(() => (err ? reject(err) : resolve(value))));
+      // The ceremony is DONE the moment the code is in hand and the confirmation page has been
+      // flushed to the browser — never when `server.close()`'s callback fires. That callback waits
+      // for every open connection to end, and a socket that connected but never sent a request (a
+      // browser's speculative preconnect, or a lingering keep-alive) has no HTTP parser attached, so
+      // `close()` cannot see it as "idle" the way it sees a finished HTTP exchange. Measured: an
+      // untouched connection left `close()`'s callback — and this promise — unsettled for as long as
+      // that socket stayed open, well past the point the CEO had already seen "connected" fly by.
+      // Settle first; tear the server down after, without ever making the result wait on it.
+      if (err) reject(err); else resolve(value);
+      server.closeAllConnections();
+      server.close();
     }
+
+    // A socket that connects and never sends a request (a browser's speculative preconnect) is no
+    // longer able to block settlement — `finish` doesn't wait on it — but it should not be able to
+    // sit on the port indefinitely either. Bound it to the ceremony's own timeout: idle that long and
+    // Node destroys it on its own, whether or not the real callback ever arrives on another socket.
+    server.timeout = timeoutMs;
 
     server.on('error', (err) => {
       if (err && err.code === 'EADDRINUSE') {

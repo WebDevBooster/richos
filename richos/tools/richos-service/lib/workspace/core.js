@@ -96,13 +96,26 @@ export async function ingestOnce(opts) {
     ...(result.degraded ? { degraded: result.degraded } : {}),
   };
 
+  // A CONTAINER THE ACCOUNT OWNS IS THE ACCOUNT. An adapter may report its sub-resources with an
+  // `owned` flag (Calendar: a secondary calendar the CEO owns), and those addresses go into the
+  // identity BEFORE the gate runs — because a secondary calendar is the AUTHOR of everything on it,
+  // and without this every one of those events resolves external → untrusted → held forever. A
+  // sub-resource the account does not own is deliberately left out: a subscribed calendar (his
+  // `Holidays in United Kingdom`, 119 events) authors events under an address that is not his, and
+  // it must keep resolving external. Generic by construction: an adapter that reports no containers
+  // changes nothing here.
+  const ownedContainers = (result.calendars || []).filter((c) => c && c.owned && c.id).map((c) => c.id);
+  const gateIdentity = ownedContainers.length
+    ? ceoIdentity({ ...identity, selfCalendars: [...identity.selfCalendars, ...ownedContainers] })
+    : identity;
+
   for (const ref of result.items || []) {
     summary.observed += 1;
     const raw = await adapter.fetchItem(ref);
     const normalized = adapter.toSourceItem(raw);
 
     // --- GOVERNANCE GATE (§5) ---
-    const resolved = resolveActors(normalized, identity);
+    const resolved = resolveActors(normalized, gateIdentity);
     const scope = classifyScope(resolved);
     const governed = classifyTrust(resolved, { now: now() });
     const evidenceLink = evidenceLinkFor(governed, zone, linkBase);

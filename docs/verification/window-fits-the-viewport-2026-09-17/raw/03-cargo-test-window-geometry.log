@@ -1,0 +1,45 @@
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+warning: `richos-tauri` (bin "richos-tauri" test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/main.rs (target/debug/deps/richos_tauri-39fe33d50846708f)
+
+running 23 tests
+test window_geometry::tests::a_retina_display_is_measured_in_points_not_pixels ... ok
+test window_geometry::tests::a_geometry_stranded_by_a_rearranged_desk_is_discarded ... ok
+test window_geometry::tests::a_1024x640_viewport_brings_the_minimum_down_with_it ... ok
+test window_geometry::tests::a_corrupt_saved_record_is_ignored ... ok
+test window_geometry::tests::an_impossible_scale_factor_degrades_to_one ... ok
+test window_geometry::tests::an_unusable_preference_falls_back_to_the_documented_default ... ok
+test window_geometry::tests::each_display_is_divided_by_its_own_scale_factor ... ok
+test window_geometry::tests::the_main_landscape_display_still_gets_the_preferred_size ... ok
+test window_geometry::tests::every_inset_model_still_fits ... ok
+test window_geometry::tests::no_display_size_produces_an_off_screen_window ... ok
+test window_geometry::tests::a_geometry_that_still_fits_is_restored_verbatim ... ok
+test window_geometry::tests::a_flush_window_is_not_thrown_away_by_rounding ... ok
+test window_geometry::tests::the_minimum_never_exceeds_what_the_display_can_show ... ok
+test window_geometry::tests::the_portrait_display_gets_a_window_that_fits_it ... ok
+test window_geometry::tests::the_second_landscape_display_also_gets_the_preferred_size ... ok
+test window_geometry::tests::a_1280x720_viewport_decides_the_window_rather_than_the_default ... ok
+test window_geometry::tests::a_large_display_is_capped_by_the_preference_not_filled ... ok
+test window_geometry::tests::a_geometry_on_a_display_that_shrank_is_discarded ... ok
+test window_geometry::tests::a_geometry_on_a_vanished_display_is_discarded_not_clamped ... ok
+test window_geometry::tests::the_window_fits_what_is_visible_not_the_panel ... ok
+test window_geometry::tests::with_no_readable_display_the_smallest_declared_size_is_the_last_resort ... ok
+test window_geometry::tests::the_config_still_declares_the_preference_this_module_defaults_to ... ok
+test window_geometry::tests::the_store_round_trips_and_writes_only_on_a_change ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.00s
+

@@ -304,6 +304,41 @@ node test/cross-surface-e2e.mjs # REAL: BOTH surfaces (extension + macOS compani
                          #   identically per source; Windows case skipped-but-seamed
 ```
 
+
+## Test fixtures — a designed calendar, with its own consent
+
+A calendar typed by hand cannot exercise promotion. Five meetings added by hand to the CEO's own
+Workspace calendar synced perfectly and were all held as `solo block, no attendees or description` —
+correctly, because a block a person types for himself has no attendees and no description. So the
+fixtures are designed against the promotion rules, and they are reproducible:
+
+```
+node bin/richos-service.js workspace seed-calendar --account you@co.com --dry-run   # the table, no writes
+node bin/richos-service.js workspace seed-calendar --account you@co.com             # plant the set
+node bin/richos-service.js workspace sync google --once --account you@co.com        # pull + promote it
+node test/calendar-seed-acceptance.mjs                                             # expected vs observed
+node bin/richos-service.js workspace seed-calendar --account you@co.com --teardown  # remove all of it
+```
+
+**Its consent is separate, and the product's grant stays read-only.** `seed-calendar` writes, so it
+asks for `https://www.googleapis.com/auth/calendar` on its own consent screen and keeps that grant in
+its own keychain item — service `com.richos.workspace.google.seed`. Nothing in the sync path reads
+that service: `status` does not list it, `disconnect` does not remove it, and `GOOGLE_SCOPES` in
+`lib/config.js` is untouched, so no adapter can reach a write scope. The scope is `calendar` rather
+than the narrower `calendar.events` because creating the second `RichOS test` calendar, and reading
+`calendars/primary` to verify whose consent arrived, are not authorized by `calendar.events`.
+
+**`--teardown` removes everything it made** — every event carrying `richos-seed=<set>`, the
+`RichOS test` calendar if this tool created it, the manifest, and the grant itself (revoked at Google
+before the keychain item is deleted). Evidence a sync already wrote is left alone; `workspace repair
+--since` is the command that undoes a sync run.
+
+**The expectation is derived, never written down.** `--dry-run` prints what promotion will decide for
+every fixture by running it through the pipeline's own `toSourceItem` → governance → `promotionDecision`
+path, so the table cannot drift from the rules. `test/calendar-seed-acceptance.mjs` diffs that table
+against what the sync actually wrote; `--mock` runs the whole loop — seed, sync, promote, check —
+against a Google that keeps state, with no account and no network, which is how it runs in `npm test`.
+
 ---
 
 ## P1 scope + honest deviations

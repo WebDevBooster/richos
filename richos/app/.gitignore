@@ -28,6 +28,9 @@ acp-adapter/node_modules/
 
 # Tauri build / node UI deps
 src-tauri/target/
+# the same path as a SYMLINK (build cache relocated to the external SSD, 2026-09-17): a
+# trailing-slash rule matches directories only, so the link would show as untracked
+src-tauri/target
 ui/node_modules/
 ui/tests/node_modules/
 

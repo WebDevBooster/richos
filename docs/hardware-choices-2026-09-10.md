@@ -256,6 +256,20 @@ own: `cargo run --example window_placement -- 1280x832@2` chooses `1232 × 732`.
 settles that the platform places it where this arithmetic says, and that needs the CEO's screen at a
 time he chooses.
 
+**ADDENDUM — 2026-09-17: the last resort is no longer the preference.** The CEO asked for this
+repair again in his own words on his v1.0.2 list (*"If the viewport on user's device is smaller than
+our app's default window size, auto-adjust our app's window size to match the smaller viewport"*) —
+1.0.2 predates the repair above, so what he saw is what 1.0.2 does. One thing did change: the branch
+where NO display can be read now opens at the smallest size the UI declares it needs — the config's
+own `minWidth`/`minHeight`, 1024 × 700 — rather than at the preferred 1400 × 880. That path is not
+hypothetical: a
+nightly boot took it at 02:06Z the same day because macOS reports no ACTIVE display while the screens
+are asleep (`docs/verification/gui-boot-display-precondition-2026-09-17/`) — and the preferred size
+is 908 points tall with its title bar, which the platform's own `center()` hangs 54 points above the
+top of an 800-point work area. The sentence in the boot log moved with it. Measurements, the two
+viewports he named, and what his sentence does NOT ask for:
+`docs/verification/window-fits-the-viewport-2026-09-17/`.
+
 <a id="d3"></a>
 ### D3 — a 2 GiB disk budget on a machine whose disk was never measured
 

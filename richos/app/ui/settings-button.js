@@ -258,7 +258,7 @@ window.RichSettings = (function () {
       row.appendChild(said);
       return row;
     }
-    var sel = elem("select", "set-select", {
+    var sel = elem("select", "set-select chrome-select", {
       id: "set-company",
       "aria-labelledby": "set-company-label",
     });
@@ -277,7 +277,16 @@ window.RichSettings = (function () {
       if (state && options[i].id === state.chosen) o.setAttribute("selected", "selected");
       sel.appendChild(o);
     }
-    row.appendChild(sel);
+    // Custom chevron (audit D7, 2026-09-17) — see `.chrome-select` in style.css for why this
+    // is a real text glyph and not a background-image or an inline SVG. `selWrap`, not
+    // `wrap`: this function's own local wrapper, distinct from the module-level settings
+    // button wrapper of the same short name declared above.
+    var selWrap = elem("span", "chrome-select-wrap");
+    selWrap.appendChild(sel);
+    var chevron = elem("span", "chrome-select-chevron", { "aria-hidden": "true", "data-contrast-role": "indicator" });
+    chevron.textContent = "▾";
+    selWrap.appendChild(chevron);
+    row.appendChild(selWrap);
     return row;
   }
 
@@ -340,7 +349,19 @@ window.RichSettings = (function () {
    *  to be open, and the shell is already live underneath the curtain.
    */
   function buildMenu() {
-    var menu = elem("div", "setmenu", { id: "set-menu", "aria-label": "Settings", role: "menu" });
+    // `data-dismiss` IS THE DECLARATION THE GLOBAL ESCAPE HANDLER READS (CEO, 2026-09-17,
+    // item 1: "close any popup of any kind by simply tapping the escape key"). This menu has
+    // had its own Escape since it was written — the listener at the foot of `mount()` — and
+    // that one only fires because it is bound to `document`. The marker is what puts the menu
+    // into `main.js`'s DOM-derived enumeration as well, so the two agree on what is open and
+    // on which surface is topmost instead of racing. Both are idempotent (`close()` returns
+    // early when the menu is already hidden), so the overlap costs nothing.
+    var menu = elem("div", "setmenu", {
+      id: "set-menu",
+      "aria-label": "Settings",
+      role: "menu",
+      "data-dismiss": "escape",
+    });
     menu.hidden = true;
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)

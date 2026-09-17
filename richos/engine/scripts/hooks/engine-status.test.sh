@@ -721,6 +721,18 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # 60 and 61: he returned after nine hours, asked "TLDR, plain English", was
 # answered about something else, and it took sixteen messages and thirty-nine
 # minutes to get one line that two commands produce in a second.
+# session-start-scratch.sh, ADDED 2026-09-17 — SessionStart, refuses nothing,
+# and SILENT on a healthy machine. It is the third leg of the scratch reaper:
+# scripts/scratch-reaper.sh deletes dead scratch on a launchd schedule and
+# writes ~/.claude/state/scratch-reaper.log, and neither of those puts one word
+# in front of a person. It speaks only when more than the declared
+# SCRATCH_NOTICE_BYTES is reclaimable, when more than that much is UNDECIDABLE
+# (the pile the scheduled job will never clear on its own), or when the
+# scheduled job is not installed or has stopped completing passes. The morning
+# it exists for: 2026-09-17, 1.8 GB free of 460 GB, 19 GB of dead scratch, and
+# a person deleting it by hand after the operating system shouted. It resolves
+# no entity root, so it is declared in the probe's R_ROOTLESS_HOOKS; suite:
+# session-start-scratch.test.sh (9 cases, four of them silence).
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 left-off-report.sh
 guard-brief-scope.sh
@@ -782,6 +794,7 @@ scan-secrets.sh
 session-start-ceo-ask.sh
 session-start-ci-surface.sh
 session-start-escalations.sh
+session-start-scratch.sh
 shell-evidence.sh
 snapshot-agent-definitions.sh
 snapshot-enforcing-hooks.sh

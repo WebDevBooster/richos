@@ -30,6 +30,27 @@
 //! "make the constant smaller" is not the fix: a smaller constant is the same defect with a
 //! friendlier number, wrong on the next display nobody measured.
 //!
+//! ## THE CEO ASKED FOR THIS IN HIS OWN WORDS ON 2026-09-17, AND THEY ARE NARROWER THAN THEY LOOK
+//!
+//! Item 3 of his v1.0.2 test list, verbatim:
+//!
+//! > If the viewport on user's device is smaller than our app's default window size,
+//! > auto-adjust our app's window size to match the smaller viewport.
+//!
+//! That is what `decide_with` already does and has done since D2 landed (2026-09-04) — after
+//! the 1.0.2 he was testing, which is why he saw the old behavior. What is new for his sentence
+//! is the coverage below: the small-viewport cases are now named tests rather than points on a
+//! sweep, `the_window_fits_what_is_visible_not_the_panel` pins the work-area reading, and the
+//! blind path no longer opens at the preferred size.
+//!
+//! **What his sentence does NOT ask for, said plainly rather than left for someone to assume: a
+//! window already open is not at "our app's default window size" any more, so nothing here
+//! resizes a live window when the desk changes underneath it.** No display-change listener was
+//! added. The case that sentence would cover — he unplugs the big display and relaunches — is
+//! already covered from the other end: a saved geometry is honored only if a display present
+//! RIGHT NOW holds the whole window, so a rect stranded by a vanished display is discarded and
+//! the window is derived afresh from what is actually there.
+//!
 //! ## Units: LOGICAL POINTS, throughout, and why that is the only correct choice
 //!
 //! Everything in this module is logical points in the global top-left-origin space —
@@ -347,16 +368,45 @@ pub fn decide_with(
 ) -> Placement {
     let preference = preference.sanitized();
     if displays.is_empty() {
+        // THE FLOOR ON THE BLIND PATH IS THE SMALLEST SIZE THE UI DECLARES IT NEEDS, NOT THE
+        // LARGEST SIZE IT WOULD LIKE — changed 2026-09-17, and the reason is the CEO's own
+        // sentence of that day: *"If the viewport on user's device is smaller than our app's
+        // default window size, auto-adjust our app's window size to match the smaller
+        // viewport."*
+        //
+        // Nothing here can MATCH a viewport it cannot read. What it can do is not exceed one.
+        // The preferred 1400 x 880 is 908 points tall with its title bar, so on a 800-point
+        // work area the platform's `center()` puts the content top at (800 - 908) / 2 = -54 —
+        // the title bar is off the top of the screen and the window cannot be dragged back.
+        // That is the one unrecoverable shape this module exists to prevent, and it was
+        // reachable on this path.
+        //
+        // `min_width`/`min_height` are "the smallest window the UI was designed for" and they
+        // are declared in `tauri.conf.json`, so this invents no number: it is the only size the
+        // product itself asserts is always usable. `.min()` rather than a swap, so a config
+        // whose minimum is larger than its preference cannot open a window bigger than the
+        // preference either.
+        //
+        // WHAT THIS COSTS, STATED RATHER THAN HIDDEN: a machine whose monitor list cannot be
+        // read at all — `available_monitors()` returning `Err` or an empty `Ok`, which on macOS
+        // means no `NSScreen` was available — now opens at 1024 x 700 on a display that might
+        // have held 1400 x 880. It is resizable, and the next launch restores wherever he put
+        // it. A window that is too small is a window he can fix; a window whose title bar is
+        // above the screen is not. This is NOT a guarantee of fitting — a 1024 x 640 work area
+        // holds neither size — because a guarantee needs a reading, and on this path there is
+        // none.
+        let width = preference.width.min(preference.min_width);
+        let height = preference.height.min(preference.min_height);
         return Placement {
             source: Source::Fallback,
             display: None,
-            width: preference.width,
-            height: preference.height,
+            width,
+            height,
             position: None,
-            min_width: preference.min_width,
-            min_height: preference.min_height,
-            note: "no display could be read; the preferred size is the last resort and the \
-                   platform is left to center it"
+            min_width: width,
+            min_height: height,
+            note: "no display could be read; the smallest size the UI is designed for is the \
+                   last resort and the platform is left to center it"
                 .to_string(),
         };
     }
@@ -850,16 +900,124 @@ mod tests {
     // NOTHING READABLE AT ALL
     // ============================================================================
 
-    /// The ONLY path on which the constants stand alone, and it says so out loud. No
-    /// position is offered, because a coordinate invented against no display is worse than
-    /// letting the platform center the window on the main screen.
+    /// The ONLY path on which a constant stands alone, and it says so out loud. No position
+    /// is offered, because a coordinate invented against no display is worse than letting
+    /// the platform center the window on the main screen.
+    ///
+    /// AND THE CONSTANT IS THE SMALLEST ONE, NOT THE LARGEST — see the comment at the branch
+    /// itself. The preferred 880 plus a 28-point title bar is 908, which the platform's own
+    /// `center()` would hang 54 points above the top of an 800-point work area; the minimum
+    /// the UI declares is 728 outer and does not. Neither is a promise on a display nobody
+    /// could read, and this test asserts the SMALLER of the two is what is chosen rather
+    /// than asserting a fit it cannot know.
     #[test]
-    fn with_no_readable_display_the_constant_is_the_last_resort() {
+    fn with_no_readable_display_the_smallest_declared_size_is_the_last_resort() {
         let placement = decide(&[], None);
         assert_eq!(placement.source, Source::Fallback);
-        assert_eq!((placement.width, placement.height), (PREFERRED_WIDTH, PREFERRED_HEIGHT));
+        assert_eq!(
+            (placement.width, placement.height),
+            (PREFERRED_MIN_WIDTH, PREFERRED_MIN_HEIGHT)
+        );
+        // The floor cannot be above the size it opens at, or the window cannot be resized to
+        // fit a display it turns out not to fit.
+        assert_eq!((placement.min_width, placement.min_height), (placement.width, placement.height));
+        assert!(placement.width <= PREFERRED_WIDTH && placement.height <= PREFERRED_HEIGHT);
         assert_eq!(placement.position, None);
         assert!(placement.note.contains("last resort"));
+
+        // A config whose minimum is LARGER than its preference must not open bigger than the
+        // preference — `.min()` in both axes, not a swap.
+        let inverted = Preference { width: 900.0, height: 600.0, min_width: 1024.0, min_height: 700.0 };
+        let odd = decide_with(&[], None, inverted);
+        assert_eq!((odd.width, odd.height), (900.0, 600.0));
+    }
+
+    // ============================================================================
+    // HIS SENTENCE OF 2026-09-17, ON THE VIEWPORTS THAT ARE SMALLER THAN THE DEFAULT
+    // ============================================================================
+    //
+    //   "If the viewport on user's device is smaller than our app's default window size,
+    //    auto-adjust our app's window size to match the smaller viewport."
+    //
+    // The sweep above already crosses this territory, but a sweep proves "nothing lands off
+    // screen" and his sentence is a different claim: that the DISPLAY decides the number. So
+    // the two viewports are named, and the arithmetic is written out rather than trusted.
+
+    /// 1280 x 720 points of work area — smaller than the 1400 x 880 default in BOTH axes.
+    ///
+    ///   usable content   (1280 - 2*24) x (720 - 2*24 - 28)   = 1232 x 644
+    ///   width            min(1400, 1232)                     = 1232   <- the display decided
+    ///   height           min( 880,  644)                     =  644   <- the display decided
+    ///   floor            min(1024, 1232) x min(700, 644)     = 1024 x 644
+    #[test]
+    fn a_1280x720_viewport_decides_the_window_rather_than_the_default() {
+        let small = vec![display("1280x720", 0.0, 24.0, 1280.0, 720.0, true)];
+        assert_eq!(small[0].usable_content(), (1232.0, 644.0));
+
+        let placement = decide(&small, None);
+        assert_eq!(placement.source, Source::Derived);
+        assert_eq!((placement.width, placement.height), (1232.0, 644.0));
+        assert!(placement.width < PREFERRED_WIDTH && placement.height < PREFERRED_HEIGHT);
+        assert_eq!(placement.position, Some((24.0, 76.0)));
+        // THE FLOOR COMES DOWN TOO. `minHeight: 700` on a 644-point budget is a window that
+        // cannot be resized to fit the screen it opened on.
+        assert_eq!((placement.min_width, placement.min_height), (1024.0, 644.0));
+        assert!(placement.min_height < PREFERRED_MIN_HEIGHT);
+        assert!(fits(&placement, &small[0]), "{}", placement.describe());
+        assert!(placement.note.contains("the display decided"));
+    }
+
+    /// 1024 x 640 points of work area — smaller than the declared MINIMUM in both axes, which
+    /// is the case that proves the floor is a preference and not a guarantee.
+    ///
+    ///   usable content   (1024 - 2*24) x (640 - 2*24 - 28)   = 976 x 564
+    ///   width            min(1400, 976)                      = 976
+    ///   height           min( 880, 564)                      = 564
+    ///   floor            min(1024, 976) x min(700, 564)      = 976 x 564
+    #[test]
+    fn a_1024x640_viewport_brings_the_minimum_down_with_it() {
+        let tiny = vec![display("1024x640", 0.0, 24.0, 1024.0, 640.0, true)];
+        assert_eq!(tiny[0].usable_content(), (976.0, 564.0));
+
+        let placement = decide(&tiny, None);
+        assert_eq!((placement.width, placement.height), (976.0, 564.0));
+        assert_eq!((placement.min_width, placement.min_height), (976.0, 564.0));
+        assert!(placement.min_width < PREFERRED_MIN_WIDTH && placement.min_height < PREFERRED_MIN_HEIGHT);
+        assert_eq!(placement.position, Some((24.0, 76.0)));
+        assert!(fits(&placement, &tiny[0]), "{}", placement.describe());
+    }
+
+    /// THE VIEWPORT IS WHAT IS VISIBLE, NOT THE PANEL — and the difference is a window that
+    /// does not fit.
+    ///
+    /// A 1280 x 800 laptop panel with a 24-point menu bar and a 70-point Dock has 706 points
+    /// of work area. `read_displays` hands this module `Monitor::work_area()`, which on macOS
+    /// is `NSScreen.visibleFrame` and has both already subtracted — so the fitted height is
+    /// 630 and the window sits inside what he can see. Had the full frame been read instead,
+    /// the height would have been 724, whose outer box is 752 points against 706 of work area:
+    /// 46 points of window behind the Dock or under the menu bar.
+    #[test]
+    fn the_window_fits_what_is_visible_not_the_panel() {
+        const MENU: f64 = 24.0;
+        const DOCK_HERE: f64 = 70.0;
+        let visible = display("1280x800 panel", 0.0, MENU, 1280.0, 800.0 - MENU - DOCK_HERE, true);
+        assert_eq!(visible.height, 706.0);
+
+        let placement = decide(std::slice::from_ref(&visible), None);
+        assert_eq!((placement.width, placement.height), (1232.0, 630.0));
+        assert!(fits(&placement, &visible), "{}", placement.describe());
+
+        // The same panel read as though the menu bar and the Dock were usable: a taller
+        // window, and one the real work area cannot hold.
+        let whole_panel = display("1280x800 panel", 0.0, 0.0, 1280.0, 800.0, true);
+        let naive = decide(std::slice::from_ref(&whole_panel), None);
+        assert_eq!(naive.height, 724.0);
+        assert!(naive.height + TITLE_BAR_RESERVE > visible.height);
+        let (nx, ny) = naive.position.unwrap();
+        assert!(
+            !visible.holds(nx, ny, naive.width, naive.height),
+            "reading the panel instead of the work area would have fit after all — the fixture no longer proves anything"
+        );
     }
 
     // ============================================================================

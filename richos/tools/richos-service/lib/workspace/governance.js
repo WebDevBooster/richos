@@ -22,8 +22,11 @@
 
 /**
  * The CEO identity used to resolve orgRelation and scope. `selfEmails` are the CEO's own addresses;
- * `orgDomains` are the CEO's organization domains (same-domain = internal). Both lowercased on read.
- * @typedef {{selfEmails:string[], orgDomains:string[]}} CeoIdentity
+ * `orgDomains` are the CEO's organization domains (same-domain = internal); `selfCalendars` are the
+ * addresses of CONTAINERS THE ACCOUNT OWNS — a Google secondary calendar's
+ * `c_…@group.calendar.google.com`, which is an address that authors events without being a person.
+ * All lowercased on read.
+ * @typedef {{selfEmails:string[], orgDomains:string[], selfCalendars:string[]}} CeoIdentity
  */
 
 function lc(s) {
@@ -43,17 +46,38 @@ function domainOf(email) {
 export function ceoIdentity(raw = {}) {
   const selfEmails = Array.isArray(raw.selfEmails) ? raw.selfEmails.map(lc).filter(Boolean) : [];
   const orgDomains = Array.isArray(raw.orgDomains) ? raw.orgDomains.map(lc).filter(Boolean) : [];
+  const selfCalendars = Array.isArray(raw.selfCalendars) ? raw.selfCalendars.map(lc).filter(Boolean) : [];
   // A self email's domain is implicitly an org domain (the CEO's own domain is internal).
   for (const e of selfEmails) {
     const d = domainOf(e);
     if (d && !orgDomains.includes(d)) orgDomains.push(d);
   }
-  return { selfEmails, orgDomains };
+  // A container's address is NOT a domain claim: `c_…@group.calendar.google.com` is Google's domain,
+  // and every other user's secondary calendars live under it too. Owning one says nothing about the
+  // others, so it is matched by ADDRESS and never widened into `orgDomains`.
+  return { selfEmails, orgDomains, selfCalendars };
 }
 
 /**
  * Resolve one actor's relationship to the CEO's org. The single decision that drives trust (§5.3) and
  * scope (§5.2): self > internal (same domain) > external (different domain) > unknown (no email).
+ *
+ * ── AN AUTHOR IS NOT ALWAYS A PERSON ─────────────────────────────────────────────────────────────
+ * Google gives every event on a SECONDARY calendar that calendar's own address as its `organizer`
+ * (`c_…@group.calendar.google.com`), so the CEO's own "RichOS test" calendar authored its own events,
+ * this function read a domain that is not his, and every single one resolved `external` → `untrusted`
+ * → HELD. Every event on every secondary calendar he owns was invisible to memory for that reason
+ * alone. `selfCalendars` fixes it by ADDRESS: a container the account owns is the account.
+ *
+ * ── AND THE VENDOR'S `self` FLAG IS NOT THE TEST, THOUGH IT LOOKS LIKE IT ────────────────────────
+ * `organizer.self` answers one question — "whether the organizer corresponds to the calendar on which
+ * this copy of the event appears" — which is equally TRUE of a calendar the CEO merely subscribes to.
+ * His account carries `Holidays in United Kingdom`, and the sync that found this defect read 119
+ * events off it. Trusting the flag alone would make all 119 CEO-authored and promote them into his
+ * memory, and any calendar shared with him by anyone would author "his own" content the immune
+ * system could no longer hold. OWNERSHIP is the property that matters, the flag is not evidence of
+ * it, and only a container the account OWNS is listed here.
+ *
  * @param {Actor|null} actor
  * @param {CeoIdentity} id
  * @returns {'self'|'internal'|'external'|'unknown'}
@@ -63,6 +87,7 @@ export function resolveOrgRelation(actor, id) {
   const email = lc(actor.email);
   if (!email) return 'unknown';
   if (id.selfEmails.includes(email)) return 'self';
+  if ((id.selfCalendars || []).includes(email)) return 'self';
   const d = domainOf(email);
   if (d && id.orgDomains.includes(d)) return 'internal';
   return 'external';

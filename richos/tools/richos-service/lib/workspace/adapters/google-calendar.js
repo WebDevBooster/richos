@@ -165,7 +165,8 @@ export class GoogleCalendarAdapter {
    * results (deduping the same event seen on two calendars), and persists one cursor MAP.
    * @param {{syncToken?:string|Object<string,string|null>}|null} syncState
    * @returns {Promise<{items:any[], nextSyncState:{syncToken:*},
-   *   calendars?:Array<{id:string,label:string,count:number,resynced:boolean}>, degraded?:string}>}
+   *   calendars?:Array<{id:string,label:string,count:number,resynced:boolean,owned:boolean}>,
+   *   degraded?:string}>}
    */
   async listChanges(syncState) {
     if (!this.multiCalendar) {
@@ -225,7 +226,12 @@ export class GoogleCalendarAdapter {
         merged.push(ev);
         landedCount += 1;
       }
-      report.push({ id: cal.id, label: cal.label, count: landedCount, resynced });
+      // `owned` is the ONE fact about a calendar that governance needs and cannot work out for
+      // itself: a secondary calendar authors its own events under its own address, so whether the
+      // account OWNS that address decides whether those events are the CEO's or a stranger's. It is
+      // reported in the generic vocabulary the core already passes through — no accessRole, no
+      // vendor word, nothing here inspected by anyone but the container-ownership rule.
+      report.push({ id: cal.id, label: cal.label, count: landedCount, resynced, owned: cal.accessRole === 'owner' });
     }
 
     return {

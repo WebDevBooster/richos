@@ -596,6 +596,32 @@ const SURFACES = [
     },
     preset: { setup: "missing-both" },
   },
+  // THE ACCOUNT-TYPE SELECT, WALKED FOR THE FIRST TIME (audit D7, 2026-09-17). No surface
+  // above ever reaches `#provider-account-select` visible: `setup-sheet`'s own preset
+  // (`missing-both`) never gets far enough into the flow for `renderProviderAuth` to un-hide
+  // `#provider-account-kind`, which only happens once the provider state is neither
+  // `connected` nor `unavailable` nor `connecting` — `signed-out` is the mock's name for
+  // that. This is also the walk that would have caught the control shipping with ZERO CSS
+  // of its own (`grep -n provider-account-select style.css` returned nothing before this
+  // change): the walker reads `getComputedStyle()`, which reports the browser's native
+  // white-on-black-arrow defaults as "unset" `background-color`/`color` rather than as a
+  // failure, so an entirely-unstyled native `<select>` was invisible to this suite even
+  // though it was the audit's D7 finding. Recorded as a gap in `contrast-debt.json` rather
+  // than silently fixed: this walk proves the text and the new chevron pass NOW that
+  // `.chrome-select` gives the control real, CSS-declared paint — it does not retroactively
+  // prove anything about what the browser painted before `appearance: none` existed.
+  {
+    name: "setup-account-connect",
+    what: "first-run setup reopened to connect an Anthropic account: the account-type select, its text and its custom chevron",
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-account-open");
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.waitForSelector("#provider-account-kind:not([hidden])");
+      await overlaySettled(p, "#setup-sheet");
+    },
+    preset: { providerAuth: "signed-out" },
+  },
   {
     name: "setup-blocked",
     what: "a build that cannot install an engine, and the sentence naming who can",

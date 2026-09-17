@@ -433,7 +433,13 @@ window.RichUpdates = (function () {
     // or at a test server says so on screen instead of in a log nobody opens.
     if (v.endpoint && !v.endpointIsPlaceholder) {
       nodes.endpoint.hidden = false;
-      nodes.endpoint.textContent = "Update server: " + v.endpoint;
+      // The URL is the one part of this line that hard-wraps (audit D7, 2026-09-17):
+      // `window.RichWrapPath` (main.js) inserts break opportunities after `/`, `.`, `-`
+      // and `_` instead of leaving the browser to pick a break point mid-word.
+      nodes.endpoint.replaceChildren(
+        document.createTextNode("Update server: "),
+        window.RichWrapPath(v.endpoint)
+      );
     } else {
       nodes.endpoint.hidden = true;
     }

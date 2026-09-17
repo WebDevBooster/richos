@@ -24,6 +24,34 @@ if (!window.RichBridge) {
 const Bridge = window.RichBridge;
 
 // ---------------------------------------------------------------------------------------
+// PATHS AND URLS BREAK AT THEIR OWN JOINTS, not mid-word (audit D7, 2026-09-17). A path or
+// URL carries no spaces, so it is one long "word" to the browser's line-breaker: left to
+// `overflow-wrap: anywhere` (or the older `word-break: break-all`) it slices wherever a line
+// happens to end, which is how the update-server URL split into `…/githubus` / `ercontent.com`
+// and the memory corpus path split into `…Ric` / `hOS/corpus` on the same nightly. A person
+// reading a path reads it in its segments, so the break has to land on a character that
+// already separates them — `/`, `.`, `-`, `_` — and nowhere else.
+//
+// `<wbr>` is the right tool rather than more CSS: a real, zero-width break opportunity the
+// browser only takes if the line actually needs it, so a path short enough to fit renders
+// with no visible change. `overflow-wrap: anywhere` stays on the CSS side as the fallback
+// for the one case `<wbr>` cannot help — a long run with NO separator in it at all (the
+// positive control in `tests/appearance.js`: a string with no separators still has to wrap
+// somewhere rather than overflow its box).
+const PATH_BREAK_CHARS = /([/.\-_])/;
+function wrapPathText(text) {
+  const frag = document.createDocumentFragment();
+  const parts = String(text == null ? "" : text).split(PATH_BREAK_CHARS);
+  for (const part of parts) {
+    if (part === "") continue;
+    frag.appendChild(document.createTextNode(part));
+    if (part.length === 1 && PATH_BREAK_CHARS.test(part)) frag.appendChild(document.createElement("wbr"));
+  }
+  return frag;
+}
+window.RichWrapPath = wrapPathText;
+
+// ---------------------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------------------
 const el = (id) => document.getElementById(id);
@@ -798,7 +826,10 @@ function showEntityView(entityId, mode) {
     const dt = document.createElement("dt");
     dt.textContent = k;
     const dd = document.createElement("dd");
-    dd.textContent = v;
+    // `v` is free text in general ("3", a company name) but "Source root" is a filesystem
+    // path — `wrapPathText` is a no-op break-opportunity insertion either way, so applying
+    // it unconditionally costs nothing on the non-path facts.
+    dd.appendChild(wrapPathText(v));
     facts.appendChild(dt);
     facts.appendChild(dd);
   };
@@ -3590,6 +3621,14 @@ function openAssertivenessPopover() {
   const name = el("user-name-input");
   if (name) name.focus();
 }
+/// Close it, and put `aria-expanded` back — the two halves that were written out three times
+/// and are now written once, because the Escape handler is the third caller and a copy that
+/// forgot the attribute would leave the gear announcing an open popover that is not there.
+function closeAssertivenessPopover() {
+  if (assertivenessPopover.hidden) return;
+  assertivenessPopover.hidden = true;
+  settingsBtn.setAttribute("aria-expanded", "false");
+}
 settingsBtn.addEventListener("click", () => {
   const open = assertivenessPopover.hidden === false;
   assertivenessPopover.hidden = open;
@@ -3604,8 +3643,7 @@ settingsBtn.addEventListener("click", () => {
 document.addEventListener("click", (e) => {
   if (railIdentityEl && railIdentityEl.contains(e.target)) return;
   if (!assertivenessPopover.hidden && !assertivenessPopover.contains(e.target) && e.target !== settingsBtn) {
-    assertivenessPopover.hidden = true;
-    settingsBtn.setAttribute("aria-expanded", "false");
+    closeAssertivenessPopover();
   }
 });
 
@@ -4422,9 +4460,16 @@ setupCloseEl.addEventListener("click", closeSetupSheet);
 // once the run has finished. The only moment neither is on screen is during the install
 // itself, and dismissing mid-download is precisely what must not happen either.
 //
-// Escape is already inert here — the global handler (further down this file) lists the
-// overlays it closes and this sheet is deliberately not among them. `setup.js` case 14 holds
-// both halves so neither can be reinstated by accident.
+// ESCAPE IS NOT A MIS-AIMED CLICK, AND SINCE 2026-09-17 IT IS NOT INERT HERE EITHER. The CEO
+// ruled that "the user must always be able to close any popup of any kind by simply tapping
+// the escape key", and this sheet is a popup. What keeps the paragraph above true is the FORM
+// of the declaration rather than an exception to his rule: `data-dismiss` on the element names
+// "Not now" and "Close", so Escape presses whichever of them is on screen and does NOTHING
+// when neither is. That is the named way out, reached by the keyboard — never a second,
+// quieter way out that the buttons do not have. During the install itself both buttons are
+// hidden, so Escape is inert exactly then, which is the moment the defect above was about.
+// `setup.js` case 14 holds all of it: the backdrop, the panel body, Escape mid-install, and
+// Escape's equivalence to the button the rest of the time.
 // (No backdrop listener at all. An empty one is a handler a later reader deletes as dead
 // code; the absence, with this note above it, is the invariant.)
 
@@ -4787,7 +4832,7 @@ function maybeAskAboutMemory() {
 
 function openMemorySetup(note, location, opts) {
   memorySetupNoteEl.textContent = note;
-  memorySetupLocationEl.textContent = location || "";
+  memorySetupLocationEl.replaceChildren(location ? wrapPathText(location) : document.createDocumentFragment());
   memorySetupLocationEl.hidden = !location;
   memorySetupGoEl.hidden = !opts.canProvision;
   memorySetupLaterEl.hidden = !opts.canProvision;
@@ -6448,17 +6493,165 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "Escape") {
-    // §18: "Escape closes overlays and inspector detail."
-    if (!threadMenuEl.hidden) return closeThreadMenu();
-    if (!searchOverlayEl.hidden) return closeSearch();
-    if (!entityPickerEl.hidden) return closeEntityPicker();
-    if (!correctionsOverlayEl.hidden) return closeCorrections();
-    if (!feedbackOverlayEl.hidden) return closeFeedback();
-    if (!slideoverEl.hidden) return closeSlideOver();
-    if (!inspectorEl.hidden) return closeWorkerInspector();
+    // §18 asked for "Escape closes overlays and inspector detail" and this used to BE that
+    // sentence: eight `if (!someEl.hidden) return closeSomething()` lines. The CEO's rule is
+    // wider and it is the one that governs now — see `dismissTopmostPopup` below.
+    if (dismissTopmostPopup()) return;
     if (isNarrow() && railOpen) return setRailOpen(false);
   }
 });
+
+// ---------------------------------------------------------------------------------------
+// ESCAPE CLOSES EVERY POPUP, INCLUDING THE NEXT ONE SOMEBODY WRITES
+// ---------------------------------------------------------------------------------------
+//
+// CEO, 2026-09-17, item 1 of his v1.0.2 list, verbatim:
+//
+//     "The user must always be able to close any popup of any kind by simply tapping the
+//      escape key on the keyboard i.e. without having to click anything"
+//
+// WHAT WAS HERE BEFORE WAS A LIST, AND A LIST IS WHAT FAILED HIM. The handler above named
+// eight surfaces. The window ships more than eight: `#assertiveness-popover` — the gear, the
+// most-used popup in the product — was never in it, and neither were `#setup-sheet`,
+// `#memory-setup`, `#set-menu`, `#permission-sheet`, `#repositories-sheet` or `#home-prefs`.
+// Three of those carry their OWN Escape handler bound to the popup element, which means each
+// works only while focus is inside it: click the dimmed area beside a permission request and
+// the keyboard could no longer answer it at all. Adding seven more lines to the list would
+// have fixed today and left tomorrow's popup out, so the enumeration is DERIVED instead:
+//
+//   * POPUP_SELECTOR asks the DOM what is a popup, by the structure the stylesheet already
+//     gives one (`.overlay`, `.popover`, `.menu`, `.setmenu`, `role="dialog"`, `role="menu"`)
+//     plus anything that declares itself with `data-dismiss`. A popup added next month is in
+//     the enumeration the moment it is written, with nothing to remember;
+//   * `data-dismiss` says HOW a surface closes, on the surface, where the person adding one
+//     is already typing. `escape` means Escape closes it outright; `control:#a,#b` means
+//     Escape does exactly what the first of those controls that is on screen and enabled
+//     does, and NOTHING when none of them is — which is how a sheet that must not be
+//     dismissed mid-install stays put without Escape needing to know why;
+//   * `escape.js` in the acceptance suite refuses any structurally-a-popup element that
+//     carries no declaration, so the marker cannot be forgotten quietly. Its positive control
+//     plants an undeclared popup and watches that check go red.
+//
+// TOPMOST FIRST, AND "TOPMOST" IS MEASURED RATHER THAN RANKED. The old list was an order
+// somebody chose; this reads the stacking the browser actually paints — computed `z-index`
+// descending, ties broken by document order descending, which is CSS's own painting rule.
+// So `#home-prefs` (340) outranks `#set-menu` (301) outranks `.menu` (70) outranks `.overlay`
+// (60) outranks `#slideover` (31) outranks `#inspector` and `.popover` (20) because that is
+// what the stylesheet says, and a restyle moves the dismissal order with the paint order
+// instead of leaving the two disagreeing.
+
+/// Everything the window can put ON TOP of the conversation. Structure first — a popup is
+/// recognized by what it IS, not by having been remembered — and `[data-dismiss]` for the
+/// panels that are dismissible without looking like a dialog (`#inspector`, `#slideover`).
+const POPUP_SELECTOR =
+  '[data-dismiss], .overlay, .popover, .menu, .setmenu, [role="dialog"], [role="menu"]';
+
+/// Surfaces owned by a file this handler cannot edit, declared from outside it.
+///
+/// `#home-prefs` is built by `home.js` and is the home screen's own dialog. It carries an
+/// Escape listener on its wrapper, so it closes while focus is inside it — and `openSettings`
+/// focuses the first company row, which does not exist yet on the paint that opens the sheet
+/// (the rows arrive from an async `home_entity_row`) and never exists at all on a copy with no
+/// companies. On that machine Escape did nothing whatsoever. The declaration belongs in
+/// `home.js` beside the element; it is here because that file is owned by another change in
+/// flight today, and moving it is a two-line follow-up that changes nothing on screen.
+const EXTERNAL_DISMISS = [["#home-prefs", "control:#home-prefs-done"]];
+
+/// Painted, and not merely un-`hidden`: a surface inside a hidden ancestor is not on screen,
+/// and Escape closing something invisible is indistinguishable from Escape doing nothing.
+function isOnScreen(node) {
+  for (let n = node; n && n.nodeType === 1; n = n.parentElement) {
+    if (n.hidden) return false;
+    const style = window.getComputedStyle(n);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+  }
+  return true;
+}
+
+/// The surface a match belongs to. A `role="dialog"` panel nested inside its own scrim wrapper
+/// (`#home-prefs`) must close the WRAPPER — hiding the panel alone would leave the dimmed
+/// sheet over the whole window with nothing on it.
+function popupRoot(node) {
+  return node.closest("[data-dismiss]") || node;
+}
+
+/// Every popup currently on screen, topmost first.
+function openPopups() {
+  for (const [selector, spec] of EXTERNAL_DISMISS) {
+    const node = document.querySelector(selector);
+    if (node && !node.hasAttribute("data-dismiss")) node.setAttribute("data-dismiss", spec);
+  }
+  const roots = [];
+  for (const node of document.querySelectorAll(POPUP_SELECTOR)) {
+    const root = popupRoot(node);
+    if (roots.indexOf(root) === -1 && isOnScreen(root)) roots.push(root);
+  }
+  return roots.sort((a, b) => {
+    const za = Number.parseInt(window.getComputedStyle(a).zIndex, 10) || 0;
+    const zb = Number.parseInt(window.getComputedStyle(b).zIndex, 10) || 0;
+    if (za !== zb) return zb - za;
+    // Equal z-index: the one later in the document paints on top, so it is dismissed first.
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? 1 : -1;
+  });
+}
+
+/// What each surface's own close actually IS. `control:` surfaces are absent on purpose —
+/// their answer is the button they name, so there is nothing to keep in step here.
+const POPUP_CLOSERS = {
+  "thread-menu": closeThreadMenu,
+  "search-overlay": closeSearch,
+  "entity-picker": closeEntityPicker,
+  "corrections-overlay": closeCorrections,
+  "feedback-overlay": closeFeedback,
+  slideover: closeSlideOver,
+  inspector: closeWorkerInspector,
+  "assertiveness-popover": closeAssertivenessPopover,
+  "set-menu": () => window.RichSettings && window.RichSettings.close(true),
+};
+
+/// Close the topmost popup. Returns whether one was on screen — NOT whether it went away:
+/// a `control:` surface with no control on screen has answered Escape by refusing it, and
+/// Escape must not then fall through and close something underneath it instead.
+function dismissTopmostPopup() {
+  const open = openPopups();
+  if (!open.length) return false;
+  const top = open[0];
+  const spec = top.getAttribute("data-dismiss") || "";
+  if (spec.indexOf("control:") === 0) {
+    for (const selector of spec.slice("control:".length).split(",")) {
+      const control = document.querySelector(selector.trim());
+      if (control && isOnScreen(control) && !control.disabled) {
+        control.click();
+        break;
+      }
+    }
+    return true;
+  }
+  const closer = POPUP_CLOSERS[top.id];
+  if (closer) {
+    closer();
+    return true;
+  }
+  // THE HONEST FALLBACK, and it is deliberately blunt. A popup that is structurally a popup
+  // and names no way of closing itself still has to close, because the CEO's rule has no
+  // "unless somebody forgot" in it. Hiding it runs none of the surface's own cleanup, which
+  // is exactly why `escape.js` fails the build over a missing declaration rather than
+  // letting this line quietly stand in for one.
+  top.hidden = true;
+  return true;
+}
+
+/// The enumeration, exposed so the acceptance suite derives its list of surfaces from the
+/// SAME query the product uses instead of a copy of it. A copy would drift, and a test that
+/// re-implements the rule proves the test rather than the product (`tests/lib/harness.js`,
+/// rule 1). `open()` closes nothing and moves nothing on screen; the one thing it writes is
+/// `EXTERNAL_DISMISS`'s declaration onto its element, which is idempotent and is the same
+/// stamp a real Escape would apply a moment later.
+window.RichDismiss = {
+  selector: POPUP_SELECTOR,
+  open: openPopups,
+  dismissTopmost: dismissTopmostPopup,
+};
 
 // ---------------------------------------------------------------------------------------
 // APPEARANCE AND IDENTITY (CEO ruling §15, and his correction to round 10.1)
