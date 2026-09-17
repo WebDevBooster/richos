@@ -1948,6 +1948,22 @@ const MAIL_TRASHED = gmailMsg({
   headers: { From: 'Dave Partner <dave@partner.com>', To: 'ceo@acme.com', Subject: 'Old thread' },
 });
 
+/**
+ * The real 403 body Google returns for `q` on `users.messages.list` under `gmail.metadata` — captured
+ * verbatim from the CEO's own live sync, 2026-09-17: "Metadata scope does not support 'q' parameter".
+ */
+function gmailMetadataScopeForbidsQ(url) {
+  const body = JSON.stringify({
+    error: {
+      code: 403,
+      message: "Metadata scope does not support 'q' parameter",
+      errors: [{ reason: 'forbidden' }],
+      status: 'PERMISSION_DENIED',
+    },
+  });
+  return Object.assign(new Error(`google GET ${url} failed: 403 ${body}`), { status: 403 });
+}
+
 /** A GoogleClient-shaped mock that ROUTES on the URL and records every URL it was asked for. */
 function gmailClient(routes) {
   const seen = [];
@@ -1958,6 +1974,14 @@ function gmailClient(routes) {
       // Every Gmail call is machine-direct to the CEO's own cloud (§1) — asserted on every request,
       // so a route that reached a proxy would fail the test rather than pass it quietly.
       assertDirectGoogleEndpoint(url);
+      // BAKED-IN POSITIVE CONTROL: every Gmail test in this suite shares this mock, so the mock
+      // itself enforces the same refusal the real `gmail.metadata` scope enforces — `q` on the list
+      // endpoint 403s here exactly as it does against Google, and the suite can never go green again
+      // with a `q` parameter restored to `buildListUrl` (found live 2026-09-17).
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/messages') && parsed.searchParams.has('q')) {
+        throw gmailMetadataScopeForbidsQ(url);
+      }
       for (const [match, reply] of routes) {
         if (url.includes(match)) {
           const r = typeof reply === 'function' ? reply(url, seen.length) : reply;
@@ -2039,17 +2063,120 @@ test('an unknown content mode is refused rather than silently treated as metadat
   assert.equal(gmailAdapter({ contentMode: 'metadata' }).contentMode, 'metadata');
 });
 
-test('the full-sync URL pins its own window, page size and spam/trash decision (no vendor defaults)', () => {
+test('the full-sync URL pins page size and spam/trash decision, and carries NO `q` (no vendor defaults)', () => {
   const u = new URL(gmailAdapter({ maxResults: 25, fullSyncWindowMs: 86_400_000 }).buildListUrl({ pageToken: null }));
   assert.equal(u.hostname, 'gmail.googleapis.com');
   assert.equal(u.searchParams.get('maxResults'), '25');
   assert.equal(u.searchParams.get('includeSpamTrash'), 'false');
-  assert.equal(u.searchParams.get('q'), `after:${Math.floor((NOW - 86_400_000) / 1000)}`);
+  // `gmail.metadata` 403s a `q` parameter on this endpoint (found live 2026-09-17) — the window is
+  // enforced by `listFullSync` reading dates back out of the response instead. See the positive
+  // control below, which proves the mock (and therefore this suite) actually enforces the refusal.
+  assert.equal(u.searchParams.has('q'), false, 'no `q` — the metadata scope forbids it on this endpoint');
   assert.equal(u.pathname, '/gmail/v1/users/me/messages', 'the mailbox is "me" and nobody else');
   assert.equal(u.searchParams.get('pageToken'), null);
   assert.equal(
     new URL(gmailAdapter().buildListUrl({ pageToken: 'PAGE-2' })).searchParams.get('pageToken'), 'PAGE-2',
   );
+});
+
+await atest('POSITIVE CONTROL: the mock 403s `q` on the list endpoint exactly as gmail.metadata does live', async () => {
+  // Proves the refusal above is not vacuous: if `buildListUrl` (or any future caller) ever sent `q`
+  // to `users.messages.list` again, this exact shape is what would come back from the real API, and
+  // this mock — shared by every Gmail test — throws it too. Restoring the old `q` line in
+  // `buildListUrl` makes THIS test, and every full-sync test after it, fail rather than pass.
+  const client = gmailClient([]);
+  await assert.rejects(
+    () => client.getJson(`${new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')}?q=after%3A1`),
+    (err) => err.status === 403 && /Metadata scope does not support 'q' parameter/.test(err.message),
+  );
+  // The single-message endpoint is unaffected — a positive control that the check above is scoped to
+  // the list endpoint and not to the mere presence of a `q`-shaped substring anywhere in a URL.
+  const scoped = gmailClient([['/messages/', { id: 'msg_q', internalDate: '1' }]]);
+  const passthrough = await scoped.getJson('https://gmail.googleapis.com/gmail/v1/users/me/messages/msg_q?q=after%3A1');
+  assert.equal(passthrough.id, 'msg_q');
+});
+
+test('fetchInternalDate asks for the minimal metadata field, never a body-bearing format', () => {
+  const u = new URL(gmailAdapter().buildInternalDateUrl('msg_x'));
+  assert.equal(u.pathname, '/gmail/v1/users/me/messages/msg_x');
+  assert.equal(u.searchParams.get('format'), 'metadata', 'never full/raw — this is a date lookup, not a body fetch');
+  assert.equal(u.searchParams.get('fields'), 'internalDate');
+});
+
+// ---- First-sync window enforcement, client-side (the metadata scope forbids `q` — see above) ----
+
+function windowMsg(id, internalDate) {
+  return gmailMsg({ id, threadId: `thr_${id}`, internalDate: internalDate == null ? internalDate : String(internalDate), headers: {} });
+}
+
+/** A mock exposing `/profile`, per-message `/messages/{id}` lookups, and a paged `/messages` list. */
+function windowClient({ historyId, pages, byId }) {
+  return gmailClient([
+    ['/profile', { emailAddress: 'ceo@acme.com', historyId }],
+    ['/messages/', (url) => {
+      const id = new URL(url).pathname.split('/').pop();
+      return byId.get(id) || new Error(`no such message ${id}`);
+    }],
+    ['/messages', (url) => {
+      const token = new URL(url).searchParams.get('pageToken') || null;
+      if (!(token in pages)) throw new Error(`unexpected page token ${token} — a page beyond the boundary was fetched`);
+      return pages[token];
+    }],
+  ]);
+}
+
+await atest('a boundary falling inside a single page keeps the newer messages and drops the rest', async () => {
+  // Newest-first, as an unfiltered `messages.list` returns: new_a is inside the window, old_a is not.
+  const cutoffMs = NOW - 10_000;
+  const newA = windowMsg('new_a', NOW);
+  const oldA = windowMsg('old_a', cutoffMs - 1_000);
+  const client = windowClient({
+    historyId: 'MIX-1',
+    byId: new Map([newA, oldA].map((m) => [m.id, m])),
+    pages: { null: { messages: [{ id: 'new_a', threadId: 'thr_new_a' }, { id: 'old_a', threadId: 'thr_old_a' }] } },
+  });
+  const res = await gmailAdapter({ client, fullSyncWindowMs: 10_000 }).listFullSync();
+  assert.deepEqual(res.items.map((i) => i.id), ['new_a'], 'the older-than-window message is dropped, not kept');
+  assert.equal(res.nextSyncState.syncToken, 'MIX-1');
+});
+
+await atest('the first sync stops at a page-level boundary and never fetches a further page', async () => {
+  const cutoffMs = NOW - 10_000;
+  const newA = windowMsg('new_a', NOW);
+  const newB = windowMsg('new_b', NOW - 1_000);
+  const oldA = windowMsg('old_a', cutoffMs - 1_000);
+  const oldB = windowMsg('old_b', cutoffMs - 2_000);
+  const client = windowClient({
+    historyId: 'PAGE-1',
+    byId: new Map([newA, newB, oldA, oldB].map((m) => [m.id, m])),
+    pages: {
+      null: {
+        messages: [{ id: 'new_a', threadId: 'thr_new_a' }, { id: 'new_b', threadId: 'thr_new_b' }],
+        nextPageToken: 'P2',
+      },
+      P2: {
+        messages: [{ id: 'old_a', threadId: 'thr_old_a' }, { id: 'old_b', threadId: 'thr_old_b' }],
+        nextPageToken: 'P3', // must never be requested — the boundary is found inside page P2
+      },
+    },
+  });
+  const res = await gmailAdapter({ client, fullSyncWindowMs: 10_000 }).listFullSync();
+  assert.deepEqual(res.items.map((i) => i.id), ['new_a', 'new_b'], 'only the in-window page survives');
+  assert.equal(res.nextSyncState.syncToken, 'PAGE-1');
+  assert.ok(!client.seen.some((u) => new URL(u).searchParams.get('pageToken') === 'P3'),
+    'a page past the boundary is never fetched — the sweep is bounded, not merely filtered after the fact');
+});
+
+await atest('an unparseable internalDate at the boundary fails OPEN — kept, never silently dropped', async () => {
+  const weird = windowMsg('weird', null); // internalDate absent, e.g. a malformed vendor response
+  const client = windowClient({
+    historyId: 'W-1',
+    byId: new Map([weird].map((m) => [m.id, m])),
+    pages: { null: { messages: [{ id: 'weird', threadId: 'thr_weird' }] } },
+  });
+  const res = await gmailAdapter({ client, fullSyncWindowMs: 10_000 }).listFullSync();
+  assert.deepEqual(res.items.map((i) => i.id), ['weird'],
+    'an unreadable date must not silently vanish mail the CEO can see in his own inbox');
 });
 
 test('the delta URL asks history.list for messageAdded from the stored historyId (§4.3)', () => {

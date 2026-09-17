@@ -302,6 +302,10 @@ wants body-level synthesis."* `config.js` already pins `GOOGLE_SCOPES.mail` to `
 narrower option, and that scope cannot return a body at all: under it Gmail permits `format=metadata`
 and `minimal` and rejects `full` and `raw`.
 
+The same scope also 403s the `q` search parameter on `users.messages.list` (found live 2026-09-17), so
+the first sweep's rolling window is bounded client-side by reading each page's own `internalDate` back
+out of the response, rather than by a query filter.
+
 **Mail is the one source where the privacy decision is also the security decision.** §5.3 calls
 inbound mail the largest prompt-injection surface in RichOS, because anyone in the world can send the
 CEO an email. Under metadata-first that surface is not merely quarantined — the body is never
