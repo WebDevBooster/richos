@@ -398,20 +398,18 @@ impl MachineryJournal {
     ///
     /// An unparsable line is SKIPPED, not fatal: this store is not truth (§2.2), and one
     /// torn line from a crash mid-append must not cost the CEO the rest of the day.
+    ///
+    /// **This overload has nowhere to put a reason**, so an IO error on one shard ends that
+    /// shard and the next one is still read. A caller that needs to tell "nothing was
+    /// recorded" from "this could not be read" calls [`Self::read_thread_checked`], and the
+    /// two fold identical bytes into identical records because they share
+    /// [`read_day_shard`].
     pub fn read_thread(&self, thread_id: &str) -> Vec<MachineryRecord> {
         let dir = self.thread_dir(thread_id);
         let mut out = Vec::new();
         for day in self.day_shards(&dir) {
             let raws = read_raw_shard(&dir.join(format!("{day}.raw.jsonl")));
-            let Ok(file) = File::open(dir.join(format!("{day}.jsonl"))) else { continue };
-            for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
-                let Ok(mut rec) = serde_json::from_slice::<MachineryRecord>(&line) else { continue };
-                if let Some(raw) = raws.get(&rec.machinery_id) {
-                    rec.payload = Some(raw.0.clone());
-                    rec.truncated = raw.1;
-                }
-                out.push(rec);
-            }
+            let _ = read_day_shard(&dir.join(format!("{day}.jsonl")), &raws, &mut out);
         }
         out
     }
@@ -454,21 +452,18 @@ impl MachineryJournal {
         for day in days {
             let raws = read_raw_shard(&dir.join(format!("{day}.raw.jsonl")));
             let path = dir.join(format!("{day}.jsonl"));
-            let file = match File::open(&path) {
-                Ok(f) => f,
+            // An IO error ANYWHERE in the shard — opening it or part way down it — is
+            // reported, never absorbed into a short list. Until 2026-09-17 only the OPEN was
+            // checked and the read itself was `map_while(Result::ok)`, so a shard that failed
+            // on its first byte came back as `NothingRecorded`: "nothing was ever recorded for
+            // this thread", said about a file that is sitting right there. Spec point 19.
+            match read_day_shard(&path, &raws, &mut out) {
+                Ok(()) => {}
                 // The shard was listed one syscall ago, so a NotFound here is a shard that
                 // vanished under us (an eviction, a manual delete) — not a reason to
                 // refuse the rest of the thread.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => return ThreadMachinery::Unreadable(format!("{}: {e}", path.display())),
-            };
-            for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
-                let Ok(mut rec) = serde_json::from_slice::<MachineryRecord>(&line) else { continue };
-                if let Some(raw) = raws.get(&rec.machinery_id) {
-                    rec.payload = Some(raw.0.clone());
-                    rec.truncated = raw.1;
-                }
-                out.push(rec);
             }
         }
         if out.is_empty() {
@@ -654,15 +649,81 @@ fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
     f.flush()
 }
 
+/// Fold one Tier-A day shard into `out`, re-attaching raw payloads where their Tier-B sibling
+/// still exists.
+///
+/// **`Err` is a real IO error on the file and NEVER a damaged record.** A line that will not
+/// parse costs itself and nothing else; a disk that will not read is a different event and is
+/// reported as one — which is the whole distinction `ThreadMachinery::Unreadable` exists to
+/// carry.
+///
+/// # Why this is one function instead of two identical loops
+///
+/// [`MachineryJournal::read_thread`] and [`MachineryJournal::read_thread_checked`] must fold
+/// the SAME bytes into the SAME records and differ only in what they can say about a failure.
+/// Two copies of the loop is how they would come to disagree about what a customer's file
+/// contains — the same argument `skip.rs` makes for the ledger and the intake log sharing one
+/// classifier.
+///
+/// # What changed on 2026-09-17 and why the spec's reason was not the reason
+///
+/// Both loops were `BufReader::split(b'\n').map_while(Result::ok)`. Spec point 20 records them
+/// as instances of "one bad byte discards every record after it", which is a true statement
+/// about `lines()` and was never true here: `split` yields `io::Result<Vec<u8>>`, whose `Err`
+/// arm is an IO error and not a UTF-8 error, so bad bytes always reached `from_slice` and cost
+/// only their own record. That is pinned by
+/// `one_bad_line_in_the_middle_costs_its_own_record_and_no_other`.
+///
+/// What `map_while(Result::ok)` DID do here is quietly end the read at a genuine IO error and
+/// hand back a short list — measured, not inferred: an `EISDIR` part way through a shard
+/// answered `ThreadMachinery::NothingRecorded`, i.e. "nothing was ever recorded for this
+/// thread". That is point 19's other prohibition — never treat what you cannot read as absent
+/// — and it is louder than the defect that was written down.
+fn read_day_shard(
+    path: &Path,
+    raws: &std::collections::HashMap<String, (Value, bool)>,
+    out: &mut Vec<MachineryRecord>,
+) -> std::io::Result<()> {
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut line: Vec<u8> = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            return Ok(());
+        }
+        let body = line.strip_suffix(b"\n").unwrap_or(&line);
+        let Ok(mut rec) = serde_json::from_slice::<MachineryRecord>(body) else { continue };
+        if let Some(raw) = raws.get(&rec.machinery_id) {
+            rec.payload = Some(raw.0.clone());
+            rec.truncated = raw.1;
+        }
+        out.push(rec);
+    }
+}
+
+/// The Tier-B sidecar for one day.
+///
+/// Stays tolerant of everything, deliberately, and this is the survey's own judgment
+/// (`ledger.rs:52`): a payload that does not come back leaves its record rendering with
+/// `payload: None`, which degrades honestly. It is the one reader here with no fact of its own
+/// to lose. The `read_until` shape is shared with [`read_day_shard`] so the two cannot drift
+/// about what a line is.
 fn read_raw_shard(path: &Path) -> std::collections::HashMap<String, (Value, bool)> {
     let mut map = std::collections::HashMap::new();
     let Ok(file) = File::open(path) else { return map };
-    for line in BufReader::new(file).split(b'\n').map_while(Result::ok) {
-        if let Ok(r) = serde_json::from_slice::<RawLine>(&line) {
+    let mut reader = BufReader::new(file);
+    let mut line: Vec<u8> = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => return map,
+            Ok(_) => {}
+        }
+        let body = line.strip_suffix(b"\n").unwrap_or(&line);
+        if let Ok(r) = serde_json::from_slice::<RawLine>(body) {
             map.insert(r.machinery_id, (r.payload, r.truncated));
         }
     }
-    map
 }
 
 /// `YYYY-MM-DD` (UTC) for an epoch-millis label.
@@ -1262,6 +1323,109 @@ mod tests {
         assert_eq!(rows[0].title, "wc -l util.rs");
         assert_eq!(rows[0].status, Some(ToolStatus::Completed));
         assert_eq!(rows[0].summary.as_deref(), Some("18 util.rs"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // -----------------------------------------------------------------------------------
+    // POINT 20 — ONE BAD BYTE, AND WHAT IT ACTUALLY COSTS HERE
+    //
+    // Spec `richos-hq docs/plans/nightly-channel-spec-2026-09-17.md` point 20 records a
+    // defect at `journal.rs:407/469/667`: "`lines().map_while(Result::ok)` ends the ITERATOR
+    // at the first non-UTF-8 line, so one bad byte discards every record after it".
+    //
+    // THAT IS TRUE OF `lines()` AND IT WAS NEVER TRUE HERE. These three loops are
+    // `split(b'\n')`, whose `Item` is `io::Result<Vec<u8>>` — the `Err` arm is an IO error on
+    // the underlying reader, NOT a UTF-8 error, because a `Vec<u8>` has no encoding to be
+    // wrong about. Bad bytes reach `serde_json::from_slice`, which rejects that one record
+    // and leaves the iterator running. `steering.rs`, `correction.rs` and `ledger.rs` DID
+    // have the defect on `lines()` and were fixed on 2026-09-05.
+    //
+    // The first test below is the disproof, kept as a pin. The second is the defect that IS
+    // here and that the survey's wording hides: `map_while(Result::ok)` swallowed a genuine
+    // IO error and returned a SHORT list indistinguishable from a short file.
+    // -----------------------------------------------------------------------------------
+
+    /// One bad byte mid-file costs its own record and not one record more.
+    ///
+    /// Passes on the code as it stood at `5be30356` as well as after the change beside it —
+    /// which is the finding, not a weakness of the test. It is here so the property is
+    /// pinned rather than argued about a second time.
+    #[test]
+    fn one_bad_line_in_the_middle_costs_its_own_record_and_no_other() {
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        for seq in 0..5 {
+            j.append(&rec("thr_bad_byte", Some("turn_1"), seq, 1_700_000_000_000 + seq, 8)).unwrap();
+        }
+
+        // Splice invalid UTF-8 in as line 3 of 6, keeping every other byte exactly as written.
+        let dir = root.join("thr_bad_byte");
+        let day = day_shard(1_700_000_000_000);
+        let path = dir.join(format!("{day}.jsonl"));
+        let original = std::fs::read(&path).unwrap();
+        let mut lines: Vec<Vec<u8>> = original.split(|b| *b == b'\n').map(|s| s.to_vec()).collect();
+        lines.insert(2, vec![0x7b, 0x22, 0xff, 0xfe, 0x22, 0x7d]); // {"<ff><fe>"}
+        std::fs::write(&path, lines.join(&b'\n')).unwrap();
+
+        let records = j.read_thread("thr_bad_byte");
+        assert_eq!(
+            records.len(),
+            5,
+            "all five records survive: the bad line is not one of them, and it does not take \
+             the three below it either"
+        );
+        let seqs: Vec<u64> = records.iter().map(|r| r.seq).collect();
+        assert_eq!(seqs, vec![0, 1, 2, 3, 4], "and they are in order, with none missing");
+
+        // POSITIVE CONTROL: the planted line really is unreadable. Without this the test
+        // above would pass just as happily on bytes that parsed fine.
+        assert!(
+            std::str::from_utf8(&lines[2]).is_err(),
+            "the planted line must actually be invalid UTF-8, or this test proves nothing"
+        );
+        assert_eq!(
+            j.read_thread("thr_bad_byte").len(),
+            5,
+            "and the same answer twice — the read does not mutate the file"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// **THE DEFECT THAT IS ACTUALLY HERE.** A real IO error mid-read used to be swallowed by
+    /// `map_while(Result::ok)` and returned as a SHORT LIST — indistinguishable from a thread
+    /// that simply had fewer records. `ThreadMachinery` exists precisely so an empty or short
+    /// answer can carry its reason; this is it carrying one.
+    ///
+    /// The error is produced by making the day shard a DIRECTORY. `File::open` succeeds on a
+    /// directory on Unix and the first read fails with `EISDIR` — a genuine mid-read IO
+    /// error, with no unsafe code and no injected filesystem.
+    #[test]
+    fn an_io_error_part_way_through_a_shard_is_reported_and_never_returned_as_a_short_list() {
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        j.append(&rec("thr_eisdir", Some("turn_1"), 0, 1_700_000_000_000, 8)).unwrap();
+
+        let dir = root.join("thr_eisdir");
+        let day = day_shard(1_700_000_000_000);
+
+        // POSITIVE CONTROL FIRST: the shard as written reads back as one record.
+        match j.read_thread_checked("thr_eisdir") {
+            ThreadMachinery::Recorded(rs) => assert_eq!(rs.len(), 1),
+            other => panic!("the control must be Recorded, not {other:?}"),
+        }
+
+        std::fs::remove_file(dir.join(format!("{day}.jsonl"))).unwrap();
+        std::fs::create_dir(dir.join(format!("{day}.jsonl"))).unwrap();
+
+        match j.read_thread_checked("thr_eisdir") {
+            ThreadMachinery::Unreadable(why) => {
+                assert!(why.contains(&day), "it names the shard it could not read: {why}");
+            }
+            other => panic!(
+                "an unreadable shard must say so. Before this fix it answered {other:?} — a \
+                 short list with no reason attached"
+            ),
+        }
         std::fs::remove_dir_all(&root).ok();
     }
 }
