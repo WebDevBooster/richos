@@ -540,15 +540,23 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     if !spine.has_lease() && !spine.has_lease_factory() {
         let disk = setup_view::detect(state.boot_engine.as_deref());
         if let Some(sentence) = setup_view::incomplete_message(&disk) {
-            return Err(sentence.into());
+            return Err(refused_send("first-run setup is incomplete", sentence.into()));
         }
-        return Err(LEASE_UNAVAILABLE_MESSAGE.into());
+        return Err(refused_send("no compute lease and no factory", LEASE_UNAVAILABLE_MESSAGE.into()));
     }
-    let thread = spine.active_thread().ok_or("Open a conversation first.")?.to_string();
+    let thread = match spine.active_thread() {
+        Some(t) => t.to_string(),
+        None => return Err(refused_send("no active thread", "Open a conversation first.".into())),
+    };
     if thread != thread_id {
-        return Err("The conversation changed before your message was sent. Open the original conversation to try again.".into());
+        return Err(refused_send(
+            "the active thread changed between render and send",
+            "The conversation changed before your message was sent. Open the original conversation to try again.".into(),
+        ));
     }
-    spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
+    spine
+        .submit_prompt(&text, Source::Text)
+        .map_err(|e| refused_send("the spine refused the prompt", e.to_string()))?;
     // "no active thread" used to be the whole sentence here, and it went straight onto the
     // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
     // nor an actor. The prompt IS already submitted by this line, so the sentence must not
@@ -562,6 +570,30 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
         )?
         .to_string();
     spine.messages(&thread).map_err(|e| e.to_string())
+}
+
+/// **A TYPED MESSAGE THAT NEVER BECAME A TURN, ON THE OPERATOR'S LOG** — the nightly's D4.
+///
+/// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D4: *"The
+/// failed voice turn logged `[richos] voice turn failed: cognition io: …`. The failed text
+/// turn logged NOTHING at all — the log sat at 44 lines across it. The `gui-boot` log is the
+/// one artifact meant to hold every line of a launch to account, and the most common failure
+/// path writes nothing to it."*
+///
+/// **Half of that is now fixed elsewhere and this closes the other half.** A text turn that
+/// STARTS and then fails is logged by `spine.rs::record_interruption`, on the shared path,
+/// with its cause class — so the audit's own case (a turn that reached the screen as
+/// "Stopped after 1s") already produces `[richos] turn interrupted [not-signed-in]: …`
+/// whichever surface it came from. What remained is the case where the message never became
+/// a turn at all: `send_message` returned its sentence to the window and said nothing to the
+/// log, while the voice path beside it logged every refusal.
+///
+/// It returns the CEO's sentence UNCHANGED. The operator's reason is a separate, shorter
+/// string that never reaches the window — the same split `voice_readiness` keeps between its
+/// boot line and its `reason`.
+fn refused_send(why: &str, ceo_sentence: String) -> String {
+    eprintln!("[richos] text turn refused before it started ({why})");
+    ceo_sentence
 }
 
 /// What the CEO is told when there is no lease to think with.
