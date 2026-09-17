@@ -479,16 +479,23 @@ impl WorkHost {
                 }
             };
             let Some(Scheduled { binding, record, resumed }) = next else { return };
-            if backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
-                self.settle_stopped(&backend, &record);
-                continue;
-            }
-            self.run_one(&backend, &binding, &record, resumed);
-            {
+            // **A stop that landed between the dequeue and the start.** The ordinary
+            // queued-stop path never reaches here — `stop_assignment` takes that assignment
+            // off the queue itself — so this is the race: the stop was recorded a moment
+            // after this runner had already picked the assignment up. It still ENDS, so it
+            // takes the same boundary as every other ending below rather than an early
+            // `continue` that skips §2.4a's report; a windowless app whose last assignment
+            // ended down this path would otherwise sit there waiting for something that was
+            // never coming.
+            let ran = !backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id);
+            if ran {
+                self.run_one(&backend, &binding, &record, resumed);
                 let mut inner = backend.inner.lock().unwrap();
                 inner.completed += 1;
                 inner.live = None;
                 backend.wake.notify_all();
+            } else {
+                self.settle_stopped(&backend, &record);
             }
             // **THE ASSIGNMENT BOUNDARY, AND IT IS THE ONLY PLACE EITHER OF THESE HAPPENS.**
             //
@@ -497,6 +504,8 @@ impl WorkHost {
             // — rotation never happens inside a turn — is structural on this path rather
             // than checked: this line cannot be reached while a work turn is in flight,
             // because `run_one` has returned and `live` is `None`.
+            // A back end that never ran anything has consumed nothing, so this is a no-op
+            // on the stopped-while-queued path rather than a special case.
             self.rotate_if_needed(&backend, &binding);
             // Then §2.4a's report. It asks the REGISTER rather than this back end, because
             // the question is whether anything at all is still registered anywhere — a
