@@ -695,22 +695,64 @@ pub struct AecShared {
     /// This is the number [`crate::aec::CONFIDENT_LEAK_RMS`] is compared against, so publishing
     /// it is what makes "how far short is it" answerable from a log line instead of a guess.
     leak_mdbfs: AtomicI32,
+    /// **IS `erle_mdb` A MEASUREMENT?** Published beside the number for the reason the number
+    /// is published signed: a value whose "no reading yet" state is indistinguishable from a
+    /// real reading is not a diagnostic. See [`crate::aec::AecMetrics::erle_measured`].
+    erle_is_measured: AtomicBool,
+    /// **IS `leak_mdbfs` A MEASUREMENT?** Same rule, and here the sentinel is the worse of the
+    /// two: an unseeded residual tracker publishes `0.0 dBFS`, which is full scale.
+    /// See [`crate::aec::AecMetrics::leak_measured`].
+    leak_is_measured: AtomicBool,
 }
 
 impl AecShared {
-    fn store(&self, confident: bool, erle_db: f32, leak_rms: f32) {
+    fn store(
+        &self,
+        confident: bool,
+        erle_db: f32,
+        erle_measured: bool,
+        leak_rms: f32,
+        leak_measured: bool,
+    ) {
         self.confident.store(confident, Ordering::Relaxed);
         self.erle_mdb.store(millis(erle_db), Ordering::Relaxed);
         self.leak_mdbfs.store(millis(dbfs(leak_rms)), Ordering::Relaxed);
+        self.erle_is_measured.store(erle_measured, Ordering::Relaxed);
+        self.leak_is_measured.store(leak_measured, Ordering::Relaxed);
     }
     fn confident(&self) -> bool {
         self.confident.load(Ordering::Relaxed)
     }
-    fn erle_db(&self) -> f32 {
-        self.erle_mdb.load(Ordering::Relaxed) as f32 / 1000.0
+    /// The live ERLE, or `None` when nothing has been measured yet.
+    ///
+    /// **`Option`, not a float with a sentinel, and that is the whole of defect 3.** Ray's
+    /// candidate-.6 walk read `erle=0.0 dB, residual 0.0 dBFS` off four discards
+    /// (`docs/verification/2026-09-17-nightly-1.2.0-20260917.6-onscreen-audit.md` defect 3) and
+    /// could not tell a canceller achieving nothing from a canceller that had measured nothing.
+    /// Both are real states with different answers. The type now forces the caller to say which.
+    fn erle_db(&self) -> Option<f32> {
+        self.erle_is_measured
+            .load(Ordering::Relaxed)
+            .then(|| self.erle_mdb.load(Ordering::Relaxed) as f32 / 1000.0)
     }
-    fn leak_dbfs(&self) -> f32 {
-        self.leak_mdbfs.load(Ordering::Relaxed) as f32 / 1000.0
+    /// The tracked residual in dBFS, or `None` when the tracker has never been seeded.
+    fn leak_dbfs(&self) -> Option<f32> {
+        self.leak_is_measured
+            .load(Ordering::Relaxed)
+            .then(|| self.leak_mdbfs.load(Ordering::Relaxed) as f32 / 1000.0)
+    }
+}
+
+/// A measured decibel figure, or the words `not measured` — the one formatting rule every
+/// diagnostic in this file obeys.
+///
+/// It takes the unit as a parameter rather than baking one in, because the two numbers this
+/// serves are in different units (dB of enhancement, dBFS of level) and a helper that guesses
+/// would be the next place they drift.
+fn measured_or_not(v: Option<f32>, unit: &str) -> String {
+    match v {
+        Some(x) => format!("{x:.1} {unit}"),
+        None => "not measured".to_string(),
     }
 }
 
@@ -1335,11 +1377,15 @@ impl VoiceController {
             // Publish the canceller's live state for the supervisor and the UI without ever
             // touching the audio thread from outside it. Signed and unclamped: a negative ERLE
             // is a real reading and the old packing could not express it.
+            // NO CANCELLER AT ALL AND A COLD CANCELLER BOTH PUBLISH "not measured", which is
+            // the truth in both cases and was `0.0` in both cases until 2026-09-17.
             let m = brain.aec_metrics();
             aec_state.store(
                 brain.aec_confident(),
                 m.map(|m| m.erle_db).unwrap_or(0.0),
+                m.is_some_and(|m| m.erle_measured),
                 m.map(|m| m.leak_floor_rms).unwrap_or(0.0),
+                m.is_some_and(|m| m.leak_measured),
             );
         })
         .map_err(VoiceStartError::Capture)?;
@@ -1369,7 +1415,11 @@ impl VoiceController {
             barge_in_earned_frames: crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
             barge_in_earned_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
         };
-        eprintln!("[richos-voice] {}", diagnostics.summary());
+        // **STAMPED.** Defect 4 of the candidate-.6 walk: this line, the only thing printed
+        // when voice starts, carried no time at all, so it could not be lined up against the
+        // ledger or against the answer-window lines that DO carry one. Same clock as
+        // `wall_clock_utc` everywhere else in this file, for the reason that function exists.
+        eprintln!("[richos-voice] {} voice session OPEN — {}", wall_clock_utc(), diagnostics.summary());
 
         let mut threads = Vec::new();
 
@@ -1501,17 +1551,19 @@ impl VoiceController {
     }
 
     /// Live Echo Return Loss Enhancement in dB — how much of Rich's own voice the canceller is
-    /// currently removing from the microphone. 0.0 until it has something to report, and
-    /// **negative when the filter is adding energy rather than removing it**, which is a real
-    /// state this returned `0` for until 2026-09-17. Measured, never estimated.
-    pub fn echo_return_loss_enhancement_db(&self) -> f32 {
+    /// currently removing from the microphone. **`None` until a single block has been measured**,
+    /// and negative when the filter is adding energy rather than removing it, which is a real
+    /// state this returned `0` for until 2026-09-17. Measured, never estimated, and never
+    /// zero-as-a-placeholder.
+    pub fn echo_return_loss_enhancement_db(&self) -> Option<f32> {
         self.aec_state.erle_db()
     }
 
-    /// The tracked typical residual echo while Rich is audible, in dBFS. Compare with
-    /// [`crate::aec::CONFIDENT_LEAK_RMS`] to see how far the canceller is from earning the
-    /// short barge-in window on this hardware — the gap, not the verdict.
-    pub fn echo_leak_floor_dbfs(&self) -> f32 {
+    /// The tracked typical residual echo while Rich is audible, in dBFS, or `None` while the
+    /// tracker is unseeded. Compare with [`crate::aec::CONFIDENT_LEAK_RMS`] to see how far the
+    /// canceller is from earning the short barge-in window on this hardware — the gap, not
+    /// the verdict.
+    pub fn echo_leak_floor_dbfs(&self) -> Option<f32> {
         self.aec_state.leak_dbfs()
     }
 
@@ -1729,6 +1781,54 @@ impl HalfDuplexNotice {
     }
 }
 
+/// **THE CLOSING LINE OF A VOICE SESSION, printed on every path out of [`supervise`].**
+///
+/// Defect 4 of Ray's candidate-.6 walk, verbatim: *"The new timestamped logging covers the
+/// answer window but not the voice session around it: starting voice prints one untimestamped
+/// line, **ending voice prints nothing at all**."* His walk record has to say
+/// `(ending voice printed NOTHING to the log - defect 4)` because there was nothing to quote.
+///
+/// **A `Drop` guard rather than a line before the `}`, and that is the whole reason it is a
+/// type.** [`supervise`] has TWO exits: the `while` condition going false, and an early
+/// `return` on `TryRecvError::Disconnected` when the capture thread's sender is gone. A
+/// statement at the bottom of the function covers the first and silently misses the second —
+/// and the second is the one that fires when the audio device disappears, which is exactly the
+/// session end an operator most needs a line for.
+struct SessionLog {
+    /// When the supervisor came up, on the same clock as every other line it prints.
+    opened_wall: String,
+    /// The monotonic counterpart. `Instant`, never the wall clock, for the reason
+    /// [`AudibleWindow`] uses one: a span computed across a system-clock step is not a span.
+    opened: Instant,
+}
+
+impl SessionLog {
+    fn open() -> SessionLog {
+        SessionLog { opened_wall: wall_clock_utc(), opened: Instant::now() }
+    }
+}
+
+impl Drop for SessionLog {
+    fn drop(&mut self) {
+        eprintln!(
+            "[richos-voice] {} voice session CLOSED — open {} since {}; the microphone is shut",
+            wall_clock_utc(),
+            session_span(self.opened.elapsed()),
+            self.opened_wall,
+        );
+    }
+}
+
+/// A voice session's length as `M:SS.mmm`, for the closing line.
+///
+/// Pure, and separate from the guard, so the arithmetic is testable without a thread: the
+/// whole point of printing a duration is that somebody reads it against two timestamps, and a
+/// duration that disagrees with them is worse than no duration.
+pub fn session_span(d: Duration) -> String {
+    let ms = d.as_millis();
+    format!("{}:{:02}.{:03}", ms / 60_000, (ms / 1000) % 60, ms % 1000)
+}
+
 /// The supervisor loop: owns the state machine, emits every UI event, dispatches work.
 #[allow(clippy::too_many_arguments)]
 fn supervise(
@@ -1741,6 +1841,9 @@ fn supervise(
     shared_aec: Arc<AecShared>,
     input_latency: crate::capture::InputLatency,
 ) {
+    // Held for the whole function so that EVERY return from it prints the closing line —
+    // see `SessionLog`.
+    let _session = SessionLog::open();
     let mut last_state = VoiceState::Off;
     // Rich's audible window, and the monotonic clock that drives it. `Instant`, never the wall
     // clock: a window that closes early because the system clock stepped is the defect again.
@@ -1821,10 +1924,21 @@ fn supervise(
                         // line now reports the GAP — measured ERLE, measured residual, the
                         // threshold it has to reach — and lets the reader see how far short it
                         // is, instead of asserting that it is nearly there.
-                        let erle = shared_aec.erle_db();
-                        let leak = shared_aec.leak_dbfs();
+                        // **AND IT SAYS WHEN IT MEASURED NOTHING, rather than printing a zero.**
+                        // Defect 3 of the candidate-.6 walk: all four discards printed
+                        // `erle=0.0 dB, residual 0.0 dBFS`, and 0.0 dBFS is FULL SCALE. Both were
+                        // sentinels — `AecMetrics::erle_measured` and `::leak_measured` name the
+                        // exact conditions — but the line could not say so, because both numbers
+                        // arrived as bare `f32`. Candidate .5's identical line carried `-2.9 dB`
+                        // and `-45.8 dBFS`, real readings, so a reader had no way to tell the two
+                        // cases apart by form. The window widening is what changed which case
+                        // shows up: these discards now happen in synthesis gaps and past the end
+                        // of playout, where the far end is inactive and the accumulators say
+                        // nothing at all.
+                        let erle = measured_or_not(shared_aec.erle_db(), "dB");
+                        let leak = measured_or_not(shared_aec.leak_dbfs(), "dBFS");
                         eprintln!(
-                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller cannot vouch for this audio (erle={erle:.1} dB, residual {leak:.1} dBFS vs the {:.1} dBFS it must hold for {:.3} s after {:.3} s of Rich speaking); barge-in needs {:.3} s of talking over him while that is so",
+                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller cannot vouch for this audio (erle={erle}, residual {leak} vs the {:.1} dBFS it must hold for {:.3} s after {:.3} s of Rich speaking); barge-in needs {:.3} s of talking over him while that is so",
                             dbfs(crate::aec::CONFIDENT_LEAK_RMS),
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_HOLD_BLOCKS),
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_WARMUP_BLOCKS),
@@ -2369,15 +2483,102 @@ mod tests {
     #[test]
     fn a_negative_erle_survives_publication() {
         let s = AecShared::default();
-        s.store(false, -0.14, 0.0148);
+        s.store(false, -0.14, true, 0.0148, true);
         assert!(!s.confident());
-        assert!((s.erle_db() - (-0.14)).abs() < 0.001, "{}", s.erle_db());
+        assert!((s.erle_db().unwrap() - (-0.14)).abs() < 0.001, "{:?}", s.erle_db());
         // 0.0148 rms = 20*log10(0.0148) = -36.59 dBFS — the live figure from the walk's rig.
-        assert!((s.leak_dbfs() - (-36.59)).abs() < 0.02, "{}", s.leak_dbfs());
+        assert!((s.leak_dbfs().unwrap() - (-36.59)).abs() < 0.02, "{:?}", s.leak_dbfs());
         // POSITIVE CONTROL: the same path carries a positive reading unharmed.
-        s.store(true, 28.0, 0.00126);
+        s.store(true, 28.0, true, 0.00126, true);
         assert!(s.confident());
-        assert!((s.erle_db() - 28.0).abs() < 0.001, "{}", s.erle_db());
+        assert!((s.erle_db().unwrap() - 28.0).abs() < 0.001, "{:?}", s.erle_db());
+    }
+
+    /// **DEFECT 3 OF THE CANDIDATE-.6 WALK: A SENTINEL PRINTED AS A MEASUREMENT.**
+    ///
+    /// All four discards printed `erle=0.0 dB, residual 0.0 dBFS`. Both figures were "nothing
+    /// measured" and neither could say so, because both arrived as a bare `f32`:
+    ///
+    /// - `EchoCanceller::erle_db` returns a hard `0.0` until both smoothed powers exceed
+    ///   `1e-12`, and those only accumulate on far-end-active unfrozen blocks.
+    /// - `residual_typ_rms` starts at `1.0`, and `20*log10(1.0)` = **0.0 dBFS — full scale**,
+    ///   the loudest reading the unit can express.
+    ///
+    /// A NEVER-STORED `AecShared` is the strongest form of the case: nothing has been published
+    /// at all, and the old accessors answered `0.0` and `0.0` to that.
+    #[test]
+    fn an_unmeasured_canceller_says_not_measured_and_never_zero() {
+        let s = AecShared::default();
+        assert_eq!(s.erle_db(), None, "a cold AecShared must not report an ERLE");
+        assert_eq!(s.leak_dbfs(), None, "a cold AecShared must not report a residual");
+        assert_eq!(measured_or_not(s.erle_db(), "dB"), "not measured");
+        assert_eq!(measured_or_not(s.leak_dbfs(), "dBFS"), "not measured");
+
+        // A LIVE canceller that has genuinely measured 0.0 dB of enhancement — the OTHER
+        // meaning of the same three characters — still prints the number. That is the positive
+        // control that stops this being "suppress zeros".
+        s.store(false, 0.0, true, 1.0, true);
+        assert_eq!(s.erle_db(), Some(0.0));
+        assert_eq!(measured_or_not(s.erle_db(), "dB"), "0.0 dB");
+        assert_eq!(measured_or_not(s.leak_dbfs(), "dBFS"), "0.0 dBFS");
+
+        // And a canceller whose ERLE is measured while its residual tracker is not — the two
+        // flags are independent because the two accumulators are.
+        s.store(false, -2.9, true, 1.0, false);
+        assert_eq!(measured_or_not(s.erle_db(), "dB"), "-2.9 dB");
+        assert_eq!(measured_or_not(s.leak_dbfs(), "dBFS"), "not measured");
+    }
+
+    /// The same rule at the canceller's own boundary: a cold [`crate::aec::EchoCanceller`] must
+    /// report `erle_measured == false`, and a warm one `true`. Pinned HERE as well as in
+    /// `aec.rs` because this file is what prints the figure, and a print site that trusts a
+    /// flag needs the flag's meaning held somewhere it can see.
+    #[test]
+    fn the_cancellers_own_measured_flags_start_false_and_become_true() {
+        let (mut aec, ring) = crate::aec::EchoCanceller::new();
+        let cold = aec.metrics();
+        assert!(!cold.erle_measured, "a cold canceller has measured no ERLE");
+        assert!(!cold.leak_measured, "a cold canceller has no seeded residual");
+        assert_eq!(cold.erle_text(), "not measured");
+        assert_eq!(cold.leak_text(), "not measured");
+        // 1.0 rms is the unseeded initial value and it is 0.0 dBFS — the number the walk saw.
+        assert!((20.0 * cold.leak_floor_rms.max(1e-9).log10()).abs() < 1e-6, "{cold:?}");
+
+        // Now give it a real far end: a loud reference and a mic carrying an echo of it.
+        let mut phase = 0.0f32;
+        for _ in 0..200 {
+            let mut refblk = [0.0f32; crate::aec::AEC_BLOCK];
+            for x in refblk.iter_mut() {
+                *x = 0.3 * (phase).sin();
+                phase += 2.0 * std::f32::consts::PI * 440.0 / crate::vad::SAMPLE_RATE as f32;
+            }
+            ring.push(&refblk);
+            let mut mic = refblk;
+            for x in mic.iter_mut() {
+                *x *= 0.5;
+            }
+            aec.process_block(&mut mic);
+        }
+        let warm = aec.metrics();
+        assert!(warm.erle_measured, "far-active blocks must make the ERLE a measurement");
+        assert!(warm.leak_measured, "far-active blocks must seed the residual tracker");
+        assert_ne!(warm.erle_text(), "not measured");
+        assert_ne!(warm.leak_text(), "not measured");
+    }
+
+    /// **DEFECT 4: ENDING VOICE PRINTED NOTHING.** The closing line carries a span, and a span
+    /// a reader cannot reconcile with the two timestamps beside it is worse than none. The
+    /// arithmetic, re-derived here rather than trusted: 62 317 ms is 1 minute (60 000 ms) plus
+    /// 2 317 ms, so `1:02.317`.
+    #[test]
+    fn the_session_span_reads_as_minutes_seconds_milliseconds() {
+        assert_eq!(session_span(Duration::from_millis(62_317)), "1:02.317");
+        assert_eq!(session_span(Duration::from_millis(0)), "0:00.000");
+        // The candidate-.6 walk's own voice session: 21:30:2x to 21:36:26, call it 5:58.004.
+        assert_eq!(session_span(Duration::from_millis(358_004)), "5:58.004");
+        // 3 599 999 ms is one millisecond under an hour, and minutes do not wrap at 60.
+        assert_eq!(session_span(Duration::from_millis(3_599_999)), "59:59.999");
+        assert_eq!(session_span(Duration::from_millis(3_600_000)), "60:00.000");
     }
 
     /// INVARIANT: every notice in the enum is a DIFFERENT sentence. Four states that mean
