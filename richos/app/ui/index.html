@@ -553,8 +553,36 @@
                    textarea itself (which the walker would otherwise still check as a FIELD)
                    onto this plain `<div>` (which it would not, on its own — see check 3's
                    `CONTROLS` selector in lib/contrast.js). -->
+              <!-- WHY THE BOX IS OFF, ATTACHED TO THE BOX (candidate-.2 defect #6).
+                   `#composer-blocked` sits directly above and says what will not happen and
+                   why; a sighted reader gets it from proximity and a screen-reader user got
+                   it from nothing at all. `aria-describedby` makes it this control's own
+                   description. It costs nothing while send is allowed: an `aria-describedby`
+                   pointing at a `hidden` element contributes no description, and
+                   `#composer-blocked` is hidden in every state but a block. -->
+              <!-- AND THE BOX ITSELF HAS A NAME (candidate-.2 defect #7, second half).
+                   The walk found it unnamed but exposing `AXPlaceholderValue = "Talk to
+                   Rich…"`. A placeholder IS a last-resort accessible name in HTML-AAM, so
+                   this was not quite nameless — it was worse than nameless in one specific
+                   way: the placeholder is STATE. It reads "Send is off until I know the
+                   company" while a company block is up, so the control's NAME changed with
+                   its condition, and a screen-reader user would hear the field renamed
+                   underneath them. `aria-label` is the name and does not move; the
+                   placeholder carries the state; `aria-describedby` carries the reason. One
+                   fact each.
+
+                   "Message to Rich" and not "Talk to Rich": the talk control eighteen lines
+                   above is already named "Talk to Rich" and this is the typed route to the
+                   same place. Two controls with one name is what a screen reader cannot
+                   tell apart, which is the defect one floor up from this one. -->
               <div id="input-shell" data-contrast-role="indicator">
-                <textarea id="input" rows="1" placeholder="Talk to Rich…"></textarea>
+                <textarea
+                  id="input"
+                  rows="1"
+                  placeholder="Talk to Rich…"
+                  aria-label="Message to Rich"
+                  aria-describedby="composer-blocked"
+                ></textarea>
               </div>
               <!-- §9.2: "a stop button replaces or sits beside send when the composer is
                    empty". Empty + working shows stop alone; words in the box show both, so
@@ -564,8 +592,23 @@
               <button id="stop" type="button" title="Stop" aria-label="Stop Rich" hidden>
                 <span class="stop-glyph" aria-hidden="true"></span>
               </button>
-              <button id="send" type="submit" title="Send">
-                <span class="send-glyph">▷</span>
+              <!-- IT HAS A NAME, AND THE NAME IS NOT THE SHAPE (candidate-.2 defect #7).
+                   Read live from the accessibility tree during the on-screen walk:
+                   `AXButton` with `AXTitle = "▷"` and an empty `AXDescription`; the word
+                   "Send" existed only as `AXHelp`, which is the tooltip. A screen-reader
+                   user heard a geometric shape where the primary affordance of the composer
+                   should be. WCAG 4.1.2.
+
+                   TWO HALVES, AND BOTH ARE NEEDED. `aria-label` supplies the name;
+                   `aria-hidden` on the glyph takes the shape out of the name computation, so
+                   the name cannot become "Send ▷" if the label is ever removed again. This
+                   is exactly the shape `#stop` beside it already had — "Stop Rich" plus an
+                   `aria-hidden` glyph — which is the control this was measured against.
+
+                   `title` STAYS, and it is not the name. It is the pointer tooltip, and the
+                   whole of this defect was a name that lived only there. -->
+              <button id="send" type="submit" title="Send" aria-label="Send">
+                <span class="send-glyph" aria-hidden="true">▷</span>
               </button>
             </form>
 
@@ -800,13 +843,24 @@
                on a surface that says what is missing and carries the control that fixes it
                — which is why this is a deferral and not the §21 leak the modal was guarding
                against. The line below says exactly that, in his words, the way the
-               interview offer says what ITS "Not now" costs. -->
-          <p id="entity-picker-defer-note" class="overlay-note" hidden>
-            Not now is fine. I'll leave the message box switched off until you pick one, and
-            the button to do it stays right there.
-          </p>
-          <div id="entity-picker-defer" class="memory-setup-actions" hidden>
-            <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
+               interview offer says what ITS "Not now" costs.
+
+               THE SENTENCE IS INSIDE THE GROUP NOW (candidate-.2 defect #5). It used to be
+               a sibling ABOVE this block, and `.overlay-note`'s `margin: -4px 0 12px` — a
+               negative top margin written for a note that follows a heading — put it 4px
+               INTO the bottom of "Add this company" and 12px clear of the "Not now" it
+               describes. Measured on the running page: gapAbove -4px, gapBelow 12px. It
+               read as the caption of the wrong button, which the audit called it. Nesting
+               it is the fix rather than a margin override, because the thing that was
+               wrong is that it belonged to the wrong control. -->
+          <div id="entity-picker-defer" class="picker-defer" hidden>
+            <p id="entity-picker-defer-note" class="overlay-note picker-defer-note" hidden>
+              Not now is fine. I'll leave the message box switched off until you pick one, and
+              the button to do it stays right there.
+            </p>
+            <div class="memory-setup-actions">
+              <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
+            </div>
           </div>
         </div>
       </div>

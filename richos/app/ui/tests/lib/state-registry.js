@@ -811,6 +811,17 @@ module.exports = [
   { s: "Which entity is this work in?", c: "CONTROL", why: "Entity picker title over its list." },
   { s: "Search entities, threads and conversations…", c: "CONTROL", why: "#search-input placeholder." },
   { s: "Talk to Rich", c: "CONTROL", why: "#talk-toggle title." },
+  {
+    s: "Message to Rich",
+    c: "CONTROL",
+    why:
+      "#input's accessible name — candidate-.2 defect #7. The box had none and fell back to " +
+      "its PLACEHOLDER, which is state: it reads 'Send is off until I know the company' while " +
+      "a company block is up, so the control was renamed underneath a screen-reader user as " +
+      "the app changed condition. The name holds still now and the placeholder carries the " +
+      "state. Not 'Talk to Rich', which is #talk-toggle's name three rows up: two controls " +
+      "with one name is the thing a screen reader cannot tell apart.",
+  },
   { s: "Talk to Rich…", c: "CONTROL", why: "#input idle placeholder." },
   { s: "Add context or steer Rich…", c: "CONTROL", why: "#input working placeholder (§9.2)." },
   { s: "more threads in", c: "CONTROL", why: "'Show more' accessible name." },
@@ -1243,6 +1254,26 @@ module.exports = [
       "double-clicked launch is in until he answers once. It is his to clear, so the control " +
       "is rendered directly beneath the sentence rather than described: the same button also " +
       "reopens the picker if he dismissed it.",
+  },
+  {
+    s: "Send is off until I know the company",
+    c: "ACTIONABLE",
+    control: "#choose-company-btn",
+    fixture: "company-unchosen",
+    why:
+      "The composer's placeholder while a company block is up — candidate-.2 defect #6. The " +
+      "box used to read 'Talk to Rich…' over a field that would take his sentence and refuse " +
+      "to send it, which `showUnboundView` had already named for the OTHER blocked state: " +
+      "'an inviting Talk to Rich… above a dead field is the composer telling a small lie " +
+      "about what it will do'. Same treatment, same reason, and the sibling row 'Send is off " +
+      "for this thread' is the one this follows. " +
+      "ONE STRING FOR THREE BLOCKS, and the class is the one that fits the two he can clear: " +
+      "no company chosen and no company known are both his, and `#choose-company-btn` sits " +
+      "directly beneath. The third — a company pinned from outside the window that cannot be " +
+      "made sense of — is NEEDS-SOMEONE-ELSE, and it is `COMPANY_PINNED_BLOCK`'s own row that " +
+      "carries that, rendered in the line immediately above the box and attached to the box " +
+      "itself by `aria-describedby`. The placeholder says only what the box will do and names " +
+      "neither a party nor an instruction, which is why it does not have to.",
   },
   {
     s: "I'll keep everything you tell me under the company you pick, and I'll remember it — you won't be asked again. You can change it later in Settings.",
