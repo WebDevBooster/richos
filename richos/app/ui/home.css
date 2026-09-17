@@ -386,8 +386,109 @@ body.home-open {
   transform: scale(1.5);
   transition: opacity 0.1s ease, transform 0.1s ease;
 }
+/* THE TEMPORARY LINE, AND ITS SHADOW IS ITS OWN — CEO, 2026-09-17:
+
+     *"On the home screen, when one of the temporary text lines appears at the bottom of the
+      text block on the right ... it overlays a rectangular shadow over the entire text area and
+      that shadow area always stays there afterwards which is blocking a part of the loro
+      visual. Remove this oversized shadow overlay ... instead of this 'global overlay' that
+      affects the entire text block, make it so that only the temporary text lines have a drop
+      shadow. And make sure that none of that shadow is left behind after the temporary text
+      line disappears."*
+
+   WHAT THE OVERSIZED OVERLAY WAS. Not CSS at all — the picture's own quiet pass.
+   `home/field-engine.js`'s `computeQuiet()` carried `[$('#home-ticker')]` as its eighth group,
+   so the first landed line cut a rectangle out of the loro (the group's box + 14px, erased
+   hard, feathered back over 120px) and never gave it back. Measured on the right half of a
+   1440x900 viewport, sampling `quietAt()` on a 2px lattice, before / while up / two seconds
+   after: erased 57,564 -> 118,000 -> 116,912 px. The group is gone; that file's header says
+   why, and `tests/home.js` measures that the three numbers are now one number.
+
+   SO THE RECT WAS BUYING THIS LINE'S LEGIBILITY, AND THIS DECLARATION BUYS IT INSTEAD. The
+   floor is real here: the line is normal text meant to be read, so 4.5:1, and no exemption is
+   claimed for it. Measured on the rendered frame with the rect removed and nothing put in its
+   place, the gold run inside the line (`<i>` at `--gold`, which the engine writes) came back at
+   3.80:1 against a rgb(87,66,74) strand — under the floor, on the real screen, which is why
+   "just delete the rectangle" was not an answer on its own.
+
+   A `text-shadow` WAS TRIED FIRST, BECAUSE IT IS THE LITERAL READING OF HIS SENTENCE, AND IT
+   WAS MEASURED RATHER THAN ASSUMED. Seven stops of the ruled ground struck around the glyphs,
+   `round-11.1/v1`'s own device for text drawn over this picture. Over the glyphs it works: rows
+   371-380 of the rendered frame come back at the ground. Over the LINE BOX it does not, and the
+   line box is what a reader's eye crosses: twelve consecutive frames put the worst pixel at
+   (1050, 370) — the box's top-left corner, about 3px above the ascenders — where a bokeh lobe
+   reads rgb(166,169,117) straight through the shadow's thin edge. Ink 1.19-1.36:1, gold
+   1.00-1.03:1, every frame. The arithmetic says why it cannot be tuned out: a blur conserves
+   the alpha it spreads, so a 2px stroke blurred over 24px cannot hold 0.85 coverage 3px away
+   from ink, and 0.85 is what the gold needs against a white star (composite
+   0.85*#0C1322 + 0.15*#FFF = rgb(48,54,67), 5.01:1; at 0.80 it is rgb(61,66,78), 4.16:1 and
+   under).
+
+   SO THE LINE CARRIES A PLATE OF ITS OWN, SIZED TO ITSELF, WITH THE DROP SHADOW ON THAT PLATE.
+   It is the device the banner, the entity chips and the door all use on this screen and for the
+   same stated reason — an opaque fill is the only honest way to hold AA over 7,500 moving stars,
+   because a translucent one has no computable ratio at all. What makes it HIS answer rather
+   than the thing he rejected is the size and the lifetime: the plate is the sentence's own box
+   (392x26px at 1440x900, measured) instead of the whole block, and it is gone with the
+   sentence.
+
+   THE ARITHMETIC IS BOUNDED BY THE ALPHA, NOT BY THE PICTURE. The worst composite the 0.97
+   plate can produce is over a pure white star: 0.97*#0C1322 + 0.03*#FFF = rgb(19,26,41). Against
+   that, the ink computes 9.51:1 and the gold 7.19:1. Measured on the rendered frame, which is
+   the reading that counts, on ten consecutive frames: 9.49:1 and 7.18:1, worst pixel
+   rgb(20,26,41) — the same number every frame, which is what "bounded by the alpha" looks like
+   from the outside. `tests/home.js` takes both readings on every run, with the line pinned up.
+
+   AND NOTHING IS LEFT BEHIND, structurally rather than by a cleanup step: the plate, its shadow
+   and the glyphs are all inside this element's `opacity`, which the fade takes to 0, and the
+   element is out of flow so its box cannot resize anything around it. There is no second thing
+   to take down. */
 #home-live .ticker {
-  margin-top: 14px;
+  /* OUT OF FLOW, AND THIS IS THE OTHER HALF OF HIS "over the entire text area". `#home-live` is
+     absolutely positioned and therefore SHRINK-TO-FIT: its width is its widest child's. `.cap`
+     and `#home-working` are blocks, so they are as wide as the aside, so the quiet pass's
+     group 6 — which reads THEIR boxes — is as wide as the aside too. In flow, the first landed
+     line took the aside from 201px to 392px (measured, 1440x900: the group's left edge moved
+     1205 -> 1014 and the cap and the whole workforce list moved with it), and the line keeps
+     its text forever, so the aside never narrowed again. That is the rectangle he watched
+     appear over the whole block and stay: it was never the ticker's own rect, it was the
+     BLOCK's, widened by the ticker and left there.
+
+     Taken out of flow, this line cannot resize the block it sits under: the aside is 201px
+     whether a line is up or not, and the hush over "Working now" and the workforce is the same
+     rectangle in all three states. `top: 100%` and the offsets below put the sentence exactly
+     where it was — its line box top is y=370.06 at 1440x900 before and after — and
+     `max-content` under the aside's own 460px cap is the width the line actually needs rather
+     than the width of the block, which is what makes the plate below the sentence's own size.
+     `calc(100vw - 68px)` is the small-window floor, the aside's own 34px margin on each side.
+
+     Nothing measures this aside's HEIGHT: `reserveNoteInset()` reads `#home-note-line`,
+     `reserveDoorTop()` reads `#home-signals`, and the quiet pass reads the cap and the list.
+     Taking 34px of ticker out of the aside's box therefore moves nothing. */
+  position: absolute;
+  top: 100%;
+  /* -12px IS THE PLATE'S OWN PADDING, HANDED BACK. The aside's right edge is the composition's
+     34px column line, and every row above this one ends on it; with the plate's 12px inside
+     that line the sentence would end 12px short of the column and the ragged right edge the
+     whole column is built on would break. Pushed out by exactly the padding, the TEXT ends on
+     the column line and the plate hangs into the 34px margin, leaving 22px of it. */
+  right: -12px;
+  width: max-content;
+  max-width: min(460px, calc(100vw - 68px));
+  /* 14px of clear space under the workforce, less the plate's own 3px of top padding, so the
+     SENTENCE is where it was before it had a plate: measured, its line box top is y=370.06 at
+     1440x900 either way. */
+  margin-top: 11px;
+  padding: 3px 12px;
+  border-radius: 13px;
+  background: rgba(12, 19, 34, 0.97);
+  /* The banner's ramp, at this plate's scale. Same four-stop shape and the same reason — see
+     `#home-note` — with the two outer stops pulled in because this box is 26px tall and the
+     banner's 76px falloff around it would be the wash he asked to be rid of. */
+  box-shadow:
+    0 0 0 3px rgba(12, 19, 34, 0.94),
+    0 2px 10px 4px rgba(12, 19, 34, 0.8),
+    0 2px 22px 10px rgba(12, 19, 34, 0.45);
   /* Not `--serif`: this is the one element on the screen whose text the ENGINE writes, and the
      one arrow it writes is not in Newsreader. See `--serif-vendored-fallback`. */
   font-family: var(--serif-vendored-fallback);
