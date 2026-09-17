@@ -53,6 +53,7 @@ import { loroWriter } from './promotion-writer.js';
 /** The two partition shapes `evidenceRoot()` can produce, longest first. */
 const EVIDENCE_TAILS = [
   ['ceo', 'evidence', 'unfiled', 'workspace'], // the zone moved out of the compiled tree (cc/norm-opus-zone1, 2026-09-17)
+  ['ceo', 'unfiled', 'evidence', 'workspace'], // the pre-move shape: a corpus not yet migrated still derives to the same root
   ['companies', null, 'evidence', 'workspace'], // `null` matches any one company id
 ];
 
