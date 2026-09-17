@@ -2907,7 +2907,7 @@ test('a config written BEFORE the CEO widened Calendar (§44) is still accepted,
 
 test('an omitted scope list means CALENDAR ONLY — the least-privilege grant the guide sets up', () => {
   const v = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com' });
-  assert.deepEqual(v.config.accounts[0].scopes, [GOOGLE_SCOPES.calendar]);
+  assert.deepEqual(v.config.accounts[0].sources, ['calendar']);
   assert.equal(v.config.redirectUri, DEFAULT_REDIRECT_URI, 'and the loopback the guide pins');
 });
 
@@ -3729,6 +3729,131 @@ await atest('status names the re-consent for an account whose grant predates the
   } finally { g.cleanup(); }
 });
 
+// -------------------------------------------------------------------------------------------------
+// THE LIVE FAILURE (2026-09-17): `status` tells the CEO to run `workspace connect google` for a
+// plain re-consent, and until now that command replayed whatever scope literal was frozen in the
+// config file the day the account was first connected — NOT what the registry declares today. A
+// re-consent for an account whose file predates §44 asked Google for `calendar.events.readonly`
+// again, and clicking through it would have re-authorized exactly what he already had.
+// -------------------------------------------------------------------------------------------------
+
+await atest('a PLAIN re-consent (no --source) requests the CURRENT scope, never the URL frozen at first consent (§44 live failure)', async () => {
+  // Exactly the CEO's own account, `-fd0d` staging: a config written before §44 widened Calendar,
+  // holding the narrow scope literal on disk (the legacy `scopes` shape every file had until the
+  // sources migration below).
+  const f = wsFixture({ scopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  try {
+    // First consent — exactly what a CEO who set this account up before §44 actually has on disk.
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }))));
+    // The re-consent `status` sends him to: NO --source, NO --client-id, nothing but the vendor.
+    // This is the exact command `status` prints and the exact one that failed live.
+    let authUrl = null;
+    const r = await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.ok(requested.includes(GOOGLE_SCOPES.calendar),
+      'RED BEFORE THIS FIX: a plain re-consent replayed the narrow scope frozen in the config file — '
+        + 'clicking through it discharged nothing, because it asked for exactly what he already had');
+    assert.ok(!requested.includes(CALENDAR_EVENTS_ONLY_SCOPE), 'the stale literal is never requested again');
+    // And it says WHY he is being asked again — beside the scope it is about.
+    assert.match(f.text(), /calendar\.readonly.*\n\s+wider than your current Calendar authorization/);
+  } finally { f.cleanup(); }
+});
+
+await atest('POSITIVE CONTROL: a plain re-consent for an account ALREADY at the current scope requests exactly that, with no "wider" note', async () => {
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar] });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }))));
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.deepEqual(requested.sort(), [GOOGLE_SCOPES.calendar].sort());
+    assert.ok(!f.text().includes('wider than your current'), 'nothing widened, so nothing is flagged as wider');
+  } finally { f.cleanup(); }
+});
+
+await atest('`--source` still NARROWS a grant and persists the narrowing — as a source name, not a scope URL', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: FULL_GRANT })),
+      clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com', sources: ['calendar', 'drive', 'mail'],
+    }));
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar })),
+      sources: ['calendar'],
+    }));
+    const onDisk = loadClientConfig(f.clientConfigFile);
+    assert.deepEqual(onDisk.accounts[0].sources, ['calendar'], 'the narrowing is what is on disk');
+    assert.deepEqual(accountView(onDisk, 'ceo@acme.com').scopes, [GOOGLE_SCOPES.calendar]);
+    // PROBE: a THIRD, plain re-consent (no --source) stays narrowed — it does not silently widen back.
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    assert.deepEqual(new URL(authUrl).searchParams.get('scope').split(' '), [GOOGLE_SCOPES.calendar]);
+  } finally { f.cleanup(); }
+});
+
+// -------------------------------------------------------------------------------------------------
+// THE MIGRATION: what a config file holding scope URLs (every file written before 2026-09-17) turns
+// into on disk, and what happens to a URL that names no source at all.
+// -------------------------------------------------------------------------------------------------
+
+test('migrateClientConfig maps a legacy scope URL back to its SOURCE, at any width this registry has ever declared', () => {
+  // Both the current and the historical (pre-§44/§40) width map to their source, and a config that
+  // mixes a current-width scope for one source with an old-width scope for another loses nothing.
+  const { config } = migrateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: 'ceo@acme.com', scopes: [CALENDAR_EVENTS_ONLY_SCOPE, GOOGLE_SCOPES.drive] }],
+  });
+  assert.deepEqual(config.accounts[0].sources.sort(), ['calendar', 'drive']);
+  assert.equal(config.accounts[0].legacyScopes, undefined, 'both literals mapped — nothing is left over');
+});
+
+test('a scope URL that names NO source is KEPT and REPORTED — never silently dropped', () => {
+  // `gmail.readonly` (Gmail body access) has never been declared at any width for the `mail` source
+  // (metadata-first, §6.2) — an invented or since-retired literal, not a stale-but-honorable grant.
+  const { config } = migrateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: 'ceo@acme.com', scopes: [GOOGLE_SCOPES.calendar, GMAIL_CONTENT_SCOPE] }],
+  });
+  assert.deepEqual(config.accounts[0].sources, ['calendar'], 'the recognized one still maps');
+  assert.deepEqual(config.accounts[0].legacyScopes, [GMAIL_CONTENT_SCOPE], 'the unrecognized one is KEPT, not dropped');
+  // And it is REPORTED: validateClientConfig still refuses it by name, exactly as it did when the
+  // persisted shape was scope URLs — migrating the SHAPE never widens what is accepted.
+  const v = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: 'ceo@acme.com', scopes: [GOOGLE_SCOPES.calendar, GMAIL_CONTENT_SCOPE] }],
+  });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => p.includes('gmail.readonly')));
+});
+
+await atest('an on-disk config still holding scope URLs is rewritten to SOURCE NAMES the first time anything reads it', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    // Hand-write the shape every file held before this fix: a list account with literal scope URLs,
+    // one of them the pre-§44 narrow Calendar grant.
+    fs.writeFileSync(f.clientConfigFile, `${JSON.stringify({
+      clientId: FAKE_CLIENT_ID,
+      redirectUri: DEFAULT_REDIRECT_URI,
+      accounts: [{ accountId: 'ceo@acme.com', scopes: [CALENDAR_EVENTS_ONLY_SCOPE, GOOGLE_SCOPES.drive] }],
+    }, null, 2)}\n`, { mode: 0o600 });
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: `${GOOGLE_SCOPES.calendar} ${GOOGLE_SCOPES.drive}` }))));
+    const onDisk = loadClientConfig(f.clientConfigFile);
+    assert.deepEqual(onDisk.accounts[0].sources.sort(), ['calendar', 'drive'], 'source names, not URLs, are what is on disk now');
+    assert.equal(onDisk.accounts[0].scopes, undefined, 'the frozen URL literal is gone from the file, not just from what is requested');
+  } finally { f.cleanup(); }
+});
+
 await atest('the mailbox is polled METADATA-ONLY through the command path — no format=full, ever', async () => {
   const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
   try {
@@ -3915,8 +4040,9 @@ await atest('END TO END: connect google -> sync --once -> status, exactly as the
     for (const label of ['Calendar', 'Drive', 'Gmail']) {
       assert.match(f.text(), new RegExp(`enabled:\\s+${label}`));
     }
-    // The config on disk now reproduces this consent without the flags.
-    assert.deepEqual(loadClientConfig(f.clientConfigFile).accounts[0].scopes, Object.values(GOOGLE_SCOPES));
+    // The config on disk now reproduces this consent without the flags — as SOURCE NAMES, never as
+    // the scope URLs those names resolve to today, so a later widening moves without a second edit.
+    assert.deepEqual(loadClientConfig(f.clientConfigFile).accounts[0].sources, ['calendar', 'drive', 'mail']);
 
     // 2. richos-service workspace sync google --once
     f.lines.length = 0;
@@ -5735,8 +5861,8 @@ test('a hand-edited accountId beside a list is FOLDED IN, never silently ignored
     scopes: [GOOGLE_SCOPES.mail],
   }).config;
   assert.deepEqual(merged.accounts.map((a) => a.accountId), [ACCT_A, ACCT_B]);
-  assert.deepEqual(merged.accounts[1].scopes, [GOOGLE_SCOPES.mail]);
-  assert.deepEqual(merged.accounts[0].scopes, [GOOGLE_SCOPES.calendar], 'and the listed account is untouched');
+  assert.deepEqual(merged.accounts[1].sources, ['mail']);
+  assert.deepEqual(merged.accounts[0].sources, ['calendar'], 'and the listed account is untouched');
   // PROBE: the same edit naming an account ALREADY in the list updates that entry rather than
   // appending a duplicate the validator would then refuse.
   const updated = migrateClientConfig({
@@ -5746,7 +5872,7 @@ test('a hand-edited accountId beside a list is FOLDED IN, never silently ignored
     scopes: [GOOGLE_SCOPES.drive],
   }).config;
   assert.equal(updated.accounts.length, 1);
-  assert.deepEqual(updated.accounts[0].scopes, [GOOGLE_SCOPES.drive]);
+  assert.deepEqual(updated.accounts[0].sources, ['drive']);
 });
 
 test('one account listed twice is REFUSED by name — PROBE: listed once, the same config is accepted', () => {
@@ -5872,9 +5998,9 @@ test('the governance identity is PER ACCOUNT — the same colleague is internal 
   // both accounts would get every item of whichever account lost.
   const config = upsertAccount(
     { clientId: FAKE_CLIENT_ID, redirectUri: DEFAULT_REDIRECT_URI, accounts: [] },
-    { accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar], orgDomains: ['acme.com'] },
+    { accountId: ACCT_A, sources: ['calendar'], orgDomains: ['acme.com'] },
   );
-  const both = upsertAccount(config, { accountId: ACCT_B, scopes: [GOOGLE_SCOPES.mail] });
+  const both = upsertAccount(config, { accountId: ACCT_B, sources: ['mail'] });
   const work = ceoIdentity(identityFrom(accountView(both, ACCT_A)));
   const personal = ceoIdentity(identityFrom(accountView(both, ACCT_B)));
   assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, work), 'internal');
@@ -6117,7 +6243,7 @@ await atest("connect microsoft writes its own config file and never reads or wri
     assert.equal(written.tenant, MS_TENANT);
     assert.equal(written.redirectUri, MICROSOFT_REDIRECT_URI,
       "Entra matches the redirect string exactly, so it is the port the Microsoft guide pins — not Google's");
-    assert.deepEqual(written.accounts, [{ accountId: MS_ACCOUNT, scopes: [MICROSOFT_SCOPES.calendar] }]);
+    assert.deepEqual(written.accounts, [{ accountId: MS_ACCOUNT, sources: ['calendar'] }]);
 
     assert.equal(fs.readFileSync(googleFile, 'utf8'), googleBefore, "Google's config is byte-identical");
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }

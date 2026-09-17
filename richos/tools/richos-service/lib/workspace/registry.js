@@ -236,6 +236,34 @@ export function sourceEntry(name, vendor = 'google') {
 }
 
 /**
+ * The source a literal scope URL NAMES — checked against every width this registry has EVER
+ * declared for that source (the current one AND any narrower historical grant), never against the
+ * current one alone.
+ *
+ * This is the reverse of `scopesForSources`, and it exists for exactly one job: migrating a scope
+ * literal that was frozen into a config file at the moment of some past consent back to the SOURCE
+ * it names, so a re-consent can request the CURRENT scope for that source instead of replaying the
+ * frozen literal forever. A scope that predates a widening (`calendar.events.readonly` before §44,
+ * `drive.metadata.readonly` before §40) still resolves here, via the SAME `grants` table the registry
+ * already uses to run an old grant in degraded mode — one seam answers "what does the token allow"
+ * and "what did the file used to mean", so the two can never drift apart.
+ *
+ * Returns null for a scope this registry has never declared at any width — an invented or since-
+ * retired scope literal, which the caller must keep and report rather than silently drop.
+ * @param {string} scope
+ * @param {'google'|'microsoft'} [vendor]
+ * @returns {string|null}
+ */
+export function sourceForGrantScope(scope, vendor = 'google') {
+  for (const entry of sourcesForVendor(vendor)) {
+    for (const g of grantsFor(entry)) {
+      if (g.scope === scope) return entry.source;
+    }
+  }
+  return null;
+}
+
+/**
  * The grants a source can run under, widest first. A source that declares none runs under its own
  * scope and nothing else — which is every source but Drive.
  */

@@ -46,7 +46,9 @@ import {
   migrateClientConfig, accountsOf, accountView, upsertAccount,
 } from './client-config.js';
 import { readInstalledClientFile } from './client-secret.js';
-import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry, scopeMatcherFor } from './registry.js';
+import {
+  buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry, sourceForGrantScope, scopeMatcherFor,
+} from './registry.js';
 import { resolveGrantedIdentity, describeIdentityAttempts, sameAddress } from './identity.js';
 import { awaitAuthorizationCode, consentState } from './consent.js';
 import { pkcePair } from './oauth.js';
@@ -179,7 +181,7 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
   // whole fix: the same command the CEO ran for his first account is the command for his second, and
   // the first account's entry comes through it untouched.
   if (mayAdd && (d.clientId || d.accountId || d.tenant)) {
-    const base = migrateClientConfig(raw).config;
+    const base = migrateClientConfig(raw, d.vendor).config;
     let merged = {
       ...base,
       ...(d.clientId ? { clientId: String(d.clientId).trim() } : {}),
@@ -188,12 +190,14 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
       ...(d.tenant ? { tenant: String(d.tenant).trim() } : {}),
     };
     if (d.accountId) {
-      // An account already in the file keeps its own scopes; a new one starts with the shared
-      // default and is narrowed or widened by `--source` in `connect` below.
+      // An account already in the file keeps its own sources (resolved to whatever the registry
+      // declares TODAY, never a URL frozen on the day it was first granted); a new one starts with
+      // the shared default and is narrowed or widened by `--source` in `connect` below.
       const existing = accountView(merged, d.accountId);
       merged = upsertAccount(merged, {
         accountId: d.accountId,
-        scopes: existing ? existing.scopes : [],
+        sources: existing ? existing.sources : [],
+        legacyScopes: existing ? existing.legacyScopes : [],
         orgDomains: existing ? existing.orgDomains : [],
       });
     }
@@ -234,12 +238,21 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
     for (const p of check.problems) d.out(`  - ${p}`);
     return { exitCode: 1 };
   }
-  // A single-account file written before accounts became a list is rewritten in the list shape ON
-  // FIRST READ, in place, with nothing about the existing account changed. Announced rather than
-  // done quietly: the CEO is invited to open this file, so he is told when its shape moved.
+  // TWO independent things can move on first read, and each is announced rather than done quietly —
+  // the CEO is invited to open this file, so he is told when it changes under him:
+  //   1. A single-account file written before accounts became a list moves to the list shape.
+  //   2. An account still holding a scope URL frozen at some past consent moves to source names,
+  //      resolved through the registry from here on — the fix a plain re-consent depended on.
+  // Both can fire on the SAME read (an old v1 file has both problems at once), so one save covers it.
   if (check.migrated) {
     saveClientConfig(check.config, d.clientConfigFile, { vendor: d.vendor });
-    d.out(`${L('config')}${d.clientConfigFile} now lists accounts (your existing account is unchanged)`);
+    if (check.migratedShape) {
+      d.out(`${L('config')}${d.clientConfigFile} now lists accounts (your existing account is unchanged)`);
+    }
+    if (check.migratedScopes) {
+      d.out(`${L('config')}${d.clientConfigFile} now names sources instead of scope URLs `
+        + '(a re-consent asks for what is granted TODAY, not what was frozen when you first connected)');
+    }
   }
   return { config: check.config };
 }
@@ -400,9 +413,14 @@ export async function connect(deps = {}) {
   if (chosen.exitCode) return { exitCode: chosen.exitCode };
   const account = chosen.views[0];
 
-  // Which scopes to request: this account's list, or exactly the sources named with --source. Either
-  // way the VALUES come from the scope registry (config.js), never from a literal typed here or in
-  // the guide — so a scope the CEO re-rules (Drive's width, §40) moves in one place.
+  // Which scopes to request: the CURRENT registry scope for this account's sources, or exactly the
+  // sources named with --source. Either way the VALUES come from the scope registry (config.js),
+  // never from a literal typed here, in the guide, or frozen in the config file at some past consent
+  // — so a scope the CEO re-rules (Drive's width §40, Calendar's §44) is what a plain re-consent
+  // requests, not whatever was true the day this account was first connected. `account.scopes` is
+  // `accountView`'s OWN computed field (registry.js:scopesForSources against `account.sources`), so
+  // this line needs no resolution step of its own — resolving it twice would be the second opinion
+  // the account-config docstring already warns against.
   let scopes = account.scopes;
   if (d.sources && d.sources.length) {
     const unknown = d.sources.filter((s) => !sourceEntry(s, d.vendor));
@@ -411,13 +429,19 @@ export async function connect(deps = {}) {
       return { exitCode: 1 };
     }
     scopes = scopesForSources(d.sources, d.vendor);
-    // Persist what he actually chose, so a re-consent a week later requests the same sources
-    // without him having to remember the flags. A config that disagrees with the live grant is a
-    // wrong number waiting for the next 7-day expiry. `upsertAccount` writes THIS account's entry
-    // and no other: `--source drive` on the mail account may not narrow the calendar account.
-    if (scopes.join(' ') !== account.scopes.join(' ')) {
-      config = upsertAccount(config, { ...account, scopes });
+    // Persist what he actually chose — as SOURCE NAMES, never as the scope URLs those names resolve
+    // to today — so a re-consent a week later requests the CURRENT scope for the same sources without
+    // him having to remember the flags, and without freezing today's URL the way the old shape did.
+    // `upsertAccount` writes THIS account's entry and no other: `--source drive` on the mail account
+    // may not narrow the calendar account. An explicit `--source` list is a full replacement, exactly
+    // like the URL list it replaces was — a legacy scope this run did not name is dropped, same as a
+    // source this run did not name.
+    const wanted = [...new Set(d.sources)];
+    if (wanted.slice().sort().join(',') !== account.sources.slice().sort().join(',')) {
+      config = upsertAccount(config, { accountId: account.accountId, sources: wanted, orgDomains: account.orgDomains });
       saveClientConfig(config, d.clientConfigFile, { vendor: d.vendor });
+      account.sources = wanted;
+      account.legacyScopes = [];
       account.scopes = scopes;
     }
   }
@@ -453,6 +477,14 @@ export async function connect(deps = {}) {
   const tm = tokenManagerFor({ ...account, scopes }, backend,
     d, { adoptLegacyTokens: isFirstAccount(config, account.accountId) });
 
+  // What Google ACTUALLY granted last time — a local keychain read, never a live call — so a plain
+  // re-consent can say WHY it is asking again. This is the seam that was missing: `status`'s own
+  // re-consent line pointed here and, until now, a re-consent for an account already at this width
+  // would have silently re-requested the OLD narrow scope, discharging nothing.
+  const priorRecord = tm.load();
+  const priorGranted = priorRecord ? parseGrantedScopes(priorRecord.scope) : [];
+  const priorSources = new Set(priorGranted.map((g) => sourceForGrantScope(g, d.vendor)).filter(Boolean));
+
   d.out(`${L('account')}${account.accountId}`);
   // What this run is NOT touching, said before the browser opens. The failure this replaced was
   // silent, so the reassurance is explicit rather than left to the CEO to verify afterwards.
@@ -467,6 +499,11 @@ export async function connect(deps = {}) {
   for (const s of scopes) {
     const entry = d.profile.sources.find((e) => e.scope === s);
     d.out(`            ${s}${entry ? `   (${entry.label})` : ''}`);
+    // Named beside the scope it is about, not as a summary line at the end: with more than one
+    // source in one request, "widened" has to say WHICH one or it is a fact he cannot act on.
+    if (entry && priorGranted.length && !priorGranted.includes(s) && priorSources.has(entry.source)) {
+      d.out(`              wider than your current ${entry.label} authorization — that is why you are being asked again`);
+    }
   }
 
   // THE SECRET, BEFORE THE BROWSER — AND WHAT IS CHECKABLE HERE IS DIFFERENT PER VENDOR.

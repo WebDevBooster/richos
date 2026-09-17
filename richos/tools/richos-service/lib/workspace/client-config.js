@@ -11,11 +11,21 @@
  *                     deliberately not in this file. ONE client per vendor: it is his app, and every
  *                     account he authorizes authorizes THAT app, so the id is shared by all of them.
  *   - `redirectUri`   a loopback the consent code comes back on — checked by `assertLoopbackRedirect`.
- *   - `accounts`      a LIST, one entry per Google account, each with its own `scopes` (§6.2) and its
+ *   - `accounts`      a LIST, one entry per Google account, each with its own `sources` (§6.2) and its
  *                     own `orgDomains`. See below for why this is a list and not one address.
- *   - `scopes`        ONLY values declared in `config.js:GOOGLE_SCOPES`. A scope string typed here that
- *                     the registry does not declare is REFUSED, not requested: widening what the CEO
- *                     consents to is his decision on the Google screen (§6.2), never a config typo.
+ *   - `sources`       SOURCE NAMES (`calendar`, `drive`, `mail`) — WHICH the CEO enabled, never the
+ *                     scope URL that implements one today (2026-09-17). A name is resolved to the
+ *                     registry's CURRENT scope (`config.js:GOOGLE_SCOPES`, via `scopesForSources`) on
+ *                     every read, so a scope the CEO re-rules (Drive §40, Calendar §44) moves the next
+ *                     time anything reads this file — no separate migration step, no literal that goes
+ *                     stale. The predecessor to this field held the scope URL itself, and that URL was
+ *                     frozen at whatever moment wrote it: a plain re-consent replayed it forever, so an
+ *                     account connected before a widening kept requesting the OLD scope on every
+ *                     re-consent. A source name unknown to the registry is REFUSED, not requested — the
+ *                     same "widening is his decision on the Google screen, never a config edit" rule
+ *                     the URL form enforced, applied to names instead of literals. A scope literal that
+ *                     survives migration mapped to no source (an invented or since-retired one) is kept
+ *                     under `legacyScopes` and reported, never silently dropped.
  *   - `accountId`     the address a grant is bound to. The CEO names it himself, and it does two jobs:
  *                     the adapters' stable `sourceInstanceId`, and the governance identity (§5.1) that
  *                     decides which of his meetings are internal. There is still no identity SCOPE in
@@ -50,7 +60,9 @@ import fs from 'node:fs';
 import { GOOGLE_SCOPES, MICROSOFT_SCOPES, workspaceClientConfigPath } from '../config.js';
 import { writePrivateFile } from '../private-files.js';
 import { assertLoopbackRedirect } from './privacy.js';
-import { sourcesForVendor, grantsFor } from './registry.js';
+import {
+  sourcesForVendor, grantsFor, scopesForSources, sourceForGrantScope,
+} from './registry.js';
 
 /**
  * The loopback redirect the setup guide's Step 5 pins. Pinned here too, rather than left to a caller,
@@ -184,16 +196,81 @@ export function loadClientConfig(file = workspaceClientConfigPath()) {
   }
 }
 
-/** Shape one account entry. Lower-cases the address, because an email is not case-sensitive and a
- * keychain account, a cursor key and an evidence path all are. */
-function normalizeAccount(entry) {
+/**
+ * Split a list of literal scope URLs into the SOURCES they name and the ones that name none.
+ *
+ * `mapped` is deduplicated and in first-seen order; `unmapped` keeps every literal that this
+ * registry has never declared at any width, so a caller can carry it forward and report it rather
+ * than silently drop a permission the CEO believes he granted.
+ * @returns {{mapped:string[], unmapped:string[]}}
+ */
+function splitScopesBySource(scopes, vendor) {
+  const mapped = [];
+  const unmapped = [];
+  for (const scope of scopes) {
+    const source = sourceForGrantScope(scope, vendor);
+    if (source) {
+      if (!mapped.includes(source)) mapped.push(source);
+    } else {
+      unmapped.push(scope);
+    }
+  }
+  return { mapped, unmapped };
+}
+
+/**
+ * Shape one account entry. Lower-cases the address, because an email is not case-sensitive and a
+ * keychain account, a cursor key and an evidence path all are.
+ *
+ * THE PERSISTED FACT IS WHICH SOURCES THE CEO ENABLED, NOT WHICH SCOPE URLS (2026-09-17). A scope
+ * URL is a literal frozen at the moment of some past consent; a source name (`calendar`, `drive`,
+ * `mail`) is resolved to the CURRENT scope through the registry every time it is read, so a re-run
+ * of `connect` a widening later asks for what the registry declares TODAY rather than replaying the
+ * literal it asked for the day the CEO first consented.
+ *
+ * An entry already in that shape (`sources: [...]`) is read as-is. An entry in the shape every file
+ * held before this — `scopes: [<url>, ...]`, or nothing at all — is MIGRATED: each URL is mapped back
+ * to the source it names (current width or any historical one this registry has ever declared, via
+ * `sourceForGrantScope`), and a URL that names none is carried forward under `legacyScopes` rather
+ * than dropped. `legacyScopes` surviving from an already-`sources`-shaped entry is re-attempted on
+ * every read too, in case a later registry update recognizes what an earlier one could not.
+ */
+function normalizeAccount(entry, vendor) {
   const e = entry && typeof entry === 'object' ? entry : {};
   const orgDomains = Array.isArray(e.orgDomains)
     ? e.orgDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
     : [];
+  const accountId = typeof e.accountId === 'string' ? e.accountId.trim().toLowerCase() : '';
+
+  if (Array.isArray(e.sources)) {
+    const sources = e.sources.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+    const carried = Array.isArray(e.legacyScopes) ? e.legacyScopes.map((s) => String(s).trim()).filter(Boolean) : [];
+    const { mapped, unmapped } = splitScopesBySource(carried, vendor);
+    return {
+      accountId,
+      sources: [...new Set([...sources, ...mapped])],
+      ...(unmapped.length ? { legacyScopes: unmapped } : {}),
+      ...(orgDomains.length ? { orgDomains } : {}),
+    };
+  }
+
+  const legacyScopes = Array.isArray(e.scopes) ? e.scopes.map((s) => String(s).trim()).filter(Boolean) : [];
+  if (legacyScopes.length) {
+    const { mapped, unmapped } = splitScopesBySource(legacyScopes, vendor);
+    return {
+      accountId,
+      sources: mapped,
+      ...(unmapped.length ? { legacyScopes: unmapped } : {}),
+      ...(orgDomains.length ? { orgDomains } : {}),
+    };
+  }
+
+  // Nothing specified at all. The Step-3 "Calendar only" default belongs to the CALLER
+  // (`validateClientConfig`, `accountView`) — this function reshapes only what was actually given,
+  // so it never invents a grant that quietly overrides a legitimate empty `legacyScopes` refusal.
   return {
-    accountId: typeof e.accountId === 'string' ? e.accountId.trim().toLowerCase() : '',
-    scopes: Array.isArray(e.scopes) ? e.scopes.map((s) => String(s).trim()).filter(Boolean) : [],
+    accountId,
+    sources: [],
     ...(orgDomains.length ? { orgDomains } : {}),
   };
 }
@@ -204,14 +281,32 @@ function normalizeAccount(entry) {
  * Shape only — it validates nothing, so a garbage account survives migration and is then refused by
  * `validateClientConfig` with a sentence the CEO can act on, rather than vanishing quietly here.
  *
+ * `migrated` is true if EITHER of two independent things moved: `migratedShape` (a v1 single-account
+ * file becoming the v2 list) or `migratedScopes` (an account — v1 or already-listed — that still held
+ * `scopes: [<url>, ...]` and now holds `sources: [...]`). A caller that only checks `migrated` gets
+ * the old combined behavior; `requireClientConfig` reads the two apart so its announcement names the
+ * thing that actually moved rather than always saying "now lists accounts" for a file that already did.
+ *
  * @param {object|null} raw
- * @returns {{migrated:boolean, config:{clientId:string, redirectUri?:string,
- *   accounts:Array<{accountId:string, scopes:string[], orgDomains?:string[]}>}}}
+ * @param {'google'|'microsoft'} [vendor] the table `sources: [...]` and any `legacyScopes` are
+ *   migrated against — never a guess, since the same URL can name a different source per vendor.
+ * @returns {{migrated:boolean, migratedShape:boolean, migratedScopes:boolean,
+ *   config:{clientId:string, redirectUri?:string,
+ *   accounts:Array<{accountId:string, sources:string[], legacyScopes?:string[], orgDomains?:string[]}>}}}
  */
-export function migrateClientConfig(raw) {
+export function migrateClientConfig(raw, vendor = 'google') {
   const src = raw && typeof raw === 'object' ? raw : {};
   const listed = Array.isArray(src.accounts) ? src.accounts : null;
-  const accounts = (listed || []).map(normalizeAccount);
+  // A LIST-SHAPED file (accounts already an array) can still hold an account written before this
+  // fix — `scopes: [<url>, ...]` rather than `sources: [...]` — and that is EXACTLY the shape whose
+  // scope literal never got re-resolved through the registry. `migrated` has to say so too, not only
+  // for the older single-account (v1) shape, or a file already on the list shape would never get its
+  // stale URL rewritten: nothing would ever call `saveClientConfig` for it.
+  let anyAccountHeldScopeLiteral = false;
+  const accounts = (listed || []).map((a) => {
+    if (!(a && Array.isArray(a.sources))) anyAccountHeldScopeLiteral = true;
+    return normalizeAccount(a, vendor);
+  });
 
   // A v1 file names its one account beside the client. So does a v2 file the CEO hand-edited an
   // `accountId` back into — and in both cases that address is an account he means. A top-level entry
@@ -219,17 +314,29 @@ export function migrateClientConfig(raw) {
   // matches nothing is appended. Duplicates WITHIN the list are left alone for the validator to
   // refuse by name: merging them here would be this module picking which of two grants he meant.
   if (typeof src.accountId === 'string' && src.accountId.trim()) {
-    const top = normalizeAccount({ accountId: src.accountId, scopes: src.scopes, orgDomains: src.orgDomains });
+    const top = normalizeAccount({ accountId: src.accountId, scopes: src.scopes, sources: src.sources, orgDomains: src.orgDomains }, vendor);
     const at = accounts.findIndex((a) => a.accountId === top.accountId);
+    const hasTopGrant = top.sources.length || (top.legacyScopes && top.legacyScopes.length);
     if (at >= 0) {
-      accounts[at] = { ...accounts[at], ...top, scopes: top.scopes.length ? top.scopes : accounts[at].scopes };
+      accounts[at] = {
+        ...accounts[at],
+        ...top,
+        sources: hasTopGrant ? top.sources : accounts[at].sources,
+        ...(hasTopGrant
+          ? (top.legacyScopes ? { legacyScopes: top.legacyScopes } : {})
+          : (accounts[at].legacyScopes ? { legacyScopes: accounts[at].legacyScopes } : {})),
+      };
     } else {
       accounts.push(top);
     }
   }
 
+  const migratedShape = !listed;
+  const migratedScopes = anyAccountHeldScopeLiteral;
   return {
-    migrated: !listed,
+    migrated: migratedShape || migratedScopes,
+    migratedShape,
+    migratedScopes,
     config: {
       clientId: typeof src.clientId === 'string' ? src.clientId.trim() : '',
       ...(typeof src.redirectUri === 'string' && src.redirectUri.trim() ? { redirectUri: src.redirectUri.trim() } : {}),
@@ -267,12 +374,12 @@ const accountMissing = (vendor) =>
  *   file is Google's today, and the parameter is here so P4's ceremony reuses this function instead
  *   of growing a second validator whose refusals would name the wrong vendor's scopes.
  * @returns {{ok:boolean, problems:string[], migrated:boolean, config:{clientId:string, redirectUri:string,
- *   accounts:Array<{accountId:string, scopes:string[], orgDomains:string[]}>}}}
+ *   accounts:Array<{accountId:string, sources:string[], legacyScopes?:string[], orgDomains:string[]}>}}}
  */
 export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   const problems = [];
   const words = vendorWords(vendor);
-  const { config: shaped, migrated } = migrateClientConfig(raw);
+  const { config: shaped, migrated, migratedShape, migratedScopes } = migrateClientConfig(raw, vendor);
 
   const clientId = shaped.clientId;
   if (!clientId) {
@@ -317,6 +424,7 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   }
 
   const requestable = requestableScopes(vendor);
+  const knownSources = sourcesForVendor(vendor).map((s) => s.source);
   const accounts = [];
   const seen = new Set();
 
@@ -336,9 +444,26 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
     }
     if (accountId) seen.add(accountId);
 
-    let scopes = entry.scopes.length ? entry.scopes : [scopeTable(vendor).calendar]; // Step 3 enables Calendar and nothing else
+    // Step 3 enables Calendar and nothing else — but ONLY when nothing was specified at all. An
+    // account whose every named scope turned out to be unmappable (`legacyScopes` below) said
+    // SOMETHING; defaulting it to Calendar here would hide that refusal behind a grant he never
+    // asked for.
+    const specifiedNothing = !entry.sources.length && !(entry.legacyScopes && entry.legacyScopes.length);
+    let sources = specifiedNothing ? ['calendar'] : entry.sources;
     const who = accountId ? ` (account ${accountId})` : '';
-    for (const s of scopes) {
+    for (const s of sources) {
+      if (!knownSources.includes(s)) {
+        problems.push(`source "${s}"${who} is not one RichOS knows. Known sources are: ${knownSources.join(', ')}.`);
+      }
+    }
+    sources = [...new Set(sources)];
+
+    // A scope literal that survived migration unmapped — never one this registry has declared at any
+    // width, so it is not a stale-but-honorable authorization the way an old Drive/Calendar grant is.
+    // It is either an invented escalation (refused below) or a scope this registry has since retired;
+    // either way it is REPORTED, never silently carried into a request.
+    const legacyScopes = entry.legacyScopes || [];
+    for (const s of legacyScopes) {
       if (!requestable.includes(s)) {
         problems.push(
           `scope "${s}"${who} is not one RichOS declares (config.js ${vendor.toUpperCase()}_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
@@ -346,14 +471,21 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
         );
       }
     }
-    scopes = [...new Set(scopes)];
-    accounts.push({ accountId, scopes, orgDomains: entry.orgDomains || [] });
+
+    accounts.push({
+      accountId,
+      sources,
+      ...(legacyScopes.length ? { legacyScopes } : {}),
+      orgDomains: entry.orgDomains || [],
+    });
   }
 
   return {
     ok: problems.length === 0,
     problems,
     migrated,
+    migratedShape,
+    migratedScopes,
     config: {
       clientId,
       redirectUri,
@@ -375,12 +507,22 @@ export function accountsOf(config) {
  * A `TokenManager`, a registry build and a governance identity are each constructed from one of these
  * and never from the whole config — so nothing downstream is able to read one account's scopes while
  * holding another account's address.
- * @returns {{clientId:string, redirectUri:string, accountId:string, scopes:string[], orgDomains:string[]}|null}
+ *
+ * `scopes` is COMPUTED here, fresh, every call — never read off a stored literal. It is the current
+ * registry scope for each of the account's `sources` (so a widening the registry declares today shows
+ * up the next time anything reads this view, with no separate re-save step) UNIONED with any
+ * `legacyScopes` that survived migration unmapped (so a scope this registry has never declared is
+ * still requested, never silently dropped — it is reported elsewhere, not revoked here).
+ * @returns {{clientId:string, redirectUri:string, accountId:string, sources:string[],
+ *   legacyScopes:string[], scopes:string[], orgDomains:string[]}|null}
  */
 export function accountView(config, accountId, { vendor = 'google' } = {}) {
   const want = String(accountId || '').trim().toLowerCase();
   const entry = accountsOf(config).find((a) => a.accountId === want);
   if (!entry) return null;
+  const specifiedNothing = !(entry.sources && entry.sources.length) && !(entry.legacyScopes && entry.legacyScopes.length);
+  const sources = specifiedNothing ? ['calendar'] : [...(entry.sources || [])];
+  const legacyScopes = entry.legacyScopes ? [...entry.legacyScopes] : [];
   return {
     clientId: config.clientId,
     redirectUri: config.redirectUri || defaultRedirectUri(vendor),
@@ -390,7 +532,9 @@ export function accountView(config, accountId, { vendor = 'google' } = {}) {
     ...(config.tenant ? { tenant: config.tenant } : {}),
     ...(config.confidentialClient ? { confidentialClient: true } : {}),
     accountId: entry.accountId,
-    scopes: entry.scopes && entry.scopes.length ? [...entry.scopes] : [scopeTable(vendor).calendar],
+    sources,
+    legacyScopes,
+    scopes: [...new Set([...scopesForSources(sources, vendor), ...legacyScopes])],
     orgDomains: entry.orgDomains ? [...entry.orgDomains] : [],
   };
 }
@@ -398,16 +542,24 @@ export function accountView(config, accountId, { vendor = 'google' } = {}) {
 /**
  * Add an account, or replace the entry the same address already has. Returns a NEW config and touches
  * no other account — which is the whole point: `connect --account B` must not be able to disturb A's
- * scopes, A's org domains or A's place in the list.
+ * sources, A's org domains or A's place in the list.
+ *
+ * Takes `sources` (the canonical, persisted fact) and an optional `legacyScopes` (scope literals
+ * migration could not map to any source — carried forward untouched unless the caller overrides it).
+ * A caller still passing `scopes` (e.g. one that spread an `accountView` result without picking
+ * fields) is not read here: `sources`/`legacyScopes` are the only inputs this writes, so a stray
+ * `.scopes` on the object never leaks back onto disk as a frozen literal.
  */
 export function upsertAccount(config, account) {
   const accountId = String((account && account.accountId) || '').trim().toLowerCase();
   if (!accountId) throw new Error('an account entry needs the Google address it belongs to');
   const accounts = accountsOf(config).map((a) => ({ ...a }));
   const orgDomains = Array.isArray(account.orgDomains) ? account.orgDomains.filter(Boolean) : [];
+  const legacyScopes = Array.isArray(account.legacyScopes) ? account.legacyScopes.filter(Boolean) : [];
   const next = {
     accountId,
-    scopes: Array.isArray(account.scopes) ? [...account.scopes] : [],
+    sources: Array.isArray(account.sources) ? [...account.sources] : [],
+    ...(legacyScopes.length ? { legacyScopes } : {}),
     ...(orgDomains.length ? { orgDomains } : {}),
   };
   const at = accounts.findIndex((a) => a.accountId === accountId);
@@ -422,12 +574,15 @@ export function upsertAccount(config, account) {
  *
  * It takes either shape — a single-account object or one carrying `accounts` — and always WRITES the
  * list shape, so the v1 → v2 migration happens wherever the file is next written rather than in one
- * special place that has to be remembered.
+ * special place that has to be remembered. It ALSO always writes `sources`, never `scopes`: any
+ * account still holding the old literal-URL shape (or a hand-edited `scopes` list) is migrated through
+ * `migrateClientConfig` first, so a scope URL frozen at some past consent never survives a save — the
+ * defect this shape replaces was exactly a stale URL surviving indefinitely because nothing rewrote it.
  * @param {object} config
  * @param {string} [file]
  */
 export function saveClientConfig(config, file = workspaceClientConfigPath(), { vendor = 'google' } = {}) {
-  const { config: shaped } = migrateClientConfig(config);
+  const { config: shaped } = migrateClientConfig(config, vendor);
   const body = {
     clientId: shaped.clientId,
     redirectUri: shaped.redirectUri || defaultRedirectUri(vendor),
@@ -435,7 +590,8 @@ export function saveClientConfig(config, file = workspaceClientConfigPath(), { v
     ...(shaped.confidentialClient ? { confidentialClient: true } : {}),
     accounts: shaped.accounts.map((a) => ({
       accountId: a.accountId,
-      scopes: a.scopes && a.scopes.length ? a.scopes : [scopeTable(vendor).calendar],
+      sources: a.sources && a.sources.length ? a.sources : ['calendar'],
+      ...(a.legacyScopes && a.legacyScopes.length ? { legacyScopes: a.legacyScopes } : {}),
       ...(a.orgDomains && a.orgDomains.length ? { orgDomains: a.orgDomains } : {}),
     })),
   };
@@ -448,6 +604,10 @@ export function saveClientConfig(config, file = workspaceClientConfigPath(), { v
  * config, so the fix is in front of whoever hit the refusal instead of in a document. One account is
  * shown because one is where everybody starts; a second is added by running connect again with
  * `--account`, never by editing this file by hand.
+ *
+ * `sources` names the thing the CEO actually decides (which of Calendar/Drive/Gmail to enable), not
+ * the scope URL that happens to implement it today — the URL is the registry's business, resolved at
+ * every connect, and a CEO editing this file by hand should never need to know it changed.
  * @returns {string}
  */
 export function clientConfigTemplate(vendor = 'google') {
@@ -458,7 +618,7 @@ export function clientConfigTemplate(vendor = 'google') {
       ...(words.tenant ? { tenant: TENANT_PLACEHOLDER } : {}),
       redirectUri: words.redirectUri,
       accounts: [
-        { accountId: 'you@yourcompany.com', scopes: [scopeTable(vendor).calendar] },
+        { accountId: 'you@yourcompany.com', sources: ['calendar'] },
       ],
     },
     null,
