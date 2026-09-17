@@ -50,7 +50,7 @@ use crate::vad::{SAMPLE_RATE, VAD_FRAME_SAMPLES};
 use crate::wav;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -164,6 +164,46 @@ pub struct Capture {
     pub input_rate: u32,
     pub input_channels: u16,
     pub source_label: String,
+    /// **THE DEVICE'S OWN REPORTED INPUT LATENCY, in microseconds**, published per callback.
+    ///
+    /// cpal's [`cpal::InputCallbackInfo`] carries the instant the samples were captured from
+    /// the ADC and the instant the callback was invoked; the difference is how far in the PAST
+    /// the audio in `data` actually happened.
+    ///
+    /// It matters here for one reason: `on_frame` reads the `speaking` flag AT PROCESSING
+    /// TIME, while the audio it is judging was in the room this long earlier. A frame handed
+    /// over just after Rich's answer ends still contains Rich, so the half-duplex window has
+    /// to stay open for this long past the last speaker sample as well as the output device's
+    /// own tail. Zero until the first callback has run, and for the WAV source, which has no
+    /// device and no latency.
+    latency: InputLatency,
+}
+
+impl Capture {
+    /// The device's reported input latency, in seconds — see [`Capture::latency_us`].
+    pub fn input_latency_secs(&self) -> f32 {
+        self.latency.secs()
+    }
+
+    /// A cloneable reader for the same figure. The controller MOVES its `Capture` into
+    /// `VoiceController` after the supervisor thread is already running, so the supervisor
+    /// cannot hold a `&Capture`; it holds one of these instead.
+    pub fn latency(&self) -> InputLatency {
+        self.latency.clone()
+    }
+}
+
+/// A lock-free, cloneable reader of the input device's reported latency in seconds.
+#[derive(Clone, Default)]
+pub struct InputLatency(Arc<AtomicUsize>);
+
+impl InputLatency {
+    pub fn secs(&self) -> f32 {
+        self.0.load(Ordering::Relaxed) as f32 / 1_000_000.0
+    }
+    fn store_micros(&self, us: u128) {
+        self.0.store(us as usize, Ordering::Relaxed);
+    }
 }
 
 impl Drop for Capture {
@@ -199,6 +239,10 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
     let config = supported.config();
     let fmt = supported.sample_format();
 
+    let latency = InputLatency::default();
+    let f32_latency = latency.clone();
+    let i16_latency = latency.clone();
+
     let mut slicer = FrameSlicer::new();
     // ONE converter for the life of the stream. This is what keeps the 16 kHz timebase
     // honest, which is what makes the echo path time-invariant enough to cancel.
@@ -209,7 +253,12 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
     let stream = match fmt {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config,
-            move |data: &[f32], _| {
+            move |data: &[f32], info: &cpal::InputCallbackInfo| {
+                // THE DEVICE REPORTS HOW OLD THIS AUDIO IS. Recorded, not assumed.
+                let ts = info.timestamp();
+                if let Some(d) = ts.callback.duration_since(&ts.capture) {
+                    f32_latency.store_micros(d.as_micros());
+                }
                 let mono = wav::to_mono(data, channels);
                 // STREAMING conversion: the phase carries across callbacks. Calling the
                 // whole-signal `wav::resample` here instead adds +0.195 % of drift — see
@@ -223,7 +272,11 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config,
-            move |data: &[i16], _| {
+            move |data: &[i16], info: &cpal::InputCallbackInfo| {
+                let ts = info.timestamp();
+                if let Some(d) = ts.callback.duration_since(&ts.capture) {
+                    i16_latency.store_micros(d.as_micros());
+                }
                 let f: Vec<f32> = data.iter().map(|s| *s as f32 / 32768.0).collect();
                 let mono = wav::to_mono(&f, channels);
                 at16.clear();
@@ -245,6 +298,7 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
         input_rate: rate,
         input_channels: channels,
         source_label: "microphone".into(),
+        latency,
     })
 }
 
@@ -317,6 +371,8 @@ fn start_wav(
         input_rate: rate,
         input_channels: channels,
         source_label: format!("injected wav ({})", path.display()),
+        // A file has no device and therefore no device latency.
+        latency: InputLatency::default(),
     })
 }
 

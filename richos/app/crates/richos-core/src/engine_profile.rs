@@ -115,7 +115,24 @@ impl EngineProfile {
         ]}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
     }
-    pub fn standing_doctrine(&self, app_doctrine: &Path) -> Result<PathBuf, RuntimeError> {
+    /// The standing instruction this lease comes up with — **and it is now different for
+    /// the two Riches, because their jobs are.**
+    ///
+    /// The CEO's Two Riches page: *"1) a 'front desk Rich' whose sole job is to talk to the
+    /// CEO and relay information to and from the back-end and 2) a 'back-end Rich' whose
+    /// sole job is to do and manage all the work related to agent team orchestration."*
+    ///
+    /// **Both leases used to get the engine's `mega-lander/DESKTOP.md`**, which is the back
+    /// end's job description in its own words: seven numbered steps, every one of them a
+    /// `richos_work` call. Handing that to a front desk that no longer holds those tools
+    /// (`native.rs`'s `mcp_config`) would produce a Rich instructed to do a job it cannot
+    /// do — the loudest possible version of the drift note 3 exists to prevent, and a
+    /// broken turn rather than a refused one.
+    ///
+    /// So: the back end keeps the execution contract, and the front desk gets
+    /// `doctrine/front-desk.md`, which says what its job is and what it never does.
+    /// **`DESKTOP.md` is read and never written here** — the engine owns that file.
+    pub fn standing_doctrine(&self, app_doctrine: &Path, role: crate::native::LeaseRole) -> Result<PathBuf, RuntimeError> {
         let read = |path: &Path| -> Result<String, RuntimeError> {
             if std::fs::metadata(path).map(|m|m.len()).unwrap_or(u64::MAX) > 256 * 1024 {
                 return Err(RuntimeError("standing instruction is missing or too large".into()));
@@ -124,7 +141,11 @@ impl EngineProfile {
             if text.trim().is_empty() { return Err(RuntimeError("standing instruction is empty".into())); }
             Ok(text)
         };
-        let body = read(app_doctrine)? + "\n\n" + &read(&self.engine.join("mega-lander/DESKTOP.md"))?;
+        let job = match role {
+            crate::native::LeaseRole::Work => read(&self.engine.join("mega-lander/DESKTOP.md"))?,
+            crate::native::LeaseRole::Conversation => crate::doctrine::FRONT_DESK_DOCTRINE.to_string(),
+        };
+        let body = read(app_doctrine)? + "\n\n" + &job;
         let path = self.plugin.join("standing-doctrine.md");
         write(&path, &body)?;
         Ok(path)

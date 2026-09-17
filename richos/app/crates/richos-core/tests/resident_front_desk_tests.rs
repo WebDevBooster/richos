@@ -1,0 +1,315 @@
+//! **N CONVERSATION THREADS, EACH HOLDING ITS OWN FRONT DESK** — the CEO's Two Riches page.
+//!
+//! *"a CEO can create a conversation thread (i.e. any number of conversation threads) …
+//! each conversation thread always holds one front desk Rich and one back-end Rich …
+//! the CEO could open and run multiple things in parallel."*
+//!
+//! What these suites measure is RESIDENCE: a thread's front desk — its provider session,
+//! its priming, its own context measurements — survives another thread taking a turn,
+//! instead of being killed and reconstituted from the ledger tail. Before this, a thread
+//! switch called `clear_lease()` and the outgoing child died.
+//!
+//! **What they deliberately do NOT claim is simultaneity.** Two front desks do not hold a
+//! turn open at the same instant, because both bind the CEO's single ECS cursor
+//! (`native.rs`'s `CONVERSATION_SEAT`, whose doc carries the engine `file:line` for why).
+//! Turns take turns; the WORK behind them has run in parallel since the work host took one
+//! back end per thread. The test that pins that boundary lives beside the bind, in
+//! `native.rs`, and is named for the day it changes.
+use richos_core::{
+    cognition::{Cognition, CognitionError, LeaseFactory, TurnItem},
+    entity::{EntityId, ThreadBinding},
+    ledger::{Ledger, Source},
+    spine::{Spine, MAX_RESIDENT_FRONT_DESKS},
+    steering::TurnControl,
+};
+use std::sync::{Arc, Mutex};
+mod support;
+
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
+
+/// Everything every desk this factory ever made has done, in one place, so a test can ask
+/// about a desk that has since been parked, resumed or dropped.
+#[derive(Clone, Default)]
+struct Log {
+    spawned: Arc<Mutex<Vec<String>>>,
+    /// `(session, priming text)` — one row per re-prime. A desk that comes back must not
+    /// add a row: that is the difference between residence and reconstitution.
+    primed: Arc<Mutex<Vec<String>>>,
+    /// `(session, what he said)`.
+    prompts: Arc<Mutex<Vec<(String, String)>>>,
+    /// Sessions whose child was actually killed. `Drop` is the only honest witness — a
+    /// parked desk that had quietly been dropped would satisfy every other assertion here.
+    dropped: Arc<Mutex<Vec<String>>>,
+}
+
+impl Log {
+    fn primed_count(&self, session: &str) -> usize {
+        self.primed.lock().unwrap().iter().filter(|s| *s == session).count()
+    }
+    fn prompts_to(&self, session: &str) -> Vec<String> {
+        self.prompts.lock().unwrap().iter()
+            .filter(|(s, _)| s == session).map(|(_, text)| text.clone()).collect()
+    }
+    fn spawned(&self) -> Vec<String> {
+        self.spawned.lock().unwrap().clone()
+    }
+    fn dropped(&self) -> Vec<String> {
+        self.dropped.lock().unwrap().clone()
+    }
+}
+
+/// A front desk that is REAL about the one property this whole change turns on:
+/// `requires_thread_isolation() == true`, which is what the native conversation lease
+/// reports whenever it has continuity configured (`native.rs`). `MockCognition` returns
+/// false, so it would never come down the park-and-resume path at all.
+struct Desk {
+    session: String,
+    log: Log,
+}
+
+impl Cognition for Desk {
+    fn session_id(&self) -> &str {
+        &self.session
+    }
+    fn requires_thread_isolation(&self) -> bool {
+        true
+    }
+    fn reprime(&mut self, _priming: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        self.log.primed.lock().unwrap().push(self.session.clone());
+        Ok(())
+    }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.log.prompts.lock().unwrap().push((self.session.clone(), text.to_string()));
+        let reply = format!("{}: {text}", self.session);
+        on_item(TurnItem::Text { seq: 0, text: &reply });
+        Ok("end_turn".to_string())
+    }
+}
+
+impl Drop for Desk {
+    fn drop(&mut self) {
+        self.log.dropped.lock().unwrap().push(self.session.clone());
+    }
+}
+
+struct Desks {
+    log: Log,
+    next: Arc<Mutex<u64>>,
+}
+
+impl LeaseFactory for Desks {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+        let mut next = self.next.lock().unwrap();
+        *next += 1;
+        let session = format!("desk-{next}");
+        self.log.spawned.lock().unwrap().push(session.clone());
+        Ok(Box::new(Desk { session, log: self.log.clone() }))
+    }
+}
+
+fn fixture() -> (Spine, Log, std::path::PathBuf) {
+    let root = std::env::temp_dir().join(format!("richos-resident-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut spine = support::spine(Ledger::open(root.join("ledger.jsonl")).unwrap());
+    spine.set_turn_control(TurnControl::open(root.join("intake.jsonl")).unwrap());
+    let log = Log::default();
+    spine.set_lease_factory(Box::new(Desks { log: log.clone(), next: Arc::new(Mutex::new(0)) }));
+    (spine, log, root)
+}
+
+/// **THE HEADLINE.** A thread's front desk is still there when he comes back to it: same
+/// provider session, not re-primed, and never spawned a second time.
+///
+/// The positive control is a THIRD thread in the same test. Without it, "no new spawn when
+/// he returns to the first thread" would also be satisfied by a factory that had stopped
+/// spawning at all, and by a spine that had stopped switching threads.
+#[test]
+fn a_threads_front_desk_is_still_there_when_he_comes_back_to_it() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    let three = spine.create_thread("The nightly", &femcboost()).unwrap();
+
+    spine.submit_prompt_to(&one, "where is the pricing review", Source::Text).unwrap();
+    spine.submit_prompt_to(&two, "who did we shortlist", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "one desk per conversation, spawned on its first turn");
+    assert!(log.dropped().is_empty(), "a conversation's front desk was killed when he switched away from it");
+    assert_eq!(spine.resident_front_desks(), 2);
+    assert!(spine.front_desk_is_resident(&one) && spine.front_desk_is_resident(&two));
+
+    // Back to the first conversation.
+    spine.submit_prompt_to(&one, "and what did it cost", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "coming back spawned a new front desk");
+    assert_eq!(log.primed_count("desk-1"), 1, "the first desk was re-primed on its way back in");
+    assert_eq!(
+        log.prompts_to("desk-1"),
+        vec!["where is the pricing review".to_string(), "and what did it cost".to_string()],
+        "the second sentence did not reach the desk that heard the first"
+    );
+
+    // Positive control: a conversation that has NEVER spoken does get a fresh desk, primed
+    // once — so the three assertions above are about residence, not about a dead factory.
+    spine.submit_prompt_to(&three, "how did the nightly go", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2", "desk-3"]);
+    assert_eq!(log.primed_count("desk-3"), 1);
+    assert_eq!(spine.resident_front_desks(), 3);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// **A MESSAGE TO A CONVERSATION THAT IS NOT THE ONE ON SCREEN IS ANSWERED, NOT REFUSED.**
+///
+/// `send_message` used to compare the named thread against the single active one and hand
+/// his sentence back: *"The conversation changed before your message was sent. Open the
+/// original conversation to try again."*
+#[test]
+fn a_message_to_another_conversation_is_answered_rather_than_refused() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    spine.submit_prompt_to(&one, "first", Source::Text).unwrap();
+    assert_eq!(spine.active_thread(), Some(one.as_str()));
+
+    // He is looking at `one`; the message names `two`.
+    spine.submit_prompt_to(&two, "who did we shortlist", Source::Text).unwrap();
+    let answered = spine.messages(&two).unwrap();
+    assert_eq!(answered[0].text, "who did we shortlist");
+    assert!(answered.iter().any(|m| m.text.contains("desk-2")), "the second conversation was never answered");
+    // And his first conversation is untouched by it.
+    assert!(spine.messages(&one).unwrap().iter().all(|m| !m.text.contains("shortlist")));
+    assert_eq!(log.prompts_to("desk-1"), vec!["first".to_string()]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// **HE TYPES INTO ANOTHER CONVERSATION WHILE ONE IS WORKING, AND IT IS ANSWERED THERE.**
+///
+/// This is the mid-turn case, and it is the one the refusal used to own. The message is
+/// durable the moment he sends it, queued with its OWN binding, and delivered on its own
+/// thread by its own front desk at the turn boundary — never re-scoped to wherever he
+/// happens to be looking when the boundary arrives.
+#[test]
+fn a_message_sent_while_another_conversation_is_working_is_answered_on_its_own_thread() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    spine.submit_prompt_to(&one, "start the pricing review", Source::Text).unwrap();
+
+    // A turn is in flight on `one`.
+    spine.debug_set_turn_in_progress(true);
+    spine.submit_prompt_to(&two, "who did we shortlist", Source::Text).unwrap();
+    // Durable immediately, and NOT yet answered: it is waiting for the boundary, not lost.
+    assert_eq!(spine.messages(&two).unwrap()[0].text, "who did we shortlist");
+    assert!(log.prompts_to("desk-2").is_empty(), "the queued message jumped the running turn");
+
+    // The turn ends; the next boundary drains the queue.
+    spine.debug_set_turn_in_progress(false);
+    spine.submit_prompt_to(&one, "and the margin", Source::Text).unwrap();
+
+    assert_eq!(log.prompts_to("desk-2"), vec!["who did we shortlist".to_string()],
+        "his message to the other conversation was never delivered");
+    assert!(spine.messages(&two).unwrap().iter().any(|m| m.text.contains("desk-2")));
+    // It was answered on ITS thread, by ITS desk. Nothing about it reached the other one.
+    assert_eq!(log.prompts_to("desk-1"), vec!["start the pricing review".to_string(), "and the margin".to_string()]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A returning desk brings its own context measurements back with it. A desk that inherited
+/// the chair's numbers would rotate itself on another conversation's consumption; one that
+/// came back at zero would claim it had used nothing after an hour of talking.
+#[test]
+fn a_returning_front_desk_brings_its_own_context_measurement_and_not_the_other_threads() {
+    let (mut spine, _log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+
+    spine.submit_prompt_to(&one, &"p".repeat(4000), Source::Text).unwrap();
+    let busy = spine.context_estimate_tokens();
+    assert!(busy > 0, "the first conversation measured nothing at all");
+
+    spine.submit_prompt_to(&two, "hi", Source::Text).unwrap();
+    let quiet = spine.context_estimate_tokens();
+    assert!(quiet < busy, "the fresh desk inherited the first conversation's consumption");
+
+    spine.submit_prompt_to(&one, "hi", Source::Text).unwrap();
+    assert!(spine.context_estimate_tokens() >= busy,
+        "the returning desk came back with an empty watermark");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Past the cap, the LEAST RECENTLY SPOKEN desk is retired — and nothing else is.
+///
+/// That thread is then exactly where every thread was before residency: its next turn
+/// spawns a lease and re-primes from the ledger. The degradation is the old path, not a new
+/// failure, and the conversation he is actually in is never the one retired.
+#[test]
+fn past_the_cap_the_least_recently_spoken_front_desk_is_the_one_retired() {
+    let (mut spine, log, root) = fixture();
+    let threads: Vec<String> = (0..MAX_RESIDENT_FRONT_DESKS + 1)
+        .map(|n| spine.create_thread(&format!("Conversation {n}"), &femcboost()).unwrap())
+        .collect();
+    for thread in &threads {
+        spine.submit_prompt_to(thread, "hello", Source::Text).unwrap();
+    }
+    assert_eq!(spine.resident_front_desks(), MAX_RESIDENT_FRONT_DESKS,
+        "the app is holding more front desks open than the cap allows");
+    assert_eq!(log.dropped(), vec!["desk-1"], "the retired desk was not the least recently spoken one");
+    assert!(!spine.front_desk_is_resident(&threads[0]));
+    // Everything since is still resident, the one he is in included.
+    for thread in &threads[1..] {
+        assert!(spine.front_desk_is_resident(thread), "a desk inside the cap was retired");
+    }
+    // And the retired conversation still works: a fresh desk, primed once, his words intact.
+    spine.submit_prompt_to(&threads[0], "are you still there", Source::Text).unwrap();
+    let fresh = log.spawned().last().unwrap().clone();
+    assert_eq!(log.primed_count(&fresh), 1);
+    assert_eq!(log.prompts_to(&fresh), vec!["are you still there".to_string()]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// **The thing that would have gone wrong quietly.** Several facts un-prime a front desk
+/// because they are facts about the whole app, not about one lease — the central folder
+/// moving, the memory wiring being torn down. Before residency, un-priming the chair was
+/// enough, because every other thread built a fresh lease on its next turn anyway. A parked
+/// desk that kept `primed: true` across one of these would go on serving him from material
+/// the app had stopped believing in.
+#[test]
+fn moving_the_central_folder_un_primes_the_parked_front_desks_too() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    spine.submit_prompt_to(&one, "first", Source::Text).unwrap();
+    spine.submit_prompt_to(&two, "second", Source::Text).unwrap();
+    assert_eq!(log.primed_count("desk-1"), 1);
+
+    spine.set_central_root(root.join("a-different-folder"));
+
+    // The parked desk is primed AGAIN on its way back into the chair — same session, so it
+    // is the same Rich; new priming, so it is not the old material.
+    spine.submit_prompt_to(&one, "third", Source::Text).unwrap();
+    assert_eq!(log.primed_count("desk-1"), 2, "a parked front desk kept its stale priming");
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "un-priming killed the desk instead of re-priming it");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Residency never crosses conversations: each desk is bound to its own thread and a
+/// binding never travels with the chair.
+#[test]
+fn no_front_desk_ever_takes_another_conversations_binding() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    for _ in 0..3 {
+        spine.submit_prompt_to(&one, "a", Source::Text).unwrap();
+        spine.submit_prompt_to(&two, "b", Source::Text).unwrap();
+    }
+    assert_eq!(log.prompts_to("desk-1"), vec!["a".to_string(); 3]);
+    assert_eq!(log.prompts_to("desk-2"), vec!["b".to_string(); 3]);
+    assert_eq!(log.spawned().len(), 2, "a conversation was given more than one front desk");
+    // The ledger agrees with the desks: neither thread holds the other's words.
+    let (first, second): (Vec<_>, Vec<_>) = (spine.messages(&one).unwrap(), spine.messages(&two).unwrap());
+    assert!(first.iter().all(|m| m.text == "a" || m.text.starts_with("desk-1")));
+    assert!(second.iter().all(|m| m.text == "b" || m.text.starts_with("desk-2")));
+    let _: Option<&ThreadBinding> = spine.active_binding();
+    std::fs::remove_dir_all(root).unwrap();
+}

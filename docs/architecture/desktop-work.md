@@ -116,7 +116,41 @@ seat, stop and approval line — and not a second mind.
 The front desk gets no orchestration tools. It relays: it writes an assignment down and it
 reports what the record says. A work tool asked for on a conversation's own binding is
 refused at the permission desk as well as absent from what that lease was given, so drifting
-into doing the work takes two mistakes rather than one.
+into doing the work takes two mistakes rather than one. Its standing instruction is its own
+job rather than the back end's execution contract, so it is not told to do what it can no
+longer do.
+
+It has one read of its own, and it needs one: with the work tools gone, every other status
+surface in this app is a command reaching the window rather than a tool reaching Rich.
+`richos_status.background_work` is app-owned and read-only, answers what is running, what is
+waiting for him and what finished for **that conversation only**, from the record on disk,
+and calls nothing. It cannot start, stop, approve or retry anything — those are the controls
+on the assignment, or they are relayed — and it returns his own words rather than any
+identifier. A permission request waiting in the running process is not in its answer; the
+durable half of the same fact is, as the assignment that stopped at a step of his.
+
+Each conversation's front desk stays resident. Switching conversations parks it alive with
+its own provider session, its own priming and its own context measurement, rather than
+killing it and rebuilding a new one from the ledger, so a conversation he returns to is the
+one he left. The app holds a bounded number of these open at once; past that, the least
+recently spoken one is retired and its next turn starts a fresh desk, which is what every
+conversation did before residency. A message to any conversation is accepted and answered on
+that conversation — never refused because he had moved — and one sent while another
+conversation is mid-reply is durable immediately and answered at that reply's boundary.
+
+Each conversation binds the CEO's cursor on its own seat, `ceo-thread:<thread_id>`, derived
+the same way by the app and by the engine and asked for through the engine's own capability
+answer rather than assumed; an engine without it binds the single legacy cursor. That is what
+lets two conversations hold turns open, checkpoint and read their briefs without disturbing
+each other.
+
+**The limit, stated rather than implied: a conversation's reply may wait behind another
+conversation's reply — seconds — but never behind work.** Work runs on its own lease, one per
+conversation, and takes no part in the conversation's lock. Measured with
+`cargo run -p richos-core --example conversation_wait_behind_another --release`: a message
+sent one second into a scripted three-second reply on another conversation was answered
+2.028 s later, of which 1.996 s was the remainder of that reply and **25–32 ms** across four
+runs was the app's own share.
 
 A request for an action that is not on that list waits for him rather than being refused for
 want of a visible turn. The permission desk holds one ordered queue for both leases: the
