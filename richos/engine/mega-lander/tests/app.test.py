@@ -463,4 +463,75 @@ class DesktopWork(unittest.TestCase):
             seen.clear();self.call("inspect")
             self.assertTrue(seen and all(value is None for value in seen),seen)
 
+    def test_orphan_seats_are_reconciled_and_an_open_assignment_keeps_its_own(self):
+        """6.3a. Settled, absent or unknown goes; open stays; his is never touched."""
+        self.call("prepare",self.args)
+        self.work_lease()                                   # an OPEN assignment
+        self.work_lease(assignment="no-such-assignment")    # an ABSENT one
+        self.three_ceo_turns()
+        report=self.call("inspect")["seats"]
+        self.assertEqual([row["assignment"] for row in report["retained"]],["fixture-task"])
+        self.assertEqual([(row["assignment"],row["reason"]) for row in report["released"]],
+                         [("no-such-assignment","absent")])
+        self.assertEqual(report["unreconciled"],[])
+        # His own cursor is still there, and it was never a candidate: a work seat is
+        # identified by its own audience, never as "everything that is not his".
+        seats=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"seats",
+            "binding":self.scope["binding"]})["seats"]
+        self.assertEqual(sorted(row["person_id"] for row in seats),
+                         ["ceo-default","work-seat:fixture-task"])
+        # Now settle the assignment the way a completion does, and its seat goes too.
+        store=self.store()
+        item=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect",
+            "binding":self.scope["binding"],"query":{"item_id":"fixture-task"}})["item"]
+        store.append("continuity.item_closed",entity_id="depot",thread_id="thread-a",
+            session_id=self.session,active_context_revision=self.scope["binding"]["revision"],
+            actor_kind="authority_adapter",actor_id="richos-provider-v1",
+            source_ref="app-completion:fixture",idempotency_key="fixture-close",
+            expected_revision=int(item["revision"]),
+            payload={"item_id":"fixture-task","status":"completed","evidence_ref":"app-completion:fixture"})
+        report=self.call("inspect")["seats"]
+        self.assertEqual([(row["assignment"],row["reason"]) for row in report["released"]],
+                         [("fixture-task","settled")])
+        self.assertEqual(report["retained"],[])
+
+    def test_a_seat_that_cannot_be_released_is_reported_rather_than_ignored(self):
+        self.work_lease(assignment="no-such-assignment")
+        real=self.app.ecs
+        def refuse(scope,request):
+            if request["command"]=="release-seat": raise ValueError("the store is locked by another writer")
+            return real(scope,request)
+        with patch.object(self.app,"ecs",refuse):
+            report=self.call("inspect")["seats"]
+        self.assertEqual(report["released"],[])
+        self.assertEqual([row["seat"] for row in report["unreconciled"]],
+                         ["work-seat:no-such-assignment"])
+        self.assertIn("locked by another writer",report["unreconciled"][0]["reason"])
+        # The positive control: without the refusal the very same seat IS released,
+        # so the report above is a real failure and not a permanently broken path.
+        self.assertEqual([row["seat"] for row in self.call("inspect")["seats"]["released"]],
+                         ["work-seat:no-such-assignment"])
+
+    def test_a_work_lease_cannot_reconcile_seats_or_write_his_continuity(self):
+        work,seat = self.work_lease()
+        self.three_ceo_turns()
+        self.assertNotIn("seats",self.app.call(work,"inspect",{}))
+        binding=json.loads(work.read_text())["binding"]
+        for command,fields in (("seats",{}),
+                               ("release-seat",{"person_id":seat,"request_id":"r1",
+                                                "source_ref":"reconcile:1"}),
+                               ("brief",{}),
+                               ("checkpoint",{"request_id":"c1","checkpoint":{"no_changes":True,
+                                                                              "reason":"Test"}})):
+            with self.assertRaisesRegex(Exception,"conversation's own seat"):
+                self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":command,
+                    "seat":seat,"binding":binding,**fields})
+        # Control: every one of those four is fine on his own seat.
+        for command,fields in (("seats",{}),("brief",{}),
+                               ("checkpoint",{"request_id":"c1","checkpoint":{"no_changes":True,
+                                                                              "reason":"Test"}})):
+            self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":command,
+                "binding":self.scope["binding"],**fields})
+
+
 if __name__=="__main__":unittest.main()

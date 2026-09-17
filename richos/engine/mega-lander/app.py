@@ -657,6 +657,67 @@ def integrate(scope_path,scope,args):
             "obligation_closed":False,"published":False}
 
 
+OPEN_ASSIGNMENT_STATUSES = ("candidate", "accepted", "active", "pending", "blocked")
+
+
+def assignment_state(scope, assignment):
+    """open, settled or absent -- read from the obligation, never from its workers.
+
+    An assignment whose workers have all stopped is NOT settled: that is exactly
+    the state where it has run, stopped at integrate and is waiting for him
+    (5.4). Settled means the obligation itself is closed. Getting this wrong
+    would release the seat of the one case the whole plan turns on.
+    """
+    if not isinstance(assignment, str) or not assignment.strip():
+        return "absent"
+    try:
+        item = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],
+                           "query":{"item_id":assignment}})["item"]
+    except Exception as error:
+        if "item is absent" not in str(error):
+            raise
+        return "absent"
+    return "open" if item["status"] in OPEN_ASSIGNMENT_STATUSES else "settled"
+
+
+def reconcile_seats(scope):
+    """Orphan seats, walked beside orphan grants and for the same reason (6.3a).
+
+    A grant with no assignment behind it is a defect and so is a seat, and the
+    seat is the half that survives a crash: a grant is a file the lease shutdown
+    rewrites, a seat is a durable row. A seat that cannot be released is
+    REPORTED, because a reconciliation that silently skips what it could not do
+    is a clean bill of health signed by nobody.
+
+    HIS OWN CURSOR IS NEVER TOUCHED HERE. A work seat is identified positively,
+    by its own audience, and never as "everything that is not his" -- which is
+    precisely the reasoning that would delete his cursor after a crash. The
+    engine refuses his seat by name as well.
+    """
+    binding = scope["binding"]
+    report = {"released": [], "retained": [], "unreconciled": []}
+    for row in ecs(scope, {"protocol":1,"command":"seats","binding":binding})["seats"]:
+        if row["audience"] != "worker":
+            continue
+        if row["entity_id"] != binding["entity_id"] or row["thread_id"] != binding["thread_id"]:
+            continue  # another company or thread's partition is not this scope's to reconcile
+        assignment, seat = row["turn_id"], row["person_id"]
+        try:
+            state = assignment_state(scope, assignment)
+            if state == "open":
+                report["retained"].append({"seat":seat, "assignment":assignment})
+                continue
+            ecs(scope, {"protocol":1,"command":"release-seat","binding":binding,
+                        "person_id":seat, "reason":state,
+                        "request_id":f"reconcile-seat:{seat}:{row['revision']}",
+                        "source_ref":f"app-reconcile:{seat}:{row['revision']}"})
+            report["released"].append({"seat":seat, "assignment":assignment, "reason":state})
+        except Exception as error:
+            report["unreconciled"].append({"seat":seat, "assignment":assignment,
+                                           "reason":str(error)[:400]})
+    return report
+
+
 def completion_path(scope, identity):
     if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{64}", identity):
         raise ValueError("invalid completion identity")
@@ -738,7 +799,14 @@ def call(scope_path, name, args):
             rows = list(receipts(root)); result=[]
             for path,record in rows[offset:offset+limit]:
                 refresh(record);save(path,record);project(scope,path,record);result.append(view(record))
-            return {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}
+            page = {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}
+            # Seats are reconciled with receipts, on the sweep rather than per
+            # page, and only from the conversation's own scope: enumerating or
+            # releasing seats is the host's job and the engine refuses it to a
+            # work seat.
+            if offset == 0 and scope.get("seat") is None:
+                page["seats"] = reconcile_seats(scope)
+            return page
     raise ValueError("unknown app work tool")
 
 
