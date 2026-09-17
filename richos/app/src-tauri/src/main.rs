@@ -177,7 +177,12 @@ impl MachineryObserver for TauriMachineryEmitter {
 ///
 /// The event name follows `rich://voice-notice`, the existing precedent for a line that
 /// arrives from outside a turn and lands on the calm timeline (spec §3.8).
-const EVENT_WORK_NOTICE: &str = "rich://work-notice";
+/// **`pub` so the documentation gate can SEE it.** `ui/tests/docs-claims.js` builds its
+/// inventory from `pub const NAME: &str = "rich://…"` and asserts `app/STREAMING.md`
+/// documents every one. A private constant here would have been a shipped event outside
+/// that inventory — declared, emitted, and invisible to the check that exists to stop
+/// exactly that. Nothing else reads it; the visibility is the gate.
+pub const EVENT_WORK_NOTICE: &str = "rich://work-notice";
 
 struct WorkNotice {
     app: AppHandle,
@@ -2553,14 +2558,35 @@ fn stop_assignment(state: State<AppState>, thread_id: String, assignment_id: Str
 /// turn on a DIFFERENT thread is refused honestly, and with no turn at all this depends on
 /// `try_lock`, which fails during exactly the window a turn holds the spine. Neither blocks
 /// delivery on the assignment's own thread (spec §3.2).
+/// A turn is live on ANOTHER conversation, so this thread's company binding cannot be read
+/// without waiting on it. It resolves itself, and the sentence says so.
+const ASSIGNMENTS_ELSEWHERE: &str =
+    "Another conversation is working. Your assignments will refresh when it settles.";
+
+/// The spine's lock is held for the length of a turn, so this read is deferred.
+///
+/// **NOT "please try again".** The surface re-reads this every three seconds while the
+/// conversation is on screen, so telling him to do the thing that is already happening
+/// would be an instruction over a state that resolves itself — which is exactly what
+/// `ui/tests/affordances.js` exists to catch.
+///
+/// **Both sentences are named constants rather than literals inside the expression, and
+/// that is not style.** `ui/tests/lib/state-strings.js` decides a Rust literal is
+/// CEO-facing from its own line and the TWO ABOVE IT. Written inline, this sentence was
+/// visible to the affordance gate only because an unrelated `ok_or_else` happened to sit
+/// two lines up; adding a comment moved it out of the window and the gate stopped seeing
+/// it. A `const … : &str =` is one of the forms that scanner recognizes directly, so the
+/// sentence is now gated by what it IS rather than by what it sits next to.
+const ASSIGNMENTS_CHANGING: &str = "Your assignments are changing. They will refresh in a moment.";
+
 fn assignment_scope(state: &State<AppState>, thread_id: &str) -> Result<EntityId, String> {
     if let Some(active) = state.control.active_turn() {
         if active.thread_id != thread_id {
-            return Err("Another conversation is working. Your assignments will refresh when it settles.".into());
+            return Err(ASSIGNMENTS_ELSEWHERE.into());
         }
         return active.entity_id.ok_or_else(|| "This conversation has no company binding.".into());
     }
-    let spine = state.spine.try_lock().map_err(|_| "Your assignments are changing. Please try again.")?;
+    let spine = state.spine.try_lock().map_err(|_| ASSIGNMENTS_CHANGING)?;
     Ok(spine.ledger().thread_binding(thread_id).map_err(|e| e.to_string())?.entity_id().clone())
 }
 

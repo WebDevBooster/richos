@@ -49,9 +49,14 @@
     registered: "Written down. Nothing has been prepared yet.",
     preparing: "Getting a workspace ready.",
     running: "Running.",
-    blocked: "Ready for you to approve.",
+    // §0 row 7's mandated phrase, plus the affordance that actually exists TODAY. The
+    // approval desk that would hold his decision while he is away is §5.2/§5.7 and is not
+    // built, so a sentence implying a button here would be a claim about a control that is
+    // not on this surface. Asking Rich to continue it is a real path and the composer is a
+    // real control, which is the same answer the saved-record limit gives one screen over.
+    blocked: "Ready for you to approve. Ask Rich to continue it when you are ready.",
     settled: "Finished.",
-    failed: "Stopped before it finished.",
+    failed: "Stopped before it finished. Ask Rich what it needs.",
     interrupted: "Stopped.",
   };
 
