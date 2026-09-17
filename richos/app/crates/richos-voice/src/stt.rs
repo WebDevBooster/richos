@@ -155,6 +155,9 @@ pub fn resolve_whisper_bin() -> Result<PathBuf, SttError> {
 /// Resolve a GGML model file. Mirrors `tools/richos-service/lib/config.js::resolveModel`,
 /// plus a voice-specific override so the conversational model can differ from the
 /// transcription service's without fighting over one variable.
+///
+/// **`~/.config/richos/models` joined this list on 2026-09-17** and is the directory
+/// [`crate::provision`] installs into. Everything else about the order is unchanged.
 pub fn resolve_model(model_id: &str) -> Result<PathBuf, SttError> {
     for var in ["RICHOS_VOICE_WHISPER_MODEL", "RICHOS_WHISPER_MODEL"] {
         if let Ok(v) = std::env::var(var) {
@@ -167,13 +170,7 @@ pub fn resolve_model(model_id: &str) -> Result<PathBuf, SttError> {
     }
     let file = format!("ggml-{model_id}.bin");
     let home = std::env::var("HOME").unwrap_or_default();
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Ok(d) = std::env::var("RICHOS_MODEL_DIR") {
-        dirs.push(PathBuf::from(expand_tilde(&d)));
-    }
-    dirs.push(Path::new(&home).join(".config/open-wispr/models"));
-    dirs.push(Path::new(&home).join("Models/Whisper"));
-    dirs.push(Path::new(&home).join(".cache/whisper.cpp"));
+    let dirs = model_search_dirs(&home, std::env::var("RICHOS_MODEL_DIR").ok().as_deref());
     for d in &dirs {
         let p = d.join(&file);
         if p.exists() {
@@ -184,6 +181,46 @@ pub fn resolve_model(model_id: &str) -> Result<PathBuf, SttError> {
         "{file} not found in {}",
         dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ")
     )))
+}
+
+/// The directory RichOS installs the models IT downloaded into, relative to `$HOME`.
+///
+/// ONE CONSTANT, TWO USERS, and that is the whole reason it is not simply spelled twice.
+/// [`model_search_dirs`] looks here and [`crate::provision::install_dir`] writes here; a product
+/// whose downloader and whose resolver each carry their own copy of a path is a product that
+/// downloads half a gigabyte into a directory nothing reads, and nothing about either file would
+/// look wrong on the day it happened.
+pub const RICHOS_MODELS_SUBDIR: &str = ".config/richos/models";
+
+/// Every directory a model may be resolved from, best first — a PURE function of the two inputs
+/// that decide it.
+///
+/// PURE SO THE INSTALL LOCATION IS PROVABLE. `provision.rs` writes the model it downloads into one
+/// specific directory, and the only thing that makes that download worth anything is that this
+/// walk looks there. Asserting it by setting `HOME` to a temporary directory would prove it for
+/// one run of one machine and would race every other test in this crate that reads the
+/// environment; asserting it over this function proves it for every `HOME` there will ever be.
+///
+/// **THE ORDER, AND WHY.** `RICHOS_MODEL_DIR` first, because an engineer who names a directory is
+/// not asking to be second-guessed. Then `~/.config/richos/models` — RichOS's OWN, added
+/// 2026-09-17, and the only entry on this list whose contents this product downloaded and verified
+/// against `model-pins.json` itself. Then the three that belong to other software: the dictation
+/// app's, the CEO's own, and whisper.cpp's cache. RichOS reads those and never writes to them —
+/// a product that puts half a gigabyte into another application's directory has made that
+/// application's cleanup our outage.
+///
+/// A machine that already carries weights in one of the older three resolves exactly as it always
+/// did, because the new directory will not exist there and the walk falls through.
+pub fn model_search_dirs(home: &str, override_dir: Option<&str>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(d) = override_dir.filter(|d| !d.trim().is_empty()) {
+        dirs.push(PathBuf::from(expand_tilde(d)));
+    }
+    dirs.push(Path::new(home).join(RICHOS_MODELS_SUBDIR));
+    dirs.push(Path::new(home).join(".config/open-wispr/models"));
+    dirs.push(Path::new(home).join("Models/Whisper"));
+    dirs.push(Path::new(home).join(".cache/whisper.cpp"));
+    dirs
 }
 
 fn expand_tilde(p: &str) -> String {
@@ -443,6 +480,118 @@ fn time_decode(bin: &Path, model: &Path, wav: &Path, ceiling_secs: f64) -> Optio
     best
 }
 
+/// **WHAT IS STANDING BETWEEN THIS MACHINE AND TALK TO RICH**, as a kind rather than a sentence.
+///
+/// THE REASON THIS TYPE EXISTS is that the three gaps below need three different actions and used
+/// to arrive as one string. `SttError::ceo_message` deliberately gives `BinaryNotFound` and
+/// `ModelNotFound` the SAME words — *"My ears aren't installed on this machine yet"* — because to
+/// the CEO they were the same event: somebody else had to fix it either way. Once RichOS can fetch
+/// its own model that stops being true, and collapsing the two would be the difference between
+/// offering a download that works and offering one that cannot possibly help:
+///
+/// | gap | what RichOS can do about it |
+/// |---|---|
+/// | [`SpeechReadiness::ToolchainMissing`] | **Nothing.** The decoder is not a model and is not pinned. |
+/// | [`SpeechReadiness::ModelMissing`] | Download the pinned weights this machine resolved to. |
+/// | [`SpeechReadiness::Refused`] | **Nothing automatic.** Weights that are not the pinned weights are a fact to report, never one to paper over with a fresh download of something else. |
+pub enum SpeechReadiness {
+    /// Everything resolved and checked. Boxed because a `Recognizer` is far larger than the other
+    /// variants and this enum is returned by value on every readiness probe.
+    Ready(Box<Recognizer>),
+    /// No `whisper-cli`. Not provisionable by this app — see the table above.
+    ToolchainMissing { detail: String },
+    /// The decoder is here and the weights this machine resolved to are not. `model_id` is what
+    /// [`choose_model`] asked for, so an offer names the file the resolver will actually look for.
+    ModelMissing { model_id: String, detail: String },
+    /// Installed, and not what it claims to be.
+    Refused { detail: String },
+}
+
+/// HAND-WRITTEN, not derived, and the difference is a leak. Deriving would require `Debug` on
+/// `Recognizer`, whose fields are two absolute filesystem paths — so every `{:?}` of a readiness
+/// answer anywhere in this product would print the CEO's home directory into whatever log caught
+/// it. The model id is the part that identifies anything worth identifying.
+impl std::fmt::Debug for SpeechReadiness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpeechReadiness::Ready(r) => write!(f, "Ready({})", r.model_id),
+            SpeechReadiness::ToolchainMissing { detail } => write!(f, "ToolchainMissing({detail})"),
+            SpeechReadiness::ModelMissing { model_id, detail } => write!(f, "ModelMissing({model_id}: {detail})"),
+            SpeechReadiness::Refused { detail } => write!(f, "Refused({detail})"),
+        }
+    }
+}
+
+impl SpeechReadiness {
+    /// A stable tag for the UI and the record. Never a sentence — sentences move.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            SpeechReadiness::Ready(_) => "ready",
+            SpeechReadiness::ToolchainMissing { .. } => "toolchain-missing",
+            SpeechReadiness::ModelMissing { .. } => "model-missing",
+            SpeechReadiness::Refused { .. } => "refused",
+        }
+    }
+
+    /// Can RichOS itself close this gap by downloading something it has pinned?
+    ///
+    /// TRUE FOR EXACTLY ONE VARIANT, and every caller that offers a download asks this rather than
+    /// matching on the tag, so a fourth gap added later cannot become offerable by omission.
+    pub fn provisionable(&self) -> bool {
+        matches!(self, SpeechReadiness::ModelMissing { .. })
+    }
+
+    /// The CEO-facing line for a gap, or `None` when there is no gap. Reuses
+    /// [`SttError::ceo_message`] so a machine that cannot be helped says exactly what it has
+    /// always said.
+    pub fn ceo_message(&self) -> Option<String> {
+        match self {
+            SpeechReadiness::Ready(_) => None,
+            SpeechReadiness::ToolchainMissing { detail } => Some(SttError::BinaryNotFound(detail.clone()).ceo_message()),
+            SpeechReadiness::ModelMissing { detail, .. } => Some(SttError::ModelNotFound(detail.clone()).ceo_message()),
+            SpeechReadiness::Refused { detail } => Some(SttError::ToolchainRefused(detail.clone()).ceo_message()),
+        }
+    }
+}
+
+/// Resolve the binary, choose the model, check the toolchain — ONCE, and report the typed answer.
+///
+/// **THIS IS THE ONE RESOLUTION.** [`Recognizer::resolve`] is now a thin mapping of this function
+/// onto [`SttError`], so the readiness probe the window reads and the check `start_voice_capture`
+/// runs before it opens the microphone cannot disagree about the same machine — they are the same
+/// code, not two functions written to the same description. The ordering below is unchanged from
+/// what `resolve()` always did: binary first, then the model the machine resolved to, then the
+/// toolchain check over both.
+pub fn readiness() -> SpeechReadiness {
+    let bin = match resolve_whisper_bin() {
+        Ok(b) => b,
+        Err(e) => return SpeechReadiness::ToolchainMissing { detail: e.to_string() },
+    };
+    let resolution = choose_model(&bin);
+    let model_id = resolution.model_id.clone();
+    let model = match resolve_model(&model_id) {
+        Ok(m) => m,
+        Err(e) => return SpeechReadiness::ModelMissing { model_id, detail: e.to_string() },
+    };
+    let toolchain = crate::toolchain::check(&bin, &model, &model_id);
+    // Said out loud on stderr, not only stored. A warning nobody meets is not a warning, and
+    // this is the one channel a headless voice loop shares with whoever started it.
+    for w in toolchain.warnings() {
+        eprintln!("richos-voice: {w}");
+    }
+    if toolchain.verdict() == crate::toolchain::Severity::Refuse {
+        return SpeechReadiness::Refused { detail: toolchain.refusals().join(" ") };
+    }
+    SpeechReadiness::Ready(Box::new(Recognizer {
+        bin,
+        model,
+        model_id,
+        prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()),
+        toolchain,
+        resolution,
+    }))
+}
+
 /// A resolved, ready-to-use recognizer. Resolution happens ONCE at voice-mode start so a
 /// missing model is a calm message at the toggle, not a failure in the middle of a sentence.
 pub struct Recognizer {
@@ -476,27 +625,12 @@ impl Recognizer {
     /// this machine locked WARNS, loudly, naming both identities — see `toolchain.rs` for why the
     /// two differ. `RICHOS_WHISPER_STRICT_TOOLCHAIN=1` makes every warning a refusal.
     pub fn resolve() -> Result<Recognizer, SttError> {
-        let bin = resolve_whisper_bin()?;
-        let resolution = choose_model(&bin);
-        let model_id = resolution.model_id.clone();
-        let model = resolve_model(&model_id)?;
-        let toolchain = crate::toolchain::check(&bin, &model, &model_id);
-        // Said out loud on stderr, not only stored. A warning nobody meets is not a warning, and
-        // this is the one channel a headless voice loop shares with whoever started it.
-        for w in toolchain.warnings() {
-            eprintln!("richos-voice: {w}");
+        match readiness() {
+            SpeechReadiness::Ready(r) => Ok(*r),
+            SpeechReadiness::ToolchainMissing { detail } => Err(SttError::BinaryNotFound(detail)),
+            SpeechReadiness::ModelMissing { detail, .. } => Err(SttError::ModelNotFound(detail)),
+            SpeechReadiness::Refused { detail } => Err(SttError::ToolchainRefused(detail)),
         }
-        if toolchain.verdict() == crate::toolchain::Severity::Refuse {
-            return Err(SttError::ToolchainRefused(toolchain.refusals().join(" ")));
-        }
-        Ok(Recognizer {
-            bin,
-            model,
-            model_id,
-            prompt: std::env::var("RICHOS_WHISPER_PROMPT").ok().filter(|s| !s.trim().is_empty()),
-            toolchain,
-            resolution,
-        })
     }
 
     /// One line naming the binary and the weights that heard this conversation. The answer to
