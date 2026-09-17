@@ -13,6 +13,8 @@
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -2842,6 +2844,74 @@ await atest('a consent redirect carrying error= fails loudly and stores nothing'
   const settled = await l.outcome;
   assert.equal(settled.ok, false);
   assert.match(settled.error.message, /access_denied/);
+});
+
+// THE HANG THIS FIXED (2026-09-17): a socket that connects and never sends a request — a browser's
+// speculative preconnect, exactly what sat on the CEO's re-consent for ~4 minutes — has no HTTP
+// parser attached, so `server.close()`'s callback (which the old code awaited to settle the promise)
+// waits for it forever. The fix settles the moment the code arrives and the confirmation page has
+// been flushed, then tears the server down without making the result wait on that teardown.
+await atest('an idle socket that never sends a request does NOT delay settlement once the real callback lands', async () => {
+  let info = null;
+  const p = awaitAuthorizationCode({
+    redirectUri: 'http://127.0.0.1:0/callback', state: 'st-idle', timeoutMs: 5000,
+    onListening: (i) => { info = i; },
+  });
+  await waitFor(() => info);
+
+  // A raw TCP connection that speaks no HTTP at all — the shape of a browser preconnect.
+  const idle = net.connect(info.port, '127.0.0.1');
+  await new Promise((resolve, reject) => {
+    idle.once('connect', resolve);
+    idle.once('error', reject);
+  });
+
+  const res = await fetch(`http://127.0.0.1:${info.port}/callback?code=auth-code-idle&state=st-idle`);
+  assert.equal(res.status, 200);
+
+  // The promise must settle promptly even though `idle` is still open and has sent nothing.
+  try {
+    const settled = await Promise.race([
+      p.then((v) => ({ raced: false, v })),
+      new Promise((resolve) => setTimeout(() => resolve({ raced: true }), 1000)),
+    ]);
+    assert.equal(settled.raced, false, 'the ceremony must not wait on an idle, request-less socket');
+    assert.deepEqual(settled.v, { code: 'auth-code-idle' });
+  } finally {
+    // Close the never-spoke socket regardless of outcome — a regression here otherwise leaves the
+    // listener's promise (and its underlying server) pending, keeping the test process alive.
+    idle.destroy();
+    p.catch(() => {});
+  }
+});
+
+await atest('a keep-alive client that delivers the code and holds its socket open still resolves within a second', async () => {
+  let info = null;
+  const p = awaitAuthorizationCode({
+    redirectUri: 'http://127.0.0.1:0/callback', state: 'st-keepalive', timeoutMs: 5000,
+    onListening: (i) => { info = i; },
+  });
+  await waitFor(() => info);
+
+  const agent = new http.Agent({ keepAlive: true });
+  const start = Date.now();
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port: info.port, path: '/callback?code=auth-code-ka&state=st-keepalive',
+      agent, headers: { Connection: 'keep-alive' },
+    }, (rr) => {
+      rr.resume();
+      rr.on('end', () => resolve(rr.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(status, 200);
+
+  const value = await p;
+  assert.deepEqual(value, { code: 'auth-code-ka' });
+  assert.ok(Date.now() - start < 1000, 'settlement must not wait on the client\'s own keep-alive socket');
+  agent.destroy();
 });
 
 test('consentState is unguessable and never repeats', () => {
