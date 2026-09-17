@@ -565,9 +565,15 @@ module.exports = [
       "consequence, because the failure it explains is the app sending the TAIL of his " +
       "sentence as though it were the whole of it. It ends with a status rather than \"wait " +
       "until I finish\", which would be an instruction to use the product more carefully to " +
-      "work around a limitation. Latched ONCE PER VOICE SESSION (`HalfDuplexNotice`), not " +
+      "work around a limitation. Latched ONCE PER VOICE SESSION (`RefusalNotices`), not " +
       "per run: cleared-on-heard would mean one line after every single spoken answer, " +
-      "forever, about a condition nothing he does can change.",
+      "forever, about a condition nothing he does can change. " +
+      "AND SINCE 2026-09-17 IT SPENDS ONE BUDGET WITH THE THREE RECOGNIZER LINES. Ray's " +
+      "candidate-.6 walk found THREE cards stacked on the first spoken answer of a voice " +
+      "session while the CEO had said nothing, because each of the three latches honored " +
+      "\"at most once\" independently, in two different threads. This is the strongest " +
+      "sentence in that family, so it is the one that stands and the other two cannot add " +
+      "themselves on top of it.",
   },
   {
     s: "I didn't catch that, so I haven't sent anything. I'm still listening.",
@@ -587,9 +593,12 @@ module.exports = [
       "the affordance for saying it again IS the open microphone and there is no button to " +
       "point at — so it ends with a status, in the same three words `HeardNoVoice` ends " +
       "with, rather than an imperative aimed at a reader. It is latched per run of discards " +
-      "and cleared by an admitted utterance, so it states the discard once and never becomes " +
-      "a drip; at the third discard `SoundButNoWords` takes over and this line stands aside, " +
-      "so a run produces two sentences in total and never two at once. It rides " +
+      "and cleared by an admitted utterance that was also UNDERSTOOD, so it states the " +
+      "discard once and never becomes a drip; at the third discard `SoundButNoWords` takes " +
+      "over and this line stands aside, so a run produces two sentences in total and never " +
+      "two at once. Since 2026-09-17 it also cannot follow `HeardNoVoice` for one noise " +
+      "(audit-5 #8, the double card) or follow the half-duplex line at all: the four share " +
+      "one budget and only a STRICTLY stronger sentence replaces the one standing. It rides " +
       "`rich://voice-notice`, not `rich://voice-error`: nothing failed and voice did not " +
       "stop, and the notice listener in main.js is the only one of the four that is not " +
       "suppressed when the voice panel is closed.",

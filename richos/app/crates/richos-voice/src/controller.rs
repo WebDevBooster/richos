@@ -959,8 +959,12 @@ pub enum VoiceNotice {
     /// finish" would be an instruction to use the product more carefully to work around a
     /// limitation, which is not a thing to ask of him.
     ///
-    /// **Latched once per voice session**, not per run — see [`HalfDuplexNotice`]. What it
+    /// **Latched once per voice session**, not per run — see [`RefusalNotices`]. What it
     /// describes is a standing property of the room and the hardware, not an event.
+    ///
+    /// **And since 2026-09-17 it spends the SAME budget as the three recognizer lines**, so
+    /// it cannot be joined on screen by a second and third apology for the same silence.
+    /// It is the strongest sentence in that family and therefore the one that stands.
     ///
     /// ## It KEEPS this trigger after the half-duplex window was widened — decided, with the number
     ///
@@ -1175,15 +1179,17 @@ impl CutOffDesk {
 /// asserted — the same reason [`CaptureBrain`] was split out of the audio callback.
 pub struct RecognizerDesk {
     /// Consecutive transcripts rejected by [`stt::is_meaningful`] — see [`SILENT_DISCARD_RUN`].
+    /// A COUNTER, not a latch: it stays here because it describes this desk's run of work.
     discards: u32,
-    /// [`VoiceNotice::SoundButNoWords`] has been said this run.
-    said_sound_but_no_words: bool,
-    /// [`VoiceNotice::HeardNoVoice`] has been said this run.
-    said_heard_no_voice: bool,
-    /// [`VoiceNotice::DidNotCatchThat`] has been said this run of discards. Latched for the
-    /// reason [`Self::said_heard_no_voice`] is: the first discard speaks, the rest are stderr
-    /// only, and admitting an utterance clears it.
-    said_did_not_catch_that: bool,
+    /// **The three latches that used to live here are now ONE, and it is SHARED with
+    /// [`supervise`].** That is the whole of defect 1: they were three independent "at most
+    /// once" flags in two threads, and a person saw three cards. See [`RefusalNotices`].
+    ///
+    /// `Arc<Mutex<_>>` because the two emitters genuinely are on different threads — this desk
+    /// runs on the recognizer thread and the half-duplex discard is decided on the supervisor
+    /// thread. The lock is taken for the length of one comparison and never across a
+    /// `transcribe` call.
+    notices: Arc<Mutex<RefusalNotices>>,
 }
 
 impl Default for RecognizerDesk {
@@ -1193,13 +1199,27 @@ impl Default for RecognizerDesk {
 }
 
 impl RecognizerDesk {
+    /// A desk with a budget of its own. For tests and for any caller that is the only emitter;
+    /// the shipped wiring uses [`Self::sharing`].
     pub fn new() -> RecognizerDesk {
-        RecognizerDesk {
-            discards: 0,
-            said_sound_but_no_words: false,
-            said_heard_no_voice: false,
-            said_did_not_catch_that: false,
-        }
+        RecognizerDesk { discards: 0, notices: Arc::new(Mutex::new(RefusalNotices::new())) }
+    }
+
+    /// A desk that spends the SAME budget as [`supervise`]. This is the shipped construction.
+    pub fn sharing(notices: Arc<Mutex<RefusalNotices>>) -> RecognizerDesk {
+        RecognizerDesk { discards: 0, notices }
+    }
+
+    /// The budget this desk is spending, so a test can hand it to the other emitter.
+    pub fn notices(&self) -> Arc<Mutex<RefusalNotices>> {
+        self.notices.clone()
+    }
+
+    /// Ask the shared budget for one sentence. A poisoned lock says nothing rather than
+    /// panicking in the recognizer thread — losing a status line is recoverable, losing the
+    /// thread that turns his speech into turns is not.
+    fn claim(&self, pick: impl FnOnce(&mut RefusalNotices) -> Option<VoiceNotice>) -> Option<VoiceNotice> {
+        self.notices.lock().ok().and_then(|mut n| pick(&mut n))
     }
 
     /// Decide one finished utterance.
@@ -1228,17 +1248,22 @@ impl RecognizerDesk {
                 "[richos-voice] refused before recognition — the audio carried no voice: {}",
                 evidence.summary()
             );
-            if !self.said_heard_no_voice {
-                self.said_heard_no_voice = true;
+            if let Some(n) = self.claim(|b| b.heard_no_voice()) {
                 observer.on_voice_event(&VoiceEvent::Error {
-                    message: VoiceNotice::HeardNoVoice.ceo_message().to_string(),
+                    message: n.ceo_message().to_string(),
                     at: now_millis(),
                 });
             }
             return;
         }
-        // A voice was measured. Whatever happens to the words, the room is working.
-        self.said_heard_no_voice = false;
+        // A VOICE WAS MEASURED — and that is deliberately NOT a recovery any more.
+        //
+        // It used to clear the `HeardNoVoice` latch right here, on the theory that measuring a
+        // voice proves the input recovered. It does not prove it: whisper may still return
+        // `[BLANK_AUDIO]` two lines below, and when it did, the cleared latch plus
+        // `DidNotCatchThat`'s own latch produced TWO cards for ONE noise — audit-5 #8, and
+        // cards 2 and 3 of candidate .6's defect 1. Recovery is now the stronger signal only:
+        // an utterance ADMITTED AND UNDERSTOOD. See `RefusalNotices::recovered`.
 
         // ---- 2. ONLY NOW DOES WHISPER EXIST ----------------------------------------------
         match transcribe(&utterance.samples) {
@@ -1249,33 +1274,37 @@ impl RecognizerDesk {
                     // never carry, and audit-3 read the defect off it.
                     eprintln!("[richos-voice] discarded non-speech transcript: {text:?}");
                     self.discards += 1;
-                    if self.discards >= SILENT_DISCARD_RUN && !self.said_sound_but_no_words {
-                        // THE STRONGER LINE TAKES OVER AND THE SHORT ONE STANDS ASIDE. Both
-                        // firing here would say the same thing twice in one breath; latching
-                        // the short one too means a longer run stays quiet after this.
-                        self.said_sound_but_no_words = true;
-                        self.said_did_not_catch_that = true;
-                        observer.on_voice_event(&VoiceEvent::Error {
-                            message: VoiceNotice::SoundButNoWords.ceo_message().to_string(),
-                            at: now_millis(),
-                        });
-                    } else if !self.said_did_not_catch_that {
+                    if self.discards >= SILENT_DISCARD_RUN {
+                        // THE STRONGER LINE TAKES OVER AND THE SHORT ONE STANDS ASIDE — now by
+                        // AUTHORITY rather than by two flags set together. `SoundButNoWords`
+                        // outranks `DidNotCatchThat`, so it replaces it exactly once, and the
+                        // short line cannot come back afterwards because equal-or-lower rank
+                        // never replaces what is standing.
+                        if let Some(n) = self.claim(|b| b.sound_but_no_words()) {
+                            observer.on_voice_event(&VoiceEvent::Error {
+                                message: n.ceo_message().to_string(),
+                                at: now_millis(),
+                            });
+                        }
+                    } else if let Some(n) = self.claim(|b| b.did_not_catch_that()) {
                         // THE FIX FOR audit-3 §4 #4. He spoke, a voice was measured, and
                         // until now the window did not change at all. A NOTICE, not an
                         // error: voice is running and has made a call on his behalf.
-                        self.said_did_not_catch_that = true;
                         observer.on_voice_event(&VoiceEvent::Notice {
-                            message: VoiceNotice::DidNotCatchThat.ceo_message().to_string(),
+                            message: n.ceo_message().to_string(),
                             at: now_millis(),
                         });
                     }
                     return;
                 }
                 self.discards = 0;
-                self.said_sound_but_no_words = false;
-                // An admitted utterance proves the input recovered, so the run is over and the
-                // next bad one speaks again.
-                self.said_did_not_catch_that = false;
+                // ADMITTED AND UNDERSTOOD — the one positive proof that the input works. The
+                // run is over and the next genuine refusal speaks again. The session-scoped
+                // half-duplex latch is untouched: what it describes is the room, not this run.
+                let _ = self.claim(|b| {
+                    b.recovered();
+                    None
+                });
                 observer.on_voice_event(&VoiceEvent::Transcript {
                     text: text.clone(),
                     duration_ms,
@@ -1423,9 +1452,16 @@ impl VoiceController {
 
         let mut threads = Vec::new();
 
+        // **ONE NOTICE BUDGET FOR THE WHOLE VOICE SESSION**, created here because here is the
+        // only place both emitters can be handed the same one. Until 2026-09-17 the recognizer
+        // thread and the supervisor thread each kept their own latches and a person saw three
+        // apologies for one silence — see `RefusalNotices`.
+        let notices = Arc::new(Mutex::new(RefusalNotices::new()));
+
         // ---- recognizer thread ----------------------------------------------------------
         {
             let observer = observer.clone();
+            let notices = notices.clone();
             let scratch = opts.scratch_dir.clone();
             let submit_tx = submit_tx.clone();
             threads.push(std::thread::spawn(move || {
@@ -1436,7 +1472,7 @@ impl VoiceController {
                 // message from a silent room on 2026-09-04. The desk asks the AUDIO first
                 // and only reaches whisper if the recording earned it, and it is a separate
                 // type so that ordering is testable rather than merely visible.
-                let mut desk = RecognizerDesk::new();
+                let mut desk = RecognizerDesk::sharing(notices);
                 while let Ok(utterance) = utt_rx.recv() {
                     desk.handle(
                         &utterance,
@@ -1502,6 +1538,7 @@ impl VoiceController {
             // supervisor reads it to report WHY a discard happened instead of guessing.
             let aec_state = aec_state_for_diagnostics.clone();
             let input_latency = capture.latency();
+            let notices = notices.clone();
             threads.push(std::thread::spawn(move || {
                 supervise(
                     shared,
@@ -1512,6 +1549,7 @@ impl VoiceController {
                     utt_tx,
                     aec_state,
                     input_latency,
+                    notices,
                 );
             }));
         }
@@ -1754,30 +1792,169 @@ impl Drop for VoiceController {
 /// from the echo of Rich's next sentence.
 ///
 /// Pure: no clock, no channel, no observer.
+///
+/// ## AND IT IS NOW ONE BUDGET FOR THE WHOLE FAMILY — defect 1 of the candidate-.6 walk
+///
+/// Ray walked the first spoken answer of a voice session on the CEO's screen on 2026-09-17 and
+/// **three** notice cards stacked up in his thread while he had said nothing since 21:31:09
+/// (`docs/verification/2026-09-17-nightly-1.2.0-20260917.6-onscreen-audit.md` defect 1,
+/// frame `a6-08`):
+///
+/// ```text
+///   "While I was speaking, I couldn't tell your voice from my own — …"
+///   "That didn't come through as speech, so I haven't sent anything. I'm still listening."
+///   "I didn't catch that, so I haven't sent anything. I'm still listening."
+/// ```
+///
+/// **Every one of the three latches was working exactly as written.** Each honored "at most
+/// once"; there were three of them, in two different threads, that had never been introduced.
+/// *"The brief's expectation — 'On speakers you should see it at most once per voice session'
+/// — is literally true of that one notice and not true of what a person sees."*
+///
+/// ## WHERE THE THREE PATHS MEET — read from source, and the answer was NOWHERE
+///
+/// | sentence | emitted at | precondition |
+/// |---|---|---|
+/// | [`VoiceNotice::CouldNotListenWhileSpeaking`] | [`supervise`], `CapMsg::Discarded { tainted: true }` | supervisor thread |
+/// | [`VoiceNotice::HeardNoVoice`] | [`RecognizerDesk::handle`] | recognizer thread |
+/// | [`VoiceNotice::DidNotCatchThat`] | [`RecognizerDesk::handle`] | recognizer thread |
+/// | [`VoiceNotice::SoundButNoWords`] | [`RecognizerDesk::handle`] | recognizer thread |
+///
+/// **A CORRECTION TO THE OBVIOUS THEORY, because it is wrong and it would have produced a
+/// no-op fix.** The natural reading of Ray's three cards is that echo-discarded audio produces
+/// all three. It cannot: on the tainted branch of [`CaptureBrain::push_residual`] the
+/// `Utterance` value is **dropped** and only `CapMsg::Discarded` is sent, `supervise`'s
+/// `Discarded` arm never touches `utt_tx`, and [`RecognizerDesk::handle`] is reachable only
+/// through `utt_rx`. So audio discarded as Rich's own echo can never reach whisper and can
+/// never raise either recognizer notice. Suppressing them "on the discard path" would suppress
+/// nothing, because there is no such path. Pinned by
+/// `echo_discarded_audio_can_never_raise_a_recognizer_notice`.
+///
+/// What actually produced cards 2 and 3 is the defect audit-5 already filed as its #8 —
+/// *"One non-speech sound produced two notice cards, back to back"* — an utterance the app
+/// ADMITTED (so Rich was not audible for it) whose audio failed the pre-whisper gate and whose
+/// successor failed the post-whisper one. Two refusals, two independent latches, two cards, one
+/// noise. Card 1 is the echo discard; cards 2 and 3 are that pair.
+///
+/// ## THE RULE: ONE CARD AT A TIME, REPLACED ONLY BY A STRICTLY STRONGER ONE
+///
+/// Not a flat "one per session" budget, because that would silence the escalation this crate
+/// deliberately has: a run of three discards is supposed to hand over from the short line to
+/// [`VoiceNotice::SoundButNoWords`], which says more. So each sentence carries an AUTHORITY and
+/// may only be said if it outranks whatever is currently standing:
+///
+/// ```text
+///   3  CouldNotListenWhileSpeaking   the room and the hardware; a standing property
+///   2  SoundButNoWords               a RUN of refusals; stronger than any single one
+///   1  HeardNoVoice, DidNotCatchThat one refusal, pre- or post-whisper
+/// ```
+///
+/// Equal rank never replaces, which is the double-card fix on its own. Lower rank never
+/// replaces, which is the third-card fix. The escalation 1 → 2 still happens, once.
+///
+/// [`VoiceNotice::ReplyCutOff`] is deliberately **not** a member and there is no method here
+/// that can take it: it describes the ANSWER dying rather than audio being refused, it is the
+/// one notice that is SPOKEN as well as shown, and it is latched per turn by its own caller. A
+/// budget an echo discard could spend on his behalf must never be able to silence the one line
+/// he hears with his ears.
+///
+/// ## WHAT CLEARS IT
+///
+/// [`Self::recovered`], called when an utterance is admitted AND transcribed to something
+/// meaningful — a real turn, which is positive proof the input works. It clears the standing
+/// card so a later genuine refusal speaks again. It does **not** clear the half-duplex latch:
+/// that one is session-scoped for the measured reason above, and
+/// `being_heard_does_not_re_arm_the_notice_because_the_condition_is_not_an_event` holds it.
 #[derive(Debug, Clone, Default)]
-pub struct HalfDuplexNotice {
-    said: bool,
+pub struct RefusalNotices {
+    /// The card currently standing, and therefore the authority a new one has to beat. `None`
+    /// between a recovery and the next refusal.
+    standing: Option<VoiceNotice>,
+    /// [`VoiceNotice::CouldNotListenWhileSpeaking`] has been said in this voice session. A
+    /// SECOND latch rather than a special case of `standing`, because the two have different
+    /// lifetimes on purpose: `standing` clears on recovery and this never does.
+    half_duplex_said: bool,
 }
 
-impl HalfDuplexNotice {
+impl RefusalNotices {
     pub fn new() -> Self {
-        HalfDuplexNotice::default()
+        RefusalNotices::default()
     }
 
-    /// An utterance that began inside Rich's playout was discarded because the canceller could
-    /// not vouch for the residual. Returns whether this is the one to say out loud.
-    pub fn discard_during_playout(&mut self) -> bool {
-        if self.said {
-            return false;
+    /// Where each member of the family sits. Private, and there is no variant for
+    /// [`VoiceNotice::ReplyCutOff`] because there is no method that accepts it.
+    fn authority(n: VoiceNotice) -> u8 {
+        match n {
+            VoiceNotice::CouldNotListenWhileSpeaking => 3,
+            VoiceNotice::SoundButNoWords => 2,
+            VoiceNotice::HeardNoVoice | VoiceNotice::DidNotCatchThat => 1,
+            // Unreachable: no public method passes it. Ranked 0 so that if a future edit ever
+            // does route it here it is refused loudly by the test suite rather than quietly
+            // silencing something.
+            VoiceNotice::ReplyCutOff => 0,
         }
-        self.said = true;
-        true
     }
 
-    /// Has the notice already been said in this voice session? The diagnostic that makes "why
-    /// did it not say anything" answerable without re-reading the caller.
-    pub fn already_said(&self) -> bool {
-        self.said
+    /// The whole decision, in one place. `Some(n)` means say it; `None` means a card of at
+    /// least this authority is already standing.
+    fn claim(&mut self, n: VoiceNotice) -> Option<VoiceNotice> {
+        let mine = RefusalNotices::authority(n);
+        if mine == 0 {
+            return None;
+        }
+        let standing = self.standing.map(RefusalNotices::authority).unwrap_or(0);
+        if mine <= standing {
+            return None;
+        }
+        self.standing = Some(n);
+        Some(n)
+    }
+
+    /// An utterance that carried Rich's own audible answer was discarded because the canceller
+    /// could not vouch for the residual. `Some` at most once per voice session.
+    pub fn half_duplex(&mut self) -> Option<VoiceNotice> {
+        if self.half_duplex_said {
+            return None;
+        }
+        let said = self.claim(VoiceNotice::CouldNotListenWhileSpeaking);
+        if said.is_some() {
+            self.half_duplex_said = true;
+        }
+        said
+    }
+
+    /// The pre-whisper gate refused the audio: it carried no voice.
+    pub fn heard_no_voice(&mut self) -> Option<VoiceNotice> {
+        self.claim(VoiceNotice::HeardNoVoice)
+    }
+
+    /// The post-whisper filter refused the transcript: a voice, but no words.
+    pub fn did_not_catch_that(&mut self) -> Option<VoiceNotice> {
+        self.claim(VoiceNotice::DidNotCatchThat)
+    }
+
+    /// A RUN of refusals reached [`SILENT_DISCARD_RUN`] — the stronger statement, which takes
+    /// over from whichever single-refusal line is standing.
+    pub fn sound_but_no_words(&mut self) -> Option<VoiceNotice> {
+        self.claim(VoiceNotice::SoundButNoWords)
+    }
+
+    /// An utterance was admitted and understood: the input demonstrably works, so the standing
+    /// card is spent and the next genuine refusal may speak. The session-scoped half-duplex
+    /// latch is deliberately untouched.
+    pub fn recovered(&mut self) {
+        self.standing = None;
+    }
+
+    /// What is standing right now. The diagnostic that makes "why did it not say anything"
+    /// answerable without re-reading the callers.
+    pub fn standing(&self) -> Option<VoiceNotice> {
+        self.standing
+    }
+
+    /// Has the half-duplex line been said in this voice session?
+    pub fn half_duplex_already_said(&self) -> bool {
+        self.half_duplex_said
     }
 }
 
@@ -1840,6 +2017,7 @@ fn supervise(
     utt_tx: Sender<Box<Utterance>>,
     shared_aec: Arc<AecShared>,
     input_latency: crate::capture::InputLatency,
+    notices: Arc<Mutex<RefusalNotices>>,
 ) {
     // Held for the whole function so that EVERY return from it prints the closing line —
     // see `SessionLog`.
@@ -1849,10 +2027,6 @@ fn supervise(
     // clock: a window that closes early because the system clock stepped is the defect again.
     let mut audible = AudibleWindow::new();
     let started_at = Instant::now();
-    // `VoiceNotice::CouldNotListenWhileSpeaking` has been said in this voice session. Latched
-    // for the whole session rather than per run — see `HalfDuplexNotice`, which carries the
-    // measurement that decided it.
-    let mut half_duplex = HalfDuplexNotice::new();
     let mut last_level_emit = Instant::now() - LEVEL_EMIT_EVERY;
     let mut last_level = -1.0f32;
     let mut no_audio = false;
@@ -1944,15 +2118,18 @@ fn supervise(
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_WARMUP_BLOCKS),
                             crate::vad::frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
                         );
-                        // AND HE IS TOLD, once per voice session — see `HalfDuplexNotice`.
+                        // AND HE IS TOLD, once per voice session — see `RefusalNotices`.
                         // What he is told asserts nothing about whether he spoke, because on
                         // this path the app cannot know: `tainted` requires `!confident`, and
                         // `!confident` is the canceller saying it cannot separate the voices.
-                        if half_duplex.discard_during_playout() {
+                        // ONE BUDGET, SHARED WITH THE RECOGNIZER THREAD. This is the
+                        // strongest line in the family, so it stands and the two
+                        // single-refusal lines cannot add themselves on top of it — which is
+                        // precisely the three-cards-for-a-silent-man defect. See
+                        // `RefusalNotices`.
+                        if let Some(n) = notices.lock().ok().and_then(|mut b| b.half_duplex()) {
                             observer.on_voice_event(&VoiceEvent::Notice {
-                                message: VoiceNotice::CouldNotListenWhileSpeaking
-                                    .ceo_message()
-                                    .to_string(),
+                                message: n.ceo_message().to_string(),
                                 at: now_millis(),
                             });
                         }
@@ -2384,11 +2561,15 @@ mod tests {
     /// first one of the voice session says so; the rest are stderr only.
     #[test]
     fn the_first_discard_during_playout_says_so_and_the_rest_do_not() {
-        let mut latch = HalfDuplexNotice::new();
-        assert!(latch.discard_during_playout(), "the first one was silent — the defect itself");
-        assert!(latch.already_said());
-        assert!(!latch.discard_during_playout(), "the notice became a drip");
-        assert!(!latch.discard_during_playout());
+        let mut b = RefusalNotices::new();
+        assert_eq!(
+            b.half_duplex(),
+            Some(VoiceNotice::CouldNotListenWhileSpeaking),
+            "the first one was silent — the defect itself"
+        );
+        assert!(b.half_duplex_already_said());
+        assert_eq!(b.half_duplex(), None, "the notice became a drip");
+        assert_eq!(b.half_duplex(), None);
     }
 
     /// INVARIANT — **and this is the assertion that reversed on 2026-09-17.** It used to read
@@ -2400,27 +2581,36 @@ mod tests {
     /// happen after EVERY spoken answer. So the old cycle was: he speaks → heard → latch clears
     /// → Rich answers → echo discarded → notice. One notice per answer, for the life of the
     /// session, about a condition nothing he does can change. The measurement behind "nothing
-    /// he does can change it" is in `HalfDuplexNotice`'s own doc comment: single-digit ERLE on a
+    /// he does can change it" is in `RefusalNotices`' own doc comment: single-digit ERLE on a
     /// path that would need the residual 6 dB under the VAD's speech floor.
     ///
     /// So being heard no longer clears it, and the latch has no clearing path at all.
     #[test]
     fn being_heard_does_not_re_arm_the_notice_because_the_condition_is_not_an_event() {
-        let mut latch = HalfDuplexNotice::new();
-        assert!(latch.discard_during_playout());
-        // The supervisor's `CapMsg::Utterance` arm used to call `heard()` here. There is
-        // deliberately no such method to call: a per-answer line is the defect this prevents.
-        assert!(latch.already_said(), "the latch cleared itself somehow");
-        assert!(!latch.discard_during_playout(), "one notice per spoken answer, forever");
+        let mut b = RefusalNotices::new();
+        assert!(b.half_duplex().is_some());
+        // `recovered()` is the strongest recovery signal there is — an utterance admitted AND
+        // understood — and it deliberately does NOT re-arm this one. A per-answer line about a
+        // standing property of the room is the defect this prevents.
+        b.recovered();
+        assert!(b.half_duplex_already_said(), "the latch cleared itself somehow");
+        assert_eq!(b.half_duplex(), None, "one notice per spoken answer, forever");
+        // POSITIVE CONTROL: recovery DID clear the standing card, so the other family members
+        // can still speak. Without this the test above would pass on a budget that had simply
+        // jammed shut.
+        assert_eq!(b.standing(), None);
+        assert_eq!(b.heard_no_voice(), Some(VoiceNotice::HeardNoVoice));
     }
 
     /// INVARIANT: a fresh latch says nothing until something is actually discarded. Without
     /// this, a latch that returned `true` on construction would pass the two tests above.
     #[test]
     fn a_fresh_latch_has_nothing_to_say() {
-        let latch = HalfDuplexNotice::new();
-        assert!(!latch.already_said());
-        assert!(!HalfDuplexNotice::default().already_said());
+        let b = RefusalNotices::new();
+        assert!(!b.half_duplex_already_said());
+        assert_eq!(b.standing(), None);
+        assert!(!RefusalNotices::default().half_duplex_already_said());
+        assert_eq!(RefusalNotices::default().standing(), None);
     }
 
     /// **NEGATIVE PROBE — candidate .4's blocker: the notice must not tell him he spoke.**
@@ -2564,6 +2754,250 @@ mod tests {
         assert!(warm.leak_measured, "far-active blocks must seed the residual tracker");
         assert_ne!(warm.erle_text(), "not measured");
         assert_ne!(warm.leak_text(), "not measured");
+    }
+
+    /// **DEFECT 1 OF THE CANDIDATE-.6 WALK, REPLAYED: THREE CARDS BECOME ONE.**
+    ///
+    /// Ray's first-spoken-answer sequence, in the order his log and his screen recorded it
+    /// (`docs/verification/2026-09-17-nightly-1.2.0-20260917.6-onscreen-audit.md`, frame
+    /// `a6-08`, observation A at 21:31:28.632Z → 21:31:45.124Z):
+    ///
+    /// 1. The CEO speaks; the utterance is admitted and becomes a turn.
+    /// 2. Rich answers aloud. Utterances born inside the audible window are tainted and
+    ///    discarded — the supervisor's path — and the half-duplex line is said.
+    /// 3. An admitted utterance from outside the window carries no voice: the pre-whisper gate
+    ///    refuses it. **This was card 2.**
+    /// 4. Its successor carries a voice and whisper returns `[BLANK_AUDIO]`: the post-whisper
+    ///    filter refuses it. **This was card 3.**
+    ///
+    /// Both emitters spend ONE budget, so steps 3 and 4 are outranked by the card standing from
+    /// step 2 and say nothing. **Exactly one card, and it is the honest half-duplex one.**
+    #[test]
+    fn rays_first_spoken_answer_produces_exactly_one_notice_card() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        let budget = desk.notices();
+
+        // 1. He speaks and is understood.
+        desk.handle(
+            &utterance(framed(synthetic_voice(1.6, 190.0, 130.0, -26.0), -55.0, 71)),
+            &rec,
+            |_| Ok(("Please count slowly out loud from 1 to 20.".to_string(), 300)),
+            |_| {},
+        );
+        assert_eq!(notices(&rec).len(), 0);
+        assert_eq!(messages(&rec).len(), 0);
+
+        // 2. Rich answers; his own voice comes back and is discarded as taint. This is the
+        //    supervisor's emitter, reproduced here verbatim from `supervise`'s
+        //    `CapMsg::Discarded { tainted: true }` arm — the SAME shared budget, the SAME
+        //    channel, the SAME sentence — because the defect is only visible when both
+        //    emitters' output is counted together.
+        let half = budget.lock().unwrap().half_duplex();
+        assert_eq!(half, Some(VoiceNotice::CouldNotListenWhileSpeaking));
+        rec.on_voice_event(&VoiceEvent::Notice {
+            message: half.unwrap().ceo_message().to_string(),
+            at: now_millis(),
+        });
+
+        // 3. Card 2's cause: an ADMITTED utterance that carried no voice. `hiss` never reaches
+        //    whisper, which the panicking transcriber proves.
+        desk.handle(&utterance(hiss(2.0, -40.0, 73)), &rec, |_| panic!("reached whisper"), |_| {});
+
+        // 4. Card 3's cause: a voice whisper could not turn into words.
+        desk.handle(
+            &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 79)),
+            &rec,
+            |_| Ok(("[BLANK_AUDIO]".to_string(), 310)),
+            |t| panic!("submitted: {t:?}"),
+        );
+
+        // ONE card in total, counting BOTH channels — `HeardNoVoice` rides `voice-error` and
+        // the other two ride `voice-notice`, and a count of one channel would have missed the
+        // defect entirely.
+        let all: Vec<String> =
+            notices(&rec).into_iter().chain(messages(&rec)).collect();
+        assert_eq!(
+            all.len(),
+            1,
+            "three apologies for one silence again — defect 1. cards: {all:#?}"
+        );
+        assert_eq!(all[0], VoiceNotice::CouldNotListenWhileSpeaking.ceo_message());
+    }
+
+    /// **THE "BEFORE" OF THE TEST ABOVE, KEPT AS A FACT RATHER THAN A CLAIM.**
+    ///
+    /// The test above asserts one card. On its own it would pass on an implementation that had
+    /// simply stopped saying anything, and it would also pass if the three-card shape had never
+    /// existed. This reproduces the shipped-in-candidate-.6 arrangement — three independent "at
+    /// most once" latches, which is what three separate [`RefusalNotices`] are — and counts
+    /// what a person saw: **three**.
+    ///
+    /// So the fix is the SHARING, not the latching. Each latch was already correct.
+    #[test]
+    fn three_independent_budgets_are_what_produced_three_cards() {
+        let (mut a, mut b, mut c) =
+            (RefusalNotices::new(), RefusalNotices::new(), RefusalNotices::new());
+        let said: Vec<VoiceNotice> = [a.half_duplex(), b.heard_no_voice(), c.did_not_catch_that()]
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            said,
+            vec![
+                VoiceNotice::CouldNotListenWhileSpeaking,
+                VoiceNotice::HeardNoVoice,
+                VoiceNotice::DidNotCatchThat,
+            ],
+            "the three-card shape this fix removes is not reproducible, so the fix proves nothing"
+        );
+        assert_eq!(said.len(), 3);
+
+        // AND THE SAME THREE REQUESTS AGAINST ONE BUDGET: exactly one, the strongest.
+        let mut one = RefusalNotices::new();
+        let shared: Vec<VoiceNotice> =
+            [one.half_duplex(), one.heard_no_voice(), one.did_not_catch_that()]
+                .into_iter()
+                .flatten()
+                .collect();
+        assert_eq!(shared, vec![VoiceNotice::CouldNotListenWhileSpeaking]);
+        assert_eq!(shared.len(), 1, "3 -> 1 is the whole change");
+    }
+
+    /// POSITIVE CONTROL #1 for the test above: **a genuine admitted non-speech utterance still
+    /// gets its one card.** Without this, the fix would be indistinguishable from switching the
+    /// recognizer's two notices off, which is the silence audit-3 §4 #4 was filed to end.
+    #[test]
+    fn a_genuine_admitted_non_speech_utterance_still_says_its_one_line() {
+        let rec = Recorder::default();
+        let mut desk = RecognizerDesk::new();
+        desk.handle(
+            &utterance(framed(synthetic_voice(2.3, 190.0, 130.0, -26.0), -55.0, 83)),
+            &rec,
+            |_| Ok(("(clears throat)".to_string(), 310)),
+            |t| panic!("submitted: {t:?}"),
+        );
+        assert_eq!(
+            notices(&rec),
+            vec![VoiceNotice::DidNotCatchThat.ceo_message().to_string()],
+            "the one card a real refusal is owed went missing"
+        );
+        assert!(messages(&rec).is_empty());
+    }
+
+    /// POSITIVE CONTROL #2: **a second voice session says the half-duplex line again.** The
+    /// latch is session-scoped, and a voice session is one [`RefusalNotices`]; nothing about
+    /// this fix makes the line a once-per-install event.
+    #[test]
+    fn a_second_voice_session_says_the_half_duplex_line_again() {
+        let mut first = RefusalNotices::new();
+        assert!(first.half_duplex().is_some());
+        assert_eq!(first.half_duplex(), None, "twice in one session");
+
+        let mut second = RefusalNotices::new();
+        assert_eq!(
+            second.half_duplex(),
+            Some(VoiceNotice::CouldNotListenWhileSpeaking),
+            "a new voice session inherited a spent latch"
+        );
+    }
+
+    /// POSITIVE CONTROL #3: **the 1 → 2 escalation inside a run survives the budget.** A run of
+    /// three refusals must still hand over from the short line to the stronger one exactly once,
+    /// which is why the rule is "strictly stronger replaces" rather than "one per session".
+    #[test]
+    fn the_stronger_line_still_takes_over_from_the_short_one_exactly_once() {
+        let mut b = RefusalNotices::new();
+        assert_eq!(b.did_not_catch_that(), Some(VoiceNotice::DidNotCatchThat));
+        assert_eq!(b.did_not_catch_that(), None, "equal rank replaced what was standing");
+        assert_eq!(b.heard_no_voice(), None, "the sibling at the same rank added a second card");
+        assert_eq!(b.sound_but_no_words(), Some(VoiceNotice::SoundButNoWords), "no escalation");
+        assert_eq!(b.sound_but_no_words(), None, "the stronger line became a drip");
+        assert_eq!(b.did_not_catch_that(), None, "the short line came back after the strong one");
+        // And the strongest of all still outranks the run line.
+        assert_eq!(b.half_duplex(), Some(VoiceNotice::CouldNotListenWhileSpeaking));
+        // NEGATIVE PROBE: nothing outranks the top of the family, so nothing follows it.
+        assert_eq!(b.sound_but_no_words(), None);
+        assert_eq!(b.heard_no_voice(), None);
+        assert_eq!(b.standing(), Some(VoiceNotice::CouldNotListenWhileSpeaking));
+    }
+
+    /// **THE PREMISE CORRECTION, PINNED.** The obvious reading of three stacked cards is that
+    /// echo-discarded audio raises all three, and it is wrong: suppressing the two recognizer
+    /// notices "on the discard path" would suppress nothing, because a tainted discard never
+    /// reaches the recognizer at all.
+    ///
+    /// The proof is the recorder that `handle` is never called for: `CaptureBrain` emits
+    /// `CapMsg::Discarded { tainted: true }` and **drops** the `Utterance`, so the only value
+    /// that could have carried that audio to whisper no longer exists. This drives the real
+    /// capture brain over frames of Rich's own audible window and asserts the shape of what
+    /// comes out.
+    #[test]
+    fn echo_discarded_audio_can_never_raise_a_recognizer_notice() {
+        use crate::vad::VAD_FRAME_SAMPLES;
+        let mut brain = CaptureBrain::new();
+        let mut out = Vec::new();
+        // Loud, obviously-voiced frames with Rich AUDIBLE and no canceller confidence: the exact
+        // taint condition `speaking && !barged && !confident`.
+        let loud = vec![0.2f32; VAD_FRAME_SAMPLES];
+        let quiet = vec![0.0f32; VAD_FRAME_SAMPLES];
+        for _ in 0..120 {
+            out.extend(brain.push_frame(&loud, true, false));
+        }
+        // Silence long enough to close the utterance — SILENCE_HANGOVER_FRAMES is 50 (0.800 s),
+        // so 80 frames is comfortably past it. `speaking` stays true: this is Rich's window.
+        for _ in 0..80 {
+            out.extend(brain.push_frame(&quiet, true, false));
+        }
+
+        let started_tainted: Vec<bool> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Started { tainted } => Some(*tainted),
+                _ => None,
+            })
+            .collect();
+        let discarded: Vec<bool> = out
+            .iter()
+            .filter_map(|m| match m {
+                CapMsg::Discarded { tainted } => Some(*tainted),
+                _ => None,
+            })
+            .collect();
+        let admitted = out.iter().filter(|m| matches!(m, CapMsg::Utterance(_))).count();
+
+        assert!(!started_tainted.is_empty(), "premise: no utterance was born at all");
+        assert!(started_tainted.iter().all(|t| *t), "premise: the audio was not tainted");
+        assert!(discarded.iter().any(|t| *t), "premise: nothing was discarded as taint");
+        assert_eq!(
+            admitted, 0,
+            "a tainted utterance reached `utt_tx`, so it CAN reach whisper — the structural              claim this test exists to hold is broken and the notice suppression that rests on              it has to be rethought"
+        );
+    }
+
+    /// POSITIVE CONTROL for the test above: the SAME audio with Rich silent IS admitted, and
+    /// therefore does reach the recognizer. Without it, the assertion `admitted == 0` would pass
+    /// just as well on a capture brain that admitted nothing whatsoever.
+    #[test]
+    fn the_same_audio_with_rich_silent_is_admitted_and_does_reach_the_recognizer() {
+        use crate::vad::VAD_FRAME_SAMPLES;
+        let mut brain = CaptureBrain::new();
+        let mut out = Vec::new();
+        let loud = vec![0.2f32; VAD_FRAME_SAMPLES];
+        let quiet = vec![0.0f32; VAD_FRAME_SAMPLES];
+        // Rich inaudible for longer than ECHO_LOOKBACK_FRAMES first, so the 0.416 s of pre-roll
+        // the recorder reaches back through is clean too.
+        for _ in 0..(ECHO_LOOKBACK_FRAMES + 5) {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        for _ in 0..120 {
+            out.extend(brain.push_frame(&loud, false, false));
+        }
+        for _ in 0..80 {
+            out.extend(brain.push_frame(&quiet, false, false));
+        }
+        let admitted = out.iter().filter(|m| matches!(m, CapMsg::Utterance(_))).count();
+        assert_eq!(admitted, 1, "the same audio with Rich silent was not admitted either");
     }
 
     /// **DEFECT 4: ENDING VOICE PRINTED NOTHING.** The closing line carries a span, and a span
