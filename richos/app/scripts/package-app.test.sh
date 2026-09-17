@@ -63,6 +63,12 @@
 #   D10 a version with no release behind it SAYS SO, declared --release, at the build
 #   D11 ...and the one caller that overrides the version on purpose is not refused
 #   D12 ...and the other branch: a version that IS a release says so, and names the commit
+#   D13 a correct bundle is owner-writable THROUGHOUT and still verifies — the measurement
+#       that disqualifies spec point 17's own wording, kept as a case so it is not re-argued
+#   D14 a group-writable path inside Contents/ fails
+#   D15 a world-writable directory inside Contents/ fails
+#   D16 a shipped .jsonl fails — state in the bundle, caught at build time
+#   D17 a shipped config.json fails
 #   F1  a bare, undeclared version is refused unless --release says this bundle is one
 #   F2  ...and --release accepts the identical bare version
 #   F3  a nightly-suffixed version needs no declared intent — it was never "bare"
@@ -317,6 +323,54 @@ expect "D6 a bundle whose signature was removed fails" 1 "codesign --verify --de
 make_bundle "$BUNDLE"
 run bash "$SBS" --verify-only "$BUNDLE" --sign developer-id --expect-notarized
 expect "D7 --expect-notarized runs the stapled-ticket check" 1 "no valid stapled notarization ticket"
+
+# ---- D13-D17: THE BUNDLE HOLDS NO STATE (spec point 17) -------------------------------
+#
+# WHY THESE ARE NOT THE ASSERTION THE SPEC ASKED FOR. Point 17 names "a packaging-test
+# assertion that no shipped path inside `Contents/` is owner-writable". D13 is that
+# assertion, run as a MEASUREMENT rather than as a check, and it is what disqualifies it:
+# every path in a correct macOS bundle is owner-writable, because 0755 directories and 0644
+# files are what a bundle is made of. Measured the same day across three real bundles —
+# RichOS 8/8, Calculator 111/111, Safari 2044/2044, so 2163 of 2163 — and group- or
+# world-writable across the same 2163 paths: zero. So the predicate that is always a defect
+# is the group/other one, and the STATE half of point 17 is a question about which paths
+# shipped, not about their mode. D14-D17 hold both.
+
+CLEAN_UW="$(find "$BUNDLE/Contents" -perm -u+w 2>/dev/null | wc -l | tr -d ' ')"
+CLEAN_ALL="$(find "$BUNDLE/Contents" 2>/dev/null | wc -l | tr -d ' ')"
+CLEAN_GW="$(find "$BUNDLE/Contents" \( -perm -g+w -o -perm -o+w \) 2>/dev/null | wc -l | tr -d ' ')"
+make_bundle "$BUNDLE"
+run bash "$SBS" --verify-only "$BUNDLE" --release
+if [ "$CODE" = 0 ] && [ "$CLEAN_UW" = "$CLEAN_ALL" ] && [ "$CLEAN_GW" = 0 ]; then
+  ok "D13 a correct bundle is owner-writable throughout ($CLEAN_UW/$CLEAN_ALL) and still verifies — which is why the check is group/other, not owner"
+else
+  bad "D13 the owner-writable measurement" \
+      "exit $CODE; owner-writable $CLEAN_UW of $CLEAN_ALL; group-or-world-writable $CLEAN_GW"
+fi
+
+make_bundle "$BUNDLE"
+chmod g+w "$BUNDLE/Contents/Info.plist"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "D14 a group-writable path inside Contents/ fails" 1 "writable by group or other"
+
+make_bundle "$BUNDLE"
+chmod o+w "$BUNDLE/Contents/Resources"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "D15 a world-writable directory inside Contents/ fails" 1 "writable by group or other"
+
+make_bundle "$BUNDLE"
+printf '{"event":"ThreadCreated"}\n' > "$BUNDLE/Contents/Resources/conversation-ledger.jsonl"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "D16 a shipped .jsonl is a state-in-bundle defect and fails at BUILD time" 1 "the bundle holds no state"
+
+make_bundle "$BUNDLE"
+printf '{"theme":"dark"}\n' > "$BUNDLE/Contents/Resources/config.json"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "D17 a shipped config.json fails — his preferences must never ride inside the app" 1 "config.json"
 
 # ---- THE VERSION THE BUNDLE WILL CALL ITSELF (CEO, 2026-09-17, item 4) -----
 #
