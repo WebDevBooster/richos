@@ -54,6 +54,36 @@ class NeutralImportTests(unittest.TestCase):
         self.assertIn('"available":false', records[0]["details"])
         self.assertFalse((self.root / "workspaces").exists())
 
+    def test_an_import_applies_on_one_of_his_thread_seats(self):
+        """His threads each hold their own cursor, and an import is fenced on it.
+
+        continuity.item_opened is conversational, so it is fenced against the row
+        belonging to the event's own person: with the person left at the
+        ceo-default literal, an import from a thread seat carried this thread's
+        revision to another thread's row. The envelope's TARGET person stays
+        ceo-default -- it is inside the receipt digest, so the batch is still read
+        as already imported when the next thread tries it.
+        """
+        legacy = self.bind()
+        seat = "ceo-thread:thread-a"
+        thread = execute(self.root, {"protocol": 1, "command": "bind", "seat": seat,
+            "scope": {"entity_id": "depot", "thread_id": "thread-a", "session_id": "session-a",
+                      "turn_id": "a-turn-1", "audience": "ceo"},
+            "request_id": "bind-thread-seat", "source_ref": "ledger:thread-a:a-turn-1",
+            "expected_revision": None})["binding"]
+        applied = execute(self.root, {"protocol": 1, "command": "import-apply", "seat": seat,
+            "binding": thread, "envelope": self.envelope})
+        self.assertTrue(applied["complete"])
+        records = execute(self.root, {"protocol": 1, "command": "inspect", "seat": seat,
+            "binding": thread, "query": {"section": "open_loop"}})["records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["person_id"], seat)
+        # Idempotent across his seats, which is what keeping the target person
+        # fixed buys: the legacy cursor sees the batch as already imported.
+        again = execute(self.root, {"protocol": 1, "command": "import-apply",
+            "binding": legacy, "envelope": self.envelope})
+        self.assertEqual(again["items"][0]["disposition"], "already_imported")
+
     def test_interrupted_domain_write_resumes_without_duplicates(self):
         binding = self.bind()
         append = import_records.append_receipt

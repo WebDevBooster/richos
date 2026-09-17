@@ -5,7 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from ecs_core import EventStore, PERSON_ID, ScopeError, ValidationError, canonical_json
+from ecs_core import (CEO_SEAT_PREFIX, EventStore, PERSON_ID, ScopeError, ValidationError,
+                      canonical_json, ceo_seat, is_ceo_row)
 from ecs_checkpoint import checkpoint, checkpoint_receipt
 from ecs_inspect import inspect_records
 
@@ -20,6 +21,18 @@ BINDING_FIELDS = ("entity_id", "thread_id", "session_id", "turn_id", "audience",
 # is person_id PRIMARY KEY and a second assignment on one seat upserts the first
 # one's cursor out from under it. The seat is explicit or absent; absent is the
 # CEO's own cursor and every call shape that predates seats is untouched.
+#
+# HIS OWN SEATS, ONE PER CONVERSATION THREAD, for the same reason and in the same
+# table: he can run several conversation threads at once, each holding its own
+# front desk, and N front desks on the one ceo-default row is the collision above
+# with the CEO on both sides of it -- thread B's bind upserts thread A's cursor,
+# and A's next checkpoint raises "stale app binding", which
+# with_fresh_active_fence never retries (ecs_core.py:171-220: a ScopeError "is not
+# a race"), so the turn dead-letters. A thread's seat is DERIVED from the thread
+# (ceo_seat -> "ceo-thread:<thread_id>"), so the two halves below never ask
+# whether a person equals the PERSON_ID literal: they ask is_ceo_row, which
+# re-derives the seat from the row's own thread and requires the ceo audience. A
+# work seat named after an assignment answers no, whatever audience it asks for.
 CONVERSATION_ONLY = ("checkpoint", "receipt", "brief")
 # Enumerating and releasing seats is the HOST's reconciliation, never a background
 # lease's: a lease that could release seats could release another lease's.
@@ -69,6 +82,14 @@ def bind(store, request, seat=None):
     expected = request.get("expected_revision")
     if expected is not None and (type(expected) is not int or expected < 1):
         raise ValidationError("expected_revision must be a positive integer or null for first use")
+    # Refused HERE as well as in the reducer, and before a single event is
+    # written: the bind below is split into four appends, and a seat rejected on
+    # the fourth would leave the first three behind for no reason. The reducer
+    # keeps the same rule for every other writer (ecs_core.py _on_thread_activated).
+    if seat is not None and seat.startswith(CEO_SEAT_PREFIX) and (
+            seat != ceo_seat(scope["thread_id"]) or scope["audience"] != "ceo"):
+        raise ScopeError(
+            "a CEO thread seat must be derived from the thread it binds and carry the ceo audience")
     entity, thread, session = (scope[k] for k in ("entity_id", "thread_id", "session_id"))
     # Stable app identities are metadata. They are not claims about repository
     # ownership. The app repository registry owns those mappings separately.
@@ -112,8 +133,12 @@ def execute(state_root, request):
         for file in sorted(migrations.glob("*.sql")):
             identity.update(file.name.encode())
             identity.update(file.read_bytes())
+        # A positive capability answer, so the app never has to infer per-thread
+        # support from a bind that would succeed on an older engine and then be
+        # refused at the first checkpoint ("belong to the conversation's own seat").
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
+                "ceo_thread_seats": True, "ceo_seat_prefix": CEO_SEAT_PREFIX,
                 "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "seats", "release-seat"]}
     if command == "import-preview":
         from import_records import preview
@@ -134,16 +159,22 @@ def execute(state_root, request):
     # and on a work seat these raise a revision conflict rather than refusing
     # cleanly. The refusal is here, in the engine, as well as in the app's per-lease
     # MCP config: an allow-list on tool NAMES cannot see whose seat is calling.
-    if command in CONVERSATION_ONLY and context["person_id"] != PERSON_ID:
+    if command in CONVERSATION_ONLY and not is_ceo_row(context):
         raise ScopeError("checkpoint, receipt and brief belong to the conversation's own seat")
-    if command in HOST_ONLY and context["person_id"] != PERSON_ID:
+    if command in HOST_ONLY and not is_ceo_row(context):
         raise ScopeError("seat reconciliation belongs to the conversation's own seat")
     if command == "sync-loro-receipts":
         from loro_receipts import synchronize
         result = synchronize(store, binding, context["person_id"])
     elif command == "import-apply":
         from import_records import apply
-        return apply(root, request.get("envelope"), binding)
+        # The ENVELOPE's target person stays ceo-default: it is part of the receipt
+        # digest, so an import stays idempotent no matter which of his threads
+        # applied it. The fence and the append follow the calling seat, because
+        # continuity.item_opened is conversational and is fenced against the row
+        # belonging to the event's own person.
+        return apply(root, request.get("envelope"), binding, seat=seat,
+                     person_id=context["person_id"])
     elif command == "checkpoint":
         document = request.get("checkpoint")
         if not isinstance(document, dict):
@@ -160,10 +191,12 @@ def execute(state_root, request):
                         (statement.get("verb") == "close" and "status" not in fields)):
                     raise ValidationError("completion needs an app verification receipt, not a checkpoint claim")
         result = checkpoint(store, document, session=context["session_id"], turn=context["turn_id"],
-                            revision=context["revision"], request_id=required(request, "request_id"))
+                            revision=context["revision"], request_id=required(request, "request_id"),
+                            person_id=context["person_id"])
     elif command == "receipt":
         result = checkpoint_receipt(store, session=required(request, "session_id"),
-                                    turn=required(request, "turn_id"), request_id=required(request, "request_id"))
+                                    turn=required(request, "turn_id"), request_id=required(request, "request_id"),
+                                    person_id=context["person_id"])
     elif command == "brief":
         budget = request.get("budget_chars", 6000)
         if type(budget) is not int or not 900 <= budget <= 24000:
@@ -193,14 +226,39 @@ def execute(state_root, request):
         target = required(request, "person_id")
         if target == PERSON_ID:
             raise ScopeError("the conversation's own seat is never reconciled away")
+        if target == context["person_id"]:
+            raise ScopeError("a seat cannot reconcile itself away while it is the one calling")
         row = store.current_context(target)
         if row is None:
             result = {"released": False, "seat": target, "reason": "no such seat"}
         else:
-            if row["entity_id"] != context["entity_id"] or row["thread_id"] != context["thread_id"]:
+            # A work seat is bound inside the conversation's own thread, so its
+            # release stays inside that partition. One of HIS thread seats is in
+            # another thread by construction -- that is what makes it reconcilable
+            # from here at all -- so the boundary it keeps is the company's.
+            his = is_ceo_row(row)
+            if row["entity_id"] != context["entity_id"] or (
+                    not his and row["thread_id"] != context["thread_id"]):
                 raise ScopeError("a seat cannot be released from another company or thread")
+            revision = int(row["revision"])
+            if his:
+                # THE LIVENESS PROOF, and it is the engine's half of "a live
+                # thread's seat is never released". Whether a conversation thread
+                # still exists is the app's knowledge, not the store's; what the
+                # store can prove is MOVEMENT. The caller names the revision it saw
+                # when it enumerated seats, and a seat that has bound a turn since
+                # then belongs to a thread that is demonstrably alive, so the
+                # release is refused rather than racing the front desk using it. A
+                # work seat's release is unchanged and needs no proof.
+                observed = request.get("expected_revision")
+                if type(observed) is not int or observed < 1:
+                    raise ValidationError(
+                        "releasing one of his thread seats requires the revision it was enumerated at")
+                if observed != revision:
+                    raise ScopeError(
+                        "that thread seat has moved since it was enumerated; a live thread's seat is never released")
             store.append("thread.deactivated", entity_id=row["entity_id"], thread_id=row["thread_id"],
-                session_id=row["session_id"], person_id=target, expected_revision=int(row["revision"]),
+                session_id=row["session_id"], person_id=target, expected_revision=revision,
                 actor_kind="app", actor_id="richos-app-v1", source_ref=required(request, "source_ref"),
                 idempotency_key=f"app-release-seat:{required(request, 'request_id')}",
                 payload={"reason": request.get("reason") or "assignment settled"})
