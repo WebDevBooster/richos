@@ -231,9 +231,55 @@ pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 /// would have thrown that correction away rather than merely quoting nothing.
 pub const ANCHOR_WINDOW_MESSAGES: usize = 8;
 
+/// **ONE THREAD'S FRONT DESK, PARKED WHILE ANOTHER THREAD IS SPEAKING** — the CEO's Two
+/// Riches page: *"each conversation thread always holds one front desk Rich and one
+/// back-end Rich"*, and *"each conversation thread in the app can go forever."*
+///
+/// Before this, a thread switch called `clear_lease` and the outgoing child was KILLED:
+/// coming back meant a fresh provider session, a fresh `claude` process and a full re-prime
+/// off the ledger tail. His sentence was true as reconstitution and false as residence, and
+/// the difference is visible — the re-primed Rich has only what the payload carried.
+///
+/// A parked lease is a live child with its own provider session, its own priming and its
+/// own context accounting. Nothing here is a copy of the spine's state: the fields are
+/// MOVED out of the chair and moved back into it, so there is never a second opinion about
+/// how much context a session has used.
+struct Resident {
+    lease: Box<dyn Cognition>,
+    primed: bool,
+    /// Its own consumption, so a thread coming back is not rotated on another thread's
+    /// numbers. `install_lease` clears these for a FRESH lease and this restores them for
+    /// a returning one — a resident that inherited the chair's usage would rotate itself on
+    /// its first turn back.
+    context_chars: usize,
+    context_usage: Option<ContextUsage>,
+    context_pressure: Option<(String, ContextUsage)>,
+    /// When this thread last had the chair. The eviction order and nothing else.
+    parked_at_ms: u64,
+}
+
+/// How many front desks stay resident at once, the one in the chair included.
+///
+/// **His page says "any number of conversation threads" and this is not a limit on that.**
+/// A thread is a ledger partition and there can be thousands; this bounds how many live
+/// `claude` children the app holds open at one time, which is a memory and process
+/// question rather than a product one. Past the cap the LEAST RECENTLY SPOKEN parked desk
+/// is retired, which puts exactly that thread back to the behavior every thread had before
+/// this change: its next turn spawns a fresh lease and re-primes from the ledger. So the
+/// degradation is the old path rather than a new failure, and it never touches the desk in
+/// the chair or the one he is typing into.
+///
+/// Eight, because that is more conversations than the CEO has ever had open at once and
+/// eight idle children is a bounded, honest footprint. It is a number to revisit with a
+/// measurement, not a constant with an argument behind it.
+pub const MAX_RESIDENT_FRONT_DESKS: usize = 8;
+
 pub struct Spine {
     ledger: Ledger,
     lease: Option<Box<dyn Cognition>>,
+    /// **The other front desks** — every thread that has spoken, keyed by thread id, minus
+    /// whichever one currently holds [`Spine::lease`]. See [`Resident`].
+    resident: std::collections::HashMap<String, Resident>,
     /// THE ACTIVE CONTEXT (ECS §3.3): person + entity + thread + binding revision. Not a
     /// bare thread id — holding the full binding is what lets every downstream call be
     /// scoped without re-deriving (or re-guessing) the entity.
@@ -441,6 +487,7 @@ impl Spine {
         Spine {
             ledger,
             lease: None,
+            resident: std::collections::HashMap::new(),
             active: None,
             registry: EntityRegistry::empty(),
             turn_in_progress: false,
@@ -735,6 +782,119 @@ impl Spine {
         self.lease.as_ref().map(|l| l.session_id())
     }
 
+    /// **Take the chair's front desk and park it under its own thread** (see [`Resident`]).
+    ///
+    /// The counterpart of `clear_lease`, and the difference is the whole of what "resident"
+    /// means: `clear_lease` drops the `Box<dyn Cognition>`, whose `Drop` kills the child;
+    /// this MOVES it somewhere it stays alive. Everything the chair knew about that lease —
+    /// whether it was primed, and every context number it has measured — goes with it, so
+    /// coming back is a return rather than a reconstruction.
+    ///
+    /// **It parks nothing it cannot name.** A lease with no `lease_primed_thread` has never
+    /// been primed for a thread, so there is no key to file it under and it is dropped
+    /// exactly as before.
+    fn park_current_front_desk(&mut self) {
+        let Some(thread) = self.lease_primed_thread.clone() else {
+            self.clear_lease();
+            return;
+        };
+        let Some(lease) = self.lease.take() else {
+            self.clear_lease();
+            return;
+        };
+        self.resident.insert(thread, Resident {
+            lease,
+            primed: self.lease_primed,
+            context_chars: self.context_chars,
+            context_usage: self.context_usage.take(),
+            context_pressure: self.context_pressure.take(),
+            parked_at_ms: now_millis(),
+        });
+        // The chair is now empty, and the control must say so before anything else runs:
+        // a stop pressed in this instant has to reach nothing rather than reach the desk
+        // that just stood up. `install_lease` or `resume_front_desk` publishes the next one.
+        self.control.set_cancel(None);
+        self.control.set_lease_session(None);
+        self.lease_primed = false;
+        self.lease_primed_thread = None;
+        self.context_chars = 0;
+        self.evict_beyond_the_cap();
+    }
+
+    /// Put a parked front desk back in the chair, if this thread has one.
+    ///
+    /// Returns whether it found one. `false` means the thread has never spoken, or its desk
+    /// was retired at the cap, and `prepare_request` then takes the path every thread took
+    /// before residency: spawn a lease and prime it from the ledger.
+    fn resume_front_desk(&mut self, thread_id: &str) -> bool {
+        let Some(resident) = self.resident.remove(thread_id) else { return false };
+        // Published BEFORE the lease can be handed a turn, for the reason `install_lease`
+        // states: two things outside the spine lock must never describe a lease that is gone.
+        self.control.set_cancel(resident.lease.cancel_handle());
+        self.control.set_lease_session(Some(resident.lease.session_id().to_string()));
+        self.lease = Some(resident.lease);
+        // **Restored, not reset.** This is the one place a lease is installed WITHOUT
+        // clearing its measurements, and that is the point: they are its own, and a desk
+        // that came back with an empty watermark would be a session claiming it had used
+        // nothing when it has been talking to him for an hour.
+        self.lease_primed = resident.primed;
+        self.lease_primed_thread = Some(thread_id.to_string());
+        self.context_chars = resident.context_chars;
+        self.context_usage = resident.context_usage;
+        self.context_pressure = resident.context_pressure;
+        true
+    }
+
+    /// **Un-prime EVERY front desk, the parked ones included.**
+    ///
+    /// A defect residency would otherwise have introduced, and it is the reason this is a
+    /// named method rather than one more `self.lease_primed = false`. Some of the things
+    /// that invalidate priming are facts about the CHAIR's lease; several are facts about
+    /// the whole app — the central folder moved, the memory wiring was torn down, the
+    /// company material changed. Before residency, un-priming the chair was enough, because
+    /// every other thread's next turn built a lease from scratch anyway. Now they do not:
+    /// a parked desk comes back with `primed: true` and would serve the CEO from material
+    /// the app has stopped believing in, silently, until it rotated on its own watermark.
+    fn unprime_every_front_desk(&mut self) {
+        self.lease_primed = false;
+        for resident in self.resident.values_mut() {
+            resident.primed = false;
+        }
+    }
+
+    /// Retire the least recently spoken PARKED desk while there are more than the cap.
+    ///
+    /// Never the one in the chair — it is not in this map — and never one mid-turn, which
+    /// cannot happen: a turn runs on the chair's lease, and parking only ever happens at a
+    /// turn boundary (`prepare_request`, reached with `turn_in_progress == false`).
+    fn evict_beyond_the_cap(&mut self) {
+        while self.resident.len() >= MAX_RESIDENT_FRONT_DESKS {
+            let Some(oldest) = self.resident.iter()
+                .min_by_key(|(_, resident)| resident.parked_at_ms)
+                .map(|(thread, _)| thread.clone()) else { break };
+            // Dropping the `Resident` drops its `Box<dyn Cognition>`, whose `Drop` kills the
+            // child. That is deliberate and it is the old behavior for this one thread.
+            self.resident.remove(&oldest);
+        }
+    }
+
+    /// How many front desks this spine is holding open, the chair included. **A
+    /// measurement, for the test that proves a thread's desk survived another thread's
+    /// turn** — nothing in the product reads it.
+    #[doc(hidden)]
+    pub fn resident_front_desks(&self) -> usize {
+        self.resident.len() + usize::from(self.lease.is_some())
+    }
+
+    /// Is this thread's front desk alive — in the chair or parked? **Test scaffolding**,
+    /// and the honest form of the question: "resident" is about the child process, not
+    /// about who is speaking.
+    #[doc(hidden)]
+    pub fn front_desk_is_resident(&self, thread_id: &str) -> bool {
+        self.resident.contains_key(thread_id)
+            || (self.lease.is_some() && self.lease_primed_thread.as_deref() == Some(thread_id))
+    }
+
     /// Install the shared stop/steer control (UX §9.2/§9.3). The shell keeps a clone of
     /// the same handle beside the `Mutex<Spine>`; this is the only channel by which
     /// anything reaches a turn that is already running.
@@ -766,7 +926,7 @@ impl Spine {
         // an evidence zone nothing else in the build still believes in.
         self.evidence_lookup = None;
         self.correction_desk = None;
-        self.lease_primed = false;
+        self.unprime_every_front_desk();
     }
 
     /// Retire a canceled or failed conversation child without another roundtrip.
@@ -793,7 +953,7 @@ impl Spine {
     /// what that costs (`richos-central-folder-2026-09-06.md` §1.3).
     pub fn set_central_root(&mut self, root: std::path::PathBuf) {
         self.central_root = Some(root);
-        self.lease_primed = false;
+        self.unprime_every_front_desk();
     }
 
     /// What the company layer looks like for one thread, right now.
@@ -816,7 +976,7 @@ impl Spine {
     /// them into one setter would put a RichOS bookkeeping file inside a folder the CEO owns.
     pub fn set_onboarding_record(&mut self, path: std::path::PathBuf) {
         self.onboarding_record = Some(path);
-        self.lease_primed = false;
+        self.unprime_every_front_desk();
     }
 
     /// The declination record as it stands on disk right now.
@@ -888,7 +1048,7 @@ impl Spine {
             path: path.display().to_string(), why: "no company is selected; no answer was recorded".into(),
         })?;
         crate::onboarding::OnboardingRecord::record_declination_for_entity(path, binding.entity_id(), now_millis)?;
-        self.lease_primed = false;
+        self.unprime_every_front_desk();
         Ok(())
     }
 
@@ -897,7 +1057,7 @@ impl Spine {
     pub fn migrate_legacy_onboarding_declination(&mut self) -> Result<bool, crate::doctrine::DoctrineError> {
         let (Some(path), Some(binding)) = (self.onboarding_record.as_ref(), self.active_binding()) else { return Ok(false); };
         let changed = crate::onboarding::OnboardingRecord::migrate_legacy(path, binding.entity_id())?;
-        if changed { self.lease_primed = false; }
+        if changed { self.unprime_every_front_desk(); }
         Ok(changed)
     }
 
@@ -1429,6 +1589,32 @@ impl Spine {
     /// work belongs to. Require an explicit entity choice."* The alternative — persisting
     /// an unscoped turn and sorting it out later — is how a message ends up rendered in
     /// the wrong entity, which is a privacy incident rather than an inconvenience.
+    /// **His words, on the thread he typed them into** — the CEO's *"the CEO could open and
+    /// run multiple things in parallel."*
+    ///
+    /// `send_message` used to refuse outright when the named thread was not the single
+    /// active one: *"The conversation changed before your message was sent. Open the
+    /// original conversation to try again."* He typed a sentence and the app threw it back.
+    /// Now the named thread is made active and the message is his message on that thread —
+    /// **answered, never refused.** If a turn is already running, [`Spine::submit_prompt`]
+    /// queues it with ITS OWN binding and the boundary delivers it there (the `Queued`
+    /// record has carried its binding since before this existed, for exactly this reason).
+    ///
+    /// **Activating mid-turn is safe and was already possible**: he can switch threads while
+    /// Rich is working, `deliver` holds the binding it was handed rather than re-reading the
+    /// active one, and the deferred proactive emits carry their own. What is new is only
+    /// that the front desk he switches away from stays alive (`park_current_front_desk`).
+    ///
+    /// **What this is not.** It is not two front desks speaking at once; they take turns,
+    /// because both bind the CEO's single ECS cursor (`native.rs`'s `CONVERSATION_SEAT`).
+    /// Their WORK runs in parallel and has since slice 1 — one back end per thread.
+    pub fn submit_prompt_to(&mut self, thread_id: &str, text: &str, source: Source) -> Result<String, SpineError> {
+        if self.active_thread() != Some(thread_id) {
+            self.activate(thread_id)?;
+        }
+        self.submit_prompt(text, source)
+    }
+
     pub fn submit_prompt(&mut self, text: &str, source: Source) -> Result<String, SpineError> {
         let binding = self.ensure_active_thread()?;
         // (1) persist-before-send, under a verified scope — the message is durable before
@@ -2974,9 +3160,24 @@ impl Spine {
     fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
         if self.lease_primed_thread.as_deref().map(|thread| thread != binding.thread_id()).unwrap_or(false)
             && self.lease.as_ref().map(|lease| lease.requires_thread_isolation()).unwrap_or(false) {
-            // Never carry one entity's provider context or ECS session into another
-            // thread. The new lease rehydrates only the destination's authorities.
-            self.clear_lease();
+            // Never carry one entity's provider context or ECS session into another thread.
+            //
+            // **THE ISOLATION IS UNCHANGED AND THE TEARDOWN IS GONE.** This used to be
+            // `clear_lease()`, which killed the outgoing child; a thread he came back to got
+            // a brand-new session re-primed from the ledger tail. The CEO's Two Riches page
+            // says *"each conversation thread always holds one front desk Rich"* and
+            // *"each conversation thread in the app can go forever"* — residence, not
+            // reconstitution. So the outgoing desk is parked alive under its own thread and
+            // this thread's own desk, if it has one, takes the chair.
+            //
+            // Nothing crosses: each desk keeps its own provider session, its own ECS
+            // session id and its own priming, and the incoming one is the destination's or
+            // it is fresh. What is NOT yet true is simultaneity — two desks cannot hold a
+            // turn open at once, because both bind the CEO's single ECS cursor
+            // (`native.rs`'s `CONVERSATION_SEAT`, with the measurement beside it). Turns
+            // take turns; the work behind them has run in parallel since slice 1.
+            self.park_current_front_desk();
+            self.resume_front_desk(binding.thread_id());
         }
         if let Some(reason) = self.pending_rotation_reason.take() {
             if self.lease.is_some() {

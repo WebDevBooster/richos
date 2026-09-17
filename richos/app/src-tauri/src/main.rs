@@ -661,18 +661,26 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
         }
         return Err(refused_send("no compute lease and no factory", LEASE_UNAVAILABLE_MESSAGE.into()));
     }
-    let thread = match spine.active_thread() {
-        Some(t) => t.to_string(),
-        None => return Err(refused_send("no active thread", "Open a conversation first.".into())),
-    };
-    if thread != thread_id {
-        return Err(refused_send(
-            "the active thread changed between render and send",
-            "The conversation changed before your message was sent. Open the original conversation to try again.".into(),
-        ));
+    if spine.active_thread().is_none() {
+        return Err(refused_send("no active thread", "Open a conversation first.".into()));
     }
+    // ===================================================================================
+    // A MESSAGE TO ANY CONVERSATION IS ANSWERED, NEVER REFUSED
+    // ===================================================================================
+    //
+    // This used to compare `thread_id` against the one active thread and refuse anything
+    // else: *"The conversation changed before your message was sent. Open the original
+    // conversation to try again."* The CEO's Two Riches page is *"a CEO can create a
+    // conversation thread (i.e. any number of conversation threads)"* and *"the CEO could
+    // open and run multiple things in parallel"*, and an app that throws a typed sentence
+    // back because he had moved is the opposite of that.
+    //
+    // `submit_prompt_to` makes that thread active and submits there. If a turn is running,
+    // his message is durably recorded and queued with ITS OWN binding, and the turn
+    // boundary delivers it on its own thread — the front desk that answers it is that
+    // thread's own, still alive from the last time he spoke to it (`spine.rs`'s `Resident`).
     spine
-        .submit_prompt(&text, Source::Text)
+        .submit_prompt_to(&thread_id, &text, Source::Text)
         .map_err(|e| refused_send("the spine refused the prompt", e.to_string()))?;
     // "no active thread" used to be the whole sentence here, and it went straight onto the
     // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
