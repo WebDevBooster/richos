@@ -681,6 +681,35 @@ export const GOOGLE_SCOPES = {
   mail: 'https://www.googleapis.com/auth/gmail.metadata', // P3, metadata-first (graduated privacy)
 };
 
+/**
+ * Least-privilege READ-ONLY Microsoft Graph scopes (§6.2) — P4, the second vendor. The roadmap's
+ * promise is that *"the product lets the user choose Google or Microsoft and switch (vendor-agnostic
+ * core + adapters — already the design); Microsoft is a later adapter, not a rewrite."* These are
+ * that adapter set's grant, and they sit BESIDE the Google block rather than replacing it: a user
+ * may have connected either vendor, or both.
+ *
+ * Written as fully-qualified resource URIs on purpose — `https://graph.microsoft.com/Calendars.Read`
+ * rather than the bare `Calendars.Read` — so the resource being consented to is explicit and cannot
+ * be mis-resolved by Entra's inference. THE MATCHING TRAP THIS CREATES IS REAL AND IS HANDLED
+ * ELSEWHERE: Entra REPORTS a grant back in the SHORT form, so a registry comparing these strings to
+ * the granted strings would match nothing and report "you did not grant Calendars.Read" to a CEO who
+ * just granted it. `microsoft-auth.js:normalizeGraphScope` collapses both spellings, and the suite
+ * asserts it in both directions.
+ *
+ * Calendar and OneDrive mirror the Google side's width — including document contents, which the CEO
+ * decided for Drive on 2026-09-17 (`ceo-decisions.md` §40) and which a user switching vendors would
+ * reasonably expect to carry across rather than silently lose. Mail does NOT: §40 says "graduated
+ * privacy for mail was not asked", so Outlook stays at `Mail.ReadBasic` — §6.2's *"headers only, no
+ * body"* — and `Mail.Read` is an escalation the CEO consents to explicitly or not at all.
+ *
+ * NO WRITE SCOPES. This layer observes the CEO's cloud; it never modifies it.
+ */
+export const MICROSOFT_SCOPES = {
+  calendar: 'https://graph.microsoft.com/Calendars.Read',
+  drive: 'https://graph.microsoft.com/Files.Read', // P4 — bodies, matching Drive's §40 width
+  mail: 'https://graph.microsoft.com/Mail.ReadBasic', // P4, metadata-first (graduated privacy)
+};
+
 /** How long after a session is marked `closed` before a missing transcript is itself an anomaly. */
 export const TRANSCRIPT_SLA_MS = Number(process.env.RICHOS_TRANSCRIPT_SLA_MS) || 10 * 60 * 1000;
 
