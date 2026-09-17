@@ -1976,14 +1976,33 @@ mod tests {
     }
 
     /// The `items[]` entry the compiler emits for a record promoted from the CEO's calendar.
-    /// Copied from a real `loro-context compile` run, not composed here — see
-    /// `docs/verification/2026-09-17-workspace-recall-end-to-end.md`.
-    const WORKSPACE_ITEM: &str = r#"{"ref":"rec:ceo/unfiled/ws-google-calendar-2026-09-15-q3-pricing-review-4fd3a1c2",
-        "kind":"event","kindInferred":false,"title":"Q3 pricing review","scope":"org-shared","company":null,
-        "score":3.1,"truncated":false,"confidence":0.9,
-        "provenance":{"source":"records","path":"ceo/unfiled/ws-google-calendar-2026-09-15-q3-pricing-review-4fd3a1c2.md",
-        "anchor":null,"link":null,"method":"rich_inferred","ref":"google:calendar:evt_pricing",
-        "origin":"workspace:google:calendar"}}"#;
+    ///
+    /// COPIED VERBATIM from a real `loro-context compile` run — every value here was produced by
+    /// the pipeline, not composed to make a test pass. The run is
+    /// `tools/richos-service/test/workspace-recall-e2e.mjs`, recorded at
+    /// `docs/verification/2026-09-17-workspace-recall-end-to-end.md`. The long segment inside
+    /// `provenance.ref` is the adapter's `sourceInstanceId`, which is what keeps two Google
+    /// accounts on one machine from colliding on an event id.
+    const WORKSPACE_ITEM: &str = r#"{
+      "ref": "rec:ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc",
+      "kind": "event",
+      "kindInferred": false,
+      "title": "Northwind partnership terms",
+      "scope": "ceo-private",
+      "company": null,
+      "score": 1.1432,
+      "truncated": true,
+      "provenance": {
+        "source": "records",
+        "path": "ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc.md",
+        "anchor": null,
+        "link": null,
+        "method": "rich_inferred",
+        "ref": "google:calendar:d60daeaa8472855e083ff3950b3a702ef1bd94d0b3c0c760817325eb24ac1bbd:evt_partner",
+        "origin": "workspace:google:calendar"
+      },
+      "confidence": 0.9
+    }"#;
 
     #[test]
     fn a_slice_item_carries_the_provenance_that_lets_an_answer_say_where_it_came_from() {
@@ -1996,8 +2015,10 @@ mod tests {
         assert_eq!(p.origin.as_deref(), Some("workspace:google:calendar"));
         assert_eq!(p.source, "records", "the loro FAMILY that read it is a different fact from its origin");
         assert_eq!(p.method.as_deref(), Some("rich_inferred"), "Rich inferred this; the CEO did not assert it");
-        assert_eq!(p.source_ref.as_deref(), Some("google:calendar:evt_pricing"));
-        assert_eq!(p.path.as_deref(), Some("ceo/unfiled/ws-google-calendar-2026-09-15-q3-pricing-review-4fd3a1c2.md"));
+        assert!(p.source_ref.as_deref().is_some_and(|r| r.starts_with("google:calendar:") && r.ends_with(":evt_partner")));
+        assert_eq!(p.path.as_deref(),
+            Some("ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc.md"));
+        assert_eq!(slice.items[0].scope, "ceo-private", "a 1:1 with an outside party is the private perimeter");
         assert!(p.is_workspace());
         assert_eq!(p.workspace_source(), Some(("google", "calendar")));
         assert_eq!(slice.workspace_items().count(), 1);
@@ -2033,9 +2054,12 @@ mod tests {
 
     #[test]
     fn provenance_reaches_the_record_a_correction_would_be_filed_against() {
-        let text = "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n\
-            • [event] Q3 pricing review — Calendar entry for Tuesday, September 15, 2026 at 9:00 AM. \
-            (ref: rec:ceo/unfiled/ws-google-calendar-2026-09-15-q3-pricing-review-4fd3a1c2)";
+        // The rendered line, also from the recorded run.
+        let text = "COMPANY MEMORY (loro) — bearing on: \"what did I have on Tuesday\"\n\
+            • [event] Northwind partnership terms — Calendar entry for Tuesday, September 15, 2026 at \
+            3:00 PM (America/Los_Angeles). Source: your Google Calendar — \
+            https://calendar.google.com/event?eid=evt_partner. \
+            (ref: rec:ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc)";
         let slice: Slice = serde_json::from_str(&slice_json(WORKSPACE_ITEM, false, text)).unwrap();
         let records = slice.records();
         assert_eq!(records.len(), 1);

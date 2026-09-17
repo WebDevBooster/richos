@@ -142,6 +142,27 @@ function zoneOf(item) {
   return (s.start && s.start.timeZone) || (s.end && s.end.timeZone) || null;
 }
 
+/**
+ * What to call the source in a sentence the CEO reads: "your Google Calendar".
+ *
+ * A table rather than a template, because a vendor's product name is a proper noun and stitching
+ * one together from the envelope's lowercase `vendor` + `source` produces "your google calendar".
+ * An unknown pair falls back to the envelope's own words rather than to a guess at a brand name.
+ */
+export const VENDOR_LABELS = {
+  'google:calendar': 'Google Calendar',
+  'google:drive': 'Google Drive',
+  'google:mail': 'Gmail',
+  'microsoft:calendar': 'Outlook calendar',
+  'microsoft:drive': 'OneDrive',
+  'microsoft:mail': 'Outlook mail',
+};
+
+export function vendorLabel(item) {
+  const key = `${item?.vendor}:${item?.source}`;
+  return VENDOR_LABELS[key] || `${item?.vendor || 'unknown'} ${item?.source || 'source'}`;
+}
+
 /** "Dana Reyes <dana@northwind.example> (external)" — name, address and org relation, in that order. */
 export function describeActor(actor) {
   if (!actor) return '';
@@ -156,11 +177,17 @@ export function describeActor(actor) {
 /**
  * The body of a promoted EVENT record — what Rich actually reads back.
  *
- * Ordering is load-bearing, not stylistic. The compiler renders an item as
+ * Ordering is load-bearing, not stylistic, and it was CORRECTED by a measurement rather than
+ * reasoned into place. The compiler renders an item as
  * `• [kind] <title> — <body truncated to 200..900 chars> (ref: <id>)` (`engine/loro/lib/compile.js`
- * `renderItem`), and truncation cuts the END. So the day, the people and the deep link come first,
- * and the free-text description — the part that may be long and is the part a reader can live
- * without — comes last.
+ * `renderItem`), and truncation cuts the END. The first version of this function put the people
+ * before the deep link; the end-to-end run then asked *"who did I talk to about pricing"*, got one
+ * item at a 400-character window (`budgetChars 1200 ÷ 3`), and the three attendees pushed the link
+ * past the cut — an answer that named the meeting and could not link to it. So the order is now
+ * WHEN, then WHERE IT CAME FROM, then WHO, then the free text a reader can live without.
+ *
+ * The CEO himself is left out of the attendee list. He knows he was there, and on a real invitation
+ * his own name-and-address is 30-odd characters of the window spent saying nothing.
  *
  * The closing sentence is not decoration either: a calendar entry is evidence that something was
  * SCHEDULED. Rich reading it back as proof that a meeting happened, or that anything was decided in
@@ -181,22 +208,22 @@ export function renderEventBody(item, opts = {}) {
     lines.push('Calendar entry with no time on it.');
   }
 
-  const people = [item.actors?.author, ...(item.actors?.attendees || []), ...(item.actors?.recipients || [])]
-    .filter(Boolean)
-    .map(describeActor)
-    .filter(Boolean);
-  const unique = [...new Set(people)];
-  if (unique.length) lines.push(`With: ${unique.join('; ')}.`);
-
-  const location = item.content?.structured?.location;
-  if (location) lines.push(`Location: ${location}.`);
-
   const url = item.provenance?.vendorUrl;
   const fetched = Number.isFinite(item.provenance?.fetchedAt)
     ? new Date(item.provenance.fetchedAt).toISOString()
     : null;
-  const source = `Source: your Google Calendar${url ? ` — ${url}` : ''}.`;
-  lines.push(fetched ? `${source} Read by the Workspace sync at ${fetched}.` : source);
+  const source = `Source: your ${vendorLabel(item)}${url ? ` — ${url}` : ''}.`;
+  lines.push(fetched ? `${source} Read at ${fetched}.` : source);
+
+  const people = [item.actors?.author, ...(item.actors?.attendees || []), ...(item.actors?.recipients || [])]
+    .filter((a) => a && a.orgRelation !== 'self')
+    .map(describeActor)
+    .filter(Boolean);
+  const unique = [...new Set(people)];
+  lines.push(unique.length ? `With: ${unique.join('; ')}.` : 'Nobody else on the invitation.');
+
+  const location = item.content?.structured?.location;
+  if (location) lines.push(`Location: ${location}.`);
   if (opts.evidenceLink) lines.push(`Evidence: ${opts.evidenceLink}`);
 
   const description = String(item.content?.text || '').trim();

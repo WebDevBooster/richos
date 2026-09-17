@@ -25,7 +25,7 @@ import { writeEvidence } from '../lib/workspace/evidence.js';
 import {
   PROMOTABLE_KINDS, describeActor, entityCandidatesFromEvidence, formatWhen, promoteFromEvidence,
   promotedRecordFor, promotionDecision, promotionLedgerPath, readEvidenceZone, readPromotionLedger,
-  recordIdFor, renderEventBody, slug, tagsFor,
+  recordIdFor, renderEventBody, slug, tagsFor, vendorLabel,
 } from '../lib/workspace/promotion.js';
 
 let passed = 0;
@@ -150,21 +150,45 @@ test('formatWhen returns null for an item with no time rather than inventing one
 // =================================================================================================
 group('The body Rich reads back — provenance survives truncation, and the claim stays honest');
 
-test('renderEventBody leads with the day, the people and the deep link, and ends with the notes', () => {
+test('renderEventBody orders it WHEN, WHERE FROM, WHO, notes — because truncation cuts the end', () => {
   const body = renderEventBody(event(), { evidenceLink: 'ceo/unfiled/evidence/workspace/x/item.json' });
   const dayAt = body.indexOf('Tuesday, September 15, 2026');
-  const peopleAt = body.indexOf('Alice Nguyen');
   const linkAt = body.indexOf('https://calendar.google.com/event?eid=evt_pricing');
+  const peopleAt = body.indexOf('Alice Nguyen');
   const notesAt = body.indexOf('Walk the coach pricing ladder');
-  assert.ok(dayAt >= 0 && peopleAt > dayAt && linkAt > peopleAt && notesAt > linkAt,
-    `ordering is load-bearing (truncation cuts the end): ${dayAt}/${peopleAt}/${linkAt}/${notesAt}`);
+  assert.ok(dayAt >= 0 && linkAt > dayAt && peopleAt > linkAt && notesAt > peopleAt,
+    `ordering is load-bearing (truncation cuts the end): ${dayAt}/${linkAt}/${peopleAt}/${notesAt}`);
 });
 
-test('the deep link and the day survive the compiler truncating an item to its smallest window', () => {
+test('the deep link survives a meeting with a long attendee list, at the SMALLEST item window', () => {
+  // This is the regression the end-to-end run caught: with the people ahead of the link, a meeting
+  // with three attendees pushed the link past the 400-character window a single item gets at the
+  // default budget (1200 ÷ 3), and the answer named a meeting it could not link to.
+  const crowded = event({
+    attendees: Array.from({ length: 8 }, (_, i) => ({ name: `Attendee Number ${i}`, email: `person${i}@acme.com` })),
+    text: 'x'.repeat(4000),
+  });
   // `engine/loro/lib/compile.js` DEFAULTS.minItemChars is 200 — the smallest window an item can get.
-  const body = renderEventBody(event({ text: 'x'.repeat(4000) }));
-  assert.ok(body.slice(0, 200).includes('Tuesday, September 15, 2026'), body.slice(0, 200));
-  assert.ok(body.slice(0, 300).includes('https://calendar.google.com/event?eid=evt_pricing'), body.slice(0, 300));
+  const head = renderEventBody(crowded).slice(0, 200);
+  assert.ok(head.includes('Tuesday, September 15, 2026'), head);
+  assert.ok(head.includes('https://calendar.google.com/event?eid=evt_pricing'), head);
+});
+
+test('the CEO is not listed among the people he met — and everyone else is', () => {
+  // Governed first, because "self" is a GOVERNANCE decision (`resolveActors` against the CEO's own
+  // addresses), never something the adapter knows. An unresolved actor is "unknown" and is listed.
+  const body = renderEventBody(govern(event()).item);
+  assert.ok(!body.includes('The CEO'), body);
+  assert.ok(body.includes('Alice Nguyen') && body.includes('Bob Ramirez'), body);
+  // A solo block says so rather than printing an empty list.
+  const solo = govern(event({ attendees: [{ name: 'The CEO', email: 'ceo@acme.com' }] })).item;
+  assert.match(renderEventBody(solo), /Nobody else on the invitation/);
+});
+
+test('the source is named as a proper noun, and an unknown pair is described rather than guessed', () => {
+  assert.match(renderEventBody(event()), /Source: your Google Calendar/);
+  assert.equal(vendorLabel({ vendor: 'microsoft', source: 'mail' }), 'Outlook mail');
+  assert.equal(vendorLabel({ vendor: 'zed', source: 'wiki' }), 'zed wiki');
 });
 
 test('an all-day entry is never reported at a clock time it does not have', () => {
