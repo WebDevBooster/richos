@@ -88,6 +88,42 @@
 //! into a brief: a survey row is a claim with a date on it, and `lines()` and `split()` are
 //! not the same iterator.
 //!
+//! ## The two roots this survey did not cover, and what they turn out to be (point 24)
+//!
+//! Spec point 24 names `~/Library/Application Support/RichOS/ecs` (`main.rs:267`) and the
+//! app's `engine-state` directory (`updates.rs:662`) as "written ABOUT engine runs and
+//! subject to 18-20 like anything else". Both were checked against this build on 2026-09-17.
+//! The conclusion holds for one of them and is true of the other for a stronger reason than
+//! the point gives.
+//!
+//! | root | who WRITES it | who READS it here | verdict against 18-20 |
+//! |---|---|---|---|
+//! | `RichOS/ecs` | the ENGINE's Python, via `bin/ecs --state-root` (`ecs.rs::EcsBridge::request`) | **nobody in this app** | out of scope by construction. This crate never opens a path inside it: it hands the directory to a subprocess and reads that subprocess's stdout. Point 18 needs a writer and there is none here; points 19-20 need a reader and there is none either. Its shape is versioned by the engine's own `ecs/migrations/`. |
+//! | `engine-state/evidence/<session>/callbacks.jsonl` | the engine's Python callback hook, under an exclusive `flock` | `app_workers::status` — read-only, under a SHARED `flock` | **already satisfies all three, written by someone else.** Every row carries `"schema": 1` — point 18's field, under another name, on a per-record basis — and the reader REFUSES the whole view on any row whose schema is not 1. |
+//!
+//! **That reader fails CLOSED, and it is the one place in this crate where that is right.**
+//! Every other store here degrades: it drops the record it cannot read and returns the rest.
+//! `app_workers::status` returns `Unattributed::AppEvidenceUnavailable` for the whole view
+//! instead, because its answer feeds the update gate — the question is *"is it safe to
+//! replace the app right now"*, and a partial list of running workers answers "yes" to that
+//! question while being wrong. A short list is the failure mode; refusing to produce one is
+//! the fix.
+//!
+//! **Point 18 is therefore not applied to either**, and the rule is the same one that
+//! selected the three stores that ARE stamped: this build stamps what this build writes. See
+//! `docs/architecture/data-migration.md` for the stores still to be stamped and why they are
+//! not urgent.
+//!
+//! One near-miss worth recording, since it looks like a point-21 hazard and is not:
+//! `ecs::ToolScope` and `onboarding_tools::OnboardingToolScope` are whole-file documents this
+//! app DOES write, and both carry `#[serde(deny_unknown_fields)]` — which in a durable
+//! document is the point-21 failure in mirror image, a newer build's extra field costing an
+//! older build the whole file. They are safe because they are not durable: each is created
+//! fresh under a fresh UUID at lease start (`native.rs:1783-1785`, `:1800-1802`) inside a
+//! `scopes/` working directory, and a file left behind by a dead process is garbage rather
+//! than history. Recorded here so the next person does not have to re-derive it — and so that
+//! moving either of them anywhere durable is visibly a decision.
+//!
 //! Two readers do it properly, and they are the precedent this module's
 //! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
 //! and reports why through `RegistryLoad::notes`, and `launch.rs:389` keeps the file
