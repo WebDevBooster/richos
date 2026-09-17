@@ -1165,6 +1165,24 @@ fn main() {
         }
         return;
     }
+    // The FRONT DESK'S READ (`richos-core`'s `status_tools.rs`), in the same shape as the
+    // two beside it. The CEO's Two Riches page takes the orchestration tools off the
+    // conversation lease; this is what it answers "what is running", "what is waiting for
+    // me" and "what finished" with instead, and it reads the record on disk without calling
+    // the back end or changing anything.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--status-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing status scope".to_string())
+            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("status tool server: {error}"),
+                "RichOS could not start the helper it uses to look at work that is already running.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
         let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
             .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))

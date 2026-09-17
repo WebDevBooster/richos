@@ -1,5 +1,6 @@
 #![cfg(unix)]
 use richos_core::engine_profile::EngineProfile;
+use richos_core::native::LeaseRole;
 use richos_core::runtime::EngineRuntime;
 use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
@@ -113,15 +114,54 @@ fn workspace_partitions_are_stable_per_company_thread_and_distinct_across_thread
 fn standing_instruction_combines_app_identity_with_delivered_execution_contract() {
     let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
     let app=f.0.join("app-doctrine.md");
-    assert!(profile.standing_doctrine(&app).is_err());
+    assert!(profile.standing_doctrine(&app, LeaseRole::Work).is_err());
     std::fs::write(&app,"Fictional app identity").unwrap();
-    let path=profile.standing_doctrine(&app).unwrap();
+    let path=profile.standing_doctrine(&app, LeaseRole::Work).unwrap();
     let body=std::fs::read_to_string(&path).unwrap();
     assert!(body.starts_with("Fictional app identity\n\n"));
     assert!(body.ends_with(&std::fs::read_to_string(engine().join("mega-lander/DESKTOP.md")).unwrap()));
     assert!(path.starts_with(&profile.plugin));
     std::fs::write(&app,"").unwrap();
-    assert!(profile.standing_doctrine(&app).is_err());
+    assert!(profile.standing_doctrine(&app, LeaseRole::Work).is_err());
+}
+
+/// **THE TWO RICHES ARE TOLD TWO DIFFERENT JOBS**, and this is the assertion of that.
+///
+/// The CEO's Two Riches page gives the front desk one job — *"solely talking to the CEO and
+/// relaying info to and from the back-end Rich"* — and the back end the other. Both leases
+/// used to come up with the engine's `mega-lander/DESKTOP.md`, whose seven numbered steps
+/// are `richos_work` calls, so the front desk was instructed to do the job it is now
+/// refused the tools for (`native.rs`'s `mcp_config`, `permissions.rs`'s role refusal).
+///
+/// Each half is asserted against the other, because either one alone can pass for the wrong
+/// reason: a front desk given an empty instruction would satisfy the negative, and a back
+/// end given the front desk's would satisfy nothing at all while the app stopped working.
+#[test]
+fn the_front_desk_is_told_its_own_job_and_never_the_back_ends_execution_contract() {
+    let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let app=f.0.join("app-doctrine.md");
+    std::fs::write(&app,"Fictional app identity").unwrap();
+
+    let desk=std::fs::read_to_string(profile.standing_doctrine(&app, LeaseRole::Conversation).unwrap()).unwrap();
+    let back=std::fs::read_to_string(profile.standing_doctrine(&app, LeaseRole::Work).unwrap()).unwrap();
+
+    // The front desk is told what it HAS: hand the work over, and look at what is running.
+    assert!(desk.contains("richos_assignments.record"),"the front desk is not told how to hand work over");
+    assert!(desk.contains("richos_status.background_work"),"the front desk is not told how to look");
+    // And it is never told to do the work itself. **The negative is about the whole server,
+    // not a list of tool names** — a doctrine that named one more work tool tomorrow would
+    // slip past a list and not past this.
+    assert!(!desk.contains("richos_work"),"the front desk is still instructed to do the work itself");
+    // The positive controls are the four the engine's contract names literally. The fifth,
+    // `inspect`, appears in DESKTOP.md as prose ("Inspect saved work") rather than as a
+    // qualified name, and asserting it here would be asserting about a sentence the engine
+    // is free to rewrite — the test found that itself on its first run.
+    for tool in ["richos_work.prepare","richos_work.integrate","richos_work.complete","richos_work.repositories"] {
+        assert!(back.contains(tool),"the back end lost its instruction for {tool}");
+    }
+    // Both still carry the app's own identity: the job changed, Rich did not.
+    assert!(desk.starts_with("Fictional app identity\n\n"));
+    assert!(back.starts_with("Fictional app identity\n\n"));
 }
 
 #[test]
