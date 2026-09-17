@@ -62,6 +62,13 @@ The same credentials as stable releases are used:
   `RICHOS_NOTARY_PROFILE` Keychain profile is also supported.
 - `~/.richos-signing/richos-updater.key` and its `.pub` file.
 - `~/.richos-privacy/named-persons`, the real release privacy-check list.
+- Your configured Git identity, `git config user.name` and `user.email`.
+
+The release commit and the nightly-channel commit are authored with this Mac's
+configured Git identity rather than a synthetic `nightly@` one, because the release is
+your own act and this machine's commit-identity guard refuses to push a commit that
+says otherwise; `check` prints the identity it will author with, and refuses in
+milliseconds if none is configured instead of failing at the tag push after the gates.
 
 The private files must belong to the current user and have mode 600. Their
 contents are not copied to GitHub. `notary.env` is parsed as data, never executed
