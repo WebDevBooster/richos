@@ -1,0 +1,71 @@
+# RED: the refusal, proven on a measurement this Mac could not produce today
+#
+# gui_display_counts stubbed to print '0 3' in the working tree, run, then reverted
+#
+stub: gui_display_counts prints '0 3'
+HEAD: 1e68b7d3df5618e0bcab230929141ea998c3863f  (+ the stub above, reverted after this run)
+start UTC: 2026-09-17T02:35:24Z
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 32 lines declared unaccountable are still unaccounted
+  PASS  A7 display-sized, restored and re-derived window placements are accounted for
+  PASS  A8 a missing window placement fails its own proof
+  PASS  C1 the harness builds a real .app — Contents/MacOS and Contents/Info.plist
+  PASS  C2 the Info.plist carries every key bundle_version reads: CFBundleIdentifier CFBundleShortVersionString
+  PASS  C3 the Info.plist declares com.richos.app, found by the product's own reader
+  PASS  C4 the Info.plist is mode 644, 1 link, 598 bytes, and parses
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         {"verified": true, "versions": {"python3": "Python 3.13.15", "node": "v24.21.0", "git": "git version 2.55.0", "jq": "jq-1.8.2"}}
+         compiler source : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/FixtureDelivery/engine/loro
+         corpus          : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/RichOS/corpus
+         pointer         : Some("/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/FixtureDelivery/engine/loro (already)
+         partitions      : 1
+         registry        : 1 compan(ies) in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/Library/Application Support/com.richos.app/entities.json
+         saved company   : northwind in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/Library/Application Support/com.richos.app/config.json
+         bundle identity : com.richos.app 1.2.0 (asked of the binary, not typed here)
+         binary          : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.YBjfJhAezM/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  C5 the machine's bundle declares 1.2.0, the version the binary says it is
+  PASS  D1 an active-display count of 0 is refused
+  PASS  D2 an active-display count of 3 is accepted
+  PASS  D3 a count that could not be measured is neither a zero nor a pass
+
+gui-boot.test.sh: NO DISPLAY ON THIS MAC IS AWAKE, so this host cannot answer B2.
+                  CGGetActiveDisplayList reports 0 active of 3 online display(s).
+                  macOS drops a SLEEPING display from the ACTIVE list, and
+                  app.available_monitors() IS that list (tao-0.35.3, macos/monitor.rs:146),
+                  so the boot below would truthfully print 'window: the runtime reported
+                  no attached display' and B2 would go red over the state of the screen.
+                  Measured 2026-09-17: run 84aa5e62 failed exactly this way at 02:06Z,
+                  inside the 01:33:47Z-02:16:29Z window pmset recorded the displays off;
+                  the same source passed at 02:25Z with them awake.
+
+                  WAKE THE SCREEN AND RE-RUN. Press a key, or:
+                      caffeinate -u -t 1                 # wake it, then run the suite
+                      caffeinate -u -- bash scripts/gui-boot.test.sh
+                                                         # wake it and hold it awake for
+                                                         # the whole run (it turns the
+                                                         # screen ON — that is a visible
+                                                         # side effect on this desk)
+gui-boot.test.sh exit: 2
+end UTC: 2026-09-17T02:35:40Z

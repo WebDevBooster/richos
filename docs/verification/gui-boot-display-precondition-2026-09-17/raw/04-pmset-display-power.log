@@ -1,0 +1,19 @@
+# The machine's display power history
+#
+# pmset -g log | grep -iE 'Display is turned' ; times are +0100, UTC is one hour earlier
+#
+2026-09-15 23:00:41 +0100 Notification        	Display is turned off                                                      	          
+2026-09-16 07:08:35 +0100 Notification        	Display is turned on                                                       	          
+2026-09-16 10:11:33 +0100 Notification        	Display is turned off                                                      	          
+2026-09-16 11:45:17 +0100 Notification        	Display is turned on                                                       	          
+2026-09-16 13:32:39 +0100 Notification        	Display is turned off                                                      	          
+2026-09-16 13:37:13 +0100 Notification        	Display is turned on                                                       	          
+2026-09-16 14:36:04 +0100 Notification        	Display is turned off                                                      	          
+2026-09-16 16:46:21 +0100 Notification        	Display is turned on                                                       	          
+2026-09-16 20:15:41 +0100 Notification        	Display is turned off                                                      	          
+2026-09-16 20:52:52 +0100 Notification        	Display is turned on                                                       	          
+2026-09-17 02:33:47 +0100 Notification        	Display is turned off                                                      	          
+2026-09-17 03:16:29 +0100 Notification        	Display is turned on                                                       	          
+
+# and what CoreGraphics answers now (python3 ctypes, the same call tao makes):
+# CGGetActiveDisplayList / CGGetOnlineDisplayList -> 3 3
