@@ -23,8 +23,20 @@ LOCK = APP / "src-tauri/Cargo.lock"
 PROVENANCE = APP / "nightly-build.json"
 CANDIDATE_MANIFEST = "candidate.json"
 REPO = "WebDevBooster/richos"
-CHANNEL_REF = "refs/heads/nightly-channel"
-ENDPOINT = f"https://raw.githubusercontent.com/{REPO}/nightly-channel/latest.json"
+# The channel is a ROLLING RELEASE TAG, never a branch. CEO ruling 2026-09-13
+# (ceo-decisions 38): the public repository shows `main` and release tags and nothing
+# else. `nightly` is a release tag carrying a permanent prerelease whose `latest.json`
+# asset is what every installed nightly fetches; `refs/tags/nightly` carries the channel
+# commit itself, which is what still gives `promote` a compare-and-swap lease. Both
+# halves matter: the asset is what the world reads, the ref is what decides who may
+# write. Until 2026-09-17 this was `refs/heads/nightly-channel`, and the branch it
+# created is exactly what the ruling exists to prevent.
+CHANNEL_TAG = "nightly"
+CHANNEL_REF = f"refs/tags/{CHANNEL_TAG}"
+ENDPOINT = f"https://github.com/{REPO}/releases/download/{CHANNEL_TAG}/latest.json"
+RULESET = "main-only"
+# Exactly one branch may be exempt from the branch ruleset, and it is `main`.
+ALLOWED_RULESET_EXCLUSIONS = ["refs/heads/main"]
 BASE_RE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
 NIGHTLY_RE = re.compile(BASE_RE + r"-nightly\.([0-9]{8})\.([1-9][0-9]*)")
 
@@ -40,6 +52,60 @@ def git(*args, **kwargs):
 
 def execute(*args, cwd=None):
     subprocess.run(args, cwd=cwd or ROOT, check=True)
+
+
+def succeeds(*args, cwd=None):
+    """Whether `args` exits 0. Never raises on a non-zero exit, and stays quiet."""
+    return subprocess.run(args, cwd=cwd or ROOT, capture_output=True,
+                          text=True).returncode == 0
+
+
+def verify_repository_rules():
+    """Refuse to publish while any branch but `main` is exempt from the branch ruleset.
+
+    The recurrence this exists to stop, in full, because the shape of it is the point.
+    The `main-only` ruleset (id 23194738, created 2026-09-13) restricts `creation` and
+    `update` on `~ALL` refs except `refs/heads/main`, with no bypass actors. On
+    2026-09-16 at 21:57Z a Codex run, authenticated as the repository owner, added
+    `refs/heads/nightly-channel` to that exclusion list so this publisher could push a
+    channel branch. At 02:53Z the next morning the first nightly created the branch and
+    the public repository page read "2 Branches". **The ruleset never failed; it was
+    told to stand aside, and nothing read it back.** A guard nobody re-reads is a guard
+    that can be switched off silently, which is why this runs on every publish rather
+    than living in a document.
+
+    Read back, not assumed: the five conditions below are each a way to make the branch
+    ban a no-op while the exclusion list still looks right -- a disabled ruleset, an
+    `evaluate`-only one, a bypass actor, a missing rule, or a widened exclusion.
+    """
+    rulesets = json.loads(run("gh", "api", f"repos/{REPO}/rulesets"))
+    named = [r for r in rulesets if r["name"] == RULESET and r["target"] == "branch"]
+    if len(named) != 1:
+        raise ValueError(
+            f"expected exactly one branch ruleset named {RULESET!r} on {REPO}; found "
+            f"{len(named)}. The rule that keeps every branch but main off the public "
+            "repository is missing or duplicated -- restore it before publishing")
+    ruleset = json.loads(run("gh", "api", f"repos/{REPO}/rulesets/{named[0]['id']}"))
+    problems = []
+    if ruleset["enforcement"] != "active":
+        problems.append(f"enforcement is {ruleset['enforcement']!r}, not 'active'")
+    if ruleset["bypass_actors"]:
+        problems.append(f"{len(ruleset['bypass_actors'])} bypass actor(s) can ignore it")
+    conditions = ruleset["conditions"]["ref_name"]
+    if conditions["include"] != ["~ALL"]:
+        problems.append(f"it covers {conditions['include']}, not ['~ALL']")
+    if conditions["exclude"] != ALLOWED_RULESET_EXCLUSIONS:
+        problems.append(f"its exempt branches are {conditions['exclude']}, not "
+                        f"{ALLOWED_RULESET_EXCLUSIONS}")
+    missing = {"creation", "update"} - {rule["type"] for rule in ruleset["rules"]}
+    if missing:
+        problems.append(f"it does not restrict {', '.join(sorted(missing))}")
+    if problems:
+        raise ValueError(
+            f"the {RULESET!r} ruleset on {REPO} no longer keeps branches off the public "
+            "repository:\n  " + "\n  ".join(problems) + "\n"
+            "Nothing is published until that is put back. The nightly channel is a "
+            f"release tag ({CHANNEL_REF}) and needs no branch exception of any kind.")
 
 
 def utc_now():
@@ -70,10 +136,23 @@ def remote_tags():
 
 
 def channel():
+    """The channel tag's commit and the `build-info.json` recorded in it.
+
+    Unlike the branch this replaced, a tag ref can be listed TWICE -- once as
+    `refs/tags/nightly` and once peeled as `refs/tags/nightly^{}` -- and taking the
+    first field of the whole output, as the branch version did, would read whichever
+    line git happened to print first. The channel tag is lightweight and points
+    straight at the channel commit; an annotated tag under this name is somebody
+    else's object and is refused rather than guessed at.
+    """
     refs = git("ls-remote", "origin", CHANNEL_REF)
-    if not refs:
+    lines = [line.split() for line in refs.splitlines() if line]
+    if not lines:
         return None, None
-    oid = refs.split()[0]
+    if len(lines) != 1 or lines[0][1] != CHANNEL_REF:
+        raise ValueError(f"{CHANNEL_REF} is not a lightweight tag on a channel commit: "
+                         f"{refs}")
+    oid = lines[0][0]
     git("fetch", "--no-tags", "origin", oid)
     return oid, json.loads(git("show", f"{oid}:build-info.json"))
 
@@ -203,7 +282,16 @@ def promote(info, manifest):
         raise ValueError("manifest platforms do not match the built artifact")
     if manifest["platforms"][info["platform"]]["url"] != expected:
         raise ValueError("manifest must reference this immutable release")
+    verify_repository_rules()
     old, previous = channel()
+    if previous == info:
+        # The channel already records exactly this candidate: a previous `finish` took
+        # the lease and then failed at or after the asset upload. Re-running must REPAIR
+        # the asset, not refuse this as a rollback -- so the lease is not re-taken and
+        # the ordering checks below, which would (correctly) call this a move backwards,
+        # are not reached. This is the only reason `finish` is safe to run twice.
+        serve_channel_manifest(manifest)
+        return old
     if previous:
         if nightly_key(info["version"]) <= nightly_key(previous["version"]):
             raise ValueError("refusing to replace an equal or newer nightly")
@@ -213,7 +301,42 @@ def promote(info, manifest):
     # The lease protects the read/check/write interval, including first publication.
     git("push", f"--force-with-lease={CHANNEL_REF}:{old or ''}",
         "origin", f"{commit}:{CHANNEL_REF}")
+    serve_channel_manifest(manifest)
     return commit
+
+
+def channel_release_notes():
+    return (f"The RichOS nightly update channel.\n\n"
+            f"`latest.json` on this release is the manifest every installed nightly "
+            f"fetches. It is replaced on each publish and always names the newest "
+            f"nightly build.\n\nThe nightly builds themselves are the `v*-nightly.*` "
+            f"prereleases; this release deliberately carries no application archive, "
+            f"and its tag moves.\n")
+
+
+def serve_channel_manifest(manifest):
+    """Put the manifest where installed nightlies fetch it: the rolling release's asset.
+
+    The compare-and-swap in `promote` decides who may publish; this makes that decision
+    visible to the world, and the two are not one atomic act. The order is chosen so
+    that the failure which can actually happen is the recoverable one. Lease first,
+    asset second: a crash in between leaves the channel tag naming a version whose
+    asset was not replaced, `finish` exits non-zero, and re-running it reaches
+    `promote`'s repair arm and re-uploads. The other order -- asset first -- would
+    publish to the world a version no lease was ever taken for.
+
+    `--verify-tag` on the create is why this runs AFTER the push: the rolling tag must
+    already exist, and it exists because `promote` just moved it.
+    """
+    if not succeeds("gh", "release", "view", CHANNEL_TAG, "--repo", REPO):
+        execute("gh", "release", "create", CHANNEL_TAG, "--repo", REPO, "--verify-tag",
+                "--prerelease", "--latest=false", "--title", "RichOS nightly channel",
+                "--notes", channel_release_notes())
+    with tempfile.TemporaryDirectory(prefix="richos-channel-asset-") as tmp:
+        path = Path(tmp) / "latest.json"
+        path.write_text(json_text(manifest))
+        execute("gh", "release", "upload", CHANNEL_TAG, "--repo", REPO, "--clobber",
+                str(path))
 
 
 def _candidate_files(out):
@@ -272,7 +395,7 @@ def build(info, out):
     those bytes are not back on the wire; that refusal, not anything in
     make-engine-asset.sh, is what makes an unpublished pin unbuildable. What `build`
     does NOT do: upload the app itself, write `latest.json`, or move
-    `nightly-channel` -- nobody can install what this produces until `finish` runs.
+    the update channel -- nobody can install what this produces until `finish` runs.
     """
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
@@ -327,7 +450,8 @@ def finish(info, out):
     execute("bash", release, "verify-assets", "--out", str(out))
     manifest = json.loads((out / "latest.json").read_text())
     channel_commit = promote(info, manifest)
-    print(f"Published {info['tag']}; nightly-channel at {channel_commit}", flush=True)
+    print(f"Published {info['tag']}; {CHANNEL_REF} at {channel_commit}, serving\n"
+          f"  {ENDPOINT}", flush=True)
 
 
 def publish(info, out):
@@ -347,11 +471,18 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p = sub.add_parser("finish")
     p.add_argument("--out", type=Path, required=True)
+    sub.add_parser("check-rules")
     p = sub.add_parser("run")
     p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "plan":
+    if args.command == "check-rules":
+        # The runner calls this in preflight so a widened ruleset costs seconds rather
+        # than forty minutes of gates; `promote` calls it again immediately before the
+        # channel moves, because preflight's answer can go stale in between.
+        verify_repository_rules()
+        print(f"{RULESET}: every branch but main is refused creation and update.")
+    elif args.command == "plan":
         info = plan(args.force)
         args.output.write_text(json_text(info))
         print(json_text(info))
