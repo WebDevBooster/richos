@@ -70,6 +70,16 @@ notarization authentication and verifies the local updater public key matches th
 app. It does not submit an app to Apple or create a GitHub release. The full
 release path separately verifies the produced artifact's updater signature.
 
+Credentials reach only the steps that use them: the preflight signing probe, the
+notarization check, the updater signature, and the publisher. The gates, meaning the
+two `cargo test` runs, the twelve `app/scripts` suites and the privacy sweep, run in
+an environment holding no `RICHOS_NOTARY_*`, `TAURI_SIGNING_*`, `APPLE_*`,
+`RICHOS_NOTARIZE` or `RICHOS_SIGNING_IDENTITY` variable, including any the operator's
+own shell exported. This is a correctness rule before it is a secrecy one: on
+2026-09-16 the first nightly attempt published nothing because four
+`package-app.test.sh` cases that refuse when notary credentials are absent or
+half-supplied ran with a complete key in their environment.
+
 Python 3.11+, Git, GitHub CLI, Rust, Tauri CLI 2.11.4 and Xcode command-line tools
 must be installed. GitHub CLI and Git must already be authenticated. A restricted
 Keychain may require user interaction to sign; the command fails if its signing
@@ -132,6 +142,7 @@ cargo test --locked --manifest-path richos/app/crates/richos-user-update/Cargo.t
 ```
 
 Tests cover version ordering, reservations, source isolation, private credential
-parsing, concurrent commands, explicit-only publication and failed checks leaving
-the existing channel intact. Local preflight is distinct from a complete signed
-release. Only an explicit `release` invocation exercises actual publication.
+parsing, concurrent commands, explicit-only publication, failed checks leaving
+the existing channel intact, and the signing credentials never reaching a gate
+subprocess. Local preflight is distinct from a complete signed release. Only an
+explicit `release` invocation exercises actual publication.
