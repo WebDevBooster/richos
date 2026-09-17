@@ -61,7 +61,7 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 157 tests:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 173 tests:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
@@ -69,7 +69,7 @@ GoogleClient (backoff, 410→resync) with a mocked transport, the Calendar adapt
 normalization, pagination), the **Drive adapter** (see below), the **Gmail adapter** (see below),
 synthesis, the entity feed, and the full `ingestOnce` spine end-to-end for all three sources.
 
-The **Gmail** cases (30 of the 157) cover history-based delta sync (first page, continuation, an empty
+The **Gmail** cases (30 of the 173) cover history-based delta sync (first page, continuation, an empty
 page, a repeated message deduped, and an aged-out `historyId` → resync), the bounded first sweep and
 its anchor ordering, metadata-mode fetch shape, normalization into the §4.1 envelope, address parsing,
 the governance gate over a mailbox, the promotion refusals, the bulk-mail filter, source identity
@@ -79,27 +79,65 @@ across two accounts, and the privacy refusals — each negative case with a posi
 token storage, real `syncToken`/`410`/`404` behavior against Google, and pulling the CEO's real
 calendar, Drive and mailbox. Guide: the Google Workspace OAuth setup guide.
 
-## Drive (P2) — metadata only, and that is a decision, not a limitation
+## Drive (P2) — document text, under `drive.readonly`, since the CEO said yes (§40)
 
 A Drive `SourceItem` carries the file's **metadata** — name, MIME type, owners, timestamps, revision
-identity and the user-supplied `description` field — and **never the file's bytes or its exported
-document text**. The body stays exactly one thing: a `provenance.vendorUrl` deep link back into the
-CEO's own Drive.
+identity and the user-supplied `description` field — **and its text**. Asked "Drive contents, yes or
+no", the CEO answered **yes** on 2026-09-17 (`richos-hq/wiki/ceo-decisions.md` §40), so `config.js`
+pins `GOOGLE_SCOPES.drive` to `drive.readonly` and the adapter reads bodies. The deep link
+(`provenance.vendorUrl`) is still always there, because the authoritative document is his, in his own
+Drive, and the evidence zone holds evidence of it rather than a copy of his file system.
 
-- **The scope decided it.** `config.js` pins `GOOGLE_SCOPES.drive` to `drive.metadata.readonly`, the
-  narrower of the two options §6.2 lists. That scope cannot read a file body: `files.get?alt=media`
-  and `files.export` both need the broader `drive.readonly`. Widening it changes what the CEO
-  consents to on the OAuth screen (§6.1) — his decision, not the adapter's.
-- **§4.1 forbids the hoard.** "normalized TEXT + provenance deep-links, never a bulk binary copy."
-  The evidence zone is a document *evidence* store, not a document store.
-- **It is enforced, not documented.** `toSourceItem` **refuses** a payload carrying a body, in the
-  same vocabulary `privacy.js` uses, naming both the scope it runs under and the one a body would
-  require. Dropping it quietly would let a future scope widening leak document text with no code
-  change and no failing test.
+**How the text is read**, by file type — every format pinned, none of it left to a Google default:
 
-What metadata-only still buys: titles, MIME, revision chains, and the **people**. Owners, last
+| File | Path | Format |
+|---|---|---|
+| Google Doc | `files.export` | `text/plain` |
+| Google Sheet | `files.export` | `text/csv` (Google exports the **first sheet only**; recorded on the item) |
+| Google Slides | `files.export` | `text/plain` |
+| `text/plain`, `text/markdown`, `text/csv`, `text/tab-separated-values`, `application/json`, `application/xml`, `text/xml`, `application/x-ndjson` | `files.get?alt=media` | as stored |
+
+**What stays metadata-only, and why it says so on the item.** PDFs, images, archives and Office
+binaries (`.docx`, `.xlsx`, `.pptx`) are **not** read: their text needs an extraction *library*, and
+adding a third-party dependency is its own decision under the standing "never a third party's
+defaults unless proven best" rule — not a side effect of this one. Folders, forms, drawings, maps,
+scripts and sites have no text export at all. A trashed or removed file is never asked for a body. In
+every one of those cases the item carries `structured.bodyExcludedReason` naming the reason, so an
+absent body is a recorded decision rather than something to infer from silence.
+
+**The cap is `MAX_BODY_BYTES` = 512 KiB** (≈80,000 words: a 50-page strategy document arrives whole; a
+200,000-row CSV export does not become the largest object in the evidence zone). It is in **bytes**,
+not characters, because Drive declares a regular file's size *before* the download — so an over-cap
+file is never fetched at all. An over-cap **export**, whose size cannot be known in advance, is cut on
+a byte budget without splitting a character in half. Either way the item carries a **truncation
+marker plus the deep link**: a partial body pretending to be whole would let synthesis conclude a
+document does not say something it says on page 40.
+
+**The text lands in `content.text`, next to the `description`** — because that is the field the immune
+system scans (`classifyTrust` reads `title` + `text`) and the field `synthesis.js` reads for
+commitment cues. A document is the largest injection surface this source has; putting its text
+anywhere else would have made the biggest untrusted input in the system the one nobody scans.
+`structured.descriptionChars` records the split, so the two remain separable downstream.
+
+**The refusal did not go away — it inverted.** A decision reaches an installation only through a
+re-consent on the CEO's own OAuth screen (§6.1). Until that has happened the token still holds
+`drive.metadata.readonly`, the adapter runs `contentMode: 'metadata'`, it has **no code path that asks
+Google for a body**, and `toSourceItem` **refuses** a body-bearing payload in the same vocabulary
+`privacy.js` uses — naming the grant that is missing and the decision that already made it available.
+Body mode without `drive.readonly` in the granted scopes is refused at construction rather than
+silently downgraded, because a silent downgrade would make an installation that never re-consented
+look exactly like one that did.
+
+Metadata alone was never nothing, and all of it still arrives for every file including the ones whose
+bodies are deliberately not read: titles, MIME, revision chains, and the **people**. Owners, last
 modifiers and sharers are `person` entity candidates, so Drive feeds the §4.5 entity flywheel — and
-therefore the next call transcript's accuracy — without reading a single document.
+therefore the next call transcript's accuracy.
+
+All of the above is mock-verified: the **Drive body cases (16 of the 173)** cover both export MIME
+types, the `alt=media` path, an over-cap file that is never downloaded, an over-cap export truncated
+with its marker, byte-safe truncation, five binaries and a folder staying metadata-only, a hostile
+body quarantined exactly as a hostile description is, and an end-to-end ingest that reads the exported
+text back off disk — each negative case with a positive control beside it.
 
 **Incremental sync** is `changes.list` with a page token (§4.3), polled, never a webhook. A first run
 reads `changes/startPageToken` **before** a bounded `files.list` sweep, so no change made during the

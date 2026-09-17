@@ -303,10 +303,18 @@ hang_check() {
     return 0
 }
 
+# HANG_COVERED — what 9j's coverage claim is derived from. It is appended to by
+# say_hang itself, at the moment a hang case actually RUNS, so the inventory
+# cannot be maintained: it IS the set of cases that executed. See 9j.
+HANG_COVERED=""
+
 # say_hang <label> <hook> [args...] — runs the check and records the verdict,
 # keeping the three outcomes distinguishable in the output.
 say_hang() {
     local label="$1"; shift
+    # Recorded BEFORE the check runs, not after: a hook that hangs is still a
+    # hook this suite covers, and 9j asks "is it checked", not "did it pass".
+    HANG_COVERED="$HANG_COVERED $1"
     # The ARGS are part of the identity, not decoration: 9c and 9f are the same
     # script and differ only by `--session`, and that difference is the whole
     # point of 9f. A label naming only the script would print two identical
@@ -390,12 +398,39 @@ else
     bad "9i enforcing-hook snapshot is no longer session-scoped from the payload (out=${OUT:0:200})"
 fi
 
-# 9j — EVERY registered SessionStart script is checked above. Derived from the
-# registration surface, never from a typed list, for the reason
-# scripts/lib/registered-hooks.sh exists: a hand-maintained inventory of what
-# is covered drifts, and a coverage claim over a stale inventory is exactly the
-# hole 9f and 9g fell through.
-COVERED="engine-status.sh workspace-lifecycle.sh snapshot-agent-definitions.sh snapshot-enforcing-hooks.sh session-start-ceo-ask.sh session-start-escalations.sh session-start-ci-surface.sh left-off-report.sh"
+# 9j — EVERY registered SessionStart script is checked above. This compares two
+# sets, and NEITHER of them may be typed by hand.
+#
+#   REGISTERED_SS — read from the shipped hooks.json. What the host loads.
+#   COVERED       — accumulated by say_hang as each hang case RAN, just above.
+#
+# WHY COVERED IS NOT A TYPED LIST ANY MORE. It used to be one, and a typed list
+# is safe for additions and silently unsafe for REMOVALS: registering a new
+# SessionStart script turned 9j red until somebody added a case, which worked,
+# but DELETING a say_hang case while leaving its name in the list left 9j green
+# over a script nothing tested. A coverage claim that cannot notice its own
+# coverage being deleted is the hole 9f and 9g fell through, pointed the other
+# way round.
+#
+# WHY IT IS NOT DERIVED FROM hooks.json EITHER — this is the trap, and it is the
+# obvious-looking fix. Deriving COVERED from the registration surface would make
+# 9j compare that surface with itself and answer YES for every script the moment
+# it is registered, which is a check that can never fail. Recorded at
+# richos-hq/RICH-TODOs.md lines 43-46.
+#
+# So it is derived from the EXECUTION of the cases: not a list of what should be
+# covered, and not a list of what is registered, but the names say_hang was
+# actually handed as it ran. Deleting a say_hang line removes its name from this
+# set on the next run, and 9j goes red naming the script — proven by deleting
+# one and watching it fail, rather than asserted.
+COVERED="$HANG_COVERED"
+
+# The derivation itself must be observable, or an empty accumulator would make
+# the UNCOVERED loop below iterate over nothing and report success. That is the
+# same "passes because it ran nothing" failure this whole section exists for.
+if [ -z "${COVERED// /}" ]; then
+    bad "9j the hang-case accumulator is EMPTY — say_hang stopped recording, so coverage is unproven"
+fi
 # Read the SHIPPED registration surface, not the sandbox copy: the sandbox
 # engine is assembled from scripts/ and .claude*/ and deliberately has no
 # hooks/hooks.json, and the claim being made here is about what the host
