@@ -1894,6 +1894,13 @@ body.bp-narrow .first-run {
   align-items: center;
   gap: 8px;
   padding: 0 20px;
+  /* N3 (dev-walk audit, 2026-09-17): the settings gear is `position: fixed` at the SAME
+     top-right corner this header reaches, and `--chrome-lane` (below, "THE TOP-RIGHT LANE
+     IS RESERVED, AND THIS IS WHY") is its footprint — the same reservation
+     `.inspector-head` already makes for the same reason. This header never made it, so the
+     technical-view badge (`#techy-chip`, `margin-left: auto`) grew straight through the
+     gear instead of stopping short of it. */
+  padding-right: calc(20px + var(--chrome-lane));
   border-bottom: 1px solid var(--line);
   background: var(--paper);
   position: sticky;
@@ -4124,6 +4131,11 @@ body.bp-narrow .tl-user-bubble {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* N3: a flex item's automatic minimum width sticks at its CONTENT width unless told
+     otherwise, so without this the chip never shrinks — it just keeps growing until it
+     runs under whatever is next to it (the settings gear, `--chrome-lane` above). This is
+     what actually lets `#techy-chip-label`'s ellipsis below take effect at all. */
+  min-width: 0;
   padding: 3px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -4142,6 +4154,18 @@ body.bp-narrow .tl-user-bubble {
 #techy-chip:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* N3 (dev-walk audit, 2026-09-17): "Technical view · this conversation" was cut off
+   mid-word with no ellipsis, the settings gear simply painted over the remainder. The gear
+   now reserves its own lane (`#stage-header`'s `padding-right` above) so the badge has
+   real room; this is the second half, for whatever room is left once it does — a real `…`
+   rather than a silent, glyph-level truncation. */
+#techy-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* The Settings line (§3.3: "v1 access = a keyboard shortcut, plus one line in Settings").

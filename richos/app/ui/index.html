@@ -323,7 +323,15 @@
                §7.3 — whether customers should be able to FIND techy mode in v1 — is the
                CEO's open question, and removing this `hidden` on a second element is what
                answering it "yes" would cost. -->
-          <button id="techy-chip" type="button" hidden aria-pressed="true">
+          <!-- N3 (dev-walk audit, 2026-09-17): `title` gives a native hover/focus tooltip
+               once `#techy-chip-label` ellipsizes (style.css). This is deliberately the
+               STATIC half of the sentence rather than the exact per-state text
+               ("... this conversation" / "... everywhere") — mirroring the live text into
+               `title` needs a one-line change in `main.js`'s `renderTechyChip()`, which
+               sits outside this pass (main.js is in flight elsewhere this session). The
+               button's `aria-label`, already set there, carries the full per-state sentence
+               for assistive tech in the meantime. -->
+          <button id="techy-chip" type="button" hidden aria-pressed="true" title="Technical view">
             <span aria-hidden="true">&#9673;</span><span id="techy-chip-label">Technical view</span>
           </button>
         </header>
