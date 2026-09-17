@@ -76,6 +76,10 @@ const GENERIC_NOTE = "Everything I'd already written above is saved.";
 
 function snapshot(interruption, opts) {
   const withPartial = !!(opts && opts.withPartial);
+  // A turn first witnessed mid-flight has no message of his at all. It is the negative half
+  // of "there are words to put back" and the one case where a put-back control would be a
+  // button that puts nothing back.
+  const withoutHisWords = !!(opts && opts.withoutHisWords);
   const b = (id, extra) =>
     Object.assign(
       {
@@ -91,13 +95,15 @@ function snapshot(interruption, opts) {
       },
       extra || {}
     );
-  const items = [
-    Object.assign(b(TURN + ":user", { slot: "opening", createdAt: 1788000000000 }), {
-      kind: "user_message",
-      text: "What did I decide about nightly releases?",
-      source: "text",
-    }),
-  ];
+  const items = withoutHisWords
+    ? []
+    : [
+        Object.assign(b(TURN + ":user", { slot: "opening", createdAt: 1788000000000 }), {
+          kind: "user_message",
+          text: "What did I decide about nightly releases?",
+          source: "text",
+        }),
+      ];
   // THE AUDIT'S CASE HAS NO PROSE ABOVE THE CARD, and that is load-bearing: the old note
   // claimed "everything I'd already written above is saved" with nothing above it at all.
   if (withPartial) {
@@ -259,11 +265,62 @@ async function main() {
     return "no saved-answer claim; his message named; 0 prose rows above";
   });
 
-  await run.check("UNTRUTH 3 — there is no retry control on a state a retry cannot clear", async () => {
+  // =====================================================================================
+  // UNTRUTH 3, AND IT IS RESTATED HERE RATHER THAN RELAXED.
+  //
+  // D2's rule is "a button that CANNOT WORK is worse than no button", and this check used to
+  // enforce it as `actionCount === 0` on the sign-in card. That was right when the control
+  // was called **Pick it back up** and really did promise a resume. D6 renamed it to **Put it
+  // back in the box**, which starts nothing and always works, and the gate in `timeline.js`
+  // was never revisited — so the card kept telling him to *"send this to me again"* over an
+  // empty composer with no way to get his sentence back (candidate-.2 §4 defect #8).
+  //
+  // So the invariant is the one D2 actually protects, stated against the control that exists
+  // now: NOTHING ON THIS CARD OFFERS OR PERFORMS A RETRY. The card may hand his words back —
+  // that is not a retry, it costs nothing, and it is the one thing he can do next.
+  // =====================================================================================
+
+  await run.check("UNTRUTH 3 — nothing on this card offers or performs a retry", async () => {
     const c = await cardText(page);
-    assertEqual(c.actionCount, 0, "a button that cannot work is worse than no button");
+    assertEqual(c.actionCount, 1, "exactly one control, and it is not a retry");
+    assertEqual(c.action, RETRY_LABEL, "the only control is the put-back control");
+    assert(
+      !/try again|retry|pick (it|this) back up|ask me again|send it again/i.test(c.action),
+      "the control's label offers a retry: " + c.action
+    );
+    // AND IT DOES NOT SECRETLY DO ONE. The handler is recorded rather than assumed: pressing
+    // it must call `opts.retry` — which `main.js`'s `retryTurn` implements as "put the text
+    // back and focus the box" — and must not reach `opts.send` or start a turn.
+    await page.evaluate((s) => {
+      window.__retryCalls = [];
+      window.__render(s, { retry: (t) => window.__retryCalls.push(t.turnId) });
+    }, snapshot(notSignedInItem()));
+    await page.waitForSelector(".tl-intervention-action");
+    await page.click(".tl-intervention-action");
+    const calls = await page.evaluate(() => window.__retryCalls.slice());
+    assertEqual(calls, [TURN], "one press, one put-back call on this turn");
+    // The card's own prose still refuses to promise the failure has cleared.
+    const whole = c.body.concat(c.notes).join(" ");
+    assert(/send this to me again/.test(whole), "the sentence that makes this control necessary is gone: " + whole);
+    return `1 control, ${JSON.stringify(RETRY_LABEL)}, one press -> one put-back call, no retry promised anywhere on the card`;
+  });
+
+  await run.check("D2 STILL HOLDS: no control at all when there is nothing to put back", async () => {
+    // The other half, and the one that keeps this from being a relaxation. A turn first
+    // witnessed mid-flight carries no message of his, so the put-back control would put
+    // nothing back — `renderUnknownCard`'s own rule, applied to this card.
+    await page.evaluate((s) => window.__render(s), snapshot(notSignedInItem(), { withoutHisWords: true }));
+    await page.waitForSelector(".tl-intervention");
+    const c = await cardText(page);
+    assertEqual(c.body, [NOT_SIGNED_IN], "the authored sentence is still the body");
+    assertEqual(c.actionCount, 0, "a control that puts nothing back is worse than no control");
     assertEqual(c.action, null, "no control at all, not a disabled one with the same promise");
-    return "0 retry controls";
+    const users = await page.evaluate(() => document.querySelectorAll(".tl-message--ceo, .tl-user").length);
+    assertEqual(users, 0, "the fixture still has a message of his, so this proves nothing");
+    // Put the ordinary fixture back for the checks below.
+    await page.evaluate((s) => window.__render(s), snapshot(notSignedInItem()));
+    await page.waitForSelector(".tl-intervention");
+    return "0 messages of his on screen, 0 controls on the card";
   });
 
   // =====================================================================================
