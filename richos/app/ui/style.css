@@ -1093,26 +1093,57 @@ body.bp-narrow .first-run {
   min-width: 0;
 }
 
-#input {
+/* N1 (dev-walk audit, 2026-09-17): a white NATIVE scrollbar was rendering straight through
+   this box's rounded corner and its own gold focus ring, on an EMPTY textarea with nothing
+   to scroll, in both themes. Two separate defects, both fixed by moving the border/radius/
+   fill off the scrolling element and onto a non-scrolling wrapper:
+
+   (1) `<textarea rows="1">`'s own intrinsic-height algorithm does not agree with the
+       `line-height: 1.5` this file sets on it, so an empty box's `scrollHeight` came out a
+       few px taller than the `clientHeight` the `rows` attribute produced — genuine (if
+       tiny) overflow, not a paint glitch. `#input`'s `height` below is derived from the
+       same padding/line-height this rule declares, in the same units, so the two can never
+       disagree the way the attribute and the stylesheet did.
+   (2) a NATIVE, OS-drawn scrollbar is a platform widget WebKit does not clip to the
+       scrolling element's own `border-radius` — only an ANCESTOR's `overflow: hidden` does.
+       So the border, radius, fill and focus ring now live on `#input-shell`, which never
+       scrolls; `#input` is the plain, borderless field inside it, and any scrollbar it ever
+       draws is clipped to the shell's rounded corner rather than poking through it. */
+#input-shell {
   flex: 1;
-  resize: none;
-  /* Indicator grade, not divider grade — see `--line-control`. This boundary is the only
-     thing telling the CEO where the composer is. */
+  min-width: 0;
   border: 1px solid var(--line-control);
   border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+#input-shell:focus-within {
+  border-color: var(--accent);
+}
+
+#input {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: none;
   padding: 10px 14px;
   font: inherit;
   font-size: 1rem;
   line-height: 1.5;
-  background: var(--surface);
+  background: transparent;
   color: var(--ink);
+  /* One line's content box, in the exact units `line-height`/`padding` above use, so it can
+     never disagree with them: 1.5em of text plus the 10px top/bottom padding this rule
+     declares. `box-sizing: border-box` is the page-wide reset (`style.css:268`), so this is
+     the element's TOTAL height, matching what `scrollHeight` reports for one empty line. */
+  height: calc(1.5em + 20px);
   max-height: 112px;
   overflow-y: auto;
 }
 
 #input:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
 #input::placeholder {

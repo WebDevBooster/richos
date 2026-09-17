@@ -507,7 +507,18 @@
             </button>
 
             <form id="composer" autocomplete="off">
-              <textarea id="input" rows="1" placeholder="Talk to Rich…"></textarea>
+              <!-- N1 (dev-walk audit, 2026-09-17): the border, radius and fill moved to this
+                   wrapper — see style.css's note on `#input-shell` — so a native scrollbar
+                   the textarea ever draws is clipped to the rounded corner instead of
+                   poking through it. -->
+              <!-- `data-contrast-role="indicator"` keeps this box's boundary in
+                   `contrast.js`'s non-text-indicator walk now that the border moved off the
+                   textarea itself (which the walker would otherwise still check as a FIELD)
+                   onto this plain `<div>` (which it would not, on its own — see check 3's
+                   `CONTROLS` selector in lib/contrast.js). -->
+              <div id="input-shell" data-contrast-role="indicator">
+                <textarea id="input" rows="1" placeholder="Talk to Rich…"></textarea>
+              </div>
               <!-- §9.2: "a stop button replaces or sits beside send when the composer is
                    empty". Empty + working shows stop alone; words in the box show both, so
                    the CEO never has to choose between sending what he typed and stopping.
