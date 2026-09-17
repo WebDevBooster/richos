@@ -84,6 +84,24 @@ module.exports = [
     why: "The same card's body. The outcome is unknowable; picking the message back up is his move.",
   },
   {
+    s:
+      "Not now is fine. I'll leave the message box switched off until you pick one, and " +
+      "the button to do it stays right there.",
+    c: "ACTIONABLE",
+    control: "#entity-picker-later",
+    fixture: null,
+    why:
+      "The cost of deferring the first-run company question — the 2026-09-17 nightly's D5. " +
+      "First run stacked three sheets and this was the one with no \"Not now\" on it; the " +
+      "audit called it \"at least inconsistent and at most a wall\". The control it names is " +
+      "the deferral itself, because this sentence is about what pressing THAT does. It is " +
+      "modelled on the interview offer, which the audit singled out for saying what its own " +
+      "\"Not now\" costs — and the cost here is the opposite one: the question returns, " +
+      "because he cannot type until it is answered. Driven by ui/tests/setup.js check 1a, " +
+      "which also asserts the composer is still blocked and #composer-choose-company still " +
+      "on screen afterwards, so deferring can never become the §21 armed-composer leak.",
+  },
+  {
     s: "I hit a snag mid-thought and had to stop before I finished.",
     c: "ACTIONABLE",
     control: ".tl-intervention button.tl-intervention-action",

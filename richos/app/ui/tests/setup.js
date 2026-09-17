@@ -124,6 +124,71 @@ async function main() {
     return "asked first; the memory and company questions both survive being deferred";
   });
 
+  // =======================================================================================
+  // D5 — THE THIRD SHEET CAN BE DEFERRED TOO
+  //
+  // `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D5: *"Sheets
+  // 2 and 3 offer 'Not now'; sheet 4 does not, which is at least inconsistent and at most a
+  // wall."* The one-at-a-time chain above was already right; this is the step with nothing
+  // to press at the end of it.
+  // =======================================================================================
+
+  await run.check("1a the company question offers Not now, and says what it costs", async () => {
+    const page = await openApp(browser, {
+      setup: "missing-both",
+      memory: "none",
+      chosenEntity: null,
+    });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-later");
+    await page.waitForSelector("#memory-setup:not([hidden])");
+    await page.click("#memory-setup-later");
+    await page.waitForSelector("#entity-picker:not([hidden])");
+
+    // THE CONTROL EXISTS AND IS PRESSABLE — the whole of D5.
+    assert(await page.isVisible("#entity-picker-later"), "the third sheet still has no way out");
+    assertEqual(await page.textContent("#entity-picker-later"), "Not now", "same verb as sheets 2 and 3");
+
+    // AND IT SAYS WHAT DEFERRING COSTS, which is what the audit singled out the interview
+    // offer for doing well. This cost is the opposite of that one's: the question comes
+    // back, because he cannot type until it is answered.
+    assert(await page.isVisible("#entity-picker-defer-note"), "the cost is not stated");
+    const note = await page.textContent("#entity-picker-defer-note");
+    assert(/message box/.test(note) && /until you pick one/.test(note), "the cost is vague: " + note);
+
+    await page.click("#entity-picker-later");
+    await page.waitForSelector("#entity-picker", { state: "hidden" });
+    assert(await page.isHidden("#entity-picker"), "Not now did not close the sheet");
+
+    // IT LEAVES NOTHING ARMED. Deferring must not become the §21 leak the modal guarded
+    // against — the composer stays switched off, and the control that fixes it is on screen.
+    assert(await page.isVisible("#composer-blocked"), "the composer was armed by a deferral");
+    assert(
+      await page.isVisible("#composer-choose-company"),
+      "deferred with no way back — the control that answers the question must be on screen"
+    );
+    bump(6);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "Not now present, cost stated, composer still blocked with its control";
+  });
+
+  await run.check("1b NEGATIVE CONTROL: the per-thread picker grows no Not now", async () => {
+    // The same picker, asked the OTHER question — which company one THREAD is for. That is
+    // a choice among companies he has, the backdrop already dismisses it, and a deferral
+    // control there would be a second way to do nothing. If this ever shows the button, the
+    // check above has stopped proving anything about the first-run question specifically.
+    const page = await openApp(browser, { setup: "ready", memory: "ready" });
+    await page.waitForSelector("#rail-new-thread");
+    await page.click("#rail-new-thread");
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    assert(await page.isHidden("#entity-picker-later"), "the per-thread picker grew a deferral");
+    assert(await page.isHidden("#entity-picker-defer-note"), "and a cost line for a cost it does not have");
+    bump(2);
+    await page.close();
+    return "per-thread picker: no Not now, no cost line";
+  });
+
   await run.check("2  no terminal, no path, no version number reaches his screen", async () => {
     const page = await openApp(browser, { setup: "missing-both" });
     await page.waitForSelector("#setup-sheet:not([hidden])");

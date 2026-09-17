@@ -27,8 +27,8 @@
     }
   ],
   "floorReference": {
-    "//": "All surface counts come from the same 31-surface WebKit run. Newly shipped shared markup increased the shell from 412 to 448 considered nodes without changing its 92 measured nodes. Rebase all floors together to retain each surface contribution over that shell. The existing three-node tolerance and shrink compensation remain unchanged.",
-    "measuredOn": "2026-09-17 macOS WebKit: all 34 surfaces in one run, after adding three speech-model walks (voice-model-offer / -progress / -failed). ONLY `considered` was rebased, and by exactly +10 on every surface: the four speech-model rows are markup inside #voice-panel and are therefore part of the shared shell (448 -> 458), while its 92 MEASURED nodes did not move, because those rows stay hidden until a machine with no speech model opens the panel. No `checked` floor was touched except the three new surfaces (98 each, which bites against the shell's 92 at tolerance 3). `saved-work` measures 118 checked against its committed 71 - pre-existing slack, unrelated to this work, deliberately NOT tightened on a branch that did not measure its variability.",
+    "//": "All surface counts come from the same 34-surface WebKit run. Newly shipped shared markup increased the shell from 458 to 462 considered nodes without changing its 92 measured nodes. Rebase all floors together to retain each surface contribution over that shell. The existing three-node tolerance and shrink compensation remain unchanged.",
+    "measuredOn": "2026-09-17 macOS WebKit: all 34 surfaces in one run, after the nightly's D5 gave the first-run company question a Not now and the line that says what deferring costs (index.html #entity-picker-later, #entity-picker-defer-note). `considered` counts every text node in the DOM whether or not it is hidden, so shipping two more in index.html raised EVERY surface by exactly +4 and the shell with them — measured, not assumed: the delta was checked across all 34 and came back as the single value 4. `checked` moved on exactly one surface, company-picker +4, which is the surface those two controls are VISIBLE on; that is the real contribution and it is recorded rather than tolerated. Every other surface's `checked` is untouched.",
     "tolerance": 3,
     "toleranceWhy": "Three nodes, and the number is bounded from both sides rather than picked. BELOW: the thinnest panel in the set, `first-run-unusable`, contributes 4 measured and 4 considered nodes over the bare shell, so a tolerance of 3 still fails if that panel vanishes — which is the whole job. ABOVE: measured surface-over-shell deltas moved by at most 2 between the 2026-09-06 runner run and this local one, across four days of product change and a different machine, so 3 covers the observed spread with one to spare.",
     "shell": {
@@ -44,147 +44,147 @@
   "surfaceFloors": {
     "shell": {
       "checked": 92,
-      "considered": 458
+      "considered": 462
     },
     "settings-tooltip": {
       "//": "The DOM node counts equal the shell. The separate pseudo-element opacity and generated-content checks prove that the tooltip was reached and measured.",
       "checked": 92,
-      "considered": 458
+      "considered": 462
     },
     "thread": {
       "checked": 104,
-      "considered": 474
+      "considered": 478
     },
     "corrections": {
       "checked": 46,
-      "considered": 492
+      "considered": 496
     },
     "feedback": {
       "checked": 22,
-      "considered": 468
+      "considered": 472
     },
     "search": {
       "checked": 92,
-      "considered": 546
+      "considered": 550
     },
     "inspector": {
       "checked": 158,
-      "considered": 542
+      "considered": 546
     },
     "technical-view": {
       "checked": 148,
-      "considered": 510
+      "considered": 514
     },
     "unbound": {
       "checked": 98,
-      "considered": 466
+      "considered": 470
     },
     "settings": {
       "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
       "checked": 74,
-      "considered": 458
+      "considered": 462
     },
     "history-notice": {
       "//": "Added 2026-09-05 with the tolerant ledger reader. The shell walk is 90 of 408; this is 94 of 412, and the delta is exactly the notice: two paragraphs, both themes, both MEASURED rather than filed invisible or obscured. Computed before the walk ran and unchanged by it: headline --attention on --surface-raised is 7.05:1 dark and 6.19:1 light, detail --ink on --surface-raised is 13.02:1 dark and 17.02:1 light, and the --attention border (a non-text indicator, floor 3:1) is 7.05:1 / 7.88:1 dark and 6.19:1 / 5.42:1 light against the panel and the ground behind it. Nothing here is exempt; the sentence explaining why part of his history is missing is the last text in this app anyone should have to squint at.",
       "checked": 96,
-      "considered": 462
+      "considered": 466
     },
     "opening-screen": {
       "checked": 0,
-      "considered": 460
+      "considered": 464
     },
     "updates-available": {
       "checked": 130,
-      "considered": 462
+      "considered": 466
     },
     "updates-downloading": {
       "checked": 128,
-      "considered": 460
+      "considered": 464
     },
     "updates-failed": {
       "checked": 132,
-      "considered": 462
+      "considered": 466
     },
     "updates-waiting": {
       "checked": 94,
-      "considered": 462
+      "considered": 466
     },
     "company-picker": {
-      "checked": 40,
-      "considered": 478
+      "checked": 44,
+      "considered": 482
     },
     "company-blocked": {
       "checked": 82,
-      "considered": 478
+      "considered": 482
     },
     "memory-setup": {
       "checked": 14,
-      "considered": 462
+      "considered": 466
     },
     "memory-no-compiler": {
       "checked": 12,
-      "considered": 462
+      "considered": 466
     },
     "setup-sheet": {
       "checked": 22,
-      "considered": 470
+      "considered": 474
     },
     "setup-blocked": {
       "checked": 20,
-      "considered": 470
+      "considered": 474
     },
     "voice-model-offer": {
       "//": "the offer row: the sentence, the attention dot and the download control. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 98,
-      "considered": 460
+      "considered": 464
     },
     "voice-model-progress": {
       "//": "the transfer row: the progress line plus the bar fill and track, which are the only non-text progress indicators this suite measures outside the update row. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 98,
-      "considered": 462
+      "considered": 466
     },
     "voice-model-failed": {
       "//": "the refusal row: the sentence and the retry control it must render beside. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 98,
-      "considered": 464
+      "considered": 468
     },
     "entity-view": {
       "checked": 112,
-      "considered": 486
+      "considered": 490
     },
     "thread-menu": {
       "checked": 100,
-      "considered": 464
+      "considered": 468
     },
     "techy-nothing-recorded": {
       "checked": 118,
-      "considered": 480
+      "considered": 484
     },
     "first-run-notice": {
       "//": "Added 2026-09-06 with the first-run notice. The shell walk is 96 of 418 in the same run; this is 106 of 424, and the delta is exactly the panel — a headline, two paragraphs and two controls, both themes, every one MEASURED rather than filed invisible, obscured or unprovable. Computed against the surfaces they are actually painted on before the walk ran, and unchanged by it: headline and body --ink on --surface-raised are 13.02:1 dark and 17.02:1 light; the consequence line --ink-soft on the same panel is 6.09:1 dark and 6.24:1 light; the Start label --on-gold on --accent is 7.68:1 dark and 4.72:1 light with its fill at 6.87:1 / 3.60:1 against the panel; the Not now label is --ink and its edge --line-control at 4.09:1 / 3.82:1; and the panel's own --line-control border, a non-text indicator with a 3:1 floor, is 4.57:1 dark and 3.35:1 light against the pane behind it. NOTHING HERE IS EXEMPT AND NOTHING CLAIMS TO BE — including the consequence line, which is the only place the effect of the second control is stated, and which is exactly the sort of line an exemption gets claimed for.",
       "checked": 102,
-      "considered": 464
+      "considered": 468
     },
     "first-run-unusable": {
       "//": "Added 2026-09-06 beside it, and a SEPARATE surface rather than the same one twice: this state paints different ink. 100 of 422 against the shell's 96 of 418 — two paragraphs, both themes. The headline and the panel border are --attention, the app's one 'needs your hand' color, computed 7.05:1 dark and 6.19:1 light on the panel and 7.88:1 / 5.42:1 against the pane behind it; the body is --ink at 13.02:1 / 17.02:1. It draws NO control, so it contributes no indicator beyond that border — which is the point of the state rather than an omission: no button could fix a file the app cannot read.",
       "checked": 96,
-      "considered": 462
+      "considered": 466
     },
     "repositories": {
       "checked": 20,
-      "considered": 474
+      "considered": 478
     },
     "permission": {
       "checked": 18,
-      "considered": 464
+      "considered": 468
     },
     "saved-work": {
       "checked": 71,
-      "considered": 490
+      "considered": 494
     },
     "saved-work-chip": {
       "checked": 106,
-      "considered": 476
+      "considered": 480
     }
   },
   "signatures": {}

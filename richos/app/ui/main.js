@@ -49,6 +49,10 @@ const searchInputEl = el("search-input");
 const searchResultsEl = el("search-results");
 const searchEmptyEl = el("search-empty");
 const entityPickerEl = el("entity-picker");
+/// The first-run company question's "Not now" and the line saying what it costs (D5).
+const entityPickerDeferEl = el("entity-picker-defer");
+const entityPickerDeferNoteEl = el("entity-picker-defer-note");
+const entityPickerLaterEl = el("entity-picker-later");
 const entityPickerListEl = el("entity-picker-list");
 const entityPickerTitleEl = el("entity-picker-title");
 const entityPickerNoteEl = el("entity-picker-note");
@@ -3870,12 +3874,46 @@ function registryUnreadableLine(path) {
   );
 }
 
+/// **WHAT A FIRST RUN ASKS, IN ORDER, ONE AT A TIME** — the nightly's D5.
+///
+/// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D5 walked a
+/// clean install and counted what stood between the CEO and an input box:
+///
+///   1. the splash              — a preference, not a question (Settings → Opening screen)
+///   2. the ENGINE sheet        — "There's one thing I need on this Mac"      · Not now
+///   3. the CORPUS sheet        — "Where should I keep what you tell me?"     · Not now
+///   4. the COMPANY question    — "Which company is this copy of Rich for?"   · NOT NOW MISSING
+///   5. the interview offer     — in-thread, and the best copy of the set
+///
+/// **The one-at-a-time chain was already right and is unchanged.** `init` asks 2, and
+/// `closeSetupSheet` hands off to 3, and `closeMemorySetup` hands off to 4 — nothing ever
+/// stacks. The order is written here rather than only inferred from three handoffs in three
+/// files, because a sequence nobody can read in one place is a sequence that grows a fourth
+/// step nobody notices.
+///
+/// **What was wrong is step 4, and it was wrong by omission.** Steps 2 and 3 offer "Not
+/// now"; step 4 offered nothing to press. The audit: *"which is at least inconsistent and at
+/// most a wall."* A state the CEO could change, rendered apart from the control that changes
+/// it, is this codebase's own named defect — `#composer-choose-company` exists because
+/// `#composer-blocked` had it once already.
+///
+/// **Step 5's copy is the model, and the audit says so:** *"'Not now' means I'll stop
+/// offering. You can start it any time by asking." — it says what the choice COSTS.* So the
+/// deferral added here states its cost too, and its cost is different: the company question
+/// comes back, because he cannot type until it is answered.
+const FIRST_RUN_ORDER = ["engine", "corpus", "company"];
+
 function openEntityPicker(onPick, opts) {
   const forCompany = !!(opts && opts.forCompany);
   entityPickerResolve = onPick;
   entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
   entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";
   entityPickerNoteEl.hidden = !forCompany;
+  // THE DEFERRAL, on the first-run question only — see the markup's own note. `forCompany`
+  // is the same flag that decides the title, the note and the add-a-company form, so the
+  // four cannot come apart.
+  entityPickerDeferEl.hidden = !forCompany;
+  entityPickerDeferNoteEl.hidden = !forCompany;
   // THE ADD FORM, and only for the question where "none of these" is a true answer.
   // Choosing which company ONE thread is for is a choice among companies he has; being
   // asked which company this COPY of Rich is for is the question a first launch asks, and
@@ -3931,6 +3969,23 @@ function closeEntityPicker() {
 
 entityPickerEl.addEventListener("click", (e) => {
   if (e.target === entityPickerEl) closeEntityPicker();
+});
+
+/// **"Not now" on the first-run company question** (D5).
+///
+/// It closes the sheet and does NOTHING else, which is the whole point: `requireCompanyChoice`
+/// called `showCompanyBlock()` before it opened this, so the composer is already switched off
+/// with `#composer-choose-company` beside it. He lands on a surface that says what is missing
+/// and carries the control that fixes it, instead of on an armed composer over a company he
+/// never chose — the §21 leak this modal was guarding against, which is why deferring is safe
+/// rather than a relaxation of that gate.
+///
+/// It does not remember the deferral. The question returns on the next launch because the
+/// answer is still missing and he still cannot type without it; the note above the button
+/// says so rather than letting him find out.
+entityPickerLaterEl.addEventListener("click", () => {
+  closeEntityPicker();
+  inputEl.blur();
 });
 entityPickerListEl.addEventListener("keydown", (e) => moveListFocus(e, ".picker-item"));
 

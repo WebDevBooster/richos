@@ -761,6 +761,34 @@
               <button id="entity-add-go" class="desk-btn desk-btn--confirm" type="button">Add this company</button>
             </div>
           </div>
+
+          <!-- THE WAY OUT OF THE THIRD SHEET (nightly D5).
+
+               First run stacked three sheets, and this was the one with no "Not now" on it.
+               The audit: *"Sheets 2 and 3 offer 'Not now'; sheet 4 does not, which is at
+               least inconsistent and at most a wall."* A person who does not yet know the
+               answer — and on a first launch that is the likely person — had nothing to
+               press.
+
+               IT IS ONLY ON THE FIRST-RUN QUESTION. Asked which company ONE thread is for,
+               the picker is a choice among companies he has, and dismissing it by backdrop
+               is enough. Asked which company this COPY of Rich is for, deferring is a real
+               answer with a real cost, and a cost is a thing to state rather than leave him
+               to discover.
+
+               AND IT LEAVES NOTHING ARMED. `showCompanyBlock()` has already blocked the
+               composer and drawn "Choose the company" beside it, so dismissing this lands
+               on a surface that says what is missing and carries the control that fixes it
+               — which is why this is a deferral and not the §21 leak the modal was guarding
+               against. The line below says exactly that, in his words, the way the
+               interview offer says what ITS "Not now" costs. -->
+          <p id="entity-picker-defer-note" class="overlay-note" hidden>
+            Not now is fine. I'll leave the message box switched off until you pick one, and
+            the button to do it stays right there.
+          </p>
+          <div id="entity-picker-defer" class="memory-setup-actions" hidden>
+            <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
+          </div>
         </div>
       </div>
 
