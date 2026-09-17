@@ -35,12 +35,30 @@ const COMMITMENT_PATTERNS = [
 /**
  * The other identified humans on an item, whichever slot the adapter put them in. Calendar fills
  * `attendees` and leaves `recipients` empty; Drive fills `recipients` (owners / last modifier /
- * sharer) and leaves `attendees` empty; mail will fill `recipients`. Reading BOTH is what keeps this
- * module kind-general without branching on vendor or source — it consumes only the §4.1 contract.
+ * sharer) and leaves `attendees` empty; mail fills `recipients` AND an `author` — the sender.
+ * Reading all three is what keeps this module kind-general without branching on vendor or source —
+ * it consumes only the §4.1 contract.
+ *
+ * The author belongs here, and mail is what proves it: a direct 1:1 message to the CEO has exactly
+ * one other party and that party is the sender. Reading only the two list slots would classify every
+ * such message as a "solo block" with nobody in it, drop the CEO's most important correspondence at
+ * FILTER, and never offer the counterpart to the §4.5 entity flywheel. Deduped by email, so an author
+ * who also appears as an attendee or recipient (a calendar organizer, a Drive owner who is also the
+ * last modifier) counts ONCE.
  * @param {SourceItem} item
+ * @returns {Array<import('./source-item.js').Actor>}
  */
 function parties(item) {
-  return [...item.actors.attendees, ...item.actors.recipients];
+  const out = [];
+  const seen = new Set();
+  for (const a of [item.actors.author, ...item.actors.attendees, ...item.actors.recipients]) {
+    if (!a) continue;
+    const key = (a.email || a.name || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
 }
 
 /**
@@ -62,6 +80,14 @@ function withdrawn(item) {
 export function isMemoryCandidate(item) {
   if (item.trust.quarantine) return { candidate: false, reason: 'quarantined — excluded from extraction' };
   if (withdrawn(item)) return { candidate: false, reason: 'withdrawn at the source — a supersede signal, not a new memory' };
+  // §4.4 step 1 names exactly what must STOP here: "newsletters, receipts, calendar noise, routine
+  // threads, auto-notifications". Bulk senders identify themselves — List-Unsubscribe (RFC 2369),
+  // Precedence, Auto-Submitted (RFC 3834), Gmail's own category labels — so the adapter reads that
+  // self-declaration off the vendor payload and this gate acts on it. Structured flag, no source
+  // branching, and the item still lands in the evidence zone: filtered is not discarded.
+  if ((item.content.structured || {}).automated) {
+    return { candidate: false, reason: 'bulk/automated sender — noise, stays evidence' };
+  }
   const hasOthers = parties(item).some((a) => a.orgRelation !== 'self');
   const hasBody = (item.content.text || '').trim().length > 0;
   if (!hasOthers && !hasBody) return { candidate: false, reason: 'solo block, no attendees or description — noise, stays evidence' };
