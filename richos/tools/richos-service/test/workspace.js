@@ -39,6 +39,7 @@ import {
   GoogleGmailAdapter, assertNoMessageBody, parseAddressList, extractPlainText, attachmentRefs,
   GMAIL_METADATA_SCOPE, GMAIL_CONTENT_SCOPE, METADATA_HEADERS,
   ADAPTER_VERSION as GMAIL_ADAPTER_VERSION,
+  GmailMailboxUnavailableError, isMailboxPreconditionFailure,
 } from '../lib/workspace/adapters/google-gmail.js';
 import { GOOGLE_SCOPES } from '../lib/config.js';
 import { validateAdapter } from '../lib/workspace/adapter.js';
@@ -3562,6 +3563,175 @@ await atest('a REMOVED file is never asked for a body (it is gone; the request w
   assert.deepEqual(client.textCalls, []);
   assert.equal(item.content.structured.bodyExcludedReason, 'removed');
   assert.equal(item.content.structured.contentPolicy, 'metadata-only');
+});
+
+// ============================== GMAIL: no-mailbox account (2026-09-17) ===========================
+group('Gmail: a Google account with no Gmail mailbox is a stated condition, not a raw 400');
+
+/** Google's own body for `users/me/profile` on an account with no Gmail mailbox behind it — the
+ * real shape the CEO's own first sync hit against `a.b.booster@icloud.com` on main `ab45ec58`. */
+const NO_MAILBOX_BODY = JSON.stringify({
+  error: {
+    code: 400,
+    message: 'Precondition check failed.',
+    errors: [{ message: 'Precondition check failed.', domain: 'global', reason: 'failedPrecondition' }],
+    status: 'FAILED_PRECONDITION',
+  },
+});
+const noMailboxError = () => Object.assign(
+  new Error(`google GET https://gmail.googleapis.com/gmail/v1/users/me/profile failed: 400 ${NO_MAILBOX_BODY}`),
+  { status: 400 },
+);
+/** A genuine 400 of a DIFFERENT shape — the positive control this fix must never launder. */
+const otherBadRequestBody = JSON.stringify({
+  error: { code: 400, message: 'Bad Request', status: 'INVALID_ARGUMENT', errors: [{ reason: 'badRequest' }] },
+});
+
+test('isMailboxPreconditionFailure recognizes Google\'s exact no-mailbox shape', () => {
+  assert.equal(isMailboxPreconditionFailure(noMailboxError()), true);
+});
+
+test('isMailboxPreconditionFailure REFUSES every other 400 shape — positive control', () => {
+  assert.equal(isMailboxPreconditionFailure(gmailError(400)), false, 'a bare 400 with no body carries no evidence');
+  assert.equal(isMailboxPreconditionFailure(Object.assign(
+    new Error(`google GET https://gmail.googleapis.com/gmail/v1/users/me/profile failed: 400 ${otherBadRequestBody}`),
+    { status: 400 },
+  )), false, 'a genuine 400 of a different shape is not this condition');
+  assert.equal(isMailboxPreconditionFailure(null), false);
+  assert.equal(isMailboxPreconditionFailure({ status: 400, message: 'not json at all' }), false);
+  assert.equal(isMailboxPreconditionFailure(Object.assign(new Error(`x 500 ${NO_MAILBOX_BODY}`), { status: 500 }),
+  ), false, 'the same body at a different status is not this condition either');
+});
+
+await atest('listFullSync translates the no-mailbox 400 into a typed condition — never a raw error', async () => {
+  const client = gmailClient([['/profile', noMailboxError()]]);
+  await assert.rejects(
+    () => gmailAdapter({ client }).listFullSync(),
+    (err) => err instanceof GmailMailboxUnavailableError && err.unavailable === true
+      && err.reason === 'this Google account has no Gmail mailbox',
+  );
+  // Positive control: a DIFFERENT 400 on the very same call still fails as a real error, untranslated.
+  const other = gmailClient([['/profile', gmailError(400)]]);
+  await assert.rejects(
+    () => gmailAdapter({ client: other }).listFullSync(),
+    (err) => !(err instanceof GmailMailboxUnavailableError) && err.status === 400,
+  );
+});
+
+await atest('ingestOnce propagates the unavailable condition — never swallowed, never persists a cursor', async () => {
+  const zone = tmp();
+  try {
+    const adapter = gmailAdapter({ client: gmailClient([['/profile', noMailboxError()]]) });
+    await assert.rejects(
+      () => ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now }),
+      (err) => err instanceof GmailMailboxUnavailableError,
+    );
+    assert.equal(
+      getSyncState('google', 'mail', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId), null,
+      'no cursor is ever persisted for a mailbox that never resolved — the next attempt retries the same call',
+    );
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+test('recordRun/describeRun: unavailable is its own outcome — never ok:false, never a fabricated success tally', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, '_last_sync.json');
+    const written = recordRun({
+      vendor: 'google', source: 'mail', instance: 'inst-mail-1', at: NOW,
+      unavailable: 'this Google account has no Gmail mailbox',
+    }, file);
+    assert.equal(written.ok, true, 'a stated account condition is not a failure');
+    assert.equal(written.unavailable, true);
+    assert.equal(written.reason, 'this Google account has no Gmail mailbox');
+    assert.equal(written.error, undefined, 'never recorded under the FAILED vocabulary');
+    assert.equal(describeRun(written), `${new Date(NOW).toISOString()} — unavailable — this Google account has no Gmail mailbox`);
+    assert.equal(getRunState('google', 'mail', 'inst-mail-1', file).unavailable, true);
+    // Positive control: an ordinary FAILED run is unaffected by the new branch.
+    const failedRun = recordRun({ vendor: 'google', source: 'mail', instance: 'inst-mail-2', at: NOW, error: 'boom' }, file);
+    assert.equal(failedRun.ok, false);
+    assert.equal(failedRun.unavailable, undefined);
+    assert.match(describeRun(failedRun), /^FAILED at .* — boom$/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+/** Wrap a googleHttpMock so `users/me/profile` answers Google's own no-mailbox shape; everything else
+ * (calendar, drive, the mailbox's own message/history endpoints once reachable) is unchanged. */
+function withNoGmailMailbox(mock) {
+  return {
+    calls: mock.calls,
+    http: async (url, init) => {
+      if (new URL(url).pathname.endsWith('/users/me/profile')) return httpResponse(400, NO_MAILBOX_BODY);
+      return mock.http(url, init);
+    },
+  };
+}
+
+await atest('sync: no Gmail mailbox is a stated line, not FAILED — the other two sources still run, exit 0', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: withNoGmailMailbox(googleHttpMock({ grantedScope: FULL_GRANT })).http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /gmail:\s+unavailable — this Google account has no Gmail mailbox/);
+    assert.ok(!/gmail:\s+FAILED/.test(f.text()), 'never presented under the FAILED vocabulary');
+    const mail = r.results.find((x) => x.source === 'mail');
+    assert.equal(mail.unavailable, 'this Google account has no Gmail mailbox');
+    assert.equal(mail.error, null);
+    assert.equal(mail.summary, null);
+    for (const s of ['calendar', 'drive']) {
+      assert.equal(r.results.find((x) => x.source === s).summary.ingested, 1, `${s}'s result stands`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('status shows the same "unavailable" line for gmail that sync printed', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    await sync(f.deps({ http: withNoGmailMailbox(googleHttpMock({ grantedScope: FULL_GRANT })).http }));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /last sync: .*unavailable — this Google account has no Gmail mailbox/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a genuine 400 of a DIFFERENT shape still fails as today — positive control', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    f.lines.length = 0;
+    const base = googleHttpMock({ grantedScope: FULL_GRANT });
+    const badHttp = async (url, init) => {
+      if (new URL(url).pathname.endsWith('/users/me/profile')) return httpResponse(400, otherBadRequestBody);
+      return base.http(url, init);
+    };
+    const r = await sync(f.deps({ http: badHttp }));
+    assert.equal(r.exitCode, 2, f.text());
+    assert.match(f.text(), /gmail:\s+FAILED —/);
+    assert.ok(!f.text().includes('unavailable'), 'a different 400 is never laundered into the stated condition');
+  } finally { f.cleanup(); }
+});
+
+await atest('a later sync recovers once the account gains a mailbox — no reconnect in between', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    f.lines.length = 0;
+    const first = await sync(f.deps({ http: withNoGmailMailbox(googleHttpMock({ grantedScope: FULL_GRANT })).http }));
+    assert.equal(first.exitCode, 0, f.text());
+    assert.equal(first.results.find((x) => x.source === 'mail').unavailable, 'this Google account has no Gmail mailbox');
+
+    f.lines.length = 0;
+    // The account gains a mailbox; no `connect` runs between the two syncs.
+    const second = await sync(f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }));
+    assert.equal(second.exitCode, 0, f.text());
+    const mail2 = second.results.find((x) => x.source === 'mail');
+    assert.equal(mail2.unavailable, null);
+    assert.equal(mail2.summary.ingested, 1, 'the mailbox synced normally on the very next attempt');
+  } finally { f.cleanup(); }
 });
 
 // =================================================================================================

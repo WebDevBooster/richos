@@ -98,6 +98,51 @@ import { GoneError } from '../google-client.js';
 export const ADAPTER_VERSION = '1.0.0';
 const API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 
+/**
+ * A Google account that is a Google account but has no Gmail mailbox behind it — the shape built with
+ * a non-Gmail address (e.g. an `@icloud.com` login on a Google account, CEO's own account, 2026-09-17).
+ * Google answers `users/me/profile` with `400 FAILED_PRECONDITION` in exactly this case: not a token
+ * problem, not a scope problem, not a transient fault — a stated FACT about the account. It is thrown
+ * as its own class, never a bare `Error`, so a caller can tell "this account has no mail" apart from
+ * every other 400 shape without string-matching a message.
+ */
+export class GmailMailboxUnavailableError extends Error {
+  constructor() {
+    super('this Google account has no Gmail mailbox');
+    this.name = 'GmailMailboxUnavailableError';
+    // A generic, source-agnostic signal a caller (the sync command) can check for without importing
+    // this class or knowing anything about Gmail: "stated condition, not a failure."
+    this.unavailable = true;
+    this.reason = 'this Google account has no Gmail mailbox';
+  }
+}
+
+/**
+ * Does a `GoogleClient` 4xx error carry Google's `FAILED_PRECONDITION` shape for "no Gmail mailbox"?
+ * The client transports the response BODY as text appended to `err.message` (`google-client.js`
+ * `getRaw`), not as a parsed field, so this parses the JSON tail of that message rather than assuming
+ * a shape the transport does not promise. A body that fails to parse, or that parses to any other
+ * reason/status, is not this condition — a genuine 400 of another shape must still fail as a real error
+ * (positive control).
+ * @param {any} err
+ */
+export function isMailboxPreconditionFailure(err) {
+  if (!err || err.status !== 400) return false;
+  const raw = String(err.message || '');
+  const start = raw.indexOf('{');
+  if (start === -1) return false;
+  let body;
+  try {
+    body = JSON.parse(raw.slice(start));
+  } catch {
+    return false;
+  }
+  const e = body && body.error;
+  if (!e || typeof e !== 'object') return false;
+  const reasons = Array.isArray(e.errors) ? e.errors.map((x) => x && x.reason) : [];
+  return e.status === 'FAILED_PRECONDITION' || reasons.includes('failedPrecondition');
+}
+
 /** The ONLY mailbox this adapter can ever read: the authenticated account's own (roadmap:48). */
 const USER_ID = 'me';
 
@@ -222,7 +267,18 @@ export class GoogleGmailAdapter {
    * the overlap. The reverse order would leave a hole no later poll could fill.
    */
   async listFullSync() {
-    const profile = await this.client.getJson(`${API_BASE}/users/${USER_ID}/profile`);
+    let profile;
+    try {
+      profile = await this.client.getJson(`${API_BASE}/users/${USER_ID}/profile`);
+    } catch (err) {
+      // Translated HERE, at the one call that can produce it, rather than downstream by string-
+      // matching: a stated account condition, never a fault in this adapter or a token problem. No
+      // cursor is ever persisted for a mailbox that never resolved, so the very next sync attempt
+      // (of any kind — `--once`, a later poll) retries this same call with no reconnect required,
+      // and recovers on its own the moment the account gains a mailbox.
+      if (isMailboxPreconditionFailure(err)) throw new GmailMailboxUnavailableError();
+      throw err;
+    }
     const anchor = String(profile.historyId || '');
     const items = [];
     let pageToken = null;
