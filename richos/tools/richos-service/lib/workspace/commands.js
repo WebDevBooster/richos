@@ -46,7 +46,8 @@ import {
   migrateClientConfig, accountsOf, accountView, upsertAccount,
 } from './client-config.js';
 import { readInstalledClientFile } from './client-secret.js';
-import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry } from './registry.js';
+import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry, scopeMatcherFor } from './registry.js';
+import { resolveGrantedIdentity, describeIdentityAttempts, sameAddress } from './identity.js';
 import { awaitAuthorizationCode, consentState } from './consent.js';
 import { pkcePair } from './oauth.js';
 import { defaultSecretBackend } from './keychain.js';
@@ -60,6 +61,20 @@ import { ingestOnce } from './core.js';
 import { runPromotion, describePromotion } from './promote-run.js';
 
 export { SUPPORTED_VENDORS };
+
+/**
+ * WHY an identity could not be read, in one clause — a vendor that cannot be asked at all says so in
+ * its own words (`vendors.js`), and a vendor that can says which of its probes the grant left unusable.
+ */
+function unverifiedReason(d, identity) {
+  if (!(d.profile.identityProbes || []).length) {
+    return d.profile.identityUnverifiableReason
+      || `${d.words.label} cannot be asked which account a grant belongs to under the scopes RichOS requests`;
+  }
+  return identity.attempts.length
+    ? 'every way of asking that your granted scopes allow was tried, and none of them answered'
+    : 'none of the scopes that can name an account are in this grant';
+}
 
 /** Label column width, matching `doctor`'s existing alignment. */
 const L = (label) => `${label}:`.padEnd(12);
@@ -584,13 +599,71 @@ export async function connect(deps = {}) {
     return { exitCode: 1 };
   }
 
-  tm.onAuthorized(tokens);
+  // ── WHOSE CONSENT IS THIS? ─────────────────────────────────────────────────────────────────────
+  // BEFORE the grant is stored, because after it is stored the damage is already done: on 2026-09-17
+  // two consents given minutes apart were filed under each other's addresses, and every sync
+  // afterwards read the wrong account's cloud (`identity.js` has the measured output). The command
+  // line cannot know which Google account was signed in in the browser — but the grant itself can be
+  // ASKED, using only the read scopes it already carries.
   const granted = parseGrantedScopes(tokens.scope || scopes.join(' '));
+  const identity = await resolveGrantedIdentity({
+    probes: d.profile.identityProbes || [],
+    grantedScopes: granted,
+    matches: scopeMatcherFor(d.vendor),
+    // The SAME client a sync polls with, given the token this exchange just returned rather than the
+    // keychain's — collector-path parity, and the only token that can answer the question being asked.
+    get: (url) => d.profile.makeClient({ getAccessToken: async () => tokens.access_token }, d).getJson(url),
+  });
+
+  if (identity.email && !sameAddress(identity.email, account.accountId)) {
+    const discarded = await d.profile.discardTokens(tokens, d);
+    d.out('');
+    d.out(`NOT CONNECTED — that consent belongs to ${identity.email}, not ${account.accountId}.`);
+    d.out('');
+    d.out(`${d.words.label} was asked whose grant this is (${identity.via}, using the scopes you just approved — no extra`);
+    d.out('permission), and it answered with a different address from the one this command was for. Storing');
+    d.out('it under the name you typed is exactly how two accounts end up reading each other\'s mail and');
+    d.out('calendars, so nothing was stored.');
+    d.out('');
+    d.out(`${L('discarded')}${discarded.note}`);
+    d.out('');
+    d.out(`To connect ${account.accountId}: sign out of ${identity.email} in your browser, or open the consent`);
+    d.out('screen in a window signed in as that account, and run the same command again:');
+    d.out('');
+    d.out(`  richos-service workspace connect ${d.vendor} --account ${account.accountId}`);
+    d.out('');
+    d.out(`To connect ${identity.email} instead, run it with --account ${identity.email}.`);
+    return { exitCode: 1, connected: false, identity: { email: identity.email, matched: false, via: identity.via } };
+  }
+
+  // AN ABSENCE OF EVIDENCE IS NOT A CONTRADICTION, AND IS NOT TREATED AS ONE.
+  //
+  // Refusing here too was the first shape of this check, and the suite caught what it costs: a grant
+  // that carries only `calendar.events.readonly` — the pre-§44 width, which the registry supports
+  // deliberately and reports as LIMITED — can answer no probe at all, and refusing it would turn a
+  // degraded-but-working connect into a hard failure over a question nobody could answer. That is
+  // RichOS deciding a narrower grant is unusable, which is the CEO's call and he made it the other
+  // way. So the absence is stored WITH the grant and said out loud at connect and at every status,
+  // never swallowed: `identity: NOT VERIFIED` is a line he reads, not a silence.
+  const identityMeta = identity.email
+    ? { email: identity.email, via: identity.via, verifiedAt: d.now() }
+    : { email: null, via: null, verifiedAt: d.now(), unverified: unverifiedReason(d, identity) };
+
+  tm.onAuthorized(tokens, { identity: identityMeta });
   const { enabled, skipped } = registryFor({ scope: granted.join(' ') }, account, tm, d);
   const health = tm.health();
 
   d.out('');
   d.out(`CONNECTED — ${account.accountId}`);
+  // The identity line sits ABOVE the tokens line on purpose: it is the answer to "is this the right
+  // account?", and that question is settled before the CEO reads anything about what was stored.
+  if (identity.email) {
+    d.out(`${L('identity')}${identity.email} (verified — ${d.words.label} itself says this grant is that account's, asked via ${identity.via})`);
+  } else {
+    d.out(`${L('identity')}NOT VERIFIED — ${identityMeta.unverified}`);
+    for (const line of describeIdentityAttempts(identity)) d.out(`            ${line}`);
+    d.out(`            RichOS cannot tell whose consent this is, so check that ${account.accountId} is the account you approved it with.`);
+  }
   d.out(`${L('tokens')}stored in the OS keychain (service ${tm.service}, this account's own item). Nothing written to any RichOS file or server.`);
   for (const e of enabled) {
     d.out(`${L('enabled')}${e.label} — ${e.scope}`);
@@ -617,6 +690,7 @@ export async function connect(deps = {}) {
     exitCode: 0,
     connected: true,
     account: account.accountId,
+    identity: { email: identity.email, matched: Boolean(identity.email), via: identity.via },
     accounts: accountsOf(config).map((a) => a.accountId),
     enabled: enabled.map((e) => e.source),
     skipped: skipped.map((s) => s.source),
@@ -694,6 +768,24 @@ export async function status(deps = {}) {
     d.out(`${L('auth')}${health.state.toUpperCase()}${hours == null ? '' : ` — ~${hours}h left on the grant`}`);
     d.out(`            ${health.message}`);
 
+    // WHOSE grant this is, as the vendor itself answered at connect. Three states, and the third one
+    // is the reason this line exists: a grant stored before the check existed carries no proof, and
+    // the two grants on the CEO's own machine on 2026-09-17 were stored under each other's names.
+    const proven = record.identity && record.identity.email ? record.identity : null;
+    if (proven && sameAddress(proven.email, account.accountId)) {
+      d.out(`${L('identity')}${proven.email} (verified at connect, via ${proven.via})`);
+    } else if (proven) {
+      d.out(`${L('identity')}WRONG ACCOUNT — this keychain item is filed under ${account.accountId} but the grant in it`);
+      d.out(`            belongs to ${proven.email}. Everything it syncs is the other account's. Run:`);
+      d.out(`              richos-service workspace connect ${d.vendor} --account ${account.accountId}`);
+      exitCode = 1;
+    } else if (record.identity) {
+      d.out(`${L('identity')}NOT VERIFIED — ${record.identity.unverified || 'the grant could not be asked whose it is'}`);
+    } else {
+      d.out(`${L('identity')}not verified — this grant predates the identity check, so RichOS cannot say whose it is.`);
+      d.out(`            Re-run \`workspace connect ${d.vendor} --account ${account.accountId}\` and it will be proven at consent.`);
+    }
+
     const { enabled, skipped, granted } = registryFor(record, account, tm, d);
     d.out(`${L('granted')}${granted.length} scope${granted.length === 1 ? '' : 's'}`);
     for (const e of enabled) {
@@ -711,6 +803,7 @@ export async function status(deps = {}) {
       accountId: account.accountId,
       connected: true,
       health: health.state,
+      identity: proven ? { email: proven.email, via: proven.via, matched: sameAddress(proven.email, account.accountId) } : null,
       enabled: enabled.map((e) => e.source),
       skipped: skipped.map((s) => s.source),
     });

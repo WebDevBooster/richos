@@ -165,8 +165,16 @@ export class TokenManager {
   /**
    * Persist the tokens from a fresh authorization-code exchange (§6). Anchors the refresh-token
    * countdown at obtain-time. `appMode` defaults to external-testing (the current dogfood reality).
+   *
+   * `meta.identity` is the address the grant was PROVEN to belong to, read from the vendor with this
+   * very token before this call (`identity.js`). It is written into the record rather than inferred
+   * later for one reason: the keychain key is the address the CEO TYPED, and on 2026-09-17 two grants
+   * were filed under each other's typed names. A record that carries the address the vendor itself
+   * reported is the only form in which `status` can say "verified" and mean it — and a record
+   * WITHOUT one is a grant that predates the check, which is a different thing from a grant that
+   * failed it and is reported as such.
    * @param {{access_token:string, refresh_token:string, expires_in:number, scope:string}} tokenResponse
-   * @param {{appMode?:string}} [meta]
+   * @param {{appMode?:string, identity?:{email:string, via:string, verifiedAt:number}}} [meta]
    */
   onAuthorized(tokenResponse, meta = {}) {
     const now = this.now();
@@ -177,6 +185,7 @@ export class TokenManager {
       refreshTokenObtainedAt: now,
       scope: tokenResponse.scope || '',
       appMode: meta.appMode || 'external-testing',
+      ...(meta.identity ? { identity: meta.identity } : {}),
     };
     return this.save(record);
   }

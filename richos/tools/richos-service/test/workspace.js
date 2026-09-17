@@ -64,6 +64,7 @@ import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
 import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import { resolveGrantedIdentity, sameAddress, canonicalAddress, GOOGLE_IDENTITY_PROBES } from '../lib/workspace/identity.js';
 
 // ---- MICROSOFT 365 (P4) — the second vendor's imports, kept together ---------------------------
 import {
@@ -3067,6 +3068,11 @@ function httpResponse(status, body, headers = {}) {
 function googleHttpMock(opts = {}) {
   const calls = [];
   const grantedScope = opts.grantedScope ?? GOOGLE_SCOPES.calendar;
+  // WHOSE account this mocked Google belongs to. Every one of the three identity probes answers with
+  // it, because on a real account they all name the same owner — and a test that wants the
+  // crossed-consent failure sets it to somebody else, which is the only way to produce that failure
+  // without two live Google accounts.
+  const identityEmail = opts.identityEmail ?? 'ceo@acme.com';
   const http = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
     if (url.startsWith(TOKEN_URL)) {
@@ -3086,6 +3092,17 @@ function googleHttpMock(opts = {}) {
     }
     if (url.startsWith(REVOKE_URL)) return httpResponse(200, '');
     const u = new URL(url);
+    // --- the identity probes (`lib/workspace/identity.js`), each answering with this account's own
+    // address exactly as the real API does. They come FIRST so the broad calendar branch below
+    // cannot swallow the primary-calendar read.
+    if (u.pathname === '/calendar/v3/calendars/primary') {
+      if (opts.calendarIdentityStatus) return httpResponse(opts.calendarIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ id: identityEmail, summary: 'Primary' }));
+    }
+    if (u.pathname === '/drive/v3/about') {
+      if (opts.driveIdentityStatus) return httpResponse(opts.driveIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ user: { emailAddress: identityEmail } }));
+    }
     if (u.pathname.includes('/calendar/v3/')) {
       return httpResponse(200, JSON.stringify(u.searchParams.get('syncToken')
         ? { items: opts.calendarDelta || [EVENT_ORG], nextSyncToken: 'CAL-2' }
@@ -3097,7 +3114,12 @@ function googleHttpMock(opts = {}) {
     if (/\/drive\/v3\/files\/[^/]+\/export$/.test(u.pathname)) return httpResponse(200, 'Q3 plan: ship the thing.');
     if (/\/drive\/v3\/files\/[^/]+$/.test(u.pathname) && u.searchParams.get('alt') === 'media') return httpResponse(200, 'plain bytes');
     if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
-    if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
+    if (u.pathname.endsWith('/users/me/profile')) {
+      // A Google account with NO MAILBOX answers this with 400 FAILED_PRECONDITION — the state the
+      // CEO's personal account is actually in, and the reason the identity check tries more than one.
+      if (opts.noMailbox) return httpResponse(400, JSON.stringify({ error: { code: 400, status: 'FAILED_PRECONDITION' } }));
+      return httpResponse(200, JSON.stringify({ emailAddress: identityEmail, historyId: '2001' }));
+    }
     if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
     if (/\/users\/me\/messages\/[^/]+$/.test(u.pathname)) return httpResponse(200, JSON.stringify(MAIL_INTERNAL));
     if (u.pathname.endsWith('/users/me/messages')) {
@@ -3256,6 +3278,170 @@ await atest('connect refuses loudly when Google rejects the code exchange', asyn
     assert.match(f.text(), /invalid_grant/);
   } finally { f.cleanup(); }
 });
+
+
+// -------------------------------------------------------------------------------------------------
+group('`connect` VERIFIES WHOSE CONSENT IT RECEIVED (the 2026-09-17 crossed-grant defect)');
+// -------------------------------------------------------------------------------------------------
+
+await atest('a consent belonging to the OTHER account is REFUSED and nothing is stored — PROBE: the matching one stores', async () => {
+  // THE FAILURE, reproduced: the command was run for one address and the browser was signed in as the
+  // other. Before this check, the grant was filed under the address that was typed and every sync
+  // afterwards read the wrong account's cloud.
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'someone.else@leadersadapt.com' });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 1, f.text());
+    assert.equal(f.record(), null, 'NOTHING was stored — not under either address');
+    assert.equal(f.backend.get('com.richos.workspace.google', 'oauth-tokens someone.else@leadersadapt.com'), null,
+      'and it was not helpfully filed under the address Google reported either');
+    // ONE sentence, naming BOTH addresses — which is the only form in which the CEO can see what
+    // happened without going to look for it.
+    assert.match(f.text(), /NOT CONNECTED — that consent belongs to someone\.else@leadersadapt\.com, not ceo@acme\.com\./);
+    // The accidental grant is not left standing on his account.
+    assert.ok(mock.calls.some((c) => c.url.startsWith(REVOKE_URL)), 'the discarded grant was revoked at Google');
+    assert.match(f.text(), /revoked at Google/);
+  } finally { f.cleanup(); }
+
+  // PROBE: the identical ceremony whose identity MATCHES connects and stores. The refusal is about
+  // the identity and nothing else.
+  const g = wsFixture();
+  try {
+    const r = await connect(g.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    assert.equal(r.exitCode, 0, g.text());
+    assert.equal(g.record().refreshToken, FAKE_REFRESH);
+    assert.match(g.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { g.cleanup(); }
+});
+
+await atest('the identity is read with the token JUST EXCHANGED, before the keychain is touched', async () => {
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'ceo@acme.com' });
+    await connect(f.deps(connectStubs(mock)));
+    const probe = mock.calls.find((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(probe, 'the probe ran');
+    assert.equal(probe.auth, `Bearer ${FAKE_ACCESS}`,
+      'with the access token from THIS exchange — a check against the keychain would verify the wrong grant');
+    const exchangeAt = mock.calls.findIndex((c) => c.url.startsWith(TOKEN_URL));
+    const probeAt = mock.calls.findIndex((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(exchangeAt < probeAt, 'and after the exchange, which is the only moment the answer exists');
+  } finally { f.cleanup(); }
+});
+
+await atest('the check asks for NO new scope — the consent screen is exactly what it was', async () => {
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar] });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.deepEqual(requested, [GOOGLE_SCOPES.calendar], 'one scope asked for, and it is the source scope');
+    for (const forbidden of ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/userinfo.email']) {
+      assert.ok(!requested.includes(forbidden), `${forbidden} would change the consent screen — the CEO's decision, not ours`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('an account with NO MAILBOX is verified by the next probe, not abandoned at the first failure', async () => {
+  // Exactly the CEO's personal account: no Gmail mailbox at all, so `users/me/profile` answers 400
+  // FAILED_PRECONDITION — a fact about the mailbox, not a reason to stop asking.
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.mail, GOOGLE_SCOPES.calendar] });
+  try {
+    const mock = googleHttpMock({
+      identityEmail: 'ceo@acme.com',
+      noMailbox: true,
+      grantedScope: `${GOOGLE_SCOPES.mail} ${GOOGLE_SCOPES.calendar}`,
+    });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.via, 'Calendar', 'Gmail could not answer, so the primary calendar did');
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a grant no probe can answer CONNECTS and says NOT VERIFIED — never silently', async () => {
+  // `calendar.events.readonly` is the pre-§44 width the registry supports on purpose and reports as
+  // LIMITED. It can name no account, and refusing it would turn a working connect into a failure over
+  // a question nobody can answer — so the absence is stored with the grant and SAID.
+  const f = wsFixture({ scopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }))));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /Calendar: not granted, so it was not asked/,
+      'and it names which probe could not run, rather than shrugging');
+    assert.equal(f.record().identity.email, null, 'the record carries the absence, so status can repeat it');
+
+    f.lines.length = 0;
+    await status(f.deps({ http: googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }).http }));
+    assert.match(f.text(), /identity:   NOT VERIFIED/, 'every status says it again');
+  } finally { f.cleanup(); }
+});
+
+await atest('status reports a stored grant that belongs to the WRONG account, and exits non-zero', async () => {
+  // A record written by a build that verified nothing, or a keychain item edited by hand. The CEO's
+  // machine held two of these on 2026-09-17 and nothing said so.
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    const rec = f.record();
+    f.backend.set('com.richos.workspace.google', tokenAccount('ceo@acme.com'),
+      JSON.stringify({ ...rec, identity: { email: 'the.other@leadersadapt.com', via: 'Drive', verifiedAt: NOW } }));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 1, 'a crossed grant is not a healthy status');
+    assert.match(f.text(), /identity:   WRONG ACCOUNT/);
+    assert.match(f.text(), /belongs to the\.other@leadersadapt\.com/);
+    assert.equal(r.accounts[0].identity.matched, false);
+  } finally { f.cleanup(); }
+});
+
+await atest('status prints the verified identity beside the account it is filed under', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified at connect, via Calendar\)/);
+    assert.equal(r.accounts[0].identity.matched, true);
+  } finally { f.cleanup(); }
+});
+
+test('sameAddress is case-insensitive everywhere and dot-insensitive ONLY where Google says so', () => {
+  assert.ok(sameAddress('CEO@Acme.com', 'ceo@acme.com'), 'case never distinguishes a mailbox');
+  assert.ok(sameAddress('c.e.o@gmail.com', 'ceo@gmail.com'), "gmail.com ignores dots — Google's own rule");
+  assert.ok(sameAddress('ceo+workspace@googlemail.com', 'ceo@googlemail.com'), 'and a +tag is a delivery alias');
+  // PROBE: the narrowness is the point. Two Workspace mailboxes that differ by a dot are two people.
+  assert.ok(!sameAddress('c.e.o@acme.com', 'ceo@acme.com'), 'a hosted domain decides its own local parts');
+  assert.ok(!sameAddress('a.b.booster@icloud.com', 'alex@leadersadapt.com'), 'the two accounts in the incident');
+  assert.ok(!sameAddress('', 'ceo@acme.com'), 'an empty answer never matches anything');
+});
+
+await atest('resolveGrantedIdentity tries every granted probe in order and reports what each one said', async () => {
+  const asked = [];
+  const result = await resolveGrantedIdentity({
+    probes: GOOGLE_IDENTITY_PROBES,
+    grantedScopes: [GOOGLE_SCOPES.drive, GOOGLE_SCOPES.calendar],
+    matches: (granted, scope) => granted.includes(scope),
+    get: async (url) => {
+      asked.push(url);
+      if (url.includes('/drive/v3/about')) throw Object.assign(new Error('google GET failed: 500 upstream'), { status: 500 });
+      return { id: 'ceo@acme.com' };
+    },
+  });
+  assert.equal(result.email, 'ceo@acme.com');
+  assert.equal(result.via, 'Calendar');
+  assert.equal(asked.length, 2, 'Gmail was not granted, so it was never asked');
+  assert.deepEqual(result.skipped, ['Gmail']);
+  assert.match(result.attempts[0].error, /500/, "the first probe's failure is kept, not swallowed");
+});
+
 
 await atest('connect --client-file puts the secret in the KEYCHAIN — never in a file, never in a log line', async () => {
   const f = wsFixture({ clientSecret: false });
@@ -5267,11 +5453,11 @@ async function connectTwo(f, opts = {}) {
   const scope = opts.grantedScope ?? FULL_GRANT;
   const sources = opts.sources || ['calendar', 'drive', 'mail'];
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope, identityEmail: ACCT_A })),
     clientId: FAKE_CLIENT_ID, accountId: ACCT_A, sources,
   }));
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope, identityEmail: ACCT_B })),
     accountId: ACCT_B, sources,
   }));
   return { a: 'AT-account-a', b: 'AT-account-b' };
@@ -5619,7 +5805,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     writeV1Config(f.clientConfigFile);
     f.lines.length = 0;
     // The old shape connects — the CEO's existing install does not need a migration step he runs.
-    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a'))));
+    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a', { identityEmail: ACCT_A }))));
     assert.equal(r.exitCode, 0, f.text());
     assert.equal(r.account, ACCT_A);
     assert.match(f.text(), /now lists accounts \(your existing account is unchanged\)/);
@@ -5629,7 +5815,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     assert.deepEqual(onDisk.accounts[0].orgDomains, ['acme.com'], 'his org domains survived the rewrite');
 
     // PROBE: a second account goes on beside the migrated one, which is the point of migrating.
-    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b')), accountId: ACCT_B }));
+    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b', { identityEmail: ACCT_B })), accountId: ACCT_B }));
     assert.deepEqual(accountsOf(loadClientConfig(f.clientConfigFile)).map((a) => a.accountId), [ACCT_A, ACCT_B]);
     assert.ok(f.record(ACCT_A) && f.record(ACCT_B));
   } finally { f.cleanup(); }
@@ -5882,6 +6068,23 @@ await atest('connect microsoft completes the Entra ceremony and stores the grant
     // NEVER A GUESSED CLOCK: Entra publishes no lifetime, so no countdown is printed.
     assert.doesNotMatch(f.text(), /expire[sd] after ~7 days/);
     assert.match(f.text(), /publishes no fixed lifetime/);
+  } finally { f.cleanup(); }
+});
+
+await atest('connect microsoft says its identity is NOT VERIFIED rather than implying a check Graph cannot answer', async () => {
+  // The Google side proves whose consent it received from the scopes it already holds. Graph names the
+  // signed-in user only under `User.Read`, which is not in MICROSOFT_SCOPES and which RichOS may not
+  // add on its own — so this side reports the gap in Microsoft's own terms. A printed "verified" here
+  // would be the same class of invention `vendors.js` was written to keep out of this file.
+  const f = msFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(msHttpMock())));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /User\.Read/, "and it names WHY, in the vendor's own vocabulary");
+    assert.doesNotMatch(f.text(), /\(verified/, 'nothing here claims a verification that did not happen');
+    assert.equal(f.record().identity.email, null, 'the absence travels with the grant');
   } finally { f.cleanup(); }
 });
 
@@ -6276,8 +6479,8 @@ await atest('sync PROMOTES: the pull ends with records in the corpus and a promo
 await atest('promotion runs ONCE for a sync over two accounts, not once per account', async () => {
   const f = corpusFixture({ accounts: ['ceo@acme.com', 'ceo@other.com'] });
   try {
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@acme.com' }));
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@other.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })), accountId: 'ceo@acme.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@other.com' })), accountId: 'ceo@other.com' }));
     f.lines.length = 0;
     const r = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
     assert.equal(r.exitCode, 0, f.text());

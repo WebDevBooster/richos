@@ -16,13 +16,17 @@
  *   - `scopes`        ONLY values declared in `config.js:GOOGLE_SCOPES`. A scope string typed here that
  *                     the registry does not declare is REFUSED, not requested: widening what the CEO
  *                     consents to is his decision on the Google screen (§6.2), never a config typo.
- *   - `accountId`     the address a grant is bound to. It is NOT derivable from the tokens we hold:
- *                     the least-privilege grant is `calendar.readonly` (§44), which carries no identity
- *                     scope, so there is no `id_token` and no People API call available. Asking for
- *                     `openid`/`email` to learn it would change the consent screen — a CEO decision, not
- *                     an implementation detail. So the CEO names his own address once, and it does two
- *                     jobs: the adapters' stable `sourceInstanceId`, and the governance identity (§5.1)
- *                     that decides which of his meetings are internal.
+ *   - `accountId`     the address a grant is bound to. The CEO names it himself, and it does two jobs:
+ *                     the adapters' stable `sourceInstanceId`, and the governance identity (§5.1) that
+ *                     decides which of his meetings are internal. There is still no identity SCOPE in
+ *                     the grant — the least-privilege one is `calendar.readonly` (§44), so no
+ *                     `id_token` and no People API call — and asking for `openid`/`email` would change
+ *                     the consent screen, which is a CEO decision and not an implementation detail.
+ *                     What was ALSO believed, and was wrong, is that the address therefore could not be
+ *                     read at all: the granted READ scopes each name their owner (Drive's
+ *                     `about.user.emailAddress`, Gmail's profile, the primary calendar's id), so
+ *                     `connect` now VERIFIES the address typed here against the grant before storing
+ *                     it — see `identity.js`, and the 2026-09-17 crossed-consent failure that found it.
  *
  * WHY `accounts` IS A LIST (2026-09-17). The CEO's first connected account is a Google account built on
  * an outside address: it has Drive, no Gmail mailbox and an empty calendar. His mail lives on a SECOND

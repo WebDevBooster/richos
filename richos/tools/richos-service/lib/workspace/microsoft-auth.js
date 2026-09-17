@@ -395,9 +395,13 @@ export class MicrosoftTokenManager {
    * while a grant is a fact.
    * @param {{access_token:string, refresh_token?:string, expires_in:number, scope:string}} tokenResponse
    */
-  onAuthorized(tokenResponse) {
+  onAuthorized(tokenResponse, meta = {}) {
     const now = this.now();
     return this.save({
+      // Present only when the vendor could be asked whose consent this is. Entra cannot be asked
+      // under the scopes RichOS requests (`vendors.js`, difference 5), so on this side it is absent
+      // and `status` says "not verified" rather than implying a check that did not happen.
+      ...(meta.identity ? { identity: meta.identity } : {}),
       accessToken: tokenResponse.access_token,
       accessTokenExpiresAt: now + (tokenResponse.expires_in || 3600) * 1000,
       refreshToken: tokenResponse.refresh_token || '',
