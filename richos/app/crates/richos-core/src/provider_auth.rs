@@ -18,7 +18,7 @@ impl AuthView {
             AuthState::Connected => "Your Anthropic account is connected.",
             AuthState::SignedOut => "Connect your Anthropic account to start working with Rich.",
             AuthState::Connecting => "Complete sign-in in your browser, then return here.",
-            AuthState::Cancelled => "Sign-in was cancelled. You can try again when you are ready.",
+            AuthState::Cancelled => "Sign-in was canceled. You can try again when you are ready.",
             AuthState::Unavailable => "Install Claude Code first, then connect your account.",
             AuthState::Failed => "Account connection could not be verified. Check your connection and try again.",
         };

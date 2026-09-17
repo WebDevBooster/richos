@@ -533,12 +533,12 @@ const FIXTURES = {
     await page.waitForSelector("#provider-connect:not([hidden])");
     await page.evaluate(() => {
       window.__overrides.provider_auth_cancel = {reject: true, value: "synthetic cancel failure"};
-      window.__overrides.provider_auth_poll = {value: {state: "connecting", message: "Sign-in could not be cancelled. Try again."}};
+      window.__overrides.provider_auth_poll = {value: {state: "connecting", message: "Sign-in could not be canceled. Try again."}};
     });
     await page.click("#provider-connect");
     await page.waitForSelector("#provider-cancel:not([hidden])");
     await page.click("#provider-cancel");
-    await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("could not be cancelled"));
+    await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("could not be canceled"));
     return page;
   },
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the

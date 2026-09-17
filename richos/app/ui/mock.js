@@ -744,7 +744,7 @@
     connected: "Your Anthropic account is connected.",
     "signed-out": "Connect your Anthropic account to start working with Rich.",
     connecting: "Complete sign-in in your browser, then return here.",
-    cancelled: "Sign-in was cancelled. You can try again when you are ready."
+    cancelled: "Sign-in was canceled. You can try again when you are ready."
   }[providerState] || "Account connection could not be verified. Try again."});
   const setupPreset = preset.setup || "ready";
   let setupClaudePresent = setupPreset === "ready" || setupPreset === "missing-engine";
