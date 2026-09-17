@@ -1866,6 +1866,11 @@ fn main() {
                 &data_dir.join("engine-state"),
                 Box::new(lease_factory()),
                 Arc::new(WorkNotice { app: app.handle().clone() }),
+                // **The same desk the conversation uses** (spec §2.7/§5.5: one
+                // `Arc<PermissionDesk>`, two leases). The host holds it for the lifecycle
+                // §5.4 states — a queued request and a standing decision belong to an
+                // assignment and are released with it — and for nothing else.
+                permissions.clone(),
             );
             work.start();
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
@@ -2512,16 +2517,33 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
     .map_err(|e| e.to_string())?;
     let live = state.work.live().map(|live| live.id);
     Ok(serde_json::json!({
-        "assignments": rows.iter().map(|row| serde_json::json!({
-            "id": row.id,
-            "title": row.title,
-            "state": row.state.as_str(),
-            "detail": row.detail,
-            "repositories": row.repositories,
-            "registeredAtMs": row.registered_at_ms,
-            "canStop": row.state.is_open(),
-            "onTheConnection": live.as_deref() == Some(row.id.as_str()),
-        })).collect::<Vec<_>>()
+        "assignments": rows.iter().map(|row| {
+            // **What this assignment is waiting on HIM for** (spec §5.2, §5.5, §7.8). The
+            // head of that assignment's own queue at the one desk, or nothing.
+            //
+            // **`awaitingYou` is what turns §7.8's sentence into a control.** Without it the
+            // surface could say "ready for you to approve" and offer him no way to approve —
+            // which is exactly what shipped in the previous slice and is what the UI's own
+            // affordance gate caught. The id travels so the press answers THAT request and
+            // not whichever one happens to be first.
+            let waiting = state.work.pending_decision(row).map(|request| serde_json::json!({
+                "requestId": request.id,
+                "tool": request.tool,
+                "description": request.description,
+                "raisedAtMs": request.raised_at_ms,
+            }));
+            serde_json::json!({
+                "id": row.id,
+                "title": row.title,
+                "state": row.state.as_str(),
+                "detail": row.detail,
+                "repositories": row.repositories,
+                "registeredAtMs": row.registered_at_ms,
+                "canStop": row.state.is_open(),
+                "onTheConnection": live.as_deref() == Some(row.id.as_str()),
+                "awaitingYou": waiting,
+            })
+        }).collect::<Vec<_>>()
     }))
 }
 
@@ -3792,9 +3814,24 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
 fn pending_permission(state: State<AppState>) -> Option<richos_core::permissions::PermissionRequest> {
     state.permissions.current()
 }
+/// **His answer to one exact action — and the second half is the background-work spec's
+/// §5.7.**
+///
+/// If the provider call that raised the request is still waiting, it takes the decision and
+/// nothing else happens here; that is every conversation request and every background
+/// request he answers within the 300-second call. If the call already ended at its deadline —
+/// which is the ordinary case for work he was away from — the desk hands the decision to the
+/// ASSIGNMENT, and the work host is what carries it out: approved puts the assignment back on
+/// the work lease to take the step he approved, declined stops it where it stands with
+/// nothing changed.
 #[tauri::command(async)]
 fn answer_permission(state: State<AppState>, request_id: String, allow: bool) -> Result<(), String> {
-    state.permissions.resolve(&request_id, allow)
+    match state.permissions.resolve(&request_id, allow)? {
+        richos_core::permissions::Answered::Delivered => Ok(()),
+        richos_core::permissions::Answered::ToAssignment { binding, allow } => {
+            state.work.apply_decision(&binding, allow)
+        }
+    }
 }
 
 /// Explicit repository access is separate from choosing a company folder.

@@ -33,7 +33,9 @@
 
 use crate::assignment::{self, Assignment, AssignmentState, NoticeKind, PendingNotice, Registration};
 use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem, WorkAssignment};
+use crate::ecs::Binding;
 use crate::entity::ThreadBinding;
+use crate::permissions::PermissionDesk;
 use crate::steering::TurnCancel;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -70,11 +72,23 @@ pub struct LiveAssignment {
     pub seat: String,
 }
 
+/// One item of work for the runner: an assignment, the binding it was registered under, and
+/// whether this is the FIRST time it goes on the lease or a continuation he approved.
+///
+/// The binding is minted by the ledger and is the only thing that can say which company a
+/// thread belongs to (`entity.rs`), so the host never reconstructs one from a record.
+#[derive(Clone)]
+struct Scheduled {
+    binding: ThreadBinding,
+    record: Assignment,
+    /// Spec §5.7: *"when he answers, the answer applies to the assignment"*. A resumed run
+    /// is told what he decided, and it is the only way an approval given after the provider
+    /// call ended can reach the step that asked for it.
+    resumed: bool,
+}
+
 struct Inner {
-    /// Each queued assignment carries the thread binding it was registered under. The
-    /// binding is minted by the ledger and is the only thing that can say which company a
-    /// thread belongs to (`entity.rs`), so the host never reconstructs one from a record.
-    queue: VecDeque<(ThreadBinding, Assignment)>,
+    queue: VecDeque<Scheduled>,
     /// The assignment that is ON the lease right now. At most one: a lease runs one prompt
     /// at a time, so the host serializes assignments onto it and says so rather than
     /// pretending three of them are in flight.
@@ -87,6 +101,10 @@ struct Inner {
     lease_session: Option<String>,
     /// Assignments a stop reached while they were queued rather than live.
     stopped: Vec<String>,
+    /// The ledger's thread binding, per thread, kept from whatever put an assignment on the
+    /// queue. A resume needs one and must never reconstruct it: only the ledger can say
+    /// which company a thread belongs to (`entity.rs`).
+    bindings: std::collections::HashMap<String, ThreadBinding>,
     shutting_down: bool,
     /// Bumped whenever the runner finishes one assignment, so a test can wait on progress
     /// without sleeping on a guess.
@@ -104,13 +122,24 @@ pub struct WorkHost {
     inner: Mutex<Inner>,
     wake: Condvar,
     notifier: Arc<dyn WorkNotifier>,
+    /// **The one permission desk, shared with the conversation** (spec §2.7, §5.5: it is
+    /// already an `Arc<PermissionDesk>` on the engine profile, so one desk serves both
+    /// leases). The host holds it for one reason only — the lifecycle §5.4 states: a
+    /// queued request and a standing decision belong to an assignment and are dropped with
+    /// it. Nothing here reads his queue to decide anything.
+    desk: Arc<PermissionDesk>,
     /// Every assignment this host has ever taken on, so a boundary sweep cannot adopt one
     /// twice. Its own lock, because `enqueue` consults it while holding `inner`.
     seen: Mutex<std::collections::HashSet<String>>,
 }
 
 impl WorkHost {
-    pub fn new(state: &Path, factory: Box<dyn LeaseFactory>, notifier: Arc<dyn WorkNotifier>) -> Arc<Self> {
+    pub fn new(
+        state: &Path,
+        factory: Box<dyn LeaseFactory>,
+        notifier: Arc<dyn WorkNotifier>,
+        desk: Arc<PermissionDesk>,
+    ) -> Arc<Self> {
         Arc::new(WorkHost {
             state: state.to_path_buf(),
             factory: Mutex::new(factory),
@@ -121,11 +150,13 @@ impl WorkHost {
                 cancel: None,
                 lease_session: None,
                 stopped: Vec::new(),
+                bindings: std::collections::HashMap::new(),
                 shutting_down: false,
                 completed: 0,
             }),
             wake: Condvar::new(),
             notifier,
+            desk,
             seen: Mutex::new(std::collections::HashSet::new()),
         })
     }
@@ -193,14 +224,23 @@ impl WorkHost {
 
     /// Put one assignment on the queue exactly once. `false` means the host is closing.
     fn enqueue(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment) -> bool {
+        if !self.seen.lock().unwrap().insert(record.id.clone()) {
+            return true;
+        }
+        self.schedule(binding, record, false)
+    }
+
+    /// Put an assignment on the queue, first time or again. `false` means the host is
+    /// closing. The `seen` ledger is deliberately NOT consulted here: a resume is a second
+    /// pass over an assignment this host has already adopted, which is exactly what `seen`
+    /// refuses for the boundary sweep.
+    fn schedule(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment, resumed: bool) -> bool {
         let mut inner = self.inner.lock().unwrap();
         if inner.shutting_down {
             return false;
         }
-        if !self.seen.lock().unwrap().insert(record.id.clone()) {
-            return true;
-        }
-        inner.queue.push_back((binding.clone(), record));
+        inner.bindings.insert(record.thread_id.clone(), binding.clone());
+        inner.queue.push_back(Scheduled { binding: binding.clone(), record, resumed });
         self.wake.notify_all();
         true
     }
@@ -235,12 +275,12 @@ impl WorkHost {
                     inner = self.wake.wait(inner).unwrap();
                 }
             };
-            let Some((binding, record)) = next else { return };
+            let Some(Scheduled { binding, record, resumed }) = next else { return };
             if self.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
                 self.settle_stopped(&record);
                 continue;
             }
-            self.run_one(&binding, &record);
+            self.run_one(&binding, &record, resumed);
             let mut inner = self.inner.lock().unwrap();
             inner.completed += 1;
             inner.live = None;
@@ -249,7 +289,7 @@ impl WorkHost {
     }
 
     /// One assignment, start to the end of the work lease's own turn.
-    fn run_one(self: &Arc<Self>, binding: &ThreadBinding, record: &Assignment) {
+    fn run_one(self: &Arc<Self>, binding: &ThreadBinding, record: &Assignment, resumed: bool) {
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
         let advance = |to: AssignmentState, detail: &str| {
             let _ = assignment::advance(&self.state, &scope.0, &scope.1, &scope.2, to, detail);
@@ -300,11 +340,18 @@ impl WorkHost {
         }
 
         // 3. The work turn. This is the long one, and nothing about it is on his turn.
-        advance(AssignmentState::Running, "Preparing the workspace and starting the work.");
+        advance(
+            AssignmentState::Running,
+            if resumed {
+                "You approved the step it stopped at. Carrying it out now."
+            } else {
+                "Preparing the workspace and starting the work."
+            },
+        );
         let outcome = {
             let mut lease = self.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => lease.prompt(&brief_for(record), &mut |_item: TurnItem| {}),
+                Some(lease) => lease.prompt(&brief_for(record, resumed), &mut |_item: TurnItem| {}),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
@@ -329,22 +376,27 @@ impl WorkHost {
             Err(why) => {
                 let sentence = honest(&why.to_string());
                 advance(AssignmentState::Failed, &sentence);
+                self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &sentence));
             }
             Ok(reason) if stopped || reason == crate::native::STOP_REASON_CANCELLED => {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
+                self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
             Ok(_) => match self.outcome(record) {
                 Outcome::Settled => {
                     advance(AssignmentState::Settled, "The obligation behind this assignment is closed.");
+                    self.forget_at_the_desk(record);
                     self.raise(record, NoticeKind::Settled, &assignment::says::settled(&record.title));
                 }
                 Outcome::ReadyToApprove => {
-                    advance(
-                        AssignmentState::Blocked,
-                        "The work has run and stopped at the step that would change your repository.",
-                    );
+                    // **§5.7: the receipt names what it is waiting on.** If a request of
+                    // his is actually on the desk, the sentence says which step; if the
+                    // work stopped for the same reason without one reaching him (its call
+                    // never got that far, or this is a relaunch), the honest sentence is the
+                    // general one. Neither ever reads as finished.
+                    advance(AssignmentState::Blocked, &self.waiting_on(record));
                     self.raise(
                         record,
                         NoticeKind::ReadyToApprove,
@@ -373,6 +425,108 @@ impl WorkHost {
         let mut inner = self.inner.lock().unwrap();
         inner.completed += 1;
         self.wake.notify_all();
+    }
+
+    /// **The desk's hold on this assignment ends when the assignment does** (spec §5.4).
+    ///
+    /// Anything of his that was still waiting on it is dropped, and so is any standing
+    /// decision he gave for it. A question left on his screen pointing at work that has
+    /// stopped is worse than no question, and a standing approval that outlived its
+    /// assignment would be an approval attached to nothing.
+    fn forget_at_the_desk(&self, record: &Assignment) {
+        self.desk.forget(&record.entity_id, &record.thread_id, &record.obligation_id);
+    }
+
+    /// What a blocked assignment is waiting on, in his words. Reads the desk, never guesses.
+    fn waiting_on(&self, record: &Assignment) -> String {
+        match self.pending_decision(record) {
+            Some(request) => format!(
+                "The work has run and stopped at a step that is yours to approve: {}.",
+                plain_action(&request.tool)
+            ),
+            None => "The work has run and stopped at the step that would change your repository.".into(),
+        }
+    }
+
+    /// The request this assignment is waiting on him for, if one is on the desk — the head
+    /// of that assignment's own queue (spec §5.5).
+    pub fn pending_decision(&self, record: &Assignment) -> Option<crate::permissions::PermissionRequest> {
+        self.desk.background_queue().into_iter().find(|request| {
+            crate::permissions::assignment_key(&request.binding)
+                == (record.entity_id.clone(), record.thread_id.clone(), record.obligation_id.clone())
+        })
+    }
+
+    /// **His answer, applied to the assignment it belongs to** — spec §5.7's *"when he
+    /// answers, the answer applies to the assignment, not to a call that has long since
+    /// returned"*.
+    ///
+    /// Reached only from [`crate::permissions::Answered::ToAssignment`], which the desk
+    /// returns only when the provider call had already ended at its deadline. An answer that
+    /// still has a call waiting for it never comes here — that call takes it directly.
+    pub fn apply_decision(self: &Arc<Self>, binding: &Binding, allow: bool) -> Result<(), String> {
+        let key = crate::permissions::assignment_key(binding);
+        let record = assignment::read_all(&self.state, &key.0, &key.1)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|row| row.obligation_id == key.2)
+            .ok_or_else(|| "That assignment is no longer on this conversation.".to_string())?;
+        if allow {
+            self.resume(&record)
+        } else {
+            self.record_declined(&record)
+        }
+    }
+
+    /// Put an approved assignment back on the lease.
+    ///
+    /// **This is not a retry and §6.3 is the reason the distinction matters.** Nothing here
+    /// restarts work by itself: this path exists only because HE pressed approve, which is
+    /// precisely the *"resuming is a decision, and the decision is his"* case the spec keeps
+    /// open while refusing every automatic one.
+    fn resume(self: &Arc<Self>, record: &Assignment) -> Result<(), String> {
+        if !record.state.is_open() {
+            return Err("That assignment has already stopped.".into());
+        }
+        // The thread binding is the ledger's, kept from the registration rather than rebuilt
+        // here: only the ledger can say which company a thread belongs to (`entity.rs`).
+        let binding = {
+            let inner = self.inner.lock().unwrap();
+            inner.bindings.get(&record.thread_id).cloned()
+        }
+        .ok_or_else(|| "This conversation has not registered any work in this session.".to_string())?;
+        assignment::advance(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.id,
+            AssignmentState::Running,
+            "You approved the step it stopped at. Carrying it out now.",
+        )
+        .map_err(|e| e.to_string())?;
+        if !self.schedule(&binding, record.clone(), true) {
+            return Err("RichOS is closing down. Nothing was started.".into());
+        }
+        Ok(())
+    }
+
+    /// He declined the step. The work stops where it is, nothing is thrown away, and the
+    /// receipt says what happened — never `settled`, and never the `interrupted` sentence
+    /// that belongs to a stop he made for a different reason.
+    fn record_declined(self: &Arc<Self>, record: &Assignment) -> Result<(), String> {
+        assignment::advance(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.id,
+            AssignmentState::Interrupted,
+            "You declined the last step, so nothing in your repository was changed. \
+             Everything the work produced is kept.",
+        )
+        .map_err(|e| e.to_string())?;
+        self.forget_at_the_desk(record);
+        self.raise(record, NoticeKind::Interrupted, &assignment::says::declined(&record.title));
+        Ok(())
     }
 
     fn ensure_lease(self: &Arc<Self>, binding: &ThreadBinding) -> Result<(), String> {
@@ -484,6 +638,11 @@ impl WorkHost {
         if !record.state.is_open() {
             return Err("That assignment has already stopped.".into());
         }
+        // **Stopping one assignment takes its question off his screen** (spec §5.4: one
+        // grant, one seat, one queue entry, all released together and none of anybody
+        // else's). A request left waiting for an assignment that has stopped is a question
+        // he can answer into nothing.
+        self.forget_at_the_desk(&record);
         let cancel = {
             let mut inner = self.inner.lock().unwrap();
             if !inner.stopped.iter().any(|held| held == id) {
@@ -493,7 +652,7 @@ impl WorkHost {
             if live {
                 inner.cancel.clone()
             } else {
-                inner.queue.retain(|(_, queued)| queued.id != id);
+                inner.queue.retain(|scheduled| scheduled.record.id != id);
                 None
             }
         };
@@ -571,6 +730,9 @@ impl WorkHost {
         }
         if let Ok(open) = assignment::open(&self.state) {
             for record in open {
+                // Nothing may be left waiting for an answer from a process that is going
+                // away (§5.4's revocation, at quit, for every assignment then registered).
+                self.forget_at_the_desk(&record);
                 let _ = assignment::advance(
                     &self.state,
                     &record.entity_id,
@@ -634,18 +796,46 @@ pub enum Outcome {
 /// assignment, Rich owns internal obligation and receipt ids. The seat and the frozen
 /// instruction reference reach the child through its scope file, not through its prompt,
 /// so a model that decided to quote its own prompt back cannot leak either.
-fn brief_for(record: &Assignment) -> String {
+fn brief_for(record: &Assignment, resumed: bool) -> String {
     let repositories = if record.repositories.is_empty() {
         String::new()
     } else {
         format!("\nRepositories: {}", record.repositories.join(", "))
     };
+    if resumed {
+        // **The resumed run is told what he decided and nothing more.** It carries no
+        // approval of its own: the one exact action he approved is held at the desk and is
+        // spent the first time this run asks for it (`permissions.rs`'s standing decision).
+        // If it asks for anything else, that is a new question and it waits for him again.
+        return format!(
+            "This is a background assignment from the CEO that stopped at a step only he \
+             could approve. He has now approved it.{repositories}\n\nThe assignment: {}\n\n\
+             Carry out the step it stopped at and then report. Everything else still needs \
+             his approval, and nothing about this approval carries to another action.",
+            record.title
+        );
+    }
     format!(
         "This is a background assignment from the CEO. Carry it out with the desktop work \
          tools.{repositories}\n\nThe assignment: {}\n\nStop at the step that would change \
          his repository and wait for him to approve it. Do not report this as done.",
         record.title
     )
+}
+
+/// **A provider tool name, in his language.** `mcp__richos_work__integrate` is a wire
+/// identifier; what he is being asked is whether to change his repository.
+///
+/// Anything unrecognized falls back to a phrase that claims nothing about what the step
+/// does — a made-up description of an action he is about to authorize would be worse than
+/// no description at all.
+fn plain_action(tool: &str) -> &'static str {
+    match tool {
+        "mcp__richos_work__integrate" => "putting the finished work into your repository",
+        "Bash" => "running a command on your Mac",
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => "changing a file on your Mac",
+        _ => "a step it cannot take without you",
+    }
 }
 
 /// A failure sentence he can act on, with no stack trace in it (spec §3.7).
@@ -777,6 +967,7 @@ mod tests {
         notices: Arc<Recorder>,
         binding: ThreadBinding,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        desk: Arc<crate::permissions::PermissionDesk>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -797,8 +988,9 @@ mod tests {
             step: std::time::Duration::from_millis(step_ms),
             obligation: obligation.clone(),
         };
-        let host = WorkHost::new(&state, Box::new(factory), notices.clone());
-        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation }
+        let desk = Arc::new(crate::permissions::PermissionDesk::default());
+        let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
+        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -1031,7 +1223,7 @@ mod tests {
                 Err(CognitionError::Io("the engine release gate refused this lease".into()))
             }
         }
-        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone());
+        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone(), Arc::clone(&h.desk));
         let _runner = host.start();
         let receipt = host.register(&h.binding, &registration(&h)).unwrap();
         assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
@@ -1104,7 +1296,7 @@ mod tests {
             updated_at_ms: 0,
             notices: Vec::new(),
         };
-        let brief = brief_for(&record);
+        let brief = brief_for(&record, false);
         assert!(brief.contains("landing the three branches"));
         assert!(brief.contains("/fictional/project"));
         assert!(!brief.contains("assignment-id-that-must-not-appear"));
@@ -1114,6 +1306,209 @@ mod tests {
         // Row 7 travels in the brief as an instruction, not only as a refusal.
         assert!(brief.contains("wait for him to approve"));
         assert!(brief.contains("Do not report this as done."));
+
+        // **The resumed brief carries the same discretion and one fact more**, and it names
+        // the boundary of what he approved: the approval is for the step it stopped at and
+        // for nothing else (spec §5.7's standing decision is one action, once).
+        let resumed = brief_for(&record, true);
+        assert!(resumed.contains("landing the three branches"));
+        assert!(!resumed.contains("assignment-id-that-must-not-appear"));
+        assert!(!resumed.contains("work-seat:"));
+        assert!(resumed.contains("He has now approved it."));
+        assert!(resumed.contains("Everything else still needs his approval"));
+    }
+
+    // ---- §5.2/§5.7: his decision, and the assignment it belongs to ----------------------
+
+    /// Readable, empty worker evidence for the work lease's own session: every worker this
+    /// lease started was observed ending. Without it the settle check answers *"still
+    /// running"*, which is correct and is not the state these tests are about.
+    fn every_worker_observed_ending(h: &Harness) {
+        let folder = h.state.join("evidence").join("work-session-one");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+    }
+
+    /// A work lease's scoped permissions against this harness's desk, with the standing
+    /// grant `bind_work_assignment` writes: `actions_allowed: true`, `audience: "worker"`,
+    /// and `turn_id` = the OBLIGATION (`ecs.rs`'s `bind_work_seat`).
+    fn work_lease_desk(h: &Harness, obligation: &str) -> (PathBuf, crate::permissions::ScopedPermissions) {
+        let path = h.root.join(format!("work-grant-{obligation}.json"));
+        std::fs::write(
+            &path,
+            serde_json::json!({"version":1,"actions_allowed":true,"binding":{
+                "entity_id":"depot","thread_id":"thread-one","session_id":"work-session-one",
+                "turn_id":obligation,"audience":"worker","revision":1}})
+            .to_string(),
+        )
+        .unwrap();
+        (path.clone(), crate::permissions::ScopedPermissions { desk: Arc::clone(&h.desk), scope: path })
+    }
+
+    /// **Spec §5.7, end to end through the host.** The step asked while he was away; the
+    /// call ended at its deadline in *not approved*; he answered afterwards; and the
+    /// assignment went back on the lease to carry out the step he approved.
+    ///
+    /// The positive control is in the same test: before his answer the assignment had
+    /// reached the lease exactly ONCE and stayed there, so "it resumed" is a fact about his
+    /// answer rather than about a runner that re-runs things by itself (§6.3).
+    #[test]
+    fn an_approval_given_after_the_call_ended_puts_the_assignment_back_on_the_lease() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked, "the work did not stop at his decision");
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment reached the lease twice on its own");
+
+        // The step it stopped at, raised against the shared desk and left at its deadline.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        let call = lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"one"}}),
+            std::time::Duration::from_millis(30),
+        );
+        assert_eq!(call.behavior(), "deny", "the deadline approved something on his behalf");
+        let waiting = h.desk.background_queue();
+        assert_eq!(waiting.len(), 1, "the request did not survive its call");
+        assert_eq!(
+            h.host.pending_decision(&row).map(|r| r.tool),
+            Some("mcp__richos_work__integrate".to_string()),
+            "the host cannot see what its own assignment is waiting on"
+        );
+
+        // He answers. There is no call left to take it, so it goes to the assignment.
+        let answer = h.desk.resolve(&waiting[0].id, true).unwrap();
+        let crate::permissions::Answered::ToAssignment { binding, allow } = answer else {
+            panic!("his answer went to a call that had already ended");
+        };
+        assert!(allow);
+        h.host.apply_decision(&binding, true).unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.bound.lock().unwrap().len(), 2, "his approval did not put the work back on the lease");
+
+        // And the one exact action he approved is the one the resumed run may take — once.
+        let again = |input: serde_json::Value| {
+            lease
+                .decide_within(
+                    &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":input}),
+                    std::time::Duration::from_millis(20),
+                )
+                .behavior()
+        };
+        assert_eq!(again(serde_json::json!({"branch":"one"})), "allow");
+        assert_eq!(again(serde_json::json!({"branch":"one"})), "deny", "an approval was reused");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// He DECLINES the step. The work stops where it is, everything it produced is kept, and
+    /// no sentence anywhere reads as a finish — spec §0 row 7's inversion is what this
+    /// refuses.
+    #[test]
+    fn a_declined_step_stops_the_assignment_and_never_reads_as_finished() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = h.desk.background_queue();
+        let crate::permissions::Answered::ToAssignment { binding, .. } =
+            h.desk.resolve(&waiting[0].id, false).unwrap()
+        else {
+            panic!("the declined request still had a call waiting on it");
+        };
+        h.host.apply_decision(&binding, false).unwrap();
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted);
+        assert!(row.detail.contains("You declined"), "{}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        let text = notice.text.to_lowercase();
+        for word in ["done", "finished", "complete", "landed"] {
+            assert!(!text.contains(word), "the decline notice said that word: {text}");
+        }
+        // POSITIVE CONTROL for that scan: the settled sentence, which does speak of
+        // finishing, fires on the same words — so a clean result above is a fact about this
+        // sentence rather than about a scan that cannot match.
+        let settled = assignment::says::settled(&row.title).to_lowercase();
+        assert!(["done", "finished", "complete", "landed"].iter().any(|w| settled.contains(w)));
+        assert!(text.contains("declined"));
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "a decline put the work back on the lease");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **§5.4's unit of revocation, through the host.** Stopping an assignment takes its
+    /// question off his screen and releases the worker waiting on it — a question he could
+    /// answer into nothing is worse than no question.
+    #[test]
+    fn stopping_an_assignment_takes_its_question_off_his_screen() {
+        let h = harness(3000);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        let waiter = std::thread::spawn(move || {
+            lease.decide_within(
+                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                std::time::Duration::from_secs(5),
+            )
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.desk.background_queue().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(h.desk.background_queue().len(), 1);
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        assert!(h.desk.background_queue().is_empty(), "his question outlived the work it was about");
+        assert_eq!(waiter.join().unwrap().behavior(), "deny", "the stopped worker was left waiting");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// §5.7: *"the worker's receipt goes to `blocked` naming what it waits on"* — in his
+    /// words, never the provider's wire name for the tool.
+    #[test]
+    fn a_blocked_receipt_names_the_step_it_is_waiting_on_in_his_words() {
+        let h = harness(60);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        // The question is on the desk while the work turn is still running, which is the
+        // real order of events: the step asks, the call waits, the turn ends around it.
+        let waiter = std::thread::spawn(move || {
+            lease.decide_within(
+                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                std::time::Duration::from_millis(600),
+            )
+        });
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked);
+        assert!(
+            row.detail.contains("putting the finished work into your repository"),
+            "the receipt does not say what it is waiting on: {}",
+            row.detail
+        );
+        assert!(!row.detail.contains("mcp__"), "the receipt shows a wire tool name: {}", row.detail);
+        waiter.join().unwrap();
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     #[test]
