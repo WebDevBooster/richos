@@ -524,7 +524,7 @@ export async function disconnect(deps = {}) {
 // =================================================================================================
 
 export const USAGE = [
-  '  richos-service workspace connect google [--client-id <id>] [--account you@co.com] [--source calendar --source drive]',
+  '  richos-service workspace connect google [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]',
   '  richos-service workspace status [google]',
   '  richos-service workspace sync [google] [--once] [--source calendar]      # --once is the only mode: no daemon',
   '  richos-service workspace disconnect google [--forget-cursors]',
