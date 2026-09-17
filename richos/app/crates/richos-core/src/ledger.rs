@@ -351,6 +351,39 @@ pub enum Event {
         /// and for every ordinary typed message, which never passes through the intake.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         intake_id: Option<u64>,
+        /// **WAS RICH'S OWN VOICE AUDIBLE IN THE ROOM WHILE THIS WAS BEING RECORDED?**
+        ///
+        /// The gap this closes, named by the voice engineer's own handoff (richos `c712ccd5`):
+        /// a `PromptReceived` with `source: Source::Jam` carried no provenance at all, so an
+        /// echo-born spoken turn and a genuine one were **indistinguishable after the fact**.
+        /// Candidate .5 put Rich's own counting into the CEO's thread as the CEO's message
+        /// (`docs/verification/2026-09-17-nightly-1.2.0-20260917.5-onscreen-audit.md`), and the
+        /// bubble is still sitting there; nothing in the ledger says which of the two it was.
+        ///
+        /// ## THE THREE STATES ARE THREE DIFFERENT FACTS AND THE TYPE KEEPS THEM APART
+        ///
+        /// | value | means |
+        /// |---|---|
+        /// | `None` | **not recorded.** Every typed turn, every turn written before this field existed, and any spoken turn whose capture could not say. NEVER read as "no". |
+        /// | `Some(false)` | measured: Rich's audible window was **closed** for the whole of this recording. Nothing of his can be in it. |
+        /// | `Some(true)` | measured: the window was **open during some part of it**, so his voice may be in the audio these words came from. |
+        ///
+        /// `Some(true)` is emphatically **not** "this is echo". A turn reaches this field only
+        /// by being ADMITTED, and an admitted utterance recorded while Rich was audible is the
+        /// CEO deliberately talking over him (a barge-in cleared the taint) or a canceller
+        /// confident enough to vouch for the residual. Both are real turns. What the flag
+        /// records is that the audible window overlapped the audio — the one fact the capture
+        /// path knows and nothing downstream can reconstruct.
+        ///
+        /// **Why it is `Option<bool>` and not a `bool`.** Slice 3b declined to add an
+        /// always-`None` field on the grounds that it *"reads as never echo-born, worse than
+        /// the gap"* — and that reasoning applies to a defaulting `bool` exactly as hard: a
+        /// missing field deserializing to `false` would silently assert of every historical
+        /// turn that Rich was provably silent, which is a claim nobody measured. The writer is
+        /// the capture path (`CapMsg::Started { .. }` and the taint re-evaluated at
+        /// utterance end), so this field is only ever written where the answer is known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rich_audible: Option<bool>,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -578,6 +611,11 @@ pub struct Turn {
     /// nobody recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interruption: Option<crate::interruption::InterruptionRecord>,
+    /// Whether Rich's own voice was audible in the room while the audio this turn came from
+    /// was being recorded. See `Event::PromptReceived::rich_audible` for the full three-state
+    /// meaning; the short version is that **`None` is "not recorded" and never "no"**.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rich_audible: Option<bool>,
 }
 
 impl Turn {
@@ -960,6 +998,7 @@ impl Ledger {
                 entity_id,
                 binding_revision,
                 intake_id,
+                rich_audible,
             } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
@@ -984,6 +1023,7 @@ impl Ledger {
                     intake_id,
                     upstream_failure: None,
                     interruption: None,
+                    rich_audible,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -1096,6 +1136,11 @@ impl Ledger {
                     intake_id: None,
                     upstream_failure: None,
                     interruption: None,
+                    // A proactive turn has no captured audio at all, so there is nothing to
+                    // record about Rich's audible window. `None` is the honest answer and the
+                    // only one: `Some(false)` here would assert a measurement of a microphone
+                    // that was never opened.
+                    rich_audible: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1528,7 +1573,24 @@ impl Ledger {
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, None)
+        self.record_prompt_received_with(binding, text, source, None, None)
+    }
+
+    /// As above for a SPOKEN turn, stamping what the capture path knew about Rich's own
+    /// audible window while the audio was being recorded.
+    ///
+    /// A separate entry point rather than a fifth argument on
+    /// [`record_prompt_received`](Self::record_prompt_received), so that a typed turn cannot
+    /// acquire a measurement nobody took: every caller of the plain function writes `None`
+    /// there BY CONSTRUCTION rather than by remembering to.
+    pub fn record_prompt_received_spoken(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        rich_audible: bool,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, None, Some(rich_audible))
     }
 
     /// As above, stamping the `steering::IntakeLog` record this turn was drained from
@@ -1541,7 +1603,7 @@ impl Ledger {
         source: Source,
         intake_id: u64,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, Some(intake_id))
+        self.record_prompt_received_with(binding, text, source, Some(intake_id), None)
     }
 
     fn record_prompt_received_with(
@@ -1550,6 +1612,7 @@ impl Ledger {
         text: &str,
         source: Source,
         intake_id: Option<u64>,
+        rich_audible: Option<bool>,
     ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
@@ -1563,6 +1626,7 @@ impl Ledger {
                 entity_id: Some(binding.entity_id().clone()),
                 binding_revision: binding.binding_revision(),
                 intake_id,
+                rich_audible,
             },
             true, // fsync — never lose the CEO's input
         )?;
@@ -2098,6 +2162,7 @@ mod tests {
             intake_id: None,
             upstream_failure: None,
             interruption: None,
+            rich_audible: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

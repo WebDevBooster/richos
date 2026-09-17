@@ -3082,31 +3082,42 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
 
     // The submit callback: a recognized utterance takes the SAME path typed text takes.
     let submit_app = app.clone();
-    let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
-        let state = submit_app.state::<AppState>();
-        let mut spine = match state.spine.lock() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
-        // must not be refused by a boot-time snapshot that a completed first-run setup has
-        // already made false. Same question, same moment, one answer.
-        if !spine.has_lease() && !spine.has_lease_factory() {
-            drop(spine);
-            let _ = submit_app.emit(
-                richos_voice::event::EVENT_VOICE_ERROR,
-                serde_json::json!({
-                    "message": LEASE_UNAVAILABLE_MESSAGE,
-                    "at": richos_voice::controller::now_millis(),
-                }),
-            );
-            return;
-        }
-        // Source::Jam — voice and text are ONE thread and ONE ledger.
-        if let Err(e) = spine.submit_prompt(&text, Source::Jam) {
-            eprintln!("[richos] voice turn failed: {e}");
-        }
-    });
+    // `Fn(String, bool)`, not `Fn(String)`: the second argument is what the capture path
+    // measured about Rich's own audible window while this audio was recorded. It exists because
+    // `source: Source::Jam` was the WHOLE of a spoken turn's provenance, so an echo-born turn
+    // and a genuine one were indistinguishable in the ledger after the fact — candidate .5 left
+    // Rich's own counting in the CEO's thread as the CEO's message and nothing recorded which it
+    // was. See `richos_voice::controller::AdmittedUtterance::rich_audible`.
+    let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
+        Arc::new(move |text: String, rich_audible: bool| {
+            let state = submit_app.state::<AppState>();
+            let mut spine = match state.spine.lock() {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
+            // must not be refused by a boot-time snapshot that a completed first-run setup has
+            // already made false. Same question, same moment, one answer.
+            if !spine.has_lease() && !spine.has_lease_factory() {
+                drop(spine);
+                let _ = submit_app.emit(
+                    richos_voice::event::EVENT_VOICE_ERROR,
+                    serde_json::json!({
+                        "message": LEASE_UNAVAILABLE_MESSAGE,
+                        "at": richos_voice::controller::now_millis(),
+                    }),
+                );
+                return;
+            }
+            // Source::Jam — voice and text are ONE thread and ONE ledger.
+            //
+            // `submit_prompt_spoken` rather than `submit_prompt`: the latter writes
+            // `rich_audible: None`, which means "not recorded", and would throw away the one fact
+            // about this audio that nothing downstream can reconstruct.
+            if let Err(e) = spine.submit_prompt_spoken(&text, Source::Jam, rich_audible) {
+                eprintln!("[richos] voice turn failed: {e}");
+            }
+        });
 
     let scratch_dir = app
         .path()

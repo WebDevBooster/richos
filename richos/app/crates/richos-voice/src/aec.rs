@@ -442,19 +442,65 @@ pub struct AecMetrics {
     pub divergence_resets: u64,
     /// Is the residual echo floor provably below the VAD's speech threshold?
     pub confident: bool,
+    /// **WHETHER [`Self::erle_db`] IS A MEASUREMENT AT ALL.**
+    ///
+    /// `erle_db` returns a hard `0.0` until both smoothed powers are above `1e-12`, and those
+    /// only accumulate on blocks that are far-end-active with the adaptation unfrozen. So
+    /// `0.0` has always had two meanings — *"the canceller is removing exactly nothing"* and
+    /// *"no block has yet said anything"* — and the operator log printed the same three
+    /// characters for both. Ray's candidate-.6 walk read `erle=0.0 dB` off four discards and
+    /// had to guess which one it was (`docs/verification/2026-09-17-nightly-1.2.0-20260917.6-onscreen-audit.md`
+    /// defect 3); candidate .5's identical line carried `-2.9 dB`, a real reading, so the two
+    /// were indistinguishable in form.
+    ///
+    /// This is the bit that separates them, and it is read off the same condition `erle_db`
+    /// uses rather than re-derived beside it.
+    pub erle_measured: bool,
+    /// **WHETHER [`Self::leak_floor_rms`] IS A MEASUREMENT AT ALL.**
+    ///
+    /// `residual_typ_rms` starts at `1.0` and stays there until the first far-active block
+    /// seeds it. `1.0` rms is `20*log10(1.0)` = **0.0 dBFS — full scale**, so an unseeded
+    /// tracker publishes the loudest reading the format can express and it looks exactly like
+    /// a measurement. That is the other half of defect 3: `residual 0.0 dBFS` was the initial
+    /// value, printed as though the microphone were clipping.
+    ///
+    /// It is `residual_seeded` itself, not a threshold test on the value — the flag the
+    /// canceller already keeps for exactly this question.
+    pub leak_measured: bool,
 }
 
 impl AecMetrics {
+    /// `erle_db` as text: the number when it is a measurement, the words `not measured`
+    /// when it is the sentinel. **Never `0.0 dB` standing in for "nothing measured yet".**
+    pub fn erle_text(&self) -> String {
+        if self.erle_measured {
+            format!("{:.1} dB", self.erle_db)
+        } else {
+            "not measured".to_string()
+        }
+    }
+
+    /// `leak_floor_rms` in dBFS as text, under the same rule. An unseeded tracker reads
+    /// `0.0 dBFS` — full scale — which is a claim about a clipping microphone rather
+    /// than a reading of anything.
+    pub fn leak_text(&self) -> String {
+        if self.leak_measured {
+            format!("{:.1} dBFS", 20.0 * self.leak_floor_rms.max(1e-9).log10())
+        } else {
+            "not measured".to_string()
+        }
+    }
+
     /// One line for stderr and for the rig's report.
     pub fn summary(&self) -> String {
         format!(
-            "ERLE {:.1} dB · delay {} blk ({:.1} ms, conf {:.2}) · leak {:.5} rms ({:.1} dBFS) · far-end {} blk · confident={} · overrun {} · underrun {} · resets {}",
-            self.erle_db,
+            "ERLE {} · delay {} blk ({:.1} ms, conf {:.2}) · leak {:.5} rms ({}) · far-end {} blk · confident={} · overrun {} · underrun {} · resets {}",
+            self.erle_text(),
             self.delay_blocks,
             self.delay_ms,
             self.delay_confidence,
             self.leak_floor_rms,
-            20.0 * self.leak_floor_rms.max(1e-9).log10(),
+            self.leak_text(),
             self.far_end_blocks,
             self.confident,
             self.reference_overruns,
@@ -743,6 +789,8 @@ impl EchoCanceller {
     pub fn metrics(&self) -> AecMetrics {
         AecMetrics {
             erle_db: self.erle_db(),
+            erle_measured: self.erle_measured(),
+            leak_measured: self.residual_seeded,
             delay_blocks: self.delay_blocks,
             delay_ms: (self.delay_blocks * AEC_BLOCK) as f32 * 1000.0 / SAMPLE_RATE as f32,
             delay_confidence: self.delay_confidence,
@@ -755,12 +803,20 @@ impl EchoCanceller {
         }
     }
 
-    /// Echo Return Loss Enhancement, in dB. Zero until there is something to report.
+    /// Echo Return Loss Enhancement, in dB. Zero until there is something to report — ask
+    /// [`Self::erle_measured`] which of the two a `0.0` is before printing it.
     pub fn erle_db(&self) -> f32 {
-        if self.d_power_smooth <= 1e-12 || self.e_power_smooth <= 1e-12 {
+        if !self.erle_measured() {
             return 0.0;
         }
         10.0 * (self.d_power_smooth / self.e_power_smooth).log10()
+    }
+
+    /// Has any block contributed to the ERLE accumulators yet? The ONE condition
+    /// [`Self::erle_db`] branches on, exposed rather than duplicated — a second copy of it
+    /// beside a print site is the way the two drift apart.
+    pub fn erle_measured(&self) -> bool {
+        self.d_power_smooth > 1e-12 && self.e_power_smooth > 1e-12
     }
 
     /// Drop everything learned. Used on a device change or a hard alignment break — the
