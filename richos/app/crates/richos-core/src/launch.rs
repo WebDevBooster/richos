@@ -387,7 +387,16 @@ impl LaunchStore {
             // No file: this install begins now.
             Err(_) => (StoredLaunches::new(now_millis), true, None),
             Ok(text) => match serde_json::from_str::<StoredLaunches>(&text) {
-                Ok(r) if r.schema_version == LAUNCH_SCHEMA_VERSION => (r, true, None),
+                // `<=`, not `==` — spec point 19 and the sequencing table's row 2. An OLDER
+                // schema is read; a NEWER one is left exactly as it is.
+                //
+                // **Why `<=` is safe rather than merely kind.** Reaching this arm at all
+                // means the bytes already deserialized into today's `StoredLaunches`. A past
+                // schema that genuinely cannot be represented here fails in `serde_json` and
+                // lands in the `Err` arm below, unreadable, untouched. So `<=` can only ever
+                // admit a file this build can actually hold — the predicate is a statement
+                // about intent, and serde is the thing that enforces it.
+                Ok(r) if r.schema_version <= LAUNCH_SCHEMA_VERSION => (r, true, None),
                 Ok(r) => (
                     StoredLaunches::new(now_millis),
                     false,
@@ -1149,6 +1158,40 @@ mod tests {
         s.note_reward_fired("first-run", T0).unwrap();
         s.note_clean_exit().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), before, "an unreadable record is left exactly as it was");
+        let _ = fs::remove_file(&path);
+    }
+
+    /// **THE OTHER DIRECTION, and the half `==` got wrong** — spec point 19, sequencing
+    /// table row 2: *"an older schema is read; a NEWER schema is left exactly as it is."*
+    ///
+    /// A file from a PAST schema whose bytes still fit today's struct is history this build
+    /// can hold, and reading it as an empty install is the same lie as reading a future file
+    /// that way: the first-run reward fires at the person who has been here longest.
+    ///
+    /// Version 0 is used because `LAUNCH_SCHEMA_VERSION` is 1 and nothing has ever written a
+    /// version below it — so 0 is the only value available today that exercises the `<`
+    /// half of `<=`. It is a probe of the PREDICATE, not a claim that a version-0 file
+    /// exists anywhere, and when the schema next moves the real prior version belongs here
+    /// beside it.
+    #[test]
+    fn a_record_from_an_older_schema_is_read_rather_than_treated_as_a_brand_new_user() {
+        let path = tmp_path("older-version");
+        fs::write(
+            &path,
+            r#"{"schema_version":0,"installed_at":1,"starts":[1,2,3],"recent_splashes":["v4"],"rewards_fired":{},"open_run":null}"#,
+        )
+        .unwrap();
+
+        let mut s = LaunchStore::open(&path, T0).unwrap();
+        assert!(s.readable(), "an older schema this build can still hold is READ, not refused");
+        assert_eq!(s.unreadable_reason(), None);
+        assert_eq!(s.installed_at(), Some(1), "and its history is the file's, not a fresh zero");
+
+        // And, unlike the unreadable cases, it APPENDS — the history keeps growing.
+        s.begin_run(T0, "1", PriorRun::Unknown).unwrap();
+        let after = LaunchStore::open(&path, T0).unwrap();
+        assert!(after.readable());
+        assert_eq!(after.installed_at(), Some(1), "the original install date survived the write");
         let _ = fs::remove_file(&path);
     }
 
