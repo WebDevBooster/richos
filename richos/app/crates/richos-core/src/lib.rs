@@ -172,6 +172,13 @@ pub mod permissions;
 ///                    to the conversation's `TurnControl` (§4.2).
 ///   - `assignment_tools` — the app-owned MCP endpoint the CONVERSATION calls to write an
 ///                    assignment down and end its turn with the receipt (§1.1, §7.1).
+///   - `status_tools` — the app-owned MCP endpoint the FRONT DESK looks with, and the
+///                    other half of the CEO's Two Riches note 3: taking the orchestration
+///                    tools away from the conversation leaves it nothing to answer "what is
+///                    running" with unless it has a read of its own (Sage's check of that
+///                    page, finding 6). Read-only, this conversation only, no call into the
+///                    back end.
 pub mod assignment;
 pub mod assignment_tools;
+pub mod status_tools;
 pub mod work_host;

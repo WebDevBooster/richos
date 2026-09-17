@@ -661,18 +661,26 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
         }
         return Err(refused_send("no compute lease and no factory", LEASE_UNAVAILABLE_MESSAGE.into()));
     }
-    let thread = match spine.active_thread() {
-        Some(t) => t.to_string(),
-        None => return Err(refused_send("no active thread", "Open a conversation first.".into())),
-    };
-    if thread != thread_id {
-        return Err(refused_send(
-            "the active thread changed between render and send",
-            "The conversation changed before your message was sent. Open the original conversation to try again.".into(),
-        ));
+    if spine.active_thread().is_none() {
+        return Err(refused_send("no active thread", "Open a conversation first.".into()));
     }
+    // ===================================================================================
+    // A MESSAGE TO ANY CONVERSATION IS ANSWERED, NEVER REFUSED
+    // ===================================================================================
+    //
+    // This used to compare `thread_id` against the one active thread and refuse anything
+    // else: *"The conversation changed before your message was sent. Open the original
+    // conversation to try again."* The CEO's Two Riches page is *"a CEO can create a
+    // conversation thread (i.e. any number of conversation threads)"* and *"the CEO could
+    // open and run multiple things in parallel"*, and an app that throws a typed sentence
+    // back because he had moved is the opposite of that.
+    //
+    // `submit_prompt_to` makes that thread active and submits there. If a turn is running,
+    // his message is durably recorded and queued with ITS OWN binding, and the turn
+    // boundary delivers it on its own thread — the front desk that answers it is that
+    // thread's own, still alive from the last time he spoke to it (`spine.rs`'s `Resident`).
     spine
-        .submit_prompt(&text, Source::Text)
+        .submit_prompt_to(&thread_id, &text, Source::Text)
         .map_err(|e| refused_send("the spine refused the prompt", e.to_string()))?;
     // "no active thread" used to be the whole sentence here, and it went straight onto the
     // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
@@ -1160,6 +1168,24 @@ fn main() {
             startup_alert::cannot_start(
                 &format!("assignment tool server: {error}"),
                 "RichOS could not start the helper it uses to write down work you have asked for.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
+    // The FRONT DESK'S READ (`richos-core`'s `status_tools.rs`), in the same shape as the
+    // two beside it. The CEO's Two Riches page takes the orchestration tools off the
+    // conversation lease; this is what it answers "what is running", "what is waiting for
+    // me" and "what finished" with instead, and it reads the record on disk without calling
+    // the back end or changing anything.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--status-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing status scope".to_string())
+            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("status tool server: {error}"),
+                "RichOS could not start the helper it uses to look at work that is already running.",
             );
             std::process::exit(1);
         }
