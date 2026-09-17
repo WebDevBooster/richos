@@ -20,7 +20,7 @@
  *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
- *   richos-service workspace ...         # the CEO's own Google / Microsoft 365 source: connect / status / sync / disconnect
+ *   richos-service workspace ...         # the CEO's own Google / Microsoft 365 source: connect / status / sync / disconnect / repair
  *                                        # --account <address> picks one of several connected Google accounts
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
@@ -619,6 +619,13 @@ function main() {
           // pulled. `--no-promote` is the diagnostic pull, and it says so in the output rather than
           // just quietly doing less.
           ...(flag('no-promote') === true ? { promote: false } : {}),
+          // `repair`'s window and mode. The window is an ISO instant taken from the run's own
+          // output; the mode is dry-run unless --apply, and naming both is refused rather than
+          // resolved in RichOS's favor.
+          ...(flag('since') ? { since: String(flag('since')) } : {}),
+          ...(flag('until') ? { until: String(flag('until')) } : {}),
+          ...(flag('apply') === true ? { apply: true } : {}),
+          ...(flag('dry-run') === true ? { dryRun: true } : {}),
         },
       })
         .then((r) => process.exit(r.exitCode))

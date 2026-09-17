@@ -43,6 +43,15 @@
  *      its manager reports only what actually happened. `status` therefore prints an expiry for one
  *      vendor and cannot for the other — and printing a guessed one would be worse than none.
  *
+ *   5. ONLY GOOGLE CAN SAY WHOSE CONSENT IT IS (2026-09-17). Google's granted READ scopes each name
+ *      their owner — Drive's `about.user.emailAddress`, Gmail's profile, the primary calendar's id —
+ *      so `connect` can verify the identity of a fresh grant before storing it, with no new scope and
+ *      no change to the consent screen. Microsoft Graph names the signed-in user only under
+ *      `User.Read`, which RichOS does not request, so the same check is IMPOSSIBLE there and the
+ *      profile declares that rather than leaving a gap that looks like an oversight. The failure this
+ *      answers is real and is on disk: two Google consents in one sitting were stored under each
+ *      other's names, and every sync afterwards read the wrong account's cloud (`identity.js`).
+ *
  * Everything else — the loopback consent leg, PKCE, the account list, the registry, the cursors, the
  * evidence zone, the ingest spine — is genuinely identical, which is why none of it is in this file.
  */
@@ -58,7 +67,8 @@ import {
   MicrosoftTokenManager, CONSENT_MANAGEMENT_URL, firstAadsts,
   buildAuthUrl as buildEntraAuthUrl, exchangeCode as exchangeEntraCode,
 } from './microsoft-auth.js';
-import { buildAuthUrl as buildGoogleAuthUrl, exchangeCode as exchangeGoogleCode } from './oauth.js';
+import { buildAuthUrl as buildGoogleAuthUrl, exchangeCode as exchangeGoogleCode, revokeToken } from './oauth.js';
+import { GOOGLE_IDENTITY_PROBES } from './identity.js';
 import { readClientSecret, storeClientSecret } from './client-secret.js';
 import { vendorWords, defaultRedirectUri } from './client-config.js';
 
@@ -135,6 +145,28 @@ const PROFILES = {
     exchange({ tm, redirectUri, scopes, code, verifier, d }) {
       return exchangeGoogleCode({ ...tm.authConfig(), redirectUri, scopes }, { code, verifier }, d.http);
     },
+
+    /**
+     * WHOSE consent this is, read with the token just exchanged and before anything is stored. See
+     * `identity.js` for why the granted read scopes can answer it and no new scope is requested.
+     */
+    identityProbes: GOOGLE_IDENTITY_PROBES,
+
+    /**
+     * Throw away a grant that turned out to belong to somebody else. Google's revoke endpoint really
+     * does end it vendor-side, so the refusal can say so truthfully — and saying it truthfully is the
+     * point: a consent the CEO gave by accident should not be left standing on his account.
+     */
+    async discardTokens(tokens, d) {
+      try {
+        const r = await revokeToken(tokens.refresh_token || tokens.access_token, d.http);
+        return r.revoked
+          ? { revoked: true, note: 'the grant was revoked at Google, so nothing is left standing' }
+          : { revoked: false, note: `Google did not confirm the revocation — remove it yourself at ${PROFILES.google.consentUrl}` };
+      } catch (err) {
+        return { revoked: false, note: `the revocation could not be sent (${String(err.message || err)}) — remove it yourself at ${PROFILES.google.consentUrl}` };
+      }
+    },
   },
 
   microsoft: {
@@ -189,6 +221,30 @@ const PROFILES = {
 
     exchange({ account, tm, redirectUri, scopes, code, verifier, d }) {
       return exchangeEntraCode({ ...tm.config, redirectUri, scopes }, { code, verifier }, d.http);
+    },
+
+    /**
+     * NONE — and that is a statement, not an omission left for somebody to fill in.
+     *
+     * Graph answers `/me` only under `User.Read`, which is not in `MICROSOFT_SCOPES` and which
+     * RichOS may not add: widening what the CEO consents to is his decision on the sign-in screen
+     * (§6.2), and this file's whole discipline (item 2 of the header) is that a vendor fact is
+     * checked, never assumed. A probe wired here on the strength of a documentation page nobody ran
+     * would be the same class of mistake the Google side made in the other direction — so a
+     * Microsoft connect reports its identity as UNVERIFIED, loudly, rather than printing a
+     * verification it did not perform.
+     *
+     * What would change this: a Graph endpoint reachable under Calendars.Read / Files.Read /
+     * Mail.ReadBasic that names the mailbox owner, PROVEN against the CEO's own tenant.
+     */
+    identityProbes: [],
+    identityUnverifiableReason: 'Microsoft Graph names the signed-in user only under User.Read, which is not '
+      + 'in the scopes RichOS requests — so the address this grant belongs to cannot be read without widening '
+      + 'your consent, and RichOS will not widen it on its own',
+
+    /** Entra publishes no revocation endpoint, so a discard here is local-only and says exactly that. */
+    async discardTokens() {
+      return { revoked: false, note: `Microsoft publishes no revocation endpoint, so the consent record stands — remove it at ${CONSENT_MANAGEMENT_URL}` };
     },
   },
 };

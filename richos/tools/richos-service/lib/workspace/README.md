@@ -104,6 +104,7 @@ richos-service workspace connect microsoft --client-id <application (client) id>
 richos-service workspace status [google|microsoft] [--account you@co.com]
 richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar] [--no-promote]
 richos-service workspace disconnect google|microsoft --account you@co.com [--forget-cursors]
+richos-service workspace repair --since <ISO instant> [--until <ISO instant>] [--apply]
 ```
 
 - **`connect`** is §6's ceremony: PKCE, a loopback consent leg (`consent.js` — Node's own `http`,
@@ -128,6 +129,86 @@ richos-service workspace disconnect google|microsoft --account you@co.com [--for
   way to*. Google does; Entra does not, so `disconnect microsoft` says `NOT REVOKED` and names where
   the CEO finishes the job rather than reporting a step that did not run. Cursors survive unless
   `--forget-cursors`, so reconnecting resumes rather than re-pulling.
+
+### `connect` verifies WHOSE consent it received (`identity.js`)
+
+On 2026-09-17 the CEO re-consented to both of his Google accounts, minutes apart, to widen Calendar
+to `calendar.readonly` (§44). The sync that followed reported each account reading the OTHER
+account's cloud — the personal account, which has **no Gmail mailbox at all**, "ingested 63"
+messages, and the Workspace account asked Gmail for the other mailbox's `historyId` and got
+`400 FAILED_PRECONDITION`. The two grants had been stored under each other's names, and nothing
+could have noticed: `connect --account X` takes X from the command line and stores whatever comes
+back under X, while WHICH account is signed in in the browser is not something a command line knows.
+
+`connect` now asks. After the token exchange and **before anything is stored**, the grant itself is
+asked whose it is — using only the read scopes it already carries, so **no new scope is requested and
+the consent screen is unchanged**:
+
+| probe | scope already granted | the answer |
+|---|---|---|
+| `drive/v3/about?fields=user(emailAddress)` | `drive.readonly` / `drive.metadata.readonly` | the account's address |
+| `gmail/v1/users/me/profile` | `gmail.metadata` / `gmail.readonly` | `emailAddress` (absent with no mailbox) |
+| `calendar/v3/calendars/primary` | `calendar.readonly` | the primary calendar's `id` **is** the address |
+
+Any one settles it; they are tried in order and the first that answers decides. Then:
+
+- **the address contradicts `--account`** → one sentence naming **both** addresses, the grant is
+  revoked at Google, **nothing is stored**, exit non-zero;
+- **it matches** → stored, and `connect` prints `identity: <address> (verified)`. The proof travels
+  in the keychain record, so **every `status` prints it too** — and a record whose identity does not
+  match the item it is filed under makes `status` say `WRONG ACCOUNT` and exit non-zero;
+- **no probe can answer** (a pre-§44 `calendar.events.readonly` grant names nothing, which the
+  registry supports on purpose) → **stored, and `identity: NOT VERIFIED` is printed at connect and at
+  every status, with the probes that could not run listed by name**. Refusing here was the first
+  shape of the check and the suite caught what it costs: it turns a degraded-but-working connect into
+  a hard failure over a question nobody can answer. Absence of evidence is reported, never silently
+  accepted and never treated as a contradiction.
+
+**Microsoft cannot be asked this.** Graph names the signed-in user only under `User.Read`, which is
+not in `MICROSOFT_SCOPES` and which RichOS will not add on its own — so `connect microsoft` prints
+`NOT VERIFIED` with that reason rather than a verification it did not perform (`vendors.js`,
+difference 5).
+
+### `repair` undoes ONE sync run (`repair.js`)
+
+`connect` can no longer store a grant under the wrong account. One crossed run had already happened
+by the time it could, and what that leaves behind is not a file to delete: it is ledger rows,
+evidence revisions, delta cursors now holding the OTHER account's position, and promotions computed
+from evidence counted twice.
+
+**It is vendor-free and the WINDOW is the handle**, because that is the only honest one: a ledger row
+records the item, its etag, its vendor, its source and `observedAt` — not the account, which is
+hashed into the adapter's `sourceInstanceId`. A run is therefore identifiable by WHEN it wrote and by
+nothing cheaper, so the window comes from the run's own output and **`--dry-run` is the default**.
+
+It CHANGES, inside the window only:
+
+- the ingest-ledger rows whose `observedAt` falls inside it;
+- the evidence revision each row links to — resolved through `evidence.js:evidenceDir`, **the same
+  function that wrote it**, then read back and identity-checked against the row. A revision that is
+  not the one its row claims is **refused, not deleted**, its row is kept, and the command exits
+  non-zero while still doing everything else;
+- every cursor written in the window, reset through `resetSyncState` — the same call the core makes
+  on a Google 410, so the next sync is a bounded full sync the repaired ledger dedups against.
+  A Calendar cursor is a map of per-calendar tokens under one entry with one timestamp, so a reset
+  covers every calendar in it; the report prints those calendar ids rather than any token.
+
+It REPORTS, in both modes, and **never touches**:
+
+- **promoted memory records** left citing evidence that is going. A loro record is create-only and
+  superseded rather than deleted; whether one stops existing is the CEO's decision and the loro
+  writer's write, not this command's.
+- **names whose §4.5 corroboration falls below the threshold** once the removed evidence stops
+  counting — computed with `entityCandidatesFromEvidence` and `tallyCorroboration` /
+  `DEFAULT_MIN_CORROBORATION` given an `exclude` predicate, i.e. **promotion's own reader and
+  promotion's own threshold**. A name that reached the threshold only because one message was
+  ingested twice is exactly the memory corruption a crossed run causes, and it is named.
+
+Every apply appends the rows it removed, verbatim, to `_workspace_repairs.jsonl` beside the ingest
+ledger — the undo is itself auditable. A demonstration on a synthetic corpus of exactly this shape
+(`npm run demo:repair`, transcript in `docs/verification/2026-09-17-crossed-consent-repair.md`) shows
+7 ledger rows becoming 3, 21 evidence files becoming 9, three cursors reset, and the correct earlier
+run untouched.
 
 ### `sync --once` promotes what it pulled (§4.4 step 4)
 

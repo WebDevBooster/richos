@@ -64,6 +64,7 @@ import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
 import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import { resolveGrantedIdentity, sameAddress, canonicalAddress, GOOGLE_IDENTITY_PROBES } from '../lib/workspace/identity.js';
 
 // ---- MICROSOFT 365 (P4) — the second vendor's imports, kept together ---------------------------
 import {
@@ -96,6 +97,8 @@ import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } f
 import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
 import { corpusFromZone } from '../lib/workspace/promote-run.js';
 import { promotionLedgerPath } from '../lib/workspace/promotion.js';
+import { planRepair, repairLedgerPath } from '../lib/workspace/repair.js';
+import { DEFAULT_MIN_CORROBORATION } from '../lib/workspace/entity-feed.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
 
 let passed = 0;
@@ -3067,6 +3070,11 @@ function httpResponse(status, body, headers = {}) {
 function googleHttpMock(opts = {}) {
   const calls = [];
   const grantedScope = opts.grantedScope ?? GOOGLE_SCOPES.calendar;
+  // WHOSE account this mocked Google belongs to. Every one of the three identity probes answers with
+  // it, because on a real account they all name the same owner — and a test that wants the
+  // crossed-consent failure sets it to somebody else, which is the only way to produce that failure
+  // without two live Google accounts.
+  const identityEmail = opts.identityEmail ?? 'ceo@acme.com';
   const http = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
     if (url.startsWith(TOKEN_URL)) {
@@ -3086,6 +3094,17 @@ function googleHttpMock(opts = {}) {
     }
     if (url.startsWith(REVOKE_URL)) return httpResponse(200, '');
     const u = new URL(url);
+    // --- the identity probes (`lib/workspace/identity.js`), each answering with this account's own
+    // address exactly as the real API does. They come FIRST so the broad calendar branch below
+    // cannot swallow the primary-calendar read.
+    if (u.pathname === '/calendar/v3/calendars/primary') {
+      if (opts.calendarIdentityStatus) return httpResponse(opts.calendarIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ id: identityEmail, summary: 'Primary' }));
+    }
+    if (u.pathname === '/drive/v3/about') {
+      if (opts.driveIdentityStatus) return httpResponse(opts.driveIdentityStatus, '{"error":{"message":"nope"}}');
+      return httpResponse(200, JSON.stringify({ user: { emailAddress: identityEmail } }));
+    }
     if (u.pathname.includes('/calendar/v3/')) {
       return httpResponse(200, JSON.stringify(u.searchParams.get('syncToken')
         ? { items: opts.calendarDelta || [EVENT_ORG], nextSyncToken: 'CAL-2' }
@@ -3097,7 +3116,12 @@ function googleHttpMock(opts = {}) {
     if (/\/drive\/v3\/files\/[^/]+\/export$/.test(u.pathname)) return httpResponse(200, 'Q3 plan: ship the thing.');
     if (/\/drive\/v3\/files\/[^/]+$/.test(u.pathname) && u.searchParams.get('alt') === 'media') return httpResponse(200, 'plain bytes');
     if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
-    if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
+    if (u.pathname.endsWith('/users/me/profile')) {
+      // A Google account with NO MAILBOX answers this with 400 FAILED_PRECONDITION — the state the
+      // CEO's personal account is actually in, and the reason the identity check tries more than one.
+      if (opts.noMailbox) return httpResponse(400, JSON.stringify({ error: { code: 400, status: 'FAILED_PRECONDITION' } }));
+      return httpResponse(200, JSON.stringify({ emailAddress: identityEmail, historyId: '2001' }));
+    }
     if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
     if (/\/users\/me\/messages\/[^/]+$/.test(u.pathname)) return httpResponse(200, JSON.stringify(MAIL_INTERNAL));
     if (u.pathname.endsWith('/users/me/messages')) {
@@ -3256,6 +3280,170 @@ await atest('connect refuses loudly when Google rejects the code exchange', asyn
     assert.match(f.text(), /invalid_grant/);
   } finally { f.cleanup(); }
 });
+
+
+// -------------------------------------------------------------------------------------------------
+group('`connect` VERIFIES WHOSE CONSENT IT RECEIVED (the 2026-09-17 crossed-grant defect)');
+// -------------------------------------------------------------------------------------------------
+
+await atest('a consent belonging to the OTHER account is REFUSED and nothing is stored — PROBE: the matching one stores', async () => {
+  // THE FAILURE, reproduced: the command was run for one address and the browser was signed in as the
+  // other. Before this check, the grant was filed under the address that was typed and every sync
+  // afterwards read the wrong account's cloud.
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'someone.else@leadersadapt.example' });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 1, f.text());
+    assert.equal(f.record(), null, 'NOTHING was stored — not under either address');
+    assert.equal(f.backend.get('com.richos.workspace.google', 'oauth-tokens someone.else@leadersadapt.example'), null,
+      'and it was not helpfully filed under the address Google reported either');
+    // ONE sentence, naming BOTH addresses — which is the only form in which the CEO can see what
+    // happened without going to look for it.
+    assert.match(f.text(), /NOT CONNECTED — that consent belongs to someone\.else@leadersadapt\.example, not ceo@acme\.com\./);
+    // The accidental grant is not left standing on his account.
+    assert.ok(mock.calls.some((c) => c.url.startsWith(REVOKE_URL)), 'the discarded grant was revoked at Google');
+    assert.match(f.text(), /revoked at Google/);
+  } finally { f.cleanup(); }
+
+  // PROBE: the identical ceremony whose identity MATCHES connects and stores. The refusal is about
+  // the identity and nothing else.
+  const g = wsFixture();
+  try {
+    const r = await connect(g.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    assert.equal(r.exitCode, 0, g.text());
+    assert.equal(g.record().refreshToken, FAKE_REFRESH);
+    assert.match(g.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { g.cleanup(); }
+});
+
+await atest('the identity is read with the token JUST EXCHANGED, before the keychain is touched', async () => {
+  const f = wsFixture();
+  try {
+    const mock = googleHttpMock({ identityEmail: 'ceo@acme.com' });
+    await connect(f.deps(connectStubs(mock)));
+    const probe = mock.calls.find((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(probe, 'the probe ran');
+    assert.equal(probe.auth, `Bearer ${FAKE_ACCESS}`,
+      'with the access token from THIS exchange — a check against the keychain would verify the wrong grant');
+    const exchangeAt = mock.calls.findIndex((c) => c.url.startsWith(TOKEN_URL));
+    const probeAt = mock.calls.findIndex((c) => c.url.includes('/calendar/v3/calendars/primary'));
+    assert.ok(exchangeAt < probeAt, 'and after the exchange, which is the only moment the answer exists');
+  } finally { f.cleanup(); }
+});
+
+await atest('the check asks for NO new scope — the consent screen is exactly what it was', async () => {
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar] });
+  try {
+    let authUrl = null;
+    await connect(f.deps({
+      ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })),
+      openBrowser: async (url) => { authUrl = url; return true; },
+    }));
+    const requested = new URL(authUrl).searchParams.get('scope').split(' ');
+    assert.deepEqual(requested, [GOOGLE_SCOPES.calendar], 'one scope asked for, and it is the source scope');
+    for (const forbidden of ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/userinfo.email']) {
+      assert.ok(!requested.includes(forbidden), `${forbidden} would change the consent screen — the CEO's decision, not ours`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('an account with NO MAILBOX is verified by the next probe, not abandoned at the first failure', async () => {
+  // Exactly the CEO's personal account: no Gmail mailbox at all, so `users/me/profile` answers 400
+  // FAILED_PRECONDITION — a fact about the mailbox, not a reason to stop asking.
+  const f = wsFixture({ scopes: [GOOGLE_SCOPES.mail, GOOGLE_SCOPES.calendar] });
+  try {
+    const mock = googleHttpMock({
+      identityEmail: 'ceo@acme.com',
+      noMailbox: true,
+      grantedScope: `${GOOGLE_SCOPES.mail} ${GOOGLE_SCOPES.calendar}`,
+    });
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.via, 'Calendar', 'Gmail could not answer, so the primary calendar did');
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a grant no probe can answer CONNECTS and says NOT VERIFIED — never silently', async () => {
+  // `calendar.events.readonly` is the pre-§44 width the registry supports on purpose and reports as
+  // LIMITED. It can name no account, and refusing it would turn a working connect into a failure over
+  // a question nobody can answer — so the absence is stored with the grant and SAID.
+  const f = wsFixture({ scopes: [CALENDAR_EVENTS_ONLY_SCOPE] });
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }))));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /Calendar: not granted, so it was not asked/,
+      'and it names which probe could not run, rather than shrugging');
+    assert.equal(f.record().identity.email, null, 'the record carries the absence, so status can repeat it');
+
+    f.lines.length = 0;
+    await status(f.deps({ http: googleHttpMock({ grantedScope: CALENDAR_EVENTS_ONLY_SCOPE }).http }));
+    assert.match(f.text(), /identity:   NOT VERIFIED/, 'every status says it again');
+  } finally { f.cleanup(); }
+});
+
+await atest('status reports a stored grant that belongs to the WRONG account, and exits non-zero', async () => {
+  // A record written by a build that verified nothing, or a keychain item edited by hand. The CEO's
+  // machine held two of these on 2026-09-17 and nothing said so.
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    const rec = f.record();
+    f.backend.set('com.richos.workspace.google', tokenAccount('ceo@acme.com'),
+      JSON.stringify({ ...rec, identity: { email: 'the.other@leadersadapt.example', via: 'Drive', verifiedAt: NOW } }));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 1, 'a crossed grant is not a healthy status');
+    assert.match(f.text(), /identity:   WRONG ACCOUNT/);
+    assert.match(f.text(), /belongs to the\.other@leadersadapt\.example/);
+    assert.equal(r.accounts[0].identity.matched, false);
+  } finally { f.cleanup(); }
+});
+
+await atest('status prints the verified identity beside the account it is filed under', async () => {
+  const f = wsFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' }))));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /identity:   ceo@acme\.com \(verified at connect, via Calendar\)/);
+    assert.equal(r.accounts[0].identity.matched, true);
+  } finally { f.cleanup(); }
+});
+
+test('sameAddress is case-insensitive everywhere and dot-insensitive ONLY where Google says so', () => {
+  assert.ok(sameAddress('CEO@Acme.com', 'ceo@acme.com'), 'case never distinguishes a mailbox');
+  assert.ok(sameAddress('c.e.o@gmail.com', 'ceo@gmail.com'), "gmail.com ignores dots — Google's own rule");
+  assert.ok(sameAddress('ceo+workspace@googlemail.com', 'ceo@googlemail.com'), 'and a +tag is a delivery alias');
+  // PROBE: the narrowness is the point. Two Workspace mailboxes that differ by a dot are two people.
+  assert.ok(!sameAddress('c.e.o@acme.com', 'ceo@acme.com'), 'a hosted domain decides its own local parts');
+  assert.ok(!sameAddress('personal@icloud.example', 'work@leadersadapt.example'), 'the shape of the two accounts in the incident');
+  assert.ok(!sameAddress('', 'ceo@acme.com'), 'an empty answer never matches anything');
+});
+
+await atest('resolveGrantedIdentity tries every granted probe in order and reports what each one said', async () => {
+  const asked = [];
+  const result = await resolveGrantedIdentity({
+    probes: GOOGLE_IDENTITY_PROBES,
+    grantedScopes: [GOOGLE_SCOPES.drive, GOOGLE_SCOPES.calendar],
+    matches: (granted, scope) => granted.includes(scope),
+    get: async (url) => {
+      asked.push(url);
+      if (url.includes('/drive/v3/about')) throw Object.assign(new Error('google GET failed: 500 upstream'), { status: 500 });
+      return { id: 'ceo@acme.com' };
+    },
+  });
+  assert.equal(result.email, 'ceo@acme.com');
+  assert.equal(result.via, 'Calendar');
+  assert.equal(asked.length, 2, 'Gmail was not granted, so it was never asked');
+  assert.deepEqual(result.skipped, ['Gmail']);
+  assert.match(result.attempts[0].error, /500/, "the first probe's failure is kept, not swallowed");
+});
+
 
 await atest('connect --client-file puts the secret in the KEYCHAIN — never in a file, never in a log line', async () => {
   const f = wsFixture({ clientSecret: false });
@@ -5393,11 +5581,11 @@ async function connectTwo(f, opts = {}) {
   const scope = opts.grantedScope ?? FULL_GRANT;
   const sources = opts.sources || ['calendar', 'drive', 'mail'];
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope, identityEmail: ACCT_A })),
     clientId: FAKE_CLIENT_ID, accountId: ACCT_A, sources,
   }));
   await connect(f.deps({
-    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope })),
+    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope, identityEmail: ACCT_B })),
     accountId: ACCT_B, sources,
   }));
   return { a: 'AT-account-a', b: 'AT-account-b' };
@@ -5745,7 +5933,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     writeV1Config(f.clientConfigFile);
     f.lines.length = 0;
     // The old shape connects — the CEO's existing install does not need a migration step he runs.
-    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a'))));
+    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a', { identityEmail: ACCT_A }))));
     assert.equal(r.exitCode, 0, f.text());
     assert.equal(r.account, ACCT_A);
     assert.match(f.text(), /now lists accounts \(your existing account is unchanged\)/);
@@ -5755,7 +5943,7 @@ await atest('the PRE-MIGRATION file still works through the commands, and is rew
     assert.deepEqual(onDisk.accounts[0].orgDomains, ['acme.com'], 'his org domains survived the rewrite');
 
     // PROBE: a second account goes on beside the migrated one, which is the point of migrating.
-    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b')), accountId: ACCT_B }));
+    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b', { identityEmail: ACCT_B })), accountId: ACCT_B }));
     assert.deepEqual(accountsOf(loadClientConfig(f.clientConfigFile)).map((a) => a.accountId), [ACCT_A, ACCT_B]);
     assert.ok(f.record(ACCT_A) && f.record(ACCT_B));
   } finally { f.cleanup(); }
@@ -6008,6 +6196,23 @@ await atest('connect microsoft completes the Entra ceremony and stores the grant
     // NEVER A GUESSED CLOCK: Entra publishes no lifetime, so no countdown is printed.
     assert.doesNotMatch(f.text(), /expire[sd] after ~7 days/);
     assert.match(f.text(), /publishes no fixed lifetime/);
+  } finally { f.cleanup(); }
+});
+
+await atest('connect microsoft says its identity is NOT VERIFIED rather than implying a check Graph cannot answer', async () => {
+  // The Google side proves whose consent it received from the scopes it already holds. Graph names the
+  // signed-in user only under `User.Read`, which is not in MICROSOFT_SCOPES and which RichOS may not
+  // add on its own — so this side reports the gap in Microsoft's own terms. A printed "verified" here
+  // would be the same class of invention `vendors.js` was written to keep out of this file.
+  const f = msFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(msHttpMock())));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.identity.email, null);
+    assert.match(f.text(), /identity:   NOT VERIFIED/);
+    assert.match(f.text(), /User\.Read/, "and it names WHY, in the vendor's own vocabulary");
+    assert.doesNotMatch(f.text(), /\(verified/, 'nothing here claims a verification that did not happen');
+    assert.equal(f.record().identity.email, null, 'the absence travels with the grant');
   } finally { f.cleanup(); }
 });
 
@@ -6402,8 +6607,8 @@ await atest('sync PROMOTES: the pull ends with records in the corpus and a promo
 await atest('promotion runs ONCE for a sync over two accounts, not once per account', async () => {
   const f = corpusFixture({ accounts: ['ceo@acme.com', 'ceo@other.com'] });
   try {
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@acme.com' }));
-    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@other.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@acme.com' })), accountId: 'ceo@acme.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock({ identityEmail: 'ceo@other.com' })), accountId: 'ceo@other.com' }));
     f.lines.length = 0;
     const r = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
     assert.equal(r.exitCode, 0, f.text());
@@ -6535,6 +6740,240 @@ await atest('a promotion that FAILS AT THE WRITE is a non-zero sync, never a suc
     assert.match(f.text(), /FAILED: /);
     assert.equal(r.results[0].summary.ingested, 1, 'and the pull is still reported truthfully');
   } finally { f.cleanup(); }
+});
+
+
+// -------------------------------------------------------------------------------------------------
+group('`workspace repair` — undoing ONE sync run (the crossed-consent cleanup)');
+// -------------------------------------------------------------------------------------------------
+
+const REPAIR_RUN_ONE = Date.parse('2026-09-17T02:46:00Z');
+const REPAIR_RUN_TWO = Date.parse('2026-09-17T07:32:41Z');
+const REPAIR_WINDOW = { since: '2026-09-17T07:32:00Z', until: '2026-09-17T07:33:00Z' };
+
+/** A fake adapter over fixed raws — the §3.x interface, so the spine that writes is the real one. */
+function repairAdapter({ source, account, raws, cursor, at }) {
+  const sourceInstanceId = createHash('sha256').update(`google|${source}|${account}`).digest('hex').slice(0, 16);
+  return {
+    vendor: 'google',
+    source,
+    sourceInstanceId,
+    async listChanges() { return { items: raws.map((r) => ({ id: r.id })), nextSyncState: { syncToken: cursor } }; },
+    async fetchItem(ref) { return raws.find((r) => r.id === ref.id); },
+    toSourceItem(raw) {
+      return {
+        schemaVersion: 1,
+        sourceItemId: `google:${source}:${sourceInstanceId}:${raw.id}`,
+        vendor: 'google',
+        source,
+        kind: raw.kind,
+        content: { title: raw.title, text: raw.text || '', structured: raw.structured || {} },
+        actors: raw.actors,
+        temporal: { occurredAt: raw.occurredAt || at, modifiedAt: raw.occurredAt || at },
+        provenance: { fetchedAt: at, vendorEtag: raw.etag, vendorUrl: `https://example.invalid/${raw.id}`, adapterVersion: 'test-1' },
+      };
+    },
+  };
+}
+
+const REPAIR_DANA = { name: 'Dana Reyes', email: 'dana@northwind.example', orgRelation: 'external' };
+const REPAIR_MORGAN = { name: 'Morgan Lee', email: 'morgan@northwind.example', orgRelation: 'external' };
+const REPAIR_SELF = { name: 'Alex', email: 'work@leadersadapt.example', orgRelation: 'self' };
+const REPAIR_MAIL = [
+  { id: 'msg-1', kind: 'email', etag: 'e1', title: 'Q3 pricing', text: 'the pricing question',
+    actors: { author: REPAIR_DANA, recipients: [REPAIR_SELF], attendees: [] } },
+  // MORGAN IS ON ONE MESSAGE ONLY. Seen once the §4.5 threshold holds the name; ingest that one
+  // message twice under two source instances and the same single sighting promotes a person.
+  { id: 'msg-2', kind: 'email', etag: 'e2', title: 'Re: Q3 pricing', text: 'following up',
+    actors: { author: REPAIR_DANA, recipients: [REPAIR_SELF, REPAIR_MORGAN], attendees: [] } },
+];
+
+/** The CEO's shape: one correct run, then one crossed run that re-ingests the same mail as another account. */
+async function crossedZone() {
+  const zone = path.join(tmp(), 'corpus', 'ceo', 'evidence', 'unfiled', 'workspace');
+  fs.mkdirSync(zone, { recursive: true });
+  const identity = { selfEmails: ['work@leadersadapt.example'], orgDomains: ['leadersadapt.example'] };
+  const run = async (adapter, at) => {
+    // `sync-state.js` stamps cursors with the wall clock (in production that IS the run's instant),
+    // so the clock is held while the pass runs or the window could never find the cursor it wrote.
+    const realNow = Date.now;
+    Date.now = () => at;
+    try {
+      await ingestOnce({ adapter, identity, zone, linkBase: zone, now: () => at });
+    } finally { Date.now = realNow; }
+  };
+  await run(repairAdapter({ source: 'mail', account: 'work@leadersadapt.example', raws: REPAIR_MAIL, cursor: 'hist-11846', at: REPAIR_RUN_ONE }), REPAIR_RUN_ONE);
+  await run(repairAdapter({ source: 'mail', account: 'personal@icloud.example', raws: REPAIR_MAIL, cursor: 'hist-11846', at: REPAIR_RUN_TWO }), REPAIR_RUN_TWO);
+  return zone;
+}
+
+const repairLines = () => { const lines = []; return { lines, out: (l) => lines.push(l), text: () => lines.join('\n') }; };
+
+await atest('repair --dry-run names every row, file and cursor it would touch, and changes NOTHING', async () => {
+  const zone = await crossedZone();
+  try {
+    const before = fs.readFileSync(auditLedgerPath(zone), 'utf8');
+    const beforeFiles = JSON.stringify(fs.readdirSync(path.join(zone, 'google', 'mail')).sort());
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, out: o.out, now } });
+    assert.equal(r.exitCode, 0, o.text());
+    assert.equal(r.dryRun, true);
+    assert.equal(r.plan.ledger.removing.length, 2, 'the crossed run ingested two rows');
+    assert.equal(r.plan.ledger.total, 4, 'and the correct run before it is untouched');
+    assert.equal(r.plan.cursors.resetting.length, 1, "the crossed account's cursor, and only it");
+    assert.match(o.text(), /would remove 2 of 4 rows/);
+    assert.match(o.text(), /\(dry run — nothing was changed\. Re-run with --apply\.\)/);
+
+    assert.equal(fs.readFileSync(auditLedgerPath(zone), 'utf8'), before, 'the ledger is byte-identical');
+    assert.equal(JSON.stringify(fs.readdirSync(path.join(zone, 'google', 'mail')).sort()), beforeFiles,
+      'and every evidence directory is still there');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair --apply removes exactly the plan: the crossed rows, their evidence, their cursor', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.equal(r.exitCode, 0, o.text());
+    assert.equal(r.done.rowsRemoved, 2);
+    assert.equal(r.done.evidenceRemoved.length, 2);
+    assert.equal(r.done.cursorsReset.length, 1);
+
+    const rows = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(rows.length, 2, 'the correct run survives in full');
+    assert.ok(rows.every((row) => row.observedAt === REPAIR_RUN_ONE), 'and every surviving row is its own');
+    for (const dir of r.done.evidenceRemoved) assert.ok(!fs.existsSync(dir), `${dir} is gone`);
+
+    // The cursor is reset the way the core resets one after a 410 — the next poll is a bounded full
+    // sync the repaired ledger dedups against, not a re-pull of the world into duplicate evidence.
+    const cursors = JSON.parse(fs.readFileSync(path.join(zone, '_sync_state.json'), 'utf8'));
+    const reset = Object.entries(cursors).filter(([, v]) => v.cursor === null);
+    assert.equal(reset.length, 1);
+    assert.equal(Object.values(cursors).filter((v) => v.cursor === 'hist-11846').length, 1,
+      "the account that was right keeps its place in its own mailbox");
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair REPORTS the people whose corroboration was double-counted — and removes none of them', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    // Morgan is on ONE message. The crossed run counted that one sighting a second time, which is
+    // what carried the name over the threshold — the memory corruption the brief names.
+    assert.deepEqual(r.plan.entities.falling.map((e) => [e.canonical, e.before, e.after]),
+      [['Morgan Lee', 2, 1]], o.text());
+    assert.equal(r.plan.entities.threshold, DEFAULT_MIN_CORROBORATION, "promotion's own threshold, not a second copy of it");
+    assert.match(o.text(), /Morgan Lee: 2 → 1/);
+    assert.match(o.text(), /NOT removed by repair/);
+    // Dana is on both messages and stays corroborated without the duplicates: a name that was really
+    // earned is not reported as lost.
+    assert.ok(!r.plan.entities.falling.some((e) => e.canonical === 'Dana Reyes'));
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair NEVER deletes a memory record — it names each one whose evidence is going', async () => {
+  const zone = await crossedZone();
+  try {
+    // A promoted record for an item the crossed run ingested. Repair must report it and leave both
+    // the record and its promotion-ledger row exactly where they are.
+    const crossed = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean)
+      .map((l) => JSON.parse(l)).find((row) => row.observedAt === REPAIR_RUN_TWO);
+    fs.appendFileSync(promotionLedgerPath(zone), `${JSON.stringify({
+      sourceItemId: crossed.sourceItemId, vendorEtag: crossed.vendorEtag, ref: 'rec:ceo:unfiled:a-record', promotedAt: REPAIR_RUN_TWO,
+    })}\n`);
+    const promotionsBefore = fs.readFileSync(promotionLedgerPath(zone), 'utf8');
+
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.deepEqual(r.plan.promotions.orphaned.map((p) => p.ref), ['rec:ceo:unfiled:a-record']);
+    assert.match(o.text(), /rec:ceo:unfiled:a-record/);
+    assert.match(o.text(), /NOT removed by repair/);
+    assert.match(o.text(), /decision for the CEO and a write for the loro writer/);
+    assert.equal(fs.readFileSync(promotionLedgerPath(zone), 'utf8'), promotionsBefore,
+      'the promotion ledger is untouched — this command does not decide what memory stops existing');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair REFUSES a revision that is not the one its row claims, and keeps that row', async () => {
+  const zone = await crossedZone();
+  try {
+    // Somebody else's revision at the path this row resolves to. Deleting it because the path matched
+    // would be the one unrecoverable mistake this command could make.
+    const crossed = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean)
+      .map((l) => JSON.parse(l)).filter((row) => row.observedAt === REPAIR_RUN_TWO);
+    const planned = planRepair({ zone, since: Date.parse(REPAIR_WINDOW.since), until: Date.parse(REPAIR_WINDOW.until) });
+    const victim = planned.evidence.dirs[0].dir;
+    const stored = JSON.parse(fs.readFileSync(path.join(victim, 'item.json'), 'utf8'));
+    fs.writeFileSync(path.join(victim, 'item.json'), JSON.stringify({ ...stored, sourceItemId: 'google:mail:somebody:else' }, null, 2));
+
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    assert.equal(r.exitCode, 1, 'a refusal inside a repair is not a success');
+    assert.match(o.text(), /REFUSED:/);
+    assert.match(o.text(), /the revision on disk is not the one this row claims/);
+    assert.ok(fs.existsSync(path.join(victim, 'item.json')), 'the unconfirmed revision is still there');
+    const rows = fs.readFileSync(auditLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.ok(rows.some((row) => row.sourceItemId === crossed[0].sourceItemId || row.sourceItemId === crossed[1].sourceItemId),
+      'and its ledger row was kept with it');
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair writes an AUDIT row holding the rows it removed, so the undo is itself undoable', async () => {
+  const zone = await crossedZone();
+  try {
+    const o = repairLines();
+    await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, out: o.out, now } });
+    const audit = fs.readFileSync(repairLedgerPath(zone), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].rows.length, 2, 'the removed rows are kept VERBATIM, not counted');
+    assert.equal(audit[0].since, Date.parse(REPAIR_WINDOW.since));
+    assert.equal(audit[0].evidenceRemoved.length, 2);
+    assert.match(o.text(), /audit:      .*_workspace_repairs\.jsonl/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair refuses a window it cannot read, and a mode that contradicts itself', async () => {
+  const zone = await crossedZone();
+  try {
+    let o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /a run is identified by the window it wrote in/);
+
+    o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, since: 'last tuesday', out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /--since is not a time RichOS can read: "last tuesday"/);
+
+    o = repairLines();
+    assert.equal((await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, apply: true, dryRun: true, out: o.out, now } })).exitCode, 1);
+    assert.match(o.text(), /--apply and --dry-run are opposite instructions/);
+
+    o = repairLines();
+    const backwards = await runWorkspace({ sub: 'repair', deps: { zone, since: REPAIR_WINDOW.until, until: REPAIR_WINDOW.since, out: o.out, now } });
+    assert.equal(backwards.exitCode, 1);
+    assert.match(o.text(), /--until is before --since/);
+
+    // PROBE: an empty window is not an error — it is an answer, and it says which one.
+    o = repairLines();
+    const empty = await runWorkspace({ sub: 'repair', deps: { zone, since: '2020-01-01T00:00:00Z', until: '2020-01-02T00:00:00Z', out: o.out, now } });
+    assert.equal(empty.exitCode, 0);
+    assert.equal(empty.nothing, true);
+    assert.match(o.text(), /nothing to undo/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('repair is VENDOR-FREE and reaches no other store: one zone holds every account', async () => {
+  const zone = await crossedZone();
+  try {
+    // A second vendor's rows in the same zone, outside the window, are not this run's business.
+    const before = fs.readFileSync(auditLedgerPath(zone), 'utf8');
+    const o = repairLines();
+    const r = await runWorkspace({ sub: 'repair', deps: { zone, ...REPAIR_WINDOW, out: o.out, now } });
+    assert.ok(!o.text().includes('vendor:'), 'no vendor is named as an input — the window is the handle');
+    assert.equal(r.plan.zone, zone);
+    assert.equal(fs.readFileSync(auditLedgerPath(zone), 'utf8'), before);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
 // =================================================================================================
