@@ -2466,6 +2466,27 @@
               state: "toolchain-missing",
               offer: null,
             };
+          // THE MODEL IS THERE AND IS NOT THE MODEL RICHOS PINNED — different weights under
+          // the right name, which is the one speech failure that would otherwise be
+          // invisible. The nightly of 2026-09-17 reached this state with 17 corrupted bytes
+          // at an identical file size, and the backend refused correctly and beautifully; the
+          // window then removed the talk control from the screen AND from the accessibility
+          // tree, leaving the explanation in a log the CEO will never open (audit §D3).
+          //
+          // `offer` is null because `SpeechReadiness::provisionable()` is false here — this
+          // is not a gap RichOS can close by downloading, it is tampering somebody has to
+          // look at. That absence is exactly what used to hide the button.
+          if (preset.voice === "refused")
+            return {
+              available: false,
+              // VERBATIM from `SttError::ToolchainRefused`'s `ceo_message()`,
+              // crates/richos-voice/src/stt.rs. The window now RENDERS this rather than
+              // hiding the control and saying nothing.
+              reason:
+                "Something about my hearing changed on this machine and I'd rather not guess at what you said than get it wrong. Whoever set RichOS up can put it right. I can still read what you type.",
+              state: "refused",
+              offer: null,
+            };
           // A MACHINE WITH A DECODER AND NO WEIGHTS — the state the 2026-09-17 provisioning
           // work exists for, and the one a fresh Mac that has run `brew install whisper-cpp`
           // is actually in. `available` is still false (speech cannot happen right now) and

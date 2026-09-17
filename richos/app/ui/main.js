@@ -85,6 +85,10 @@ const inputEl = el("input");
 const sendBtn = el("send");
 const stopBtn = el("stop");
 const talkToggleBtn = el("talk-toggle");
+/// Why voice is off, when RichOS knows why (nightly D3). Lives beside the composer rather
+/// than in `#voice-panel`, because the panel only opens once he is IN voice mode and the
+/// whole point of this line is the case where he cannot get there.
+const voiceUnavailableEl = el("voice-unavailable");
 const voicePanelEl = el("voice-panel");
 const voiceListeningEl = el("voice-state-listening");
 const voiceNoAudioEl = el("voice-state-no-audio");
@@ -3128,7 +3132,38 @@ async function refreshVoiceReadiness() {
   // NOT OFFERED, rather than offered-and-inert, for everything RichOS genuinely cannot fix.
   // `start_voice_capture` still refuses with Rich's own sentence for anything that reaches it
   // another way, so this is the affordance half of the fix and not the whole of it.
-  talkToggleBtn.hidden = !(voiceAvailable || voiceModelOffer);
+  // PRESENT-AND-EXPLAINED BEATS ABSENT, when RichOS knows why (nightly D3).
+  //
+  // `refused` is the state where the speech model on disk is not the model RichOS pinned —
+  // different weights under the right name. The refusal itself is correct and is the best
+  // failure in the product; what the CEO got was the talk control DISAPPEARING from the
+  // window and from the accessibility tree, with the explanation living only in a log he
+  // will never open. A capability that silently stops existing teaches him not to trust
+  // what he can see.
+  //
+  // `reason` is already on this payload — `SttError::ToolchainRefused::ceo_message()`,
+  // authored in richos-voice and relayed verbatim. The window composes nothing.
+  //
+  // EVERY OTHER UNAVAILABLE STATE IS STILL NOT OFFERED, unchanged: `toolchain-missing` is a
+  // machine that has no decoder at all, and a disabled button beside a sentence about
+  // something nobody here can fix is clutter rather than honesty. The distinction is that
+  // `refused` is a machine that COULD hear and has been tampered with, which is a fact he
+  // should be told rather than a capability that quietly never existed.
+  const refused = voiceState === "refused";
+  talkToggleBtn.hidden = !(voiceAvailable || voiceModelOffer || refused);
+  talkToggleBtn.disabled = refused;
+  if (refused) {
+    // aria-disabled beside the property so the name is still announced. A `disabled` button
+    // is skipped by some screen-reader navigation modes, and a control he can be told about
+    // is better than one he cannot reach at all.
+    talkToggleBtn.setAttribute("aria-disabled", "true");
+  } else {
+    talkToggleBtn.removeAttribute("aria-disabled");
+  }
+  setTalkPressed(voiceMode);
+  const note = (r && typeof r.reason === "string") ? r.reason : "";
+  voiceUnavailableEl.textContent = refused ? note : "";
+  voiceUnavailableEl.hidden = !(refused && note);
 }
 
 /// Which of the four model rows is on screen, if any. Exactly one, or none.
