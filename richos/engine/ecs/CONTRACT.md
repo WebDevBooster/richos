@@ -20,7 +20,7 @@ or unreadable store is distinct from an empty result. The Rust bridge applies a
 | `import-preview` | Read-only neutral envelope validation and mapping preview |
 | `import-apply` | Fenced application with durable partial receipts |
 | `seats` | Host reads every seat there is, so orphans can be reconciled |
-| `release-seat` | Host releases one worker seat, fenced on that seat's revision |
+| `release-seat` | Host releases one worker seat, or one of his orphaned thread seats, fenced on that seat's revision |
 
 After binding, commands other than the read-only preview carry the exact
 `binding` object returned by `bind`: entity_id, thread_id, session_id, turn_id,
@@ -43,24 +43,49 @@ against that seat's row, and the events a command appends carry the fenced row's
 own person, so a background record can never land on the conversation's cursor by
 default.
 
-A seat is **one per assignment**, created with it and released with it. One seat
-shared by two assignments is the same collision one level in: the table is keyed
-by person, so registering the second upserts the first one's cursor and the
+A work seat is **one per assignment**, created with it and released with it. One
+seat shared by two assignments is the same collision one level in: the table is
+keyed by person, so registering the second upserts the first one's cursor and the
 first one's frozen binding is stale from then on.
+
+The CEO's own seat is **one per conversation thread**, for the same reason. He can
+run any number of conversation threads at once and each one holds its own front
+desk, so N front desks on the one `ceo-default` row is that collision with the CEO
+on both sides of it: thread B's bind upserts thread A's cursor while A's turn is
+open, and A's next checkpoint, brief or inspect is refused with "stale app
+binding" — which is not a retryable race and dead-letters the turn.
+
+A thread's seat is **derived**, `ceo-thread:<thread_id>`, so the app and the engine
+name it without either one holding a mapping the other can drift from. Absent still
+means the single legacy cursor, so a client that never names a seat is unaffected.
+`hello` answers `ceo_thread_seats` so the app can tell support from silence.
+
+**Whether a call is his is answered positively**, by re-deriving the seat from the
+row's own thread and requiring the `ceo` audience — never by comparing a person
+against the `ceo-default` literal. A CEO-shaped seat that does not name the thread
+it binds is refused, and the `ceo` audience is refused to every other seat, so a
+work seat cannot reach his continuity or his `ceo_private` records by naming itself
+well.
 
 - Bind carries the seat on `thread.activated` only. `entity.registered`,
   `thread.created` and `session.observed` are statements about things that exist
   and are the same facts for whoever is looking, so they stay on the registry
   person; binding them under a seat is refused as a re-registration.
 - `checkpoint`, `receipt` and `brief` are the conversation's and are refused on a
-  seat that is not its own. They read that cursor by construction, and an
-  allow-list on tool names cannot see whose seat is calling.
+  seat that is not one of his. They read and write that seat's cursor by
+  construction, and an allow-list on tool names cannot see whose seat is calling.
 - `inspect` on a seat reads that seat's cursor and that seat's audience. A seat
   bound `worker` sees only worker records.
-- `seats` and `release-seat` are the host's, refused to any other seat. A seat
-  with no assignment behind it is a defect and is reconciled where receipts are;
-  a release is an event, so it survives a projection rebuild, and only a seat
-  whose audience is `worker` can be released at all.
+- `seats` and `release-seat` are the host's, refused to any seat that is not one
+  of his. A seat with no assignment behind it is a defect and is reconciled where
+  receipts are; a release is an event, so it survives a projection rebuild, and
+  only a worker seat or one of his thread seats can be released at all —
+  `ceo-default` never, and no seat can release itself.
+- Releasing one of his thread seats requires the revision the seat was enumerated
+  at. Whether a conversation thread still exists is the app's knowledge; what the
+  store can prove is movement, so a seat that has bound a turn since the
+  enumeration belongs to a live thread and is refused. A work seat's release is
+  unchanged and needs no such proof.
 
 The model-facing MCP server exposes only `checkpoint` and `inspect`. It takes
 its state location and binding from an app-owned scope file. Tool arguments

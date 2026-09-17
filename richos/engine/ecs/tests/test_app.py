@@ -395,5 +395,275 @@ class WorkSeatTests(unittest.TestCase):
                                    request_id="rel-3", source_ref="reconcile:3")["released"])
 
 
+class CeoThreadSeatTests(unittest.TestCase):
+    """HIS OWN SEAT, ONE PER CONVERSATION THREAD.
+
+    He can open and run any number of conversation threads at once, and each one
+    holds its own front desk. ``ecs_active_context`` is a cursor keyed by
+    ``person_id``, so N front desks on the one ``ceo-default`` row means thread B's
+    bind upserts thread A's cursor while A's turn is still open: A's next
+    checkpoint, brief or inspect raises ``ScopeError`` "stale app binding", which
+    ``with_fresh_active_fence`` never retries because its own docstring says a
+    ``ScopeError`` "is not a race" -- so the turn dead-letters rather than losing a
+    race it could win.
+
+    EVERY TEST HERE RUNS BOTH THREADS WITH A TURN OPEN AND INTERLEAVES THEM, which
+    is the whole point: a walk that finishes thread A before thread B starts passes
+    on the broken design too.
+    """
+
+    THREADS = ("thread-a", "thread-b")
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ecs ceo seat ")
+        self.root = Path(self.temp.name)
+        self.state = self.root / "state"
+        # The registry exists before any thread seat does: the split bind puts
+        # entity.registered, thread.created and session.observed on the registry
+        # person and only thread.activated on the seat.
+        self.legacy = self.bind("thread-a", "session-legacy", "turn-0")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def seat(self, thread):
+        """Derived, never invented -- the app derives the same string."""
+        return "ceo-thread:" + thread
+
+    def call(self, command, ok=True, seat=None, **fields):
+        request = {"protocol": 1, "command": command, **fields}
+        if seat is not None:
+            request["seat"] = seat
+        result = subprocess.run(
+            [sys.executable, str(COMPONENT / "bin/ecs"), "--state-root", str(self.state)],
+            input=json.dumps(request), text=True, capture_output=True,
+            env={**os.environ, "ECS_HOME": str(self.root / "do-not-adopt")})
+        output = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if ok else 2, result.stdout + result.stderr)
+        self.assertEqual(output["ok"], ok, result.stdout)
+        return output["result"] if ok else output["error"]["message"]
+
+    def bind(self, thread, session, turn, revision=None, seat=None, audience="ceo", ok=True):
+        return self.call(
+            "bind", ok=ok, seat=seat, request_id=f"bind-{seat or 'legacy'}-{thread}-{turn}",
+            source_ref=f"ledger:{thread}:{turn}", expected_revision=revision,
+            scope={"entity_id": "depot", "thread_id": thread, "session_id": session,
+                   "turn_id": turn, "audience": audience})
+
+    def open_turn(self, thread, turn, revision=None):
+        """That thread's front desk binds ITS OWN seat for its current turn."""
+        return self.bind(thread, f"session-{thread}", turn, revision, seat=self.seat(thread))["binding"]
+
+    def checkpoint(self, binding, thread, identity, title, ok=True):
+        record = f"{thread}-{identity}"
+        return self.call("checkpoint", ok=ok, seat=self.seat(thread), binding=binding,
+                         request_id=f"chk-{record}",
+                         checkpoint={"statements": [{"verb": "commitment",
+                                                     "fields": {"id": record, "title": title}}]})
+
+    def rows(self, sql, *args):
+        store = EventStore(self.state)
+        conn = store.connect()
+        try:
+            return [dict(row) for row in conn.execute(sql, args).fetchall()]
+        finally:
+            conn.close()
+
+    def test_two_threads_with_open_turns_both_checkpoint(self):
+        """The test the whole change exists for, and its before-state beside it."""
+        first = self.open_turn("thread-a", "a-turn-1")
+        # Thread B's front desk binds WHILE thread A's turn is open. This is the
+        # exact moment that used to overwrite A's cursor.
+        second = self.open_turn("thread-b", "b-turn-1")
+        self.assertEqual(sorted(row["person_id"] for row in
+                                self.call("seats", binding=first, seat=self.seat("thread-a"))["seats"]),
+                         ["ceo-default", "ceo-thread:thread-a", "ceo-thread:thread-b"])
+        # Both checkpoint, in the order that breaks: the thread that bound FIRST
+        # writes after the thread that bound second.
+        self.assertTrue(self.checkpoint(first, "thread-a", 1, "Land the lander")["accepted"])
+        self.assertTrue(self.checkpoint(second, "thread-b", 1, "Answer the letter")["accepted"])
+        # Interleave a second turn each, so no ordering accident can carry this.
+        first = self.open_turn("thread-a", "a-turn-2", 1)
+        second = self.open_turn("thread-b", "b-turn-2", 1)
+        self.assertTrue(self.checkpoint(first, "thread-a", 2, "Read the review")["accepted"])
+        self.assertTrue(self.checkpoint(second, "thread-b", 2, "Call the notary")["accepted"])
+        # Each thread's brief is its own thread's records, and the receipt for a
+        # checkpoint written on that seat reads back on it.
+        brief_a = self.call("brief", seat=self.seat("thread-a"), binding=first)["text"]
+        brief_b = self.call("brief", seat=self.seat("thread-b"), binding=second)["text"]
+        self.assertIn("Read the review", brief_a)
+        self.assertNotIn("Call the notary", brief_a)
+        self.assertIn("Call the notary", brief_b)
+        self.assertNotIn("Read the review", brief_b)
+        self.assertTrue(self.call("receipt", seat=self.seat("thread-a"), binding=first,
+                                  request_id="chk-thread-a-2", session_id="session-thread-a",
+                                  turn_id="a-turn-2")["duplicate"])
+        # THE BEFORE-STATE, driven through the single cursor the front desk used to
+        # bind: the same interleaving, and thread A's checkpoint is refused. Not a
+        # retryable race -- with_fresh_active_fence retries RevisionConflict only.
+        legacy_a = self.bind("thread-a", "session-legacy", "legacy-a-1", 1)["binding"]
+        self.bind("thread-b", "session-legacy-b", "legacy-b-1", 2)
+        self.assertIn("stale app binding",
+                      self.call("checkpoint", ok=False, binding=legacy_a, request_id="legacy-chk",
+                                checkpoint={"statements": [{"verb": "commitment",
+                                    "fields": {"id": "lost", "title": "The turn that dead-lettered"}}]}))
+
+    def test_collapsing_his_seats_back_to_one_row_turns_it_red(self):
+        """The mutation. Both halves of the seat, mutated in place, one at a time.
+
+        A negative control that only re-runs the OLD design proves the old design
+        was broken; it cannot prove the new code is what fixes it. These two patch
+        the live code instead: derive every thread's seat to one name, and identify
+        him by the PERSON_ID literal the way the adapter used to.
+        """
+        import app as adapter
+        import ecs_core
+        first = self.open_turn("thread-a", "a-turn-1")
+        second = self.open_turn("thread-b", "b-turn-1")
+        # Mutation one: one seat for every thread. The reducer refuses the bind,
+        # because a CEO seat that does not re-derive from the thread it activates
+        # is exactly the collapse this prevents.
+        with patch.object(adapter, "ceo_seat", lambda thread: "ceo-thread:collapsed"):
+            with self.assertRaises(Exception) as refused:
+                adapter.execute(self.state, {"protocol": 1, "command": "bind",
+                    "seat": "ceo-thread:collapsed", "request_id": "collapse-1",
+                    "source_ref": "ledger:thread-b:collapse", "expected_revision": None,
+                    "scope": {"entity_id": "depot", "thread_id": "thread-b",
+                              "session_id": "session-thread-b", "turn_id": "b-turn-2",
+                              "audience": "ceo"}})
+        self.assertIn("derived from the thread", str(refused.exception))
+        # Mutation two: identify him by the literal, as the adapter did before.
+        # Both threads' checkpoints go red -- neither seat is "ceo-default".
+        with patch.object(adapter, "is_ceo_row", lambda row: row["person_id"] == ecs_core.PERSON_ID):
+            for binding, thread in ((first, "thread-a"), (second, "thread-b")):
+                with self.assertRaises(Exception) as refused:
+                    adapter.execute(self.state, {"protocol": 1, "command": "checkpoint",
+                        "seat": self.seat(thread), "binding": binding, "request_id": f"lit-{thread}",
+                        "checkpoint": {"statements": [{"verb": "commitment",
+                            "fields": {"id": "literal", "title": "Refused by the literal"}}]}})
+                self.assertIn("belong to the conversation's own seat", str(refused.exception))
+        # Positive control: unmutated, the same two calls are accepted.
+        self.assertTrue(self.checkpoint(first, "thread-a", "live", "Accepted unmutated")["accepted"])
+        self.assertTrue(self.checkpoint(second, "thread-b", "live", "Accepted unmutated")["accepted"])
+
+    def test_a_projection_rebuild_keeps_every_thread_seat(self):
+        self.open_turn("thread-a", "a-turn-1")
+        self.open_turn("thread-b", "b-turn-1")
+        first = self.open_turn("thread-a", "a-turn-2", 1)
+        before = self.rows("SELECT person_id, thread_id, turn_id, audience, revision "
+                           "FROM ecs_active_context ORDER BY person_id")
+        EventStore(self.state).rebuild_projections()
+        self.assertEqual(self.rows("SELECT person_id, thread_id, turn_id, audience, revision "
+                                   "FROM ecs_active_context ORDER BY person_id"), before)
+        self.assertEqual([row["person_id"] for row in before],
+                         ["ceo-default", "ceo-thread:thread-a", "ceo-thread:thread-b"])
+        # And the rebuilt rows are still usable, not just present.
+        self.assertEqual(self.call("inspect", seat=self.seat("thread-a"), binding=first)["turn"],
+                         "a-turn-2")
+
+    def test_a_work_seat_is_still_refused_and_cannot_dress_as_his(self):
+        """The positive control for the positive identification.
+
+        "Is this the CEO" is answered by re-deriving his seat from the row's own
+        thread AND requiring the ceo audience. If either half were dropped, a
+        background lease could reach his continuity by naming itself well.
+        """
+        first = self.open_turn("thread-a", "a-turn-1")
+        self.open_turn("thread-b", "b-turn-1")
+        work = self.bind("thread-a", "session-assign-7", "assign-7", None,
+                         seat="work-seat:assign-7", audience="worker")["binding"]
+        for command, fields in (("checkpoint", {"request_id": "work-1", "checkpoint": {"statements": [
+                                    {"verb": "commitment", "fields": {"id": "no", "title": "No"}}]}}),
+                                ("brief", {}),
+                                ("seats", {}),
+                                ("release-seat", {"person_id": "ceo-thread:thread-b",
+                                                  "request_id": "work-rel", "source_ref": "reconcile:work",
+                                                  "expected_revision": 1})):
+            self.assertIn("conversation's own seat",
+                          self.call(command, ok=False, seat="work-seat:assign-7", binding=work, **fields))
+        # A work seat cannot take the ceo audience, which is what the visibility
+        # narrowing in inspect_records rests on.
+        self.assertIn("ceo audience belongs to the conversation's own seats",
+                      self.bind("thread-a", "session-assign-8", "assign-8", None,
+                                seat="work-seat:assign-8", audience="ceo", ok=False))
+        # Nor can anything bind a CEO-shaped seat for a thread it is not in, or
+        # with any audience but ceo.
+        self.assertIn("derived from the thread it binds",
+                      self.bind("thread-b", "session-forged", "forged-1", None,
+                                seat=self.seat("thread-a"), ok=False))
+        self.assertIn("derived from the thread it binds",
+                      self.bind("thread-b", "session-forged", "forged-2", None,
+                                seat=self.seat("thread-b"), audience="worker", ok=False))
+        # Positive control: his own two seats are unaffected by all of that.
+        self.assertTrue(self.checkpoint(first, "thread-a", 1, "Still his")["accepted"])
+
+    def test_a_dead_threads_seat_is_released_and_a_live_ones_is_not(self):
+        """Reconciliation, walked from a live thread against a thread that ended.
+
+        Whether a conversation thread still exists is the APP's knowledge -- the
+        store holds no such fact and inventing one would be a guess. What the store
+        can prove is movement, so the release names the revision the seat was
+        enumerated at.
+        """
+        live = self.open_turn("thread-a", "a-turn-1")
+        self.open_turn("thread-b", "b-turn-1")
+        enumerated = {row["person_id"]: row for row in
+                      self.call("seats", seat=self.seat("thread-a"), binding=live)["seats"]}
+        self.assertEqual(sorted(enumerated),
+                         ["ceo-default", "ceo-thread:thread-a", "ceo-thread:thread-b"])
+        # His legacy cursor is refused by name, and a seat cannot release itself --
+        # a front desk reconciling its own thread away is the one release that can
+        # never be right.
+        self.assertIn("never reconciled away",
+                      self.call("release-seat", ok=False, seat=self.seat("thread-a"), binding=live,
+                                person_id="ceo-default", request_id="rel-0", source_ref="reconcile:0",
+                                expected_revision=1))
+        self.assertIn("cannot reconcile itself away",
+                      self.call("release-seat", ok=False, seat=self.seat("thread-a"), binding=live,
+                                person_id=self.seat("thread-a"), request_id="rel-1",
+                                source_ref="reconcile:1", expected_revision=1))
+        # A LIVE thread's seat: thread B speaks again after the enumeration, so the
+        # revision the reconciler saw is stale and the release is refused instead
+        # of racing the front desk that is using it.
+        self.open_turn("thread-b", "b-turn-2", 1)
+        self.assertIn("moved since it was enumerated",
+                      self.call("release-seat", ok=False, seat=self.seat("thread-a"), binding=live,
+                                person_id=self.seat("thread-b"), request_id="rel-2",
+                                source_ref="reconcile:2",
+                                expected_revision=int(enumerated["ceo-thread:thread-b"]["revision"])))
+        # Naming no revision at all is refused rather than assumed: a release with
+        # no staleness proof is the release of a live thread's seat waiting to
+        # happen.
+        self.assertIn("requires the revision it was enumerated at",
+                      self.call("release-seat", ok=False, seat=self.seat("thread-a"), binding=live,
+                                person_id=self.seat("thread-b"), request_id="rel-3",
+                                source_ref="reconcile:3"))
+        # Thread B is now gone in the app -- its seat is an orphan for the same
+        # reason an abandoned assignment's seat is, and is released on the revision
+        # it currently holds.
+        current = {row["person_id"]: row for row in
+                   self.call("seats", seat=self.seat("thread-a"), binding=live)["seats"]}
+        released = self.call("release-seat", seat=self.seat("thread-a"), binding=live,
+                             person_id=self.seat("thread-b"), request_id="rel-4",
+                             source_ref="reconcile:4", reason="thread closed",
+                             expected_revision=int(current["ceo-thread:thread-b"]["revision"]))
+        self.assertEqual((released["released"], released["turn_id"]), (True, "b-turn-2"))
+        self.assertEqual(sorted(row["person_id"] for row in
+                                self.call("seats", seat=self.seat("thread-a"), binding=live)["seats"]),
+                         ["ceo-default", "ceo-thread:thread-a"])
+        # The release is an EVENT, so a rebuild does not walk the seat back out of
+        # the journal -- and the live thread's seat is still there afterwards.
+        EventStore(self.state).rebuild_projections()
+        self.assertEqual(sorted(row["person_id"] for row in
+                                self.call("seats", seat=self.seat("thread-a"), binding=live)["seats"]),
+                         ["ceo-default", "ceo-thread:thread-a"])
+        self.assertEqual(self.call("inspect", seat=self.seat("thread-a"), binding=live)["turn"],
+                         "a-turn-1")
+        # Releasing an absent seat is the reconciliation's own idempotence.
+        self.assertFalse(self.call("release-seat", seat=self.seat("thread-a"), binding=live,
+                                   person_id=self.seat("thread-b"), request_id="rel-5",
+                                   source_ref="reconcile:5", expected_revision=1)["released"])
+
+
 if __name__ == "__main__":
     unittest.main()
