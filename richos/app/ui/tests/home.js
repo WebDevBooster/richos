@@ -1666,8 +1666,39 @@ async function main() {
       return !window.__loro.domLabelRects.some(hits) && !window.__loro.nodeLabelRects.some(hits);
     })()`;
 
+    // THE PRECONDITION WAS AN ASSERTION, AND THAT IS WHAT MADE IT FLAKY
+    // (`esc-20260917T113423Z-bdc63632`). `ingest()` also fires on its OWN cadence, independent
+    // of this check calling it: first auto-fire at field-time t>7s, then every
+    // `7000 + rnd()*5000` = 7,000-12,000ms after that (`home/field-engine.js:838,593`), and each
+    // line it raises lives 2,600ms (`:743`). By the time this check runs, `withField()` plus
+    // every check ahead of it in this file has already spent well past 7s of field time, so
+    // whether a line HAPPENS to be up here is a coin flip driven by wall-clock timing of
+    // everything that ran before — not by anything this check does. Two identical runs on one
+    // tree disagreed for exactly that reason: run A found one up, run B did not.
+    //
+    // So this waits for the fact instead of asserting it, on a bounded budget: the auto line's
+    // own longest life (2,600ms) plus its longest gap (12,000ms) is 14,600ms, and 20,000ms —
+    // the same budget `waitForFact` uses elsewhere in this file for a slow-boot allowance — is a
+    // refusal past that, not a courtesy. NEITHER `pause()` NOR `resume()` is called: the field's
+    // own cadence runs exactly as a real launch's does, because pausing it to make this
+    // precondition convenient would stop testing the product that ships.
+    //
+    // "the field's quiet pass reads zero over the right half" was considered and DROPPED: it is
+    // never zero. `computeQuiet()`'s group 6 is `[#home-live .cap, #home-working]`, which sits
+    // in the right half and is never removed from the quiet-groups list — measured, standalone,
+    // three times: 57,564/156,640 erased/touched in ALL THREE of before/during/after, ticker
+    // state included, because the ticker itself stopped being a quiet group in the CEO's own fix
+    // above and so cannot move that number by design. Waiting for "zero" there would wait
+    // forever and turn every run into a timeout; waiting for `!on` is the actual precondition
+    // this check needs and the actual thing that was racing.
+    await waitForFact(
+      page,
+      "no temporary line is up yet, so this check can drive its own",
+      "!document.getElementById('home-ticker').classList.contains('on')",
+      20000
+    );
     const before = await page.evaluate(AREA);
-    assert(!before.on, "a line was already up before this check drove one");
+    assert(!before.on, "a line was already up before this check drove one, even after waiting for it to clear");
 
     await page.evaluate(() => window.__loro.ingest());
     await waitForFact(page, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 20000);
