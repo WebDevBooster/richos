@@ -599,6 +599,19 @@ pub mod says {
     pub fn interrupted(title: &str) -> String {
         format!("{title} was stopped. Everything it had done is kept, and nothing was landed.")
     }
+    /// He declined the step it stopped at (spec §5.7: nothing is approved on his behalf, and
+    /// nothing he answered is thrown away either).
+    ///
+    /// **A separate sentence from [`interrupted`] on purpose.** "It was stopped" is what a
+    /// stop he pressed produces; this is an answer he gave to a question, and telling him the
+    /// work "was stopped" when he declined one step would describe his own decision back to
+    /// him in somebody else's words.
+    pub fn declined(title: &str) -> String {
+        format!(
+            "{title} stopped at the step you declined. Nothing in your repository was changed, \
+             and everything it produced is kept with your saved work."
+        )
+    }
 }
 
 #[cfg(test)]

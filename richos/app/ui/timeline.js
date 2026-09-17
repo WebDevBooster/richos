@@ -695,6 +695,21 @@
   function applySnapshot(model, snapshot) {
     const liveTurns = new Map();
     for (const [id, t] of model.turns) if (t.live) liveTurns.set(id, t);
+    // **LOCAL NOTICES SURVIVE THE SNAPSHOT, and until 2026-09-17 they did not — which
+    // DESTROYED a background result the moment he said anything** (Frank's check of the Two
+    // Riches spec, defect (a)). The path: a result is taken from the durable register by
+    // `take_work_notices`, which marks it delivered ONCE; it is rendered through
+    // `addLocalNotice` into this model; and his next sentence ends in
+    // `rich://turn-completed`, which calls `loadTimeline()` -> this function, which used to
+    // clear `model.items` outright. The notice was gone from the screen and already marked
+    // delivered, so nothing would ever show it again.
+    //
+    // **Carrying them over does not make them evidence.** They keep their synthetic turn id,
+    // they are still in no ledger, they still grow no duration row, and they are still gone
+    // when the process is — what changes is that a reload of the thread he is looking at no
+    // longer deletes something he was told.
+    const carried = [];
+    for (const [id, item] of model.items) if (item.kind === "local_notice") carried.push([id, item]);
     const expanded = model.expanded;
     const collapsed = model.collapsed;
     const settled = model.settled;
@@ -734,6 +749,37 @@
     }
     // A turn that contributed only a duration row still needs its place in the order.
     for (const raw of snapshot.items) if (raw.turnId) turnRecord(model, raw.turnId);
+    restoreLocalNotices(model, carried);
+  }
+
+  /// Put the carried local notices back, IN TIME ORDER rather than at the end.
+  ///
+  /// Appending would be simpler and would read as a lie: a microphone failure from ten turns
+  /// ago sitting under the newest answer says "this just happened". So each notice goes back
+  /// before the first turn that started after it, by the earliest `createdAt` the snapshot
+  /// gives that turn, and at the end only when nothing in the snapshot is newer than it —
+  /// which is the ordinary case for a result that has just arrived.
+  function restoreLocalNotices(model, carried) {
+    if (!carried.length) return;
+    const startedAt = new Map();
+    for (const item of model.items.values()) {
+      if (!item.turnId) continue;
+      const at = typeof item.createdAt === "number" ? item.createdAt : null;
+      if (at == null) continue;
+      const known = startedAt.get(item.turnId);
+      if (known == null || at < known) startedAt.set(item.turnId, at);
+    }
+    for (const [id, item] of carried) {
+      model.items.set(id, item);
+      if (model.turnOrder.includes(item.turnId)) continue;
+      const at = typeof item.createdAt === "number" ? item.createdAt : 0;
+      const before = model.turnOrder.findIndex((turnId) => {
+        const turnAt = startedAt.get(turnId);
+        return turnAt != null && turnAt > at;
+      });
+      if (before < 0) model.turnOrder.push(item.turnId);
+      else model.turnOrder.splice(before, 0, item.turnId);
+    }
   }
 
   // ---- the live path -------------------------------------------------------------------
@@ -776,15 +822,31 @@
     return true;
   }
 
-  /// A locally-authored line in Rich's voice that is NOT in the ledger — today only the
-  /// voice-mode failure explanations. It carries a synthetic turn id with no turn record,
-  /// so it can never grow a duration row claiming work that never happened, and the next
-  /// snapshot drops it (it is not evidence).
+  /// A locally-authored line that is NOT in the ledger — a voice-mode failure, a send that
+  /// never reached the desk, a background result he has just been handed. It carries a
+  /// synthetic turn id with no turn record, so it can never grow a duration row claiming work
+  /// that never happened.
+  ///
+  /// **It used to say "and the next snapshot drops it (it is not evidence)", and that
+  /// sentence was a defect rather than a design** (Frank's check of the Two Riches spec,
+  /// defect (a)): a background result is handed over ONCE by `take_work_notices`, and his
+  /// next sentence reloads the thread, so the drop destroyed something he had been told and
+  /// nothing would ever show it again. `applySnapshot` carries them now; they are still in no
+  /// ledger and still gone with the process.
+  ///
+  /// **IT IS ITS OWN KIND, AND THAT IS RAY'S CANDIDATE-.4 FINDING #8.** Until 2026-09-17 it
+  /// was written into the model as `rich_message`, so `renderRichMessage` stamped it with
+  /// Rich's byline and avatar and gave it a **Copy Rich's message** button. A microphone
+  /// status line was therefore indistinguishable, reading back, from an answer Rich gave —
+  /// and the two are not the same thing at all: one is in the ledger and is evidence of what
+  /// he was told, the other is the app talking about itself and is gone on the next
+  /// snapshot. The sentences are unchanged; what changed is that they no longer claim to be
+  /// speech. See `renderLocalNotice`.
   function addLocalNotice(model, text, at) {
     const turnId = "\u0000local:" + at + ":" + Math.random().toString(36).slice(2, 8);
     const id = turnId + ":text:0";
     model.items.set(id, {
-      kind: "rich_message",
+      kind: "local_notice",
       id,
       entityId: model.entityId,
       threadId: model.threadId,
@@ -1294,6 +1356,9 @@
   }
 
   const isProse = (i) => i.kind === "rich_message";
+  /// A status line from the app rather than something Rich said (finding #8). Drawn in the
+  /// same lane, in the same order, and never with Rich's identity on it.
+  const isLocalNotice = (i) => i.kind === "local_notice";
   const isActivity = (i) => i.kind === "activity";
   const isWorker = (i) => i.kind === "worker_activity";
   /// EVERYTHING POSITIVELY TYPED AS WORK. This is the set §6.4 collapses — "This includes
@@ -1315,7 +1380,7 @@
   /// was wired in the same branch (`Spine::set_worker_events`) — before that, the app could
   /// not emit this kind at all and a delegation reached the CEO as one nameless activity
   /// row reading "Worked".
-  const RENDERED_STREAM_KINDS = ["rich_message", "activity", "worker_activity"];
+  const RENDERED_STREAM_KINDS = ["rich_message", "local_notice", "activity", "worker_activity"];
 
   // -------------------------------------------------------------------------------------
   // THE RENDER
@@ -1617,6 +1682,35 @@
     actions.appendChild(copy);
     art.appendChild(actions);
     return art;
+  }
+
+  /// **A STATUS LINE FROM THE APP, AND EVERY DIFFERENCE FROM A MESSAGE IS DELIBERATE**
+  /// (Ray's candidate-.4 finding #8).
+  ///
+  /// - **No byline and no avatar.** The defect was that it had them: a voice notice carried
+  ///   Rich's identity, so reading back, nothing distinguished the app reporting on itself
+  ///   from Rich answering.
+  /// - **No Copy button.** Copy exists to hand him what Rich wrote. There is nothing here
+  ///   that Rich wrote.
+  /// - **`<aside role="note">`, the same object the failure card already is**, because this
+  ///   is the same category of thing: the app telling him about a state he did not cause,
+  ///   beside the conversation rather than inside it.
+  /// - **A screen reader is told what it is**, in the slot where the message lane says
+  ///   *"Rich said"*.
+  ///
+  /// Contrast, computed under WebKit in both themes rather than eyeballed, and re-measured
+  /// by `ui/tests/local-notice.js` on every run: the body is `--ink` on `--surface`, and the
+  /// left rule — a non-text indicator, floor 3:1 — is `--attention` on the same.
+  function renderLocalNotice(item) {
+    const card = elem("aside", "tl-notice");
+    card.dataset.messageId = item.id;
+    card.setAttribute("role", "note");
+    card.appendChild(srOnly("RichOS status"));
+    const body = elem("p", "tl-notice-body");
+    body.id = "prose:" + item.id;
+    renderMarkdownInto(body, item.text);
+    card.appendChild(body);
+    return card;
   }
 
   // -------------------------------------------------------------------------------------
@@ -2288,12 +2382,14 @@
 
     // A turn with NO record is one of exactly two things, both real and both short-lived:
     // an optimistic CEO bubble in the instant before `turn-status` names a turn id, and a
-    // locally-authored notice (a voice-mode failure Rich explains in his own voice). Both
-    // get the prose lane and NO duration row — there is no turn to have taken any time.
+    // locally-authored NOTICE — a voice-mode failure, a send that never reached the desk.
+    // Both get this lane and NO duration row (there is no turn to have taken any time), and
+    // the notice is drawn as a status line rather than as speech (finding #8).
     if (!turn.record) {
       const lane = elem("div", "tl-lane");
       for (const item of turn.stream) {
-        if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
+        if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
+        else if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
       }
       if (lane.childNodes.length) section.appendChild(lane);
       frag.appendChild(section);
@@ -2329,7 +2425,8 @@
           continue;
         }
         flush();
-        if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
+        if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
+        else if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
       }
       flush();
 

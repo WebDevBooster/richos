@@ -51,10 +51,16 @@ function body(theme) {
 function helpers() {
   return `
     window.__stopped = [];
+    window.__decided = [];
     window.__renderAssignments = (view) => {
       const body = document.getElementById("slideover-body");
       body.innerHTML = "";
-      window.RichWorkSummary.renderAssignments(view, body, (id) => window.__stopped.push(id));
+      window.RichWorkSummary.renderAssignments(
+        view,
+        body,
+        (id) => window.__stopped.push(id),
+        (requestId, allow) => window.__decided.push({requestId, allow})
+      );
     };
     /// The rendered ratio, from WebKit's own resolved colors, alpha composited against the
     /// real ancestor background. Never the stylesheet's named value.
@@ -183,8 +189,10 @@ async function main() {
       await page.evaluate(() =>
         window.__renderAssignments({ rows: [
           { id: "a1", title: "landing the three branches", state: "blocked",
-            detail: "The work has run and stopped at the step that would change your repository.",
-            repositories: [], registeredAtMs: 1, canStop: true, onTheConnection: false },
+            detail: "The work has run and stopped at a step that is yours to approve: putting the finished work into your repository.",
+            repositories: [], registeredAtMs: 1, canStop: true, onTheConnection: false,
+            awaitingYou: { requestId: "req-1", asked: "putting the finished work into your repository",
+              tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
         ] })
       );
       const measured = [];
@@ -193,6 +201,9 @@ async function main() {
         ["title", "#slideover-body .assignment-title", 4.5],
         ["state and detail", "#slideover-body .overlay-note", 4.5],
         ["stop control", "#slideover-body .assignment-stop", 4.5],
+        ["the question", "#slideover-body .assignment-asked", 4.5],
+        ["approve control", "#slideover-body .assignment-approve", 4.5],
+        ["decline control", "#slideover-body .assignment-decline", 4.5],
       ]) {
         const ratio = await page.evaluate((s) => window.__ratio(s), selector);
         const px = await page.evaluate((s) => window.__fontPx(s), selector);
@@ -206,6 +217,78 @@ async function main() {
       return measured.join("; ");
     });
   }
+
+  await run.check("the sentence that says it is his decision carries the controls that make it", async () => {
+    // **§7.8's whole point, and the gap slice 1 recorded.** The surface said "ready for you
+    // to approve" and had no approve control on it, because the desk that holds his decision
+    // did not exist. It does now, and the test is that the two arrive together.
+    const page = await openPage(browser, "dark");
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.evaluate(() =>
+      window.__renderAssignments({ rows: [
+        { id: "a1", title: "landing the three branches", state: "blocked", detail: "", repositories: [],
+          registeredAtMs: 1, canStop: true, onTheConnection: false,
+          awaitingYou: { requestId: "req-1", asked: "putting the finished work into your repository",
+            tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
+        // POSITIVE CONTROL, in the same render: the SAME state with no question on the desk
+        // — an assignment that stopped at his decision before a relaunch — has no decision
+        // controls and says so, which is what makes the row above a fact about `awaitingYou`
+        // rather than about every blocked row growing a pair of buttons.
+        { id: "a2", title: "the nightly build", state: "blocked", detail: "", repositories: [],
+          registeredAtMs: 2, canStop: true, onTheConnection: false },
+      ] })
+    );
+    const rows = await page.locator("#slideover-body section").all();
+    const waiting = await rows[0].innerText();
+    assert(waiting.toLowerCase().includes("ready for you to approve"), waiting);
+    assert(
+      waiting.includes("Waiting on you: putting the finished work into your repository."),
+      "the row does not say what it is waiting on: " + waiting
+    );
+    assert(!waiting.includes("mcp__"), "the row shows a wire tool name: " + waiting);
+    assert(!waiting.includes("Ask Rich"), "the row still points at the composer: " + waiting);
+    assertEqual(await rows[0].locator("button.assignment-approve").count(), 1, "no approve control");
+    assertEqual(await rows[0].locator("button.assignment-decline").count(), 1, "no decline control");
+    assertEqual(
+      await rows[0].locator("button.assignment-approve").getAttribute("aria-label"),
+      "Approve landing the three branches",
+      "the approve control does not say which assignment it approves"
+    );
+    const without = await rows[1].innerText();
+    assert(without.includes("Ask Rich to continue it when you are ready."), without);
+    assertEqual(await rows[1].locator("button.assignment-approve").count(), 0, "a control appeared with no request behind it");
+    assertEqual(errors.length, 0, "renderer errors");
+    await page.close();
+    return "the mandated sentence, the step named in his words, and Approve/Decline — with the no-request row proving the controls are not unconditional";
+  });
+
+  await run.check("the press carries the exact request and the exact answer", async () => {
+    // §5.2's *"one exact action"* has to survive a queue: what he presses is one REQUEST,
+    // not one assignment, and both answers have to reach the backend as themselves.
+    const page = await openPage(browser, "dark");
+    await page.evaluate(() =>
+      window.__renderAssignments({ rows: [
+        { id: "a1", title: "landing the three branches", state: "blocked", detail: "", repositories: [],
+          registeredAtMs: 1, canStop: true, onTheConnection: false,
+          awaitingYou: { requestId: "req-one", asked: "putting the finished work into your repository",
+            tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
+        { id: "a2", title: "the nightly build", state: "blocked", detail: "", repositories: [],
+          registeredAtMs: 2, canStop: true, onTheConnection: false,
+          awaitingYou: { requestId: "req-two", asked: "running a command on your Mac",
+            tool: "Bash", description: "", raisedAtMs: 3 } },
+      ] })
+    );
+    await page.locator("#slideover-body section").nth(1).locator("button.assignment-approve").click();
+    await page.locator("#slideover-body section").nth(0).locator("button.assignment-decline").click();
+    assertEqual(
+      JSON.stringify(await page.evaluate(() => window.__decided)),
+      JSON.stringify([{requestId: "req-two", allow: true}, {requestId: "req-one", allow: false}]),
+      "a press reached the wrong request or the wrong answer"
+    );
+    await page.close();
+    return "approve on the second assignment and decline on the first, each carrying its own request id";
+  });
 
   await run.check("a background result is HELD while a turn runs, and never dropped", async () => {
     // Read from the source, not driven: the hold lives in the shell, and running a real

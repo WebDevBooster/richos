@@ -713,13 +713,17 @@ async function main() {
     // WHAT HE IS TOLD. Read off the screen, not off the source — and waited for, because
     // `scheduleRender` batches: the sheet is shown synchronously and the notice lands on the
     // next frame, so a read taken the instant the sheet appears catches the greeting.
+    // BOTH LANES, and the second one is where this sentence lives now: a refusal is the app
+    // talking about itself, and since 2026-09-17 a local notice renders as a status line
+    // rather than as something Rich said (`timeline.js`'s `renderLocalNotice`, Ray's
+    // candidate-.4 finding #8). The words are unchanged, so everything asserted below is too.
     await page.waitForFunction(() =>
-      [...document.querySelectorAll("#messages .tl-prose")].some((n) =>
+      [...document.querySelectorAll("#messages .tl-prose, #messages .tl-notice-body")].some((n) =>
         /take that on yet/.test(n.textContent)
       )
     );
     const notice = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll("#messages .tl-prose")];
+      const rows = [...document.querySelectorAll("#messages .tl-prose, #messages .tl-notice-body")];
       const hit = rows.filter((n) => /take that on yet/.test(n.textContent));
       return hit.length ? hit[hit.length - 1].textContent : rows.map((n) => n.textContent).join(" | ");
     });

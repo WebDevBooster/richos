@@ -2907,6 +2907,17 @@ function renderDrillChip() {
   if (done) parts.push(`${done} done`);
   if (savedWork.items?.length) parts.push(`${savedWork.items.length} saved work records`);
   if (savedWork.error) parts.push("Saved work unavailable");
+  // THE ASSIGNMENTS, AND THE REASON THEY ARE ON THIS CHIP AT ALL (background-work spec §7's
+  // observability note, §7.8). This chip is the only way to open the pane the assignments
+  // live in, and every other part of it is fed by `get_worker_status`, which is EMPTY
+  // whenever no turn is open — the entire window background work lives in. Without these
+  // two parts an assignment waiting for his approval could not be reached: no chip, no
+  // pane, no approve control, however plainly the notice said it was ready for him.
+  const rows = assignments.rows || [];
+  const awaiting = rows.filter((row) => row.awaitingYou).length;
+  const openWork = rows.filter((row) => ["registered", "preparing", "running"].includes(row.state)).length;
+  if (awaiting) parts.push(`${awaiting} waiting for you`);
+  if (openWork) parts.push(`${openWork} ${openWork === 1 ? "assignment" : "assignments"} running`);
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);
@@ -2957,7 +2968,25 @@ function renderSlideOver() {
   // The assignments, with their own stop control (background-work spec §4.2: "where the
   // work is already visible"). Rendered after the receipts because a receipt is evidence
   // and an assignment is a thing he can still act on.
-  window.RichWorkSummary.renderAssignments(assignments, slideoverBody, stopAssignment);
+  window.RichWorkSummary.renderAssignments(assignments, slideoverBody, stopAssignment, answerAssignment);
+}
+
+/// **His decision on the one step an assignment stopped at** (background-work spec §5.2,
+/// §5.7, §7.8).
+///
+/// It is the SAME command the permission sheet uses, because it is the same desk and the
+/// same one-exact-action rule: what differs is where the question is shown. A refusal —
+/// the assignment was stopped while he was reading, say — is relayed in words rather than
+/// swallowed, and the surface is re-read either way so it never keeps offering a control
+/// over a question that has gone.
+async function answerAssignment(requestId, allow) {
+  try {
+    await Bridge.invoke("answer_permission", {requestId, allow});
+  } catch (error) {
+    receiveWorkNotice(String(error));
+  }
+  await pollWorkerStatus();
+  if (!slideoverEl.hidden) renderSlideOver();
 }
 
 /// **Stop ONE assignment.** Not `stop_turn` — that stays the conversation's, which is what

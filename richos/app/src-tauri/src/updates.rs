@@ -659,10 +659,39 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
     // 3. WORKERS — the "all work" half the composer cannot see. The session id comes from
     //    the same control, so this reads THIS session's directory and never the
     //    mtime-newest one on the machine (`worker_status`'s own first claim).
-    let view = richos_core::app_workers::status(&state.data_dir.join("engine-state"), state.control.lease_session().as_deref());
+    let engine_state = state.data_dir.join("engine-state");
+    let view = richos_core::app_workers::status(&engine_state, state.control.lease_session().as_deref());
     let (workers, worker_gap) = work_gate::workers(&view);
 
-    work_gate::decide(&WorkSources { turn, spine, workers, worker_gap })
+    // 4. **BACKGROUND WORK — the second lease** (background-work spec §6.4, which calls this
+    //    *"not optional and not a follow-up"*). Reading 3 is scoped to the CONVERSATION
+    //    lease's session, so a background worker is structurally invisible to it and an
+    //    update could install over live work.
+    //
+    //    **Two readings, not one, and the second is the one the spec's own sentence would
+    //    have missed.** The work lease's worker view covers workers it started; the
+    //    ASSIGNMENT REGISTER covers an assignment between its registration and its first
+    //    worker, which has no workers to see and is still work in flight — and it is the
+    //    only thing that can see an assignment stopped at a decision of his (§7.8), which
+    //    has no workers at all and must never be installed over.
+    //
+    //    The counting is `WorkHost::background_work`'s, in `richos-core`, for the reason
+    //    this function's own doc gives: a decision made in the shell is a decision the spine
+    //    suite cannot reach. This function stays the part that touches handles.
+    let background_work = state.work.background_work();
+    //    **EVERY back end, not "the" one.** The CEO's Two Riches spec puts one back-end Rich
+    //    behind each conversation thread, so there is no single work session to read: an
+    //    update that installed over the second thread's work would destroy it exactly as
+    //    surely as over the first's.
+    let work_lease_views: Vec<_> = state
+        .work
+        .lease_sessions()
+        .iter()
+        .map(|session| richos_core::app_workers::status(&engine_state, Some(session)))
+        .collect();
+    let (background, background_gap) = work_gate::background(&background_work, &work_lease_views);
+
+    work_gate::decide(&WorkSources { turn, spine, workers, worker_gap, background, background_gap })
 }
 
 /// Re-read the gate and write it into the view. Emits only when something CHANGED.

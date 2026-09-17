@@ -459,11 +459,15 @@ async function main() {
     await page.fill("#input", "this one gets refused");
     await page.press("#input", "Enter");
     await page.waitForFunction("document.getElementById('input').value === 'this one gets refused'");
+    // `.tl-notice` as well as `.tl-rich`: this sentence is the app reporting on itself, and
+    // since 2026-09-17 a local notice renders as a status line rather than as something Rich
+    // said (`timeline.js`'s `renderLocalNotice`, Ray's candidate-.4 finding #8). The words
+    // asserted below are unchanged — only the lane they land in moved.
     await page.waitForFunction(
-      "Array.from(document.querySelectorAll('.tl-rich')).some(n => n.textContent.includes('back in the box'))"
+      "Array.from(document.querySelectorAll('.tl-rich, .tl-notice')).some(n => n.textContent.includes('back in the box'))"
     );
     const notice = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".tl-rich")).map((n) => n.textContent).join(" | ")
+      Array.from(document.querySelectorAll(".tl-rich, .tl-notice")).map((n) => n.textContent).join(" | ")
     );
     assert(notice.includes("back in the box"), `expected a Rich-voiced explanation, got: ${notice}`);
     await page.evaluate(() => {
@@ -553,11 +557,13 @@ async function main() {
       return "turn_live_2";
     });
     await page.click("#stop");
+    // The same move as the refusal above: a stop that reached nothing is the app reporting on
+    // itself, and it renders as a status line now.
     await page.waitForFunction(
-      "Array.from(document.querySelectorAll('.tl-rich')).some(n => n.textContent.includes('may finish on its own'))"
+      "Array.from(document.querySelectorAll('.tl-rich, .tl-notice')).some(n => n.textContent.includes('may finish on its own'))"
     );
     const notice = await page.evaluate(
-      () => Array.from(document.querySelectorAll(".tl-rich")).map((n) => n.textContent).filter((t) => t.includes("stopped this"))[0]
+      () => Array.from(document.querySelectorAll(".tl-rich, .tl-notice")).map((n) => n.textContent).filter((t) => t.includes("stopped this"))[0]
     );
     assert(notice && notice.includes("nothing new will start"), `expected the honest notice, got: ${notice}`);
     return `${turn2}: "${notice.trim().slice(0, 96)}…"`;

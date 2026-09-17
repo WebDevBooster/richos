@@ -3514,13 +3514,17 @@ module.exports = [
   // BACKGROUND WORK — the assignment surface (the background-work spec, revision 5, in the
   // private richos-hq record; §1, §4.2 and §0 row 7).
   //
-  // ONE ROW HERE CARRIES A REAL GAP AND SAYS SO RATHER THAN ROUNDING IT OFF. "Ready for you
-  // to approve" is §7.8's mandated wording and it is ACTIONABLE — the whole point of the
-  // state is that the last step is his. But the desk that would hold his approval while he
-  // is away is §5.2/§5.7 and IS NOT BUILT: a request raised with no visible turn is still
-  // denied outright (`permissions.rs:55`). So the control this row names is the composer,
-  // not an approve button, and the sentence says so — the same answer the saved-record limit
-  // gives one screen over. When the queue lands, the sentence and this row change together.
+  // THE GAP THIS BLOCK USED TO CARRY IS CLOSED, and it closed the way it said it would:
+  // "when the queue lands, the sentence and this row change together." The desk now holds
+  // his decision while he is away (§5.2/§5.5/§5.7), so "Ready for you to approve" names an
+  // approve control that is on the same surface — driven against the real DOM by the
+  // `assignment-waiting` fixture below rather than asserted here.
+  //
+  // THE SECOND SENTENCE IS NOT A DUPLICATE AND IT IS NOT A HEDGE. The queue lives in the
+  // running process: an assignment that stopped at his decision before a relaunch is still
+  // `blocked` and has nothing left to press, because §6's recovery is the next slice. That
+  // state keeps the old sentence and the composer, which is a real path, rather than naming
+  // a control that is not there.
   // -------------------------------------------------------------------------------------
   {
     "s": "What you have asked for",
@@ -3542,15 +3546,52 @@ module.exports = [
     "why": "The preparing state: the work lease is inside the spawn preparer. Nothing is asked of him.",
   },
   {
-    "s": "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    "s": "Ready for you to approve. Nothing in your repository has been changed yet.",
     "c": "ACTIONABLE",
     "why":
       "The work ran to the step that would change his repository and stopped there, because " +
-      "local integration is not on the permission desk's allow-list. The last step is his. " +
-      "The approval desk that would hold it for him is not built, so the control is the " +
-      "composer and the sentence names that path rather than implying a button that is not " +
-      "on this surface.",
+      "local integration is not on the permission desk's allow-list. The last step is his, " +
+      "and the request is held at the desk until he answers it (§5.2/§5.7), so the row " +
+      "carries Approve and Decline beside this sentence.",
+    "control": ".assignment-approve",
+    "fixture": "assignment-waiting",
+  },
+  {
+    "s": "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    "c": "ACTIONABLE",
+    "why":
+      "The same stop, with no question left on the desk — the queue lives in the running " +
+      "process, so an assignment that stopped at his decision before a relaunch has nothing " +
+      "to press. Recovery is §6 and is not built, so this sentence names the path that does " +
+      "exist: asking Rich to continue it, through the composer.",
     "control": "#input",
+  },
+  {
+    "s": "a step it cannot take without you",
+    "c": "FRAGMENT",
+    "why":
+      "The tail of 'Waiting on you: …' when the backend sent no plain phrase for the step — " +
+      "an action this build has no wording for. It never renders alone, and it deliberately " +
+      "describes nothing: inventing a description of an action he is about to authorize " +
+      "would be worse than saying only that it needs him.",
+  },
+  {
+    "s": "waiting for you",
+    "c": "FRAGMENT",
+    "why":
+      "The tail of the work chip's own count — '1 waiting for you' — which is how an " +
+      "assignment stopped at his decision becomes reachable at all: every other part of that " +
+      "chip comes from `get_worker_status`, which is empty whenever no turn is open. The " +
+      "count and its control are the chip itself, classified below with the rest of it.",
+  },
+  {
+    "s": "Waiting on you:",
+    "c": "FRAGMENT",
+    "why":
+      "The prefix of the one-line question on a blocked assignment: 'Waiting on you: ' plus " +
+      "the step itself, in the backend's own plain phrase for it (`work_host.rs`'s " +
+      "`plain_action`, which the blocked receipt uses too). It never renders alone, and the " +
+      "sentence it belongs to is the ACTIONABLE row above, with the same controls.",
   },
   {
     "s": "Stopped before it finished. Ask Rich what it needs.",

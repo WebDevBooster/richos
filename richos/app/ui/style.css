@@ -1541,6 +1541,9 @@ body.bp-narrow .first-run {
      .assignment-title    --ink       on --card   12.06:1 dark   18.07:1 light  (needs 4.5:1)
      assignment detail    --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
      .assignment-stop     --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
+     .assignment-asked    --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
+     .assignment-approve  --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
+     .assignment-decline  --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
 
    `--ink-soft` is an alpha color — rgba(223,228,238,0.64) over #182440, and
    rgba(12,19,34,0.68) over #fdfcf8 — so it was composited to #979FAF and #595E66 before
@@ -1563,6 +1566,21 @@ body.bp-narrow .first-run {
 }
 
 .assignment-stop {
+  font-size: 1rem;
+  margin-top: 8px;
+}
+
+/* HIS DECISION, where the work is already visible (spec §5.2, §7.8). Same size and same
+   colors as the stop control beside it: approving the step that changes his repository is
+   not a chore either. */
+.assignment-decisions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assignment-approve,
+.assignment-decline {
   font-size: 1rem;
   margin-top: 8px;
 }
@@ -3151,6 +3169,32 @@ body.bp-narrow .tl-user-bubble {
 
 .tl-intervention--quiet {
   border-left-color: var(--attention);
+}
+
+/* A LOCAL NOTICE — the app reporting on itself, never an answer from Rich (Ray's
+   candidate-.4 finding #8). Same object as the failure card above, one step quieter: the
+   left rule is `--attention` rather than `--danger`, because a microphone that could not
+   start is a state to notice and not a failure of the turn.
+
+   CONTRAST, COMPUTED UNDER WEBKIT IN BOTH THEMES by `ui/tests/local-notice.js` and not
+   eyeballed: the body is `--ink` on `--surface`, floor 4.5:1; the left rule is a non-text
+   indicator, floor 3:1. Nothing here is declared exempt — a line saying his words are back
+   in the box is a line he is expected to read. 16px, not the 14px skippable tier
+   (`wiki/ceo-decisions.md` §15). */
+.tl-notice {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--attention);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 12px 16px;
+  max-width: 620px;
+}
+
+.tl-notice-body {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
 }
 
 .tl-intervention-body {

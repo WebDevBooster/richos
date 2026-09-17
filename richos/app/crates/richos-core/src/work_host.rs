@@ -25,6 +25,23 @@
 //!    same evidence the conversation's turn-end check uses, read against the WORK lease's
 //!    session id (spec §2.9) — and anything it cannot witness counts as still running.
 //!
+//! **THE CEO's §51 SHAPE, AND WHERE THIS FILE DEPARTS FROM THE SPEC BECAUSE OF IT.**
+//! `richos-hq/wiki/ceo-decisions.md` §51 (2026-09-17): *"the job of the front desk Rich is
+//! solely talking to the CEO and relaying info to and from the back-end Rich."* One front
+//! desk — the conversation lease — and **one standing, invisible back-end Rich** that starts
+//! and stops jobs, dispatches, lands and keeps the record. The ruling names the consequence
+//! for this file in its own words: *"the work host runs ONE standing back-end lease instead
+//! of one per job"*, which overrules the spec's per-assignment lease wherever the two
+//! disagree.
+//!
+//! So [`WorkHost::ensure_lease`] opens the back end once and every assignment afterwards runs
+//! on that same lease — pinned by `the_back_end_is_one_standing_lease_across_every_assignment`
+//! rather than left to a return-early nobody would notice changing. What stays per assignment
+//! is what §51 keeps per assignment: an assignment is *"a bookkeeping unit inside the back
+//! end (its own record, seat, stop, approval line) — not a separate mind"*, so the seat, the
+//! standing grant and the permission queue's hold are still one each, created and released
+//! with the assignment.
+//!
 //! **What is deliberately NOT here, because it is the next slice.** Rows 5 and 9 of the
 //! spec's §0 table: the window-closed process model (§2.4/§2.4a/§2.5) and recovery (§6).
 //! [`WorkHost::open_assignments`] and [`WorkHost::settlement`] are the two seams those need
@@ -33,7 +50,9 @@
 
 use crate::assignment::{self, Assignment, AssignmentState, NoticeKind, PendingNotice, Registration};
 use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem, WorkAssignment};
+use crate::ecs::Binding;
 use crate::entity::ThreadBinding;
+use crate::permissions::PermissionDesk;
 use crate::steering::TurnCancel;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -70,50 +89,69 @@ pub struct LiveAssignment {
     pub seat: String,
 }
 
+/// One item of work for the runner: an assignment, the binding it was registered under, and
+/// whether this is the FIRST time it goes on the lease or a continuation he approved.
+///
+/// The binding is minted by the ledger and is the only thing that can say which company a
+/// thread belongs to (`entity.rs`), so the host never reconstructs one from a record.
+#[derive(Clone)]
+struct Scheduled {
+    binding: ThreadBinding,
+    record: Assignment,
+    /// Spec §5.7: *"when he answers, the answer applies to the assignment"*. A resumed run
+    /// is told what he decided, and it is the only way an approval given after the provider
+    /// call ended can reach the step that asked for it.
+    resumed: bool,
+}
+
 struct Inner {
-    /// Each queued assignment carries the thread binding it was registered under. The
-    /// binding is minted by the ledger and is the only thing that can say which company a
-    /// thread belongs to (`entity.rs`), so the host never reconstructs one from a record.
-    queue: VecDeque<(ThreadBinding, Assignment)>,
-    /// The assignment that is ON the lease right now. At most one: a lease runs one prompt
-    /// at a time, so the host serializes assignments onto it and says so rather than
-    /// pretending three of them are in flight.
+    queue: VecDeque<Scheduled>,
+    /// The assignment that is ON this thread's back end right now. At most one: a lease runs
+    /// one prompt at a time, so its assignments are serialized onto it and the host says so
+    /// rather than pretending three of them are in flight.
     live: Option<LiveAssignment>,
-    /// The work lease's own cancel handle — spec §4.2's *"second cancel registry"*. Never
-    /// the one in `TurnControl`'s slot.
+    /// This back end's own cancel handle — spec §4.2's *"second cancel registry"*. Never the
+    /// one in `TurnControl`'s slot.
     cancel: Option<Arc<dyn TurnCancel>>,
-    /// The work lease's session id, for the settle check against its OWN evidence
-    /// directory (spec §2.9; `app_workers.rs:38` keys evidence by session).
+    /// This back end's session id, for the settle check against its OWN evidence directory
+    /// (spec §2.9; `app_workers.rs:38` keys evidence by session).
     lease_session: Option<String>,
     /// Assignments a stop reached while they were queued rather than live.
     stopped: Vec<String>,
-    shutting_down: bool,
-    /// Bumped whenever the runner finishes one assignment, so a test can wait on progress
+    /// The ledger's thread binding for this conversation, kept from whatever put an
+    /// assignment on the queue. A resume needs one and must never reconstruct it: only the
+    /// ledger can say which company a thread belongs to (`entity.rs`).
+    binding: Option<ThreadBinding>,
+    closing: bool,
+    /// Bumped whenever this back end finishes one assignment, so a test can wait on progress
     /// without sleeping on a guess.
     completed: u64,
 }
 
-pub struct WorkHost {
-    /// The engine state root (`<data_dir>/engine-state`), the same root
-    /// `app_workers::status` and `work_status::read` are given.
-    state: PathBuf,
-    factory: Mutex<Box<dyn LeaseFactory>>,
+/// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
+///
+/// The CEO's Two Riches spec (richos-hq `docs/plans/two-riches-spec-2026-09-17.md`), in his
+/// own words: *"each conversation thread always holds one front desk Rich and one back-end
+/// Rich. Regardless of the number of assignments within a given conversation thread."* So the
+/// unit is the THREAD: its own lease, its own queue, its own runner, its own live assignment
+/// and its own settle session. Two threads never share a back end, and one thread never opens
+/// a second one however many assignments it is given.
+///
+/// **This is the one place the engineering annex lost.** The background-work spec's §2.1 says
+/// *"a second compute lease"* for the app and its §5.3/§5.4 language is per-assignment; §51
+/// and this page make it one per thread, standing. Where the two disagree, the CEO's page
+/// wins.
+struct Backend {
     /// The lease itself, held by whichever thread is running an assignment. Separate from
     /// `inner` so a stop can take `inner` while a turn is in flight.
     lease: Mutex<Option<Box<dyn Cognition>>>,
     inner: Mutex<Inner>,
     wake: Condvar,
-    notifier: Arc<dyn WorkNotifier>,
-    /// Every assignment this host has ever taken on, so a boundary sweep cannot adopt one
-    /// twice. Its own lock, because `enqueue` consults it while holding `inner`.
-    seen: Mutex<std::collections::HashSet<String>>,
 }
 
-impl WorkHost {
-    pub fn new(state: &Path, factory: Box<dyn LeaseFactory>, notifier: Arc<dyn WorkNotifier>) -> Arc<Self> {
-        Arc::new(WorkHost {
-            state: state.to_path_buf(),
-            factory: Mutex::new(factory),
+impl Backend {
+    fn new() -> Arc<Self> {
+        Arc::new(Backend {
             lease: Mutex::new(None),
             inner: Mutex::new(Inner {
                 queue: VecDeque::new(),
@@ -121,11 +159,54 @@ impl WorkHost {
                 cancel: None,
                 lease_session: None,
                 stopped: Vec::new(),
-                shutting_down: false,
+                binding: None,
+                closing: false,
                 completed: 0,
             }),
             wake: Condvar::new(),
+        })
+    }
+}
+
+pub struct WorkHost {
+    /// The engine state root (`<data_dir>/engine-state`), the same root
+    /// `app_workers::status` and `work_status::read` are given.
+    state: PathBuf,
+    factory: Mutex<Box<dyn LeaseFactory>>,
+    /// **One back end per conversation thread**, opened on that thread's first assignment and
+    /// standing from then on (the Two Riches spec). Keyed by thread id, which is the CEO's
+    /// own unit: *"each conversation thread always holds one front desk Rich and one back-end
+    /// Rich."*
+    backends: Mutex<std::collections::HashMap<String, Arc<Backend>>>,
+    /// The whole host is closing (quit). A thread that has never been opened must not be
+    /// opened on the way out, which is a question no single back end can answer.
+    closing: Mutex<bool>,
+    notifier: Arc<dyn WorkNotifier>,
+    /// **The one permission desk, shared with the conversation** (spec §2.7, §5.5: it is
+    /// already an `Arc<PermissionDesk>` on the engine profile, so one desk serves both
+    /// leases). The host holds it for one reason only — the lifecycle §5.4 states: a
+    /// queued request and a standing decision belong to an assignment and are dropped with
+    /// it. Nothing here reads his queue to decide anything.
+    desk: Arc<PermissionDesk>,
+    /// Every assignment this host has ever taken on, so a boundary sweep cannot adopt one
+    /// twice. Its own lock, because `enqueue` consults it while holding `inner`.
+    seen: Mutex<std::collections::HashSet<String>>,
+}
+
+impl WorkHost {
+    pub fn new(
+        state: &Path,
+        factory: Box<dyn LeaseFactory>,
+        notifier: Arc<dyn WorkNotifier>,
+        desk: Arc<PermissionDesk>,
+    ) -> Arc<Self> {
+        Arc::new(WorkHost {
+            state: state.to_path_buf(),
+            factory: Mutex::new(factory),
+            backends: Mutex::new(std::collections::HashMap::new()),
+            closing: Mutex::new(false),
             notifier,
+            desk,
             seen: Mutex::new(std::collections::HashSet::new()),
         })
     }
@@ -193,63 +274,98 @@ impl WorkHost {
 
     /// Put one assignment on the queue exactly once. `false` means the host is closing.
     fn enqueue(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.shutting_down {
-            return false;
-        }
         if !self.seen.lock().unwrap().insert(record.id.clone()) {
             return true;
         }
-        inner.queue.push_back((binding.clone(), record));
-        self.wake.notify_all();
+        self.schedule(binding, record, false)
+    }
+
+    /// Put an assignment on the queue, first time or again. `false` means the host is
+    /// closing. The `seen` ledger is deliberately NOT consulted here: a resume is a second
+    /// pass over an assignment this host has already adopted, which is exactly what `seen`
+    /// refuses for the boundary sweep.
+    fn schedule(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment, resumed: bool) -> bool {
+        let Some(backend) = self.backend_for(&record.thread_id) else { return false };
+        let mut inner = backend.inner.lock().unwrap();
+        if inner.closing {
+            return false;
+        }
+        inner.binding = Some(binding.clone());
+        inner.queue.push_back(Scheduled { binding: binding.clone(), record, resumed });
+        backend.wake.notify_all();
         true
     }
 
-    /// Start the runner. One thread, because one lease runs one prompt at a time.
+    /// **This conversation's back end, opened once and standing from then on.**
     ///
-    /// **The serialization is named rather than hidden.** Spec §5.3 says several
-    /// assignments at once is the normal case, and §0's worked example is three of them —
-    /// but concurrency lives one level down, in the Mega Lander workers a prepared
-    /// assignment dispatches, not in a second provider connection per assignment. The work
-    /// lease's turn per assignment is short: it prepares, dispatches and returns, and the
-    /// run afterwards reports through receipts and hooks rather than by holding the turn.
-    pub fn start(self: &Arc<Self>) -> std::thread::JoinHandle<()> {
+    /// The CEO's page decides the unit: *"each conversation thread always holds one front
+    /// desk Rich and one back-end Rich. Regardless of the number of assignments."* So the
+    /// first assignment on a thread opens that thread's back end and starts its runner; every
+    /// assignment after it, including a resume, finds the same one. `None` means the app is
+    /// closing, which is the one state in which a new back end must not be opened.
+    ///
+    /// **The provider connection itself is still opened lazily, inside the runner**
+    /// ([`Self::ensure_lease`]) — the seconds it costs belong after the CEO's turn, never
+    /// inside it (spec §7.1). What is created here is the desk, the queue and the thread that
+    /// serves them.
+    fn backend_for(self: &Arc<Self>, thread: &str) -> Option<Arc<Backend>> {
+        if *self.closing.lock().unwrap() {
+            return None;
+        }
+        let mut backends = self.backends.lock().unwrap();
+        if let Some(existing) = backends.get(thread) {
+            return Some(Arc::clone(existing));
+        }
+        let backend = Backend::new();
+        backends.insert(thread.to_string(), Arc::clone(&backend));
+        drop(backends);
         let host = Arc::clone(self);
+        let runner = Arc::clone(&backend);
         std::thread::Builder::new()
-            .name("richos-work-host".into())
-            .spawn(move || host.run())
-            .expect("the work host thread could not be started")
+            // Named per conversation, so a stack from a stuck back end says which one.
+            .name(format!("richos-back-end:{}", &thread[..thread.len().min(24)]))
+            .spawn(move || host.run(runner))
+            .expect("a back end could not be started");
+        Some(backend)
     }
 
-    fn run(self: Arc<Self>) {
+    /// Open for business. Back ends are opened per conversation on their first assignment, so
+    /// there is no single runner to start any more — this marks the host live and is kept
+    /// because the shell and the tests say it, and because a host that has been shut down
+    /// must not silently accept work again.
+    pub fn start(self: &Arc<Self>) {
+        *self.closing.lock().unwrap() = false;
+    }
+
+    fn run(self: Arc<Self>, backend: Arc<Backend>) {
         loop {
             let next = {
-                let mut inner = self.inner.lock().unwrap();
+                let mut inner = backend.inner.lock().unwrap();
                 loop {
-                    if inner.shutting_down {
+                    if inner.closing {
                         return;
                     }
                     if let Some(item) = inner.queue.pop_front() {
                         break Some(item);
                     }
-                    inner = self.wake.wait(inner).unwrap();
+                    inner = backend.wake.wait(inner).unwrap();
                 }
             };
-            let Some((binding, record)) = next else { return };
-            if self.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
-                self.settle_stopped(&record);
+            let Some(Scheduled { binding, record, resumed }) = next else { return };
+            if backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
+                self.settle_stopped(&backend, &record);
                 continue;
             }
-            self.run_one(&binding, &record);
-            let mut inner = self.inner.lock().unwrap();
+            self.run_one(&backend, &binding, &record, resumed);
+            let mut inner = backend.inner.lock().unwrap();
             inner.completed += 1;
             inner.live = None;
-            self.wake.notify_all();
+            backend.wake.notify_all();
         }
     }
 
-    /// One assignment, start to the end of the work lease's own turn.
-    fn run_one(self: &Arc<Self>, binding: &ThreadBinding, record: &Assignment) {
+    /// One assignment, start to the end of its back end's own turn.
+    fn run_one(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, resumed: bool) {
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
         let advance = |to: AssignmentState, detail: &str| {
             let _ = assignment::advance(&self.state, &scope.0, &scope.1, &scope.2, to, detail);
@@ -258,7 +374,7 @@ impl WorkHost {
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
         //    after the turn, never inside it.
-        if let Err(why) = self.ensure_lease(binding) {
+        if let Err(why) = self.ensure_lease(backend, binding) {
             advance(AssignmentState::Failed, &honest(&why));
             self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &honest(&why)));
             return;
@@ -275,7 +391,7 @@ impl WorkHost {
             instruction_sha256: record.instruction_sha256.clone(),
         };
         {
-            let mut lease = self.lease.lock().unwrap();
+            let mut lease = backend.lease.lock().unwrap();
             let Some(lease) = lease.as_mut() else {
                 advance(AssignmentState::Failed, "The work connection closed before the assignment started.");
                 return;
@@ -289,7 +405,7 @@ impl WorkHost {
                 );
                 return;
             }
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = backend.inner.lock().unwrap();
             inner.cancel = lease.cancel_handle();
             inner.live = Some(LiveAssignment {
                 id: record.id.clone(),
@@ -300,20 +416,27 @@ impl WorkHost {
         }
 
         // 3. The work turn. This is the long one, and nothing about it is on his turn.
-        advance(AssignmentState::Running, "Preparing the workspace and starting the work.");
+        advance(
+            AssignmentState::Running,
+            if resumed {
+                "You approved the step it stopped at. Carrying it out now."
+            } else {
+                "Preparing the workspace and starting the work."
+            },
+        );
         let outcome = {
-            let mut lease = self.lease.lock().unwrap();
+            let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => lease.prompt(&brief_for(record), &mut |_item: TurnItem| {}),
+                Some(lease) => lease.prompt(&brief_for(record, resumed), &mut |_item: TurnItem| {}),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
 
         // 4. The grant goes away with the assignment, whatever happened (spec §5.4).
-        if let Some(lease) = self.lease.lock().unwrap().as_mut() {
+        if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
             let _ = lease.revoke_work_assignment();
         }
-        self.inner.lock().unwrap().cancel = None;
+        backend.inner.lock().unwrap().cancel = None;
 
         // 5. What state it is in is read from evidence, never from the turn ending.
         //
@@ -322,29 +445,34 @@ impl WorkHost {
         // that then wrote its own verdict over the top would turn a quit into "still
         // running" — the one state a quit must never produce.
         let stopped = {
-            let inner = self.inner.lock().unwrap();
-            inner.shutting_down || inner.stopped.iter().any(|id| *id == record.id)
+            let inner = backend.inner.lock().unwrap();
+            inner.closing || inner.stopped.iter().any(|id| *id == record.id)
         };
         match outcome {
             Err(why) => {
                 let sentence = honest(&why.to_string());
                 advance(AssignmentState::Failed, &sentence);
+                self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &sentence));
             }
             Ok(reason) if stopped || reason == crate::native::STOP_REASON_CANCELLED => {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
+                self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
-            Ok(_) => match self.outcome(record) {
+            Ok(_) => match self.outcome(backend, record) {
                 Outcome::Settled => {
                     advance(AssignmentState::Settled, "The obligation behind this assignment is closed.");
+                    self.forget_at_the_desk(record);
                     self.raise(record, NoticeKind::Settled, &assignment::says::settled(&record.title));
                 }
                 Outcome::ReadyToApprove => {
-                    advance(
-                        AssignmentState::Blocked,
-                        "The work has run and stopped at the step that would change your repository.",
-                    );
+                    // **§5.7: the receipt names what it is waiting on.** If a request of
+                    // his is actually on the desk, the sentence says which step; if the
+                    // work stopped for the same reason without one reaching him (its call
+                    // never got that far, or this is a relaunch), the honest sentence is the
+                    // general one. Neither ever reads as finished.
+                    advance(AssignmentState::Blocked, &self.waiting_on(record));
                     self.raise(
                         record,
                         NoticeKind::ReadyToApprove,
@@ -360,7 +488,7 @@ impl WorkHost {
         }
     }
 
-    fn settle_stopped(self: &Arc<Self>, record: &Assignment) {
+    fn settle_stopped(self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment) {
         let _ = assignment::advance(
             &self.state,
             &record.entity_id,
@@ -370,13 +498,117 @@ impl WorkHost {
             "Stopped before it started. Nothing was prepared.",
         );
         self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = backend.inner.lock().unwrap();
         inner.completed += 1;
-        self.wake.notify_all();
+        backend.wake.notify_all();
     }
 
-    fn ensure_lease(self: &Arc<Self>, binding: &ThreadBinding) -> Result<(), String> {
-        let mut lease = self.lease.lock().unwrap();
+    /// **The desk's hold on this assignment ends when the assignment does** (spec §5.4).
+    ///
+    /// Anything of his that was still waiting on it is dropped, and so is any standing
+    /// decision he gave for it. A question left on his screen pointing at work that has
+    /// stopped is worse than no question, and a standing approval that outlived its
+    /// assignment would be an approval attached to nothing.
+    fn forget_at_the_desk(&self, record: &Assignment) {
+        self.desk.forget(&record.entity_id, &record.thread_id, &record.obligation_id);
+    }
+
+    /// What a blocked assignment is waiting on, in his words. Reads the desk, never guesses.
+    fn waiting_on(&self, record: &Assignment) -> String {
+        match self.pending_decision(record) {
+            Some(request) => format!(
+                "The work has run and stopped at a step that is yours to approve: {}.",
+                plain_action(&request.tool)
+            ),
+            None => "The work has run and stopped at the step that would change your repository.".into(),
+        }
+    }
+
+    /// The request this assignment is waiting on him for, if one is on the desk — the head
+    /// of that assignment's own queue (spec §5.5).
+    pub fn pending_decision(&self, record: &Assignment) -> Option<crate::permissions::PermissionRequest> {
+        self.desk.background_queue().into_iter().find(|request| {
+            crate::permissions::assignment_key(&request.binding)
+                == (record.entity_id.clone(), record.thread_id.clone(), record.obligation_id.clone())
+        })
+    }
+
+    /// **His answer, applied to the assignment it belongs to** — spec §5.7's *"when he
+    /// answers, the answer applies to the assignment, not to a call that has long since
+    /// returned"*.
+    ///
+    /// Reached only from [`crate::permissions::Answered::ToAssignment`], which the desk
+    /// returns only when the provider call had already ended at its deadline. An answer that
+    /// still has a call waiting for it never comes here — that call takes it directly.
+    pub fn apply_decision(self: &Arc<Self>, binding: &Binding, allow: bool) -> Result<(), String> {
+        let key = crate::permissions::assignment_key(binding);
+        let record = assignment::read_all(&self.state, &key.0, &key.1)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|row| row.obligation_id == key.2)
+            .ok_or_else(|| "That assignment is no longer on this conversation.".to_string())?;
+        if allow {
+            self.resume(&record)
+        } else {
+            self.record_declined(&record)
+        }
+    }
+
+    /// Put an approved assignment back on the lease.
+    ///
+    /// **This is not a retry and §6.3 is the reason the distinction matters.** Nothing here
+    /// restarts work by itself: this path exists only because HE pressed approve, which is
+    /// precisely the *"resuming is a decision, and the decision is his"* case the spec keeps
+    /// open while refusing every automatic one.
+    fn resume(self: &Arc<Self>, record: &Assignment) -> Result<(), String> {
+        if !record.state.is_open() {
+            return Err("That assignment has already stopped.".into());
+        }
+        // The thread binding is the ledger's, kept from the registration rather than rebuilt
+        // here: only the ledger can say which company a thread belongs to (`entity.rs`).
+        let binding = self
+            .backend(&record.thread_id)
+            .and_then(|backend| backend.inner.lock().unwrap().binding.clone())
+            .ok_or_else(|| "This conversation has not registered any work in this session.".to_string())?;
+        assignment::advance(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.id,
+            AssignmentState::Running,
+            "You approved the step it stopped at. Carrying it out now.",
+        )
+        .map_err(|e| e.to_string())?;
+        if !self.schedule(&binding, record.clone(), true) {
+            return Err("RichOS is closing down. Nothing was started.".into());
+        }
+        Ok(())
+    }
+
+    /// He declined the step. The work stops where it is, nothing is thrown away, and the
+    /// receipt says what happened — never `settled`, and never the `interrupted` sentence
+    /// that belongs to a stop he made for a different reason.
+    fn record_declined(self: &Arc<Self>, record: &Assignment) -> Result<(), String> {
+        assignment::advance(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.id,
+            AssignmentState::Interrupted,
+            "You declined the last step, so nothing in your repository was changed. \
+             Everything the work produced is kept.",
+        )
+        .map_err(|e| e.to_string())?;
+        self.forget_at_the_desk(record);
+        self.raise(record, NoticeKind::Interrupted, &assignment::says::declined(&record.title));
+        Ok(())
+    }
+
+    /// **This conversation's back end opens once and stands** (the Two Riches spec). The
+    /// second assignment on the same thread finds the same connection; a second THREAD gets
+    /// its own, because the CEO's unit is the conversation and not the app.
+    fn ensure_lease(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) -> Result<(), String> {
+        let mut lease = backend.lease.lock().unwrap();
         if lease.is_some() {
             return Ok(());
         }
@@ -386,7 +618,7 @@ impl WorkHost {
             .unwrap()
             .spawn_work(binding)
             .map_err(|e| e.to_string())?;
-        self.inner.lock().unwrap().lease_session = Some(opened.session_id().to_string());
+        backend.inner.lock().unwrap().lease_session = Some(opened.session_id().to_string());
         *lease = Some(opened);
         Ok(())
     }
@@ -417,8 +649,16 @@ impl WorkHost {
     ///
     /// The rules are unchanged (`app_workers.rs:33-47`): unattributed or unreadable
     /// evidence counts as still running, never as zero.
-    pub fn settlement(&self) -> Settlement {
-        let session = self.inner.lock().unwrap().lease_session.clone();
+    pub fn settlement(&self, thread: &str) -> Settlement {
+        // **No back end on this conversation is NOT a zero here.** It is the same reading it
+        // has always been — no session, therefore nothing attributed, therefore *"still
+        // running"* — because this module's standing rule is that anything it cannot witness
+        // counts as running rather than as nothing (`app_workers.rs:33-47`). The declared
+        // exception to fail-toward-waiting lives in `work_gate`, where it is about whether an
+        // UPDATE may install; it is not this function's to borrow.
+        let session = self
+            .backend(thread)
+            .and_then(|backend| backend.inner.lock().unwrap().lease_session.clone());
         let view = crate::app_workers::status(&self.state, session.as_deref());
         if !view.is_attributed() {
             return Settlement::StillRunning(
@@ -446,12 +686,12 @@ impl WorkHost {
     /// observed ending, therefore settled — and it would have told him a thing was finished
     /// at the precise moment it was waiting for him, which is spec §0 row 7's one sentence
     /// inverted. An obligation this build cannot read is `StillRunning`, never `Settled`.
-    fn outcome(&self, record: &Assignment) -> Outcome {
-        if let Settlement::StillRunning(detail) = self.settlement() {
+    fn outcome(&self, backend: &Arc<Backend>, record: &Assignment) -> Outcome {
+        if let Settlement::StillRunning(detail) = self.settlement(&record.thread_id) {
             return Outcome::StillRunning(detail);
         }
         let state = {
-            let lease = self.lease.lock().unwrap();
+            let lease = backend.lease.lock().unwrap();
             match lease.as_ref() {
                 Some(lease) => lease.obligation_state(&record.obligation_id),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
@@ -484,17 +724,28 @@ impl WorkHost {
         if !record.state.is_open() {
             return Err("That assignment has already stopped.".into());
         }
-        let cancel = {
-            let mut inner = self.inner.lock().unwrap();
-            if !inner.stopped.iter().any(|held| held == id) {
-                inner.stopped.push(id.to_string());
-            }
-            let live = inner.live.as_ref().is_some_and(|live| live.id == id);
-            if live {
-                inner.cancel.clone()
-            } else {
-                inner.queue.retain(|(_, queued)| queued.id != id);
-                None
+        // **Stopping one assignment takes its question off his screen** (spec §5.4: one
+        // grant, one seat, one queue entry, all released together and none of anybody
+        // else's). A request left waiting for an assignment that has stopped is a question
+        // he can answer into nothing.
+        self.forget_at_the_desk(&record);
+        // Only this conversation's back end. A stop on one thread never reaches another's —
+        // the CEO's page puts a whole back-end Rich behind each thread, and two threads are
+        // two pieces of work he thinks of separately.
+        let cancel = match self.backend(thread) {
+            None => None,
+            Some(backend) => {
+                let mut inner = backend.inner.lock().unwrap();
+                if !inner.stopped.iter().any(|held| held == id) {
+                    inner.stopped.push(id.to_string());
+                }
+                let live = inner.live.as_ref().is_some_and(|live| live.id == id);
+                if live {
+                    inner.cancel.clone()
+                } else {
+                    inner.queue.retain(|scheduled| scheduled.record.id != id);
+                    None
+                }
             }
         };
         match cancel {
@@ -524,16 +775,59 @@ impl WorkHost {
         assignment::open(&self.state).map_err(|e| e.to_string())
     }
 
-    /// Which assignment is on the lease right now, if any. Read WITHOUT the spine lock, so
-    /// the surface can show running work between turns — spec §7's observability note.
-    pub fn live(&self) -> Option<LiveAssignment> {
-        self.inner.lock().unwrap().live.clone()
+    /// **What the update gate must see** — background-work spec §6.4, which calls reading it
+    /// *"not optional and not a follow-up"*.
+    ///
+    /// **The derivation lives here rather than in the shell for the reason the gate's own
+    /// module doc gives about every other reading:** `app/src-tauri` carries the whole webview
+    /// dependency tree and is deliberately detached from the workspace, so a count made there
+    /// would be a count this suite could not test. The shell calls this and passes the answer
+    /// to [`crate::work_gate::background`].
+    ///
+    /// An assignment holding a question for him is counted apart from one that is running,
+    /// because §6.5 insists they are different sentences and only one of them is about him.
+    /// A register that cannot be read is `readable: false` — never a zero.
+    pub fn background_work(&self) -> crate::work_gate::BackgroundWork {
+        match self.open_assignments() {
+            Ok(open) => {
+                let awaiting_you = open.iter().filter(|row| self.pending_decision(row).is_some()).count();
+                crate::work_gate::BackgroundWork {
+                    running: open.len() - awaiting_you,
+                    awaiting_you,
+                    readable: true,
+                }
+            }
+            Err(_) => crate::work_gate::BackgroundWork { running: 0, awaiting_you: 0, readable: false },
+        }
     }
 
-    /// The work lease's session id, or `None` when no work lease has been opened. Never
-    /// substituted with the conversation's.
-    pub fn lease_session(&self) -> Option<String> {
-        self.inner.lock().unwrap().lease_session.clone()
+    /// This conversation's back end, if one has been opened. Never creates one — a reader
+    /// must not be able to start a back end by asking about it.
+    fn backend(&self, thread: &str) -> Option<Arc<Backend>> {
+        self.backends.lock().unwrap().get(thread).map(Arc::clone)
+    }
+
+    /// Which assignment is on THIS CONVERSATION's back end right now, if any. Read WITHOUT
+    /// the spine lock, so the surface can show running work between turns — spec §7's
+    /// observability note.
+    ///
+    /// **It is per thread because the back end is** (the Two Riches spec): asking the host
+    /// globally would answer with another conversation's work, which is the one answer that
+    /// is never useful on a thread's own surface.
+    pub fn live_on(&self, thread: &str) -> Option<LiveAssignment> {
+        self.backend(thread)?.inner.lock().unwrap().live.clone()
+    }
+
+    /// Every open back end's session id, one per conversation that has one. The update gate
+    /// reads all of them (spec §6.4): one thread's back end is as invisible to the
+    /// conversation lease's session as any other's.
+    pub fn lease_sessions(&self) -> Vec<String> {
+        self.backends
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|backend| backend.inner.lock().unwrap().lease_session.clone())
+            .collect()
     }
 
     /// Quit. Spec §2.5: *"quit must stop the WORK lease explicitly"* — the conversation's
@@ -543,34 +837,43 @@ impl WorkHost {
     /// Every assignment that was open when quit arrived becomes `interrupted`. Nothing
     /// becomes `settled` on the way out.
     pub fn shutdown(&self) {
-        let cancel = {
-            let mut inner = self.inner.lock().unwrap();
-            inner.shutting_down = true;
-            inner.queue.clear();
-            inner.cancel.clone()
-        };
-        self.wake.notify_all();
-        if let Some(handle) = cancel {
-            handle.shutdown();
+        // Refuse a NEW conversation's back end from here on. A thread that has never been
+        // opened must not be opened on the way out, and no single back end can answer that.
+        *self.closing.lock().unwrap() = true;
+        let backends: Vec<Arc<Backend>> = self.backends.lock().unwrap().values().map(Arc::clone).collect();
+        for backend in &backends {
+            let cancel = {
+                let mut inner = backend.inner.lock().unwrap();
+                inner.closing = true;
+                inner.queue.clear();
+                inner.cancel.clone()
+            };
+            backend.wake.notify_all();
+            if let Some(handle) = cancel {
+                handle.shutdown();
+            }
         }
-        // **Let the runner put the live assignment down before sweeping.** The sweep below
-        // is a write, and so is the runner's own last write; racing them is how a quit ends
+        // **Let each runner put its live assignment down before sweeping.** The sweep below
+        // is a write, and so is a runner's own last write; racing them is how a quit ends
         // with a receipt that says `running`. Bounded, because a lease that will not answer
         // its cancel must not hold the app open — after the bound the sweep runs anyway and
         // the honest state is still `interrupted`.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        {
-            let mut inner = self.inner.lock().unwrap();
+        for backend in &backends {
+            let mut inner = backend.inner.lock().unwrap();
             while inner.live.is_some() {
                 let left = deadline.saturating_duration_since(std::time::Instant::now());
                 if left.is_zero() {
                     break;
                 }
-                inner = self.wake.wait_timeout(inner, left).unwrap().0;
+                inner = backend.wake.wait_timeout(inner, left).unwrap().0;
             }
         }
         if let Ok(open) = assignment::open(&self.state) {
             for record in open {
+                // Nothing may be left waiting for an answer from a process that is going
+                // away (§5.4's revocation, at quit, for every assignment then registered).
+                self.forget_at_the_desk(&record);
                 let _ = assignment::advance(
                     &self.state,
                     &record.entity_id,
@@ -581,10 +884,12 @@ impl WorkHost {
                 );
             }
         }
-        if let Some(lease) = self.lease.lock().unwrap().as_mut() {
-            let _ = lease.revoke_work_assignment();
+        for backend in &backends {
+            if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
+                let _ = lease.revoke_work_assignment();
+            }
+            *backend.lease.lock().unwrap() = None;
         }
-        *self.lease.lock().unwrap() = None;
     }
 
     /// Block until the runner has finished `count` assignments. Test-only scaffolding, and
@@ -593,15 +898,24 @@ impl WorkHost {
     #[doc(hidden)]
     pub fn wait_for_completed(&self, count: u64, limit: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + limit;
-        let mut inner = self.inner.lock().unwrap();
-        while inner.completed < count {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
+        loop {
+            // Summed across back ends, because the unit of progress a test cares about is
+            // "assignments finished", and they may be finishing on two conversations at once.
+            let done: u64 = self
+                .backends
+                .lock()
+                .unwrap()
+                .values()
+                .map(|backend| backend.inner.lock().unwrap().completed)
+                .sum();
+            if done >= count {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
                 return false;
             }
-            inner = self.wake.wait_timeout(inner, left).unwrap().0;
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        true
     }
 }
 
@@ -634,18 +948,46 @@ pub enum Outcome {
 /// assignment, Rich owns internal obligation and receipt ids. The seat and the frozen
 /// instruction reference reach the child through its scope file, not through its prompt,
 /// so a model that decided to quote its own prompt back cannot leak either.
-fn brief_for(record: &Assignment) -> String {
+fn brief_for(record: &Assignment, resumed: bool) -> String {
     let repositories = if record.repositories.is_empty() {
         String::new()
     } else {
         format!("\nRepositories: {}", record.repositories.join(", "))
     };
+    if resumed {
+        // **The resumed run is told what he decided and nothing more.** It carries no
+        // approval of its own: the one exact action he approved is held at the desk and is
+        // spent the first time this run asks for it (`permissions.rs`'s standing decision).
+        // If it asks for anything else, that is a new question and it waits for him again.
+        return format!(
+            "This is a background assignment from the CEO that stopped at a step only he \
+             could approve. He has now approved it.{repositories}\n\nThe assignment: {}\n\n\
+             Carry out the step it stopped at and then report. Everything else still needs \
+             his approval, and nothing about this approval carries to another action.",
+            record.title
+        );
+    }
     format!(
         "This is a background assignment from the CEO. Carry it out with the desktop work \
          tools.{repositories}\n\nThe assignment: {}\n\nStop at the step that would change \
          his repository and wait for him to approve it. Do not report this as done.",
         record.title
     )
+}
+
+/// **A provider tool name, in his language.** `mcp__richos_work__integrate` is a wire
+/// identifier; what he is being asked is whether to change his repository.
+///
+/// Anything unrecognized falls back to a phrase that claims nothing about what the step
+/// does — a made-up description of an action he is about to authorize would be worse than
+/// no description at all.
+pub fn plain_action(tool: &str) -> &'static str {
+    match tool {
+        "mcp__richos_work__integrate" => "putting the finished work into your repository",
+        "Bash" => "running a command on your Mac",
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => "changing a file on your Mac",
+        _ => "a step it cannot take without you",
+    }
 }
 
 /// A failure sentence he can act on, with no stack trace in it (spec §3.7).
@@ -742,6 +1084,10 @@ mod tests {
         fence: Arc<Fence>,
         step: std::time::Duration,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        /// How many back-end leases this host has asked for. The CEO's §51 shape is ONE,
+        /// standing, for every assignment — so this is an observable rather than a counter
+        /// nobody reads.
+        spawns: Arc<AtomicUsize>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -749,6 +1095,7 @@ mod tests {
             Err(CognitionError::Protocol("a conversation lease is not what this factory is for".into()))
         }
         fn spawn_work(&self, _binding: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+            self.spawns.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(WorkLease {
                 session: "work-session-one".into(),
                 bound: self.bound.clone(),
@@ -777,6 +1124,8 @@ mod tests {
         notices: Arc<Recorder>,
         binding: ThreadBinding,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        desk: Arc<crate::permissions::PermissionDesk>,
+        spawns: Arc<AtomicUsize>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -790,15 +1139,18 @@ mod tests {
         let fence = Arc::new(Fence::default());
         let notices = Arc::new(Recorder(Mutex::new(Vec::new())));
         let obligation = Arc::new(Mutex::new(None));
+        let spawns = Arc::new(AtomicUsize::new(0));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
             fence: fence.clone(),
             step: std::time::Duration::from_millis(step_ms),
             obligation: obligation.clone(),
+            spawns: spawns.clone(),
         };
-        let host = WorkHost::new(&state, Box::new(factory), notices.clone());
-        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation }
+        let desk = Arc::new(crate::permissions::PermissionDesk::default());
+        let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
+        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -815,10 +1167,10 @@ mod tests {
 
     fn until_live(host: &Arc<WorkHost>) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while host.live().is_none() && std::time::Instant::now() < deadline {
+        while host.live_on("thread-one").is_none() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        assert!(host.live().is_some(), "the assignment never reached the work lease");
+        assert!(host.live_on("thread-one").is_some(), "the assignment never reached its back end");
     }
 
     /// Spec §0 row 2 and §7.1. Registration returns while the work is still to come, and
@@ -897,7 +1249,7 @@ mod tests {
         assert_eq!(conversation.shutdowns.load(Ordering::SeqCst), 1);
         // The work lease's fence was never handed to that control and was not touched.
         assert!(!h.fence.stop_seen.load(Ordering::SeqCst), "Stop reached the work lease");
-        assert!(h.host.live().is_some(), "the work stopped when the conversation did");
+        assert!(h.host.live_on("thread-one").is_some(), "the work stopped when the conversation did");
 
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -930,16 +1282,16 @@ mod tests {
     fn background_work_is_settled_against_the_work_lease_session_not_the_conversation() {
         let h = harness(5);
         // Before a lease exists there is no session at all: unattributed, so still running.
-        assert!(matches!(h.host.settlement(), Settlement::StillRunning(_)));
+        assert!(matches!(h.host.settlement("thread-one"), Settlement::StillRunning(_)));
         let _runner = h.host.start();
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
-        assert_eq!(h.host.lease_session().as_deref(), Some("work-session-one"));
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-one".to_string()]);
         // The work lease's own evidence directory is missing, so the honest answer is
         // "still running" and the assignment is NOT settled.
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.state, AssignmentState::Running);
-        assert!(matches!(h.host.settlement(), Settlement::StillRunning(_)));
+        assert!(matches!(h.host.settlement("thread-one"), Settlement::StillRunning(_)));
 
         // Positive control: give the WORK session a readable, empty evidence file and the
         // same call settles. The conversation's session id would not reach this directory.
@@ -947,7 +1299,7 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join(".lock"), "").unwrap();
         std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
-        assert_eq!(h.host.settlement(), Settlement::Settled);
+        assert_eq!(h.host.settlement("thread-one"), Settlement::Settled);
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
@@ -1031,7 +1383,7 @@ mod tests {
                 Err(CognitionError::Io("the engine release gate refused this lease".into()))
             }
         }
-        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone());
+        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone(), Arc::clone(&h.desk));
         let _runner = host.start();
         let receipt = host.register(&h.binding, &registration(&h)).unwrap();
         assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
@@ -1079,7 +1431,7 @@ mod tests {
         let row = assignment::read(&h.state, "depot", "thread-one", &queued.id).unwrap();
         assert_eq!(row.state, AssignmentState::Interrupted);
         // The live one is untouched: stopping one leaves every other one alone (§5.4).
-        assert_eq!(h.host.live().map(|live| live.id), Some(first.id));
+        assert_eq!(h.host.live_on("thread-one").map(|live| live.id), Some(first.id));
         assert!(!h.fence.stop_seen.load(Ordering::SeqCst));
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -1104,7 +1456,7 @@ mod tests {
             updated_at_ms: 0,
             notices: Vec::new(),
         };
-        let brief = brief_for(&record);
+        let brief = brief_for(&record, false);
         assert!(brief.contains("landing the three branches"));
         assert!(brief.contains("/fictional/project"));
         assert!(!brief.contains("assignment-id-that-must-not-appear"));
@@ -1114,6 +1466,421 @@ mod tests {
         // Row 7 travels in the brief as an instruction, not only as a refusal.
         assert!(brief.contains("wait for him to approve"));
         assert!(brief.contains("Do not report this as done."));
+
+        // **The resumed brief carries the same discretion and one fact more**, and it names
+        // the boundary of what he approved: the approval is for the step it stopped at and
+        // for nothing else (spec §5.7's standing decision is one action, once).
+        let resumed = brief_for(&record, true);
+        assert!(resumed.contains("landing the three branches"));
+        assert!(!resumed.contains("assignment-id-that-must-not-appear"));
+        assert!(!resumed.contains("work-seat:"));
+        assert!(resumed.contains("He has now approved it."));
+        assert!(resumed.contains("Everything else still needs his approval"));
+    }
+
+    // ---- §5.2/§5.7: his decision, and the assignment it belongs to ----------------------
+
+    /// Readable, empty worker evidence for the work lease's own session: every worker this
+    /// lease started was observed ending. Without it the settle check answers *"still
+    /// running"*, which is correct and is not the state these tests are about.
+    fn every_worker_observed_ending(h: &Harness) {
+        let folder = h.state.join("evidence").join("work-session-one");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+    }
+
+    /// A work lease's scoped permissions against this harness's desk, with the standing
+    /// grant `bind_work_assignment` writes: `actions_allowed: true`, `audience: "worker"`,
+    /// and `turn_id` = the OBLIGATION (`ecs.rs`'s `bind_work_seat`).
+    fn work_lease_desk(h: &Harness, obligation: &str) -> (PathBuf, crate::permissions::ScopedPermissions) {
+        let path = h.root.join(format!("work-grant-{obligation}.json"));
+        std::fs::write(
+            &path,
+            serde_json::json!({"version":1,"actions_allowed":true,"binding":{
+                "entity_id":"depot","thread_id":"thread-one","session_id":"work-session-one",
+                "turn_id":obligation,"audience":"worker","revision":1}})
+            .to_string(),
+        )
+        .unwrap();
+        (path.clone(), crate::permissions::ScopedPermissions { desk: Arc::clone(&h.desk), scope: path })
+    }
+
+    /// **Spec §5.7, end to end through the host.** The step asked while he was away; the
+    /// call ended at its deadline in *not approved*; he answered afterwards; and the
+    /// assignment went back on the lease to carry out the step he approved.
+    ///
+    /// The positive control is in the same test: before his answer the assignment had
+    /// reached the lease exactly ONCE and stayed there, so "it resumed" is a fact about his
+    /// answer rather than about a runner that re-runs things by itself (§6.3).
+    #[test]
+    fn an_approval_given_after_the_call_ended_puts_the_assignment_back_on_the_lease() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked, "the work did not stop at his decision");
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment reached the lease twice on its own");
+
+        // The step it stopped at, raised against the shared desk and left at its deadline.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        let call = lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"one"}}),
+            std::time::Duration::from_millis(30),
+        );
+        assert_eq!(call.behavior(), "deny", "the deadline approved something on his behalf");
+        let waiting = h.desk.background_queue();
+        assert_eq!(waiting.len(), 1, "the request did not survive its call");
+        assert_eq!(
+            h.host.pending_decision(&row).map(|r| r.tool),
+            Some("mcp__richos_work__integrate".to_string()),
+            "the host cannot see what its own assignment is waiting on"
+        );
+
+        // He answers. There is no call left to take it, so it goes to the assignment.
+        let answer = h.desk.resolve(&waiting[0].id, true).unwrap();
+        let crate::permissions::Answered::ToAssignment { binding, allow } = answer else {
+            panic!("his answer went to a call that had already ended");
+        };
+        assert!(allow);
+        h.host.apply_decision(&binding, true).unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.bound.lock().unwrap().len(), 2, "his approval did not put the work back on the lease");
+
+        // And the one exact action he approved is the one the resumed run may take — once.
+        let again = |input: serde_json::Value| {
+            lease
+                .decide_within(
+                    &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":input}),
+                    std::time::Duration::from_millis(20),
+                )
+                .behavior()
+        };
+        assert_eq!(again(serde_json::json!({"branch":"one"})), "allow");
+        assert_eq!(again(serde_json::json!({"branch":"one"})), "deny", "an approval was reused");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// He DECLINES the step. The work stops where it is, everything it produced is kept, and
+    /// no sentence anywhere reads as a finish — spec §0 row 7's inversion is what this
+    /// refuses.
+    #[test]
+    fn a_declined_step_stops_the_assignment_and_never_reads_as_finished() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = h.desk.background_queue();
+        let crate::permissions::Answered::ToAssignment { binding, .. } =
+            h.desk.resolve(&waiting[0].id, false).unwrap()
+        else {
+            panic!("the declined request still had a call waiting on it");
+        };
+        h.host.apply_decision(&binding, false).unwrap();
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted);
+        assert!(row.detail.contains("You declined"), "{}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        let text = notice.text.to_lowercase();
+        for word in ["done", "finished", "complete", "landed"] {
+            assert!(!text.contains(word), "the decline notice said that word: {text}");
+        }
+        // POSITIVE CONTROL for that scan: the settled sentence, which does speak of
+        // finishing, fires on the same words — so a clean result above is a fact about this
+        // sentence rather than about a scan that cannot match.
+        let settled = assignment::says::settled(&row.title).to_lowercase();
+        assert!(["done", "finished", "complete", "landed"].iter().any(|w| settled.contains(w)));
+        assert!(text.contains("declined"));
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "a decline put the work back on the lease");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **§5.4's unit of revocation, through the host.** Stopping an assignment takes its
+    /// question off his screen and releases the worker waiting on it — a question he could
+    /// answer into nothing is worse than no question.
+    #[test]
+    fn stopping_an_assignment_takes_its_question_off_his_screen() {
+        let h = harness(3000);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        let waiter = std::thread::spawn(move || {
+            lease.decide_within(
+                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                std::time::Duration::from_secs(5),
+            )
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.desk.background_queue().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(h.desk.background_queue().len(), 1);
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        assert!(h.desk.background_queue().is_empty(), "his question outlived the work it was about");
+        assert_eq!(waiter.join().unwrap().behavior(), "deny", "the stopped worker was left waiting");
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// §5.7: *"the worker's receipt goes to `blocked` naming what it waits on"* — in his
+    /// words, never the provider's wire name for the tool.
+    #[test]
+    fn a_blocked_receipt_names_the_step_it_is_waiting_on_in_his_words() {
+        let h = harness(60);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        // The question is on the desk while the work turn is still running, which is the
+        // real order of events: the step asks, the call waits, the turn ends around it.
+        let waiter = std::thread::spawn(move || {
+            lease.decide_within(
+                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                std::time::Duration::from_millis(600),
+            )
+        });
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked);
+        assert!(
+            row.detail.contains("putting the finished work into your repository"),
+            "the receipt does not say what it is waiting on: {}",
+            row.detail
+        );
+        assert!(!row.detail.contains("mcp__"), "the receipt shows a wire tool name: {}", row.detail);
+        waiter.join().unwrap();
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    // ---- §6.4: what the update gate sees -------------------------------------------------
+
+    /// **The hole §6.4 names, closed end to end** — the same reading the shell makes, made
+    /// against a real work host with a real assignment on its lease and the CONVERSATION
+    /// IDLE, which is the exact state the old gate called clear.
+    ///
+    /// It is one function rather than a re-implementation of the shell's counting: the shell
+    /// calls `background_work()` and passes the answer to `work_gate::background`, and so
+    /// does this test. A test that counted the rows itself would prove that two copies of the
+    /// arithmetic agree.
+    #[test]
+    fn a_running_assignment_blocks_an_update_with_the_conversation_idle() {
+        use crate::work_gate::{self, Liveness, WorkSources};
+        let h = harness(3000);
+        let _runner = h.host.start();
+
+        // POSITIVE CONTROL FIRST, and it is the half that matters most: with nothing
+        // registered the gate is CLEAR and the app updates exactly as it did before §6.4.
+        // Without it, "everything now blocks" would pass this test.
+        let quiet = work_gate::background(&h.host.background_work(), &[]);
+        assert_eq!(quiet.0, Liveness::Clear);
+        let idle = work_gate::decide(&WorkSources {
+            background: quiet.0,
+            background_gap: quiet.1,
+            ..WorkSources::all_clear()
+        });
+        assert!(!idle.busy, "an app with no background work could never update");
+
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        let reading = work_gate::background(&h.host.background_work(), &[]);
+        assert_eq!(reading.0, Liveness::Busy, "a live background assignment was invisible to the gate");
+        let verdict = work_gate::decide(&WorkSources {
+            // Every conversation source clear: no turn, the spine free, no workers of its
+            // own. This is the state §6.4 says an update would have installed in.
+            background: reading.0,
+            background_gap: reading.1,
+            ..WorkSources::all_clear()
+        });
+        assert!(verdict.busy, "an update could have installed over live background work");
+        assert_eq!(verdict.reason.as_deref(), Some("1 assignment is still running in the background."));
+
+        // And an assignment holding a question for him is a DIFFERENT sentence (§6.5), on the
+        // same records, with the same conversation idle.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = work_gate::background(&h.host.background_work(), &[]);
+        assert_eq!(waiting.0, Liveness::Busy);
+        assert_eq!(
+            work_gate::decide(&WorkSources {
+                background: waiting.0,
+                background_gap: waiting.1,
+                ..WorkSources::all_clear()
+            })
+            .reason
+            .as_deref(),
+            Some("An assignment is waiting for you to approve it."),
+            "an assignment waiting for him was reported as running"
+        );
+        assert_eq!(h.host.background_work().awaiting_you, 1);
+        assert_eq!(h.host.background_work().running, 0);
+
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.background_work().running + h.host.background_work().awaiting_you > 0
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(
+            work_gate::background(&h.host.background_work(), &[]).0,
+            Liveness::Clear,
+            "the gate never clears once an assignment has been registered"
+        );
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **THE CEO's SHAPE, PINNED** — the Two Riches spec (richos-hq
+    /// `docs/plans/two-riches-spec-2026-09-17.md`), in his own words: *"each conversation
+    /// thread always holds one front desk Rich and one back-end Rich. Regardless of the
+    /// number of assignments within a given conversation thread."*
+    ///
+    /// **Both halves of that sentence are asserted, and the second half is the correction.**
+    /// §51 said one standing back end; the page says one PER CONVERSATION THREAD. So: three
+    /// assignments' worth of work on one thread — two registrations and a resume — ask the
+    /// factory for a back end exactly once, and a second THREAD gets its own rather than
+    /// queueing behind the first.
+    ///
+    /// **The first half was already true and that is exactly why it needs a test.** It held
+    /// by `ensure_lease` returning early when a lease exists — a shape nothing would have
+    /// gone red for changing, in a file whose own doc says "per assignment" about the seat
+    /// and the grant (which the page keeps: an assignment is a bookkeeping unit INSIDE the
+    /// back end).
+    #[test]
+    fn one_back_end_per_conversation_thread_and_one_only() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "a second assignment opened a second back end");
+
+        // ...and a resume, which is the third time work goes onto the lease, does not open
+        // one either.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = h.desk.background_queue();
+        let crate::permissions::Answered::ToAssignment { binding, .. } =
+            h.desk.resolve(&waiting[0].id, true).unwrap()
+        else {
+            panic!("the request still had a call waiting on it");
+        };
+        h.host.apply_decision(&binding, true).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "a resume opened a second back end");
+
+        // **A SECOND CONVERSATION IS A SECOND BACK END**, which is the page's correction to
+        // §51 — and it doubles as the positive control for the "1" above: the counter can
+        // move, so the reuse is a fact about one thread rather than about a counter that
+        // never increments.
+        let second_thread = ThreadBinding::new(
+            PersonId::default_ceo(),
+            EntityId::parse("depot").unwrap(),
+            "thread-two",
+            1,
+        );
+        h.host
+            .register(
+                &second_thread,
+                &Registration {
+                    thread_id: "thread-two".into(),
+                    obligation_id: "obligation-9".into(),
+                    // The ledger reference names the turn it came from, and the turn is on
+                    // THAT conversation (`assignment::register` checks the two agree).
+                    instruction_ledger_ref: "ledger:thread-two:turn-7".into(),
+                    ..registration(&h)
+                },
+            )
+            .unwrap();
+        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the second conversation shared the first's back end");
+        assert_eq!(first.id.is_empty(), false);
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **TWO CONVERSATIONS RUN AT ONCE, AND NEITHER WAITS FOR THE OTHER.** The CEO's own
+    /// reason for the shape: *"the CEO could open and run multiple things in parallel"*, and
+    /// *"the CEO's conversation with Rich is never blocked by any work that's going on in the
+    /// background."* One back end per thread is what makes that true — with one shared back
+    /// end the second thread's assignment would sit in a queue behind the first's turn.
+    ///
+    /// The scripted turn here is 400 ms. Both threads are given an assignment while the
+    /// first's turn is still running, and BOTH are observed live at the same moment.
+    #[test]
+    fn two_conversations_run_at_the_same_time_and_neither_queues_behind_the_other() {
+        let h = harness(400);
+        let _runner = h.host.start();
+        let second_thread = ThreadBinding::new(
+            PersonId::default_ceo(),
+            EntityId::parse("depot").unwrap(),
+            "thread-two",
+            1,
+        );
+        h.host.register(&h.binding, &registration(&h)).unwrap();
+        h.host
+            .register(
+                &second_thread,
+                &Registration {
+                    thread_id: "thread-two".into(),
+                    obligation_id: "obligation-9".into(),
+                    // The ledger reference names the turn it came from, and the turn is on
+                    // THAT conversation (`assignment::register` checks the two agree).
+                    instruction_ledger_ref: "ledger:thread-two:turn-7".into(),
+                    ..registration(&h)
+                },
+            )
+            .unwrap();
+        // Both live AT ONCE — not one after the other. A shared back end cannot produce this
+        // state at all: its second assignment is still in the queue while the first runs.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while (h.host.live_on("thread-one").is_none() || h.host.live_on("thread-two").is_none())
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let one = h.host.live_on("thread-one").expect("the first conversation's work never started");
+        let two = h.host.live_on("thread-two").expect("the second conversation waited for the first");
+        assert_eq!(one.thread_id, "thread-one");
+        assert_eq!(two.thread_id, "thread-two");
+        assert_ne!(one.id, two.id, "one assignment was reported as live on both conversations");
+        // And a stop on one conversation leaves the other alone — the same rule the
+        // per-assignment stop follows, one level up.
+        h.host.stop_assignment("depot", "thread-two", &two.id).unwrap();
+        assert!(h.host.live_on("thread-one").is_some(), "stopping one conversation stopped the other");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     #[test]
