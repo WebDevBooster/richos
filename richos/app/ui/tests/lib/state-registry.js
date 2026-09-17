@@ -460,6 +460,21 @@ module.exports = [
       "reach richos-voice. The fallback it names (typing) is the composer, always present.",
   },
   {
+    s:
+      "My speech model isn't on this machine yet. I can fetch it myself now, so I'll offer " +
+      "to download it the next time you turn voice on. I can still read what you type.",
+    c: "INFORMATIONAL",
+    why:
+      "SttError::ModelNotFound (stt.rs:112), split from BinaryNotFound's row above on " +
+      "2026-09-17 — the nightly QA audit's §D2 — the day it stopped being true that nobody " +
+      "but 'whoever set RichOS up' could close this gap. `crate::provision` (landed " +
+      "516975db) fetches the model itself, so this one names no party and states what " +
+      "happens next instead, phrased like the `Basis::Unmeasured` row above: a retry tied " +
+      "to the ◉ voice toggle already on screen, never a command aimed at the reader. Needs " +
+      "a real SttError::ModelNotFound from a live pipeline; the mock bridge does not reach " +
+      "richos-voice, same as the row above.",
+  },
+  {
     s: "Something about my hearing changed on this machine and I'd rather not guess at what you said than get it wrong. Whoever set RichOS up can put it right. I can still read what you type.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
@@ -2921,7 +2936,7 @@ module.exports = [
     "why": "Labels an unavailable saved-work observation without claiming a successful read."
   },
   {
-    "s": "Sign-in could not be cancelled. Try again.",
+    "s": "Sign-in could not be canceled. Try again.",
     "c": "ACTIONABLE",
     "why": "Cancellation remains available while the provider is still connecting.",
     "control": "#provider-cancel",

@@ -4137,7 +4137,7 @@ providerConnectEl.addEventListener("click", async () => {
 providerCancelEl.addEventListener("click", async () => {
   providerCancelEl.disabled = true;
   try { renderProviderAuth(await Bridge.invoke("provider_auth_cancel")); }
-  catch (_) { renderProviderAuth({state: "connecting", message: "Sign-in could not be cancelled. Try again."}); }
+  catch (_) { renderProviderAuth({state: "connecting", message: "Sign-in could not be canceled. Try again."}); }
   finally { providerCancelEl.disabled = false; }
 });
 window.RichSettings.registerAccount({open: openAccountConnection});

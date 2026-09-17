@@ -48,7 +48,7 @@ async function main() {
     assert(await page.isHidden("#setup-close"), "active login can disappear without cancellation");
     await page.click("#provider-cancel");
     await page.waitForSelector("#provider-connect:not([hidden])");
-    assert((await page.textContent("#setup-account")).includes("cancelled"), "cancellation not reported");
+    assert((await page.textContent("#setup-account")).includes("canceled"), "cancellation not reported");
     await page.evaluate(() => { window.__RICHOS_MOCK_PRESET__.providerAuthHold = false; });
     await page.selectOption("#provider-account-select", "console");
     await page.click("#provider-connect");

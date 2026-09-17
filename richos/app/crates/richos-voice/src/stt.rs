@@ -90,12 +90,28 @@ impl SttError {
     /// The CEO-facing line. No paths, no exit codes, no model filenames.
     pub fn ceo_message(&self) -> String {
         match self {
-            SttError::BinaryNotFound(_) | SttError::ModelNotFound(_) => {
+            SttError::BinaryNotFound(_) => {
                 // NAMES THE PARTY. "Aren't installed yet" implies somebody will install them
                 // and never said who, leaving a reader who cannot install anything holding a
-                // job with no owner.
+                // job with no owner. RichOS cannot fetch a DECODER for itself — see the table
+                // on `SpeechReadiness` — so this one still names whoever set the machine up.
                 "My ears aren't installed on this machine yet — whoever set RichOS up adds \
                  those. I can still read what you type."
+                    .into()
+            }
+            SttError::ModelNotFound(_) => {
+                // ITS OWN SENTENCE, split from `BinaryNotFound` on 2026-09-17. Until this split
+                // it shared "whoever set RichOS up adds those" with the decoder gap — true for
+                // a missing decoder, false for a missing MODEL once `crate::provision` can fetch
+                // one on its own (landed 516975db). Nobody sets this one up but RichOS itself,
+                // so it stops naming a party and states what it can do about it instead.
+                // Phrased like `hardware.rs`'s `Basis::Unmeasured` line: what happens NEXT, tied
+                // to the control already on screen (the ◉ toggle), never a command aimed at the
+                // reader — so this reads as INFORMATIONAL rather than an instruction with no
+                // control beside it.
+                "My speech model isn't on this machine yet. I can fetch it myself now, so I'll \
+                 offer to download it the next time you turn voice on. I can still read what \
+                 you type."
                     .into()
             }
             SttError::ToolchainRefused(_) => {
@@ -482,12 +498,13 @@ fn time_decode(bin: &Path, model: &Path, wav: &Path, ceiling_secs: f64) -> Optio
 
 /// **WHAT IS STANDING BETWEEN THIS MACHINE AND TALK TO RICH**, as a kind rather than a sentence.
 ///
-/// THE REASON THIS TYPE EXISTS is that the three gaps below need three different actions and used
-/// to arrive as one string. `SttError::ceo_message` deliberately gives `BinaryNotFound` and
-/// `ModelNotFound` the SAME words — *"My ears aren't installed on this machine yet"* — because to
-/// the CEO they were the same event: somebody else had to fix it either way. Once RichOS can fetch
-/// its own model that stops being true, and collapsing the two would be the difference between
-/// offering a download that works and offering one that cannot possibly help:
+/// THE REASON THIS TYPE EXISTS is that the three gaps below need three different actions.
+/// `SttError::ceo_message` used to give `BinaryNotFound` and `ModelNotFound` the SAME words —
+/// *"My ears aren't installed on this machine yet"* — because to the CEO they used to be the
+/// same event: somebody else had to fix it either way. Now that RichOS can fetch its own model
+/// (`crate::provision`, landed 516975db) that has stopped being true, so `ModelNotFound` carries
+/// its own sentence and the two no longer collapse into one — this table is what the split is
+/// for:
 ///
 /// | gap | what RichOS can do about it |
 /// |---|---|
@@ -995,6 +1012,55 @@ mod tests {
         let e = SttError::ModelNotFound("/Users/x/.config/open-wispr/models/ggml-small.en.bin".into());
         assert!(!e.ceo_message().contains('/'));
         assert!(e.to_string().contains("ggml-small.en.bin"));
+    }
+
+    /// INVARIANT: `ModelNotFound` stopped sharing words with `BinaryNotFound` on 2026-09-17,
+    /// the day RichOS gained the ability to fetch its own model (`crate::provision`, landed
+    /// 516975db). Before that split the two variants' `ceo_message()`s were identical BY
+    /// DESIGN — this test pins that they no longer are, and would have failed on its own
+    /// premise had it been written a day earlier.
+    ///
+    /// POSITIVE CONTROL: `SpeechReadiness::ToolchainMissing` — the gap RichOS genuinely cannot
+    /// close on its own — still routes through `BinaryNotFound` and still gets the untouched
+    /// sentence. Without this half, a refactor that deleted the split entirely (making every
+    /// assertion above vacuously true by making `model_missing` equal to nothing in
+    /// particular) would not be caught.
+    #[test]
+    fn model_missing_stopped_sharing_words_with_a_missing_decoder() {
+        let model_missing = SttError::ModelNotFound("ggml-small.en.bin not found in /x".into()).ceo_message();
+        let binary_missing = SttError::BinaryNotFound("whisper-cli is not on PATH".into()).ceo_message();
+        assert_ne!(model_missing, binary_missing, "the two gaps need different words now that one of them is fixable");
+        assert!(
+            model_missing.contains("I can fetch it myself"),
+            "ModelNotFound must say RichOS can get this one on its own: {model_missing}"
+        );
+        assert!(!model_missing.contains('/'), "no paths reach him: {model_missing}");
+        assert!(
+            !model_missing.contains("whoever set RichOS up"),
+            "that phrase names a party for a gap RichOS can now close itself: {model_missing}"
+        );
+
+        // Positive control: the gap RichOS genuinely cannot fix itself is untouched — same
+        // words as always — so the pin above is not vacuously true because nothing routes
+        // through the shared sentence any more.
+        let toolchain_missing = SpeechReadiness::ToolchainMissing { detail: "whisper-cli is not on PATH".into() }
+            .ceo_message()
+            .expect("a missing decoder is still told about");
+        assert_eq!(
+            toolchain_missing, binary_missing,
+            "ToolchainMissing must still route through BinaryNotFound's unchanged sentence"
+        );
+
+        // The readiness-level `ModelMissing` variant carries the SAME new sentence as the
+        // `SttError` it wraps, so `voice_readiness`'s boot-log line and `Recognizer::resolve`'s
+        // `Err` path can never disagree about the same gap.
+        let model_missing_readiness = SpeechReadiness::ModelMissing {
+            model_id: "small.en".into(),
+            detail: "ggml-small.en.bin not found in /x".into(),
+        }
+        .ceo_message()
+        .expect("a missing model is still told about");
+        assert_eq!(model_missing_readiness, model_missing);
     }
 
     /// Resolution is environment-dependent, so this asserts the CONTRACT (a result either
