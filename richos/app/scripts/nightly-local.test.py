@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local release entry point: explicit trigger, isolation and private credentials."""
+import contextlib
 import importlib.util
 import io
 import os
@@ -49,6 +50,50 @@ class LocalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.notary_environment(self.file('RICHOS_NOTARY_PROFILE=value', 0o644))
 
+    # The credential set as nightly-local.py would assemble it, with values that are
+    # obviously fixtures. Names are what these tests assert on; values never leave here.
+    CREDENTIALS = {"RICHOS_NOTARY_KEY": "/fixture/AuthKey_FIXTURE000.p8",
+                   "RICHOS_NOTARY_KEY_ID": "FIXTURE000", "RICHOS_NOTARY_ISSUER": "fixture-issuer",
+                   "RICHOS_NOTARY_PROFILE": "fixture-profile", "RICHOS_NOTARIZE": "1",
+                   "RICHOS_SIGNING_IDENTITY": "Developer ID Application: Fixture (FIXTURE000)",
+                   "TAURI_SIGNING_PRIVATE_KEY_PATH": "/fixture/richos-updater.key",
+                   "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "fixture-password",
+                   "APPLE_ID": "fixture@example.invalid", "APPLE_PASSWORD": "fixt-fixt-fixt-fixt",
+                   "APPLE_TEAM_ID": "FIXTURETM1"}
+
+    def test_exported_signing_variables_leave_the_gate_environment(self):
+        # The operator's own shell is a source of these, not only notary.env, and the
+        # gates must not inherit them from either.
+        env = dict(self.CREDENTIALS, PATH="/usr/bin", RICHOS_NAMED_PERSONS_FILE="/fixture/list",
+                   RICHOS_NIGHTLY_RUN_ID="20260917T000000Z-fixture", RICHOS_RUNTIME_DIR="/fixture/runtime")
+        credentials = m.split_credentials(env)
+        self.assertEqual(credentials, self.CREDENTIALS)
+        self.assertEqual(sorted(env), ["PATH", "RICHOS_NAMED_PERSONS_FILE",
+                                       "RICHOS_NIGHTLY_RUN_ID", "RICHOS_RUNTIME_DIR"])
+
+    def test_gates_receive_no_signing_credential_and_still_get_the_privacy_list(self):
+        # The 2026-09-16 nightly published nothing because package-app.test.sh's
+        # "no credentials" cases ran with the operator's complete API key. This asserts
+        # the environment of every gate subprocess, not the suite's verdict.
+        base = {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"}
+        r = m.Runner(self.root, self.root / "state", dict(base), io.StringIO(), self.CREDENTIALS)
+        seen = []
+
+        def record(args, **kwargs):
+            seen.append(kwargs["env"])
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+            r.gates()
+        self.assertEqual(len(seen), 4)
+        for env in seen:
+            self.assertEqual([name for name in env if m.is_credential(name)], [])
+            self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
+        # ...and the same runner still hands the whole set to a step that signs.
+        with patch.object(m.subprocess, "run", side_effect=record):
+            r.command("codesign", credentials=True)
+        self.assertEqual({name: seen[-1][name] for name in self.CREDENTIALS}, self.CREDENTIALS)
+
     def test_lock_rejects_concurrent_manual_commands_and_releases_after_failure(self):
         state = self.root / "state"
         with self.assertRaises(RuntimeError):
@@ -92,6 +137,8 @@ class LocalTests(unittest.TestCase):
         r.gates.assert_called_once()
         args = r.command.call_args.args
         self.assertEqual(args[2], "run")
+        # The publisher is the step that signs, notarizes and signs the updater manifest.
+        self.assertIs(r.command.call_args.kwargs["credentials"], True)
         self.assertEqual(r.plan.call_count, 2)
 
     def test_unchanged_source_does_not_build(self):
