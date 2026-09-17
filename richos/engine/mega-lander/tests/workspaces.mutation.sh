@@ -288,7 +288,7 @@ mutant p14-protected-set-keyed-by-name-across-repositories "test_point_14_a_reco
     "the protected set would go back to matching on branch NAME across every body of work, so 'main' recorded for one repository would protect -- and make writable -- refs/heads/main in every other. Three bodies of work on this machine, all three integrating on main (forensics §4)."
 
 mutant p14-the-leads-move-reported-too "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone" "$W" \
-    '                    else:{NL}                        landed = land_by_another_conversation(repo, b, old, cur){NL}                        if not landed:{NL}                            continue                    # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
+    '                    else:{NL}                        landed = land_by_another_conversation(repo, b, old, cur){NL}                        if not landed:{NL}                            continue                    # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land{NL}                        action, why = "LANDED", landed  # except when the land record names another conversation' \
     '                    else:{NL}                        why = "moved"' \
     "the lead's own land onto the recorded branch during an agent's call would be reported as an agent's move (point 14: landing is his). It no longer UNDOES his land -- nothing does -- but a report that fires on every ordinary land is alarm fatigue, and this check's whole remaining value is that it only speaks when something is wrong."
 
