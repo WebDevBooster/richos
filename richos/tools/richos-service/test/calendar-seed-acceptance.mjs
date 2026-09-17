@@ -43,7 +43,9 @@ import { connect, sync, seedCalendar } from '../lib/workspace/commands.js';
 import { readEvidenceZone, readPromotionLedger, promotionDecision } from '../lib/workspace/promotion.js';
 import { corpusFromZone, entitiesFileFor } from '../lib/workspace/promote-run.js';
 import { workspaceZone } from '../lib/config.js';
-import { seedManifestPath, SEED_KEYCHAIN_SERVICE, SEED_REDIRECT_PORT } from '../lib/workspace/calendar-seed.js';
+import {
+  seedManifestPath, eventIdsFrom, SEED_KEYCHAIN_SERVICE, SEED_REDIRECT_PORT,
+} from '../lib/workspace/calendar-seed.js';
 import {
   planFixtures, expectationsFor, instanceId, SEED_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
 } from '../lib/workspace/calendar-fixtures.js';
@@ -74,8 +76,15 @@ export function checkZone(opts) {
   }
 
   // RE-DERIVE the expectation rather than trusting the stored one — and report a disagreement.
+  // The real event ids come from the manifest for the same reason the real calendar ids do: an
+  // imported copy's id is Google's, so a derivation that guessed it would name a source item the
+  // sync never wrote and would report every import as `absent`.
   const plan = planFixtures({ accountId: manifest.accountId, setId: manifest.setId, now: manifest.writtenAt });
-  const derived = expectationsFor(plan, { calendarIds: manifest.calendars, now: manifest.writtenAt });
+  const derived = expectationsFor(plan, {
+    calendarIds: manifest.calendars,
+    eventIds: eventIdsFrom(manifest.events),
+    now: manifest.writtenAt,
+  });
   const storedRows = (manifest.expectations && manifest.expectations.rows) || [];
   for (const row of derived.rows) {
     const stored = storedRows.find((r) => r.sourceItemId === row.sourceItemId);
@@ -261,6 +270,32 @@ const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const READ_ONLY_TOKEN = 'mock-access-readonly';
 const READ_WRITE_TOKEN = 'mock-access-readwrite';
 
+/**
+ * Google's own `organizer`, computed rather than echoed.
+ *
+ * The address is whatever the write named (an import may name one) or the calendar itself; `self` is
+ * READ-ONLY at Google and answers exactly one question — "whether the organizer corresponds to the
+ * calendar on which this copy of the event appears".
+ */
+function organizerFor(calendar, body, previous) {
+  const named = body.organizer || (previous && previous.organizer) || null;
+  const email = (named && named.email) || calendar.id;
+  return {
+    ...(named || {}),
+    email,
+    self: String(email).toLowerCase() === String(calendar.id).toLowerCase(),
+  };
+}
+
+/** The 400 Google answered every `events.import` that carried an `id`, verbatim. */
+const INVALID_RESOURCE_ID = JSON.stringify({
+  error: {
+    errors: [{ domain: 'global', reason: 'invalid', message: 'Invalid resource id value.' }],
+    code: 400,
+    message: 'Invalid resource id value.',
+  },
+});
+
 function httpResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -331,7 +366,10 @@ export function mockGoogleCalendar(opts = {}) {
       status: body.status || 'confirmed',
       creator: { email: accountId, self: true },
       // Google's own rule: the organizer is the calendar, unless the write named one (import only).
-      organizer: body.organizer ? { ...body.organizer } : { email: calendar.id, self: true },
+      // `organizer.self` is READ-ONLY at Google and means one thing — is that address this very
+      // calendar — so it is computed here and never copied off the request body. A mock that echoed
+      // a caller's `self: true` would be the one place the governance rule under test could not fail.
+      organizer: organizerFor(calendar, body, calendar.events.get(target)),
       ...(body.attendees
         ? {
           attendees: body.attendees.map((a) => ({
@@ -411,6 +449,9 @@ export function mockGoogleCalendar(opts = {}) {
       const prop = u.searchParams.get('privateExtendedProperty');
       let items = [...cal.events.values()].flatMap((e) => expand(e, { singleEvents }));
       if (!showDeleted) items = items.filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
+      // `iCalUID` — the only way to address an imported copy, whose `id` belongs to Google.
+      const uid = u.searchParams.get('iCalUID');
+      if (uid) items = items.filter((e) => e.iCalUID === uid);
       if (prop) {
         const [k, v] = prop.split('=');
         items = items.filter((e) => e.extendedProperties && e.extendedProperties.private
@@ -431,7 +472,22 @@ export function mockGoogleCalendar(opts = {}) {
     if (importMatch) {
       const cal = resolveCalendar(decodeURIComponent(importMatch[1]));
       if (!cal) return httpResponse(404, '{}');
-      return httpResponse(200, JSON.stringify(storeEvent(cal, JSON.parse(init.body || '{}'), { imported: true })));
+      const body = JSON.parse(init.body || '{}');
+      // THE REFUSAL THIS MOCK EXISTS TO REPRODUCE. Google's reference: the iCalUID and the id "are
+      // not identical and only one of them should be supplied at event creation time" — and the live
+      // 2026-09-17 seed run learned what that costs, a 400 on all three import writes while every
+      // insert carrying the same pinned id landed. Before this line the mock accepted the pair, so
+      // the whole mocked loop was green on a body Google would not take.
+      if (body.id) return httpResponse(400, INVALID_RESOURCE_ID);
+      // `iCalUID` is a REQUIRED body field for import, so an import without one is refused too —
+      // with its own message, because a mock that gives every refusal the same words teaches nobody
+      // which refusal they hit.
+      if (!body.iCalUID) {
+        return httpResponse(400, JSON.stringify({
+          error: { code: 400, message: 'Missing iCalUID.' },
+        }));
+      }
+      return httpResponse(200, JSON.stringify(storeEvent(cal, body, { imported: true })));
     }
 
     const oneMatch = p.match(/^\/calendar\/v3\/calendars\/([^/]+)\/events\/([^/]+)$/);

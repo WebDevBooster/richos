@@ -232,6 +232,9 @@ export async function runCalendarSeed(ctx) {
     d.out(`${L('note')}the "${SEED_CALENDAR_SUMMARY}" calendar does not exist yet, so its id is modeled as`);
     d.out(`            ${UNCREATED_SEED_CALENDAR_ID} — the shape every Google secondary calendar has,`);
     d.out('            which is what the governance gate reads. The real id goes in the manifest.');
+    d.out(`${L('note')}the two IMPORTED fixtures get their event id from Google, not from this tool, so the`);
+    d.out('            source ids below are stand-ins until a real run records the real ones. No');
+    d.out('            decision in the table depends on an event id — only the ids naming each row do.');
     d.out('');
     d.out('Seed it with:      richos-service workspace seed-calendar --account ' + account.accountId);
     d.out('Remove it with:    richos-service workspace seed-calendar --account ' + account.accountId + ' --teardown');
@@ -284,10 +287,13 @@ export async function runCalendarSeed(ctx) {
     }
   }
 
-  // The expectation table is computed with the REAL calendar ids, because `sourceItemId` and the
-  // dedup key both depend on what the read will actually carry.
+  // The expectation table is computed with the REAL calendar ids AND the REAL event ids, because
+  // `sourceItemId` is `google:calendar:<instance>:<event id>` and an imported copy's id is Google's
+  // (header fact 3b in `calendar-fixtures.js`) — a table derived from a guessed id would name a
+  // source item the sync never writes, and the acceptance would read that as `absent`.
   const expectations = expectationsFor(plan, {
     calendarIds: { primary: calendars.primary, seed: calendars.seed },
+    eventIds: eventIdsFrom(written),
     orgDomains: account.orgDomains,
     now: d.now(),
   });
@@ -437,6 +443,20 @@ async function seedConsent({ d, account, backend, tm }) {
   return { exitCode: 0, identity: { email: identity.email, matched: true } };
 }
 
+/**
+ * `"<fixture key>|<target>"` → the id Google actually gave that copy.
+ *
+ * Exported because the acceptance run re-derives the expectation table from the manifest and needs
+ * the same map: `manifest.events` is where these ids live once a run has happened.
+ */
+export function eventIdsFrom(written) {
+  const map = {};
+  for (const w of written || []) {
+    if (w && w.fixture && w.target && w.eventId) map[`${w.fixture}|${w.target}`] = w.eventId;
+  }
+  return map;
+}
+
 /** The marker written into the seed calendar's description, so teardown can recognize its own work. */
 export function seedCalendarMarker(setId) {
   return `${SEED_PROPERTY}=${setId}`;
@@ -462,11 +482,34 @@ async function ensureCalendars(client, { setId, accountId }) {
 }
 
 /**
+ * Find the copy of an imported fixture that is already on this calendar, by its `iCalUID`.
+ *
+ * `events.list?iCalUID=…` is the only way to ask that question: an imported event's `id` belongs to
+ * Google, so there is nothing to GET by. `showDeleted=true` so a copy a previous run withdrew is
+ * found and revived rather than duplicated.
+ */
+async function findImportedCopy(client, base, iCalUID) {
+  if (!iCalUID) return null;
+  const page = await client.getJson(`${base}?maxResults=250&showDeleted=true`
+    + `&iCalUID=${encodeURIComponent(iCalUID)}`);
+  return (page.items || []).find((e) => e && e.id) || null;
+}
+
+/**
  * Write ONE fixture copy, updating in place when it is already there.
  *
- * Idempotence is by the PINNED event id (`calendar-fixtures.js:seedEventId`) for an insert and by the
- * pinned `iCalUID` for an import — Google's `events.import` is defined as create-or-update on that
- * UID. A second run of the same set therefore moves nothing and duplicates nothing.
+ * ── AN IMPORT MAY NOT CARRY AN `id`, AND IDEMPOTENCE IS OURS RATHER THAN THE VENDOR'S ────────────
+ * Google's reference says the `iCalUID` and the `id` "are not identical and only one of them should
+ * be supplied at event creation time", and `events.import` lists `iCalUID` + `start` + `end` as its
+ * required body with no `id` among them. Sending both is what the live 2026-09-17 seed run did, and
+ * Google refused all three import writes — `400 Invalid resource id value` — while every
+ * `events.insert` carrying the SAME pinned id landed. So the import body drops `id`.
+ *
+ * That takes the pinned id away as the idempotence key for these three copies, so idempotence is
+ * done HERE instead of resting on `events.import` being create-or-update on the UID (true as far as
+ * anyone can tell, and not a thing this tool's exactness should depend on): look the UID up first,
+ * and PATCH the copy that is already there. An insert is unchanged — its id is still pinned, so it
+ * is still addressed directly.
  */
 async function upsertEvent(client, calendarId, write, fixture) {
   const base = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`;
@@ -474,8 +517,19 @@ async function upsertEvent(client, calendarId, write, fixture) {
   let action;
 
   if (fixture.method === 'import') {
-    event = await client.postJson(`${base}/import?sendUpdates=none`, { ...write.body, status: 'confirmed' });
-    action = 'imported';
+    const existing = await findImportedCopy(client, base, write.body.iCalUID);
+    if (existing) {
+      // `iCalUID` and `organizer` are read-only outside an import, so they are not re-sent: the copy
+      // already carries both, and re-asserting a read-only field is how an update starts failing for
+      // a reason that has nothing to do with what changed.
+      const { iCalUID, organizer, ...mutable } = write.body;
+      event = await client.patchJson(`${base}/${encodeURIComponent(existing.id)}?sendUpdates=none`,
+        { ...mutable, status: 'confirmed' });
+      action = 'updated';
+    } else {
+      event = await client.postJson(`${base}/import?sendUpdates=none`, { ...write.body, status: 'confirmed' });
+      action = 'imported';
+    }
   } else {
     const existing = await client.getJsonOrNull(`${base}/${encodeURIComponent(write.eventId)}`);
     if (existing) {

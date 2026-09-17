@@ -67,7 +67,7 @@ import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
 import { connect, status, sync, disconnect, seedCalendar, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
 import {
-  planFixtures, expectationsFor, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
+  planFixtures, expectationsFor, seedICalUid, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
 } from '../lib/workspace/calendar-fixtures.js';
 import { seedManifestPath, SEED_KEYCHAIN_SERVICE } from '../lib/workspace/calendar-seed.js';
 import {
@@ -7089,6 +7089,60 @@ test('the fixture set is a function of (account, set id, clock) — nothing abou
   }
 });
 
+test('AN IMPORT CARRIES AN iCalUID AND NO id — the pair is what Google refused', () => {
+  // The live 2026-09-17 seed run: three `events.import` POSTs, three `400 Invalid resource id
+  // value`, and every `events.insert` carrying the SAME pinned id landed. Google's reference says
+  // why — the iCalUID and the id "are not identical and only one of them should be supplied at event
+  // creation time" — so the grammar was never the problem and the FIELD BEING THERE was.
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  const imports = plan.fixtures.filter((f) => f.method === 'import');
+  assert.equal(imports.length, 2, 'partner-review and cross-calendar-dup are the imported fixtures');
+
+  for (const fixture of imports) {
+    for (const write of fixture.writes) {
+      assert.equal(write.body.id, undefined,
+        `${fixture.key} must not pin an id on an import — that is the 400 the CEO's account returned`);
+      assert.equal(write.body.iCalUID, seedICalUid('unit', fixture.key),
+        `${fixture.key} pins the iCalUID instead, which is what an import is FOR`);
+      // The stand-in survives for the dry run, which has no real id to print.
+      assert.match(write.eventId, /^[0-9a-v]{5,1024}$/);
+    }
+  }
+  // One UID across both copies of the duplicate, and nothing else shares it.
+  const dup = imports.find((f) => f.key === 'cross-calendar-dup');
+  assert.equal(new Set(dup.writes.map((w) => w.body.iCalUID)).size, 1, 'two calendars, ONE iCalUID');
+
+  for (const fixture of plan.fixtures.filter((f) => f.method !== 'import')) {
+    for (const write of fixture.writes) {
+      assert.equal(write.body.id, write.eventId, `${fixture.key} is inserted, so its id is still pinned`);
+      assert.equal(write.body.iCalUID, undefined, `${fixture.key} does not supply the other half of the pair`);
+    }
+  }
+});
+
+await atest('the mocked Google REFUSES an import that carries an id, exactly as the real one did', async () => {
+  // A mock that took the body Google rejects is a mock that cannot fail on the defect it is here to
+  // catch — and that is precisely what happened: the whole loop was green while the live run was
+  // refused three times. This asserts the refusal directly, so the mock's fidelity is itself tested.
+  const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(SEED_ACCOUNT)}/events/import`;
+  const post = (body) => google.http(url, {
+    method: 'POST',
+    headers: { authorization: 'Bearer mock-access-readwrite', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const ok = { iCalUID: 'uid-1@richos-seed.example.com', start: { date: '2026-09-20' }, end: { date: '2026-09-21' } };
+
+  const refused = await post({ ...ok, id: 'rs0123456789' });
+  assert.equal(refused.status, 400, 'an id on an import is refused');
+  assert.match(JSON.parse(await refused.text()).error.message, /Invalid resource id value/,
+    "and refused in Google's own words, so a reader recognizes the live failure");
+
+  const accepted = await post(ok);
+  assert.equal(accepted.status, 200, 'the same write without the id lands');
+  assert.equal((await accepted.json()).iCalUID, ok.iCalUID, 'under the UID it asked for');
+});
+
 test('every seeded event carries the set marker AND its fixture key — teardown is exact, re-runs update', () => {
   const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
   for (const fixture of plan.fixtures) {
@@ -7215,10 +7269,19 @@ await atest('a SECOND seed run of the same set updates in place — no second co
     assert.deepEqual(
       second.manifest.events.map((e) => e.eventId).sort(),
       first.manifest.events.map((e) => e.eventId).sort(),
-      'the ids are a function of the set, so the second run addressed the first run\'s events',
+      'the second run addressed the first run\'s events — an inserted id is a function of the set, '
+      + 'and an IMPORTED id is Google\'s, found again by its iCalUID',
     );
     assert.ok(second.manifest.events.some((e) => e.action.startsWith('updated')),
       'and it said so: a re-run UPDATES rather than creating');
+    // The three imports are the copies with no pinned id, so they are the ones idempotence could
+    // quietly lose. Named here rather than left inside the totals above.
+    for (const key of ['partner-review', 'cross-calendar-dup']) {
+      const copies = second.manifest.events.filter((e) => e.fixture === key);
+      assert.ok(copies.length >= 1, `${key} was written`);
+      assert.ok(copies.every((e) => e.action === 'updated'),
+        `${key} was found by its iCalUID and updated in place, never imported a second time`);
+    }
   } finally { f.cleanup(); }
 });
 
