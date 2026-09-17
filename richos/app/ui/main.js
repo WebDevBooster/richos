@@ -77,6 +77,10 @@ const searchInputEl = el("search-input");
 const searchResultsEl = el("search-results");
 const searchEmptyEl = el("search-empty");
 const entityPickerEl = el("entity-picker");
+/// The first-run company question's "Not now" and the line saying what it costs (D5).
+const entityPickerDeferEl = el("entity-picker-defer");
+const entityPickerDeferNoteEl = el("entity-picker-defer-note");
+const entityPickerLaterEl = el("entity-picker-later");
 const entityPickerListEl = el("entity-picker-list");
 const entityPickerTitleEl = el("entity-picker-title");
 const entityPickerNoteEl = el("entity-picker-note");
@@ -113,6 +117,10 @@ const inputEl = el("input");
 const sendBtn = el("send");
 const stopBtn = el("stop");
 const talkToggleBtn = el("talk-toggle");
+/// Why voice is off, when RichOS knows why (nightly D3). Lives beside the composer rather
+/// than in `#voice-panel`, because the panel only opens once he is IN voice mode and the
+/// whole point of this line is the case where he cannot get there.
+const voiceUnavailableEl = el("voice-unavailable");
 const voicePanelEl = el("voice-panel");
 const voiceListeningEl = el("voice-state-listening");
 const voiceNoAudioEl = el("voice-state-no-audio");
@@ -3159,7 +3167,38 @@ async function refreshVoiceReadiness() {
   // NOT OFFERED, rather than offered-and-inert, for everything RichOS genuinely cannot fix.
   // `start_voice_capture` still refuses with Rich's own sentence for anything that reaches it
   // another way, so this is the affordance half of the fix and not the whole of it.
-  talkToggleBtn.hidden = !(voiceAvailable || voiceModelOffer);
+  // PRESENT-AND-EXPLAINED BEATS ABSENT, when RichOS knows why (nightly D3).
+  //
+  // `refused` is the state where the speech model on disk is not the model RichOS pinned —
+  // different weights under the right name. The refusal itself is correct and is the best
+  // failure in the product; what the CEO got was the talk control DISAPPEARING from the
+  // window and from the accessibility tree, with the explanation living only in a log he
+  // will never open. A capability that silently stops existing teaches him not to trust
+  // what he can see.
+  //
+  // `reason` is already on this payload — `SttError::ToolchainRefused::ceo_message()`,
+  // authored in richos-voice and relayed verbatim. The window composes nothing.
+  //
+  // EVERY OTHER UNAVAILABLE STATE IS STILL NOT OFFERED, unchanged: `toolchain-missing` is a
+  // machine that has no decoder at all, and a disabled button beside a sentence about
+  // something nobody here can fix is clutter rather than honesty. The distinction is that
+  // `refused` is a machine that COULD hear and has been tampered with, which is a fact he
+  // should be told rather than a capability that quietly never existed.
+  const refused = voiceState === "refused";
+  talkToggleBtn.hidden = !(voiceAvailable || voiceModelOffer || refused);
+  talkToggleBtn.disabled = refused;
+  if (refused) {
+    // aria-disabled beside the property so the name is still announced. A `disabled` button
+    // is skipped by some screen-reader navigation modes, and a control he can be told about
+    // is better than one he cannot reach at all.
+    talkToggleBtn.setAttribute("aria-disabled", "true");
+  } else {
+    talkToggleBtn.removeAttribute("aria-disabled");
+  }
+  setTalkPressed(voiceMode);
+  const note = (r && typeof r.reason === "string") ? r.reason : "";
+  voiceUnavailableEl.textContent = refused ? note : "";
+  voiceUnavailableEl.hidden = !(refused && note);
 }
 
 /// Which of the four model rows is on screen, if any. Exactly one, or none.
@@ -3225,6 +3264,26 @@ function provisionNeedLabel(offer) {
   return provisionHuman(offer.needFreeBytes);
 }
 
+/// **THE TALK CONTROL'S STATE, IN ONE PLACE** — the nightly's D8.
+///
+/// `aria-pressed` alone made VoiceOver announce the primary affordance of a voice-first
+/// product as a bare "checkbox": `title` is a tooltip and is not an accessible name, and
+/// there was no `aria-label` at all (audit §D8, read off the accessibility tree).
+///
+/// The name and the pressed state are set together, by this function and nowhere else, for
+/// the reason `renderVoiceModelState` gives about the panel's rows: two attributes
+/// maintained at three call sites is two attributes that will eventually disagree, and the
+/// half that drifts is the half only a screen-reader user hears.
+///
+/// **The label says what pressing it will DO**, which is the rule for a toggle whose
+/// `aria-pressed` already reports what it IS. "Stop talking" is the action; the state is
+/// carried by `aria-pressed="true"` beside it, so nothing is said twice.
+function setTalkPressed(pressed) {
+  talkToggleBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
+  talkToggleBtn.setAttribute("aria-label", pressed ? "Stop talking" : "Talk to Rich");
+  talkToggleBtn.title = pressed ? "Stop talking" : "Talk to Rich";
+}
+
 async function enterVoiceMode() {
   // THE OFFER PATH OPENS NO DEVICE. `start_voice_capture` is not called at all here, so there
   // is no permission dialog, no orange recording indicator and no "listening…" row on a machine
@@ -3232,7 +3291,7 @@ async function enterVoiceMode() {
   // kept rather than relaxed by the feature that makes the machine able to transcribe later.
   if (!voiceAvailable && voiceModelOffer) {
     voiceMode = true;
-    talkToggleBtn.setAttribute("aria-pressed", "true");
+    setTalkPressed(true);
     composerEl.hidden = true;
     voicePanelEl.hidden = false;
     voiceModelOfferLabel.textContent = voiceOfferSentence(voiceModelOffer);
@@ -3252,7 +3311,7 @@ async function enterVoiceMode() {
     return;
   }
   voiceMode = true;
-  talkToggleBtn.setAttribute("aria-pressed", "true");
+  setTalkPressed(true);
   composerEl.hidden = true;
   voicePanelEl.hidden = false;
   renderVoiceModelState(null);
@@ -3262,7 +3321,7 @@ async function enterVoiceMode() {
 
 async function exitVoiceMode() {
   voiceMode = false;
-  talkToggleBtn.setAttribute("aria-pressed", "false");
+  setTalkPressed(false);
   voicePanelEl.hidden = true;
   composerEl.hidden = false;
   inputEl.focus();
@@ -3853,12 +3912,46 @@ function registryUnreadableLine(path) {
   );
 }
 
+/// **WHAT A FIRST RUN ASKS, IN ORDER, ONE AT A TIME** — the nightly's D5.
+///
+/// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D5 walked a
+/// clean install and counted what stood between the CEO and an input box:
+///
+///   1. the splash              — a preference, not a question (Settings → Opening screen)
+///   2. the ENGINE sheet        — "There's one thing I need on this Mac"      · Not now
+///   3. the CORPUS sheet        — "Where should I keep what you tell me?"     · Not now
+///   4. the COMPANY question    — "Which company is this copy of Rich for?"   · NOT NOW MISSING
+///   5. the interview offer     — in-thread, and the best copy of the set
+///
+/// **The one-at-a-time chain was already right and is unchanged.** `init` asks 2, and
+/// `closeSetupSheet` hands off to 3, and `closeMemorySetup` hands off to 4 — nothing ever
+/// stacks. The order is written here rather than only inferred from three handoffs in three
+/// files, because a sequence nobody can read in one place is a sequence that grows a fourth
+/// step nobody notices.
+///
+/// **What was wrong is step 4, and it was wrong by omission.** Steps 2 and 3 offer "Not
+/// now"; step 4 offered nothing to press. The audit: *"which is at least inconsistent and at
+/// most a wall."* A state the CEO could change, rendered apart from the control that changes
+/// it, is this codebase's own named defect — `#composer-choose-company` exists because
+/// `#composer-blocked` had it once already.
+///
+/// **Step 5's copy is the model, and the audit says so:** *"'Not now' means I'll stop
+/// offering. You can start it any time by asking." — it says what the choice COSTS.* So the
+/// deferral added here states its cost too, and its cost is different: the company question
+/// comes back, because he cannot type until it is answered.
+const FIRST_RUN_ORDER = ["engine", "corpus", "company"];
+
 function openEntityPicker(onPick, opts) {
   const forCompany = !!(opts && opts.forCompany);
   entityPickerResolve = onPick;
   entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
   entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";
   entityPickerNoteEl.hidden = !forCompany;
+  // THE DEFERRAL, on the first-run question only — see the markup's own note. `forCompany`
+  // is the same flag that decides the title, the note and the add-a-company form, so the
+  // four cannot come apart.
+  entityPickerDeferEl.hidden = !forCompany;
+  entityPickerDeferNoteEl.hidden = !forCompany;
   // THE ADD FORM, and only for the question where "none of these" is a true answer.
   // Choosing which company ONE thread is for is a choice among companies he has; being
   // asked which company this COPY of Rich is for is the question a first launch asks, and
@@ -3914,6 +4007,23 @@ function closeEntityPicker() {
 
 entityPickerEl.addEventListener("click", (e) => {
   if (e.target === entityPickerEl) closeEntityPicker();
+});
+
+/// **"Not now" on the first-run company question** (D5).
+///
+/// It closes the sheet and does NOTHING else, which is the whole point: `requireCompanyChoice`
+/// called `showCompanyBlock()` before it opened this, so the composer is already switched off
+/// with `#composer-choose-company` beside it. He lands on a surface that says what is missing
+/// and carries the control that fixes it, instead of on an armed composer over a company he
+/// never chose — the §21 leak this modal was guarding against, which is why deferring is safe
+/// rather than a relaxation of that gate.
+///
+/// It does not remember the deferral. The question returns on the next launch because the
+/// answer is still missing and he still cannot type without it; the note above the button
+/// says so rather than letting him find out.
+entityPickerLaterEl.addEventListener("click", () => {
+  closeEntityPicker();
+  inputEl.blur();
 });
 entityPickerListEl.addEventListener("keydown", (e) => moveListFocus(e, ".picker-item"));
 

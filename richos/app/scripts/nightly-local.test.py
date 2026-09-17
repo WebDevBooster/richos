@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -187,6 +188,82 @@ class LocalTests(unittest.TestCase):
         r.perform("release")
         r.gates.assert_not_called()
         r.command.assert_not_called()
+
+    CANDIDATE_INFO = {"tag": "v1.2.0-nightly.20260916.1", "version": "1.2.0-nightly.20260916.1",
+                      "source_commit": "deadbeefcafe0123456789", "run_id": "fixture-run-id",
+                      "run_attempt": "1"}
+
+    def write_candidate(self, out):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "candidate.json").write_text(json.dumps({"info": self.CANDIDATE_INFO, "files": {}}))
+
+    def test_build_stops_before_publishing_and_records_the_run(self):
+        r = self.runner()
+        r.env = {"RICHOS_NIGHTLY_RUN_ID": "fixture-run-id"}
+        def fake_command(*args, **kwargs):
+            self.assertEqual(args[2], "build")
+            self.assertIs(kwargs.get("credentials"), True)
+            out = Path(args[args.index("--out") + 1])
+            self.write_candidate(out)
+        r.command = Mock(side_effect=fake_command)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            r.perform("build")
+        r.command.assert_called_once()  # only "build" -- never "run" or "finish"
+        pointer = self.root / "state" / "runs" / "fixture-run-id.json"
+        self.assertTrue(pointer.exists())
+        recorded_out = Path(json.loads(pointer.read_text())["out"])
+        self.assertTrue((recorded_out / "candidate.json").exists())
+        self.assertIn("publish --run fixture-run-id", buf.getvalue())
+        self.assertIn("RICHOS_ACTIVATION=regular", buf.getvalue())
+        self.assertIn("nightly-channel has not moved", buf.getvalue())
+
+    def test_publish_calls_finish_without_signing_credentials(self):
+        r = self.runner()
+        (self.root / "state" / "source").mkdir(parents=True)
+        out = self.root / "state" / "releases" / self.CANDIDATE_INFO["tag"]
+        self.write_candidate(out)
+        r.record_run(self.CANDIDATE_INFO["run_id"], out)
+        r.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        r.checkout.assert_not_called()
+        r.plan.assert_not_called()
+        args, kwargs = r.command.call_args
+        self.assertEqual(args[2], "finish")
+        self.assertEqual(Path(args[args.index("--out") + 1]), out)
+        self.assertNotIn("credentials", kwargs)
+
+    def test_candidate_prints_without_touching_anything(self):
+        r = self.runner()
+        out = self.root / "state" / "releases" / self.CANDIDATE_INFO["tag"]
+        self.write_candidate(out)
+        r.record_run(self.CANDIDATE_INFO["run_id"], out)
+        r.command = Mock()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            r.perform("candidate", run_id=self.CANDIDATE_INFO["run_id"])
+        r.command.assert_not_called()
+        r.checkout.assert_not_called()
+        r.plan.assert_not_called()
+        self.assertIn(str(out), buf.getvalue())
+        self.assertIn("RICHOS_ACTIVATION=regular", buf.getvalue())
+        self.assertIn(f"publish --run {self.CANDIDATE_INFO['run_id']}", buf.getvalue())
+
+    def test_publish_and_candidate_require_a_recorded_run(self):
+        r = self.runner()
+        for command in ("publish", "candidate"):
+            with self.subTest(command=command):
+                with self.assertRaisesRegex(ValueError, "no recorded build"):
+                    r.perform(command, run_id="never-built")
+        r.command.assert_not_called()
+
+    def test_publish_and_candidate_require_a_run_id(self):
+        r = self.runner()
+        for command in ("publish", "candidate"):
+            with self.subTest(command=command):
+                with self.assertRaisesRegex(ValueError, "valid --run"):
+                    r.perform(command, run_id=None)
 
     def test_failed_gates_do_not_publish(self):
         for method in ("preflight", "runtime", "gates"):

@@ -25,7 +25,7 @@ import { writeEvidence } from '../lib/workspace/evidence.js';
 import {
   PROMOTABLE_KINDS, describeActor, entityCandidatesFromEvidence, formatWhen, promoteFromEvidence,
   promotedRecordFor, promotionDecision, promotionLedgerPath, readEvidenceZone, readPromotionLedger,
-  recordIdFor, renderEventBody, slug, tagsFor, vendorLabel,
+  readPromotionHistory, recordIdFor, renderEventBody, revisionKey, slug, tagsFor, vendorLabel,
 } from '../lib/workspace/promotion.js';
 
 let passed = 0;
@@ -57,7 +57,7 @@ const LORO_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function event(overrides = {}) {
   const {
-    id = 'evt_pricing', etag = '"v1"', attendees = [
+    id = 'evt_pricing', etag = '"v1"', fetchedAt = FETCHED_AT, attendees = [
       { name: 'The CEO', email: 'ceo@acme.com' },
       { name: 'Alice Nguyen', email: 'alice@acme.com' },
       { name: 'Bob Ramirez', email: 'bob@acme.com' },
@@ -69,7 +69,7 @@ function event(overrides = {}) {
     vendor: 'google', source: 'calendar', kind: overrides.kind || 'event',
     sourceItemId: `google:calendar:${id}`,
     provenance: {
-      fetchedAt: FETCHED_AT, vendorEtag: etag,
+      fetchedAt, vendorEtag: etag,
       vendorUrl: `https://calendar.google.com/event?eid=${id}`, adapterVersion: '1.0.0',
     },
     actors: { author, attendees, recipients: [] },
@@ -332,13 +332,42 @@ function seed(zone, item) {
   return governed;
 }
 
+/**
+ * A stand-in for the loro writer that keeps THE TWO RULES THIS MODULE CAN VIOLATE, in the writer's
+ * own words (`engine/loro/writer/writer.js`): a record id is written ONCE, and a record is
+ * superseded ONCE.
+ *
+ * It did neither until 2026-09-17, and that is why the unit suite was green on the morning the
+ * CEO's third live sync exited 2 with fourteen refusals reading *"already exists. Refusing to
+ * overwrite it"*. The pass was re-offering records the corpus already held; a fake writer that
+ * accepts anything cannot see that, so it reported a promotion the product could never perform.
+ *
+ * One instance stands for one corpus. Tests that want two passes over the SAME memory share one.
+ */
 function fakeWriter() {
   const written = [];
+  const byId = new Map();
+  const retired = new Set();
   return {
     written,
+    byId,
     write(request) {
+      const ref = `rec:ceo/unfiled/${request.id}`;
+      if (byId.has(request.id)) {
+        throw new Error(`loro write: "${ref}" already exists. Refusing to overwrite it — a belief is `
+          + 'superseded, never silently replaced. Use `correct` to fix it, or `supersede` to record '
+          + 'that it is out of date and what replaced it.');
+      }
+      if (request.supersedes) {
+        if (retired.has(request.supersedes)) {
+          throw new Error(`loro write: "${request.supersedes}" is already superseded by another record. `
+            + 'Supersede the CURRENT record instead — a chain that points at dead records answers nothing.');
+        }
+        retired.add(request.supersedes);
+      }
       written.push(request);
-      return { ref: `rec:ceo/unfiled/${request.id}` };
+      byId.set(request.id, request);
+      return { ref };
     },
   };
 }
@@ -379,6 +408,113 @@ test('a CHANGED item is a new record that SUPERSEDES its predecessor — never a
   assert.equal(b.promoted.length, 1, JSON.stringify(b));
   assert.equal(second.written[0].supersedes, a.promoted[0].ref);
   assert.notEqual(second.written[0].id, first.written[0].id);
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('A THIRD revision re-promotes NEITHER of the first two — the defect that made a live sync exit 2', () => {
+  // THE REGRESSION, in the shape the CEO hit it. The evidence zone is immutable and cumulative, so
+  // an event that changed twice leaves three revision directories and the pass sees all three on
+  // every run. Reading the ledger only for the NEWEST promoted etag, it found the oldest revision
+  // "not promoted", re-offered it, and the writer refused: `sync` exited 2 with one FAILED line per
+  // changed event. One corpus, three passes — a fresh fake writer per pass would hide it.
+  const zone = tmp();
+  const w = fakeWriter();
+
+  seed(zone, event({ etag: '"v1"' }));
+  const a = promoteFromEvidence({ zone, write: w.write });
+  assert.equal(a.promoted.length, 1, JSON.stringify(a));
+
+  seed(zone, event({ etag: '"v2"', title: 'Q3 pricing review (moved)' }));
+  const b = promoteFromEvidence({ zone, write: w.write });
+  assert.equal(b.promoted.length, 1, JSON.stringify(b));
+
+  seed(zone, event({ etag: '"v3"', title: 'Q3 pricing review (moved again)' }));
+  const c = promoteFromEvidence({ zone, write: w.write });
+  assert.deepEqual(c.failed, [], 'a changed event is the ordinary life of a calendar, never a failure');
+  assert.equal(c.promoted.length, 1, JSON.stringify(c));
+  assert.equal(w.written.length, 3, 'three revisions, three records — not one of them written twice');
+
+  // The chain is A ← B ← C, and the pass says WHICH of the two already-promoted revisions is current.
+  assert.equal(c.promoted[0].supersedes, b.promoted[0].ref);
+  assert.equal(b.promoted[0].supersedes, a.promoted[0].ref);
+  const reasons = c.skipped.map((sk) => sk.reason).sort();
+  assert.deepEqual(reasons, [
+    'already promoted (an earlier revision, since superseded)',
+    'already promoted (an earlier revision, since superseded)',
+  ], JSON.stringify(c.skipped));
+
+  // POSITIVE CONTROL: a fourth pass over evidence that did NOT change writes nothing and reports the
+  // current revision as unchanged — the idempotence the fix must not have bought with a blanket skip.
+  const d = promoteFromEvidence({ zone, write: w.write });
+  assert.deepEqual(d.failed, []);
+  assert.equal(d.promoted.length, 0);
+  assert.equal(w.written.length, 3);
+  assert.equal(d.skipped.filter((sk) => sk.reason === 'already promoted (unchanged revision)').length, 1);
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('two new revisions in ONE pass chain onto each other, never both onto the same predecessor', () => {
+  // The same root cause seen from the other side: the pass reads the ledger once, so a second new
+  // revision in the same run would supersede the record the first one just retired. The writer
+  // refuses that too ("is already superseded by"), and the fake writer above refuses it here.
+  const zone = tmp();
+  const w = fakeWriter();
+  seed(zone, event({ etag: '"v1"' }));
+  const first = promoteFromEvidence({ zone, write: w.write });
+
+  seed(zone, event({ etag: '"v2"', title: 'Q3 pricing review (moved)', fetchedAt: FETCHED_AT + 1000 }));
+  seed(zone, event({ etag: '"v3"', title: 'Q3 pricing review (moved again)', fetchedAt: FETCHED_AT + 2000 }));
+  const out = promoteFromEvidence({ zone, write: w.write });
+  assert.deepEqual(out.failed, [], JSON.stringify(out.failed));
+  assert.equal(out.promoted.length, 2, JSON.stringify(out));
+  assert.equal(out.promoted[0].supersedes, first.promoted[0].ref);
+  assert.equal(out.promoted[1].supersedes, out.promoted[0].ref, 'the second revision supersedes the first, not the original');
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('a revision observed BEFORE the promoted one never supersedes it — memory does not move backwards', () => {
+  // A full resync after a lost sync token (§4.3, Google 410) replays the zone, and an older version
+  // of an event arriving late must not retire the newer belief and leave `supersededBy` pointing at
+  // the staler one.
+  const zone = tmp();
+  const w = fakeWriter();
+  seed(zone, event({ etag: '"v2"', title: 'Q3 pricing review (moved)', fetchedAt: FETCHED_AT + 5000 }));
+  const current = promoteFromEvidence({ zone, write: w.write });
+  assert.equal(current.promoted.length, 1);
+
+  seed(zone, event({ etag: '"v1"', fetchedAt: FETCHED_AT }));
+  const late = promoteFromEvidence({ zone, write: w.write });
+  assert.equal(late.promoted.length, 0, JSON.stringify(late));
+  assert.deepEqual(late.failed, []);
+  assert.ok(late.skipped.some((sk) => sk.reason === 'an older revision than the one already promoted — memory never moves backwards'),
+    JSON.stringify(late.skipped));
+
+  // POSITIVE CONTROL: a revision observed AFTER the promoted one is the ordinary changed event, and
+  // it still supersedes. Without this the test above would keep passing if the pass stopped
+  // promoting changes altogether.
+  seed(zone, event({ etag: '"v3"', title: 'Q3 pricing review (moved again)', fetchedAt: FETCHED_AT + 9000 }));
+  const ahead = promoteFromEvidence({ zone, write: w.write });
+  assert.equal(ahead.promoted.length, 1, JSON.stringify(ahead));
+  assert.equal(ahead.promoted[0].supersedes, current.promoted[0].ref);
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('readPromotionHistory answers both questions: what is current, and what has EVER been promoted', () => {
+  const zone = tmp();
+  const w = fakeWriter();
+  seed(zone, event({ etag: '"v1"' }));
+  promoteFromEvidence({ zone, write: w.write });
+  seed(zone, event({ etag: '"v2"', title: 'Q3 pricing review (moved)' }));
+  const second = promoteFromEvidence({ zone, write: w.write });
+
+  const { head, revisions } = readPromotionHistory(zone);
+  const id = 'google:calendar:evt_pricing';
+  assert.equal(head.get(id).vendorEtag, '"v2"', 'the head is the newest row, which is what a change supersedes');
+  assert.equal(head.get(id).ref, second.promoted[0].ref);
+  assert.equal(revisions.size, 2, 'both revisions are on the record — the older one is not forgotten');
+  assert.ok(revisions.has(revisionKey(id, '"v1"')) && revisions.has(revisionKey(id, '"v2"')));
+  // The head map IS `readPromotionLedger`, derived rather than parsed twice, so the two cannot drift.
+  assert.deepEqual([...readPromotionLedger(zone).keys()], [...head.keys()]);
   fs.rmSync(zone, { recursive: true, force: true });
 });
 

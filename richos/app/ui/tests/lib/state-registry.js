@@ -84,11 +84,120 @@ module.exports = [
     why: "The same card's body. The outcome is unknowable; picking the message back up is his move.",
   },
   {
-    s: "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
+    s:
+      "Not now is fine. I'll leave the message box switched off until you pick one, and " +
+      "the button to do it stays right there.",
+    c: "ACTIONABLE",
+    control: "#entity-picker-later",
+    fixture: null,
+    why:
+      "The cost of deferring the first-run company question — the 2026-09-17 nightly's D5. " +
+      "First run stacked three sheets and this was the one with no \"Not now\" on it; the " +
+      "audit called it \"at least inconsistent and at most a wall\". The control it names is " +
+      "the deferral itself, because this sentence is about what pressing THAT does. It is " +
+      "modelled on the interview offer, which the audit singled out for saying what its own " +
+      "\"Not now\" costs — and the cost here is the opposite one: the question returns, " +
+      "because he cannot type until it is answered. Driven by ui/tests/setup.js check 1a, " +
+      "which also asserts the composer is still blocked and #composer-choose-company still " +
+      "on screen afterwards, so deferring can never become the §21 armed-composer leak.",
+  },
+  {
+    s: "I hit a snag mid-thought and had to stop before I finished.",
     c: "ACTIONABLE",
     control: ".tl-intervention button.tl-intervention-action",
     fixture: "failed-turn",
-    why: "§5.5 failure card. 'Say the word' is answered by the button directly beneath it.",
+    why:
+      "§5.5 failure card. 'Say the word' is answered by the button directly beneath it. " +
+      "STILL REACHABLE AFTER 2026-09-17, and deliberately: it is now the FALLBACK, shown " +
+      "only for a turn whose cause was never classified — every record written before that " +
+      "date, and any record whose classification could not be written. The five rows below " +
+      "are what a turn with a known cause gets instead.",
+  },
+
+  // -----------------------------------------------------------------------------------
+  // WHY A TURN ENDED WITHOUT FINISHING — richos-core `interruption.rs`, the nightly's D2
+  //
+  // `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D2: the
+  // published nightly held `Not logged in · Please run /login` in its own ledger and showed
+  // the generic card above it — a permanent condition called a snag, a promise about saved
+  // work that did not exist, and a retry that could not succeed.
+  //
+  // `fixture: null` on all five, for the reason the richos-voice rows above it give: these
+  // sentences are produced by a CLASSIFIED interruption, which the mock bridge does not
+  // reach — it has no lease and therefore no `CognitionError` to classify. They are driven
+  // directly, against the real renderer, by `ui/tests/interruption.js`, which asserts each
+  // one's control (or its deliberate absence) on the rendered card.
+  // -----------------------------------------------------------------------------------
+  {
+    s:
+      "I couldn't start that, because I'm not connected to your Anthropic account right " +
+      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
+      "connect it in Settings, under Account connection, and then send this to me again.",
+    c: "ACTIONABLE",
+    control: "#rail-settings",
+    fixture: null,
+    why:
+      "`InterruptionCause::NotSignedIn`. HIS to fix, which is why it is ACTIONABLE and not " +
+      "NEEDS-SOMEONE-ELSE: the account is his and the screen exists. The audit's third " +
+      "finding was that the app never mentioned the account at all 'even though the app " +
+      "offered to connect one on first run, knows it was declined, and has a working route " +
+      "to it'. The control is the rail's settings button, which is on screen in every view " +
+      "this card can appear in, and the sentence itself names the route in words. It was TWO sentences briefly, the second returned by a `route()` method — deleted because under app/crates this registry can only see literals inside a function called `ceo_message`, so a route authored anywhere else would reach his screen while being invisible to the one inventory that asks whether he can act on what he is told.",
+  },
+  {
+    s:
+      "I couldn't start that. There is an account credential set up on this Mac and " +
+      "Anthropic turned it down, so the request never left the machine. This one needs " +
+      "whoever set RichOS up — it isn't something you can fix from here, and asking me " +
+      "again won't change it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: null,
+    why:
+      "`InterruptionCause::CredentialRejected`, and a DIFFERENT class from the sign-in row " +
+      "on purpose: the four vendor constants behind it (`Invalid API key`, `Invalid auth " +
+      "token`, `Invalid ANTHROPIC_CUSTOM_HEADERS`, `Invalid request header from the " +
+      "environment`, read verbatim out of the installed bundle) describe a credential in " +
+      "this machine's ENVIRONMENT. Sending him to the account screen would send him " +
+      "somewhere that cannot help. It names the party and offers no control, which is the " +
+      "honest shape for a state he does not own.",
+  },
+  {
+    s: "Stopped, as you asked. Nothing is running, and nothing of yours was lost.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "`InterruptionCause::StoppedByCeo`. Nothing failed, so there is nothing to retry and " +
+      "no control belongs on the card — a control that hands his words back would dress his own " +
+      "deliberate stop as an error. It issues no instruction and asks for nothing.",
+  },
+  {
+    s:
+      "I lost my connection to the part of me that thinks, partway through. That kind of " +
+      "thing usually clears on its own, so asking again is worth a try.",
+    c: "ACTIONABLE",
+    control: ".tl-intervention button.tl-intervention-action",
+    fixture: null,
+    why:
+      "`InterruptionCause::Transient` — the ONE class where asking again is honest advice, " +
+      "and therefore the one that still draws the card's button. It is the positive control " +
+      "for the whole change: without a class that keeps the control, 'the sign-in case has " +
+      "no button' could just mean the card stopped drawing one.",
+  },
+  {
+    s:
+      "That stopped before I finished, and I can't tell you why — I don't recognize what " +
+      "came back. Asking again is reasonable; if it stops the same way, it needs whoever " +
+      "set RichOS up.",
+    c: "ACTIONABLE",
+    control: ".tl-intervention button.tl-intervention-action",
+    fixture: null,
+    why:
+      "`InterruptionCause::Unknown`, the arm a reworded vendor string falls to. ACTIONABLE " +
+      "rather than NEEDS-SOMEONE-ELSE because the first thing offered is his and is drawn " +
+      "on the card; the named party is the second sentence, for when the first does not " +
+      "work. It claims no cause it cannot support and points at no screen that might be " +
+      "wrong.",
   },
   {
     s: "Rich stopped before finishing.",
@@ -513,7 +622,7 @@ module.exports = [
     c: "INFORMATIONAL",
     why:
       "§14's card when there is no message to restore. Deliberately carries NO control: a " +
-      "'Pick it back up' that picks up nothing is worse than none.",
+      "that puts nothing back is worse than none.",
   },
   {
     s: "Everything I'd already written above is saved.",
@@ -652,7 +761,16 @@ module.exports = [
   // -------------------------------------------------------------------------------------
   { s: "+ New thread", c: "CONTROL", why: "#rail-new-thread." },
   { s: "Start a new thread instead", c: "CONTROL", why: "#unbound-new-thread — §21's way out." },
-  { s: "Pick it back up", c: "CONTROL", why: "The retry button on both intervention cards." },
+  {
+    s: "Put it back in the box",
+    c: "CONTROL",
+    why:
+      "`timeline.js`'s RETRY_LABEL — the one control on both intervention cards. It read " +
+      "\"Pick it back up\" until the 2026-09-17 nightly's D6 measured what pressing it did: " +
+      "his text went back in the composer, with no new turn and no log line. The behavior " +
+      "is right (resending spends his subscription and starts work, so it is his to " +
+      "trigger) and the words were the defect, so the label is now what it does.",
+  },
   { s: "Jump to latest", c: "CONTROL", why: "#jump-latest accessible name." },
   { s: "Close worker details", c: "CONTROL", why: "#inspector-close accessible name." },
   { s: "open worker details", c: "CONTROL", why: "Worker chip accessible name." },
@@ -1463,6 +1581,50 @@ module.exports = [
       "`pinnedByEnvironment` is true, and `requireCompanyChoice` returns before opening the " +
       "picker in the same condition. It is " +
       "the guard for a caller that is not this UI. If it ever renders, the bug is ours.",
+  },
+  {
+    s: "first-run setup is incomplete",
+    c: "NOT-RENDERED",
+    why:
+      "`send_message` could not attach a lease AND `setup_view::detect` found something missing on disk. The CEO gets `SETUP_INCOMPLETE_*` instead; this is the operator half. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "no compute lease and no factory",
+    c: "NOT-RENDERED",
+    why:
+      "The same refusal with nothing missing on disk, so the cause is the account rather than the install. The CEO gets `LEASE_UNAVAILABLE_MESSAGE`. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "no active thread",
+    c: "NOT-RENDERED",
+    why:
+      "No thread is open to file the message under. The CEO gets the open-a-conversation line. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
+  },
+  {
+    s: "the active thread changed between render and send",
+    c: "NOT-RENDERED",
+    why:
+      "The window sent against a thread id that is no longer active. The CEO gets the conversation-changed sentence. " +
+      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
+      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
+      "typed message that never became a turn reached the window and said nothing to the " +
+      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
+      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
   },
   {
     s: "entity not resolved from {}: {e}",

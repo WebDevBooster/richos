@@ -1202,6 +1202,29 @@ body.bp-narrow .first-run {
   color: var(--on-gold);
 }
 
+/* THE CONTROL IS PRESENT AND WILL NOT RESPOND (nightly D3).
+
+   A SHAPE CHANGE, NOT A DIMMING, and that is deliberate rather than stylistic. The ordinary
+   way to draw a disabled control is to fade it, and fading is exactly what takes a non-text
+   indicator below the 3:1 floor — the contrast rule does not exempt a control because it is
+   inactive, and "it looked obviously disabled" is how the failing nodes in this project got
+   shipped. So the color tokens are untouched: the border stays `--line-control` and the dot
+   stays `currentColor` at `--ink-soft`, which are the same measured values the enabled
+   control carries in both themes. What changes is the border's STYLE, which carries no
+   contrast burden at all, plus the cursor and the hover response.
+
+   The sentence in `#voice-unavailable` is what actually explains it; this only stops the
+   control looking like it is waiting to be pressed. */
+#talk-toggle:disabled {
+  border-style: dashed;
+  cursor: default;
+}
+
+#talk-toggle:disabled:hover {
+  border-color: var(--line-control);
+  color: var(--ink-soft);
+}
+
 .talk-dot {
   width: 10px;
   height: 10px;
@@ -2044,6 +2067,25 @@ body.bp-narrow .first-run {
 
 .composer-blocked {
   color: var(--attention);
+}
+
+/* WHY VOICE IS UNAVAILABLE — the nightly's D3, whose defect was that nothing said it.
+   Shares the layout rule above (`.composer-scope, .composer-blocked`) so it sits in the
+   same column at the same 1rem/16px, which is §15's "meant to be easily read" tier and not
+   the 14px skippable one — he is expected to read this, it is the only place the reason
+   appears.
+
+   `--ink` rather than `--attention`: nothing is broken for him and nothing he is doing has
+   failed. He can type and send exactly as before; one capability is off and somebody else
+   can switch it back on. Coloring it like an error would overstate it, and `--ink` is the
+   4.5:1 tier this file already uses for body copy in both themes. */
+.composer-voice-note {
+  max-width: 680px;
+  margin: 0 auto 6px;
+  padding: 0 28px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 /* THE CONTROL THAT CLEARS THE ONE BLOCKED STATE HE OWNS. Border is `--line-control`, the

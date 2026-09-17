@@ -55,6 +55,23 @@
  *      every secondary calendar he owns resolved external → `untrusted` → HELD. What this file
  *      predicts for that fixture is still not written down here — it is whatever the product's own
  *      decision function answers, which is why the row moved the moment the rule did.
+ *   3c. AN IMPORT ALSO REFUSES A WRITE THAT EXCLUDES THE DESTINATION CALENDAR'S OWN IDENTITY. The
+ *      live 2026-09-17 re-seed landed 18 of 19 copies and Google refused the other two — both
+ *      imports onto the secondary calendar — with `participantIsNeitherOrganizerNorAttendee`: "The
+ *      owner of the calendar must either be the organizer or an attendee of an event that is
+ *      imported." The check is LITERAL, against the calendar's own address, never the human behind
+ *      it: `partner-review` already listed the account's own address as an attendee and was refused
+ *      anyway, because that address is not the "RichOS test" calendar's `c_…@group.calendar.google.com`
+ *      id. A primary calendar's id IS the account's address, so an ordinary fixture satisfies this
+ *      for free there; a secondary calendar's id never coincides with a person, so importing onto it
+ *      needs that literal address added as a participant — `withCalendarOwnerParticipant` does this,
+ *      called from both the real write and this file's own prediction so neither can model the check
+ *      differently. `cross-calendar-dup` sidesteps the whole rule instead: neither of its two copies
+ *      needs an organizer other than the calendar itself, so it uses `events.insert` with a
+ *      caller-supplied `iCalUID` and no `id` (`pinUid`, header fact 3b's sibling) — a shape the
+ *      reference confirms `events.insert` accepts at creation, and one `events.import` has no
+ *      business being asked to run at all when nothing about the fixture needs the organizer it
+ *      alone can set.
  *
  * PURE. No fs, no network, no keychain — `calendar-seed.js` is the runtime that writes any of this to
  * a real account, and it is the only file here that can.
@@ -112,6 +129,34 @@ export function seedICalUid(setId, key) {
  */
 export function instanceId(eventId, startIso) {
   return `${eventId}_${String(startIso).replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
+}
+
+/**
+ * Header fact 3c: `events.import` refuses a write unless the DESTINATION calendar's own literal
+ * address organizes or attends the copy. Called from both the real write (`calendar-seed.js:
+ * upsertEvent`) and this file's own prediction (`observedEvents`) so the two can never model the
+ * check differently — collector-path parity for a Google-enforced rule, not just a product one.
+ *
+ * Idempotent: a body whose organizer or an attendee already IS `calendarId` (a primary calendar's id
+ * is the account's own address, so an ordinary fixture already satisfies this there) is returned
+ * unchanged. Otherwise the calendar's own address is appended as a bare attendee — no display name,
+ * because it is not a person: `resolveOrgRelation`'s `selfCalendars` rule resolves it `self` on
+ * read, which excludes it from the §4.5 entity feed (`synthesis.js` requires a name), so it can
+ * never be mistaken for somebody the CEO met.
+ *
+ * @param {object} body
+ * @param {string} calendarId
+ * @returns {object}
+ */
+export function withCalendarOwnerParticipant(body, calendarId) {
+  const id = String(calendarId || '').toLowerCase();
+  if (!id) return body;
+  const organizerEmail = body.organizer && String(body.organizer.email || '').toLowerCase();
+  const attendees = body.attendees || [];
+  const alreadyPresent = organizerEmail === id
+    || attendees.some((a) => String((a && a.email) || '').toLowerCase() === id);
+  if (alreadyPresent) return body;
+  return { ...body, attendees: [...attendees, { email: calendarId }] };
 }
 
 /** An ISO instant `offsetDays` from `now`, at a fixed wall hour, seconds-precision RFC 3339. */
@@ -195,6 +240,13 @@ export function planFixtures(opts) {
   const make = (f) => {
     const id = seedEventId(setId, f.key);
     const imported = f.method === 'import';
+    // `pinUid`: an INSERT that pins `iCalUID` instead of `id` (header fact 3c). Google's own
+    // reference allows either at creation, never both, and `events.insert` never runs into the
+    // organizer/attendee restriction `events.import` has — it never lets the write name an organizer
+    // other than the calendar, so there is nothing for that restriction to bite. `cross-calendar-dup`
+    // uses this: neither of its two copies needs an organizer other than the calendar it lives on.
+    const pinUid = Boolean(f.pinUid);
+    const carriesUid = imported || pinUid;
     const body = {
       summary: `${SEED_TITLE_PREFIX} · ${f.title}`,
       ...(f.description ? { description: f.description } : {}),
@@ -204,7 +256,7 @@ export function planFixtures(opts) {
       ...(f.recurrence ? { recurrence: f.recurrence } : {}),
       ...(f.attendees ? { attendees: f.attendees } : {}),
       ...(f.organizer ? { organizer: f.organizer } : {}),
-      ...(imported ? { iCalUID: seedICalUid(setId, f.key) } : {}),
+      ...(carriesUid ? { iCalUID: seedICalUid(setId, f.key) } : {}),
       extendedProperties: props(f.key),
       // A seeded event is never a working invitation: nobody is notified, and nothing about it
       // reaches a real inbox. The runtime pins `sendUpdates=none` as well — belt and braces.
@@ -217,6 +269,7 @@ export function planFixtures(opts) {
       title: body.summary,
       why: f.why,
       method: f.method || 'insert',
+      pinUid,
       targets,
       withdraw: Boolean(f.withdraw),
       recurring: Boolean(f.recurrence),
@@ -228,10 +281,11 @@ export function planFixtures(opts) {
         return {
           target,
           eventId,
-          // AN IMPORT NEVER CARRIES AN `id`. Google refuses the pair (header fact 3b), and an
-          // imported copy's real id is whatever Google assigns — recorded by the seed run, and only
-          // stood in for by `eventId` when there has been no run yet (a dry run).
-          body: imported ? body : { ...body, id: eventId },
+          // NEITHER AN IMPORT NOR A PINNED-UID INSERT CARRIES AN `id`. Google refuses the pair
+          // (header fact 3b), and an imported copy's real id is whatever Google assigns — recorded
+          // by the seed run, and only stood in for by `eventId` when there has been no run yet (a
+          // dry run).
+          body: carriesUid ? body : { ...body, id: eventId },
         };
       }),
     };
@@ -359,7 +413,10 @@ export function planFixtures(opts) {
 
   // 9. An EXTERNALLY ORGANIZED meeting, on the second calendar. `events.import` is the only write
   //    that may name an organizer other than the account itself (`events.insert` treats `organizer`
-  //    as read-only), which is why this fixture is imported rather than inserted.
+  //    as read-only), which is why this fixture is imported rather than inserted. Because it stays
+  //    an import, it is also the fixture `withCalendarOwnerParticipant` (header fact 3c) exists for:
+  //    the account's own address is already an attendee below and Google refused it anyway, since
+  //    the check is against the SECOND CALENDAR's own literal id, not the human account.
   {
     const start = isoAt(now, 14, 9, 30);
     fixtures.push(make({
@@ -398,13 +455,23 @@ export function planFixtures(opts) {
       key: 'cross-calendar-dup',
       title: 'Same meeting, two calendars',
       why: 'one meeting visible on two calendars under one iCalUID — must land ONCE, not twice',
-      method: 'import',
+      // INSERT with a pinned iCalUID, not import (header fact 3c): `events.import` refuses a write
+      // unless the DESTINATION calendar's own address organizes or attends it, true for free on the
+      // primary calendar (its id IS the account's address) but never true of the secondary one — and
+      // the account's own address as an attendee does not help, because the check is against the
+      // calendar's LITERAL id. Neither copy of this fixture needs an organizer other than the
+      // calendar it lives on, so `events.insert` — which has no such restriction and, per the same
+      // reference, accepts a caller-supplied `iCalUID` at creation exactly as `import` does — is the
+      // right tool, not a workaround.
+      pinUid: true,
       targets: ['primary', 'seed'],
       description: 'The duplicate case: identical iCalUID, one copy per calendar.',
-      // No `self` here: it is read-only at Google ("whether the organizer corresponds to the calendar
-      // on which this copy of the event appears"), so it is COMPUTED per landing calendar in
-      // `observedEvents`, never asserted by the write.
-      organizer: { email: accountId, displayName: 'You' },
+      // No `organizer`: each copy is authored by the calendar it lives on (Google's own rule for a
+      // write that names none), and `resolveOrgRelation`'s `selfCalendars` rule (`governance.js`)
+      // already reads a calendar the account OWNS as `self` — so the "seed" copy resolves exactly as
+      // `self`-authored as the primary one does, without an explicit organizer saying so. `self` on
+      // the organizer/attendees below is read-only at Google regardless, and is COMPUTED per landing
+      // calendar in `observedEvents`, never asserted by the write.
       start: { dateTime: start, timeZone: SEED_TIME_ZONE },
       end: { dateTime: plusMinutes(start, 30), timeZone: SEED_TIME_ZONE },
       attendees: [attendee(P.self), attendee(P.corroborated)],
@@ -434,7 +501,10 @@ export function observedEvents(fixture, ctx) {
   for (const write of fixture.writes) {
     const calendarId = (ctx.calendarIds || {})[write.target] || write.target;
     const eventId = (ctx.eventIds || {})[`${fixture.key}|${write.target}`] || write.eventId;
-    const base = write.body;
+    // Header fact 3c: an import lands with the destination calendar's own address added as a
+    // participant when it was not one already — through the SAME function the real write applies,
+    // so this table can never predict a body Google would not actually have stored.
+    const base = fixture.method === 'import' ? withCalendarOwnerParticipant(write.body, calendarId) : write.body;
     const uid = base.iCalUID || `${eventId}@google.com`;
     // Fact 4 in the header: with no organizer on the write, the organizer IS the calendar. And
     // `organizer.self` is Google's answer to one question only — is that address this very calendar —
@@ -454,7 +524,17 @@ export function observedEvents(fixture, ctx) {
         email: organizerEmail,
         self: String(organizerEmail).toLowerCase() === String(calendarId).toLowerCase(),
       },
-      ...(base.attendees ? { attendees: base.attendees.map((a) => ({ ...a })) } : {}),
+      // `self` on an attendee is the SAME question as on the organizer — "is this the calendar the
+      // copy lives on" — and is likewise Google's own read-only answer, never trusted off the write.
+      // It can no longer be assumed to track "is this the human account" now that a copy can land on
+      // a calendar that is not the account's own address (the "seed" copy of a fixture like
+      // `cross-calendar-dup`), so it is computed against `calendarId` here rather than carried over.
+      ...(base.attendees ? {
+        attendees: base.attendees.map((a) => ({
+          ...a,
+          self: String((a && a.email) || '').toLowerCase() === String(calendarId).toLowerCase(),
+        })),
+      } : {}),
       extendedProperties: base.extendedProperties,
     };
 

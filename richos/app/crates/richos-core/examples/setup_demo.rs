@@ -73,7 +73,7 @@ fn main() {
 
     // ---- BEFORE ------------------------------------------------------------------------
     let paths = SetupPaths::from_process();
-    let before = setup::detect(&paths, &[]);
+    let before = setup::detect(&paths, &[], &setup::engine_is_usable);
     println!("\n=== before ===");
     report(&before);
 
@@ -165,7 +165,7 @@ fn main() {
 
     // ---- AFTER, RE-READ FROM DISK ------------------------------------------------------
     println!("\n=== after (re-read from disk, not inferred from the steps) ===");
-    let after = setup::detect(&SetupPaths::from_process(), &[]);
+    let after = setup::detect(&SetupPaths::from_process(), &[], &setup::engine_is_usable);
     report(&after);
     if after.complete() {
         println!("\n[demo] nothing is missing.");

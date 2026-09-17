@@ -119,6 +119,25 @@ pub fn digest_ledger(src: &Path, copy_to: &Path) -> Result<Vec<String>, String> 
                 u.retry_message.as_deref().map(digest).unwrap_or_else(|| "-".into()),
             ));
         }
+        // WHY THE TURN WAS INTERRUPTED, on its own line and only when present — same shape
+        // as the upstream line above and appended for the same reason: a new field on the
+        // turn line would have rewritten every turn line in both fixtures, and a golden
+        // that changes everywhere proves nothing about the one thing that changed.
+        //
+        // The sentences are HASHED (they are what the CEO was shown, so they are content);
+        // the cause tag and the retry boolean are emitted verbatim, because a change to
+        // either changes what he can DO and must be legible in a diff rather than hidden
+        // behind a hash.
+        if let Some(c) = &t.interruption {
+            out.push(format!(
+                "  interruption {} | cause={} | ceo={} | loss={} | offers_retry={}",
+                t.id,
+                c.cause,
+                digest(&c.ceo_message),
+                c.loss_message.as_deref().map(digest).unwrap_or_else(|| "-".into()),
+                c.offers_retry,
+            ));
+        }
         for (i, r) in t.text_runs.iter().enumerate() {
             out.push(format!(
                 "  run {}.{} | start_seq={} | end_seq={} | at={} | text={}",

@@ -164,6 +164,11 @@ export async function runPromotion(opts) {
     corpus,
     memory: writer.corpusRoot && writer.corpusRoot.root ? writer.corpusRoot.root : corpus,
     events: result.promoted.length,
+    // Counted off the very rows the writer produced, never tallied a second way: a record that
+    // carries `supersedes` retired an earlier revision of the same calendar entry. An event that
+    // moved, was renamed or gained an attendee is the ORDINARY life of a calendar, so this is a
+    // normal outcome with a number beside it — not a failure and not an exit code.
+    superseded: result.promoted.filter((p) => p.supersedes).length,
     entities: entityResult.promoted.filter((e) => e.applied !== false).length,
     entitiesHeld: entityResult.held.length,
     held: tally(result.skipped.map((sk) => sk.reason)),
@@ -195,6 +200,10 @@ export function describePromotion(p, L) {
       + `${p.entities} ${p.entities === 1 ? 'person' : 'people'} learned, `
       + `${held} item${held === 1 ? '' : 's'} held`,
   ];
+  if (p.superseded) {
+    lines.push(`${L('superseded')}${p.superseded} of those replaced an earlier revision — `
+      + 'the event changed at the source (the earlier record is retired, never overwritten)');
+  }
   for (const h of p.held) lines.push(`            held: ${h.count} × ${h.reason}`);
   if (p.entitiesHeld) {
     lines.push(`            held: ${p.entitiesHeld} name${p.entitiesHeld === 1 ? '' : 's'} below the corroboration threshold (seen once — not yet somebody you work with)`);

@@ -337,6 +337,25 @@ pub enum Event {
     /// that changes. This one only attaches the classification and the sentences the CEO
     /// was actually shown.
     UpstreamFailure { turn_id: String, record: crate::upstream::UpstreamRecord, at: u64 },
+    /// **WHY the turn was interrupted, classified at the failure boundary** — the nightly's
+    /// D2 (`docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md`).
+    ///
+    /// Written BESIDE `TurnInterrupted`, never instead of it, exactly as `UpstreamFailure`
+    /// is and for exactly the same reason: `TurnInterrupted` carries a `reason` STRING, and
+    /// a broken pipe, a missing sign-in and a rejected API key all arrive on it and are told
+    /// apart only by parsing English that nothing guarantees. Whether the CEO is looking at
+    /// something he can fix, something somebody else must fix, or something that clears on
+    /// its own decides what he is told and whether a retry control is drawn at all — so it
+    /// is a fact the log states rather than a fact a later reader infers.
+    ///
+    /// It carries the SENTENCES as well as the tag (`interruption::InterruptionRecord`), so
+    /// reopening an old thread shows what he was told at the time rather than what a later
+    /// build would say today.
+    TurnInterruptionCause {
+        turn_id: String,
+        record: crate::interruption::InterruptionRecord,
+        at: u64,
+    },
     /// The CEO stopped this turn (UX §9.3 step 1-2). A SEPARATE event from
     /// `TurnInterrupted` on purpose: replaying the log must be able to tell a stop from a
     /// crash forever, and a `reason` string on the old event would have been a convention
@@ -490,6 +509,15 @@ pub struct Turn {
     /// interruption — absence here is a positive statement that the failure was local.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_failure: Option<crate::upstream::UpstreamRecord>,
+    /// Set when this turn ended without finishing and the cause was classified (D2).
+    /// Carries the classification AND the sentences the CEO was shown at the time.
+    ///
+    /// **`None` is not "no cause"** — it is "this build, or the build that wrote the record,
+    /// did not classify it". Every turn written before 2026-09-17 reads back this way, and
+    /// the surface falls back to the generic card for them rather than inventing a cause
+    /// nobody recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interruption: Option<crate::interruption::InterruptionRecord>,
 }
 
 impl Turn {
@@ -580,6 +608,7 @@ pub const KNOWN_EVENT_TAGS: &[&str] = &[
     "TurnCompleted",
     "TurnInterrupted",
     "UpstreamFailure",
+    "TurnInterruptionCause",
     "TurnStopped",
     "ActionRecorded",
     "ActionUpdated",
@@ -894,6 +923,7 @@ impl Ledger {
                     stop_requested_at: None,
                     intake_id,
                     upstream_failure: None,
+                    interruption: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -935,6 +965,14 @@ impl Ledger {
             Event::UpstreamFailure { turn_id, record, .. } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.upstream_failure = Some(record);
+                }
+            }
+            // ATTACHES ONLY, for the reason the arm above gives: `TurnInterrupted` owns the
+            // state, the `ended_at` and the `stop_reason`, and a build that skipped this
+            // record entirely would still read the turn as interrupted at the same instant.
+            Event::TurnInterruptionCause { turn_id, record, .. } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    t.interruption = Some(record);
                 }
             }
             Event::TurnStopped { turn_id, requested_at, at, recovered_after_restart } => {
@@ -997,6 +1035,7 @@ impl Ledger {
                     stop_requested_at: None,
                     intake_id: None,
                     upstream_failure: None,
+                    interruption: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1549,6 +1588,29 @@ impl Ledger {
         )
     }
 
+    /// Attach WHY a turn was interrupted, and the sentences the CEO is about to be shown.
+    ///
+    /// **Order matters and the caller owns it:** `interrupt_turn` FIRST, this second — the
+    /// same contract [`record_upstream_failure`](Self::record_upstream_failure) states, for
+    /// the same reason. The interruption is what ended the turn and must be durable before
+    /// anything describing it is; a crash between the two leaves a correctly interrupted
+    /// turn with no explanation attached, which is the safe direction. The reverse order
+    /// would leave an explanation for a turn the log still says is in flight.
+    pub fn record_interruption_cause(
+        &mut self,
+        turn_id: &str,
+        record: &crate::interruption::InterruptionRecord,
+    ) -> Result<(), LedgerError> {
+        self.append(
+            Event::TurnInterruptionCause {
+                turn_id: turn_id.to_string(),
+                record: record.clone(),
+                at: now_millis(),
+            },
+            true,
+        )
+    }
+
     /// Record that the CEO stopped this turn (UX §9.3 step 5's evidence).
     ///
     /// `requested_at` must be the timestamp of the DURABLE stop request
@@ -1971,6 +2033,7 @@ mod tests {
             stop_requested_at: None,
             intake_id: None,
             upstream_failure: None,
+            interruption: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);
