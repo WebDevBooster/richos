@@ -9,12 +9,13 @@
     "richos-service": "bin/richos-service.js"
   },
   "scripts": {
-    "test": "npm run test:transcription && node test/workspace.js && node test/promotion.js && node test/migrate-evidence-zone.js && node test/evidence-lookup.js && node test/workspace-recall-e2e.mjs",
+    "test": "npm run test:transcription && node test/workspace.js && node test/promotion.js && node test/migrate-evidence-zone.js && node test/evidence-lookup.js && node test/workspace-recall-e2e.mjs && node test/evidence-lookup-e2e.mjs",
     "test:transcription": "node ../../engine/voice/tests/run.mjs && node test/run.js && node ../../engine/voice/tests/consumers.test.mjs --without-rust",
     "test:workspace": "node test/workspace.js",
     "test:promotion": "node test/promotion.js",
     "test:migrate-evidence-zone": "node test/migrate-evidence-zone.js",
     "test:evidence-lookup": "node test/evidence-lookup.js",
+    "test:evidence-lookup-e2e": "node test/evidence-lookup-e2e.mjs",
     "test:recall": "node test/workspace-recall-e2e.mjs",
     "test:e2e": "node test/e2e.mjs",
     "test:mutation": "node test/mutation-audit.mjs"

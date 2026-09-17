@@ -333,7 +333,8 @@ export function renderSpoken(items) {
   if (!one) return '';
   const what = `${one.title}${one.sourceLabel ? ` in your ${one.sourceLabel}` : ''}`;
   const when = one.when ? `, ${one.when}` : '';
-  const more = items.length > 1 ? ` There are ${items.length - 1} more.` : '';
+  const rest = items.length - 1;
+  const more = rest === 1 ? ' There is one more.' : rest > 1 ? ` There are ${rest} more.` : '';
   return `From your files: ${what}${when}. Want me to read you what it says?${more}`;
 }
 
