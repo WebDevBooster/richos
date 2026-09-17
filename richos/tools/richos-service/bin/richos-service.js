@@ -20,6 +20,7 @@
  *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
+ *   richos-service workspace ...         # the CEO's own Google Workspace source: connect / status / sync / disconnect
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
@@ -37,6 +38,7 @@ import { resolveToolchain, lockPath as toolchainLockPath } from '../lib/toolchai
 import { modelStatus, downloadModel } from '../../../engine/voice/provisioning/model-fetch.js';
 import { inspectFile } from '../../../engine/voice/provisioning/model-integrity.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
+import { runWorkspace, doctorLine as workspaceDoctorLine, USAGE as WORKSPACE_USAGE } from '../lib/workspace/commands.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
@@ -577,6 +579,40 @@ function main() {
       break;
     }
 
+    // -----------------------------------------------------------------------------------------
+    // THE CEO'S OWN WORKSPACE SOURCE (the architecture §2/§4/§6). The library under
+    // lib/workspace/ had no runtime until this case existed: the setup guide's Step 6 tells the CEO
+    // to run `richos-service workspace connect google`, so the command has to BE that sentence.
+    //
+    // Note the zone: `--zone` above is the call-recording DROP zone. The Workspace evidence zone is
+    // a different store (`workspaceZone()` / RICHOS_WORKSPACE_ZONE) and is deliberately NOT taken
+    // from that flag — one flag silently pointing two stores at one directory is how evidence ends
+    // up somewhere nobody meant.
+    // -----------------------------------------------------------------------------------------
+    case 'workspace': {
+      const sub = process.argv[3];
+      const vendorArg = process.argv[4] && !process.argv[4].startsWith('--') ? process.argv[4] : null;
+      const sources = flags('source');
+      runWorkspace({
+        sub,
+        // Every `--name` actually present, so a scheduler flag is refused BY NAME rather than ignored.
+        schedulerFlags: process.argv.slice(3).filter((a) => a.startsWith('--')).map((a) => a.replace(/^--/, '').split('=')[0]),
+        deps: {
+          ...(vendorArg ? { vendor: vendorArg } : {}),
+          ...(flag('client-id') ? { clientId: String(flag('client-id')) } : {}),
+          ...(flag('account') ? { accountId: String(flag('account')) } : {}),
+          ...(sources.length ? { sources, only: sources } : {}),
+          ...(flag('forget-cursors') === true ? { forgetCursors: true } : {}),
+        },
+      })
+        .then((r) => process.exit(r.exitCode))
+        .catch((err) => {
+          console.error(String(err.message || err));
+          process.exit(1);
+        });
+      break;
+    }
+
     case 'doctor': {
       let ok = true;
       try {
@@ -627,6 +663,9 @@ function main() {
         console.log(`model:      ${fatal ? 'MISSING' : 'not installed (opt-in tier)'} — ${String(err.message || err)}`);
       }
       console.log(`drop zone:  ${zone}`);
+      // Read-only, and deliberately never fatal: the Workspace source is optional, so an unconnected
+      // Google account must not turn a healthy transcription toolchain into a red `doctor`.
+      console.log(`workspace:  ${workspaceDoctorLine()}`);
       process.exit(ok ? 0 : 1);
       break;
     }
@@ -654,6 +693,7 @@ function main() {
           '  richos-service verify-model <id> [--dir d]         # hash it against its pinned sha256',
           '  richos-service fetch-model <id> [--dir d]          # download, verify, install only if it verifies',
           '  richos-service toolchain [--tier t] [--recheck] [--relock]   # which binary, which backends, which weights',
+          WORKSPACE_USAGE,
           '  richos-service doctor',
         ].join('\n'),
       );
