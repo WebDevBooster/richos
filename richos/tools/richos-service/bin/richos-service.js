@@ -40,6 +40,7 @@ import { modelStatus, downloadModel } from '../../../engine/voice/provisioning/m
 import { inspectFile } from '../../../engine/voice/provisioning/model-integrity.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
 import { runWorkspace, doctorLine as workspaceDoctorLine, USAGE as WORKSPACE_USAGE } from '../lib/workspace/commands.js';
+import { migrateEvidenceZone, formatMigrationReport, currentEvidenceDestination } from '../lib/workspace/migrate-evidence-zone.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
@@ -615,6 +616,23 @@ function main() {
       break;
     }
 
+    // -----------------------------------------------------------------------------------------
+    // ONE-TIME: move a corpus written before 2026-09-17 out of the compiled record tree.
+    // Reports by default and changes nothing; `--apply` performs the move. See
+    // lib/workspace/migrate-evidence-zone.js for what it rewrites and what it refuses to touch.
+    // -----------------------------------------------------------------------------------------
+    case 'migrate-evidence-zone': {
+      const dest = currentEvidenceDestination();
+      console.log(`writes now: ${dest.root}${dest.company ? `  (company ${dest.company} — nothing to migrate)` : ''}`);
+      const result = migrateEvidenceZone({
+        corpus: flag('corpus') ? expandPath(String(flag('corpus'))) : undefined,
+        dryRun: flag('apply') !== true,
+      });
+      console.log(formatMigrationReport(result));
+      process.exit(result.refusal ? 1 : 0);
+      break;
+    }
+
     case 'doctor': {
       let ok = true;
       try {
@@ -696,6 +714,7 @@ function main() {
           '  richos-service fetch-model <id> [--dir d]          # download, verify, install only if it verifies',
           '  richos-service toolchain [--tier t] [--recheck] [--relock]   # which binary, which backends, which weights',
           WORKSPACE_USAGE,
+          '  richos-service migrate-evidence-zone [--corpus dir] [--apply]   # ceo/unfiled/evidence -> ceo/evidence/unfiled (reports by default)',
           '  richos-service doctor',
         ].join('\n'),
       );
