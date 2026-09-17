@@ -36,6 +36,22 @@ def bounded(path, limit=1024 * 1024):
     return json.loads(path.read_text())
 
 
+def ecs(scope, request):
+    """Every ECS request carries this lease's seat, or names none and gets his.
+
+    The seat is what lets a background assignment still SPEAK after the CEO has
+    spoken. ecs_active_context is a cursor keyed by person_id, his turns rewrite
+    his row, and an assignment's binding frozen minutes ago is stale against it
+    from his next sentence onwards. A scope with no seat is the conversation's,
+    and its request is shaped exactly as it was before seats existed.
+    """
+    seat = scope.get("seat")
+    if seat is not None and (not isinstance(seat, str) or not seat.strip() or len(seat) > 1024):
+        raise ValueError("an app scope seat must be a nonempty bounded string")
+    return ECS.execute(scope["bridge"]["state_root"],
+                       request if seat is None else {**request, "seat": seat})
+
+
 def read_scope(path, require_action=True):
     value = bounded(Path(path), 16384)
     if value.get("version") != 1 or (require_action and value.get("actions_allowed") is not True):
@@ -47,7 +63,7 @@ def read_scope(path, require_action=True):
         expected = state() / "workspaces" / hashlib.sha256(identity.encode()).hexdigest()
         if os.environ.get("RICHOS_WORKSPACES_DIR") != str(expected):
             raise ValueError("the workspace authority is not in this thread's partition")
-        ECS.execute(value["bridge"]["state_root"], {"protocol":1, "command":"inspect", "binding":value["binding"]})
+        ecs(value, {"protocol":1, "command":"inspect", "binding":value["binding"]})
     return value
 
 
@@ -176,7 +192,7 @@ def project(scope, path, record):
         wid = work_unit_identity("richos-provider-v1", record["id"], scope["binding"]["entity_id"])
         offset, revision = 0, None
         while True:
-            page = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100,"include_closed":True}})
+            page = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"section":"work","offset":offset,"limit":100,"include_closed":True}})
             found = next((r for r in page["records"] if r["work_unit_id"] == wid), None)
             if found: revision = found["revision"]; break
             if page["next_offset"] is None: break
@@ -196,7 +212,7 @@ def project(scope, path, record):
     # A closed turn can be reconciled from a new turn in the SAME company/thread.
     if any(request["binding"][k] != scope["binding"][k] for k in ("entity_id","thread_id")):
         raise ValueError("an ECS outbox cannot cross company or thread scope")
-    receipt = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"observation-receipt",
+    receipt = ecs(scope, {"protocol":1,"command":"observation-receipt",
         "binding":scope["binding"],"request_id":request["request_id"]})
     if receipt["observed"]:
         if any(receipt[key] != request[key] for key in ("work","source_ref","expected_revision")):
@@ -205,7 +221,7 @@ def project(scope, path, record):
         request = {**request, "binding":scope["binding"]}
         record["ecs_pending"] = request
         save(path, record)
-        ECS.execute(scope["bridge"]["state_root"], request)
+        ecs(scope, request)
     record["ecs_sequence"] = record.get("ecs_sequence", 0) + 1
     record["ecs_projection"] = record.pop("ecs_pending_projection")
     record.pop("ecs_pending")
@@ -249,7 +265,7 @@ def prepare(scope_path, scope, args):
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
     obligation = text(args,"obligation_id")
-    item = ECS.execute(scope["bridge"]["state_root"], {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"item_id":obligation}})["item"]
+    item = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"item_id":obligation}})["item"]
     if item["status"] not in ("accepted","active","pending","blocked"):
         raise ValueError("dispatch requires an accepted open obligation")
     instruction = scope.get("user_instruction")
@@ -641,6 +657,67 @@ def integrate(scope_path,scope,args):
             "obligation_closed":False,"published":False}
 
 
+OPEN_ASSIGNMENT_STATUSES = ("candidate", "accepted", "active", "pending", "blocked")
+
+
+def assignment_state(scope, assignment):
+    """open, settled or absent -- read from the obligation, never from its workers.
+
+    An assignment whose workers have all stopped is NOT settled: that is exactly
+    the state where it has run, stopped at integrate and is waiting for him
+    (5.4). Settled means the obligation itself is closed. Getting this wrong
+    would release the seat of the one case the whole plan turns on.
+    """
+    if not isinstance(assignment, str) or not assignment.strip():
+        return "absent"
+    try:
+        item = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],
+                           "query":{"item_id":assignment}})["item"]
+    except Exception as error:
+        if "item is absent" not in str(error):
+            raise
+        return "absent"
+    return "open" if item["status"] in OPEN_ASSIGNMENT_STATUSES else "settled"
+
+
+def reconcile_seats(scope):
+    """Orphan seats, walked beside orphan grants and for the same reason (6.3a).
+
+    A grant with no assignment behind it is a defect and so is a seat, and the
+    seat is the half that survives a crash: a grant is a file the lease shutdown
+    rewrites, a seat is a durable row. A seat that cannot be released is
+    REPORTED, because a reconciliation that silently skips what it could not do
+    is a clean bill of health signed by nobody.
+
+    HIS OWN CURSOR IS NEVER TOUCHED HERE. A work seat is identified positively,
+    by its own audience, and never as "everything that is not his" -- which is
+    precisely the reasoning that would delete his cursor after a crash. The
+    engine refuses his seat by name as well.
+    """
+    binding = scope["binding"]
+    report = {"released": [], "retained": [], "unreconciled": []}
+    for row in ecs(scope, {"protocol":1,"command":"seats","binding":binding})["seats"]:
+        if row["audience"] != "worker":
+            continue
+        if row["entity_id"] != binding["entity_id"] or row["thread_id"] != binding["thread_id"]:
+            continue  # another company or thread's partition is not this scope's to reconcile
+        assignment, seat = row["turn_id"], row["person_id"]
+        try:
+            state = assignment_state(scope, assignment)
+            if state == "open":
+                report["retained"].append({"seat":seat, "assignment":assignment})
+                continue
+            ecs(scope, {"protocol":1,"command":"release-seat","binding":binding,
+                        "person_id":seat, "reason":state,
+                        "request_id":f"reconcile-seat:{seat}:{row['revision']}",
+                        "source_ref":f"app-reconcile:{seat}:{row['revision']}"})
+            report["released"].append({"seat":seat, "assignment":assignment, "reason":state})
+        except Exception as error:
+            report["unreconciled"].append({"seat":seat, "assignment":assignment,
+                                           "reason":str(error)[:400]})
+    return report
+
+
 def completion_path(scope, identity):
     if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{64}", identity):
         raise ValueError("invalid completion identity")
@@ -692,7 +769,7 @@ def complete(scope_path, scope, args):
         if path.exists():
             receipt = verify_completion(scope, identity)
         else:
-            item = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"inspect", "binding":scope["binding"], "query":{"item_id":obligation}})["item"]
+            item = ecs(scope, {"protocol":1, "command":"inspect", "binding":scope["binding"], "query":{"item_id":obligation}})["item"]
             if item["status"] not in ("accepted", "active", "pending", "blocked"):
                 raise ValueError("only an open assignment can be completed with new evidence")
             receipt = {"schema":1, "binding":scope["binding"], "obligation_id":obligation,
@@ -700,7 +777,7 @@ def complete(scope_path, scope, args):
                 "source_ref":instruction, "evidence_ref":"app-completion:"+identity, "verified":False}
             save(path, receipt)
         read_scope(scope_path)
-        result = ECS.execute(scope["bridge"]["state_root"], {"protocol":1, "command":"complete-obligation",
+        result = ecs(scope, {"protocol":1, "command":"complete-obligation",
             "binding":scope["binding"], "completion_id":identity})
         receipt["verified"] = True
         save(path, receipt)
@@ -722,7 +799,14 @@ def call(scope_path, name, args):
             rows = list(receipts(root)); result=[]
             for path,record in rows[offset:offset+limit]:
                 refresh(record);save(path,record);project(scope,path,record);result.append(view(record))
-            return {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}
+            page = {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}
+            # Seats are reconciled with receipts, on the sweep rather than per
+            # page, and only from the conversation's own scope: enumerating or
+            # releasing seats is the host's job and the engine refuses it to a
+            # work seat.
+            if offset == 0 and scope.get("seat") is None:
+                page["seats"] = reconcile_seats(scope)
+            return page
     raise ValueError("unknown app work tool")
 
 

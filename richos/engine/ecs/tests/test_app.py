@@ -175,5 +175,225 @@ class AppProtocolTests(unittest.TestCase):
             tool_call(path, "inspect", {})
 
 
+class WorkSeatTests(unittest.TestCase):
+    """The tenth turn gate: a background assignment gets its own cursor.
+
+    ``ecs_active_context`` is a CURSOR keyed by ``person_id``, not a store, and the
+    conversation rewrites its row at the start of every turn. A background lease
+    holding a binding frozen minutes earlier is therefore current until the CEO's
+    next sentence and stale from then on -- and the gate is invisible today only
+    because every work-tool call happens inside the turn that bound it.
+
+    EVERY TEST HERE RUNS THREE OF HIS TURNS, and that is the whole point: with the
+    two rows left sitting at the same revision, the broken form passes. That is
+    exactly how the two appends below were shipped as "unaffected".
+    """
+
+    SEAT = "work-seat:assign-7"
+    OTHER = "work-seat:assign-8"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ecs seat ")
+        self.root = Path(self.temp.name)
+        self.state = self.root / "state"
+        self.ceo = self.bind("depot", "thread-a", "session-conv", "turn-1", None)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def call(self, command, ok=True, seat=None, **fields):
+        request = {"protocol": 1, "command": command, **fields}
+        if seat is not None:
+            request["seat"] = seat
+        result = subprocess.run(
+            [sys.executable, str(COMPONENT / "bin/ecs"), "--state-root", str(self.state)],
+            input=json.dumps(request), text=True, capture_output=True,
+            env={**os.environ, "ECS_HOME": str(self.root / "do-not-adopt")})
+        output = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0 if ok else 2, result.stdout + result.stderr)
+        self.assertEqual(output["ok"], ok, result.stdout)
+        return output["result"] if ok else output["error"]["message"]
+
+    def bind(self, entity, thread, session, turn, revision, seat=None, audience="ceo"):
+        return self.call(
+            "bind", seat=seat, request_id=f"bind-{seat or 'ceo'}-{turn}",
+            source_ref=f"ledger:{thread}:{turn}", expected_revision=revision,
+            scope={"entity_id": entity, "thread_id": thread, "session_id": session,
+                   "turn_id": turn, "audience": audience})["binding"]
+
+    def work_seat(self, seat=None, turn="assign-7"):
+        """One seat per assignment, named by the assignment and bound as a worker."""
+        return self.bind("depot", "thread-a", f"session-{turn}", turn, None,
+                         seat=seat or self.SEAT, audience="worker")
+
+    def three_ceo_turns(self):
+        """His next three sentences. Each one rewrites HIS row and bumps its revision."""
+        for number in (2, 3, 4):
+            self.ceo = self.bind("depot", "thread-a", "session-conv", f"turn-{number}",
+                                 number - 1)
+        self.assertEqual(self.ceo["revision"], 4)
+        return self.ceo
+
+    def observe(self, binding, seat, request_id, external, ok=True):
+        return self.call("observe", ok=ok, seat=seat, binding=binding,
+                         source_ref=f"app-dispatch:{request_id}", request_id=request_id,
+                         work={"authority": "richos-provider-v1", "work_unit_id": "wu-" + request_id,
+                               "external_id": external, "title": "land three branches",
+                               "owner": "work", "status": "started"})
+
+    def rows(self, sql, *args):
+        store = EventStore(self.state)
+        conn = store.connect()
+        try:
+            return [dict(row) for row in conn.execute(sql, args).fetchall()]
+        finally:
+            conn.close()
+
+    def test_a_work_seat_survives_the_conversation_rebinding_its_own_seat(self):
+        frozen = self.work_seat()
+        self.three_ceo_turns()
+        # The claim: three of his turns, his row at revision 4, and the assignment's
+        # frozen binding still passes its own fence.
+        self.assertEqual(self.call("inspect", seat=self.SEAT, binding=frozen)["turn"], "assign-7")
+        # The negative half, and it is the one that matters: a seat that does not
+        # exist must RAISE, never fall back to his row. A fallback would pass this
+        # test's positive half forever while writing background records onto his
+        # cursor.
+        self.assertIn("stale app binding",
+                      self.call("inspect", ok=False, seat="work-seat:never-bound", binding=frozen))
+        # And the same call with no seat at all reads his row, which is not this
+        # binding -- so the absence of a seat is a refusal, not a default.
+        self.assertIn("stale app binding", self.call("inspect", ok=False, binding=frozen))
+        # Positive control on the other side: HIS binding still works on his seat.
+        self.assertEqual(self.call("inspect", binding=self.ceo)["turn"], "turn-4")
+
+    def test_a_second_work_seat_does_not_invalidate_the_first_assignments_binding(self):
+        first = self.work_seat()
+        self.three_ceo_turns()
+        second = self.work_seat(seat=self.OTHER, turn="assign-8")
+        # Both assignments are live at once, which section 5.5, 5.6 and the worked
+        # example all require. Neither one's cursor is the other's.
+        self.assertEqual(self.call("inspect", seat=self.SEAT, binding=first)["turn"], "assign-7")
+        self.assertEqual(self.call("inspect", seat=self.OTHER, binding=second)["turn"], "assign-8")
+        # The negative control is the design this replaced: ONE seat shared by two
+        # assignments is gate ten again, with the CEO replaced by the work lease's
+        # own next assignment.
+        shared = self.bind("depot", "thread-a", "session-assign-9", "assign-9", 1,
+                           seat=self.SEAT, audience="worker")
+        self.assertEqual(shared["turn_id"], "assign-9")
+        self.assertIn("stale app binding",
+                      self.call("inspect", ok=False, seat=self.SEAT, binding=first))
+
+    def test_binding_a_work_seat_does_not_re_register_the_entity(self):
+        self.work_seat()
+        registry = {row["event_type"]: row["person_id"] for row in self.rows(
+            "SELECT event_type, person_id FROM ecs_events WHERE idempotency_key LIKE ?",
+            f"app-bind:bind-{self.SEAT}-assign-7:%")}
+        # The structural half: three of the four events are statements about things
+        # that EXIST and are the same facts whoever is looking, so they stay on the
+        # registry person. Only thread.activated says who is where right now.
+        self.assertEqual(registry["entity.registered"], "ceo-default")
+        self.assertEqual(registry["thread.created"], "ceo-default")
+        self.assertEqual(registry["session.observed"], "ceo-default")
+        self.assertEqual(registry["thread.activated"], self.SEAT)
+        # The positive probe for that negative: the guard it would have tripped is
+        # live, and it raises when an entity really is registered under another
+        # person.
+        store = EventStore(self.state)
+        with self.assertRaisesRegex(Exception, "already registered differently"):
+            store.append("entity.registered", entity_id="depot", thread_id="thread-a",
+                         person_id=self.SEAT, source_ref="probe:registry",
+                         idempotency_key="probe-registry-1", actor_kind="app",
+                         actor_id="richos-app-v1",
+                         payload={"display_name": "depot", "canonical_root": "elsewhere",
+                                  "git_common_dir": "elsewhere", "status": "active"})
+
+    def test_a_work_seat_can_still_REPORT_after_three_ceo_turns(self):
+        """The one the fourth review exists for. A read was never the problem."""
+        frozen = self.work_seat()
+        self.three_ceo_turns()
+        # observe appends work_unit.upserted, which IS a CONVERSATIONAL_EVENT and is
+        # fenced against the row belonging to the event's own person. Without the
+        # seat this compared the work row's revision (1) against his (4).
+        self.assertFalse(self.observe(frozen, self.SEAT, "obs-1", "assign-7")["duplicate"])
+        self.assertEqual(
+            [row["person_id"] for row in self.rows("SELECT person_id FROM ecs_work_units")],
+            [self.SEAT])
+        # complete-obligation's append is the other half of how an assignment speaks.
+        # Both arms, because the broken form is invisible without his three turns.
+        store = EventStore(self.state)
+        closed = dict(entity_id="depot", thread_id="thread-a", session_id="session-assign-7",
+                      active_context_revision=1, actor_kind="authority_adapter",
+                      actor_id="richos-provider-v1", source_ref="app-completion:probe",
+                      payload={"item_id": "ship-it", "status": "completed",
+                               "evidence_ref": "app-completion:probe"})
+        with self.assertRaisesRegex(Exception, "expected 1, actual 4"):
+            store.append("continuity.item_closed", idempotency_key="probe-close-no-seat",
+                         expected_revision=1, **closed)
+        self.call("checkpoint", request_id="open-it", checkpoint={"statements": [
+            {"verb": "commitment", "fields": {"id": "ship-it", "title": "Ship it"}}]},
+            binding=self.ceo)
+        item = self.rows("SELECT revision FROM ecs_continuity_items WHERE item_id='ship-it'")
+        store.append("continuity.item_closed", idempotency_key="probe-close-seat",
+                     person_id=self.SEAT, expected_revision=int(item[0]["revision"]), **closed)
+        self.assertEqual(
+            self.rows("SELECT status FROM ecs_continuity_items WHERE item_id='ship-it'"),
+            [{"status": "completed"}])
+
+    def test_checkpoint_receipt_and_brief_are_refused_on_a_work_seat(self):
+        frozen = self.work_seat()
+        self.three_ceo_turns()
+        statements = [{"verb": "commitment", "fields": {"id": "his-own", "title": "His own"}}]
+        # Positive control first, or the refusals below would pass on a store where
+        # these three are simply broken.
+        self.assertTrue(self.call("checkpoint", request_id="ceo-1", binding=self.ceo,
+                                  checkpoint={"statements": statements})["accepted"])
+        self.assertIn("His own", self.call("brief", binding=self.ceo)["text"])
+        self.call("receipt", binding=self.ceo, request_id="ceo-1",
+                  session_id=self.ceo["session_id"], turn_id=self.ceo["turn_id"])
+        for command, fields in (("checkpoint", {"request_id": "work-1",
+                                                "checkpoint": {"statements": statements}}),
+                                ("brief", {}),
+                                ("receipt", {"request_id": "work-1",
+                                             "session_id": "session-assign-7",
+                                             "turn_id": "assign-7"})):
+            self.assertIn("belong to the conversation's own seat",
+                          self.call(command, ok=False, seat=self.SEAT, binding=frozen, **fields))
+
+    def test_an_orphan_seat_is_released_and_his_own_seat_never_is(self):
+        frozen = self.work_seat()
+        self.three_ceo_turns()
+        self.assertEqual(
+            sorted(row["person_id"] for row in
+                   self.call("seats", binding=self.ceo)["seats"]),
+            ["ceo-default", self.SEAT])
+        # His cursor is identified POSITIVELY and refused by name. "Everything that
+        # is not his" is exactly the reasoning that deletes it after a crash.
+        self.assertIn("never reconciled away",
+                      self.call("release-seat", ok=False, binding=self.ceo,
+                                person_id="ceo-default", request_id="rel-0",
+                                source_ref="reconcile:0"))
+        # A lease cannot release seats at all -- its own or anybody's.
+        self.assertIn("belongs to the conversation's own seat",
+                      self.call("release-seat", ok=False, seat=self.SEAT, binding=frozen,
+                                person_id=self.SEAT, request_id="rel-1",
+                                source_ref="reconcile:1"))
+        released = self.call("release-seat", binding=self.ceo, person_id=self.SEAT,
+                             request_id="rel-2", source_ref="reconcile:2")
+        self.assertEqual((released["released"], released["turn_id"]), (True, "assign-7"))
+        self.assertIn("stale app binding",
+                      self.call("inspect", ok=False, seat=self.SEAT, binding=frozen))
+        # Positive control: his own cursor is untouched by the release.
+        self.assertEqual(self.call("inspect", binding=self.ceo)["turn"], "turn-4")
+        # And the release is an EVENT, so a projection rebuild does not walk the
+        # seat back out of the journal.
+        EventStore(self.state).rebuild_projections()
+        self.assertEqual([row["person_id"] for row in
+                          self.call("seats", binding=self.ceo)["seats"]], ["ceo-default"])
+        # Releasing an absent seat is the reconciliation's own idempotence.
+        self.assertFalse(self.call("release-seat", binding=self.ceo, person_id=self.SEAT,
+                                   request_id="rel-3", source_ref="reconcile:3")["released"])
+
+
 if __name__ == "__main__":
     unittest.main()

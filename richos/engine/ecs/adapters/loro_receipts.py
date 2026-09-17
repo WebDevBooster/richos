@@ -9,7 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from ecs_core import ValidationError, ScopeError, canonical_json
+from ecs_core import PERSON_ID, ValidationError, ScopeError, canonical_json
 
 
 def receipts(path):
@@ -44,7 +44,7 @@ def receipts(path):
     return list(written.values())
 
 
-def synchronize(store,binding):
+def synchronize(store,binding,person_id=PERSON_ID):
     path=store.home.parent/"loro-corrections.jsonl"
     rows=receipts(path)
     applied=[]
@@ -57,8 +57,12 @@ def synchronize(store,binding):
         reference=written["outcome"]["ref"]
         source=f"loro-desk:{identity}:{digest}"
         observed=datetime.fromtimestamp(written["at"]/1000,timezone.utc).isoformat()
+        # action.transitioned and action.receipt_recorded are CONVERSATIONAL_EVENTS,
+        # so these appends are fenced against the row belonging to the event's own
+        # person. They carry the fenced seat for the same reason the two appends in
+        # adapters/app.py do.
         common=dict(entity_id=binding["entity_id"],thread_id=binding["thread_id"],session_id=binding["session_id"],
-            active_context_revision=binding["revision"],source_ref=source)
+            active_context_revision=binding["revision"],source_ref=source,person_id=person_id)
         def append(stage,event,payload,expected=None,authority=False):
             existing=store.existing_event(key+":"+stage)
             if existing:

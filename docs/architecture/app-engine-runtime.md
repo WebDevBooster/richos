@@ -47,7 +47,10 @@ process does not establish successful completion or safe worktree deletion.
 
 Use the reviewed Python ECS event store behind a versioned local JSON command
 interface. The app supplies the state root and entity/thread/session binding
-explicitly. There is no terminal-cwd inference at this boundary. Each invocation
+explicitly, and a lease that is not the conversation also supplies its own seat:
+the active context is one cursor per seat, the conversation rewrites its row
+every turn, and a background lease's binding has to outlive that. There is no
+terminal-cwd inference at this boundary. Each invocation
 has a bounded request and response. SQLite transactions and idempotency receipts
 protect local changes. Operations spanning ECS, Loro and Git use intent and
 reconciliation rather than a claimed shared transaction.

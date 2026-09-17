@@ -32,8 +32,15 @@ def call(scope_path, name, args):
             raise ValueError("inspect accepts only query")
     else:
         raise ValueError("unknown continuity tool")
-    return execute(scope["bridge"]["state_root"], {"protocol": 1, "command": name,
-        "binding": scope["binding"], **args})
+    # The scope's seat, never a default. The app is expected to leave this server
+    # out of a work lease's MCP config entirely, but an allow-list on tool NAMES
+    # cannot see whose seat is calling (the desk auto-allows checkpoint and inspect
+    # for every lease), so the seat travels with the request and the engine refuses
+    # a checkpoint on a work seat. Two seams, and neither one trusts the other.
+    request = {"protocol": 1, "command": name, "binding": scope["binding"], **args}
+    if scope.get("seat") is not None:
+        request["seat"] = scope["seat"]
+    return execute(scope["bridge"]["state_root"], request)
 
 
 def serve(scope_path, reader, writer, *, tools=None, handler=None, server_name="richos_continuity"):
