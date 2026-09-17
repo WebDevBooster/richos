@@ -877,6 +877,22 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(after[0],rows[0])
         self.assertEqual(after[1]["before"],rows[0]["commit"])
         self.assertEqual(after[1]["commit"],second_result["commit"])
+        # THE WRITER AND THE READER, END TO END, IN ONE PROCESS. Everything
+        # above is the writing half. This is the function the PostToolUse check
+        # actually calls (workspaces.py, `land_by_another_conversation`), asked
+        # from ANOTHER conversation thread about the land this one just made: it
+        # derives the record's path independently, reads the fields by the names
+        # the writer wrote, and names the thread. A rename on either side breaks
+        # here rather than in silence six weeks from now.
+        with patch.dict(os.environ,{"RICHOS_APP_THREAD":"thread-b"}):
+            told=self.app.W.land_by_another_conversation(
+                str(self.repo),"main",after[1]["before"],after[1]["commit"])
+        self.assertIn("thread-a",told)
+        self.assertIn(after[1]["at"],told)
+        # ... and silent for the conversation that made it.
+        with patch.dict(os.environ,{"RICHOS_APP_THREAD":"thread-a"}):
+            self.assertIsNone(self.app.W.land_by_another_conversation(
+                str(self.repo),"main",after[1]["before"],after[1]["commit"]))
         # AND THE LOCK FILE ITSELF CARRIES NO LAND, which is what made the first
         # of two lands unanswerable.
         self.assertNotIn("landed",self.app._read_land_lock(self.app.land_lock_path(self.repo)) or {})
