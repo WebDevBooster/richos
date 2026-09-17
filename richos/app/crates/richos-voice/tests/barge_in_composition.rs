@@ -717,3 +717,101 @@ fn tap_to_stop_is_still_instant_once_the_canceller_is_confident() {
     let msgs = brain.push_frame(&[0.0f32; AEC_BLOCK], true, true);
     assert!(msgs.iter().any(is_barge), "tap to stop did not fire");
 }
+
+// =========================================================================================
+// THE CANDIDATE-.4 BLOCKER: WHAT HAPPENS BEFORE THE CANCELLER IS CONFIDENT
+//
+// Everything above measures the pipeline where the canceller EARNS the short window. On the
+// CEO's own hardware it never does. Measured on his Mac on 2026-09-17 (the full traces are in
+// `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`): Mac mini Speakers out, Elgato
+// Wave:3 in, steady-state ERLE -0.1 dB, live residual -36.6 dBFS against the -52.0 dBFS
+// `CONFIDENT_LEAK_RMS` demands — a 15.4 dB gap — and the magnitude-squared coherence of that
+// echo path caps ANY linear canceller at 4.3 dB full band. 11.1 dB short, permanently.
+//
+// So the unconfident branch is not a warm-up state there. It is the only state, and these two
+// tests pin what the product does in it.
+// =========================================================================================
+
+/// **NEGATIVE PROBE — the defect that refused candidate .4.**
+///
+/// Rich's own voice comes back through the speakers, opens an utterance, and is discarded as
+/// taint. **Nobody is in the room.** That is the whole finding: a tainted discard is not
+/// evidence that the CEO spoke, because it is produced by Rich speaking alone.
+///
+/// Ray proved the same thing on the running app with a control — output volume 85 produced the
+/// discard and the notice with him provably silent; the identical turn at volume 0 produced
+/// neither. This is that experiment with no room and no microphone, so it can run in CI.
+///
+/// The chain this pins, end to end:
+///   1. `push_residual` sets `tainted = speaking && !barged && !confident` — so a tainted
+///      discard REQUIRES the canceller to have declined to vouch.
+///   2. Rich's echo alone reaches that state and produces the discard (asserted below).
+///   3. `supervise` turns the discard into `VoiceNotice::CouldNotListenWhileSpeaking`, whose
+///      every clause about the CEO is conditional
+///      (`controller::tests::the_notice_makes_no_unconditional_claim_about_the_ceo`).
+///   4. It is said once per voice session, not once per answer
+///      (`controller::tests::being_heard_does_not_re_arm_the_notice_...`) — because on that
+///      hardware step 2 happens after every single spoken answer.
+#[test]
+fn richs_own_echo_produces_a_tainted_discard_with_nobody_in_the_room() {
+    let (mut brain, ring) = brain_with_aec();
+    // Stop well short of confidence. CONFIDENCE_WARMUP_BLOCKS + CONFIDENCE_HOLD_BLOCKS are
+    // 2.000 s + 2.000 s of Rich actually speaking, so 3 s cannot have earned it — and the
+    // assertion below proves the premise rather than trusting the arithmetic.
+    let n = SAMPLE_RATE as usize * 3;
+    let reference = speechish(n, 11);
+    let mic = through_the_room(&reference);
+
+    let (barges, turns, tainted, confident_at) =
+        play_and_capture(&mut brain, &ring, &reference, &mic, true);
+
+    assert!(!brain.aec_confident(), "premise broken: the canceller became confident in 3 s");
+    assert_eq!(confident_at, None, "premise broken: confidence was reached mid-run");
+    assert_eq!(barges, 0, "Rich interrupted himself");
+    assert_eq!(turns, 0, "Rich's own voice was transcribed as a turn — the pilot's echo defect");
+    assert!(
+        tainted >= 1,
+        "no tainted discard at all, so the notice under test could never fire: \
+         the premise of the blocker is gone and the fix needs re-deriving"
+    );
+}
+
+/// **POSITIVE CONTROL for the probe above**, and the honest correction to the brief that asked
+/// for one.
+///
+/// The brief asked that "the confident, voiced path still notifies". **It does not, and it must
+/// not** — read off `push_residual`: `tainted = speaking && !barged && !confident`, so with a
+/// confident canceller the utterance is never tainted, is never discarded, and reaches the
+/// recognizer as a turn. There is nothing lost, so there is nothing to announce. That is why
+/// the accusatory wording was DELETED rather than gated behind a condition: the only path that
+/// ever emitted it is the path that cannot know.
+///
+/// `a_four_hundred_millisecond_interruption_cuts_rich_off_and_becomes_a_turn` above is the same
+/// fact from the interruption side. This one isolates the discard: same brain, same room, same
+/// near-end voice — only `confident` differs — and the discard disappears.
+#[test]
+fn a_confident_canceller_admits_the_same_utterance_instead_of_discarding_it() {
+    let (mut brain, ring) = brain_with_aec();
+    let n = SAMPLE_RATE as usize * 24;
+    let reference = speechish(n, 11);
+    let mut mic = through_the_room(&reference);
+
+    let converge = SAMPLE_RATE as usize * 14;
+    play_and_capture(&mut brain, &ring, &reference[..converge], &mic[..converge], true);
+    assert!(brain.aec_confident(), "premise: the canceller earned the short window");
+
+    // The CEO says something over the top of Rich — the SAME onset-during-playout that the
+    // probe above sees discarded.
+    let start = converge;
+    let dur = (SAMPLE_RATE as f32 * 0.400) as usize;
+    let ceo = speechish(dur, 42);
+    for i in 0..dur {
+        mic[start + i] += ceo[i] * 1.4;
+    }
+
+    let (_barges, turns, tainted, _) =
+        play_and_capture(&mut brain, &ring, &reference[start..], &mic[start..], true);
+
+    assert_eq!(tainted, 0, "a confident canceller still threw his words away as echo");
+    assert!(turns >= 1, "his words were not discarded and still never became a turn");
+}

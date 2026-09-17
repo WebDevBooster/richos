@@ -530,29 +530,42 @@ module.exports = [
   },
   {
     s:
-      "You started talking while I was still speaking, and I couldn't separate your voice " +
-      "from mine — so that didn't reach me and I haven't sent anything. I'm listening now.",
+      "While I was speaking, I couldn't tell your voice from my own — so if you said " +
+      "something just then, it didn't reach me and I haven't sent anything. I'm listening now.",
     c: "INFORMATIONAL",
     why:
-      "`VoiceNotice::TalkedOverRich`, added 2026-09-17 for audit-3 §4 #1 — the defect the " +
-      "CEO hit himself, mid-walk, with his own voice. An utterance whose onset lands inside " +
-      "Rich's playout is marked `tainted` once, at `Started`, and stays tainted unless " +
-      "barge-in fires during it; with the echo canceller not yet confident that needs 313 × " +
-      "256 ÷ 16000 = 5.008 s of continuous talking over him, so an ordinary interruption is " +
-      "discarded whole. Rich's playout then ends, a NEW utterance starts from whatever he is " +
-      "still saying, and THAT gets submitted as if it were a whole message: his prompt " +
-      "arrived at 13:34:02Z carrying only the tail \"using talk to…\", and Rich answered the " +
-      "tail and had to ask what he meant. The discard is not the defect — the silence around " +
-      "it was. " +
-      "INFORMATIONAL, and it deliberately makes NO capability claim. \"I can't hear you " +
-      "while I'm speaking\" would be false twice: talking over him for 5.008 s cuts him off " +
-      "today, and once the canceller proves itself the threshold is 25 × 256 ÷ 16000 = " +
-      "0.400 s — a notice that overstates the limit teaches him not to try the thing that " +
-      "works. So it reports what happened to those particular words and stops. It ends with " +
-      "a status rather than \"wait until I finish\", which would be an instruction to use " +
-      "the product more carefully to work around a limitation. Latched per run and cleared " +
-      "by an utterance that gets through (`TalkedOverLatch`), because interrupting is " +
-      "exactly what he will keep doing and a line every time would be worse than silence.",
+      "`VoiceNotice::CouldNotListenWhileSpeaking`, added 2026-09-17 for audit-3 §4 #1 and " +
+      "REWRITTEN the same day after Ray's candidate-.4 walk proved the first wording false " +
+      "on the CEO's own rig. It used to read \"You started talking while I was still " +
+      "speaking…\" and it fired at him while he was provably silent: at output volume 85 a " +
+      "spoken turn produced it with nobody talking, and the identical turn with the output " +
+      "volume set to 0 produced no discard and no notice at all. The single variable was " +
+      "whether Rich's own voice was audible in the room. " +
+      "THE CODE SAYS THE SAME THING STRUCTURALLY. `push_residual` sets `tainted = speaking " +
+      "&& !barged && !confident`, so a tainted discard REQUIRES the canceller to have " +
+      "declined to vouch for its residual; when it IS confident the utterance is admitted " +
+      "rather than discarded and there is nothing to announce. The old sentence was " +
+      "therefore emitted only, and exactly, on the path where the app cannot know whose " +
+      "voice it heard — so the accusation was deleted rather than gated behind a condition " +
+      "that never occurs. " +
+      "EVERY CLAUSE ABOUT THE CEO IS NOW CONDITIONAL (\"if you said something just then\"), " +
+      "and what it asserts outright is only what this file can prove: Rich was speaking, the " +
+      "two voices could not be separated, and that audio was not used. " +
+      "AND IT IS NOT A WARM-UP STATE ON HIS HARDWARE. Measured on his Mac on 2026-09-17 " +
+      "(docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md): Mac mini Speakers out, " +
+      "Elgato Wave:3 in, steady-state ERLE −0.1 dB and a live residual of −36.6 dBFS against " +
+      "the −52.0 dBFS confidence threshold — 15.4 dB needed — while the coherence of that " +
+      "echo path caps any linear canceller at 4.3 dB. 11.1 dB short, permanently, so every " +
+      "spoken answer through the speakers produces one of these discards. " +
+      "INFORMATIONAL, and it still makes NO capability claim: \"I can't hear you while I'm " +
+      "speaking\" would be false twice, because talking over him for 5.008 s cuts him off " +
+      "today and a confident canceller admits the utterance outright. It still states the " +
+      "consequence, because the failure it explains is the app sending the TAIL of his " +
+      "sentence as though it were the whole of it. It ends with a status rather than \"wait " +
+      "until I finish\", which would be an instruction to use the product more carefully to " +
+      "work around a limitation. Latched ONCE PER VOICE SESSION (`HalfDuplexNotice`), not " +
+      "per run: cleared-on-heard would mean one line after every single spoken answer, " +
+      "forever, about a condition nothing he does can change.",
   },
   {
     s: "I didn't catch that, so I haven't sent anything. I'm still listening.",

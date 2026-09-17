@@ -47,7 +47,7 @@ use crate::tts::{MacSay, SpeechSynth};
 use crate::vad::{frames_to_secs, Vad};
 use crate::voiced::VoiceEvidence;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -440,6 +440,67 @@ impl Shared {
     }
 }
 
+/// **THE CANCELLER'S LIVE STATE, PUBLISHED LOSSLESSLY.**
+///
+/// This replaces a single `AtomicU32` that packed confidence into bit 0 and whole-dB ERLE into
+/// bits 1.., via `(erle_db.max(0.0) as u32) << 1`. That packing destroyed the two facts an
+/// operator needs most:
+///
+/// - **it clamped negatives to zero.** Measured on this Mac on 2026-09-17 the live figure is
+///   **−0.1 dB** — the canceller removing marginally less than nothing — and the log printed
+///   `erle=0 dB`. "Zero" reads as "not started yet"; the truth is "running and achieving
+///   nothing on this path", which is a different problem with a different answer.
+/// - **it truncated toward zero**, so anything under 1.0 dB also printed `0`.
+///
+/// Ray's candidate-.4 walk read `erle=0 dB` off the running app and took it as evidence the
+/// canceller was not learning at all. It was learning; it was learning a path whose coherence
+/// caps any linear canceller at 4.3 dB (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`).
+/// A number that cannot be negative cannot report that, so it is stored in signed millidecibels.
+///
+/// One relaxed store per audio frame, no locks, readable from anywhere.
+#[derive(Debug, Default)]
+pub struct AecShared {
+    /// The canceller has measured its residual low enough, for long enough, to be trusted.
+    confident: AtomicBool,
+    /// Echo Return Loss Enhancement in **millidecibels, signed**. Negative is a real reading.
+    erle_mdb: AtomicI32,
+    /// The tracked typical residual while Rich is audible, in **millidecibels full scale**.
+    /// This is the number [`crate::aec::CONFIDENT_LEAK_RMS`] is compared against, so publishing
+    /// it is what makes "how far short is it" answerable from a log line instead of a guess.
+    leak_mdbfs: AtomicI32,
+}
+
+impl AecShared {
+    fn store(&self, confident: bool, erle_db: f32, leak_rms: f32) {
+        self.confident.store(confident, Ordering::Relaxed);
+        self.erle_mdb.store(millis(erle_db), Ordering::Relaxed);
+        self.leak_mdbfs.store(millis(dbfs(leak_rms)), Ordering::Relaxed);
+    }
+    fn confident(&self) -> bool {
+        self.confident.load(Ordering::Relaxed)
+    }
+    fn erle_db(&self) -> f32 {
+        self.erle_mdb.load(Ordering::Relaxed) as f32 / 1000.0
+    }
+    fn leak_dbfs(&self) -> f32 {
+        self.leak_mdbfs.load(Ordering::Relaxed) as f32 / 1000.0
+    }
+}
+
+/// dB to signed millidecibels, saturating rather than wrapping. A non-finite reading stores 0
+/// — the one value that cannot be mistaken for a measurement of anything.
+fn millis(db: f32) -> i32 {
+    if !db.is_finite() {
+        return 0;
+    }
+    (db * 1000.0).clamp(i32::MIN as f32, i32::MAX as f32) as i32
+}
+
+/// RMS to dBFS, with the same floor `aec.rs` and the examples use.
+fn dbfs(rms: f32) -> f32 {
+    20.0 * rms.max(1e-12).log10()
+}
+
 /// Voice mode, running. Dropping it closes the microphone and silences Rich.
 pub struct VoiceController {
     shared: Arc<Shared>,
@@ -450,9 +511,10 @@ pub struct VoiceController {
     speak_tx: Option<Sender<SpeakMsg>>,
     playout: Arc<Playout>,
     force_barge: Arc<AtomicBool>,
-    /// Bit 0: the echo canceller is confident. Bits 1..: whole-dB ERLE. Written once per
-    /// audio frame by the capture thread.
-    aec_state: Arc<AtomicU32>,
+    /// The canceller's live state — confidence, signed ERLE, tracked leak floor. Written once
+    /// per audio frame by the capture thread. See [`AecShared`] for why it is not one packed
+    /// word any more.
+    aec_state: Arc<AecShared>,
     diagnostics: Diagnostics,
     _capture: Capture,
     threads: Vec<std::thread::JoinHandle<()>>,
@@ -568,32 +630,59 @@ pub enum VoiceNotice {
     /// suppressed when the voice panel is closed — `main.js`'s notice listener is the only one
     /// of the four that does not bail on `!voiceMode`.
     DidNotCatchThat,
-    /// **HE TALKED OVER RICH AND WHAT HE SAID WAS THROWN AWAY IN SILENCE** — audit-3 §4 #1,
-    /// the defect the CEO hit himself while the audit was running.
+    /// **RICH COULD NOT LISTEN WHILE HE WAS SPEAKING, AND WHATEVER THE MICROPHONE PICKED UP
+    /// THEN WAS THROWN AWAY** — audit-3 §4 #1, corrected after candidate .4's walk proved the
+    /// first wording false on the CEO's own rig.
     ///
-    /// **The chain, read off this file rather than inferred.** An utterance whose onset lands
-    /// inside Rich's playout is marked `tainted` once, at `Started` (`push_residual`), and it
-    /// stays tainted for its whole life unless barge-in fires during it. With the canceller
-    /// not yet confident the debounce is [`BARGE_IN_DEBOUNCE_FRAMES`] — 313 × 256 ÷ 16000 =
-    /// 5.008 s of continuous talking over him — so an ordinary interruption never clears it
-    /// and the whole utterance is discarded. Then Rich's playout ends, a NEW utterance starts
-    /// from whatever he is still saying, and THAT is submitted as if it were a whole message.
+    /// ## What it replaced, and why the replacement is not a softening
     ///
-    /// That is exactly what the walk recorded: his prompt arrived at 13:34:02Z, the second
-    /// the previous turn completed, carrying only the tail `"using talk to…"`. Rich answered
-    /// the tail and had to ask him what he meant.
+    /// This variant used to be `TalkedOverRich` and it said *"You started talking while I was
+    /// still speaking … so that didn't reach me and I haven't sent anything."* Ray walked it on
+    /// the CEO's screen on 2026-09-17 and it fired while he was provably silent
+    /// (`docs/verification/2026-09-17-nightly-1.2.0-20260917.4-onscreen-audit.md` §3): at output
+    /// volume 85 a spoken turn produced the notice with nobody talking, and the identical turn
+    /// with the output volume set to 0 produced no discard and no notice at all. The single
+    /// variable was whether Rich's own voice was audible in the room.
     ///
-    /// **So the discard is not the bug — the SILENCE around it is.** Two things were missing
-    /// and this notice is the second: the operator's line claimed `(no AEC)` when the
-    /// canceller was running (fixed at the emit site), and the CEO was told nothing at all.
+    /// **The code says the same thing, and it says it structurally.** `push_residual` sets
+    /// `self.tainted = speaking && !self.barged && !confident`, so a tainted discard requires
+    /// `confident == false` — the canceller declining to vouch for its own residual. When it IS
+    /// confident the utterance is ADMITTED rather than discarded and there is nothing to
+    /// announce. **So the old sentence was emitted only, and exactly, on the path where the app
+    /// cannot know whose voice it heard.** There was no reachable path on which it was known to
+    /// be true. That is why the accusation is deleted rather than gated behind a condition.
     ///
-    /// **It does not promise that talking over Rich will work next time**, because that
-    /// depends on a measurement this file does not control. It says what happened to the
-    /// words he just spoke, which is the fact he is missing, and stops there.
+    /// ## It is not a transient state on the CEO's hardware — measured
     ///
-    /// Latched per run and cleared by an utterance that gets through — the same discipline as
-    /// every other notice here, for the same reason.
-    TalkedOverRich,
+    /// Measured on this Mac on 2026-09-17 (`examples/aec_live`, `examples/aec_probe`, both
+    /// pasted in `docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`): Mac mini Speakers
+    /// out, Elgato Wave:3 in, steady-state ERLE **−0.1 dB**, live residual **−36.6 dBFS**, and
+    /// [`crate::aec::CONFIDENT_LEAK_RMS`] is **−52.0 dBFS** — so confidence needs **15.4 dB** of
+    /// cancellation. The magnitude-squared coherence of that path caps ANY linear canceller at
+    /// **4.3 dB** full band (7.6 dB over 300–3400 Hz). **11.1 dB short, permanently.** The
+    /// canceller never becomes confident there, so the taint rule is always in force and every
+    /// spoken answer through the speakers produces one of these discards.
+    ///
+    /// That is what makes the wording load-bearing rather than cosmetic: this line is not a rare
+    /// edge case he might see once, it is the line he meets after every spoken answer.
+    ///
+    /// ## What the sentence is allowed to assert
+    ///
+    /// Only what this file can prove: Rich was speaking, the canceller could not separate the
+    /// two voices, and the audio captured in that window was not used. **Everything about the
+    /// CEO is conditional** — `if you said something just then` — because the app genuinely does
+    /// not know, and `the_notice_makes_no_unconditional_claim_about_the_ceo` pins that.
+    ///
+    /// It still states the CONSEQUENCE, for the reason [`VoiceNotice::HeardNoVoice`] does: the
+    /// failure this explains is the app sending the TAIL of his sentence as though it were the
+    /// whole of it, and "I haven't sent anything" is the fact that makes Rich answering a
+    /// fragment make sense. It still ends with a STATUS and not an instruction — "wait until I
+    /// finish" would be an instruction to use the product more carefully to work around a
+    /// limitation, which is not a thing to ask of him.
+    ///
+    /// **Latched once per voice session**, not per run — see [`HalfDuplexNotice`]. What it
+    /// describes is a standing property of the room and the hardware, not an event.
+    CouldNotListenWhileSpeaking,
 }
 
 impl VoiceNotice {
@@ -658,11 +747,19 @@ impl VoiceNotice {
             VoiceNotice::DidNotCatchThat => {
                 "I didn't catch that, so I haven't sent anything. I'm still listening."
             }
-            // IT DESCRIBES WHAT HAPPENED, NOT WHAT THE APP CANNOT DO. "I can't hear you
-            // while I'm speaking" would be a capability claim, and a false one: talking
-            // over Rich for long enough DOES cut him off today, and once the canceller
-            // proves itself the threshold drops to a fifth of a breath. What is reliably
-            // true is the thing in front of him — those particular words did not reach me.
+            // EVERY CLAUSE ABOUT THE CEO IS CONDITIONAL, and that is the whole correction.
+            // The sentence this replaced opened "You started talking while I was still
+            // speaking", which is an assertion about something HE did, made on the one code
+            // path where the canceller has explicitly declined to vouch for its residual.
+            // On the CEO's own rig it fired at him while he was silent, after every spoken
+            // answer. A status may describe the app with certainty; it may not describe the
+            // reader with certainty it does not have.
+            //
+            // IT DESCRIBES WHAT RICH DID, which IS knowable here: Rich was speaking, the two
+            // voices could not be told apart, and the audio from that window was not used.
+            // It makes no capability claim — "I can't hear you while I'm speaking" would be
+            // false twice, because talking over Rich for long enough DOES cut him off today
+            // and a confident canceller admits the utterance outright.
             //
             // IT STATES THE CONSEQUENCE, for the reason `HeardNoVoice` does, and here the
             // reason is sharper than anywhere else in this enum: the failure it explains is
@@ -673,10 +770,10 @@ impl VoiceNotice {
             // IT ENDS WITH A STATUS AND NOT AN INSTRUCTION. "Wait until I finish" is an
             // imperative, and worse, it is an instruction to use the product more carefully
             // to work around a limitation — which is not a thing to ask of him.
-            VoiceNotice::TalkedOverRich => {
-                "You started talking while I was still speaking, and I couldn't separate \
-                 your voice from mine — so that didn't reach me and I haven't sent \
-                 anything. I'm listening now."
+            VoiceNotice::CouldNotListenWhileSpeaking => {
+                "While I was speaking, I couldn't tell your voice from my own — so if you \
+                 said something just then, it didn't reach me and I haven't sent anything. \
+                 I'm listening now."
             }
         }
     }
@@ -940,9 +1037,9 @@ impl VoiceController {
         let (utt_tx, utt_rx) = channel::<Box<Utterance>>();
         let (submit_tx, submit_rx) = channel::<String>();
         let force_barge = Arc::new(AtomicBool::new(false));
-        // Bit 0: the canceller is confident. Bits 1..: whole-dB ERLE. One relaxed store per
-        // frame from the audio thread, readable by anyone without a lock.
-        let aec_state_for_diagnostics = Arc::new(AtomicU32::new(0));
+        // The canceller's live state, lossless and signed — see `AecShared`. One relaxed store
+        // per frame from the audio thread, readable by anyone without a lock.
+        let aec_state_for_diagnostics = Arc::new(AecShared::default());
         let aec_state_read = aec_state_for_diagnostics.clone();
 
         // ---- the audio capture callback ------------------------------------------------
@@ -965,10 +1062,13 @@ impl VoiceController {
             }
             cb_shared.set_level(brain.level());
             // Publish the canceller's live state for the supervisor and the UI without ever
-            // touching the audio thread from outside it.
+            // touching the audio thread from outside it. Signed and unclamped: a negative ERLE
+            // is a real reading and the old packing could not express it.
+            let m = brain.aec_metrics();
             aec_state.store(
-                (brain.aec_confident() as u32) | ((brain.aec_metrics().map(|m| m.erle_db).unwrap_or(0.0).max(0.0) as u32) << 1),
-                Ordering::Relaxed,
+                brain.aec_confident(),
+                m.map(|m| m.erle_db).unwrap_or(0.0),
+                m.map(|m| m.leak_floor_rms).unwrap_or(0.0),
             );
         })
         .map_err(VoiceStartError::Capture)?;
@@ -1113,14 +1213,22 @@ impl VoiceController {
     ///
     /// The UI's "headphones recommended" note should follow THIS, not `Diagnostics`.
     pub fn echo_cancellation_confident(&self) -> bool {
-        self.aec_state.load(Ordering::Relaxed) & 1 == 1
+        self.aec_state.confident()
     }
 
-    /// Live Echo Return Loss Enhancement in whole dB — how much of Rich's own voice the
-    /// canceller is currently removing from the microphone. 0 until it has something to
-    /// report. Measured, never estimated.
-    pub fn echo_return_loss_enhancement_db(&self) -> u32 {
-        self.aec_state.load(Ordering::Relaxed) >> 1
+    /// Live Echo Return Loss Enhancement in dB — how much of Rich's own voice the canceller is
+    /// currently removing from the microphone. 0.0 until it has something to report, and
+    /// **negative when the filter is adding energy rather than removing it**, which is a real
+    /// state this returned `0` for until 2026-09-17. Measured, never estimated.
+    pub fn echo_return_loss_enhancement_db(&self) -> f32 {
+        self.aec_state.erle_db()
+    }
+
+    /// The tracked typical residual echo while Rich is audible, in dBFS. Compare with
+    /// [`crate::aec::CONFIDENT_LEAK_RMS`] to see how far the canceller is from earning the
+    /// short barge-in window on this hardware — the gap, not the verdict.
+    pub fn echo_leak_floor_dbfs(&self) -> f32 {
+        self.aec_state.leak_dbfs()
     }
 
     /// The barge-in debounce actually in force right now, in seconds: 5.008 while the
@@ -1261,28 +1369,50 @@ impl Drop for VoiceController {
     }
 }
 
-/// **WHETHER TO TELL HIM HE WAS TALKED OVER, AND HOW OFTEN.**
+/// **WHETHER TO TELL HIM RICH COULD NOT LISTEN WHILE SPEAKING, AND HOW OFTEN.**
 ///
 /// A struct rather than a `bool` in [`supervise`] for the reason [`RecognizerDesk`] is one:
-/// what has to be provable is not the sentence but the CADENCE — once per run, and again
-/// after he is heard. A latch living as a local inside a spawned thread is reachable only by
-/// a test that owns a microphone, which means in practice it is reachable by no test at all.
+/// what has to be provable is not the sentence but the CADENCE. A latch living as a local
+/// inside a spawned thread is reachable only by a test that owns a microphone, which means in
+/// practice it is reachable by no test at all.
 ///
-/// Pure: no clock, no channel, no observer. `should_speak` returns true exactly on the
-/// transitions where the notice is due.
+/// ## ONCE PER VOICE SESSION — changed from once-per-run, and the number is the reason
+///
+/// It used to clear whenever an utterance got through, on the theory that being heard proves
+/// the run is over. That theory assumed the discards were EVENTS — the CEO interrupting now
+/// and then. On his actual hardware they are not.
+///
+/// Measured on this Mac, 2026-09-17 (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`):
+/// Mac mini Speakers out, Elgato Wave:3 in, steady-state ERLE **−0.1 dB** against the **15.4 dB**
+/// that [`crate::aec::CONFIDENT_LEAK_RMS`] demands, with a coherence ceiling of **4.3 dB** for
+/// any linear canceller on that path. The canceller cannot become confident there, so Rich's own
+/// voice comes back into the microphone, opens an utterance, and is discarded as taint **after
+/// every single spoken answer**. Cleared-on-heard therefore means: he speaks, he is heard, the
+/// latch clears, Rich answers, the echo is discarded, the notice fires. Once per answer, forever.
+///
+/// The crate's own doctrine on every other notice here is that a line each time is a drip that
+/// trains him to ignore the one that matters. A drip about a STANDING property of the room is
+/// worse than that — it is a drip that can never stop, because nothing he does changes it.
+///
+/// So it is said once, the first time the session hits it, and then never again. What is lost is
+/// real and is named rather than glossed: a second genuine talk-over later in the same session
+/// is silent. That is the honest trade on hardware where the app cannot tell a second talk-over
+/// from the echo of Rich's next sentence.
+///
+/// Pure: no clock, no channel, no observer.
 #[derive(Debug, Clone, Default)]
-pub struct TalkedOverLatch {
+pub struct HalfDuplexNotice {
     said: bool,
 }
 
-impl TalkedOverLatch {
+impl HalfDuplexNotice {
     pub fn new() -> Self {
-        TalkedOverLatch::default()
+        HalfDuplexNotice::default()
     }
 
-    /// A discard that was tainted — he spoke over Rich and the audio was thrown away.
-    /// Returns whether this is the one to say out loud.
-    pub fn talked_over_discard(&mut self) -> bool {
+    /// An utterance that began inside Rich's playout was discarded because the canceller could
+    /// not vouch for the residual. Returns whether this is the one to say out loud.
+    pub fn discard_during_playout(&mut self) -> bool {
         if self.said {
             return false;
         }
@@ -1290,13 +1420,8 @@ impl TalkedOverLatch {
         true
     }
 
-    /// An utterance got through to the recognizer. He was heard, so the run is over.
-    pub fn heard(&mut self) {
-        self.said = false;
-    }
-
-    /// Has the notice already been said in this run? The diagnostic that makes "why did it
-    /// not say anything" answerable without re-reading the caller.
+    /// Has the notice already been said in this voice session? The diagnostic that makes "why
+    /// did it not say anything" answerable without re-reading the caller.
     pub fn already_said(&self) -> bool {
         self.said
     }
@@ -1310,13 +1435,13 @@ fn supervise(
     observer: Arc<dyn VoiceObserver>,
     cap_rx: Receiver<CapMsg>,
     utt_tx: Sender<Box<Utterance>>,
-    shared_aec_erle: Arc<AtomicU32>,
+    shared_aec: Arc<AecShared>,
 ) {
     let mut last_state = VoiceState::Off;
-    // `VoiceNotice::TalkedOverRich` has been said this run of talked-over discards. Latched
-    // for the reason every other notice in this crate is: a line each time he tries would be
-    // a drip. Cleared by an utterance that DOES get through, which proves he was heard.
-    let mut talked_over = TalkedOverLatch::new();
+    // `VoiceNotice::CouldNotListenWhileSpeaking` has been said in this voice session. Latched
+    // for the whole session rather than per run — see `HalfDuplexNotice`, which carries the
+    // measurement that decided it.
+    let mut half_duplex = HalfDuplexNotice::new();
     let mut last_level_emit = Instant::now() - LEVEL_EMIT_EVERY;
     let mut last_level = -1.0f32;
     let mut no_audio = false;
@@ -1337,9 +1462,6 @@ fn supervise(
                     if let Ok(mut m) = machine.lock() {
                         m.utterance_ended();
                     }
-                    // Something he said got through, so the run of talked-over discards is
-                    // over and the next one speaks again.
-                    talked_over.heard();
                     let _ = utt_tx.send(u);
                 }
                 Ok(CapMsg::Discarded { tainted }) => {
@@ -1360,22 +1482,36 @@ fn supervise(
                         // line's `aec=PBFDAF` as a contradiction. Both lines were describing
                         // the same working canceller in two different states, and one of them
                         // was lying about which.
-                        // Bit 0 is `confident`; bits 1.. are whole-dB ERLE. Same packing the
-                        // capture callback writes, read back the same way.
-                        let erle = shared_aec_erle.load(Ordering::Relaxed) >> 1;
+                        //
+                        // **AND THE REPLACEMENT OVER-PROMISED IN ITS TURN, which is why this
+                        // line changed again on 2026-09-17.** It said the canceller "has not
+                        // proven itself YET" and that barge-in needed 5.008 s "UNTIL IT DOES".
+                        // Both words promise a convergence that, on the CEO's own hardware,
+                        // never arrives: measured that day, the live residual is −36.6 dBFS
+                        // against a −52.0 dBFS threshold, and the coherence of that echo path
+                        // caps ANY linear canceller at 4.3 dB where 15.4 dB is needed
+                        // (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`). So the
+                        // line now reports the GAP — measured ERLE, measured residual, the
+                        // threshold it has to reach — and lets the reader see how far short it
+                        // is, instead of asserting that it is nearly there.
+                        let erle = shared_aec.erle_db();
+                        let leak = shared_aec.leak_dbfs();
                         eprintln!(
-                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller has not proven itself yet (erle={erle} dB, needs {:.3} s of Rich speaking then {:.3} s held below the leak floor); barge-in still needs {:.3} s of talking over him until it does",
-                            crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_WARMUP_BLOCKS),
+                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller cannot vouch for this audio (erle={erle:.1} dB, residual {leak:.1} dBFS vs the {:.1} dBFS it must hold for {:.3} s after {:.3} s of Rich speaking); barge-in needs {:.3} s of talking over him while that is so",
+                            dbfs(crate::aec::CONFIDENT_LEAK_RMS),
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_HOLD_BLOCKS),
+                            crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_WARMUP_BLOCKS),
                             crate::vad::frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
                         );
-                        // AND HE IS TOLD, once per run. Audit-3 §4 #1: he talked over Rich,
-                        // the part spoken over the answer was thrown away, the tail was sent
-                        // as though it were the whole sentence, and nothing on screen said
-                        // so — Rich had to ask him what he meant.
-                        if talked_over.talked_over_discard() {
+                        // AND HE IS TOLD, once per voice session — see `HalfDuplexNotice`.
+                        // What he is told asserts nothing about whether he spoke, because on
+                        // this path the app cannot know: `tainted` requires `!confident`, and
+                        // `!confident` is the canceller saying it cannot separate the voices.
+                        if half_duplex.discard_during_playout() {
                             observer.on_voice_event(&VoiceEvent::Notice {
-                                message: VoiceNotice::TalkedOverRich.ceo_message().to_string(),
+                                message: VoiceNotice::CouldNotListenWhileSpeaking
+                                    .ceo_message()
+                                    .to_string(),
                                 at: now_millis(),
                             });
                         }
@@ -1760,52 +1896,87 @@ mod tests {
         assert_eq!(notices(&rec).len(), 2, "the discard went silent after a good turn");
     }
 
-    /// INVARIANT — **audit-3 §4 #1: being talked over is no longer silent.** The first
-    /// tainted discard of a run says so; the rest are stderr only.
-    ///
-    /// The cadence is the thing being pinned, and it is the reason this latch is a struct at
-    /// all: before this change the CEO got nothing whatever, and the obvious over-correction
-    /// — a line every time he tries to interrupt — would be worse than the silence, because
-    /// interrupting is exactly what he will keep doing.
+    /// INVARIANT — **audit-3 §4 #1: a discard during Rich's playout is no longer silent.** The
+    /// first one of the voice session says so; the rest are stderr only.
     #[test]
-    fn the_first_time_he_is_talked_over_says_so_and_the_rest_of_the_run_does_not() {
-        let mut latch = TalkedOverLatch::new();
-        assert!(latch.talked_over_discard(), "the first one was silent — the defect itself");
+    fn the_first_discard_during_playout_says_so_and_the_rest_do_not() {
+        let mut latch = HalfDuplexNotice::new();
+        assert!(latch.discard_during_playout(), "the first one was silent — the defect itself");
         assert!(latch.already_said());
-        assert!(!latch.talked_over_discard(), "the notice became a drip");
-        assert!(!latch.talked_over_discard());
+        assert!(!latch.discard_during_playout(), "the notice became a drip");
+        assert!(!latch.discard_during_playout());
     }
 
-    /// POSITIVE CONTROL: the latch is not simply stuck after one fire. Being HEARD proves the
-    /// run is over, so the next time he is talked over he is told again.
+    /// INVARIANT — **and this is the assertion that reversed on 2026-09-17.** It used to read
+    /// `being_heard_clears_the_talked_over_latch`: an admitted utterance reset the latch, so
+    /// the next discard spoke again.
+    ///
+    /// **Ray's candidate-.4 walk is what made that wrong.** On the CEO's rig the discards are
+    /// not interruptions, they are Rich's own voice returning through the speakers, and they
+    /// happen after EVERY spoken answer. So the old cycle was: he speaks → heard → latch clears
+    /// → Rich answers → echo discarded → notice. One notice per answer, for the life of the
+    /// session, about a condition nothing he does can change. The measurement behind "nothing
+    /// he does can change it" is in `HalfDuplexNotice`'s own doc comment: 4.3 dB of linear
+    /// headroom against 15.4 dB needed.
+    ///
+    /// So being heard no longer clears it, and the latch has no clearing path at all.
     #[test]
-    fn being_heard_clears_the_talked_over_latch() {
-        let mut latch = TalkedOverLatch::new();
-        assert!(latch.talked_over_discard());
-        latch.heard();
-        assert!(!latch.already_said(), "an utterance got through and the latch held anyway");
-        assert!(latch.talked_over_discard(), "he was never told again");
+    fn being_heard_does_not_re_arm_the_notice_because_the_condition_is_not_an_event() {
+        let mut latch = HalfDuplexNotice::new();
+        assert!(latch.discard_during_playout());
+        // The supervisor's `CapMsg::Utterance` arm used to call `heard()` here. There is
+        // deliberately no such method to call: a per-answer line is the defect this prevents.
+        assert!(latch.already_said(), "the latch cleared itself somehow");
+        assert!(!latch.discard_during_playout(), "one notice per spoken answer, forever");
     }
 
     /// INVARIANT: a fresh latch says nothing until something is actually discarded. Without
     /// this, a latch that returned `true` on construction would pass the two tests above.
     #[test]
     fn a_fresh_latch_has_nothing_to_say() {
-        let latch = TalkedOverLatch::new();
+        let latch = HalfDuplexNotice::new();
         assert!(!latch.already_said());
-        assert!(!TalkedOverLatch::default().already_said());
+        assert!(!HalfDuplexNotice::default().already_said());
     }
 
-    /// INVARIANT: the talked-over line says what happened to his WORDS and makes no claim
-    /// about what the app can or cannot do.
+    /// **NEGATIVE PROBE — candidate .4's blocker: the notice must not tell him he spoke.**
     ///
-    /// "I can't hear you while I'm speaking" would be the easy sentence and it would be
-    /// false twice over: talking over Rich for 5.008 s cuts him off today, and once the
-    /// canceller proves itself the threshold is 0.400 s. A notice that overstates a
-    /// limitation teaches him not to try the thing that works.
+    /// Ray proved on the CEO's screen that this line fires on Rich's own echo with the CEO
+    /// silent (volume 85 → notice; the identical turn at volume 0 → no discard, no notice).
+    /// The sentence that shipped opened *"You started talking while I was still speaking"*,
+    /// which is a statement about something HE did, emitted on the one path where the canceller
+    /// has declined to vouch for its residual.
+    ///
+    /// This asserts the property rather than the sentence: **every reference to the CEO is
+    /// conditional.** A future edit may reword freely and may not reintroduce an assertion
+    /// about him.
     #[test]
-    fn the_talked_over_line_describes_what_happened_and_promises_nothing() {
-        let m = VoiceNotice::TalkedOverRich.ceo_message();
+    fn the_notice_makes_no_unconditional_claim_about_the_ceo() {
+        let m = VoiceNotice::CouldNotListenWhileSpeaking.ceo_message();
+        let lower = m.to_lowercase();
+        // The conditional is the whole correction, so it is required by name.
+        assert!(lower.contains("if you said something"), "{m}");
+        // None of these can be true of a path where `confident == false`. The first is the
+        // exact sentence Ray's walk refused.
+        for accusation in [
+            "you started talking",
+            "you were talking",
+            "you spoke",
+            "you interrupted",
+            "you talked over",
+            "your voice reached",
+        ] {
+            assert!(!lower.contains(accusation), "{m} asserts {accusation:?} and cannot know it");
+        }
+        // What it IS allowed to assert: Rich's own behavior, which this file does know.
+        assert!(lower.contains("while i was speaking"), "{m}");
+    }
+
+    /// INVARIANT: the line still states the CONSEQUENCE and still ends with a status rather
+    /// than an instruction — the two properties the wording change had to preserve.
+    #[test]
+    fn the_half_duplex_line_states_the_consequence_and_promises_nothing() {
+        let m = VoiceNotice::CouldNotListenWhileSpeaking.ceo_message();
         // The fact he is missing: those words did not arrive, and nothing was sent in his
         // name. The second half is what makes Rich answering a fragment make sense.
         assert!(m.contains("didn't reach me"), "{m}");
@@ -1822,6 +1993,23 @@ mod tests {
         assert!(!m.to_lowercase().contains("barge"), "{m}");
     }
 
+    /// **THE PUBLISHED ERLE CAN BE NEGATIVE.** The packed `AtomicU32` this replaced computed
+    /// `(erle_db.max(0.0) as u32) << 1`, so the −0.1 dB measured live on the CEO's rig reached
+    /// the operator log as `erle=0 dB` — indistinguishable from "has not started".
+    #[test]
+    fn a_negative_erle_survives_publication() {
+        let s = AecShared::default();
+        s.store(false, -0.14, 0.0148);
+        assert!(!s.confident());
+        assert!((s.erle_db() - (-0.14)).abs() < 0.001, "{}", s.erle_db());
+        // 0.0148 rms = 20*log10(0.0148) = -36.59 dBFS — the live figure from the walk's rig.
+        assert!((s.leak_dbfs() - (-36.59)).abs() < 0.02, "{}", s.leak_dbfs());
+        // POSITIVE CONTROL: the same path carries a positive reading unharmed.
+        s.store(true, 28.0, 0.00126);
+        assert!(s.confident());
+        assert!((s.erle_db() - 28.0).abs() < 0.001, "{}", s.erle_db());
+    }
+
     /// INVARIANT: every notice in the enum is a DIFFERENT sentence. Four states that mean
     /// four different things about his microphone must not collapse into one.
     #[test]
@@ -1831,7 +2019,7 @@ mod tests {
             VoiceNotice::HeardNoVoice.ceo_message(),
             VoiceNotice::ReplyCutOff.ceo_message(),
             VoiceNotice::DidNotCatchThat.ceo_message(),
-            VoiceNotice::TalkedOverRich.ceo_message(),
+            VoiceNotice::CouldNotListenWhileSpeaking.ceo_message(),
         ];
         for (i, a) in all.iter().enumerate() {
             for (j, b) in all.iter().enumerate() {
