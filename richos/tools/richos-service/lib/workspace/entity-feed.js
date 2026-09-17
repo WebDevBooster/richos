@@ -26,8 +26,16 @@ import { learnTerm } from '../capture.js';
 /** Default: an attendee must appear on at least this many events to be promoted (corroboration). */
 export const DEFAULT_MIN_CORROBORATION = 2;
 
-/** Case/space-insensitive key for counting the same person across events. */
-function entityKey(c) {
+/**
+ * Case/space-insensitive key for counting the same person across events.
+ *
+ * EXPORTED because the reader that produces the candidates has to dedupe by the SAME key the tally
+ * counts by — one sighting per person per ITEM (`promotion.js:entityCandidatesFromEvidence`). A
+ * second spelling of "is this the same person" there would let a candidate be deduped under one rule
+ * and counted under another, which is the drift this file's own no-clobber discipline exists to
+ * avoid.
+ */
+export function entityKey(c) {
   const email = (c.aliases && c.aliases[0]) || '';
   return (email || c.canonical || '').trim().toLowerCase();
 }

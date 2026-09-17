@@ -352,6 +352,12 @@ export class MicrosoftCalendarAdapter {
       source: 'calendar',
       kind: 'event',
       sourceItemId,
+      // The SAME key the per-calendar merge above uses, carried on the item so the merge survives a
+      // poll boundary — one meeting on two calendars is one meeting whether or not both copies
+      // happened to arrive in the same delta. Parity with the Google adapter, by construction,
+      // including the account scoping: one zone holds every account's evidence, and two mailboxes
+      // can carry the same `iCalUId` without being one item.
+      identityKey: dedupKeyFor(raw) ? `microsoft:calendar:${this.sourceInstanceId}:${dedupKeyFor(raw)}` : '',
       provenance: {
         fetchedAt: this.now(),
         // Graph's per-revision identity. `changeKey` changes when the event changes, which is all the

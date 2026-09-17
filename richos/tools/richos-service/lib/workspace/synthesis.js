@@ -65,10 +65,16 @@ function parties(item) {
  * Has this item been WITHDRAWN at the source? A withdrawn calendar invite and a removed or trashed
  * Drive file are the same thing in temporal memory: a supersede signal, never a new memory and never
  * a hard delete. The structured flags are the vendors' own, set by each adapter.
+ *
+ * EXPORTED because a second caller has to ask it of a whole ITEM rather than of one revision: the
+ * §4.5 entity feed decides whether an item's people count at all, and an item whose CURRENT revision
+ * is withdrawn must not go on teaching a name through the revisions it had before it was called off
+ * (`promotion.js:entityCandidatesFromEvidence`). One implementation, so the filter and the feed can
+ * never disagree about what "withdrawn" means.
  * @param {SourceItem} item
  */
-function withdrawn(item) {
-  const s = item.content.structured || {};
+export function withdrawn(item) {
+  const s = (item && item.content && item.content.structured) || {};
   return Boolean(s.cancelled || s.removed || s.trashed);
 }
 

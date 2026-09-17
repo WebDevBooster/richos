@@ -63,7 +63,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { workspaceZone } from '../config.js';
-import { extractCandidates, isMemoryCandidate, reconcile } from './synthesis.js';
+import { extractCandidates, isMemoryCandidate, reconcile, withdrawn } from './synthesis.js';
+import { entityKey } from './entity-feed.js';
 
 /** The §4.1 kinds this pass promotes, each with the reason it is in or out (see the module header). */
 export const PROMOTABLE_KINDS = {
@@ -562,14 +563,61 @@ export function promoteFromEvidence(opts) {
  * because `entity-feed.js`'s corroboration threshold is a decision about a BATCH: an attendee seen
  * once is not yet a person loro knows. Drive and Gmail items contribute here even though they are
  * not promotable as memory — their people are exactly what §4.5 wants.
+ *
+ * ── ONE SIGHTING PER ITEM, NOT PER REVISION, AND THAT WAS THE DEFECT ────────────────────────────
+ * Corroboration means "seen across many ITEMS" (`synthesis.js:extractCandidates`) — an attendee "on
+ * at least this many events" (`entity-feed.js`). This function counted REVISIONS. The evidence zone
+ * is immutable and cumulative, so an event edited twice at the source leaves three revisions of ONE
+ * meeting, and every one of them handed the same attendee to the tally.
+ *
+ * Measured on the CEO's own zone, 2026-09-17: `Mateo Silva`, whose fixture exists to prove that "one
+ * sighting must NOT become somebody loro knows", was on ONE item with THREE revisions — three
+ * re-seeds of the same meeting, every revision `status=confirmed`, no duplicate and no withdrawal
+ * anywhere in the zone — and the product had learned him. He was the only name in the zone whose
+ * learned status rested on revisions rather than on meetings, and the acceptance run had been
+ * reporting him as `seen 1, expected held, observed learned, FAIL` since the first seed.
+ *
+ * ── AN ITEM WITHDRAWN AT THE SOURCE TEACHES NOBODY, INCLUDING FROM ITS OWN HISTORY ──────────────
+ * `isMemoryCandidate` already yields no candidates from a withdrawn REVISION. That is half a rule
+ * while the zone still holds the confirmed revisions the item had before it was called off — and it
+ * is the normal case, because a meeting can only be called off if it once existed. The seed's own
+ * prediction (`calendar-fixtures.js:expectationsFor`) derives its candidates from the CURRENT state
+ * of each event, so a withdrawn fixture contributes nobody there; a product that kept counting the
+ * item's history would disagree with its own prediction the first time the CEO called a meeting off.
+ * The item's current revision decides, which is the same direction §4.4 takes everywhere else:
+ * precision over recall, and a retracted meeting is not evidence that you work with somebody.
+ *
  * @param {string} [zone]
  * @param {{exclude?:(dir:string) => boolean}} [opts]  see `readEvidenceZone` — `repair`'s counterfactual
  */
 export function entityCandidatesFromEvidence(zone = workspaceZone(), opts = {}) {
-  const candidates = [];
+  // `readEvidenceZone` sorts oldest observation first, so the last revision of each item is the one
+  // the source most recently said is true.
+  const byItem = new Map();
   for (const { item } of readEvidenceZone(zone, opts)) {
-    if (item.trust?.quarantine) continue;
-    for (const candidate of extractCandidates(item).entities) candidates.push(candidate);
+    if (!byItem.has(item.sourceItemId)) byItem.set(item.sourceItemId, []);
+    byItem.get(item.sourceItemId).push(item);
+  }
+
+  const candidates = [];
+  for (const revisions of byItem.values()) {
+    const current = revisions[revisions.length - 1];
+    if (current.trust?.quarantine) continue;
+    if (withdrawn(current)) continue;
+    // The people this ITEM knows about, once each. Read across every revision rather than off the
+    // newest alone: an attendee dropped from a meeting last week was still on it, and losing her
+    // would be a different error from the one being fixed. `entityKey` is the entity feed's own, so
+    // what is deduped here is exactly what would have been counted there.
+    const seen = new Set();
+    for (const revision of revisions) {
+      if (revision.trust?.quarantine) continue;
+      for (const candidate of extractCandidates(revision).entities) {
+        const key = entityKey(candidate);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(candidate);
+      }
+    }
   }
   return candidates;
 }

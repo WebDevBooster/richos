@@ -316,6 +316,16 @@ export class GoogleCalendarAdapter {
       source: 'calendar',
       kind: 'event',
       sourceItemId: `google:calendar:${this.sourceInstanceId}:${ev.id}`,
+      // The SAME key the per-poll merge above uses, carried on the item so the merge survives a poll
+      // boundary. A copy shared onto a second calendar next month arrives in a different `listChanges`
+      // from the original, and the `seen` set is gone by then; the core recognizes it from this.
+      //
+      // SCOPED TO THE ACCOUNT, exactly as `sourceItemId` is, and the suite is what proved it must be:
+      // one evidence zone holds every account's items, and two accounts of the CEO's can hold the
+      // same meeting under the same `iCalUID`. Those are two items by the product's own rule ("the
+      // SAME Google item id under two accounts is two items"), so an unscoped key would have let one
+      // account's calendar silently suppress the other's.
+      identityKey: dedupKeyFor(ev) ? `google:calendar:${this.sourceInstanceId}:${dedupKeyFor(ev)}` : '',
       provenance: {
         fetchedAt: this.now(),
         vendorEtag: String(ev.etag || ''),

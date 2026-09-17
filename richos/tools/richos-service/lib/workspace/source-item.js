@@ -37,6 +37,7 @@ export const SCOPE_HINTS = /** @type {const} */ (['ceo-private', 'org-shared', '
  * @typedef {Object} SourceItem
  * @property {number} schemaVersion
  * @property {string} sourceItemId          stable, vendor-prefixed dedup key: "google:calendar:evt_..."
+ * @property {string} identityKey           optional: the SAME THING seen in another container (see below)
  * @property {'google'|'microsoft'} vendor
  * @property {'calendar'|'drive'|'mail'} source
  * @property {'event'|'document'|'email'|'email-thread'} kind
@@ -92,6 +93,9 @@ export function buildSourceItem(fields) {
   return {
     schemaVersion: SOURCE_ITEM_SCHEMA_VERSION,
     sourceItemId: str(f.sourceItemId) || `${vendor}:${source}:unknown`,
+    // WHAT MAKES TWO ITEMS THE SAME THING WHEN THEIR IDS DIFFER. Optional, and empty for every
+    // source that has no such notion — see the contract note above `dedupKey`.
+    identityKey: str(f.identityKey),
     vendor,
     source,
     kind,
@@ -127,6 +131,18 @@ export function buildSourceItem(fields) {
  * The dedup key for the ingest ledger (§4.2): re-observing an UNCHANGED item (same id + same etag) is a
  * no-op; a CHANGED item (same id, new etag) is a NEW evidence version whose `temporal.supersedes` points
  * at the prior one (temporal memory — never overwrite, loro-architecture #3).
+ *
+ * ── AND WHY `identityKey` IS A SECOND, WEAKER KEY BESIDE IT ─────────────────────────────────────
+ * `sourceItemId` answers "is this the same ITEM" and is the vendor's id. It cannot answer "is this
+ * the same THING" — one meeting on two calendars is two items with two ids, and the CEO does not
+ * have two meetings. Every vendor that can answer the second question has a field for it (Google's
+ * `iCalUID`, Graph's `iCalUId`), so the ADAPTER computes the key and the core acts on it without
+ * knowing which vendor it came from. Empty for a source with no such notion — a Drive file and a
+ * mail message are only ever themselves — and an empty key never collapses anything.
+ *
+ * The key must include the START as well as the uid: every instance of a recurring series shares one
+ * uid, and collapsing eight weekly standups into one is a worse error than the duplicate it would be
+ * fixing. Both calendar adapters key on exactly `uid|start` and are tested on that series.
  * @param {Pick<SourceItem,'sourceItemId'|'provenance'>} item
  * @returns {{sourceItemId:string, vendorEtag:string}}
  */
