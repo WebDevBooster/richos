@@ -464,6 +464,10 @@ function computeQuiet() {
     if (bx0 === Infinity) continue;
     quietBox[b * 4] = bx0 - QUIET_FEATHER; quietBox[b * 4 + 1] = by0 - QUIET_FEATHER; quietBox[b * 4 + 2] = bx1 + QUIET_FEATHER; quietBox[b * 4 + 3] = by1 + QUIET_FEATHER;
   }
+  // Recomputed HERE and only here, on the same signal and at the same cadence: the banner's
+  // box moves when the window does, and reading it per frame would force a layout 60 times a
+  // second for an answer that changes on `resize`. Same discipline as `readTickerZone`.
+  computeBlockers();
   quietDirty = false;
 }
 function quietAt(sx, sy) {
@@ -475,6 +479,89 @@ function quietAt(sx, sy) {
     if (kk < k) k = kk;
   }
   return k * k * (3 - 2 * k);
+}
+// APP: WHERE A CAPTION MAY NOT GO — and it is a DIFFERENT list from the hush, for the same
+// reason the ticker zone is a different list from the hush.
+//
+// THE DEFECT THIS CLOSES (the 2026-09-17 candidate-.2 walk, §4 defect #4, reproduced here
+// before it was fixed). At the app's own documented minimum window, 1024x700, the picture
+// wrote "INFRASTRUCTUR" — the final E missing. Nothing clipped it at the canvas edge; over a
+// 12x11 cursor sweep at that size NOT ONE label left the viewport. `clearQuiet()` erased it.
+// The numbers, read off the running page:
+//
+//     the right column's erase rect   x0 = 775.27   (#home-live .cap / #home-working, +14 pad)
+//     INFRASTRUCTURE's own box        x1 = 801.36   -> 26.09px of the label inside the erase
+//     its CENTER                      sx = 692.38   -> 82.9px clear of the rect
+//     quietAt(sx, sy)                      0.77     -> far above the 0.18 gate, so: drawn
+//
+// The gate was sampled at the label's MIDDLE and the erase is applied to the label's BOX.
+// A label wider than about 68px can therefore pass a gate its own tail fails, and then have
+// that tail rubbed out by a pass that runs after it. Same sweep, same size: 15 node labels
+// were drawn UNDER the opaque first-run banner and 106 were drawn across a domain name.
+//
+// So the box is what is tested now, against three kinds of rect:
+//
+//   * the ERASE rects, because a caption drawn where the picture is about to be rubbed out is
+//     a caption that will be cut mid-glyph. These are `quietRects` themselves — the very
+//     array `clearQuiet()` paints — never a second copy of the same idea.
+//   * the FIRST-RUN BANNER, which is opaque DOM (`rgba(12,19,34,0.97)`) sitting over the
+//     canvas. A label under it is not dimmed, it is gone.
+//   * the temporary line's zone, which `inTickerZone` already owned and still does.
+//
+// THE BANNER IS NOT MADE A QUIET GROUP, and the free eighth slot is not the reason to make it
+// one. A quiet group hushes the stars for QUIET_FEATHER = 120px around itself, and the CEO's
+// ruling of 2026-09-17 was about exactly that: *"it overlays a rectangular shadow over the
+// entire text area ... Remove this oversized shadow overlay"*. Putting a 120px feathered hush
+// around the banner would answer this defect by committing the one he had just ruled out.
+// Nothing here changes a pixel of the picture's light; it only decides where a caption goes.
+let blockRects = [];
+function computeBlockers() {
+  blockRects = [];
+  for (let g = 0; g < QUIET_N; g++) {
+    const o = g * 4; if (quietRects[o + 2] < 0) continue;
+    blockRects.push([quietRects[o], quietRects[o + 1], quietRects[o + 2], quietRects[o + 3]]);
+  }
+  const note = $('#home-note');
+  if (note && !note.hidden) {
+    const r = note.getBoundingClientRect();
+    if (r.width > 0) blockRects.push([r.left, r.top, r.right, r.bottom]);
+  }
+}
+const hitsRect = (b, x0, y0, x1, y1) => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1];
+function blockedBox(x0, y0, x1, y1) {
+  if (x0 < 0 || x1 > W || y0 < 0 || y1 > H) return true;
+  for (let k = 0; k < blockRects.length; k++) if (hitsRect(blockRects[k], x0, y0, x1, y1)) return true;
+  return inTickerZone(x0, y0, x1, y1);
+}
+// THE SMALLEST SIDEWAYS MOVE THAT CLEARS EVERYTHING, or `null` for "there isn't one".
+//
+// Horizontal only, and that is not laziness: every rect above is a tall column or a wide band
+// at the top, so the axis with room in it is x. A label that cannot fit fades out instead —
+// which is this file's own rule ("A label is either legible or absent"), and clipping was
+// always the third state that rule says does not exist.
+//
+// 64px is the budget. The largest shift any label actually asked for at 1024x700 was
+// INFRASTRUCTURE's 26.09px, so the budget is 2.45x the worst measured case and still small
+// against a domain cluster, which spans 150-250px on screen at that size: the name stays over
+// its own stars. It is a budget rather than an unbounded solve because an unbounded one would
+// happily park a domain name over somebody else's cluster to keep it on screen.
+const LABEL_NUDGE_MAX = 64;
+function clearingShift(x0, y0, x1, y1) {
+  if (!blockedBox(x0, y0, x1, y1)) return 0;
+  const tries = [];
+  for (let k = 0; k < blockRects.length; k++) {
+    const b = blockRects[k];
+    if (!hitsRect(b, x0, y0, x1, y1)) continue;
+    tries.push(b[0] - x1, b[2] - x0);
+  }
+  if (tickerZone && inTickerZone(x0, y0, x1, y1)) tries.push(tickerZone[0] - x1, tickerZone[2] - x0);
+  tries.push(-x0, W - x1);
+  tries.sort((a, b) => Math.abs(a) - Math.abs(b));
+  for (const s of tries) {
+    if (Math.abs(s) > LABEL_NUDGE_MAX) continue;
+    if (!blockedBox(x0 + s, y0, x1 + s, y1)) return s;
+  }
+  return null;
 }
 // The rows themselves are erased completely; the erase feathers out around them, so a big soft thing
 // (the core, a ripple) that drifts under the block fades rather than being cut by a rectangle.
@@ -1071,13 +1158,23 @@ function drawOverlay(now, t, src, hoverActive) {
     ctx.letterSpacing = '0.22em';
     const label = domains[d].label.toUpperCase();
     const half = ctx.measureText(label).width / 2 + 8;
-    const blocked = inTickerZone(sx - half, sy - 14, sx + half, sy + 28);
+    // APP: the WHOLE BOX is tested now, against every rect a caption may not touch, and a
+    // label that needs only a small sideways move gets one instead of being rubbed out by
+    // `clearQuiet()` a few lines later. `shift === null` means no move inside the budget
+    // clears it, which fades the label exactly as the ticker zone already did — one fewer
+    // name on screen, never half a name. See `clearingShift` for the measured numbers.
+    const shift = clearingShift(sx - half, sy - 14, sx + half, sy + 28);
+    const blocked = shift === null;
+    // Everything the label draws hangs off `lx`, including the count beneath it and the box
+    // exported to `domLabelRects`, so the shifted label and the rect that claims its space
+    // cannot come apart.
+    const lx = sx + (shift || 0);
     let a = easeTo(domEase, d, q < 0.18 || blocked ? 0 : (0.78 + 0.20 * near * near) * Math.min(1, LABEL_FLOOR + (q - 0.18) * 0.9), edt);
     if (hoverActive) a *= 0.86;
     if (domHover >= 0) a = blocked ? 0 : domHover === d ? 1 : 0.86;
     a *= clamp((t - 2.5) / 1.5, 0, 1);
     if (a < 0.05) continue;
-    ctx.save(); ctx.translate(sx, sy);
+    ctx.save(); ctx.translate(lx, sy);
     ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = `rgba(${HALO},${0.98 * a})`;
     ctx.strokeText(label, 0, 0);
     ctx.fillStyle = `rgba(${INK},${a})`;
@@ -1090,7 +1187,14 @@ function drawOverlay(now, t, src, hoverActive) {
     ctx.restore();
     // APP: `half` is `measureText(label).width / 2 + 8`, taken above with the same font and the
     // same letter-spacing — the identical box, measured once instead of twice.
-    if (a > 0.15) domLabelRects.push({ d, x0: sx - half, x1: sx + half, y0: sy - 14, y1: sy + 28 });
+    //
+    // `pad` is the 8 inside that `half`: the margin between the glyphs and the edge of the box
+    // this label claims. It is exported because the difference matters to anyone measuring a
+    // clipped label — an overlap of 6px eats margin and an overlap of 22px eats the final E,
+    // and a count that cannot tell those apart cannot say which one happened. The engine keeps
+    // the WHOLE box clear, margin included, because the 2.5px halo `strokeText` lays down under
+    // the ink is what buys the label its contrast ratio.
+    if (a > 0.15) domLabelRects.push({ d, x0: lx - half, x1: lx + half, y0: sy - 14, y1: sy + 28, pad: 8 });
   }
   ctx.letterSpacing = '0px';
   // node labels: which
@@ -1106,10 +1210,18 @@ function drawOverlay(now, t, src, hoverActive) {
     cand.sort((a, b) => a[1] - b[1]).slice(0, 5).forEach(([i, d]) => labels.push([i, LABEL_FLOOR + (1 - LABEL_FLOOR) * (1 - d / 130), false, true]));
   }
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  // APP: the temporary line is seeded into `placed` as though it were a label that got there
-  // first. A node label already refuses to sit on top of one, so the zone needs no second rule —
-  // and when the line is down, `tickerZone` is null and this is the empty array it always was.
-  const seen = new Set(), placed = tickerZone ? [tickerZone.slice()] : [], wanted = new Set(labels.map(l => l[0]));
+  // APP: `placed` is now ONLY the node labels this pass actually drew, and everything a node
+  // label must keep off is `taken` beside it.
+  //
+  // It used to be one array with the ticker zone seeded at index 0 and `.slice(tickerZone ? 1
+  // : 0)` at the bottom to take the seed back out — a correct trick that does not survive a
+  // second seed, and this pass needs three more: the erase rects, the first-run banner, and
+  // the DOMAIN NAMES. That last one is candidate-.2 defect #4's third symptom: over a 12x11
+  // cursor sweep at 1024x700, 106 node labels were drawn across a domain name, because this
+  // list carried no domain rect to collide with. `domLabelRects` is built a few lines above,
+  // in this same pass, so it is this frame's truth rather than the last frame's.
+  const seen = new Set(), placed = [], wanted = new Set(labels.map(l => l[0]));
+  const taken = domLabelRects.map(r => [r.x0, r.y0, r.x1, r.y1]);
   for (let k = 0; k < shownLabels.length; k++) { const i = shownLabels[k]; if (!wanted.has(i)) easeTo(nodeEase, i, 0, edt); }
   shownLabels = [];
   for (const [i, aT, primary, withTerritory] of labels) {
@@ -1127,17 +1239,25 @@ function drawOverlay(now, t, src, hoverActive) {
     const y = sy + r + 5;
     const tw = ctx.measureText(text).width + 6, x0 = sx - tw / 2, x1 = sx + tw / 2, y0 = y - 2, y1 = y + fs + 3;
     if (placed.some(b => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1])) continue;
+    if (taken.some(b => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1])) continue;
+    // The erase rects, the banner, the ticker zone and the viewport, in one test. A node
+    // label is summoned by the cursor and leaves with it, so there is no nudge here and no
+    // need of one: skipping is the behavior this loop already had for a collision, and one
+    // chip fewer under the pointer is not a name the screen has lost.
+    if (blockedBox(x0, y0, x1, y1)) continue;
     placed.push([x0, y0, x1, y1]);
     ctx.lineWidth = 4.5; ctx.strokeStyle = `rgba(${HALO},${0.98 * a})`; ctx.lineJoin = 'round';
     ctx.strokeText(text, sx, y);
     ctx.fillStyle = primary ? `rgba(${tint(domCss[D.nodeDomain[i]])},${a})` : `rgba(${INK},${a})`;
     ctx.fillText(text, sx, y);
   }
-  // APP: `.slice(tickerZone ? 1 : 0)` — the zone seeded above is a place a label MAY NOT GO, not
-  // a label that is there. Exporting it as one would tell every reader of this list that the
-  // picture had drawn a caption over the temporary line, which is the exact condition the seed
-  // exists to prevent; it is a rect this list must not carry.
-  nodeLabelRects = placed.slice(tickerZone ? 1 : 0).map(([x0, y0, x1, y1]) => ({ x0, y0, x1, y1 }));
+  // APP: every entry of `placed` is a node label that was drawn, and nothing else is in there
+  // any more — the places a label MAY NOT GO live in `taken` and `blockRects`. Exporting a
+  // no-go rect as a label would tell every reader of this list that the picture had written a
+  // caption over the temporary line, which is the exact condition the zone exists to prevent.
+  // `pad: 3` is the 6 in `measureText(text).width + 6`, split across the two sides — the same
+  // glyphs-to-box margin `pad: 8` records for a domain name.
+  nodeLabelRects = placed.map(([x0, y0, x1, y1]) => ({ x0, y0, x1, y1, pad: 3 }));
   // ripples
   for (let k = ripples.length - 1; k >= 0; k--) {
     const rp = ripples[k]; const p = (now - rp.t0) / 1100; if (p >= 1) { ripples.splice(k, 1); continue; }
@@ -1192,7 +1312,15 @@ function resume() {
 
 $('#home-loading').classList.add('gone');
 rafId = requestAnimationFrame(frame);
-window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
+// `eraseRects` is what `clearQuiet()` actually paints out, read straight off `quietRects`
+// rather than described a second time: the fit suite asserts that no label the picture drew
+// overlaps a rectangle the picture then rubs out, and a test carrying its own copy of that
+// geometry would be a test of the copy. `labelBlockers` is the whole no-caption list, the
+// banner included.
+window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt,
+  get eraseRects() { const out = []; for (let g = 0; g < QUIET_N; g++) { const o = g * 4; if (quietRects[o + 2] < 0) continue; out.push({ x0: quietRects[o], y0: quietRects[o + 1], x1: quietRects[o + 2], y1: quietRects[o + 3] }); } return out; },
+  get labelBlockers() { return blockRects.map(([x0, y0, x1, y1]) => ({ x0, y0, x1, y1 })); },
+  get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
 })().catch((e) => {
   // THE HONEST FAILURE NEEDS SOMEWHERE TO LAND. Every throw above is inside this async
   // IIFE — `WebGL unavailable` at the context, a shader that will not compile, a program
