@@ -68,6 +68,7 @@ EVENT_PAYLOAD_FIELDS = {
     "entity.registered": {"display_name", "canonical_root", "git_common_dir", "status"},
     "thread.created": {"title"},
     "thread.activated": {"audience", "turn_id", "handover_from"},
+    "thread.deactivated": {"reason"},
     "session.observed": {"vendor", "status"},
     "hook.observed": {
         "adapter", "authority", "session_id", "cwd", "transcript_path",
@@ -819,6 +820,36 @@ class EventStore:
                 event["source_ref"],
                 revision,
             ),
+        )
+
+    def _on_thread_deactivated(self, conn: sqlite3.Connection, **event: Any) -> None:
+        """Release one seat's cursor. An orphan seat is a defect, not a leftover.
+
+        A seat is a durable row and an action grant is a file the lease shutdown
+        rewrites, so the seat is the half that survives a crash: reconciliation has
+        to be able to remove one. It is an EVENT rather than a DELETE because
+        ``rebuild_projections`` replays the journal over an emptied
+        ``ecs_active_context``, and a seat released by a raw delete would walk back
+        out of the journal on the next rebuild.
+
+        WHOSE SEAT THIS CAN BE, identified positively rather than by elimination:
+        only a row whose audience is ``worker``. "Everything that is not his" is
+        exactly the reasoning that deletes the CEO's cursor after a crash.
+        """
+        active = conn.execute(
+            "SELECT * FROM ecs_active_context WHERE person_id = ?", (event["person_id"],)
+        ).fetchone()
+        if not active:
+            # Releasing a seat that is already gone is the reconciliation's own
+            # idempotence, not a conflict to raise at whoever is cleaning up.
+            return
+        if active["audience"] != "worker":
+            raise ScopeError(
+                "only a worker seat can be released; the conversation's own cursor is not reconcilable"
+            )
+        self._expect(active, event["expected_revision"], "active context")
+        conn.execute(
+            "DELETE FROM ecs_active_context WHERE person_id = ?", (event["person_id"],)
         )
 
     def _on_session_observed(self, conn: sqlite3.Connection, **event: Any) -> None:

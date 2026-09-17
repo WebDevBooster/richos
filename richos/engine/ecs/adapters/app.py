@@ -21,7 +21,9 @@ BINDING_FIELDS = ("entity_id", "thread_id", "session_id", "turn_id", "audience",
 # one's cursor out from under it. The seat is explicit or absent; absent is the
 # CEO's own cursor and every call shape that predates seats is untouched.
 CONVERSATION_ONLY = ("checkpoint", "receipt", "brief")
-
+# Enumerating and releasing seats is the HOST's reconciliation, never a background
+# lease's: a lease that could release seats could release another lease's.
+HOST_ONLY = ("seats", "release-seat")
 
 
 def required(document, key):
@@ -112,7 +114,7 @@ def execute(state_root, request):
             identity.update(file.read_bytes())
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "seats", "release-seat"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
@@ -134,6 +136,8 @@ def execute(state_root, request):
     # MCP config: an allow-list on tool NAMES cannot see whose seat is calling.
     if command in CONVERSATION_ONLY and context["person_id"] != PERSON_ID:
         raise ScopeError("checkpoint, receipt and brief belong to the conversation's own seat")
+    if command in HOST_ONLY and context["person_id"] != PERSON_ID:
+        raise ScopeError("seat reconciliation belongs to the conversation's own seat")
     if command == "sync-loro-receipts":
         from loro_receipts import synchronize
         result = synchronize(store, binding, context["person_id"])
@@ -173,6 +177,34 @@ def execute(state_root, request):
         if not isinstance(query, dict) or set(query) - {"section", "offset", "limit", "sequence", "item_id", "query", "include_closed"}:
             raise ValidationError("unsupported inspection fields")
         result = inspect_records(store, person_id=context["person_id"], **query)
+    elif command == "seats":
+        # Every cursor in the store, so reconciliation can see the seats a crash
+        # left behind. health() reports them too, for the same reason: a diagnostic
+        # that shows one cursor while two exist lies exactly when it is being used
+        # to diagnose a second cursor.
+        conn = store.connect()
+        try:
+            result = {"seats": [dict(row) for row in conn.execute(
+                "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
+                "FROM ecs_active_context ORDER BY person_id").fetchall()]}
+        finally:
+            conn.close()
+    elif command == "release-seat":
+        target = required(request, "person_id")
+        if target == PERSON_ID:
+            raise ScopeError("the conversation's own seat is never reconciled away")
+        row = store.current_context(target)
+        if row is None:
+            result = {"released": False, "seat": target, "reason": "no such seat"}
+        else:
+            if row["entity_id"] != context["entity_id"] or row["thread_id"] != context["thread_id"]:
+                raise ScopeError("a seat cannot be released from another company or thread")
+            store.append("thread.deactivated", entity_id=row["entity_id"], thread_id=row["thread_id"],
+                session_id=row["session_id"], person_id=target, expected_revision=int(row["revision"]),
+                actor_kind="app", actor_id="richos-app-v1", source_ref=required(request, "source_ref"),
+                idempotency_key=f"app-release-seat:{required(request, 'request_id')}",
+                payload={"reason": request.get("reason") or "assignment settled"})
+            result = {"released": True, "seat": target, "turn_id": row["turn_id"]}
     elif command == "observation-receipt":
         event = store.existing_event(f"app-observe:{required(request, 'request_id')}")
         if event is None:

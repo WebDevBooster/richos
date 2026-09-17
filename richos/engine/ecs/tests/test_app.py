@@ -360,6 +360,40 @@ class WorkSeatTests(unittest.TestCase):
             self.assertIn("belong to the conversation's own seat",
                           self.call(command, ok=False, seat=self.SEAT, binding=frozen, **fields))
 
+    def test_an_orphan_seat_is_released_and_his_own_seat_never_is(self):
+        frozen = self.work_seat()
+        self.three_ceo_turns()
+        self.assertEqual(
+            sorted(row["person_id"] for row in
+                   self.call("seats", binding=self.ceo)["seats"]),
+            ["ceo-default", self.SEAT])
+        # His cursor is identified POSITIVELY and refused by name. "Everything that
+        # is not his" is exactly the reasoning that deletes it after a crash.
+        self.assertIn("never reconciled away",
+                      self.call("release-seat", ok=False, binding=self.ceo,
+                                person_id="ceo-default", request_id="rel-0",
+                                source_ref="reconcile:0"))
+        # A lease cannot release seats at all -- its own or anybody's.
+        self.assertIn("belongs to the conversation's own seat",
+                      self.call("release-seat", ok=False, seat=self.SEAT, binding=frozen,
+                                person_id=self.SEAT, request_id="rel-1",
+                                source_ref="reconcile:1"))
+        released = self.call("release-seat", binding=self.ceo, person_id=self.SEAT,
+                             request_id="rel-2", source_ref="reconcile:2")
+        self.assertEqual((released["released"], released["turn_id"]), (True, "assign-7"))
+        self.assertIn("stale app binding",
+                      self.call("inspect", ok=False, seat=self.SEAT, binding=frozen))
+        # Positive control: his own cursor is untouched by the release.
+        self.assertEqual(self.call("inspect", binding=self.ceo)["turn"], "turn-4")
+        # And the release is an EVENT, so a projection rebuild does not walk the
+        # seat back out of the journal.
+        EventStore(self.state).rebuild_projections()
+        self.assertEqual([row["person_id"] for row in
+                          self.call("seats", binding=self.ceo)["seats"]], ["ceo-default"])
+        # Releasing an absent seat is the reconciliation's own idempotence.
+        self.assertFalse(self.call("release-seat", binding=self.ceo, person_id=self.SEAT,
+                                   request_id="rel-3", source_ref="reconcile:3")["released"])
+
 
 if __name__ == "__main__":
     unittest.main()
