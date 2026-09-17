@@ -92,6 +92,49 @@ const CONTENT_BEARING_KEYS = ['body', 'bodyPreview', 'uniqueBody'];
 /** A body longer than this is truncated (body mode only); the deep link stays authoritative. */
 export const MAX_BODY_CHARS = 100_000;
 
+/**
+ * Graph error codes meaning "this account has no Exchange mailbox to read". Not a token problem, not
+ * a scope problem, not a transient fault — a stated FACT about the account, and a likely one here:
+ * a personal Microsoft account reached through the consumer endpoint, or a tenant user with no
+ * Exchange Online license, is exactly this shape. It is the Microsoft twin of the CEO's own
+ * no-Gmail-mailbox Google account (`google-gmail.js`, 2026-09-17).
+ */
+export const MAILBOX_UNAVAILABLE_CODES = [
+  'MailboxNotEnabledForRESTAPI',
+  'MailboxNotHostedInExchangeOnline',
+];
+
+/**
+ * Thrown as its own class, never a bare `Error`, so a caller can tell "this account has no mailbox"
+ * apart from every other 400 shape without string-matching a message.
+ */
+export class MicrosoftMailboxUnavailableError extends Error {
+  constructor(code) {
+    super('this Microsoft account has no Exchange mailbox');
+    this.name = 'MicrosoftMailboxUnavailableError';
+    this.graphCode = code || null;
+    // The generic, source-agnostic signal `sync()` checks for without importing this class or
+    // knowing anything about Outlook: "stated condition, not a failure." Same contract Gmail's
+    // GmailMailboxUnavailableError uses, so commands.js needed no change to handle this vendor.
+    this.unavailable = true;
+    this.reason = 'this Microsoft account has no Exchange mailbox';
+  }
+}
+
+/**
+ * Does a Graph 4xx carry the "no mailbox" condition?
+ *
+ * Cleaner than the Gmail side's equivalent by construction: `microsoft-client.js` already parses the
+ * Graph error envelope into `err.graphCode`, so this matches on a STRUCTURED field rather than
+ * parsing a JSON tail out of an error message. A 400 carrying any other code is not this condition
+ * and must still fail as a real error — asserted with a positive control in the suite.
+ * @param {any} err
+ */
+export function isMailboxUnavailable(err) {
+  if (!err || err.status !== 400) return false;
+  return MAILBOX_UNAVAILABLE_CODES.includes(String(err.graphCode || ''));
+}
+
 export class MicrosoftOutlookAdapter {
   /**
    * @param {{client:import('../microsoft-client.js').MicrosoftGraphClient, accountId:string,
@@ -154,7 +197,17 @@ export class MicrosoftOutlookAdapter {
     let url = syncState && syncState.syncToken ? String(syncState.syncToken) : this.buildDeltaUrl();
     let deltaLink = null;
     for (;;) {
-      const page = await this.client.getJson(url, { prefer: this.preferHeaders() });
+      let page;
+      try {
+        page = await this.client.getJson(url, { prefer: this.preferHeaders() });
+      } catch (err) {
+        // "This account has no mailbox" is a STATED CONDITION, not a failure: translating it here
+        // lets `sync()` report it as such and carry on with Calendar and OneDrive, instead of one
+        // unlicensed source turning a whole poll into an error the CEO has to interpret. Every other
+        // error, including every other 400, propagates untouched.
+        if (isMailboxUnavailable(err)) throw new MicrosoftMailboxUnavailableError(err.graphCode);
+        throw err;
+      }
       for (const msg of page.value || []) items.push(msg);
       if (page['@odata.nextLink']) {
         url = page['@odata.nextLink'];
