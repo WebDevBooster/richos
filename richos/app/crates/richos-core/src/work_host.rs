@@ -25,6 +25,23 @@
 //!    same evidence the conversation's turn-end check uses, read against the WORK lease's
 //!    session id (spec §2.9) — and anything it cannot witness counts as still running.
 //!
+//! **THE CEO's §51 SHAPE, AND WHERE THIS FILE DEPARTS FROM THE SPEC BECAUSE OF IT.**
+//! `richos-hq/wiki/ceo-decisions.md` §51 (2026-09-17): *"the job of the front desk Rich is
+//! solely talking to the CEO and relaying info to and from the back-end Rich."* One front
+//! desk — the conversation lease — and **one standing, invisible back-end Rich** that starts
+//! and stops jobs, dispatches, lands and keeps the record. The ruling names the consequence
+//! for this file in its own words: *"the work host runs ONE standing back-end lease instead
+//! of one per job"*, which overrules the spec's per-assignment lease wherever the two
+//! disagree.
+//!
+//! So [`WorkHost::ensure_lease`] opens the back end once and every assignment afterwards runs
+//! on that same lease — pinned by `the_back_end_is_one_standing_lease_across_every_assignment`
+//! rather than left to a return-early nobody would notice changing. What stays per assignment
+//! is what §51 keeps per assignment: an assignment is *"a bookkeeping unit inside the back
+//! end (its own record, seat, stop, approval line) — not a separate mind"*, so the seat, the
+//! standing grant and the permission queue's hold are still one each, created and released
+//! with the assignment.
+//!
 //! **What is deliberately NOT here, because it is the next slice.** Rows 5 and 9 of the
 //! spec's §0 table: the window-closed process model (§2.4/§2.4a/§2.5) and recovery (§6).
 //! [`WorkHost::open_assignments`] and [`WorkHost::settlement`] are the two seams those need
@@ -958,6 +975,10 @@ mod tests {
         fence: Arc<Fence>,
         step: std::time::Duration,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        /// How many back-end leases this host has asked for. The CEO's §51 shape is ONE,
+        /// standing, for every assignment — so this is an observable rather than a counter
+        /// nobody reads.
+        spawns: Arc<AtomicUsize>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -965,6 +986,7 @@ mod tests {
             Err(CognitionError::Protocol("a conversation lease is not what this factory is for".into()))
         }
         fn spawn_work(&self, _binding: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+            self.spawns.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(WorkLease {
                 session: "work-session-one".into(),
                 bound: self.bound.clone(),
@@ -994,6 +1016,7 @@ mod tests {
         binding: ThreadBinding,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
         desk: Arc<crate::permissions::PermissionDesk>,
+        spawns: Arc<AtomicUsize>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -1007,16 +1030,18 @@ mod tests {
         let fence = Arc::new(Fence::default());
         let notices = Arc::new(Recorder(Mutex::new(Vec::new())));
         let obligation = Arc::new(Mutex::new(None));
+        let spawns = Arc::new(AtomicUsize::new(0));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
             fence: fence.clone(),
             step: std::time::Duration::from_millis(step_ms),
             obligation: obligation.clone(),
+            spawns: spawns.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
-        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk }
+        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -1617,6 +1642,65 @@ mod tests {
         h.host.shutdown();
         std::fs::remove_file(grant).unwrap();
         std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **THE CEO's §51 SHAPE, PINNED** (`richos-hq/wiki/ceo-decisions.md` §51,
+    /// 2026-09-17): *"the job of the front desk Rich is solely talking to the CEO and
+    /// relaying info to and from the back-end Rich"* — one front desk, and **one standing,
+    /// invisible back-end Rich** that starts and stops jobs. The ruling names the
+    /// consequence for this file: *"the work host runs ONE standing back-end lease instead
+    /// of one per job."*
+    ///
+    /// **It was already true, and that is exactly why it needs a test.** It held by
+    /// `ensure_lease` returning early when a lease exists — a shape nothing would have gone
+    /// red for changing, in a file whose own doc still says "per assignment" about the seat
+    /// and the grant (which §51 keeps: an assignment stays a bookkeeping unit INSIDE the
+    /// back end). Three assignments' worth of work — two registrations and a resume — ask
+    /// the factory for a lease exactly once.
+    #[test]
+    fn the_back_end_is_one_standing_lease_across_every_assignment() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let _runner = h.host.start();
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "a second assignment opened a second back end");
+
+        // ...and a resume, which is the third time work goes onto the lease, does not open
+        // one either.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = h.desk.background_queue();
+        let crate::permissions::Answered::ToAssignment { binding, .. } =
+            h.desk.resolve(&waiting[0].id, true).unwrap()
+        else {
+            panic!("the request still had a call waiting on it");
+        };
+        h.host.apply_decision(&binding, true).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "a resume opened a second back end");
+
+        // POSITIVE CONTROL: the counter can move. Quit drops the lease, and the next
+        // assignment on a fresh host asks for one — so "1" above is a fact about reuse and
+        // not about a counter that is never incremented.
+        assert_eq!(first.id.is_empty(), false);
+        h.host.shutdown();
+        let again = harness(5);
+        let _runner2 = again.host.start();
+        again.host.register(&again.binding, &registration(&again)).unwrap();
+        assert!(again.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(again.spawns.load(Ordering::SeqCst), 1, "the spawn counter never moves at all");
+        again.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+        std::fs::remove_dir_all(again.root).unwrap();
     }
 
     #[test]

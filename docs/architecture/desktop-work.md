@@ -105,6 +105,41 @@ would change his repository and stopped there, because local integration is not 
 of actions a worker may take without asking — so what he is told is that it is ready for him
 to approve, never that it is done.
 
+There is one front desk and one back end. The conversation talks to the CEO and relays; a
+single standing back-end lease starts and stops jobs, dispatches, lands and keeps the record,
+and it is never visible to him. It is opened once and every assignment afterwards runs on it.
+An assignment is a bookkeeping unit inside that back end — its own record, seat, stop and
+approval line — and not a second mind.
+
+A request for an action that is not on that list waits for him rather than being refused for
+want of a visible turn. The permission desk holds one ordered queue for both leases: the
+head of the conversation's requests is shown on the permission sheet, and background work's
+are shown on the assignment they belong to, with the approve and decline controls beside the
+sentence that says the decision is his. A background request is held by the ASSIGNMENT's
+identity rather than by a turn, so it survives the work lease's turn ending, and it is
+released when that assignment settles, fails, is stopped, or is open at quit. A queued
+request blocks only its own worker.
+
+The provider call that raised a request still ends at its deadline, in "not approved" and
+never in approval. The request does not end with it: the receipt says which step it is
+waiting on, and his later answer applies to the assignment. Approved, the assignment goes
+back on the work lease to take the step he approved — one exact action, one exact input, once
+— and the run that resumes has no standing permission for anything else. Declined, it stops
+where it stands with nothing in his repository changed and everything it produced kept.
+Nothing is ever approved on his behalf, and nothing restarts by itself: a resume happens
+because he pressed approve.
+
+The queue lives in the running process. An assignment that stopped at a decision of his
+before a restart is still recorded as waiting, and the surface says so and points at the
+conversation rather than at a control that is not there; carrying the question itself across
+a restart is part of background-work recovery, which is a later slice.
+
+The update gate reads both leases. An update is declined while an assignment is running, while
+an assignment is waiting for his approval, and while the assignment register cannot be read at
+all; the offer stays available, and the reason says which of those it is. Nothing registered
+and no work lease is a clear answer rather than a refusal, so an app that has done no
+background work updates exactly as it did before.
+
 Closing the last window still ends the process, which stops the work — the Lifecycle
 sentence below is unchanged and still true. The window-closed process model and
 background-work recovery are a later slice, and nothing above promises either.
