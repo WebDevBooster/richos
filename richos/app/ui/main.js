@@ -386,6 +386,11 @@ let voiceModelOffer = null;
 /// never inferred from the absence of an event.
 let voiceModelBusy = false;
 let savedWork = {items: [], omitted: 0};
+/// The background ASSIGNMENTS on this conversation — what he asked for, and what each one
+/// is doing right now. Separate from `savedWork`, which is the engine's receipts for what a
+/// worker did (background-work spec §1: the register exists from the moment he speaks,
+/// before any workspace does).
+let assignments = {rows: []};
 let workStatusRead = 0;
 let workStatusBusy = false;
 let drillItems = []; // populated from the real `get_worker_status` command — honest-empty
@@ -1085,6 +1090,16 @@ async function openThread(threadId, opts) {
   // threads can move between companies — a notice left over from the last one would be a
   // claim about a company it was not derived for.
   await renderFirstRunNotice();
+  // **WHAT LANDED WHILE HE WAS NOT LOOKING** (background-work spec §3.4 and §0 row 6).
+  //
+  // This is the durable half of the return path, and it is the half that works when the
+  // pushed event could not: it reads the notices held on this thread's assignments, which
+  // survive him closing the window, switching conversations, or quitting and coming back.
+  // The backend marks each one delivered as it hands it over, so it is said once.
+  //
+  // AFTER the thread is on screen, deliberately: a notice is a line in a conversation he
+  // is looking at, and §3.5's rule is that he is told when he is listening.
+  drainWorkNotices();
   // Returning to a thread whose turn is still streaming picks its live state back up (§2:
   // "return to a running thread without losing its live state") — `loadTimeline` already
   // called `reviveLiveTurns()`, so the duration row resumes ticking from the real
@@ -2799,6 +2814,11 @@ Bridge.listen("rich://turn-completed", ({ payload }) => {
   drillItems = [];
   renderDrillChip();
   loadTimeline();
+  // THE BOUNDARY (background-work spec §3.5). Anything a background assignment said while
+  // he was mid-sentence has been waiting for exactly this moment; and the durable read
+  // picks up anything that landed while this window was not the one listening.
+  flushWorkNotices();
+  drainWorkNotices();
 });
 
 Bridge.listen("rich://turn-error", ({ payload }) => {
@@ -2851,6 +2871,18 @@ async function pollWorkerStatus() {
     } catch (error) {
       if (!current()) return;
       savedWork = {items: [], error: String(error)};
+    }
+    // The ASSIGNMENTS he gave — a different thing from the receipts above, and the only
+    // surface that can show background work at all. `get_worker_status` returns an empty
+    // view whenever no turn is open on the thread, which is the entire window background
+    // work lives in (background-work spec §7's observability note).
+    try {
+      const view = await Bridge.invoke("get_assignments", {threadId: thread});
+      if (!current()) return;
+      assignments = {rows: view.assignments || []};
+    } catch (error) {
+      if (!current()) return;
+      assignments = {rows: [], error: String(error)};
     }
   }
   renderDrillChip();
@@ -2922,6 +2954,26 @@ function renderSlideOver() {
     slideoverBody.appendChild(row);
   }
   window.RichWorkSummary.render(savedWork, slideoverBody);
+  // The assignments, with their own stop control (background-work spec §4.2: "where the
+  // work is already visible"). Rendered after the receipts because a receipt is evidence
+  // and an assignment is a thing he can still act on.
+  window.RichWorkSummary.renderAssignments(assignments, slideoverBody, stopAssignment);
+}
+
+/// **Stop ONE assignment.** Not `stop_turn` — that stays the conversation's, which is what
+/// the CEO chose on 2026-09-17 ("OK, go with recommended", background-work spec §4.2).
+///
+/// The refusal path says so plainly rather than silently doing nothing: an assignment that
+/// has already stopped is a real answer, not an error to swallow.
+async function stopAssignment(assignmentId) {
+  if (!activeThreadId) return;
+  try {
+    await Bridge.invoke("stop_assignment", {threadId: activeThreadId, assignmentId});
+  } catch (error) {
+    receiveWorkNotice(String(error));
+  }
+  await pollWorkerStatus();
+  if (!slideoverEl.hidden) renderSlideOver();
 }
 function closeSlideOver() {
   slideoverEl.hidden = true;
@@ -3121,6 +3173,11 @@ function renderVoiceState(state, noAudio) {
   // "hearing" and "thinking" both mean the mic is open and Rich is not talking, so both
   // render as listening — which is the truth the CEO needs.
   const speaking = state === "speaking";
+  // Whether a background result may be said right now (background-work spec §3.5: never
+  // mid-sentence, and never while he is speaking). Recorded here rather than inferred
+  // elsewhere, because this is the one function that knows.
+  voiceBusy = voiceMode && state !== "idle" && state !== "off";
+  if (!voiceBusy) flushWorkNotices();
   // The mic is open and healthy but nothing has arrived for 3.008 s (noaudio.rs). It
   // REPLACES the listening row: "listening…" next to "I can't hear anything" is two claims
   // at once, and the level meter it sits beside is pinned at zero by definition. Rich
@@ -3129,6 +3186,71 @@ function renderVoiceState(state, noAudio) {
   voiceListeningEl.hidden = speaking || silent;
   voiceNoAudioEl.hidden = !silent;
   voiceSpeakingEl.hidden = !speaking;
+}
+
+// ---------------------------------------------------------------------------------------
+// BACKGROUND WORK — the return path (the background-work spec, richos-hq
+// docs/plans/background-work-spec-2026-09-17.md §3)
+// ---------------------------------------------------------------------------------------
+//
+// §0 row 6: *"When a result lands, you are told the next time you are listening, never
+// mid-sentence."*
+//
+// TWO HALVES, AND ONLY ONE OF THEM IS THIS EVENT. The durable half is the notice held on
+// the assignment itself, which `take_work_notices` reads and marks — so a result that lands
+// while he is away is found when he comes back, and survives a relaunch (§3.4). This lane
+// is how it arrives when he IS here (§3.8's precedent, `rich://voice-notice`, which lands
+// an out-of-turn line on the calm timeline today).
+//
+// HELD, NEVER DROPPED. A notice that arrives while a turn is running, or while voice mode
+// is mid-sentence, waits for the boundary (§3.5). The wait is bounded by the same thing
+// that ends a turn; nothing here times out and nothing discards.
+let voiceBusy = false;
+let heldWorkNotices = [];
+
+/// Can a background result be said right now? A live turn or a live voice exchange means no.
+function calmEnoughForANotice() {
+  return !anyLiveTurn() && !voiceBusy;
+}
+
+/// Say one background result on the calm timeline, as an attributed local line — never as
+/// Rich's own turn text, and never a stack trace (§3.3, §3.7).
+function sayWorkNotice(text) {
+  if (!text) return;
+  richVoiceSays(text);
+}
+
+function flushWorkNotices() {
+  if (!heldWorkNotices.length || !calmEnoughForANotice()) return;
+  const pending = heldWorkNotices;
+  heldWorkNotices = [];
+  for (const text of pending) sayWorkNotice(text);
+}
+
+function receiveWorkNotice(text) {
+  if (!text) return;
+  if (!calmEnoughForANotice()) {
+    heldWorkNotices.push(text);
+    return;
+  }
+  sayWorkNotice(text);
+}
+
+/// Everything he has not been told yet on this conversation. Called when a thread opens and
+/// after a turn settles — **it is a read of a durable record, not a poll**: the backend
+/// marks each notice delivered as it hands it over, so this can be called freely and he
+/// still hears each one exactly once.
+async function drainWorkNotices() {
+  if (!activeThreadId) return;
+  let pending = [];
+  try {
+    pending = await Bridge.invoke("take_work_notices", {threadId: activeThreadId});
+  } catch (error) {
+    // "Another conversation is working" and "your assignments are changing" are both
+    // honest, temporary answers (§3.2). The notices stay on disk; the next call gets them.
+    return;
+  }
+  for (const notice of pending || []) receiveWorkNotice(notice.text);
 }
 
 /// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
@@ -3533,6 +3655,21 @@ Bridge.listen("rich://voice-error", ({ payload }) => {
 Bridge.listen("rich://voice-notice", ({ payload }) => {
   if (!payload || !payload.message) return;
   richVoiceSays(payload.message);
+});
+
+/// **A background result, pushed** (background-work spec §3.4/§3.8).
+///
+/// Held rather than said if a turn is running or voice mode is mid-sentence — §3.5's
+/// "never mid-sentence", and §0 row 6's "the next time you are listening".
+///
+/// **Not suppressed when the drill-down is closed, and not gated on the work poll**, which
+/// is the whole reason this event exists: that poll is gated on
+/// `mainView === "conversation" && !document.hidden`, so it cannot carry a result that
+/// lands while he is elsewhere.
+Bridge.listen("rich://work-notice", ({ payload }) => {
+  if (!payload || !payload.notice || !payload.notice.text) return;
+  if (payload.threadId !== activeThreadId) return;
+  receiveWorkNotice(payload.notice.text);
 });
 
 // Relay the reply stream to the speaker. Separate listeners so the render path above is

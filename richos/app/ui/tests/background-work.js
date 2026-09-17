@@ -1,0 +1,263 @@
+// THE BACKGROUND-WORK SURFACE, against the REAL renderer under WebKit.
+//
+// The background-work spec (richos-hq `docs/plans/background-work-spec-2026-09-17.md`
+// revision 5, `9255e71a`), §0 rows 6 and 7, §3.5, §4.2 and §7.8.
+//
+// TWO THINGS THIS SUITE EXISTS TO PIN, and the first one is a sentence rather than a
+// mechanism:
+//
+//   1. **"Ready for you to approve", never "done".** §7.8 says it outright — *"the wording
+//      is the test, not a detail of it. 'Ready for you to approve' and 'done' are the two
+//      sentences this whole step exists to keep apart, and a walk that observes a stopped
+//      assignment but not the words it was described with has not walked 7.8."* So this
+//      reads the words off the rendered DOM, and the negative scan carries a POSITIVE
+//      CONTROL — the same scan run against the `settled` row, which DOES speak of finishing
+//      — because a forbidden-word scan that can never fire passes for its own reasons.
+//
+//   2. **A result waits for the boundary and is never dropped** (§3.5, §0 row 6). The hold
+//      is in `main.js`, so that half is read from the source rather than driven: the whole
+//      shell needs a live Tauri bridge to run a turn, and a suite that mocked one would be
+//      asserting about its own mock. What IS driven here is the renderer.
+//
+// CONTRAST IS COMPUTED, NEVER EYEBALLED, and in BOTH themes — the standing floor
+// (`CLAUDE.md`, "Contrast — WCAG AA, ALWAYS, BOTH THEMES"). The ratios come out of WebKit's
+// own resolved colors through `getComputedStyle`, composited where the palette uses alpha,
+// so they are the pixels he actually gets rather than the values the stylesheet names.
+// Nothing on this surface is declared exempt: an assignment's title, its state and the
+// control that stops it are all text he is expected to read.
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const { loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+
+const MAIN_JS = path.join(UI_DIR, "main.js");
+
+/// The page body. No mock bridge: what is rendered below is the same view object `main.js`
+/// builds from `get_assignments`, through the same `work-summary.js` the app ships.
+///
+/// The stylesheet and `work-summary.js` are attached from DISK afterwards —
+/// `setContent` leaves the page on `about:blank`, where a `file://` tag never loads, and a
+/// suite that silently rendered without the real stylesheet would report contrast for the
+/// browser's defaults. `openPage` below proves both arrived before any check runs.
+function body(theme) {
+  return `<!DOCTYPE html>
+<html lang="en" data-theme="${theme}"><head><meta charset="utf-8"></head><body>
+  <div id="slideover"><div id="slideover-body"></div></div>
+</body></html>`;
+}
+
+function helpers() {
+  return `
+    window.__stopped = [];
+    window.__renderAssignments = (view) => {
+      const body = document.getElementById("slideover-body");
+      body.innerHTML = "";
+      window.RichWorkSummary.renderAssignments(view, body, (id) => window.__stopped.push(id));
+    };
+    /// The rendered ratio, from WebKit's own resolved colors, alpha composited against the
+    /// real ancestor background. Never the stylesheet's named value.
+    window.__ratio = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) throw new Error("no node for " + selector);
+      const parse = (value) => {
+        const n = value.match(/[\\d.]+/g).map(Number);
+        return { r: n[0], g: n[1], b: n[2], a: n.length > 3 ? n[3] : 1 };
+      };
+      let background = null;
+      for (let el = node; el; el = el.parentElement) {
+        const c = parse(getComputedStyle(el).backgroundColor);
+        if (c.a === 1) { background = c; break; }
+      }
+      if (!background) background = { r: 255, g: 255, b: 255, a: 1 };
+      const fg = parse(getComputedStyle(node).color);
+      const flat = {
+        r: fg.r * fg.a + background.r * (1 - fg.a),
+        g: fg.g * fg.a + background.g * (1 - fg.a),
+        b: fg.b * fg.a + background.b * (1 - fg.a),
+      };
+      const channel = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      const lum = (c) => 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+      const a = lum(flat), b = lum(background);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    window.__fontPx = (selector) =>
+      parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
+  `;
+}
+
+/// A page with the SHIPPING stylesheet and the SHIPPING renderer attached from disk, and a
+/// check that both really arrived: a missing stylesheet would leave every contrast
+/// measurement below describing WebKit's defaults, which is the quietest way for a contrast
+/// suite to be wrong.
+async function openPage(browser, theme) {
+  const page = await browser.newPage({ viewport: { width: 420, height: 900 } });
+  await page.setContent(body(theme));
+  await page.addStyleTag({ path: path.join(UI_DIR, "style.css") });
+  await page.addScriptTag({ path: path.join(UI_DIR, "work-summary.js") });
+  await page.addScriptTag({ content: helpers() });
+  const wired = await page.evaluate(() => ({
+    renderer: typeof window.RichWorkSummary?.renderAssignments === "function",
+    // `--card` only exists if the product stylesheet loaded.
+    styled: getComputedStyle(document.documentElement).getPropertyValue("--card").trim(),
+  }));
+  assert(wired.renderer, "the shipping work-summary renderer did not load");
+  assert(wired.styled.length > 0, "the shipping stylesheet did not load; contrast here would be the browser's");
+  return page;
+}
+
+const FORBIDDEN = ["done", "finished", "complete", "landed"];
+
+async function main() {
+  const run = createRun("background work: the assignment surface and its wording");
+  const browser = await loadPlaywright().webkit.launch();
+
+  await run.check("a blocked assignment reads ready for you to approve and never done", async () => {
+    const page = await openPage(browser, "dark");
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.evaluate(() =>
+      window.__renderAssignments({ rows: [
+        { id: "a1", title: "landing the three branches", state: "blocked", detail: "", repositories: [],
+          registeredAtMs: 1, canStop: true, onTheConnection: false },
+        { id: "a2", title: "the nightly build", state: "settled", detail: "", repositories: [],
+          registeredAtMs: 2, canStop: false, onTheConnection: false },
+      ] })
+    );
+    const rows = await page.locator("#slideover-body section").all();
+    assertEqual(rows.length, 2, "both assignments rendered");
+    const blocked = (await rows[0].innerText()).toLowerCase();
+    assert(blocked.includes("ready for you to approve"), "the blocked row does not offer approval: " + blocked);
+    for (const word of FORBIDDEN) {
+      assert(!blocked.includes(word), `the blocked row said "${word}": ${blocked}`);
+    }
+    // POSITIVE CONTROL: the same scan against the settled row DOES fire, so the clean
+    // result above is a fact about the blocked row and not about a scan that never matches.
+    const settled = (await rows[1].innerText()).toLowerCase();
+    assert(
+      FORBIDDEN.some((word) => settled.includes(word)),
+      "the forbidden-word scan cannot fire at all; the check above proves nothing: " + settled
+    );
+    assertEqual(errors.length, 0, "renderer errors");
+    await page.close();
+    return "blocked says approval and not completion; the scan is proven able to fail";
+  });
+
+  await run.check("the stop control is per assignment, names it, and only where it can act", async () => {
+    const page = await openPage(browser, "dark");
+    await page.evaluate(() =>
+      window.__renderAssignments({ rows: [
+        { id: "a1", title: "landing the three branches", state: "running", detail: "", repositories: [],
+          registeredAtMs: 1, canStop: true, onTheConnection: true },
+        { id: "a2", title: "the nightly build", state: "running", detail: "", repositories: [],
+          registeredAtMs: 2, canStop: true, onTheConnection: false },
+        { id: "a3", title: "the old audit", state: "interrupted", detail: "", repositories: [],
+          registeredAtMs: 3, canStop: false, onTheConnection: false },
+      ] })
+    );
+    const stops = page.locator("#slideover-body button.assignment-stop");
+    assertEqual(await stops.count(), 2, "a stop appeared for an assignment that has already stopped");
+    // Spec §4.2: the control belongs where the work is visible, ONE PER ASSIGNMENT. A
+    // control labeled only "Stop" beside three of them is one he cannot use without
+    // counting rows, so each names its own.
+    assertEqual(
+      await stops.nth(0).getAttribute("aria-label"),
+      "Stop landing the three branches",
+      "the first stop does not say which assignment it stops"
+    );
+    assertEqual(await stops.nth(1).getAttribute("aria-label"), "Stop the nightly build", "second stop label");
+    await stops.nth(1).click();
+    assertEqual(
+      JSON.stringify(await page.evaluate(() => window.__stopped)),
+      JSON.stringify(["a2"]),
+      "pressing one assignment's stop reached a different assignment"
+    );
+    await page.close();
+    return "one control per open assignment, each naming its own, and the press carries that id";
+  });
+
+  for (const theme of ["dark", "light"]) {
+    await run.check(`every word on the assignment surface clears WCAG AA in ${theme} mode`, async () => {
+      const page = await openPage(browser, theme);
+      await page.evaluate(() =>
+        window.__renderAssignments({ rows: [
+          { id: "a1", title: "landing the three branches", state: "blocked",
+            detail: "The work has run and stopped at the step that would change your repository.",
+            repositories: [], registeredAtMs: 1, canStop: true, onTheConnection: false },
+        ] })
+      );
+      const measured = [];
+      for (const [what, selector, floor] of [
+        ["heading", "#slideover-body .assignment-heading", 4.5],
+        ["title", "#slideover-body .assignment-title", 4.5],
+        ["state and detail", "#slideover-body .overlay-note", 4.5],
+        ["stop control", "#slideover-body .assignment-stop", 4.5],
+      ]) {
+        const ratio = await page.evaluate((s) => window.__ratio(s), selector);
+        const px = await page.evaluate((s) => window.__fontPx(s), selector);
+        measured.push(`${what} ${ratio.toFixed(2)}:1 at ${px}px`);
+        assert(ratio >= floor, `${theme}: ${what} is ${ratio.toFixed(2)}:1, under the ${floor}:1 floor`);
+        // `ceo-decisions.md` §15: 16px is the floor for text meant to be easily read, and
+        // 14px is the skippable tier. None of this is skippable, so none of it is 14px.
+        assert(px >= 16, `${theme}: ${what} is ${px}px, under the 16px readable floor`);
+      }
+      await page.close();
+      return measured.join("; ");
+    });
+  }
+
+  await run.check("a background result is HELD while a turn runs, and never dropped", async () => {
+    // Read from the source, not driven: the hold lives in the shell, and running a real
+    // turn needs a live Tauri bridge. A suite that mocked one would be asserting about the
+    // mock. What is asserted here is that the three parts of §3.5's rule exist and are
+    // wired to each other, by name.
+    const src = fs.readFileSync(MAIN_JS, "utf8");
+    assert(src.includes("heldWorkNotices"), "there is no hold at all");
+    assert(
+      /function receiveWorkNotice[\s\S]{0,400}?calmEnoughForANotice\(\)[\s\S]{0,200}?heldWorkNotices\.push/.test(src),
+      "an arriving notice is not held when the conversation is busy"
+    );
+    assert(
+      /function calmEnoughForANotice[\s\S]{0,200}?!anyLiveTurn\(\)[\s\S]{0,60}?!voiceBusy/.test(src),
+      "the hold does not consider both a live turn and a live voice exchange"
+    );
+    // The flush is on the turn boundary AND on voice going quiet — two boundaries, because
+    // there are two ways to be mid-sentence.
+    assert(
+      /rich:\/\/turn-completed[\s\S]{0,400}?flushWorkNotices\(\)/.test(src),
+      "nothing flushes the hold when a turn ends"
+    );
+    assert(
+      /voiceBusy = [\s\S]{0,200}?if \(!voiceBusy\) flushWorkNotices\(\)/.test(src),
+      "nothing flushes the hold when the voice exchange ends"
+    );
+    // POSITIVE CONTROL for the scans above: the same regular expression shape run against a
+    // source that does NOT wire them must fail, so a green result is not a pattern that
+    // matches anything.
+    const gutted = src.replace(/heldWorkNotices\.push/g, "noop");
+    assert(
+      !/function receiveWorkNotice[\s\S]{0,400}?calmEnoughForANotice\(\)[\s\S]{0,200}?heldWorkNotices\.push/.test(gutted),
+      "the hold scan matches a source with the hold removed; it proves nothing"
+    );
+    // §3.4: the durable read exists and is called where he can see the result — on opening
+    // the conversation, and again at the turn boundary.
+    assert(src.includes("take_work_notices"), "nothing reads the durable notices");
+    // CALL SITES, not occurrences: the declaration contains the same text, and counting it
+    // would have made a build that never calls the function pass with one call site.
+    assertEqual(
+      (src.match(/^\s*drainWorkNotices\(\);/gm) || []).length,
+      2,
+      "the durable read is not called at both the thread open and the turn boundary"
+    );
+    return "held on a live turn or a live voice exchange, flushed at both boundaries, and read durably twice";
+  });
+
+  await browser.close();
+  process.exit(run.report() ? 1 : 0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

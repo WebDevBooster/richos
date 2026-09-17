@@ -72,6 +72,43 @@ A verified work result is not completion of every condition in a broader
 obligation. The adapter does not close the entire obligation automatically.
 Completed work and authority receipts remain inspectable with `include_closed`.
 
+## Background assignments
+
+Work the CEO asks for runs on a **second compute lease** in the same process, owned by a
+work host that is not the spine. The conversation's lease is held for a whole turn, so work
+leaves the turn only by leaving that lease.
+
+A conversation turn ends when the assignment is **registered**, not when it settles.
+`richos_assignments.record` is app-owned, writes one durable record and returns the sentence
+to say; `richos_work.prepare` and everything it costs run afterwards, on the work lease. A
+failed registration is reported as a failed registration and is never softened into a claim
+that work started.
+
+The register holds what he asked for in his own terms, the obligation it carries out, and
+the ledger reference and digest of the turn he gave it in, frozen for its life. Each open
+assignment has one ECS seat, spelled from its obligation, bound with a worker audience and
+released with the assignment; a second open assignment on one obligation is refused, because
+one seat shared by two is the collision the seat exists to prevent.
+
+His next message never cancels an assignment, and Stop stays the conversation's Stop. Each
+assignment carries its own stop control where the work is visible. The work lease is never
+attached to the conversation's turn control, so a conversation Stop cannot reach it, and
+quit stops it by name.
+
+A result reaches him as a durable notice held on its assignment until he has been told, so a
+result that lands while he is away is found when he returns; it is also pushed while he is
+present. A notice arriving during a turn or a spoken exchange waits for the boundary.
+
+An assignment's workers all ending does not settle it. Settled is read from the obligation.
+An assignment whose workers have ended while its obligation is open has run to the step that
+would change his repository and stopped there, because local integration is not on the list
+of actions a worker may take without asking — so what he is told is that it is ready for him
+to approve, never that it is done.
+
+Closing the last window still ends the process, which stops the work — the Lifecycle
+sentence below is unchanged and still true. The window-closed process model and
+background-work recovery are a later slice, and nothing above promises either.
+
 ## Lifecycle
 
 The first desktop policy settles owned workers on Stop, scope change and quit.
@@ -83,6 +120,14 @@ Workers must settle before the reasoning turn ends. If a provider returns while
 workers remain open, the host stops its owned processes and retains workspaces
 and receipts for reconciliation. No background-while-closed promise is made.
 Recovery never converts interrupted execution into verified completion.
+
+A lease working outside the visible turn names its own ECS seat on every request,
+one seat per assignment, so its frozen binding survives whatever is said in the
+conversation meanwhile. Seats are reconciled in the same sweep as receipts: a
+seat whose assignment is settled or absent is released, a seat whose assignment
+is merely waiting for a decision is kept, and a seat that could not be released
+is reported rather than skipped. An assignment whose workers have all stopped is
+not settled -- that is the state where it is waiting for approval.
 
 ## Knowledge corrections
 

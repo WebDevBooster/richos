@@ -687,3 +687,44 @@ same best-effort posture every other emitter in this shell takes.
 `update_check`, `update_install`, `update_relaunch` — are this app's own, and
 `capabilities/default.json` grants no `plugin:updater|*` command to the page. A frontend
 cannot start a download or an install by itself.
+
+## Background work: `rich://work-notice`
+
+The eighth family, added 2026-09-17 with the work lease (the background-work spec, revision 5,
+in the private richos-hq record; §3.4 and §3.8). Source of truth:
+`richos/app/src-tauri/src/main.rs` — the constant `EVENT_WORK_NOTICE` and the `WorkNotice`
+observer the work host is given.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://work-notice` | A background assignment has something to say: it is ready for him to approve, it finished, it failed, or it was stopped. Raised by the WORK lease, outside any conversation turn. | `{ threadId, notice: { assignmentId, title, kind, text, raisedAtMs } }` |
+
+`kind` is one of `ready-to-approve`, `settled`, `failed`, `interrupted`.
+
+**This event is the SECOND-best half of the return path, and the document says so because a
+renderer that treated it as the whole of it would drop results.** The durable half is the
+notice held on the assignment's own record until it has been delivered, read with
+`take_work_notices` — which both reads AND marks. That is what makes a result survive him
+closing the conversation, switching threads, or quitting and coming back; this event only
+covers the case where he is already looking.
+
+Three rules for whoever renders it:
+
+1. **NEVER MID-SENTENCE.** A notice arriving while a turn is running, or while a voice
+   exchange is in progress, is HELD and said at the boundary. There are two ways to be
+   mid-sentence, so there are two flushes: the turn's terminal event, and voice going quiet.
+   Nothing times out and nothing is discarded — `take_work_notices` would hand the same
+   notice over again if the held copy were lost, because the durable flag is only set when
+   the backend hands it out.
+2. **"Ready for you to approve", never "done".** `ready-to-approve` is an assignment that ran
+   to the step that would change his repository and stopped there, because local integration
+   is not on the permission desk's allow-list. It is not a completion and must never be
+   rendered as one.
+3. **It is an attributed local line, never Rich's own turn text.** It renders through the same
+   path `rich://voice-notice` uses — a local notice with a synthetic turn id and no turn
+   record — so it can never grow a duration row claiming work that never happened, and the
+   next snapshot drops it. The record it came from is the evidence; the line is not.
+
+**Missing this event costs a moment, never a message.** The notice is on disk before the emit
+is attempted, and the surface reads the durable store when the conversation opens and again at
+every turn boundary.
