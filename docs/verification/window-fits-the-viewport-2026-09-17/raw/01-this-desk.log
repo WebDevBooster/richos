@@ -1,0 +1,45 @@
+RichOS window placement — DRY RUN. No window is created by this program.
+
+The preference, read from tauri.conf.json's own declaration and repeated by
+window_geometry::Preference::default():
+  preferred 1400x880 pt, minimum 1024x700 pt, edge margin 24 pt per side, title bar reserve 28 pt
+
+BenQ GC2870  1920 x 1080 pt  (scale 1)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1920x1080              1872x1004          1400x880 at (260,114) yes
+  1920x1056              1872x980           1400x880 at (260,126) yes
+  1920x986               1872x910           1400x880 at (260,91) yes
+  1920x946               1872x870           1400x870 at (260,76) yes
+  1920x882               1872x806           1400x806 at (260,90) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1400x880 pt at (260,126), min 1024x700 — BenQ GC2870 work area 1920x1056 pt at (0,24), scale 1 — the preferred size fits, so it caps the window
+
+HP E243  1080 x 1920 pt  (scale 1)
+  work area (modeled)    usable content     window opens at  fully on screen
+  1080x1920              1032x1844          1032x880 at (24,534) yes
+  1080x1896              1032x1820          1032x880 at (24,546) yes
+  1080x1826              1032x1750          1032x880 at (24,511) yes
+  1080x1786              1032x1710          1032x880 at (24,491) yes
+  1080x1722              1032x1646          1032x880 at (24,473) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1032x880 pt at (24,546), min 1024x700 — HP E243 work area 1080x1896 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+
+VA2246 SERIES  1920 x 1080 pt  (scale 1)
+  work area (modeled)    usable content     window opens at  fully on screen
+  1920x1080              1872x1004          1400x880 at (260,114) yes
+  1920x1056              1872x980           1400x880 at (260,126) yes
+  1920x986               1872x910           1400x880 at (260,91) yes
+  1920x946               1872x870           1400x870 at (260,76) yes
+  1920x882               1872x806           1400x806 at (260,90) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1400x880 pt at (260,126), min 1024x700 — VA2246 SERIES work area 1920x1056 pt at (0,24), scale 1 — the preferred size fits, so it caps the window
+
+A saved geometry from a display that is no longer attached:
+  saved: 1032x880 at (5320,600)
+  result: derived 1400x880 pt at (260,126), min 1024x700 — the saved 1032x880 at (5320,600) on a display that was unplugged at 1080x1896 pt fits no display attached now — discarded; BenQ GC2870 work area 1920x1056 pt at (0,24), scale 1 — the preferred size fits, so it caps the window
+  discarded, and the window derived on a display that is actually there.
+
+Every case above puts the whole window inside a work area.
+
+NOT PROVEN BY THIS PROGRAM: that a real window opens where these numbers say.
+Only opening one on each display settles that, and it needs the CEO's screen.

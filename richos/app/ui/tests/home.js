@@ -1603,6 +1603,160 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------------------
+  // THE TEMPORARY LINE — the CEO's second defect of 2026-09-17
+  //
+  //   "On the home screen, when one of the temporary text lines appears at the bottom of the
+  //    text block on the right (i.e. text lines that appear and then disappear after a few
+  //    seconds), it overlays a rectangular shadow over the entire text area and that shadow
+  //    area always stays there afterwards which is blocking a part of the loro visual. Remove
+  //    this oversized shadow overlay that's blocking part of the loro visual and instead of
+  //    this 'global overlay' that affects the entire text block, make it so that only the
+  //    temporary text lines have a drop shadow. And make sure that none of that shadow is left
+  //    behind after the temporary text line disappears."
+  //
+  // THE SHADOW HE SAW IS NOT CSS, WHICH IS WHY THE CHECK IS NOT A STYLE ASSERTION. It is the
+  // picture's own quiet pass: rectangles where the renderer erases the field so chrome can be
+  // read over it. `quietAt(x, y)` is that pass's own arithmetic, exported by the engine, and
+  // sampling it over the right half of the viewport turns "a rectangular shadow over the entire
+  // text area" into a number that can be compared before, during and after.
+  //
+  // Both halves of the defect were real and independent, measured at 1440x900 on a 2px lattice
+  // over the right half (720x900 = 648,000 px), erased area (k <= 0.01), before / up / 2s after:
+  //
+  //   the ticker's own quiet group      57,564 -> 118,000 -> 116,912 px
+  //   the block widened by the line     57,564 -> 103,244 -> 102,292 px  (group gone, line in flow)
+  //
+  // The second one is the one that is easy to miss and is exactly what he described: `#home-live`
+  // is shrink-to-fit, the cap and the workforce list are blocks, so a long line in flow widened
+  // the WHOLE BLOCK and the hush over it — and the line keeps its text after the fade, so the
+  // block never narrowed again.
+  // -------------------------------------------------------------------------------------
+
+  await run.check("THE TEMPORARY LINE: the picture is the same picture before it, under it and after it", async () => {
+    // The pass's own arithmetic, over the right half, at two thresholds. Not a screenshot diff:
+    // the field is drawing 7,500 moving objects, so two photographs of it never match and a
+    // pixel diff here would be measuring the nebula rather than the hush.
+    const AREA = `(() => {
+      const W = innerWidth, H = innerHeight;
+      let touched = 0, erased = 0;
+      for (let y = 0; y < H; y += 2) for (let x = (W >> 1); x < W; x += 2) {
+        const k = window.__loro.quietAt(x, y);
+        if (k < 0.99) touched += 4;
+        if (k <= 0.01) erased += 4;
+      }
+      const box = (sel) => { const e = document.querySelector(sel); const r = e.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]; };
+      const t = document.getElementById('home-ticker');
+      const tr = t.getBoundingClientRect();
+      const hits = (r) => tr.width > 0 && r.x0 < tr.right && r.x1 > tr.left && r.y0 < tr.bottom && r.y1 > tr.top;
+      return {
+        touched, erased,
+        cap: box('#home-live .cap'), working: box('#home-working'),
+        ticker: [Math.round(tr.left), Math.round(tr.top), Math.round(tr.right), Math.round(tr.bottom)],
+        on: t.classList.contains('on'),
+        labelsOverIt: window.__loro.domLabelRects.filter(hits).length +
+                      window.__loro.nodeLabelRects.filter(hits).length,
+      };
+    })()`;
+
+    const NO_LABELS_UNDER_IT = `(() => {
+      const t = document.getElementById('home-ticker');
+      const tr = t.getBoundingClientRect();
+      const hits = (r) => tr.width > 0 && r.x0 < tr.right && r.x1 > tr.left && r.y0 < tr.bottom && r.y1 > tr.top;
+      return !window.__loro.domLabelRects.some(hits) && !window.__loro.nodeLabelRects.some(hits);
+    })()`;
+
+    const before = await page.evaluate(AREA);
+    assert(!before.on, "a line was already up before this check drove one");
+
+    await page.evaluate(() => window.__loro.ingest());
+    await waitForFact(page, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 20000);
+    await page.waitForTimeout(250);
+    const during = await page.evaluate(AREA);
+
+    // THE PICTURE'S OWN CAPTIONS LEAVE, AND THEY FADE RATHER THAN POP — so this waits for the
+    // fact instead of asserting it on the first frame. A node label is refused outright (the
+    // zone is seeded into the placement list, so it never draws); a DOMAIN label that was
+    // already up eases out at `LABEL_EASE = 0.18s`, which from 0.86 to the 0.15 it stops being
+    // recorded at is ln(0.15/0.86)/ln(1 - 0.0167/0.18) = 18 frames = 300ms at 60fps. Measured:
+    // present at 200ms, gone at 300ms. The budget is five times that, and it is a REFUSAL.
+    const t0 = Date.now();
+    await waitForFact(page, "the picture's own labels have left the line's box", NO_LABELS_UNDER_IT, 1500);
+    const clearedMs = Date.now() - t0;
+
+    await waitForFact(page, "the temporary line has gone", "!document.getElementById('home-ticker').classList.contains('on')", 20000);
+    // Past the 600ms fade, and past a second one landing: `ingest` is on a 4s-ish cadence of its
+    // own, so this reads in the gap rather than into the next line.
+    await page.waitForTimeout(900);
+    const after = await page.evaluate(AREA);
+
+    const hush = (r) => `${r.erased}/${r.touched}`;
+    assertEqual(
+      [hush(during), hush(after)].join(" "),
+      [hush(before), hush(before)].join(" "),
+      `the temporary line moved the picture's hush. erased/touched px over the right half — ` +
+        `before ${hush(before)}, up ${hush(during)}, after ${hush(after)}`
+    );
+    assertEqual(
+      [during.cap.join(","), during.working.join(","), after.cap.join(","), after.working.join(",")].join(" | "),
+      [before.cap.join(","), before.working.join(","), before.cap.join(","), before.working.join(",")].join(" | "),
+      "the temporary line resized the text block it sits under, which is what widened the hush over the whole block"
+    );
+    assert(during.ticker[2] - during.ticker[0] > 100, "no line was actually drawn, so this measured nothing");
+    assertEqual(after.on, false, "the line is still up, so 'after' is not after anything");
+
+    return (
+      `erased/touched px over the right half (2px lattice, 648,000 px): before ${hush(before)}, ` +
+      `line up ${hush(during)}, 900ms after it went ${hush(after)} — one number, three states\n          ` +
+      `the block under it never moved: cap ${before.cap.join(",")}, workforce ${before.working.join(",")} ` +
+      `in all three\n          the line's own box while up: ${during.ticker.join(",")} ` +
+      `(${during.ticker[2] - during.ticker[0]}x${during.ticker[3] - during.ticker[1]}px), ` +
+      `${during.labelsOverIt} of the picture's own captions inside it at +250ms, 0 by +${clearedMs}ms`
+    );
+  });
+
+  await run.check("THE TEMPORARY LINE: its own plate holds the floor, measured on the rendered frame", async () => {
+    // PINNED UP, AND PUT BACK. A line lives 2,600ms and this measurement needs a screenshot, a
+    // settle and a decode; measuring a line that expires halfway through would be a reading of
+    // whatever was left. The pin is an observer that re-raises the class the engine removes, and
+    // it is disconnected before the check returns, so the surface leaves here as it arrived.
+    await page.evaluate(() => window.__loro.ingest());
+    await waitForFact(page, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 20000);
+    await page.evaluate(() => {
+      const t = document.getElementById("home-ticker");
+      window.__pin = new MutationObserver(() => { if (!t.classList.contains("on")) t.classList.add("on"); });
+      window.__pin.observe(t, { attributes: true, attributeFilter: ["class"] });
+    });
+
+    // Both inks, because the engine writes the line in two: `--t2` for the sentence and
+    // `--gold` for the domain it names. The gold is the one that fails first — with the quiet
+    // rectangle removed and nothing in its place it read 3.80:1 against a rgb(87,66,74) strand,
+    // and behind a text-shadow it read 1.00:1 against a bokeh lobe at the line box's corner.
+    const rows = await measure(page, [
+      { name: "the temporary line", sel: "#home-ticker", needs: 4.5 },
+      { name: "the domain it names", sel: "#home-ticker i", needs: 4.5 },
+    ]);
+    const plate = await page.evaluate(() => {
+      const cs = getComputedStyle(document.getElementById("home-ticker"));
+      return { bg: cs.backgroundColor, shadow: cs.boxShadow.split(",")[0].trim(), pos: cs.position };
+    });
+    await page.evaluate(() => {
+      window.__pin.disconnect();
+      delete window.__pin;
+    });
+
+    const bad = failures(rows);
+    assertEqual(bad.length, 0, "the temporary line is under the floor:\n" + reportRatios(bad));
+    // The ratio is bounded by the PLATE'S ALPHA rather than by what the picture is doing, which
+    // is the whole reason an opaque fill is used here — so the worst case is computable:
+    // 0.97*#0C1322 + 0.03*#FFF = rgb(19,26,41), and nothing behind it can be worse.
+    assertEqual(plate.bg, "rgba(12, 19, 34, 0.97)", "the line's plate is no longer opaque enough for its ratio to be computable at all");
+    assertEqual(plate.pos, "absolute", "the line is back in flow, so it can widen the block again");
+
+    return `${reportRatios(rows)}\n          plate ${plate.bg}, drop ${plate.shadow}, out of flow — worst case bounded at rgb(19,26,41)`;
+  });
+
+  // -------------------------------------------------------------------------------------
   // Contrast — from the pixels, on the rendered frame
   // -------------------------------------------------------------------------------------
 

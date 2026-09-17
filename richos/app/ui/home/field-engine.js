@@ -407,9 +407,40 @@ const QUIET_PAD = 14, QUIET_FEATHER = 120, QUIET_N = 8;   // a wider feather tha
 const quietRects = new Float32Array(QUIET_N * 4), quietBox = new Float32Array(8);
 const quietRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
 let quietDirty = true;
+// APP: THE TICKER IS NOT A QUIET GROUP, AND THAT IS THE CEO'S RULING OF 2026-09-17.
+//
+//   "On the home screen, when one of the temporary text lines appears at the bottom of the text
+//    block on the right ... it overlays a rectangular shadow over the entire text area and that
+//    shadow area always stays there afterwards which is blocking a part of the loro visual.
+//    Remove this oversized shadow overlay ... instead of this 'global overlay' that affects the
+//    entire text block, make it so that only the temporary text lines have a drop shadow. And
+//    make sure that none of that shadow is left behind after the temporary text line
+//    disappears."
+//
+// WHAT HE SAW, MEASURED — 1440x900, the right half of the viewport (720x900 = 648,000 px),
+// `quietAt()` sampled on a 2px lattice, before any line had landed / while one was up / two
+// seconds after it had gone:
+//
+//     touched (k < 0.99)   156,640 -> 261,672 -> 259,624 px
+//     erased  (k <= 0.01)   57,564 -> 118,000 -> 116,912 px
+//
+// The hush MORE THAN DOUBLED when the line appeared and gave back 1.8% of that when it left.
+// Two independent reasons, and removing the group is what answers both: `landSpark` raised
+// `quietDirty` when the line went up and nothing raised it when the line came down, AND this
+// pass reads `textContent`, which the line keeps forever — `ticker.classList.remove('on')` only
+// takes the OPACITY to zero, so a rect recomputed after the fade would have been the same rect.
+//
+// The line's legibility was what the rect bought. It is bought instead by the line's own drop
+// shadow, `#home-live .ticker` in `home.css`, which is sized to the glyphs and leaves with
+// them. Its ratios are measured on the rendered frame in `tests/home.js` — the ticker is a
+// contrast row there now, at 4.5:1, in the `on` state where a reader can see it.
+//
+// SEVEN GROUPS NOW, AND `QUIET_N` STAYS 8. The unused slot keeps its `-1e4` fill, which makes
+// `quietK`'s distance enormous and its `smoothstep` exactly 1 — the shader loop is a fixed
+// `for (int r = 0; r < 8; r++)` in GLSL ES 1.0 and cannot be shortened anyway.
 function computeQuiet() {
   const groups = [Array.from(document.querySelectorAll('#home-brand > *'))].concat(Array.from(document.querySelectorAll('#home-signals .sig')).map(sig => Array.from(sig.children)))
-    .concat([[$('#home-live .cap'), $('#home-working')], [$('#home-ticker')]]);
+    .concat([[$('#home-live .cap'), $('#home-working')]]);
   quietRects.fill(-1e4);
   let ux0 = Infinity, uy0 = Infinity, ux1 = -Infinity, uy1 = -Infinity;
   groups.slice(0, QUIET_N).forEach((els, g) => {
@@ -528,6 +559,37 @@ let dragNbr = null; let domHover = -1, domSel = -1, domLabelRects = [];
 let clusterSel = -1;
 const ripples = [], sparks = [];
 let ticker = $('#home-ticker'), tickerTimer = 0;
+
+// APP: THE TEMPORARY LINE IS A NO-LABEL ZONE, AND THAT IS NOT THE SAME THING AS A QUIET RECT.
+//
+// The quiet rectangles did two jobs at once, and only one of them was the CEO's complaint. They
+// hush the STARS (`quietK` in the shaders), and they also keep the picture's OWN TEXT out of the
+// chrome's area — `drawOverlay` drops a domain label where `quietAt() < 0.18` and a node label
+// where it is `< 0.6`. Taking the ticker out of the quiet pass therefore did more than remove
+// the wash he saw: it let the picture write INFRASTRUCTURE and TALENT, 16px ink with their own
+// 0.98 halo, straight through the line. Measured on twelve consecutive frames with the line up
+// and the shadow already in place: the line's ink read 1.19-1.34:1 and its gold run 1.00-1.02:1
+// against those glyphs — a floor failure in every frame, not a rare one, and one no text shadow
+// can answer because the thing behind the text is other text.
+//
+// So the two jobs are separated. NOTHING IS DIMMED HERE — this zone changes no pixel of the
+// picture's light. It is only a place the picture does not put a CAPTION while a temporary line
+// is using it, and it is null whenever the line is not up.
+//
+// Read at the three moments the answer can change and cached, never per frame: a
+// `getBoundingClientRect()` inside `drawOverlay` would force a layout on every one of 60 frames
+// a second. It is cleared on `transitionend` rather than on the class change, because the line
+// fades over `opacity 0.6s` and is still readable for all of it — the exact duration is the
+// stylesheet's to own, not a 600 typed here.
+let tickerZone = null;
+function readTickerZone() {
+  if (!ticker || !ticker.classList.contains('on')) { tickerZone = null; return; }
+  const r = ticker.getBoundingClientRect();
+  if (r.width === 0) { tickerZone = null; return; }
+  tickerZone = [r.left - 8, r.top - 6, r.right + 8, r.bottom + 6];
+}
+const inTickerZone = (x0, y0, x1, y1) => !!tickerZone && x0 < tickerZone[2] && x1 > tickerZone[0] && y0 < tickerZone[3] && y1 > tickerZone[1];
+if (ticker) ticker.addEventListener('transitionend', (e) => { if (e.propertyName === 'opacity') readTickerZone(); });
 let lastIngest = 0, nextIngestGap = 4000;
 
 function setNeighbours(i) {
@@ -674,7 +736,10 @@ function landSpark(sp, now) {
   for (let k = D.nlinkStart[i]; k < D.nlinkStart[i + 1]; k++) linkFlash[D.nlink[k]] = 1;
   if (V.corePulseOnLand) corePulse = Math.max(corePulse, 0.6);
   ticker.innerHTML = `${activeSpecialists[sp.who] ? activeSpecialists[sp.who].codename + ' learned from ' : 'Learned from '}${SOURCE_WORD[sp.src.kind] || sp.src.kind} · <i>${domains[D.nodeDomain[i]].label}</i> → ${sp.src.derivedCount} new memor${sp.src.derivedCount === 1 ? 'y' : 'ies'}`;
-  ticker.classList.add('on'); quietDirty = true;
+  // APP: no `quietDirty` here any more. The ticker is not a quiet group (see `computeQuiet`),
+  // so nothing about this line moves a rectangle; `setSignals` below raises the flag itself
+  // when a number it writes actually changes width.
+  ticker.classList.add('on'); readTickerZone();
   clearTimeout(tickerTimer); tickerTimer = setTimeout(() => ticker.classList.remove('on'), 2600);
   landed.sources += 1; landed.memories += sp.src.derivedCount;
   setSignals(signalsNow(), true);
@@ -726,7 +791,9 @@ function setSignals(v, flashIt) {
   ROOT.querySelectorAll('.v[data-k]').forEach(el => { vEl[el.dataset.k] = el; });
   setSignals(signalsNow(), false);
   $('#home-working').innerHTML = activeSpecialists.map((sp, i) => `<li id="home-spc-${i}">${sp.codename} <span class="fn">${sp.function}</span><span class="dot"></span></li>`).join('');
-  addEventListener('resize', () => { if (!running) return; quietDirty = true; resize(); });   // PORT: a resize while put away is re-read by resume()
+  // APP: `readTickerZone()` — the line re-wraps and moves with the window, so the zone is
+  // re-read here for the same reason `quietDirty` is raised here.
+  addEventListener('resize', () => { if (!running) return; quietDirty = true; readTickerZone(); resize(); });   // PORT: a resize while put away is re-read by resume()
 }
 
 // ---------------- bokeh (drawn once) ----------------
@@ -995,28 +1062,35 @@ function drawOverlay(now, t, src, hoverActive) {
     const [sx, sy] = toScreen(domCentroid[d * 4] / c, domCentroid[d * 4 + 1] / c, domCentroid[d * 4 + 3] / c);
     const near = cursor.inside ? clamp(1 - Math.hypot(sx - cursor.x, sy - cursor.y) / 210, 0, 1) : 0;
     const q = quietAt(sx, sy);
-    let a = easeTo(domEase, d, q < 0.18 ? 0 : (0.78 + 0.20 * near * near) * Math.min(1, LABEL_FLOOR + (q - 0.18) * 0.9), edt);
-    if (hoverActive) a *= 0.86;
-    if (domHover >= 0) a = domHover === d ? 1 : 0.86;
-    a *= clamp((t - 2.5) / 1.5, 0, 1);
-    if (a < 0.05) continue;
+    // APP: the font and the measure move ABOVE the ease so the temporary line can be tested
+    // against this label's REAL box — the same box pushed to `domLabelRects` below — rather
+    // than against its middle with a guessed pad. Feeding the zone into the ease target, and
+    // not `continue`, is what makes a blocked label FADE the way a hushed one does.
     const size = 16 + 2 * near + (domHover === d ? 1 : 0);
     ctx.font = `${size}px ${SERIF}`;
-    ctx.save(); ctx.translate(sx, sy);
-    const label = domains[d].label.toUpperCase();
     ctx.letterSpacing = '0.22em';
+    const label = domains[d].label.toUpperCase();
+    const half = ctx.measureText(label).width / 2 + 8;
+    const blocked = inTickerZone(sx - half, sy - 14, sx + half, sy + 28);
+    let a = easeTo(domEase, d, q < 0.18 || blocked ? 0 : (0.78 + 0.20 * near * near) * Math.min(1, LABEL_FLOOR + (q - 0.18) * 0.9), edt);
+    if (hoverActive) a *= 0.86;
+    if (domHover >= 0) a = blocked ? 0 : domHover === d ? 1 : 0.86;
+    a *= clamp((t - 2.5) / 1.5, 0, 1);
+    if (a < 0.05) continue;
+    ctx.save(); ctx.translate(sx, sy);
     ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = `rgba(${HALO},${0.98 * a})`;
     ctx.strokeText(label, 0, 0);
     ctx.fillStyle = `rgba(${INK},${a})`;
     ctx.fillText(label, 0, 0);
-    const tw = ctx.measureText(label).width;
     ctx.letterSpacing = '0.08em';
     ctx.font = `14px ${SANS}`;
     ctx.lineWidth = 4.5; ctx.strokeText(fmt(c), 0, 19);
     ctx.fillStyle = `rgba(${INK},${a * 0.88})`;
     ctx.fillText(fmt(c), 0, 19);
     ctx.restore();
-    if (a > 0.15) domLabelRects.push({ d, x0: sx - tw / 2 - 8, x1: sx + tw / 2 + 8, y0: sy - 14, y1: sy + 28 });
+    // APP: `half` is `measureText(label).width / 2 + 8`, taken above with the same font and the
+    // same letter-spacing — the identical box, measured once instead of twice.
+    if (a > 0.15) domLabelRects.push({ d, x0: sx - half, x1: sx + half, y0: sy - 14, y1: sy + 28 });
   }
   ctx.letterSpacing = '0px';
   // node labels: which
@@ -1032,7 +1106,10 @@ function drawOverlay(now, t, src, hoverActive) {
     cand.sort((a, b) => a[1] - b[1]).slice(0, 5).forEach(([i, d]) => labels.push([i, LABEL_FLOOR + (1 - LABEL_FLOOR) * (1 - d / 130), false, true]));
   }
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  const seen = new Set(), placed = [], wanted = new Set(labels.map(l => l[0]));
+  // APP: the temporary line is seeded into `placed` as though it were a label that got there
+  // first. A node label already refuses to sit on top of one, so the zone needs no second rule —
+  // and when the line is down, `tickerZone` is null and this is the empty array it always was.
+  const seen = new Set(), placed = tickerZone ? [tickerZone.slice()] : [], wanted = new Set(labels.map(l => l[0]));
   for (let k = 0; k < shownLabels.length; k++) { const i = shownLabels[k]; if (!wanted.has(i)) easeTo(nodeEase, i, 0, edt); }
   shownLabels = [];
   for (const [i, aT, primary, withTerritory] of labels) {
@@ -1056,7 +1133,11 @@ function drawOverlay(now, t, src, hoverActive) {
     ctx.fillStyle = primary ? `rgba(${tint(domCss[D.nodeDomain[i]])},${a})` : `rgba(${INK},${a})`;
     ctx.fillText(text, sx, y);
   }
-  nodeLabelRects = placed.map(([x0, y0, x1, y1]) => ({ x0, y0, x1, y1 }));
+  // APP: `.slice(tickerZone ? 1 : 0)` — the zone seeded above is a place a label MAY NOT GO, not
+  // a label that is there. Exporting it as one would tell every reader of this list that the
+  // picture had drawn a caption over the temporary line, which is the exact condition the seed
+  // exists to prevent; it is a rect this list must not carry.
+  nodeLabelRects = placed.slice(tickerZone ? 1 : 0).map(([x0, y0, x1, y1]) => ({ x0, y0, x1, y1 }));
   // ripples
   for (let k = ripples.length - 1; k >= 0; k--) {
     const rp = ripples[k]; const p = (now - rp.t0) / 1100; if (p >= 1) { ripples.splice(k, 1); continue; }

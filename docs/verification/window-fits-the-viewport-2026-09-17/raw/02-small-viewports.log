@@ -1,0 +1,65 @@
+RichOS window placement — DRY RUN. No window is created by this program.
+
+The preference, read from tauri.conf.json's own declaration and repeated by
+window_geometry::Preference::default():
+  preferred 1400x880 pt, minimum 1024x700 pt, edge margin 24 pt per side, title bar reserve 28 pt
+
+panel 1280x720  1280 x 720 pt  (scale 1)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1280x720               1232x644           1232x644 at (24,52) yes
+  1280x696               1232x620           1232x620 at (24,76) yes
+  1280x626               1232x550           1232x550 at (24,76) yes
+  1280x586               1232x510           1232x510 at (24,76) yes
+  1280x522               1232x446           1232x446 at (24,90) yes
+  floor on this panel: 1024x620 pt (the declared 1024x700 does not fit and was clamped down)
+  derived 1232x620 pt at (24,76), min 1024x620 — panel 1280x720 work area 1280x696 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+
+panel 1024x640  1024 x 640 pt  (scale 1)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1024x640               976x564            976x564 at (24,52) yes
+  1024x616               976x540            976x540 at (24,76) yes
+  1024x546               976x470            976x470 at (24,76) yes
+  1024x506               976x430            976x430 at (24,76) yes
+  1024x442               976x366            976x366 at (24,90) yes
+  floor on this panel: 976x540 pt (the declared 1024x700 does not fit and was clamped down)
+  derived 976x540 pt at (24,76), min 976x540 — panel 1024x640 work area 1024x616 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+
+panel 1280x800  1280 x 800 pt  (scale 1)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1280x800               1232x724           1232x724 at (24,52) yes
+  1280x776               1232x700           1232x700 at (24,76) yes
+  1280x706               1232x630           1232x630 at (24,76) yes
+  1280x666               1232x590           1232x590 at (24,76) yes
+  1280x602               1232x526           1232x526 at (24,90) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1232x700 pt at (24,76), min 1024x700 — panel 1280x800 work area 1280x776 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+
+panel 1440x900  1440 x 900 pt  (scale 1)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1440x900               1392x824           1392x824 at (24,52) yes
+  1440x876               1392x800           1392x800 at (24,76) yes
+  1440x806               1392x730           1392x730 at (24,76) yes
+  1440x766               1392x690           1392x690 at (24,76) yes
+  1440x702               1392x626           1392x626 at (24,90) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1392x800 pt at (24,76), min 1024x700 — panel 1440x900 work area 1440x876 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+
+panel 1512x982@2  1512 x 982 pt  (scale 2)  [main display]
+  work area (modeled)    usable content     window opens at  fully on screen
+  1512x982               1464x906           1400x880 at (56,65) yes
+  1512x958               1464x882           1400x880 at (56,77) yes
+  1512x888               1464x812           1400x812 at (56,76) yes
+  1512x848               1464x772           1400x772 at (56,76) yes
+  1512x784               1464x708           1400x708 at (56,90) yes
+  floor on this panel: 1024x700 pt (the declared 1024x700 fits and stands)
+  derived 1400x880 pt at (56,77), min 1024x700 — panel 1512x982@2 work area 1512x958 pt at (0,24), scale 2 — the preferred size fits, so it caps the window
+
+A saved geometry from a display that is no longer attached:
+  saved: 1032x880 at (6936,600)
+  result: derived 1232x620 pt at (24,76), min 1024x620 — the saved 1032x880 at (6936,600) on a display that was unplugged at 1080x1896 pt fits no display attached now — discarded; panel 1280x720 work area 1280x696 pt at (0,24), scale 1 — the display is smaller than the preferred size, so the display decided
+  discarded, and the window derived on a display that is actually there.
+
+Every case above puts the whole window inside a work area.
+
+NOT PROVEN BY THIS PROGRAM: that a real window opens where these numbers say.
+Only opening one on each display settles that, and it needs the CEO's screen.
