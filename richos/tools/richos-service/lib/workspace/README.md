@@ -66,13 +66,14 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 328 tests**
-(`npm run -s test:workspace` → `328 passed, 0 failed`, measured 2026-09-17)**:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 350 tests**
+(`npm run -s test:workspace` → `350 passed, 0 failed`, measured 2026-09-17)**:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
 GoogleClient (backoff, 410→resync) with a mocked transport, the Calendar adapter (URL building,
-normalization, pagination), the **Drive adapter** (see below), the **Gmail adapter** (see below),
+normalization, pagination, **and multi-calendar discovery/dedup for both vendors**), the **Drive
+adapter** (see below), the **Gmail adapter** (see below),
 synthesis, the entity feed, the full `ingestOnce` spine end-to-end for all three sources, and — since
 this layer stopped being a library with no caller — the **four CLI commands** (see below).
 
@@ -447,9 +448,10 @@ npm run test:workspace     # this layer (mocked Google + Microsoft APIs)
 npm test                   # transcription + workspace suites
 ```
 
-`npm run -s test:workspace` → **328 passed, 0 failed** (2026-09-17; 55 of them Microsoft, including
-the ten that drive `connect/status/sync/disconnect microsoft` end to end against a mocked Entra token
-endpoint). No live Microsoft call is made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
+`npm run -s test:workspace` → **350 passed, 0 failed** (2026-09-17, after the multi-calendar sync
+change added above; 62 of them Microsoft, including the ten that drive `connect/status/sync/
+disconnect microsoft` end to end against a mocked Entra token endpoint). No live Microsoft call is
+made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
 been mutation-probed — neutered in turn, with the suite confirmed red each time and green after
 restore — because a negative test that passes because nothing ever reaches it is worth nothing.
 
@@ -458,12 +460,37 @@ restore — because a negative test that passes because nothing ever reaches it 
 `GoogleCalendarAdapter` requires `accountId`, a stable identifier for the authenticated
 Google account. Use the same identifier on every poll, bind it to the credentials
 supplied to the client and change it when changing accounts. Do not use an access
-or refresh token. `calendarId` defaults to `primary` within that account.
+or refresh token.
 
-The adapter's `sourceInstanceId` identifies the account and calendar together.
-The ingest core uses it for sync cursors, and normalized item IDs carry the same
-namespace into ledger deduplication, cancellation references and evidence paths.
-Every new adapter must provide this property.
+**Every calendar the account can read is synced — not just the primary one (2026-09-17).** By
+default (no `calendarId` passed, which is what `registry.js` actually constructs) the adapter
+enumerates the account's calendars on every poll (`calendarList.list`) and runs the same per-calendar
+events sync against each one that isn't hidden or deleted, so a shared calendar, a secondary
+calendar or a subscribed team calendar all reach RichOS. The same underlying event appearing on two
+calendars the account can see (an invite copied onto a shared calendar) lands **once**, deduped by
+`iCalUID`+start time before it ever reaches the ledger — the calendar something came from is never
+part of its identity. `workspace status`/`sync` name which calendars were actually read, by label and
+count, on the same line the observed/ingested/deduped counts appear on.
+
+Passing an explicit `calendarId` (a single calendar) keeps the exact pre-2026-09-17 behavior — its
+own `sourceInstanceId`, its own cursor, no discovery call — for a caller that wants one calendar on
+purpose. `calendarIds` (a list) syncs exactly that set without a discovery call, which is also the
+fallback when `calendarList.list` is unavailable: it needs a broader Google scope than
+`calendar.events.readonly` grants (`calendarList.list` needs `calendar.readonly`, `calendar`,
+`calendar.calendarlist` or `calendar.calendarlist.readonly` — Google's own method reference), so
+under the scope this adapter is pinned to today, discovery fails with 403 on every account and the
+adapter reports itself DEGRADED and falls back to `primary` only, rather than either silently
+covering one calendar or silently widening the scope (a re-consent decision, not this adapter's to
+make). The Microsoft counterpart has no such gap: `Calendars.Read` genuinely covers `GET
+/me/calendars`, so its discovery runs for real.
+
+In multi-calendar mode the adapter's `sourceInstanceId` identifies the **account**, not a calendar —
+one `ingestOnce` pass, one cursor entry, holding a cursor **map** keyed by calendar id rather than a
+bare token. A cursor written before this change (a bare string) is read as belonging to the first
+calendar synced, so nobody's stored progress is discarded. An explicit single `calendarId` still gets
+the old per-(account, calendar) `sourceInstanceId`. The ingest core uses this identity for sync
+cursors, and normalized item IDs carry the same namespace into ledger deduplication, cancellation
+references and evidence paths. Every new adapter must provide this property.
 
 `GoogleDriveAdapter` takes the same `accountId` under the same rules. Drive has no per-resource
 sub-selection the way Calendar has `calendarId` — the unit is the account's drive — so its
