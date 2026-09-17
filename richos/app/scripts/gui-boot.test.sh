@@ -71,6 +71,10 @@
 #   C3  ...declaring the product's own bundle identifier, read the product's own way
 #   C4  ...as a file that satisfies the shape `bundle_plist` demands, and that parses
 #   C5  ...and, on the machine, declaring the version the binary says it is
+#   D1  an active-display count of 0 is REFUSED by the precondition, never passed
+#   D2  ...a count of one or more is accepted
+#   D3  ...a count that could not be measured says exactly that, and is read as neither
+#   D4  and THIS host is asked, before the boot: no awake display -> a named refusal, exit 2
 #   B1  the healthy machine boots to completion under launchd's environment
 #   B1a ...as an ACCESSORY launch, decided on facts     <- nothing reaches anybody's screen
 #   B2  ...and every line of that boot is accounted for  <- THE POSITIVE HALF
@@ -118,6 +122,34 @@
 # means they run on the one host that actually runs this suite regularly: the CI runner,
 # where everything from the host gate down is skipped. C5 is the one that needs the real
 # binary and runs beside B0.
+#
+# =========================================================================================
+# D1-D4, AND THE PRECONDITION THIS SUITE DEPENDED ON WITHOUT EVER SAYING SO
+# =========================================================================================
+#
+# On 2026-09-17 a nightly release failed here on B2 alone, reporting
+#
+#     [richos] window: the runtime reported no attached display
+#
+# and the source was hunted for two hours. The source was innocent. `available_monitors()`
+# is `CGGetActiveDisplayList` (tao-0.35.3/src/platform_impl/macos/monitor.rs:146), and macOS
+# ACTIVE means connected, AWAKE and available for drawing — a Mac whose screens have gone to
+# sleep reports every display ONLINE and NO display ACTIVE. The app was telling the truth.
+# The check was asserting something about the machine's power state without knowing it.
+#
+# The measurement, and the last row is the one that settles it:
+#
+#   pmset -g log      displays off 01:33:47Z, on 02:16:29Z
+#   84aa5e62          02:06:26-02:13:09Z  screens ASLEEP  ->  1 FAILED (B2), 28 passed
+#   same source again 02:25:06-02:27:11Z  screens awake   ->  all 29 passed
+#
+# SO B2 IS NOT WEAKENED BY A LINE. A display that cannot be read stays unaccountable, the
+# `refused` declarations below stay exactly as they were, and A6 still holds them there. What
+# changes is that the host is ASKED FIRST, and a host with no awake display is REFUSED BY
+# NAME (exit 2, `host_gap_exit`, with the one thing the operator must do) instead of being
+# handed to a boot that cannot answer. D1-D3 prove the refusal is alive on numbers this run
+# did not produce; D4 puts THIS host's measured answer in the run's own output, which is the
+# line that would have ended the two-hour hunt in five seconds.
 #
 # =========================================================================================
 # EXIT 2 IS A CLAIM ABOUT THE HOST, AND IT MAY NOT OUTRANK A FAILED CASE
@@ -1083,6 +1115,82 @@ else
       "the binary reports '${C5_WANT:-<no answer>}' and the plist says '${C5_GOT:-<nothing>}'"
 fi
 
+# =========================================================================================
+# D1-D4 — the precondition, decided on numbers and then measured on this host
+# =========================================================================================
+#
+# The header carries the finding. These four run AFTER the build and after B0, deliberately:
+# a binary that does not compile and a machine that cannot be provisioned are verdicts about
+# the CODE, and they must be able to report themselves on a host this gate is about to
+# refuse. Order is the whole of that rule and it costs nothing here — D1-D3 are arithmetic.
+
+gui_display_verdict 0 >/dev/null 2>&1; D_RC=$?
+if [ "$D_RC" -eq 1 ]; then
+  ok "D1 an active-display count of 0 is refused"
+else
+  bad "D1 an active-display count of 0 is refused" \
+      "gui_display_verdict answered $D_RC for a machine with no awake display. A precondition \
+that accepts a zero is a precondition that would have passed the run this exists to stop."
+fi
+
+gui_display_verdict 3 >/dev/null 2>&1; D_RC=$?
+if [ "$D_RC" -eq 0 ]; then
+  ok "D2 an active-display count of 3 is accepted"
+else
+  bad "D2 an active-display count of 3 is accepted" \
+      "gui_display_verdict answered $D_RC for a machine with three awake displays — a check \
+that refuses everything is not a check, it is an outage."
+fi
+
+gui_display_verdict "unknown" >/dev/null 2>&1; D_RC=$?
+gui_display_verdict "" >/dev/null 2>&1; D_RC_EMPTY=$?
+if [ "$D_RC" -eq 2 ] && [ "$D_RC_EMPTY" -eq 2 ]; then
+  ok "D3 a count that could not be measured is neither a zero nor a pass"
+else
+  bad "D3 a count that could not be measured is neither a zero nor a pass" \
+      "gui_display_verdict answered $D_RC for 'unknown' and $D_RC_EMPTY for an empty string. \
+An unmeasured premise read as either answer is the silent-pass this file refuses everywhere."
+fi
+
+# D4 — THE HOST, ASKED. The answer is printed whichever way it goes, because the absence of
+# this line is what made the 2026-09-17 nightly unreadable.
+read -r D_ACTIVE D_ONLINE <<<"$(gui_display_counts)"
+D_SENTENCE="$(gui_display_verdict "$D_ACTIVE")"; D_RC=$?
+case "$D_RC" in
+  0)
+    ok "D4 this host can answer: $D_SENTENCE ($D_ONLINE online)"
+    ;;
+  1)
+    echo "" >&2
+    echo "gui-boot.test.sh: NO DISPLAY ON THIS MAC IS AWAKE, so this host cannot answer B2." >&2
+    echo "                  CGGetActiveDisplayList reports 0 active of $D_ONLINE online display(s)." >&2
+    echo "                  macOS drops a SLEEPING display from the ACTIVE list, and" >&2
+    echo "                  app.available_monitors() IS that list (tao-0.35.3, macos/monitor.rs:146)," >&2
+    echo "                  so the boot below would truthfully print 'window: the runtime reported" >&2
+    echo "                  no attached display' and B2 would go red over the state of the screen." >&2
+    echo "                  Measured 2026-09-17: run 84aa5e62 failed exactly this way at 02:06Z," >&2
+    echo "                  inside the 01:33:47Z-02:16:29Z window pmset recorded the displays off;" >&2
+    echo "                  the same source passed at 02:25Z with them awake." >&2
+    echo "" >&2
+    echo "                  WAKE THE SCREEN AND RE-RUN. Press a key, or:" >&2
+    echo "                      caffeinate -u -t 1                 # wake it, then run the suite" >&2
+    echo "                      caffeinate -u -- bash scripts/gui-boot.test.sh" >&2
+    echo "                                                         # wake it and hold it awake for" >&2
+    echo "                                                         # the whole run (it turns the" >&2
+    echo "                                                         # screen ON — that is a visible" >&2
+    echo "                                                         # side effect on this desk)" >&2
+    host_gap_exit
+    ;;
+  *)
+    echo "" >&2
+    echo "gui-boot.test.sh: THIS HOST COULD NOT BE ASKED how many of its displays are awake." >&2
+    echo "                  gui_display_counts needs python3 and CoreGraphics; one of them did not" >&2
+    echo "                  answer. Refusing to report a result over an unmeasured precondition —" >&2
+    echo "                  an unknown is not a zero and it is not a green light either." >&2
+    host_gap_exit
+    ;;
+esac
+
 # B1/B2 — the positive half.
 if gui_boot "$MACHINE" "$TMP/healthy-boot.log" 60; then
   ok "B1 the healthy machine boots to completion under launchd's environment"
@@ -1119,6 +1227,20 @@ if OUT="$(gui_account "$TMP/healthy-boot.log" 2>&1)"; then
 else
   printf '%s\n' "$OUT"
   bad "B2 every line of a healthy Finder-condition boot is accounted for" "see the report above"
+  # THE ONE RED THAT IS NOT ABOUT THE CODE, NAMED WHERE IT IS READ. D4 passed minutes ago, so
+  # if the boot found no display the screen went to sleep DURING this run — a race a
+  # precondition checked once cannot close. B2 STAYS RED (the boot really did fail to place a
+  # window against a display), and the reader is told which repair this is.
+  if grep -Fq '[richos] window: the runtime reported no attached display' "$TMP/healthy-boot.log"; then
+    read -r D2_ACTIVE D2_ONLINE <<<"$(gui_display_counts)"
+    echo "         ---"
+    echo "         THIS RED IS ABOUT THE SCREEN, NOT THE SOURCE. D4 measured $D_ACTIVE awake"
+    echo "         display(s) before the boot; this host now reports $D2_ACTIVE awake of $D2_ONLINE online."
+    echo "         available_monitors() is CGGetActiveDisplayList, and macOS drops a SLEEPING"
+    echo "         display from that list (tao-0.35.3, macos/monitor.rs:146), so a screen that"
+    echo "         slept mid-run leaves the app truthfully reporting no attached display."
+    echo "         Re-run with the screen held awake:  caffeinate -u -- bash scripts/gui-boot.test.sh"
+  fi
 fi
 
 # B3-B7 — the negative halves. One configuration removed from the machine at a time. Each
