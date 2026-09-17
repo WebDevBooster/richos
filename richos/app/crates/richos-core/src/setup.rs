@@ -173,6 +173,124 @@ pub fn engine_version(dir: &Path) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+// ===========================================================================================
+// THE ENGINE'S RELEASE — the engine this build boots, or none of them
+// ===========================================================================================
+//
+// `engine_looks_valid` above answers SHAPE and keeps answering only that, deliberately. It is
+// asked by `install_engine` step 4 (whose step 5 is the version check, and would be swallowed
+// by a shape predicate that also checked versions) and by `provision.rs`, which uses it to ask
+// "is this compiler source sitting inside an engine?" — a question with no release in it.
+// Folding the pin into it would make a wrong-release engine report `nothing that looks like
+// the engine is there`, which is a false sentence about a directory full of engine and exactly
+// the dishonest-message failure the nightly's D1 was raised to end.
+
+/// **Why a directory that was looked at is not the engine THIS BUILD boots.**
+///
+/// Two reasons, and they are different sentences on purpose. `NotEngineShaped` is "there is
+/// nothing here"; `WrongRelease` is "there IS an engine here and it is not the one this build
+/// was built against" — the distinction the nightly's D1 spent four launches proving matters,
+/// because an operator reading "not found" about a directory full of engine goes hunting for
+/// the wrong thing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineRejected {
+    /// No `scripts/hooks/`, or no `VERSION`.
+    NotEngineShaped,
+    /// Engine-shaped, and a different release from the one this build pins.
+    WrongRelease {
+        /// The `VERSION` found there. `None` when the file could not be read.
+        found: Option<String>,
+        /// The release this build pins.
+        needed: String,
+    },
+}
+
+impl EngineRejected {
+    /// The OPERATOR's sentence — it carries version numbers, so it never reaches the CEO's
+    /// screen (the rule `SetupStatus::engine_pin_version` already states).
+    pub fn reason(&self) -> String {
+        match self {
+            EngineRejected::NotEngineShaped => {
+                "nothing that looks like the engine is there".to_string()
+            }
+            EngineRejected::WrongRelease { found, needed } => format!(
+                "the engine there is {}, and this build boots engine {needed}",
+                found.as_deref().unwrap_or("of no readable version"),
+            ),
+        }
+    }
+}
+
+/// The engine release this build boots, or `None` when this build carries no pin.
+///
+/// One value, read from the pin compiled in at build time ([`engine_pin`]). **A build that
+/// names no engine DEMANDS no engine**: the gate below is inert, every candidate is judged on
+/// shape alone, and the boot line says so rather than leaving it to be inferred. That is the
+/// honest state of every `cargo run` and every `cargo test` in this repository — `option_env!`
+/// is a compile-time read and nothing in a plain `cargo` invocation sets the three variables.
+/// Making it strict instead would be a rule invented here rather than one the build stated.
+pub fn required_engine_version() -> Option<String> {
+    engine_pin().map(|p| p.version)
+}
+
+/// **THE PIN GATE — shape AND release, one definition, `needed` injected.**
+///
+/// Separated from [`engine_matches_build`] for exactly the reason [`pin_from_parts`] is
+/// separated from [`engine_pin`]: `option_env!` is a COMPILE-time read, so a test binary can
+/// never carry a pin, and a gate that could only be exercised by rebuilding the crate with an
+/// environment set is a gate nothing would ever test.
+///
+/// `needed: None` means this build pins nothing, and the release question is then not asked.
+pub fn engine_accepted(dir: &Path, needed: Option<&str>) -> Result<(), EngineRejected> {
+    if !engine_looks_valid(dir) {
+        return Err(EngineRejected::NotEngineShaped);
+    }
+    let Some(needed) = needed else { return Ok(()) };
+    let found = engine_version(dir);
+    match found.as_deref() {
+        Some(v) if v == needed => Ok(()),
+        _ => Err(EngineRejected::WrongRelease { found, needed: needed.to_string() }),
+    }
+}
+
+/// [`engine_accepted`] asked with the running build's own pin. The production entry point, and
+/// what `engine.rs::looks_like_engine` delegates to, so the resolver, the detector and the
+/// installer cannot disagree about which engine this copy of RichOS boots.
+pub fn engine_matches_build(dir: &Path) -> Result<(), EngineRejected> {
+    engine_accepted(dir, required_engine_version().as_deref())
+}
+
+/// **The last gate before `claude` is started in a directory** — the half of this rule that
+/// stops the wrong engine WRITING, as opposed to merely being resolved.
+///
+/// It exists because resolution failing is not the same as nothing running: `main.rs`'s
+/// `resolve_engine` hands the lease factory THE LAST PLACE IT LOOKED when no candidate
+/// answered, and on macOS that last place is `~/Library/Application Support/RichOS/engine` —
+/// the one directory RichOS itself writes, and therefore exactly where a newer engine sits
+/// after the app has been rolled back. Without this gate, a refused resolution still ends with
+/// `claude` running in that engine and writing through it.
+///
+/// `Some(reason)` refuses; `None` allows. Two deliberate silences:
+///
+///   - **An explicit statement outranks the pin.** `$RICHOS_ENGINE_DIR` / `$RICHOS_ENGINE_ROOT`
+///     are taken verbatim by the resolver (`locate-engine.sh` rule 1, `engine.rs` candidates 1
+///     and 2), and a gate that then refused what the operator named would overrule a statement
+///     the rest of the system honors. It is also the escape hatch that makes strictness safe on
+///     a developer's machine: name the working tree and the pin steps aside, once, by name.
+///   - **A directory that is not an engine at all is not this gate's question.**
+///     `runtime::verify_engine` and `native.rs::preflight` already say that, in better words,
+///     with the path in them. Answering it twice would put two different sentences about one
+///     condition into one log.
+pub fn engine_boot_refusal(dir: &Path, explicit: bool, needed: Option<&str>) -> Option<String> {
+    if explicit {
+        return None;
+    }
+    match engine_accepted(dir, Some(needed?)) {
+        Ok(()) | Err(EngineRejected::NotEngineShaped) => None,
+        Err(rejected) => Some(format!("{}: {}", dir.display(), rejected.reason())),
+    }
+}
+
 /// `~/Library/Application Support/RichOS` — the per-user directory `provision.rs` already
 /// uses for the corpus pointer and `engine.rs` names as candidate 7.
 pub fn app_support_richos(home: &Path) -> PathBuf {
@@ -438,15 +556,50 @@ pub fn engine_is_usable(dir: &Path) -> Result<(), String> {
 /// `engine.rs`'s header: an operator who named a directory is making a statement, and
 /// falling through to one nobody named would silently overrule it. What changes is that
 /// being wrong is now REPORTED — with the reason — instead of reported as an empty list.
+///
+/// # THE RELEASE IS PART OF SELECTION TOO — spec point 22
+///
+/// A searched candidate must also be the release this build PINS. A rollback to an older app
+/// otherwise finds the newer engine a later app installed, boots it, and lets it write into
+/// the corpus — silently, because every other thing about it is right. So a wrong-release
+/// engine is recorded with the release it carries and the release this build needs, and the
+/// walk continues, ending — when nothing matches — in the same offer to install the pinned one
+/// that a missing engine produces.
+///
+/// The explicit override is exempt, in both directions: it is judged on shape and usability as
+/// it always was, and never on release. See [`engine_boot_refusal`] for why an operator's
+/// statement outranks the pin everywhere.
 pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf], usable: EngineUsable<'_>) -> ComponentStatus {
+    find_engine_pinned(paths, extra, usable, required_engine_version().as_deref())
+}
+
+/// [`find_engine`] with the pinned release supplied rather than compiled in — the same seam,
+/// and for the same reason, as [`engine_accepted`] against [`engine_matches_build`].
+pub fn find_engine_pinned(
+    paths: &SetupPaths,
+    extra: &[PathBuf],
+    usable: EngineUsable<'_>,
+    needed: Option<&str>,
+) -> ComponentStatus {
     let mut looked = Vec::new();
 
     // Test one candidate, appending exactly one line to `looked` whichever way it goes.
-    // `Some(status)` means stop here; `None` means keep walking.
-    let consider = |looked: &mut Vec<String>, candidate: &Path, label: &str| {
+    // `Some(status)` means stop here; `None` means keep walking. `pinned` is false for the
+    // explicit override alone.
+    let consider = |looked: &mut Vec<String>, candidate: &Path, label: &str, pinned: bool| {
         if !engine_looks_valid(candidate) {
             looked.push(format!("{}{label} — nothing that looks like the engine is there", candidate.display()));
             return None;
+        }
+        if pinned {
+            if let Err(rejected) = engine_accepted(candidate, needed) {
+                // FOUND, AND REJECTED FOR ITS RELEASE, AND SAID SO — with the version that is
+                // there and the version this build boots, because "the engine is not
+                // installed" about a directory holding an engine is what sends an operator
+                // looking for the wrong fault.
+                looked.push(format!("{}{label} — {}", candidate.display(), rejected.reason()));
+                return None;
+            }
         }
         if let Err(why) = usable(candidate) {
             // FOUND, AND REJECTED, AND SAID SO. This is the line that was missing: the
@@ -460,7 +613,7 @@ pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf], usable: EngineUsable<'
     };
 
     if let Some(explicit) = paths.engine_override.as_deref() {
-        if let Some(found) = consider(&mut looked, explicit, " ($RICHOS_ENGINE_DIR)") {
+        if let Some(found) = consider(&mut looked, explicit, " ($RICHOS_ENGINE_DIR)", false) {
             return found;
         }
         return ComponentStatus::missing(Component::Engine, looked);
@@ -493,7 +646,7 @@ pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf], usable: EngineUsable<'
             continue;
         }
         seen.push(candidate.clone());
-        if let Some(found) = consider(&mut looked, &candidate, "") {
+        if let Some(found) = consider(&mut looked, &candidate, "", true) {
             return found;
         }
     }
@@ -513,12 +666,31 @@ pub fn detect(
     extra_engine_candidates: &[PathBuf],
     usable: EngineUsable<'_>,
 ) -> SetupStatus {
-    let pin = engine_pin();
+    detect_with_pin(paths, extra_engine_candidates, usable, engine_pin().as_ref())
+}
+
+/// [`detect`] with the pin supplied rather than compiled in.
+///
+/// **One pin answers both halves.** The release the walk demands of a candidate and the
+/// release the first-run surface offers to install are the same value here, by construction —
+/// a build that refused every engine on the machine and then offered a DIFFERENT one would be
+/// a worse state than the one this rule exists to end.
+pub fn detect_with_pin(
+    paths: &SetupPaths,
+    extra_engine_candidates: &[PathBuf],
+    usable: EngineUsable<'_>,
+    pin: Option<&EnginePin>,
+) -> SetupStatus {
     SetupStatus {
         claude: find_claude(paths),
-        engine: find_engine(paths, extra_engine_candidates, usable),
+        engine: find_engine_pinned(
+            paths,
+            extra_engine_candidates,
+            usable,
+            pin.map(|p| p.version.as_str()),
+        ),
         engine_installable: pin.is_some(),
-        engine_pin_version: pin.map(|p| p.version),
+        engine_pin_version: pin.map(|p| p.version.clone()),
         installed_now: false,
     }
 }

@@ -840,6 +840,18 @@ trap cleanup EXIT INT TERM
 # `Ok(None)` sentence, held here as the DECLARED GAP two screens up rather than as a proof: no
 # real install ships `tools/richos-service` (and `richos-evidence.mjs` inside it) today, so
 # this is the honest line a healthy machine prints, not a fixture standing in for one.
+#
+# The `engine directory:` line grew its release on 2026-09-17 (spec point 22): the resolved
+# path no longer identifies what is about to run, because a rollback finds a NEWER engine
+# where the app it rolled back from installed one. A pinned build — every release and every
+# nightly — prints `(via <source>, engine <version> as this build pins)`, which is the form
+# below; a `cargo run` carries no pin and prints `engine <version>, pinned by nothing in this
+# build`. Both satisfy the `engine directory` proof, whose regex demands the resolved shape
+# and a closing parenthesis (`engine.rs::EngineResolution::describe`). The FAILING form —
+# `NOT FOUND — this build boots engine <v>, and none of the N place(s) tried carries it` —
+# and the `passed over <path> (<source>) — <why>` line that names an engine of another
+# release are both left UNACCOUNTED on purpose: a boot printing either is a machine holding
+# the wrong engine, and that is a red run, not a classification.
 healthy_log() {
   cat <<'LOG'
 [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 98012), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
@@ -853,7 +865,7 @@ healthy_log() {
 [richos] loro Tier C: compiling from /m/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
 [richos] loro correction desk: writing to /m/corpus via /m/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
 [richos] loro Tier E: no evidence lookup for this install — a turn memory cannot answer will say so and stop there, rather than looking in the CEO's files. RICHOS_EVIDENCE_BIN names the entry point.
-[richos] engine directory: /m/.claude/richos-engine (via engine install pointer)
+[richos] engine directory: /m/.claude/richos-engine (via engine install pointer, engine 1.2.0 as this build pins)
 [richos] compute connection: starts with the first cancellable request over /m/.local/bin/claude
 [richos] first-run setup: nothing missing.
 [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
