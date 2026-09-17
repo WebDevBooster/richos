@@ -39,9 +39,20 @@ class VersionTests(unittest.TestCase):
 
 
 class GitTests(unittest.TestCase):
+    FIXTURE_IDENT = "Fixture <fixture@example.invalid>"
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        # A commit identity exported by whatever shell runs this suite overrides every
+        # level of git config, so without this the identity assertions below would be
+        # about the operator instead of the fixture. patch.dict restores the pops.
+        environment = patch.dict(os.environ, {})
+        environment.start()
+        self.addCleanup(environment.stop)
+        for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME",
+                     "GIT_COMMITTER_EMAIL", "EMAIL"):
+            os.environ.pop(name, None)
         root = Path(self.temp.name)
         self.remote = root / "remote.git"
         self.repo = root / "repo"
@@ -79,6 +90,48 @@ class GitTests(unittest.TestCase):
 
     def reserve(self):
         return n.prepare(self.plan())
+
+    def author_and_committer(self, commit):
+        return n.git("show", "-s", "--format=%an <%ae>|%cn <%ce>", commit)
+
+    def test_release_commits_carry_the_checkouts_configured_identity(self):
+        # The release is the operator's act, from the operator's checkout. A commit
+        # saying otherwise is false, and the machine's push guard refuses it.
+        both = f"{self.FIXTURE_IDENT}|{self.FIXTURE_IDENT}"
+        info = self.reserve()
+        self.assertEqual(self.author_and_committer(info["build_commit"]), both)
+        self.assertEqual(self.author_and_committer(n.promote(info, self.manifest(info))), both)
+
+    def test_retired_hard_coded_identity_would_fail_that_check(self):
+        """Positive control for the test above.
+
+        Until 2026-09-17 `commit_files` set these four variables itself, which is how
+        `5df42d006c45` came to be authored `nightly@users.noreply.github.com` and why
+        the first nightly never published. Supplying them through the environment is
+        exactly what the old code did, so this proves the assertion bites instead of
+        passing because both sides happen to read the same config.
+        """
+        retired = {"GIT_AUTHOR_NAME": "RichOS nightly", "GIT_COMMITTER_NAME": "RichOS nightly",
+                   "GIT_AUTHOR_EMAIL": "nightly@users.noreply.github.com",
+                   "GIT_COMMITTER_EMAIL": "nightly@users.noreply.github.com"}
+        with patch.dict(os.environ, retired):
+            info = self.reserve()
+        observed = self.author_and_committer(info["build_commit"])
+        self.assertNotEqual(observed, f"{self.FIXTURE_IDENT}|{self.FIXTURE_IDENT}")
+        self.assertEqual(observed, "RichOS nightly <nightly@users.noreply.github.com>|"
+                                   "RichOS nightly <nightly@users.noreply.github.com>")
+
+    def test_unconfigured_identity_refuses_before_a_number_is_reserved(self):
+        n.git("config", "--unset", "user.name")
+        n.git("config", "--unset", "user.email")
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull,
+                                     "GIT_CONFIG_SYSTEM": os.devnull,
+                                     "GIT_CONFIG_NOSYSTEM": "1"}):
+            # git's hostname fallback would otherwise mint `user@host.home` here and
+            # `git commit-tree` would accept it; the push guard denies that too.
+            with self.assertRaisesRegex(ValueError, "no configured commit identity"):
+                self.plan()
+        self.assertEqual([tag for tag in n.remote_tags() if "nightly" in tag], [])
 
     def test_source_commit_is_complete_and_main_unchanged(self):
         info = self.reserve()

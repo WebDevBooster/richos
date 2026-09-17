@@ -80,10 +80,40 @@ def json_text(value):
     return json.dumps(value, indent=2) + "\n"
 
 
+# `user.useConfigOnly=true` removes git's hostname fallback. Without it an unset
+# identity is not an error: measured on git 2.52.0, `git var GIT_AUTHOR_IDENT` returns
+# an auto-detected `user@host.home` and `git commit-tree` accepts it and exits 0, so
+# the misconfiguration would surface only when the tag push is refused.
+CONFIGURED_IDENTITY = ("-c", "user.useConfigOnly=true")
+
+
+def identity():
+    """Return the (author, committer) identity every commit built here will carry.
+
+    `git config user.email` is not the probe. GIT_AUTHOR_EMAIL and GIT_COMMITTER_EMAIL
+    in the environment override every level of git config and `git config` cannot see
+    them; only `git var` resolves what a commit will actually record.
+    """
+    idents = []
+    for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+        result = subprocess.run(("git", *CONFIGURED_IDENTITY, "var", var), cwd=ROOT,
+                                text=True, capture_output=True)
+        if result.returncode or "<" not in result.stdout:
+            raise ValueError(
+                f"this checkout has no configured commit identity ({var}); a nightly is "
+                "released under the operator's own identity, so set user.name and "
+                "user.email first (git config --global user.name '<your name>' and "
+                "git config --global user.email '<your email>')")
+        idents.append(result.stdout.strip().rsplit(" ", 2)[0])
+    return tuple(idents)
+
+
 def plan(force=False, now=None):
     now = now or utc_now()
     if git("status", "--porcelain", "--untracked-files=all"):
         raise ValueError("nightly builds require a clean checkout")
+    # Refuse here rather than at the tag push, which is forty minutes of gates later.
+    identity()
     source = git("rev-parse", "HEAD")
     base = tomllib.loads((ROOT / MANIFEST).read_text())["package"]["version"]
     tags = remote_tags()
@@ -105,19 +135,25 @@ def plan(force=False, now=None):
 
 
 def commit_files(files, parent, message):
-    """Construct a commit without modifying the checkout or its real index."""
+    """Construct a commit without modifying the checkout or its real index.
+
+    The identity is NOT set here: the commit carries whatever identity git resolves
+    for this checkout, which is the operator's own. A hard-coded
+    `RichOS nightly <nightly@users.noreply.github.com>` was written for a GitHub
+    Actions runner (c8aee2fc) and survived the move to a local command (2d0f3d93);
+    on the release Mac it said something false about who released the build, and the
+    machine's commit-identity guard refused the tag push over it
+    (femcboost/scripts/hooks/git-identity-guard.sh, DENY_GLOBS `*@users.noreply.github.com`).
+    """
     with tempfile.TemporaryDirectory(prefix="richos-nightly-index-") as tmp:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index"),
-               "GIT_AUTHOR_NAME": "RichOS nightly", "GIT_COMMITTER_NAME": "RichOS nightly",
-               "GIT_AUTHOR_EMAIL": "nightly@users.noreply.github.com",
-               "GIT_COMMITTER_EMAIL": "nightly@users.noreply.github.com"}
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
         git("read-tree", parent if parent else "--empty", env=env)
         for name, contents in files.items():
             blob = git("hash-object", "-w", "--stdin", input=contents)
             git("update-index", "--add", "--cacheinfo", f"100644,{blob},{name}", env=env)
         tree = git("write-tree", env=env)
-        return git("commit-tree", tree, *(["-p", parent] if parent else []),
-                   input=message + "\n", env=env)
+        return git(*CONFIGURED_IDENTITY, "commit-tree", tree,
+                   *(["-p", parent] if parent else []), input=message + "\n", env=env)
 
 
 def prepare(info):
