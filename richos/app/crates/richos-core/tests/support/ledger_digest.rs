@@ -125,17 +125,16 @@ pub fn digest_ledger(src: &Path, copy_to: &Path) -> Result<Vec<String>, String> 
         // that changes everywhere proves nothing about the one thing that changed.
         //
         // The sentences are HASHED (they are what the CEO was shown, so they are content);
-        // the cause tag, the route and the retry boolean are emitted verbatim, because a
-        // change to any of the three changes what he can DO and must be legible in a diff
-        // rather than hidden behind a hash.
+        // the cause tag and the retry boolean are emitted verbatim, because a change to
+        // either changes what he can DO and must be legible in a diff rather than hidden
+        // behind a hash.
         if let Some(c) = &t.interruption {
             out.push(format!(
-                "  interruption {} | cause={} | ceo={} | loss={} | route={} | offers_retry={}",
+                "  interruption {} | cause={} | ceo={} | loss={} | offers_retry={}",
                 t.id,
                 c.cause,
                 digest(&c.ceo_message),
                 c.loss_message.as_deref().map(digest).unwrap_or_else(|| "-".into()),
-                c.route.clone().unwrap_or_else(|| "-".into()),
                 c.offers_retry,
             ));
         }

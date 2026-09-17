@@ -153,10 +153,21 @@ impl InterruptionCause {
     /// inviting the CEO to press a button that could not work.
     pub fn ceo_message(self) -> &'static str {
         match self {
+            // THE ROUTE IS IN THE SENTENCE, not beside it. It was a second string returned
+            // by a `route()` method until `affordances.js` refused the row: under
+            // `app/crates` the state registry can only see literals inside a function
+            // called `ceo_message`, so a route authored anywhere else would have reached his
+            // screen while being invisible to the one inventory that asks whether he can act
+            // on what he is told. That is the hole this module's own header objects to, and
+            // the fix is to have one authored sentence rather than a way around the scrape.
+            //
+            // It also reads better aloud. `Settings → Account connection` was the first
+            // form, and an arrow is read aloud as nothing at all.
             InterruptionCause::NotSignedIn => {
                 "I couldn't start that, because I'm not connected to your Anthropic account \
                  right now — either nobody has signed in on this Mac yet, or the sign-in ran \
-                 out. Connect the account in Settings and I'll pick this straight back up."
+                 out. You can connect it in Settings, under Account connection, and I'll \
+                 pick this straight back up."
             }
             InterruptionCause::CredentialRejected => {
                 "I couldn't start that. There is an account credential set up on this Mac and \
@@ -194,35 +205,6 @@ impl InterruptionCause {
         }
     }
 
-    /// **The route that EXISTS, as a WHOLE SENTENCE**, or `None`.
-    ///
-    /// `Some` only where RichOS really has that screen. The audit's third finding was that
-    /// the app *"never mentions the account — even though the app offered to connect one on
-    /// first run, knows it was declined, and has a working route to it"*. Naming a route
-    /// that is not there would be the same defect pointing the other way, so the credential
-    /// arm — which the CEO cannot fix from any screen — names no route at all.
-    ///
-    /// **A WHOLE SENTENCE, not a breadcrumb the renderer wraps.** The first version of this
-    /// returned `"Settings → Account connection"` and `timeline.js` built
-    /// `"You'll find it in " + route + "."` around it. Two things were wrong with that, and
-    /// `affordances.js` caught both: the renderer was composing CEO copy, which this
-    /// module's header says it never does; and the fragment it composed entered the state
-    /// registry as `"You'll find it in"`, a string nobody can classify as actionable or not.
-    ///
-    /// **And an arrow is not spoken.** RichOS is voice-first; `→` is read aloud as nothing
-    /// at all, or as "right arrow". The sentence below names the screen in words that work
-    /// read and heard.
-    pub fn route(self) -> Option<&'static str> {
-        match self {
-            InterruptionCause::NotSignedIn => {
-                Some("You can connect it in Settings, under Account connection.")
-            }
-            InterruptionCause::CredentialRejected
-            | InterruptionCause::StoppedByCeo
-            | InterruptionCause::Transient
-            | InterruptionCause::Unknown => None,
-        }
-    }
 }
 
 /// Decide the cause from the reason string the ledger stores.
@@ -270,9 +252,6 @@ pub struct InterruptionRecord {
     /// been written**, which is the sentence the nightly got wrong.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loss_message: Option<String>,
-    /// [`InterruptionCause::route`], when one exists.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub route: Option<String>,
     /// [`InterruptionCause::offers_retry`], stored rather than re-derived so the control the
     /// CEO sees on a reload is the control he saw at the time.
     pub offers_retry: bool,
@@ -304,7 +283,6 @@ impl InterruptionRecord {
             cause: cause.tag().to_string(),
             ceo_message: cause.ceo_message().to_string(),
             loss_message,
-            route: cause.route().map(str::to_string),
             offers_retry: cause.offers_retry(),
         }
     }

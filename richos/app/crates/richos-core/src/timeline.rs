@@ -820,9 +820,6 @@ pub enum TimelineItem {
         /// nothing at all about saved work, instead of reassuring about nothing.
         #[serde(skip_serializing_if = "Option::is_none")]
         loss_message: Option<String>,
-        /// The screen that can fix this, in the CEO's words, when one exists.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        route: Option<String>,
         /// Whether asking again is a plan. Drives whether a retry control is drawn at all.
         offers_retry: bool,
     },
@@ -1558,7 +1555,6 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
             cause: cause.cause.clone(),
             ceo_message: cause.ceo_message.clone(),
             loss_message: cause.loss_message.clone(),
-            route: cause.route.clone(),
             // Read off the STORED value rather than re-derived from the tag, so a record
             // written by an older or newer build renders the control it was written with.
             offers_retry: cause.offers_retry,

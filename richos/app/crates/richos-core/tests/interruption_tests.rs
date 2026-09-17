@@ -73,7 +73,6 @@ fn an_io_failure_is_transient_and_says_asking_again_is_worth_a_try() {
     let cause = classify("cognition io: broken pipe");
     assert_eq!(cause, InterruptionCause::Transient);
     assert!(cause.offers_retry(), "the one arm where a retry control belongs");
-    assert!(cause.route().is_none(), "there is no screen that fixes a broken pipe");
     assert!(cause.ceo_message().contains("asking again"), "{}", cause.ceo_message());
 }
 
@@ -92,7 +91,10 @@ fn a_stop_the_ceo_asked_for_is_classified_as_his_own_stop() {
 fn a_reason_nobody_anticipated_is_named_unknown_rather_than_guessed() {
     let cause = classify("cognition protocol: \"qqqq\"");
     assert_eq!(cause, InterruptionCause::Unknown);
-    assert!(cause.route().is_none(), "an unknown cause must not send him anywhere");
+    assert!(
+        !cause.ceo_message().contains("Settings"),
+        "an unknown cause must not send him to a screen that might not help"
+    );
     assert!(cause.ceo_message().contains("can't tell you why"), "{}", cause.ceo_message());
 }
 
@@ -114,7 +116,10 @@ fn the_sign_in_case_names_the_account_offers_the_route_that_exists_and_no_retry(
 
     assert!(message.contains("Anthropic account"), "{message}");
     assert!(!cause.offers_retry(), "a retry here cannot succeed however often it is pressed");
-    assert_eq!(cause.route(), Some("You can connect it in Settings, under Account connection."));
+    assert!(
+        message.contains("Settings") && message.contains("Account connection"),
+        "the route the app actually has is not offered: {message}"
+    );
 
     // It must not reach for the vocabulary the nightly used.
     assert!(!message.contains("snag"), "{message}");
@@ -224,10 +229,10 @@ fn every_sentence_survives_being_spoken() {
         InterruptionCause::Transient,
         InterruptionCause::Unknown,
     ] {
-        // THE ROUTE IS HELD TO THE SAME BAR, and it is the reason it stopped being a
-        // breadcrumb: `Settings → Account connection` carries an arrow, which is read aloud
-        // as nothing at all.
-        for m in [Some(cause.ceo_message()), cause.route()].into_iter().flatten() {
+        // THE ARROW IS ON THE FORBIDDEN LIST BECAUSE THE ROUTE IS IN THE SENTENCE NOW.
+        // `Settings → Account connection` was the first form of the sign-in line, and an
+        // arrow is read aloud as nothing at all in a product that is answered by voice.
+        for m in [cause.ceo_message()] {
             for forbidden in ['/', '\\', '{', '}', '(', ')', '[', ']', '_', '*', '`', '<', '>', '→'] {
                 assert!(!m.contains(forbidden), "{cause:?} carries {forbidden:?}: {m}");
             }

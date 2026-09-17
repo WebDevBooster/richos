@@ -56,9 +56,6 @@ function rustSentence(needle) {
 
 const NOT_SIGNED_IN = rustSentence("not connected to your Anthropic account");
 const TRANSIENT = rustSentence("lost my connection to the part of me that thinks");
-// The route is a WHOLE authored sentence, relayed verbatim — not a breadcrumb this file or
-// the renderer wraps. `InterruptionCause::route`.
-const ROUTE = rustSentence("under Account connection");
 
 // The exact sentence `InterruptionRecord::new` writes when Rich had written nothing. It is
 // a `format`-free literal in Rust, but it lives in `InterruptionRecord::new` rather than in
@@ -134,7 +131,6 @@ function notSignedInItem() {
     cause: "not-signed-in",
     ceoMessage: NOT_SIGNED_IN,
     lossMessage: ONLY_HIS_WORDS,
-    route: ROUTE,
     offersRetry: false,
   };
 }
@@ -230,11 +226,15 @@ async function main() {
     const c = await cardText(page);
     const whole = c.body.concat(c.notes).join(" ");
     assert(whole.includes("Anthropic account"), "the account is never mentioned: " + whole);
+    // The route is IN the authored sentence rather than beside it — see the Rust comment on
+    // `NotSignedIn`'s arm. A second string returned by a `route()` method would have reached
+    // his screen while being invisible to the affordance registry.
     assert(
-      c.notes.indexOf(ROUTE) >= 0,
-      "the authored route sentence must be relayed verbatim: " + JSON.stringify(c.notes)
+      whole.includes("Settings") && whole.includes("Account connection"),
+      "the route the app actually has must be offered: " + whole
     );
-    return "names the account + Settings → Account connection";
+    assert(!whole.includes("\u2192"), "an arrow is read aloud as nothing: " + whole);
+    return "names the account and the Settings route, in one spoken-safe sentence";
   });
 
   await run.check("UNTRUTH 2 — it claims no saved answer when none was written", async () => {

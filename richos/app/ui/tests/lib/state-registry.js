@@ -113,8 +113,8 @@ module.exports = [
   {
     s:
       "I couldn't start that, because I'm not connected to your Anthropic account right " +
-      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. Connect " +
-      "the account in Settings and I'll pick this straight back up.",
+      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
+      "connect it in Settings, under Account connection, and I'll pick this straight back up.",
     c: "ACTIONABLE",
     control: "#rail-settings",
     fixture: null,
@@ -124,19 +124,7 @@ module.exports = [
       "finding was that the app never mentioned the account at all 'even though the app " +
       "offered to connect one on first run, knows it was declined, and has a working route " +
       "to it'. The control is the rail's settings button, which is on screen in every view " +
-      "this card can appear in; the row below names the route in words.",
-  },
-  {
-    s: "You can connect it in Settings, under Account connection.",
-    c: "ACTIONABLE",
-    control: "#rail-settings",
-    fixture: null,
-    why:
-      "`InterruptionCause::route`. A WHOLE SENTENCE authored in Rust rather than a " +
-      "breadcrumb the renderer wraps — the first version returned 'Settings → Account " +
-      "connection' and timeline.js built \"You'll find it in …\" around it, which made the " +
-      "renderer the author of CEO copy and put an unclassifiable fragment into this " +
-      "registry. An arrow is also read aloud as nothing, and this product is voice-first.",
+      "this card can appear in, and the sentence itself names the route in words. It was TWO sentences briefly, the second returned by a `route()` method — deleted because under app/crates this registry can only see literals inside a function called `ceo_message`, so a route authored anywhere else would reach his screen while being invisible to the one inventory that asks whether he can act on what he is told.",
   },
   {
     s:

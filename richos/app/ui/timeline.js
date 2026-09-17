@@ -2135,13 +2135,6 @@
       if (interruption.lossMessage) {
         card.appendChild(elem("p", "tl-intervention-note", interruption.lossMessage));
       }
-      // Where he can fix it, when there is somewhere. A WHOLE SENTENCE authored by
-      // `InterruptionCause::route` and relayed verbatim — this line used to wrap a
-      // breadcrumb in "You'll find it in …", which made the renderer the author of CEO copy
-      // and put an unclassifiable fragment into the state registry.
-      if (interruption.route) {
-        card.appendChild(elem("p", "tl-intervention-note", interruption.route));
-      }
       if (interruption.offersRetry) {
         card.appendChild(retryControl(turn, opts));
       }

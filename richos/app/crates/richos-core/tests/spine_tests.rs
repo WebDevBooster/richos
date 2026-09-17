@@ -399,7 +399,7 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     let cause = turn.interruption.as_ref().expect("the cause is recorded");
     assert_eq!(cause.cause, "transient");
     assert!(cause.offers_retry);
-    assert_eq!(cause.route, None);
+    assert!(!cause.ceo_message.contains("Settings"), "a lost pipe is not fixed in Settings");
     // The turn boundary is clear again (queue-not-interrupt invariant intact).
     assert!(!spine.is_turn_in_progress());
     let _ = std::fs::remove_file(&path);
