@@ -1,0 +1,137 @@
+--- a/docs/guides/google-workspace-oauth-setup.md	2026-09-17 02:57:17
++++ b/docs/guides/google-workspace-oauth-setup.md	2026-09-17 02:57:17
+@@ -21,9 +21,12 @@
+ - The **Calendar, Drive and Gmail APIs** enabled in it.
+ - An **OAuth client** (Desktop app) — a **client ID** and a **client secret**, both of them in one
+   small JSON file you download from the console with a single button.
+-- A consent screen configured **External + Testing**, with **yourself added as a test user**.
++- A consent screen configured **External + Testing**, with **every Google address you want to connect
++  added as a test user**.
+ - One RichOS command that takes that downloaded file and completes the consent. The client secret
+   goes into your **macOS Keychain** and into no file; you can delete the download afterwards.
++- **As many Google accounts as you like, side by side** — the same command again with a different
++  `--account`. One project, one OAuth client, one consent screen per account.
+ 
+ Total time: ~10 minutes.
+ 
+@@ -62,7 +65,10 @@
+      - *(If you later confirm you have Workspace **domain-admin**, you can switch this to **Internal**
+        — that removes the 7-day token limit and needs no Google verification. See the note at the
+        bottom.)*
+-   - **Test users → + Add users** → add **your own email address**. Save.
++   - **Test users → + Add users** → add **every Google address you want RichOS to read**, not only the
++     one you signed in with. A Testing-mode app consents accounts on this list and refuses the rest at
++     the consent screen, so a second account you forget to add here fails there with nothing useful to
++     read. You can come back and add one later. Save.
+    - Leave the **Publishing status** as **Testing** (do not click "Publish app"). Testing +
+      you-as-test-user is all RichOS needs, and it avoids Google's restricted-scope
+      verification/CASA review.
+@@ -127,8 +133,9 @@
+ ~/RichOS/corpus/ceo/unfiled/evidence/workspace/_oauth_client.json
+ ```
+ 
+-It holds the client ID, the loopback redirect, the scopes and your address — and **no secret**: that
+-one is in the Keychain, never in this file, which is a file you are welcome to open and read. It is
++It holds the client ID, the loopback redirect, and a list of the accounts you have connected, each
++with its own scopes — and **no secret**: that one is in the Keychain, never in this file, which is a
++file you are welcome to open and read. It is
+ outside the RichOS repository by construction (RichOS refuses to write it anywhere inside the
+ checkout) and is written readable only by you. You can edit it directly instead of using the flags if
+ you prefer — the secret is the one thing you cannot put there, so `--client-file` has to happen once;
+@@ -181,6 +188,48 @@
+ > without their text and prints `limited: Drive — metadata only …` on every pull until you run
+ > `connect` again. One re-consent and it reads the text too.
+ 
++### Adding a second Google account
++
++**Run the same command again with the other address.** It **adds** that account — nothing about the
++account you already connected changes:
++
++```
++richos-service workspace connect google \
++  --account your.other.address@gmail.com \
++  --source calendar --source drive --source mail
++```
++
++No `--client-file` and no `--client-id` the second time: it is the same OAuth app, and its secret is
++already in your Keychain. Google shows you its consent screen again, for the other account, and
++RichOS tells you up front whose grant it is not touching:
++
++```
++account:    your.other.address@gmail.com
++keeping:    you@yourcompany.com  (untouched by this consent)
++```
++
++**The second account must also be a test user of the same project** (Step 3.2). It is the one thing
++that has to happen in the console rather than in the command, and skipping it means Google refuses
++your approval at its own screen with no explanation RichOS can improve on.
++
++From then on `status` and `sync` cover **every** connected account, each reporting its own expiry, its
++own sources and its own counts — `--account <address>` narrows either one to a single account when you
++want that. This matters because your accounts are genuinely different: a Google account built on an
++outside address has your Drive but **no Gmail mailbox at all**, and RichOS says so per account rather
++than calling it an error — `gmail: unavailable — this Google account has no Gmail mailbox` beside the
++other account's real count, in the same pull. Each account keeps its own authorization, its own
++7-day clock, its own place in each source, and its own evidence, so the same document or message
++belonging to two accounts is two items and never one overwriting the other.
++
++`disconnect` is the one command that asks you to be specific: with more than one account connected,
++`richos-service workspace disconnect google` refuses and lists them rather than guessing, and
++`--account <address>` revokes exactly that one.
++
++> **If you authorized RichOS before 17 September 2026**, your `_oauth_client.json` names a single
++> account at its top level. The next command you run rewrites it as a list, in place, saying
++> `config: … now lists accounts (your existing account is unchanged)` — and your existing
++> authorization is carried over, not thrown away. There is nothing for you to do first.
++
+ ## Step 7 — Pull your data
+ 
+ Nothing runs on a schedule. RichOS has no background poller and opens no listening port; you ask for
+@@ -206,6 +255,10 @@
+ ```
+ 
+ ```
++client:     123456789-abcdefg.apps.googleusercontent.com
++config:     ~/RichOS/corpus/ceo/unfiled/evidence/workspace/_oauth_client.json
++zone:       ~/RichOS/corpus/ceo/unfiled/evidence/workspace
++
+ account:    you@yourcompany.com
+ secret:     in keychain
+ auth:       HEALTHY — ~168h left on the grant
+@@ -218,6 +271,10 @@
+             last sync: 2026-09-17T10:00:00.000Z — observed 1, ingested 1, deduped 0
+ ```
+ 
++With a second account connected the same command prints a second block below the first, with that
++account's own `auth:` line, its own hours remaining and its own per-source counts. Nothing is shared
++between the blocks but the client ID at the top.
++
+ You're done.
+ 
+ ---
+@@ -233,7 +290,9 @@
+   failing quietly.
+ - If it lapses, you simply run `richos-service workspace connect google` again (a 2-click re-consent).
+   No flags the second time: your client ID, address and sources were saved in Step 5, and your client
+-  secret is in the Keychain — which is why you can delete the downloaded file.
++  secret is in the Keychain — which is why you can delete the downloaded file. With more than one
++  account connected, add `--account <the address>` so RichOS knows which one you are re-consenting;
++  each account has its own 7-day clock, and `status` tells you which one is running out.
+ 
+ **To remove the weekly re-auth entirely**, you have two paths:
+ 1. **Internal app (best, if available):** if your Google Workspace admin confirms you have
+@@ -247,8 +306,12 @@
+ ## Disconnecting
+ 
+ At any time you can revoke RichOS's access from your Google Account security page
+-(<https://myaccount.google.com/permissions>), **or** run `richos-service workspace disconnect google`,
+-which revokes vendor-side and deletes the Keychain entry locally.
++(<https://myaccount.google.com/permissions>), **or** run
++`richos-service workspace disconnect google --account <the address>`, which revokes vendor-side and
++deletes that account's Keychain entry locally. It disconnects **one** account: with more than one
++connected, leaving `--account` off is a refusal that lists them rather than a guess, and the accounts
++you did not name keep their grants and their place in each source. `--forget-cursors` drops the named
++account's cursors only.
+ 
+ Your client secret stays in the Keychain, so reconnecting later needs no flags again. It is not part of
+ the authorization and opens nothing once the grant is revoked — it identifies your own app, the way the
