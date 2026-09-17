@@ -323,6 +323,17 @@ declare_rules() {
     '^\[richos\] compute connection: starts with the first cancellable request over .+$' \
     'the selected compute command is deferred to the first cancellable request (main.rs)'
 
+  # THE 2026-09-17 CANDIDATE-WALK FIX. `resolve_claude_bin_checked` refuses, naming every
+  # place looked, rather than letting boot silently freeze on a bare `claude` no provider
+  # `PATH` can ever resolve. It is a fact about a BROKEN machine, so — like the first-run
+  # setup refusals below it — it must stay unaccounted, never widened into a rule that would
+  # certify a machine with no executable to connect to.
+  refused 'compute connection unresolved' \
+    '[richos] compute connection: no `claude` install could be found on this Mac — looked in: /a; /b — install Claude Code, or set RICHOS_CLAUDE_BIN to its path' \
+    'The counterpart of `compute startup policy` above: a boot that never found `claude`
+       anywhere it looked. Accepting it would certify a machine `EngineLeaseFactory` can
+       never actually spawn against.'
+
   resolved 'loro read half' \
     '^\[richos\] loro Tier C: compiling from .+ \(via .+\), node .+$' \
     'the corpus and the compiler that reads it (loro.rs, c179cc1)'
