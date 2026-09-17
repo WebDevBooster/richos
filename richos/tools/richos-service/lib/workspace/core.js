@@ -89,6 +89,11 @@ export async function ingestOnce(opts) {
     events: [],
     commitments: [],
     entityCandidates: [],
+    // An adapter MAY report which sub-resources it actually read this poll (Calendar: which
+    // calendars, by name and count — §"a person has several calendars"). Optional, generic, and
+    // never inspected here beyond passing it through: no vendor branch, per the core's own rule.
+    ...(result.calendars ? { calendars: result.calendars } : {}),
+    ...(result.degraded ? { degraded: result.degraded } : {}),
   };
 
   for (const ref of result.items || []) {
