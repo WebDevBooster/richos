@@ -412,6 +412,28 @@ declare_rules() {
        vocabulary service ships from, then delete this declaration and the check turns
        red until the boot line goes away.'
 
+  # `CliEvidenceLookup::from_env` (evidence.rs:114, landed db5ac14d 2026-09-17) resolves
+  # RICHOS_EVIDENCE_BIN outright, or falls back to richos-evidence.mjs sitting beside
+  # RICHOS_SERVICE_BIN — the SAME service entry point the gap immediately above says nothing
+  # installs. There is no second, independent installer for the evidence half: it ships
+  # inside tools/richos-service, the package the RICHOS_SERVICE_BIN gap already names as not
+  # shipping to a real machine today (docs/verification/2026-09-17-evidence-lookup-wired-
+  # end-to-end.md §5 exercises it only under a fabricated temp HOME with every variable set
+  # by hand). So a healthy real install prints this same line, and the fixture printing it
+  # is not a gap IN the harness — it is the harness telling the truth about an install that
+  # genuinely has neither pointer. Inventing a fixture-only richos-evidence.mjs would make
+  # the harness green on a premise the real product does not meet.
+  gap 'RICHOS_EVIDENCE_BIN' \
+    '^\[richos\] loro Tier E: no evidence lookup for this install' \
+    'CliEvidenceLookup::from_env (evidence.rs:114) needs RICHOS_EVIDENCE_BIN, or
+       RICHOS_SERVICE_BIN with richos-evidence.mjs beside it, and nothing installs either on
+       a real machine today — this is the exact same open premise as the RICHOS_SERVICE_BIN
+       gap above, not a second one. A turn whose compiled slice has nothing simply says so
+       and stops, which is the honest behavior. CLOSE THIS the moment RICHOS_SERVICE_BIN
+       closes (they ship from the same package) by deciding where tools/richos-service
+       ships from, then delete this declaration and the check turns red until the boot line
+       goes away.'
+
   # -- THE LINES THAT MAY NEVER BECOME RULES ---------------------------------------------
   #
   # The entity-registry pass of 2026-09-04 (8dde942 -> ea91fa2) took the CEO's six companies
@@ -800,6 +822,13 @@ trap cleanup EXIT INT TERM
 # too rather than sentences somebody imagined the boot might say.
 # On 2026-09-07 compute attachment moved into the first cancellable request. Its boot
 # diagnostic records that policy; the separate first-run setup line still checks installation.
+#
+# The `loro Tier E:` line arrived on 2026-09-17 (db5ac14d, memory.rs:333-350), printed inside
+# the same `wire_company_memory` call as the two `loro …` lines above it and therefore before
+# `main.rs:1631` prints `engine directory:` — this fixture is ordered to match. It is the
+# `Ok(None)` sentence, held here as the DECLARED GAP two screens up rather than as a proof: no
+# real install ships `tools/richos-service` (and `richos-evidence.mjs` inside it) today, so
+# this is the honest line a healthy machine prints, not a fixture standing in for one.
 healthy_log() {
   cat <<'LOG'
 [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 98012), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
@@ -812,6 +841,7 @@ healthy_log() {
 [richos] onboarding northwind: described — the company layer is in the priming turn
 [richos] loro Tier C: compiling from /m/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
 [richos] loro correction desk: writing to /m/corpus via /m/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] loro Tier E: no evidence lookup for this install — a turn memory cannot answer will say so and stop there, rather than looking in the CEO's files. RICHOS_EVIDENCE_BIN names the entry point.
 [richos] engine directory: /m/.claude/richos-engine (via engine install pointer)
 [richos] compute connection: starts with the first cancellable request over /m/.local/bin/claude
 [richos] first-run setup: nothing missing.
