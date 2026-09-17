@@ -67,7 +67,8 @@ import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
 import { connect, status, sync, disconnect, seedCalendar, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
 import {
-  planFixtures, expectationsFor, seedICalUid, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
+  planFixtures, expectationsFor, seedICalUid, withCalendarOwnerParticipant,
+  SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
 } from '../lib/workspace/calendar-fixtures.js';
 import { seedManifestPath, SEED_KEYCHAIN_SERVICE } from '../lib/workspace/calendar-seed.js';
 import {
@@ -7172,35 +7173,90 @@ test('the fixture set is a function of (account, set id, clock) — nothing abou
   }
 });
 
-test('AN IMPORT CARRIES AN iCalUID AND NO id — the pair is what Google refused', () => {
+test('AN IMPORT (OR A PINNED-UID INSERT) CARRIES AN iCalUID AND NO id — the pair is what Google refused', () => {
   // The live 2026-09-17 seed run: three `events.import` POSTs, three `400 Invalid resource id
   // value`, and every `events.insert` carrying the SAME pinned id landed. Google's reference says
   // why — the iCalUID and the id "are not identical and only one of them should be supplied at event
   // creation time" — so the grammar was never the problem and the FIELD BEING THERE was.
   const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
-  const imports = plan.fixtures.filter((f) => f.method === 'import');
-  assert.equal(imports.length, 2, 'partner-review and cross-calendar-dup are the imported fixtures');
+  // `cross-calendar-dup` no longer imports (it hits a SECOND refusal on import — the next test) but
+  // still needs the same UID-not-id pair, via `pinUid` on a plain insert.
+  const uidPinned = plan.fixtures.filter((f) => f.method === 'import' || f.pinUid);
+  assert.equal(uidPinned.length, 2, 'partner-review (import) and cross-calendar-dup (pinned-UID insert)');
 
-  for (const fixture of imports) {
+  for (const fixture of uidPinned) {
     for (const write of fixture.writes) {
       assert.equal(write.body.id, undefined,
-        `${fixture.key} must not pin an id on an import — that is the 400 the CEO's account returned`);
+        `${fixture.key} must not pin an id alongside iCalUID — that is the 400 the CEO's account returned`);
       assert.equal(write.body.iCalUID, seedICalUid('unit', fixture.key),
-        `${fixture.key} pins the iCalUID instead, which is what an import is FOR`);
+        `${fixture.key} pins the iCalUID instead, which is what an import or a pinned-UID insert is FOR`);
       // The stand-in survives for the dry run, which has no real id to print.
       assert.match(write.eventId, /^[0-9a-v]{5,1024}$/);
     }
   }
   // One UID across both copies of the duplicate, and nothing else shares it.
-  const dup = imports.find((f) => f.key === 'cross-calendar-dup');
+  const dup = uidPinned.find((f) => f.key === 'cross-calendar-dup');
+  assert.equal(dup.method, 'insert',
+    'not an import — neither copy needs an organizer other than the calendar, so import has nothing to offer');
   assert.equal(new Set(dup.writes.map((w) => w.body.iCalUID)).size, 1, 'two calendars, ONE iCalUID');
 
-  for (const fixture of plan.fixtures.filter((f) => f.method !== 'import')) {
+  for (const fixture of plan.fixtures.filter((f) => f.method !== 'import' && !f.pinUid)) {
     for (const write of fixture.writes) {
       assert.equal(write.body.id, write.eventId, `${fixture.key} is inserted, so its id is still pinned`);
       assert.equal(write.body.iCalUID, undefined, `${fixture.key} does not supply the other half of the pair`);
     }
   }
+});
+
+await atest('THE SECOND LIVE REFUSAL: import onto a calendar that is neither organizer nor attendee', async () => {
+  // The live 2026-09-17 re-seed landed 18 of 19 copies after the id/iCalUID fix above; the two that
+  // still failed were both imports onto the secondary "RichOS test" calendar —
+  // `participantIsNeitherOrganizerNorAttendee` — and `partner-review` already listed the account's
+  // own address as an attendee when it was refused, which is why THIS asserts against the
+  // CALENDAR'S OWN literal id, never the human account.
+  const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+  const authHeaders = { authorization: 'Bearer mock-access-readwrite', 'content-type': 'application/json' };
+  // A real secondary calendar, created the same way `ensureCalendars` (calendar-seed.js) makes one —
+  // not a literal string, so its id is whatever the mock's own creation endpoint actually assigns.
+  const created = await google.http('https://www.googleapis.com/calendar/v3/calendars', {
+    method: 'POST',
+    headers: authHeaders,
+    body: JSON.stringify({ summary: 'RichOS test' }),
+  });
+  const secondary = JSON.parse(await created.text()).id;
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(secondary)}/events/import`;
+  const post = (body) => google.http(url, {
+    method: 'POST',
+    headers: { authorization: 'Bearer mock-access-readwrite', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const shape = { iCalUID: 'uid-2@richos-seed.example.com', start: { date: '2026-09-21' }, end: { date: '2026-09-22' } };
+
+  const refused = await post({
+    ...shape,
+    organizer: { email: 'dana.reyes@northwind.example.com' },
+    attendees: [{ email: SEED_ACCOUNT }],
+  });
+  assert.equal(refused.status, 400, 'the account\'s own address as an attendee is NOT the calendar\'s own address');
+  assert.match(JSON.parse(await refused.text()).error.message, /organizer or an attendee/,
+    "refused in Google's own words, so a reader recognizes the live failure");
+
+  const healed = await post({
+    ...shape,
+    organizer: { email: 'dana.reyes@northwind.example.com' },
+    attendees: [{ email: SEED_ACCOUNT }, { email: secondary }],
+  });
+  assert.equal(healed.status, 200, 'the calendar\'s own literal address as an attendee satisfies the check');
+
+  // `withCalendarOwnerParticipant` is what applies that fix to a real write — asserted directly,
+  // not just via the mock, so a regression that stops calling it fails without hitting the network.
+  const before = { organizer: { email: 'dana.reyes@northwind.example.com' }, attendees: [{ email: SEED_ACCOUNT }] };
+  const after = withCalendarOwnerParticipant(before, secondary);
+  assert.ok(after.attendees.some((a) => a.email === secondary), 'the calendar\'s own address is added');
+  assert.equal(withCalendarOwnerParticipant(after, secondary), after,
+    'idempotent — a body that already satisfies the rule is not changed again');
+  const onPrimary = withCalendarOwnerParticipant(before, SEED_ACCOUNT);
+  assert.equal(onPrimary, before, 'a no-op on the primary calendar — its id already IS the organizer');
 });
 
 await atest('the mocked Google REFUSES an import that carries an id, exactly as the real one did', async () => {
@@ -7214,7 +7270,16 @@ await atest('the mocked Google REFUSES an import that carries an id, exactly as 
     headers: { authorization: 'Bearer mock-access-readwrite', 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const ok = { iCalUID: 'uid-1@richos-seed.example.com', start: { date: '2026-09-20' }, end: { date: '2026-09-21' } };
+  // An attendee naming the destination calendar's own address (the primary calendar's id IS the
+  // account's) — this test is about the id/iCalUID pair, not the separate
+  // `participantIsNeitherOrganizerNorAttendee` check the next test covers, so the body here already
+  // satisfies it.
+  const ok = {
+    iCalUID: 'uid-1@richos-seed.example.com',
+    start: { date: '2026-09-20' },
+    end: { date: '2026-09-21' },
+    attendees: [{ email: SEED_ACCOUNT }],
+  };
 
   const refused = await post({ ...ok, id: 'rs0123456789' });
   assert.equal(refused.status, 400, 'an id on an import is refused');
@@ -7352,20 +7417,72 @@ await atest('a SECOND seed run of the same set updates in place — no second co
     assert.deepEqual(
       second.manifest.events.map((e) => e.eventId).sort(),
       first.manifest.events.map((e) => e.eventId).sort(),
-      'the second run addressed the first run\'s events — an inserted id is a function of the set, '
-      + 'and an IMPORTED id is Google\'s, found again by its iCalUID',
+      'the second run addressed the first run\'s events — found by fixture IDENTITY '
+      + '(`richos-seed`/`richos-seed-key`), never a guessed id, so a Google-assigned id (an import, or '
+      + 'this mock\'s own id counter on a pinned-UID insert) is found again exactly like a pinned one',
     );
     assert.ok(second.manifest.events.some((e) => e.action.startsWith('updated')),
       'and it said so: a re-run UPDATES rather than creating');
-    // The three imports are the copies with no pinned id, so they are the ones idempotence could
+    // partner-review (import) and cross-calendar-dup (pinned-UID insert) are the copies with no
+    // pinned id — Google (or the mock) assigns theirs, so they are the ones a guessed-id lookup could
     // quietly lose. Named here rather than left inside the totals above.
     for (const key of ['partner-review', 'cross-calendar-dup']) {
       const copies = second.manifest.events.filter((e) => e.fixture === key);
       assert.ok(copies.length >= 1, `${key} was written`);
       assert.ok(copies.every((e) => e.action === 'updated'),
-        `${key} was found by its iCalUID and updated in place, never imported a second time`);
+        `${key} was found by its fixture identity and updated in place, never written a second time`);
     }
   } finally { f.cleanup(); }
+});
+
+await atest('a STRAY duplicate under a foreign id scheme is HEALED on the next seed — Mateo Silva stays held', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    const first = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(first.exitCode, 0, f.text());
+
+    // A ROGUE copy: same fixture identity (the two private properties every seeded event carries),
+    // a FOREIGN id (an older scheme's, or Google's own on an import that pre-dates pinning), planted
+    // directly rather than through this tool — exactly what `findSeededCopies` must catch.
+    const primary = google.calendars.get(SEED_ACCOUNT);
+    const byKey = (key) => [...primary.events.values()].filter((e) => e.extendedProperties
+      && e.extendedProperties.private && e.extendedProperties.private[SEED_KEY_PROPERTY] === key);
+    const canonical = byKey('intro-single-external')[0];
+    assert.ok(canonical, 'the fixture landed on the first run');
+    primary.events.set('rogue-legacy-id', {
+      ...canonical, id: 'rogue-legacy-id', etag: '"rogue-legacy-id"',
+      htmlLink: 'https://calendar.google.com/event?eid=rogue-legacy-id',
+    });
+    assert.equal(byKey('intro-single-external').length, 2, 'two copies exist before the healing run');
+
+    f.lines.length = 0;
+    const second = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(second.exitCode, 0, f.text());
+
+    const survivors = byKey('intro-single-external');
+    assert.equal(survivors.length, 2, 'both events still exist — one is WITHDRAWN, not deleted');
+    const live = survivors.filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
+    assert.equal(live.length, 1, 'exactly one live copy after healing');
+    const healed = second.manifest.events.find((e) => e.fixture === 'intro-single-external');
+    assert.equal(healed.action, 'updated (healed a duplicate)', 'the manifest says a duplicate was healed');
+  } finally { f.cleanup(); }
+});
+
+await atest('SEED TWICE, COUNT ONCE, end to end: a healed duplicate leaves Mateo Silva held, not learned', async () => {
+  // The full loop, not just the calendar-side healing above: seed, plant a rogue duplicate under a
+  // foreign id, re-seed, THEN sync and promote — asserting on the entity feed itself, which is what
+  // actually failed live ("Mateo Silva seen 1, expected held, observed learned, FAIL").
+  const result = await runMockedAcceptance({ reseedAfterInjectingDuplicateOf: 'intro-single-external' });
+  try {
+    const lines = [];
+    for (const line of describeAcceptance(result)) lines.push(line);
+    assert.equal(result.ok, true, lines.join('\n'));
+    const mateo = result.entities.find((e) => e.canonical === 'Mateo Silva');
+    assert.ok(mateo, 'Mateo Silva is still in the derived expectation');
+    assert.equal(mateo.expected, 'held', 'one fixture names him — below the corroboration threshold');
+    assert.equal(mateo.observed, 'held', 'a healed duplicate must not double his corroboration count');
+  } finally { cleanupMockedAcceptance(result); }
 });
 
 await atest('--teardown removes every event it made, the calendar it created, and the grant itself', async () => {

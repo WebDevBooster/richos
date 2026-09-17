@@ -54,8 +54,9 @@ import { buildAuthUrl, exchangeCode, revokeToken } from './oauth.js';
 import { resolveGrantedIdentity, describeIdentityAttempts, sameAddress } from './identity.js';
 import { GOOGLE_KEYCHAIN_SERVICE } from './vendors.js';
 import {
-  planFixtures, expectationsFor, describeExpectations, observedEvents,
-  SEED_CALENDAR_SUMMARY, SEED_PROPERTY, SEED_TIME_ZONE, DEFAULT_SET_ID, GOOGLE_STATUS_WITHDRAWN,
+  planFixtures, expectationsFor, describeExpectations, observedEvents, withCalendarOwnerParticipant,
+  SEED_CALENDAR_SUMMARY, SEED_PROPERTY, SEED_KEY_PROPERTY, SEED_TIME_ZONE, DEFAULT_SET_ID,
+  GOOGLE_STATUS_WITHDRAWN,
 } from './calendar-fixtures.js';
 
 /** The seed grant's OWN keychain service. Nothing in the sync path reads this name. */
@@ -274,7 +275,7 @@ export async function runCalendarSeed(ctx) {
       const calendarId = calendars[write.target];
       try {
         // eslint-disable-next-line no-await-in-loop
-        const result = await upsertEvent(client, calendarId, write, fixture);
+        const result = await upsertEvent(client, calendarId, write, fixture, setId);
         written.push({
           fixture: fixture.key, target: write.target, calendarId,
           eventId: result.eventId, iCalUID: result.iCalUID, action: result.action,
@@ -482,64 +483,93 @@ async function ensureCalendars(client, { setId, accountId }) {
 }
 
 /**
- * Find the copy of an imported fixture that is already on this calendar, by its `iCalUID`.
+ * Find every copy of ONE fixture already on this calendar, by the IDENTITY every seeded event
+ * carries — `richos-seed=<setId>` AND `richos-seed-key=<fixture key>` — never by a guessed id.
  *
- * `events.list?iCalUID=…` is the only way to ask that question: an imported event's `id` belongs to
- * Google, so there is nothing to GET by. `showDeleted=true` so a copy a previous run withdrew is
- * found and revived rather than duplicated.
+ * A guessed id (this tool's own deterministic hash for an insert, or an `iCalUID` lookup for an
+ * import) is only ever right when it matches the scheme THIS run would use. A copy an earlier run of
+ * this tool created — before pinned ids existed, or under any future scheme change — is found by
+ * neither, and is left standing as a stray while a second copy is created beside it: exactly how the
+ * CEO's live account grew a second `intro-single-external` on 2026-09-17 and doubled Mateo Silva's
+ * corroboration count past the threshold that fixture exists to keep him under. The property lookup
+ * below is the fixture's identity and survives every id-assignment scheme this tool has ever used —
+ * INCLUDING `cross-calendar-dup`'s own `pinUid` insert, whose id a re-run cannot re-derive because
+ * nothing pins it: Google (or this mock) assigns it, exactly as it does for an import.
+ *
+ * `showDeleted=true` so a copy a previous run withdrew (`withdrawn-standup`'s own idempotence, or a
+ * duplicate this function healed on an earlier run) is found rather than triplicated. Ordered
+ * oldest-first (Google's own creation order, unfiltered), so a caller that finds more than one keeps
+ * the oldest as canonical and withdraws the rest — healing a duplicate instead of adding a third.
  */
-async function findImportedCopy(client, base, iCalUID) {
-  if (!iCalUID) return null;
-  const page = await client.getJson(`${base}?maxResults=250&showDeleted=true`
-    + `&iCalUID=${encodeURIComponent(iCalUID)}`);
-  return (page.items || []).find((e) => e && e.id) || null;
+async function findSeededCopies(client, base, setId, key) {
+  const props = `privateExtendedProperty=${encodeURIComponent(`${SEED_PROPERTY}=${setId}`)}`
+    + `&privateExtendedProperty=${encodeURIComponent(`${SEED_KEY_PROPERTY}=${key}`)}`;
+  const page = await client.getJson(`${base}?maxResults=250&showDeleted=true&${props}`);
+  return (page.items || []).filter((e) => e && e.id);
 }
 
 /**
- * Write ONE fixture copy, updating in place when it is already there.
+ * Write ONE fixture copy, updating in place when it is already there — found by FIXTURE IDENTITY
+ * (`findSeededCopies`), never by a guessed id, and healing a duplicate down to one live copy when
+ * more than one survivor turns up.
  *
- * ── AN IMPORT MAY NOT CARRY AN `id`, AND IDEMPOTENCE IS OURS RATHER THAN THE VENDOR'S ────────────
+ * ── AN IMPORT MAY NOT CARRY AN `id`, AND MUST NAME THE DESTINATION CALENDAR AS A PARTICIPANT ──────
  * Google's reference says the `iCalUID` and the `id` "are not identical and only one of them should
  * be supplied at event creation time", and `events.import` lists `iCalUID` + `start` + `end` as its
  * required body with no `id` among them. Sending both is what the live 2026-09-17 seed run did, and
  * Google refused all three import writes — `400 Invalid resource id value` — while every
- * `events.insert` carrying the SAME pinned id landed. So the import body drops `id`.
+ * `events.insert` carrying the SAME pinned id landed. So an import body never carries `id`
+ * (`calendar-fixtures.js` never puts one there for an import or a `pinUid` insert).
  *
- * That takes the pinned id away as the idempotence key for these three copies, so idempotence is
- * done HERE instead of resting on `events.import` being create-or-update on the UID (true as far as
- * anyone can tell, and not a thing this tool's exactness should depend on): look the UID up first,
- * and PATCH the copy that is already there. An insert is unchanged — its id is still pinned, so it
- * is still addressed directly.
+ * The SAME re-seed then refused two of the three import writes a second way —
+ * `participantIsNeitherOrganizerNorAttendee` (header fact 3c in `calendar-fixtures.js`) — because the
+ * destination calendar's own literal address organized or attended neither. `withCalendarOwnerParticipant`
+ * fixes the body before it is sent; `cross-calendar-dup` sidesteps the whole rule by not importing at
+ * all (`pinUid`, an insert with a caller-supplied `iCalUID`) — which is exactly why its idempotence
+ * cannot rest on a guessed id either: nothing pins one, so `findSeededCopies` is not an enhancement
+ * for that fixture, it is the ONLY way a re-run finds the copy it already made.
  */
-async function upsertEvent(client, calendarId, write, fixture) {
+async function upsertEvent(client, calendarId, write, fixture, setId) {
   const base = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`;
+  const imported = fixture.method === 'import';
+  const body = imported ? withCalendarOwnerParticipant(write.body, calendarId) : write.body;
+
+  const survivors = await findSeededCopies(client, base, setId, fixture.key);
+  const existing = survivors[0] || null;
+  for (const extra of survivors.slice(1)) {
+    // A stray copy an earlier scheme left behind (or that this very healing left behind on a prior
+    // run) is withdrawn rather than deleted — `isMemoryCandidate` (synthesis.js) short-circuits a
+    // withdrawn item before extraction, so it stops contributing entity candidates without erasing
+    // the evidence that it once existed.
+    // eslint-disable-next-line no-await-in-loop
+    await client.patchJson(`${base}/${encodeURIComponent(extra.id)}?sendUpdates=none`,
+      { status: GOOGLE_STATUS_WITHDRAWN });
+  }
+
   let event;
   let action;
-
-  if (fixture.method === 'import') {
-    const existing = await findImportedCopy(client, base, write.body.iCalUID);
-    if (existing) {
+  if (existing) {
+    if (imported) {
       // `iCalUID` and `organizer` are read-only outside an import, so they are not re-sent: the copy
       // already carries both, and re-asserting a read-only field is how an update starts failing for
       // a reason that has nothing to do with what changed.
-      const { iCalUID, organizer, ...mutable } = write.body;
+      const { iCalUID, organizer, ...mutable } = body;
       event = await client.patchJson(`${base}/${encodeURIComponent(existing.id)}?sendUpdates=none`,
         { ...mutable, status: 'confirmed' });
-      action = 'updated';
     } else {
-      event = await client.postJson(`${base}/import?sendUpdates=none`, { ...write.body, status: 'confirmed' });
-      action = 'imported';
+      // Addressed by the SURVIVOR's real id, and the body's own `id` (if any) is overwritten to
+      // match it — the two are only guaranteed equal when this run's scheme is the one that created
+      // the survivor, which is exactly the case `findSeededCopies` exists to stop assuming.
+      event = await client.putJson(`${base}/${encodeURIComponent(existing.id)}?sendUpdates=none`,
+        { ...body, id: existing.id, status: 'confirmed' });
     }
+    action = survivors.length > 1 ? 'updated (healed a duplicate)' : 'updated';
+  } else if (imported) {
+    event = await client.postJson(`${base}/import?sendUpdates=none`, { ...body, status: 'confirmed' });
+    action = 'imported';
   } else {
-    const existing = await client.getJsonOrNull(`${base}/${encodeURIComponent(write.eventId)}`);
-    if (existing) {
-      event = await client.putJson(`${base}/${encodeURIComponent(write.eventId)}?sendUpdates=none`,
-        { ...write.body, status: 'confirmed' });
-      action = 'updated';
-    } else {
-      event = await client.postJson(`${base}?sendUpdates=none`, { ...write.body, status: 'confirmed' });
-      action = 'created';
-    }
+    event = await client.postJson(`${base}?sendUpdates=none`, { ...body, status: 'confirmed' });
+    action = 'created';
   }
 
   const eventId = (event && event.id) || write.eventId;
@@ -551,7 +581,7 @@ async function upsertEvent(client, calendarId, write, fixture) {
       { status: GOOGLE_STATUS_WITHDRAWN });
     action = `${action} + withdrawn`;
   }
-  return { eventId, iCalUID: (event && event.iCalUID) || write.body.iCalUID || null, action };
+  return { eventId, iCalUID: (event && event.iCalUID) || body.iCalUID || null, action };
 }
 
 /**

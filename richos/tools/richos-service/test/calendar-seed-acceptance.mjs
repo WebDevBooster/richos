@@ -47,7 +47,7 @@ import {
   seedManifestPath, eventIdsFrom, SEED_KEYCHAIN_SERVICE, SEED_REDIRECT_PORT,
 } from '../lib/workspace/calendar-seed.js';
 import {
-  planFixtures, expectationsFor, instanceId, SEED_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
+  planFixtures, expectationsFor, instanceId, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
 } from '../lib/workspace/calendar-fixtures.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -296,6 +296,25 @@ const INVALID_RESOURCE_ID = JSON.stringify({
   },
 });
 
+/**
+ * The 400 Google answered `partner-review` and `cross-calendar-dup`'s "seed" copy on the live
+ * 2026-09-17 re-seed, verbatim: "The owner of the calendar must either be the organizer or an
+ * attendee of an event that is imported." — `calendar-fixtures.js` header fact 3c.
+ */
+const PARTICIPANT_NEITHER_ORGANIZER_NOR_ATTENDEE = JSON.stringify({
+  error: {
+    errors: [{
+      domain: 'global',
+      reason: 'participantIsNeitherOrganizerNorAttendee',
+      message: 'The owner of the calendar must either be the organizer or an attendee of an event '
+        + 'that is imported.',
+    }],
+    code: 400,
+    message: 'The owner of the calendar must either be the organizer or an attendee of an event '
+      + 'that is imported.',
+  },
+});
+
 function httpResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -394,11 +413,14 @@ export function mockGoogleCalendar(opts = {}) {
       // calendar — so it is computed here and never copied off the request body. A mock that echoed
       // a caller's `self: true` would be the one place the governance rule under test could not fail.
       organizer: organizerFor(calendar, body, calendar.events.get(target)),
+      // `self` on an attendee answers the same question as on the organizer — "is this the calendar
+      // the copy lives on" — computed against THIS calendar's own id, never assumed to mean "is this
+      // the human account" (a copy can land on a calendar that is not the account's own address).
       ...(body.attendees
         ? {
           attendees: body.attendees.map((a) => ({
             ...a,
-            ...(String(a.email).toLowerCase() === accountId ? { self: true } : {}),
+            ...(String(a.email).toLowerCase() === String(calendar.id).toLowerCase() ? { self: true } : {}),
           })),
         }
         : {}),
@@ -470,14 +492,15 @@ export function mockGoogleCalendar(opts = {}) {
       if (method === 'POST') return httpResponse(200, JSON.stringify(storeEvent(cal, JSON.parse(init.body || '{}'))));
       const singleEvents = u.searchParams.get('singleEvents') === 'true';
       const showDeleted = u.searchParams.get('showDeleted') === 'true';
-      const prop = u.searchParams.get('privateExtendedProperty');
       let items = [...cal.events.values()].flatMap((e) => expand(e, { singleEvents }));
       if (!showDeleted) items = items.filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
       // `iCalUID` — the only way to address an imported copy, whose `id` belongs to Google.
       const uid = u.searchParams.get('iCalUID');
       if (uid) items = items.filter((e) => e.iCalUID === uid);
-      if (prop) {
-        const [k, v] = prop.split('=');
+      // `getAll`, not `get`: `findSeededCopies` (calendar-seed.js) repeats this param to AND two
+      // conditions (the set marker AND the fixture key) exactly as Google's own reference allows.
+      for (const propParam of u.searchParams.getAll('privateExtendedProperty')) {
+        const [k, v] = propParam.split('=');
         items = items.filter((e) => e.extendedProperties && e.extendedProperties.private
           && e.extendedProperties.private[k] === v);
       }
@@ -510,6 +533,17 @@ export function mockGoogleCalendar(opts = {}) {
         return httpResponse(400, JSON.stringify({
           error: { code: 400, message: 'Missing iCalUID.' },
         }));
+      }
+      // THE SECOND REFUSAL THE SAME RE-SEED HIT — `participantIsNeitherOrganizerNorAttendee`
+      // (calendar-fixtures.js header fact 3c). The check is against THIS calendar's own literal id,
+      // never the human account behind it, which is exactly what made `partner-review` fail live
+      // even with the account's own address already listed as an attendee. A regression that dropped
+      // `withCalendarOwnerParticipant` from the write path would ship green without this line.
+      const ownerId = String(cal.id).toLowerCase();
+      const organizerEmail = body.organizer && String(body.organizer.email || '').toLowerCase();
+      const attendeeEmails = (body.attendees || []).map((a) => String((a && a.email) || '').toLowerCase());
+      if (organizerEmail !== ownerId && !attendeeEmails.includes(ownerId)) {
+        return httpResponse(400, PARTICIPANT_NEITHER_ORGANIZER_NOR_ATTENDEE);
       }
       return httpResponse(200, JSON.stringify(storeEvent(cal, body, { imported: true })));
     }
@@ -621,10 +655,37 @@ export async function runMockedAcceptance(opts = {}) {
   });
 
   // 1. The seeding tool: its own consent, its own keychain service, and the writes.
-  const seeded = await seedCalendar(deps());
+  let seeded = await seedCalendar(deps());
   if (seeded.exitCode !== 0) {
     out(quiet.join('\n'));
     throw new Error(`the mocked seed did not succeed (exit ${seeded.exitCode})`);
+  }
+
+  // 1b. SEED TWICE, COUNT ONCE — the live 2026-09-17 finding: a re-seed's acceptance read "Mateo
+  // Silva seen 1, expected held, observed learned, FAIL". A stray copy of `intro-single-external`
+  // under an id this tool did not assign (an older scheme's, or Google's own on a pre-pinning
+  // import) sat beside the current one, each became its own evidence item, and the two together
+  // corroborated Mateo past the threshold he must stay under. Planted directly here — same fixture
+  // identity (`richos-seed`/`richos-seed-key`), a foreign id — rather than through this tool, which
+  // is the whole point: `findSeededCopies` (calendar-seed.js) must find it by identity and heal it,
+  // never by guessing the id that created it.
+  if (opts.reseedAfterInjectingDuplicateOf) {
+    const key = opts.reseedAfterInjectingDuplicateOf;
+    const primaryCalendar = google.calendars.get(accountId);
+    const canonical = [...primaryCalendar.events.values()].find((e) => e.extendedProperties
+      && e.extendedProperties.private && e.extendedProperties.private[SEED_KEY_PROPERTY] === key);
+    if (!canonical) throw new Error(`no seeded copy of ${key} to duplicate`);
+    primaryCalendar.events.set('rogue-legacy-id', {
+      ...canonical,
+      id: 'rogue-legacy-id',
+      etag: '"rogue-legacy-id"',
+      htmlLink: 'https://calendar.google.com/event?eid=rogue-legacy-id',
+    });
+    seeded = await seedCalendar(deps());
+    if (seeded.exitCode !== 0) {
+      out(quiet.join('\n'));
+      throw new Error(`the healing re-seed did not succeed (exit ${seeded.exitCode})`);
+    }
   }
 
   // 2. The product, unchanged: connect read-only, then one sync, which promotes what it pulled.
