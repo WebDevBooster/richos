@@ -11,6 +11,12 @@
  *
  * The HTTP transport is injected (default: global `fetch`) so the entire client is unit-testable with a
  * MOCK — no live account. Backoff sleeps are injectable for deterministic tests.
+ *
+ * Two readers, ONE loop: `getJson` for an API resource, `getText` for a body that is not JSON (a Drive
+ * export or an `alt=media` download — permitted since the CEO's Drive-contents decision, §40). Both go
+ * through `getRaw`, so the endpoint assertion, the auth header, the backoff policy and the `410`
+ * mapping exist exactly once. A second copy of that loop is a second copy to drift, and "no RichOS
+ * server in the path" is only an invariant while every outbound call passes through one place.
  */
 
 import { assertDirectGoogleEndpoint } from './privacy.js';
@@ -45,18 +51,44 @@ export class GoogleClient {
    * @returns {Promise<any>}
    */
   async getJson(url) {
+    const text = await this.getRaw(url, 'application/json');
+    return text ? JSON.parse(text) : {};
+  }
+
+  /**
+   * GET a Google API URL and return its response body as TEXT, unparsed.
+   *
+   * Not every response from the CEO's own cloud is JSON: `files.export` returns the exported document
+   * (`text/plain`, `text/csv`) and `files.get?alt=media` returns the file's own bytes. The CALLER
+   * decides what a body is allowed to be — size cap, MIME eligibility, whether the grant permits a
+   * body at all. This method transports; it does not judge. The whole response is read into memory,
+   * so a caller that can know a size in advance should check it BEFORE asking.
+   *
+   * @param {string} url  a fully-qualified googleapis.com URL
+   * @param {string} [accept]  the Accept header, pinned by the caller — never a default of Google's
+   * @returns {Promise<string>}
+   */
+  async getText(url, accept = 'text/plain') {
+    return this.getRaw(url, accept);
+  }
+
+  /**
+   * THE request loop, shared by both readers. Retries throttling/5xx with backoff, maps 410 to
+   * `GoneError`, throws on other 4xx, and returns the raw response text ('' for an empty body).
+   * @param {string} url
+   * @param {string} accept
+   * @returns {Promise<string>}
+   */
+  async getRaw(url, accept) {
     assertDirectGoogleEndpoint(url);
     let attempt = 0;
     for (;;) {
       const token = await this.getAccessToken();
       const res = await this.http(url, {
         method: 'GET',
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        headers: { authorization: `Bearer ${token}`, accept },
       });
-      if (res.ok) {
-        const text = await res.text();
-        return text ? JSON.parse(text) : {};
-      }
+      if (res.ok) return await res.text();
       if (res.status === 410) {
         throw new GoneError('sync token expired (410 Gone) — full resync required');
       }
