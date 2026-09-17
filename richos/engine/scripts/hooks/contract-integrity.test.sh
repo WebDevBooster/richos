@@ -3755,6 +3755,61 @@ rm -f "$SA2_LOG"
 
 fi  # _section — SA
 
+if _section SCR; then
+# ---------------------------------------------------------------------------
+# LAYER SCR — THE SCRATCH REAPER, AND THE DECLARATIONS IT DELETES BY
+# ---------------------------------------------------------------------------
+# SCR1 runs the reaper's own suite, which runs its mutation harness in turn.
+# Both are needed and the second is the load-bearing one: nearly every case in
+# that suite is a thing that must NOT happen — a live session's scratch
+# survives, a registered workspace survives, a checkout survives — and every
+# one of them passes perfectly against a reaper that deletes nothing at all,
+# which is the state this mechanism was ordered to end.
+#
+# SCR2 is the cross-surface check, and it is the one that could not be written
+# inside either file: the thresholds the CODE requires are read off
+# scripts/lib/scratch-reaper.py, and every one of them must be DECLARED in
+# orchestration.config. Two surfaces, so it has teeth — a threshold added to
+# the code and never declared makes the reaper refuse to run at all (exit 2),
+# on a schedule, at 04:40, where nobody is watching. The reverse direction is
+# deliberately NOT checked: a declared value the code has stopped reading is
+# dead config, not a deleter that stopped working.
+SCR1_LOG="$(mktemp -t scratch-reaper-suite.XXXXXX)"
+set +e; "$SCRIPT_DIR/../scratch-reaper.test.sh" >"$SCR1_LOG" 2>&1; rc=$?; set -e
+emit_case "SCR1.scratch-reaper-suite-and-mutations-pass" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    diag_or_tail "$(grep -vE '^ *PASS|^[[:space:]]*$' "$SCR1_LOG" || true)" "$(cat "$SCR1_LOG" 2>/dev/null || true)"
+fi
+rm -f "$SCR1_LOG"
+
+SCR2_OUT="$(SCR_ENGINE="$SCRIPT_DIR/../.." python3 - <<'PY' 2>&1
+import os, re, sys
+eng = os.environ["SCR_ENGINE"]
+src = open(os.path.join(eng, "scripts", "lib", "scratch-reaper.py"), encoding="utf-8").read()
+# The names the code REFUSES to run without: need("X") / number("X"), plus the
+# one read directly from the environment.
+required = set(re.findall(r'(?:need|number)\("(SCRATCH_[A-Z_]+)"\)', src))
+required |= set(re.findall(r'os\.environ\.get\("(SCRATCH_SESSION_PROCESS_NAMES)"\)', src))
+cfg = open(os.path.join(eng, "orchestration.config"), encoding="utf-8").read()
+declared = set(re.findall(r'^(SCRATCH_[A-Z_]+)=', cfg, re.M))
+missing = sorted(required - declared)
+if not required:
+    print("NO required threshold could be read out of scratch-reaper.py — the "
+          "derivation has gone blind and this check is asserting nothing.")
+    sys.exit(1)
+if missing:
+    print("required by scripts/lib/scratch-reaper.py and NOT declared in "
+          "orchestration.config: " + ", ".join(missing))
+    sys.exit(1)
+print("%d required threshold(s), all declared" % len(required))
+PY
+)"
+rc=$?
+emit_case "SCR2.every-threshold-the-code-needs-is-declared" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        %s\n' "$SCR2_OUT"
+
+fi  # _section — SCR
+
 _trec run "$(_t)" - END
 echo ""
 echo "=== summary ==="

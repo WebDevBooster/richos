@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#
+# session-start-scratch.sh — SessionStart notice. Never blocks, and says
+#                            nothing at all on a machine that is fine.
+#
+# ===========================================================================
+# WHY A NOTICE AT ALL, WHEN A SCHEDULED JOB ALREADY DELETES
+# ===========================================================================
+# com.richos.scratch-reaper deletes dead scratch four times a day and writes
+# every deletion to ~/.claude/state/scratch-reaper.log. Neither of those puts
+# one word in front of a person, and the morning that started all of this
+# (2026-09-17, 1.8 GB free of 460 GB) is the proof that a disk filling up is
+# invisible until the operating system shouts about it.
+#
+# So this is the third leg, and it is narrow ON PURPOSE. It says something
+# only when one of exactly three things is true:
+#
+#   1. MORE THAN THE DECLARED THRESHOLD IS RECLAIMABLE RIGHT NOW. Dead scratch
+#      nothing running owns, measured live, in this run.
+#   2. MORE THAN THE THRESHOLD CANNOT BE DECIDED. That pile is the one the
+#      scheduled job will never clear on its own — a tripped wall is
+#      permanent until a person looks at it — so if nobody is told it grows
+#      forever, which is the exact failure the mechanism was ordered to end.
+#   3. THE SCHEDULED JOB IS NOT INSTALLED, OR HAS NOT RUN. A deleter that
+#      quietly stopped looks exactly like a machine with no garbage on it.
+#      This is the who-watches-the-watchman leg and it is the one most likely
+#      to matter on the day it matters.
+#
+# ===========================================================================
+# WHAT IT COSTS, MEASURED, AND WHAT HAPPENS WHEN IT COSTS MORE
+# ===========================================================================
+# The scan is LIVE — it is the reaper's own --dry-run, so the number on the
+# banner is the number the reaper would act on, not a cached recollection of
+# one. MEASURED 2026-09-17 over 68 scratch roots and 5.2 GB: 1.3 s, of which
+# nearly all is walking the dead trees to size them; the live session's own
+# 4.27 GB scratchpad is never walked because a running session is not a
+# candidate.
+#
+# A session start that gets slower every week is a notice somebody deletes, so
+# the scan carries a BUDGET (--deadline). Past it, the scan stops and the
+# notice says the size is UNKNOWN rather than holding the session open. 8
+# seconds is six times the measured cost.
+#
+# CHANNELS: systemMessage for the operator, additionalContext for the model —
+# the pair session-start-escalations.sh uses, for the reason it gives. Never
+# stderr, which was measured on 2026-09-14 to reach nobody at all
+# (docs/verification/check-census-2026-09-14.md).
+
+set -uo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS="$(cd "$HOOK_DIR/.." && pwd)"
+ENGINE_ROOT="$(cd "$SCRIPTS/.." && pwd)"
+REAPER="$SCRIPTS/scratch-reaper.sh"
+CONFIG="${SCRATCH_REAPER_CONFIG:-$ENGINE_ROOT/orchestration.config}"
+
+LABEL="com.richos.scratch-reaper"
+LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
+PLIST="$LAUNCHD_DIR/$LABEL.plist"
+STATE_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state"
+STATE="${SCRATCH_REAPER_STATE:-$STATE_BASE/scratch-reaper-state.json}"
+
+# BUDGET, declared here rather than in the config: it is a property of being a
+# SessionStart hook (how long a person will wait for a banner), not of this
+# machine's scratch. Six times the measured 1.3 s cost.
+DEADLINE=8
+
+[ -x "$REAPER" ] || exit 0
+[ -f "$CONFIG" ] || exit 0
+# shellcheck disable=SC1090
+. "$CONFIG" >/dev/null 2>&1 || true
+[ "${SCRATCH_REAPER_ENABLE:-1}" = "0" ] && exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+LINES="$(bash "$REAPER" --notice --deadline "$DEADLINE" 2>/dev/null || true)"
+
+# --- leg 3: is the scheduled job there, and did it run? --------------------
+# On a host with no launchd there is no schedule to be missing, so this leg is
+# silent rather than wrong.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    if [ ! -f "$PLIST" ]; then
+        LINES="$LINES${LINES:+
+}SCRATCH: the scheduled reaper is NOT INSTALLED on this machine, so dead scratch is deleted only when somebody remembers. Install it from the MAIN checkout: <main>/richos/engine/scripts/scratch-reaper.sh --install"
+    else
+        AGE="$(STATE="$STATE" python3 - <<'PY' 2>/dev/null || true
+import json, os
+from datetime import datetime, timezone
+try:
+    with open(os.environ["STATE"], encoding="utf-8") as fh:
+        st = json.load(fh)
+    t = datetime.fromisoformat(st["last_apply"].replace("Z", "+00:00"))
+    print("%.0f" % ((datetime.now(timezone.utc) - t).total_seconds() / 3600.0))
+except Exception:
+    print("never")
+PY
+)"
+        # The job fires every six hours, so fourteen is two missed firings plus
+        # slack — the same shape and the same reasoning as the CI watch's
+        # fourteen-hour test against its three-a-day schedule.
+        if [ "$AGE" = "never" ]; then
+            LINES="$LINES${LINES:+
+}SCRATCH: the scheduled reaper is installed but has left NO record of ever completing a pass, so either it has never fired or it cannot write to $STATE_BASE."
+        elif [ "$AGE" -gt 14 ] 2>/dev/null; then
+            LINES="$LINES${LINES:+
+}SCRATCH: the scheduled reaper has not completed a pass in ${AGE} hours (it is scheduled every six). A scheduled job that quietly stopped looks exactly like a machine with no garbage on it."
+        fi
+    fi
+fi
+
+[ -n "$LINES" ] || exit 0
+
+BODY="$(printf '=== SCRATCH ===\n%s\n  The whole plan, deleting nothing:  %s --verbose\n' \
+    "$(printf '%s\n' "$LINES" | sed 's/^/  /')" "$REAPER")"
+
+BODY="$BODY" python3 -c '
+import json, os
+body = os.environ.get("BODY", "")
+print(json.dumps({
+    "systemMessage": body,
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": body,
+    },
+}))
+' 2>/dev/null || true
+exit 0

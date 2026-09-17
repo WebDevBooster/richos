@@ -10,6 +10,37 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added — scratch that nobody is using gets deleted on a schedule (2026-09-17)
+
+- **`scripts/scratch-reaper.sh` + `scripts/lib/scratch-reaper.py`.** Deletes finished
+  sessions' Claude scratch, the scratch roots they leave empty, files in a scratch root
+  that no running session can have written, abandoned `$TMPDIR` harness workspaces, and
+  nightly build products past the declared retention. Every deletion is one line in
+  `~/.claude/state/scratch-reaper.log` — path, bytes, why it qualified — and every run ends
+  with a `verdict:` line. Deleting requires `--apply`; the plan printed without it is
+  byte-identical plus one line.
+- **Liveness is proven, never inferred from an mtime.** RUNNING / ENDED (by exhaustion of
+  the process table against the session registry) / INDETERMINATE, which is kept, counted
+  and named — never collapsed into dead. `process_start()` is imported from
+  `mega-lander/workspaces.py`; a failed import fails loud rather than falling back to a
+  weaker check.
+- **Four walls between a verdict and an unlink:** containment in a declared root, no `.git`
+  anywhere in the tree, no registered workspace inside or containing the path, and a
+  never-touch list. A tripped wall is UNDECIDABLE, never a silent skip.
+- **`--install`** schedules `com.richos.scratch-reaper` (launchd, every six hours,
+  `RunAtLoad` false), refusing to schedule from a linked worktree or a temp directory for
+  the reason `ci-surface-watch.sh` gives. **`scripts/hooks/session-start-scratch.sh`** is
+  the notice: silent unless more than the declared threshold is reclaimable or undecidable,
+  or the scheduled job is missing or has stopped completing passes.
+- **Every threshold is declared** in the new `SCRATCH_*` block of `orchestration.config`
+  with the measurement that chose it, including `SCRATCH_SESSION_PROCESS_NAMES` — the
+  vendor fact the whole exhaustion argument rests on.
+- **Why.** 2026-09-17: the operating system reported 1.8 GB free of 460 GB and 19 GB of
+  dead scratch came back because a person deleted it by hand. The CEO: *"There needs to be
+  a mechanism to make sure that scratch directories get deleted on a regular basis. I don't
+  want piles of garbage to pile up endlessly."* 31 cases across two suites, 10 mutants, and
+  probe section `SCR` in `contract-integrity.test.sh`.
+
 ### Added — one agent, workspaces in several other repositories, landed as one (2026-09-17)
 
 - **`scripts/spawn.sh` takes `--repo` once per repository.** It creates and REGISTERS one
