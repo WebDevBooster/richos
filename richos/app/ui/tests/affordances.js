@@ -413,8 +413,12 @@ async function setupRefusal(browser, preset) {
   await page.fill("#input", "book the Acme call for Thursday");
   await page.click("#send");
   await page.waitForSelector("#setup-sheet:not([hidden])");
+  // `.tl-notice-body` as well as `.tl-prose`: a refusal like this one is the app talking
+  // about itself, and since 2026-09-17 it renders as a status line rather than as something
+  // Rich said (`timeline.js`'s `renderLocalNotice`, Ray's candidate-.4 finding #8). The
+  // sentence is unchanged; the lane it lands in is not.
   await page.waitForFunction(() =>
-    [...document.querySelectorAll("#messages .tl-prose")].some((n) =>
+    [...document.querySelectorAll("#messages .tl-prose, #messages .tl-notice-body")].some((n) =>
       /take that on yet/.test(n.textContent)
     )
   );
