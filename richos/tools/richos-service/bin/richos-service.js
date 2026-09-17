@@ -20,7 +20,7 @@
  *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
- *   richos-service workspace ...         # the CEO's own Google / Microsoft 365 source: connect / status / sync / disconnect / repair
+ *   richos-service workspace ...         # the CEO's own Google / Microsoft 365 source: connect / status / sync / disconnect / repair / seed-calendar
  *                                        # --account <address> picks one of several connected Google accounts
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
@@ -626,6 +626,10 @@ function main() {
           ...(flag('until') ? { until: String(flag('until')) } : {}),
           ...(flag('apply') === true ? { apply: true } : {}),
           ...(flag('dry-run') === true ? { dryRun: true } : {}),
+          // `seed-calendar` (a TEST tool). `--teardown` removes everything it made and gives its
+          // write grant back; `--set` names one fixture set so two of them can coexist.
+          ...(flag('teardown') === true ? { teardown: true } : {}),
+          ...(flag('set') ? { setId: String(flag('set')) } : {}),
         },
       })
         .then((r) => process.exit(r.exitCode))
