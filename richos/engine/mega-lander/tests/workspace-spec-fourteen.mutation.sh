@@ -286,6 +286,11 @@ mutant S-p10-cc-branch-kept "C10.3 " "$W" \
     '            if w.get("branch_deleted_at") or not w.get("branch"):{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     '            if w.get("branch_deleted_at") or not w.get("branch") or w.get("kind") == "cc":{NL}                continue{NL}            if (w.get("repo"), w["branch"]) not in out:' \
     "SPEC-DERIVED (point 10 negated, 'every workspace and branch it has is deleted, as one'): the cc/ branch of a two-workspace agent would survive the land."
+mutant R-p10-only-the-first-workspace-deleted "C10.10" "$W" \
+    '        if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,' \
+    '        if not _delete(r, [w for w in live_workspaces(r) if w.get("path")][:1], branches=True, why=why,' \
+    "RECORDED [the workspace registry's own events.jsonl on this machine, 2026-09-17: four teammates (norm-opus-wire1/wireguide1, norm-opus-secret1/secret1hq, norm-opus-multiacct1, norm-opus-ms1) needed a workspace in a SECOND repository and were given a second NAME, because spawn.sh took one --repo; norm-opus-wireguide1's workspace and its branch cc/norm-opus-wireguide1 were left behind by a land that named only norm-opus-wire1, and the CEO found the stray himself]: a land would delete the FIRST of an agent's workspaces and leave the rest — the exact shape point 10 forbids, now that one name can hold workspaces in several repositories."
+
 mutant R-p03-ref-after-the-last-post-left-behind "C10.7 " "$W" \
     '    if all_open and latest and isinstance(latest.get("repos"), dict):{NL}        priors.append(latest)' \
     '    if False:{NL}        priors.append(latest)' \

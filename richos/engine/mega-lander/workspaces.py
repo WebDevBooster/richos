@@ -1026,9 +1026,44 @@ def register_cc(session_id, name, repo, path, branch, identity=None):
     key = named_key(session_id, name)
     with Lock():
         rec = load_agent(key) or new_record(key, name=name, session_id=session_id)
-        if rec.get("agent_id") or rec.get("disposition"):
-            raise SpecError("agent %s already has a spawned registration in this session; names are "
-                            "used once" % name)
+        # ONE WORKSPACE PER REPOSITORY PER NAME - AND THAT IS THE WHOLE RULE.
+        #
+        # This used to refuse ANY second registration under a name that had been
+        # spawned, which reads as "names are used once" and is not the same
+        # sentence: a name is used once for an AGENT, and point 10 says that one
+        # agent's workspaces - "every workspace and branch it has" - go together.
+        # On 2026-09-17 four teammates needed a workspace in a second repository
+        # and this refusal sent every one of them to a SECOND NAME, which made
+        # each a second agent landed separately; the CEO found the stray branch
+        # of one (`cc/norm-opus-wireguide1`) himself.
+        #
+        # What must still be refused is unchanged, and is refused below by the
+        # question it actually asks:
+        #   - a second workspace in the SAME repository under one name (it would
+        #     want the same cc/<name> branch; point 3's one registration);
+        #   - a name whose agent is FINISHED (point 9: a finished agent never
+        #     writes again, so it can have no use for a workspace) or whose work
+        #     is already landed or discarded. That is where "names are used
+        #     once" lives, and a reused name is still refused at the SPAWN by
+        #     register_spawn.
+        if rec.get("disposition"):
+            raise SpecError("agent %s's work was already %s in this session; names are used once"
+                            % (name, rec["disposition"].get("kind")))
+        clash = [w for w in live_workspaces(rec)
+                 if w.get("kind") == "cc" and realpath(w.get("repo") or "") == repo]
+        if clash:
+            raise SpecError("agent %s already has a workspace in %s (%s). One workspace per repository "
+                            "per teammate: a second one in the same repository under the same name is "
+                            "refused (point 3). Another REPOSITORY under this name is not - that is "
+                            "what --repo <repo> --repo <repo> creates."
+                            % (name, repo, clash[0].get("path") or clash[0].get("branch")))
+        if rec.get("agent_id"):
+            fin, _paused, why = finished_state(rec)
+            if fin:
+                raise SpecError("agent %s is finished (%s), so it gets no further workspace: a finished "
+                                "agent never writes again (point 9), and its work is landed or "
+                                "discarded (points 5, 7). For new work, spawn a fresh teammate - names "
+                                "are used once." % (name, why))
         rec["session_identity"] = ident
         w = _add_workspace(rec, "cc", repo, path, branch, "create-teammate-worktree")
         w["created"] = False

@@ -10,6 +10,37 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added — one agent, workspaces in several other repositories, landed as one (2026-09-17)
+
+- **`scripts/spawn.sh` takes `--repo` once per repository.** It creates and REGISTERS one
+  `cc/` workspace in each, all under the ONE agent name, writes one
+  `cross-repo-worktree:` line per workspace into the payload, and evaluates every
+  `PreToolUse[Agent]` guard against it exactly as before. A creation failure in any
+  repository withdraws every workspace of that spawn. With several repositories, `--dir`,
+  `--base` and `--integration` are scoped as `<repo>=<value>` — an unscoped one is refused
+  rather than attached to a repository by guessing (point 14).
+- **`mega-lander/create-teammate-worktree.sh` may be run again for a DIFFERENT repository
+  under the same name.** A second workspace in the SAME repository under that name stays
+  refused — by the helper's branch check, and by the registry itself, which now asks that
+  question instead of refusing every second registration of a spawned name. A FINISHED
+  agent gets no further workspace (point 9).
+- **Why.** Point 10 is *"All of an agent's workspaces go together... every workspace and
+  branch it has is deleted, as one"*; the sentence's "two" is its example. `spawn.sh` took
+  one `--repo`, so on 2026-09-17 four teammates that needed a second repository were given
+  a SECOND NAME — which made each a second agent, landed separately, and the CEO found the
+  stray `cc/norm-opus-wireguide1` himself (the registry's own `events.jsonl` holds all
+  four). Nothing else had to widen: the registry always held a LIST of workspaces, `land`
+  and `discard` always deleted every one across every repository, clause 4c of
+  `guard-worktree-isolation.sh` always read EVERY marker line, and `register_spawn` always
+  required a registration for each. No guard refuses anything new.
+- **Proven by:** `scripts/spawn.test.sh` (8 new cases), `mega-lander/tests/create-teammate-worktree.test.sh`
+  (C24–C28, with a registry-level negative and its positive control),
+  `mega-lander/tests/workspaces-e2e.test.sh` (E7: three workspaces in three repositories,
+  landed as one; a payload whose SECOND marker line is unregistered is refused),
+  `mega-lander/tests/workspace-spec-fourteen.test.sh` (C10.9–C10.12, land and discard), and
+  three new mutants — gutting the multi-delete so one workspace is left behind turns C10.10
+  red.
+
 ### Added — the claim-capability check is delivered where it fires (type Y, 2026-09-14)
 
 - **`scripts/hooks/notice-claim-capability.sh` (PostToolUse, non-blocking).** When a

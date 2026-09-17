@@ -29,6 +29,21 @@ mutant codex-base-allowed "C12b" "$F" \
     '    no-codex-check-*)' \
     "an agent's workspace could be branched straight off a codex/ branch (point 2)."
 
+# The rule the 2026-09-17 multi-repository fix had to keep while widening the
+# one beside it: ONE workspace per repository per name (point 3), even though a
+# SECOND REPOSITORY under that name is now the ordinary thing (point 10). The
+# helper's branch check answers the same question first, so this proves the
+# REGISTRY's own refusal — the one that survives a missing branch.
+mutant second-workspace-same-repository "C27" "mega-lander/workspaces.py" \
+    '        clash = [w for w in live_workspaces(rec){NL}                 if w.get("kind") == "cc" and realpath(w.get("repo") or "") == repo]' \
+    '        clash = []' \
+    "one name could hold two workspaces in the SAME repository, both wanting the branch cc/<name> — point 3's one registration per repository, which the widening to several repositories must not cost."
+
+mutant finished-agent-gets-another-workspace "C28" "mega-lander/workspaces.py" \
+    '            fin, _paused, why = finished_state(rec){NL}            if fin:' \
+    '            fin, _paused, why = finished_state(rec){NL}            if False:' \
+    "a FINISHED agent would be given a new workspace in another repository — it never writes again (point 9) and its work is already landed or discarded (points 5, 7), so the workspace could only be left behind."
+
 mutant failure-not-recorded "C22" "$F" \
     '    python3 "$WS_PY" ${SESS_ARGS[@]+"${SESS_ARGS[@]}"} confirm-cc --name "$NAME" --path "$DIR" --failed "$1" >/dev/null 2>&1 || true' \
     '    :' \

@@ -345,6 +345,87 @@ run "zach-sonnet-c3" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
                 || bad "the name is free after a rollback" "rc=$RC $OUT"
 
 # ---------------------------------------------------------------------------
+echo "  several repositories, ONE teammate (point 10)"
+# ---------------------------------------------------------------------------
+# "All of an agent's workspaces go together. An agent working in another
+# repository has two... every workspace and branch it has is deleted, as one."
+# The rule is "every workspace it has"; two is the example. Until 2026-09-17
+# --repo was taken once, so a teammate needing a second repository was given a
+# SECOND NAME — which made it a second agent, landed separately.
+SECOND="$SANDBOX/gizmos"
+mkrepo "$SECOND"
+run "zach-sonnet-m1" --repo "$TARGET" --repo "$SECOND" --type zach --brief "$BRIEF" --dry-run
+M1A="$SANDBOX/widgets-wt/zach-sonnet-m1"
+M1B="$SANDBOX/gizmos-wt/zach-sonnet-m1"
+if [ "$RC" -eq 0 ] \
+   && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $M1A" \
+   && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $M1B"; then
+    ok "two --repo produce TWO cross-repo-worktree: lines in one payload, under the one name"
+else
+    bad "two --repo produce two marker lines" "rc=$RC $OUT"
+fi
+if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q "REFUSED"; then
+    ok "and EVERY guard passes that payload — clause 4c reads every marker line, and always has"
+else
+    bad "every guard passes a two-workspace payload" "rc=$RC $OUT"
+fi
+
+run "zach-sonnet-m2" --repo "$TARGET" --repo "$SECOND" --type zach --brief "$BRIEF"
+M2A="$SANDBOX/widgets-wt/zach-sonnet-m2"
+M2B="$SANDBOX/gizmos-wt/zach-sonnet-m2"
+if [ "$RC" -eq 0 ] && [ -d "$M2A" ] && [ -d "$M2B" ] \
+   && [ "$(git -C "$M2A" symbolic-ref -q --short HEAD)" = "cc/zach-sonnet-m2" ] \
+   && [ "$(git -C "$M2B" symbolic-ref -q --short HEAD)" = "cc/zach-sonnet-m2" ]; then
+    ok "a clean run CREATES both workspaces, each on cc/<name> in its own repository"
+else
+    bad "both workspaces are created" "rc=$RC $OUT"
+fi
+if python3 - "$RICHOS_WORKSPACES_DIR/agents/$RICHOS_SESSION_ID--zach-sonnet-m2.json" "$M2A" "$M2B" <<'PY' 2>/dev/null
+import json, os, sys
+r = json.load(open(sys.argv[1]))
+live = [w for w in r["workspaces"] if not w.get("deleted_at")]
+assert sorted(os.path.realpath(w["path"]) for w in live) == sorted(sys.argv[2:4]), live
+assert all(w["kind"] == "cc" and w["created"] is True for w in live), live
+PY
+then ok "and BOTH are registered on the ONE agent's record, so they go together at the land"
+else bad "both are on one record" "$(cat "$RICHOS_WORKSPACES_DIR/agents/$RICHOS_SESSION_ID--zach-sonnet-m2.json" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"; fi
+
+run "zach-sonnet-m3" --repo "$TARGET" --repo widgets --type zach --brief "$BRIEF" --dry-run
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "already this teammate's repository"; then
+    ok "NEGATIVE: the SAME repository twice under one name is refused (one workspace per repository)"
+else
+    bad "the same repository twice is refused" "rc=$RC $OUT"
+fi
+
+run "zach-sonnet-m4" --repo "$TARGET" --repo "$SECOND" --type zach --brief "$BRIEF" \
+    --dir "$SANDBOX/anywhere/m4" --dry-run
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q -- "--dir <repo>=<value>"; then
+    ok "NEGATIVE: an UNSCOPED --dir with several repositories is refused, naming the form that answers it"
+else
+    bad "an unscoped --dir is refused" "rc=$RC $OUT"
+fi
+run "zach-sonnet-m5" --repo "$TARGET" --repo "$SECOND" --type zach --brief "$BRIEF" \
+    --dir "$SECOND=$SANDBOX/anywhere/m5" --dry-run
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $SANDBOX/anywhere/m5" \
+   && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $SANDBOX/widgets-wt/zach-sonnet-m5"; then
+    ok "POSITIVE CONTROL: the SCOPED form --dir <repo>=<path> is honored, and the other repository keeps its default"
+else
+    bad "the scoped --dir is honored" "rc=$RC $OUT"
+fi
+
+REFUSE_AFTER=1 run "zach-sonnet-m6" --repo "$TARGET" --repo "$SECOND" --type zach --brief "$BRIEF"
+M6A="$SANDBOX/widgets-wt/zach-sonnet-m6"
+M6B="$SANDBOX/gizmos-wt/zach-sonnet-m6"
+if [ "$RC" -eq 4 ] && [ ! -e "$M6A" ] && [ ! -e "$M6B" ] \
+   && ! git -C "$TARGET" rev-parse --verify --quiet refs/heads/cc/zach-sonnet-m6 >/dev/null \
+   && ! git -C "$SECOND" rev-parse --verify --quiet refs/heads/cc/zach-sonnet-m6 >/dev/null \
+   && [ ! -e "$RICHOS_WORKSPACES_DIR/agents/$RICHOS_SESSION_ID--zach-sonnet-m6.json" ]; then
+    ok "FAULT INJECTION: a refusal after creation rolls back BOTH workspaces and both branches — nothing is left behind in either repository"
+else
+    bad "the rollback covers every workspace" "rc=$RC a=$( [ -e "$M6A" ] && echo present || echo absent) b=$( [ -e "$M6B" ] && echo present || echo absent)"
+fi
+
+# ---------------------------------------------------------------------------
 echo "  the dry evaluation is the same code with the write removed"
 # ---------------------------------------------------------------------------
 ENV_JSON="$SANDBOX/env.json"

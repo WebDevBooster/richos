@@ -180,6 +180,83 @@ if [ "$rc" -eq 4 ] && python3 -c 'import json,sys; r=json.load(open(sys.argv[1])
 else
     bad "C22  failed creation (rc=$rc): $OUT"
 fi
+# 7. SEVERAL REPOSITORIES UNDER ONE NAME (point 10: "All of an agent's
+#    workspaces go together... every workspace and branch it has"). A teammate
+#    working in two repositories gets two cc/ workspaces under the ONE name —
+#    it is one agent, not two. Until 2026-09-17 the second one had to be given a
+#    second NAME, which made it a second agent landed separately. What stays
+#    refused is a second workspace in the SAME repository under that name
+#    (point 3, one registration per repository).
+REPO2="$SANDBOX/repo2"
+mkdir -p "$REPO2"
+git -C "$REPO2" init -q -b main
+printf 'seed\n' >"$REPO2/seed.txt"
+git -C "$REPO2" add -A
+git -C "$REPO2" commit -q -m seed
+python3 "$WS_PY" --entity "$REPO2" --session "$RICHOS_SESSION_ID" integration \
+    --repo "$REPO2" --branch main --why "the second repository of one teammate" >/dev/null
+"$HELPER" "$REPO" norm-opus-ct30 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "C24a POSITIVE CONTROL: the first workspace of norm-opus-ct30 is created (exit 0)" \
+                || bad "C24a first workspace rc=$rc"
+OUT="$("$HELPER" "$REPO2" norm-opus-ct30 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -d "$SANDBOX/repo2-wt/norm-opus-ct30" ] \
+   && [ "$(git -C "$SANDBOX/repo2-wt/norm-opus-ct30" symbolic-ref -q --short HEAD)" = "cc/norm-opus-ct30" ]; then
+    ok "C24  a SECOND repository under the SAME name is created on its own cc/<name> branch (point 10)"
+else
+    bad "C24  second repository (rc=$rc): $OUT"
+fi
+if python3 - "$(REC norm-opus-ct30)" "$REPO" "$REPO2" <<'PY' 2>/dev/null
+import json, os, sys
+r = json.load(open(sys.argv[1]))
+live = [w for w in r["workspaces"] if not w.get("deleted_at")]
+assert len(live) == 2, live
+repos = sorted(os.path.realpath(w["repo"]) for w in live)
+assert repos == sorted(os.path.realpath(p) for p in sys.argv[2:4]), repos
+assert all(w["kind"] == "cc" and w["created"] is True and w["branch"] == "cc/norm-opus-ct30"
+           for w in live), live
+PY
+then ok "C25  BOTH are on the ONE agent's record — one name, one agent, two workspaces (point 10)"
+else bad "C25  one record: $(cat "$(REC norm-opus-ct30)" 2>/dev/null | tr '\n' ' ' | cut -c1-400)"; fi
+OUT="$("$HELPER" "$REPO" norm-opus-ct30 --dir "$SANDBOX/elsewhere/norm-opus-ct30" 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ] && [ ! -e "$SANDBOX/elsewhere/norm-opus-ct30" ]; then
+    ok "C26  NEGATIVE: a second workspace in the SAME repository under that name is still refused (exit 3)"
+else
+    bad "C26  same-repository second workspace (rc=$rc): $OUT"
+fi
+# The same refusal AT THE REGISTRY, which is where the rule lives: the helper's
+# own branch check answers it first, so the registration is asked directly.
+OUT="$(python3 "$WS_PY" register-cc --name norm-opus-ct30 --repo "$REPO" \
+        --path "$SANDBOX/elsewhere/norm-opus-ct30" --branch cc/norm-opus-ct30 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q "already has a workspace in"; then
+    ok "C27  and the REGISTRY refuses it by the question it asks — one workspace per repository per name (point 3)"
+else
+    bad "C27  registry-level same-repository refusal (rc=$rc): $OUT"
+fi
+OUT="$(python3 "$WS_PY" register-cc --name norm-opus-ct30 --repo "$REPO2" \
+        --path "$SANDBOX/elsewhere/norm-opus-ct30b" --branch cc/norm-opus-ct30 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q "already has a workspace in"; then
+    ok "C27b POSITIVE CONTROL: the refusal is about the REPOSITORY, not the name — the same call for the second repository is refused too, and only because that one is taken"
+else
+    bad "C27b registry refusal names the repository (rc=$rc): $OUT"
+fi
+# A FINISHED agent gets no further workspace: it never writes again (point 9).
+"$HELPER" "$REPO2" norm-opus-ct31 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "C28a POSITIVE CONTROL: norm-opus-ct31's first workspace is created (exit 0)" \
+                || bad "C28a first workspace rc=$rc"
+python3 - "$(REC norm-opus-ct31)" <<'PY'
+import json, sys, time
+r = json.load(open(sys.argv[1]))
+r["agent_id"] = "a0123456789abcde"; r["tool_use_id"] = "toolu_ct31"; r["spawned_at"] = "now"
+r["end"] = {"signal": "SubagentStop", "at": time.time()}
+json.dump(r, open(sys.argv[1], "w"))
+PY
+OUT="$("$HELPER" "$REPO" norm-opus-ct31 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ] && printf '%s' "$OUT" | grep -q "is finished"; then
+    ok "C28  a FINISHED agent gets no further workspace, in any repository (points 5, 7, 9)"
+else
+    bad "C28  finished agent (rc=$rc): $OUT"
+fi
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else

@@ -927,6 +927,50 @@ sub "C10.7d PRECISION: between two CLOSED foreground calls, a ref Rich cuts at t
 git -C "$ENT" branch -D rich/bookmark-t4 >/dev/null
 git -C "$ENT" merge -q --no-edit worktree-agent-at4t4t4t4t4t4t4t4
 stop_gate >/dev/null 2>&1
+# "ALL of an agent's workspaces go together... EVERY workspace and branch it has"
+# (point 10). The sentence's "two" is its example; the rule is every one. Until
+# 2026-09-17 spawn.sh took one --repo, so a teammate needing a second repository
+# was given a SECOND NAME — a second agent, landed separately, and one of those
+# strays (`cc/norm-opus-wireguide1`) was found by the CEO himself. These four
+# sub-assertions are the same check as C10.1-C10.3 with THREE workspaces, in
+# THREE repositories, which is the shape nothing measured before.
+OTHER2="$T/other2"; new_repo "$OTHER2"
+ws integration --repo "$OTHER2" --branch main --why "the fourteen checks, a second other repository" >/dev/null 2>&1
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-t5 >/dev/null 2>&1
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER2" zach-opus-t5 >/dev/null 2>&1
+CCT5A="$T/other-wt/zach-opus-t5"; CCT5B="$T/other2-wt/zach-opus-t5"
+spawn "zach-opus-t5" "$(printf 'three workspaces\ncross-repo-worktree: %s\ncross-repo-worktree: %s\n' "$CCT5A" "$CCT5B")"; rc5=$?
+platform_spawn "zach-opus-t5" "at5t5t5t5t5t5t5t5"
+NPT5="$ENT/.claude/worktrees/agent-at5t5t5t5t5t5t5t5"
+commit_in "$CCT5A" t5a.txt; commit_in "$CCT5B" t5b.txt; commit_in "$NPT5" t5-native.txt
+subagent_stop "at5t5t5t5t5t5t5t5"
+git -C "$OTHER" merge -q --no-edit cc/zach-opus-t5
+git -C "$OTHER2" merge -q --no-edit cc/zach-opus-t5
+git -C "$ENT" merge -q --no-edit "worktree-agent-at5t5t5t5t5t5t5t5"
+REC5="$(agent_rec zach-opus-t5)"
+sub "C10.9 POSITIVE CONTROL: ONE name, THREE registered workspaces in three repositories, all present and the spawn naming both marker lines registered ($rc5)" \
+    "[ $rc5 -eq 0 ] && [ \"\$(python3 -c 'import json,sys; print(len([w for w in json.load(open(sys.argv[1]))[\"workspaces\"] if not w.get(\"deleted_at\")]))' '$REC5')\" = 3 ] && [ -d '$CCT5A' ] && [ -d '$CCT5B' ] && [ -d '$NPT5' ]" \
+    "$(cat "$T/spawn.err") $(cat "$REC5" 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
+ws land zach-opus-t5 >"$T/land5.out" 2>&1; rc=$?
+sub "C10.10 ONE operation (exit $rc): ALL THREE workspaces are gone, in all three repositories — none is left behind" \
+    "[ $rc -eq 0 ] && [ ! -e '$CCT5A' ] && [ ! -e '$CCT5B' ] && [ ! -e '$NPT5' ] && ! listed '$OTHER' '$CCT5A' && ! listed '$OTHER2' '$CCT5B' && ! listed '$ENT' '$NPT5'" "$(cat "$T/land5.out")"
+sub "C10.11 and all three branches are gone" \
+    "! has_branch '$OTHER' cc/zach-opus-t5 && ! has_branch '$OTHER2' cc/zach-opus-t5 && ! has_branch '$ENT' worktree-agent-at5t5t5t5t5t5t5t5"
+# The other of point 7's two endings, on the same shape: a DISCARD deletes every
+# one of them too, and nothing it wrote reaches the branch this work integrates on.
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER" zach-opus-t6 >/dev/null 2>&1
+RICHOS_SESSION_ID="$CUR_SID" bash "$CREATE" "$OTHER2" zach-opus-t6 >/dev/null 2>&1
+CCT6A="$T/other-wt/zach-opus-t6"; CCT6B="$T/other2-wt/zach-opus-t6"
+spawn "zach-opus-t6" "$(printf 'three workspaces, discarded\ncross-repo-worktree: %s\ncross-repo-worktree: %s\n' "$CCT6A" "$CCT6B")"
+platform_spawn "zach-opus-t6" "at6t6t6t6t6t6t6t6"
+NPT6="$ENT/.claude/worktrees/agent-at6t6t6t6t6t6t6t6"
+commit_in "$CCT6A" t6a.txt; commit_in "$CCT6B" t6b.txt; commit_in "$NPT6" t6-native.txt
+subagent_stop "at6t6t6t6t6t6t6t6"
+ws discard zach-opus-t6 --reason "the reviewer rejected this approach" \
+    --not-ceo-ordered "an internal experiment, not the CEO's order" >"$T/discard6.out" 2>&1; rc=$?
+sub "C10.12 a DISCARD deletes every one of a three-workspace agent's workspaces and branches too (exit $rc), and nothing it wrote is in any integration branch (point 7)" \
+    "[ $rc -eq 0 ] && [ ! -e '$CCT6A' ] && [ ! -e '$CCT6B' ] && [ ! -e '$NPT6' ] && ! has_branch '$OTHER' cc/zach-opus-t6 && ! has_branch '$OTHER2' cc/zach-opus-t6 && ! has_branch '$ENT' worktree-agent-at6t6t6t6t6t6t6t6 && ! git -C '$OTHER2' log --format=%s | grep -q 'work t6b.txt'" \
+    "$(cat "$T/discard6.out")"
 verdict
 
 # ===========================================================================

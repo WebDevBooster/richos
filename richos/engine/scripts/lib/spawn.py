@@ -63,6 +63,20 @@ TOGETHER. A brief that breaks three rules is fixed once, not three times.
   5. On ANY failure nothing is left behind: before creation there is nothing to
      leave, and after it the workspace, its branch and its registration are
      withdrawn (workspaces.sh withdraw-cc), which frees the name for the retry.
+  6. A TEAMMATE MAY HAVE A WORKSPACE IN SEVERAL OTHER REPOSITORIES: --repo is
+     given once per repository, and each gets its own registered cc/ workspace
+     under the ONE name, with its own `cross-repo-worktree:` line in the
+     payload. Point 10 is "All of an agent's workspaces go together"; the
+     example in that sentence is two, and the rule is "every workspace and
+     branch it has". Until 2026-09-17 this command took ONE --repo, so a
+     teammate needing a second repository had to be given a SECOND NAME -
+     which made it a second agent, landed separately, and on 2026-09-17 the CEO
+     found the stray branch of one (`cc/norm-opus-wireguide1`) left behind by a
+     land that named only `norm-opus-wire1`. Nothing else needed widening: the
+     registry has always held a list of workspaces, land and discard have
+     always deleted every one of them across every repository, clause 4c of
+     guard-worktree-isolation.sh has always read EVERY marker line, and
+     register_spawn has always required a registration for each.
 
 THE CLAUSE-7 FALSE POSITIVE IS GONE, NOT SPECIAL-CASED. The stopgap
 (femcboost/scripts/preflight-agent-spawn.sh, deleted with this) always reported
@@ -184,6 +198,39 @@ def resolve_repo(arg, project_dir):
 # ---------------------------------------------------------------------------
 # 2. WHICH BRANCH THIS WORK INTEGRATES ON (point 14)
 # ---------------------------------------------------------------------------
+
+def scoped_values(entries, raw_repos, repos, option):
+    """`--dir` and `--integration` for a teammate that has workspaces in SEVERAL
+    repositories: `<repo>=<value>`, where <repo> is spelled the way it was
+    spelled to --repo (bare name or path) or is the repository's resolved path.
+
+    THE BARE FORM IS KEPT, AND IT IS KEPT NARROW. With exactly one --repo,
+    `--dir <path>` and `--integration <branch>` mean what they have always
+    meant. With several, an unscoped value would have to be attached to one of
+    them by guessing which - and point 14's whole sentence is that nothing
+    guesses the branch a body of work integrates on. So it is refused, naming
+    the form that answers it."""
+    out = {}
+    for entry in entries:
+        repo, value = "", entry
+        if "=" in entry:
+            head, tail = entry.split("=", 1)
+            for raw, resolved in zip(raw_repos, repos):
+                if head in (raw, resolved, os.path.basename(resolved)):
+                    repo, value = resolved, tail
+                    break
+        if not repo:
+            if len(repos) != 1:
+                raise Refusal("%s %s: this teammate has workspaces in %d repositories (%s), so say "
+                              "which one this is for: %s <repo>=<value>, where <repo> is spelled as "
+                              "it was to --repo."
+                              % (option, entry, len(repos), ", ".join(repos), option))
+            repo = repos[0]
+        if repo in out:
+            raise Refusal("%s is given twice for %s" % (option, repo))
+        out[repo] = value
+    return out
+
 
 def default_branch(repo):
     """The repository's own default branch, read from git and never guessed:
@@ -428,20 +475,25 @@ def run_guards(guards, envelope, project_dir):
 # 4. THE PAYLOAD
 # ---------------------------------------------------------------------------
 
-def build_payload(args, brief, workspace):
+def build_payload(args, brief, workspaces):
+    """ONE `cross-repo-worktree:` LINE PER WORKSPACE, and the guard has always
+    been written that way: clause 4c of guard-worktree-isolation.sh reads EVERY
+    such line and checks each against the registry, and register_spawn collects
+    them all into `cc_paths` and requires a registration for each. So an agent
+    with workspaces in two other repositories needs no new marker and no new
+    clause - it needs both of its lines written."""
     prompt = brief.rstrip("\n")
-    if workspace:
-        line = "cross-repo-worktree: %s" % workspace
-        have = W.prompt_lines(prompt, "cross-repo-worktree")
-        if not have:
-            prompt = line + "\n\n" + prompt
-        else:
-            wrong = [p for p in have if W.realpath(p) != workspace]
-            if wrong:
-                raise Refusal("the brief already names a different workspace on a "
-                              "'cross-repo-worktree:' line (%s); this command would create %s. Remove "
-                              "the line and let it be written, or pass --dir %s."
-                              % (wrong[0], workspace, os.path.dirname(wrong[0])))
+    if workspaces:
+        have = [W.realpath(p) for p in W.prompt_lines(prompt, "cross-repo-worktree")]
+        wrong = [p for p in have if p not in workspaces]
+        if wrong:
+            raise Refusal("the brief already names a workspace on a 'cross-repo-worktree:' line (%s) "
+                          "that this command is not creating; it would create %s. Remove the line and "
+                          "let it be written, or pass --dir %s."
+                          % (wrong[0], ", ".join(workspaces), os.path.dirname(wrong[0])))
+        missing = [w for w in workspaces if w not in have]
+        if missing:
+            prompt = "\n".join("cross-repo-worktree: %s" % w for w in missing) + "\n\n" + prompt
     ti = {"name": args["name"], "subagent_type": args["type"], "prompt": prompt,
           "isolation": "worktree"}
     if args.get("description"):
@@ -503,18 +555,28 @@ def errors_from(results):
 # main
 # ---------------------------------------------------------------------------
 
-USAGE = """usage: spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>
-                [--model <alias>] [--description <text>] [--base <ref>] [--dir <path>]
-                [--integration <branch>] [--integration-why <text>]
-                [--payload-out <file>] [--json] [--dry-run]
+USAGE = """usage: spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
+                --type <subagent-type> --brief <file>
+                [--model <alias>] [--description <text>]
+                [--base [<repo>=]<ref>] [--dir [<repo>=]<path>]
+                [--integration [<repo>=]<branch>]
+                [--integration-why <text>] [--payload-out <file>] [--json] [--dry-run]
 
   <teammate-name>      <role>-<model>-<identifier>, e.g. zach-opus-spawn1
-  --repo <repo>        absolute path, OR a bare name where it is unambiguous
+  --repo <repo>        absolute path, OR a bare name where it is unambiguous.
+                       GIVE IT ONCE PER REPOSITORY this teammate works in: one
+                       cc/ workspace is created and registered in each, under
+                       the ONE name, and the payload carries one
+                       cross-repo-worktree: line per workspace. All of them go
+                       together at the land (point 10).
   --type <t>           the subagent_type the definition is registered under
   --brief <file>       the brief, as a file; `-` reads stdin
   --integration <b>    the branch this body of work integrates on; needed only
                        where the answer is a human's to give, and the refusal
-                       says so when it is
+                       says so when it is. With several --repo, scope it:
+                       --integration <repo>=<branch>
+  --dir <path>         where to put the workspace; with several --repo, scope
+                       it the same way: --dir <repo>=<path>
   --dry-run            evaluate everything and create nothing
   --json               machine-readable result on stdout instead of the payload
 
@@ -525,17 +587,30 @@ Exit 0 ready; 1 refused (nothing created); 2 usage; 4 created but rolled back.
 
 
 def parse_args(argv):
-    args = {"name": "", "repo": "", "type": "", "brief": "", "model": "", "description": "",
-            "base": "", "dir": "", "integration": "", "integration_why": "", "payload_out": "",
+    args = {"name": "", "repos": [], "type": "", "brief": "", "model": "", "description": "",
+            "bases": [], "dirs": [], "integrations": [], "integration_why": "", "payload_out": "",
             "json": False, "dry_run": False, "project_dir": ""}
-    flags = {"--repo": "repo", "--type": "type", "--brief": "brief", "--model": "model",
-             "--description": "description", "--base": "base", "--dir": "dir",
-             "--integration": "integration", "--integration-why": "integration_why",
+    flags = {"--type": "type", "--brief": "brief", "--model": "model",
+             "--description": "description",
+             "--integration-why": "integration_why",
              "--payload-out": "payload_out", "--project-dir": "project_dir"}
+    # REPEATABLE, which is this engine's convention for a list-valued option
+    # (`--repo` in handoff-facts.py and ci-surface.py, `--workspace` in
+    # containers.py, `--only` in workspace-probes.py are all action="append").
+    # A comma list was the alternative and is not used: a repository is a PATH,
+    # and a separator a path may legally contain cannot be the one that splits
+    # it.
+    repeatable = {"--repo": "repos", "--dir": "dirs", "--integration": "integrations",
+                  "--base": "bases"}
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in flags:
+        if a in repeatable:
+            if i + 1 >= len(argv):
+                raise Refusal("%s needs a value" % a)
+            args[repeatable[a]].append(argv[i + 1])
+            i += 2
+        elif a in flags:
             if i + 1 >= len(argv):
                 raise Refusal("%s needs a value" % a)
             args[flags[a]] = argv[i + 1]
@@ -565,9 +640,10 @@ def main(argv):
     except Refusal as exc:
         sys.stderr.write("spawn: %s\n\n%s" % (exc, USAGE))
         return 2
-    missing = [k for k in ("name", "repo", "type", "brief") if not args[k]]
+    missing = [k for k in ("name", "repos", "type", "brief") if not args[k]]
     if missing:
-        sys.stderr.write("spawn: missing %s\n\n%s" % (", ".join(missing), USAGE))
+        sys.stderr.write("spawn: missing %s\n\n%s"
+                         % (", ".join("repo" if m == "repos" else m for m in missing), USAGE))
         return 2
 
     project_dir = args["project_dir"] or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
@@ -590,38 +666,63 @@ def main(argv):
         if not brief.strip():
             raise Refusal("--brief %s is empty. The prompt carries the whole task." % args["brief"])
 
-        repo = resolve_repo(args["repo"], project_dir)
-        notes.append("repository:  %s" % repo)
+        repos = []
+        for raw in args["repos"]:
+            r = resolve_repo(raw, project_dir)
+            if r in repos:
+                # Point 3's "one registration" rule, per repository: a second
+                # workspace in the SAME repository under one name is refused,
+                # here and in create-teammate-worktree.sh. A DIFFERENT
+                # repository under the same name is the whole point of this.
+                raise Refusal("--repo %s names %s, which is already this teammate's repository. One "
+                              "workspace per repository per teammate: a second one in the same "
+                              "repository under the same name is refused." % (raw, r))
+            repos.append(r)
+        notes.append("repositor%s %s" % ("y:  " if len(repos) == 1 else "ies:", ", ".join(repos)))
+
+        dirs = scoped_values(args["dirs"], args["repos"], repos, "--dir")
+        bases = scoped_values(args["bases"], args["repos"], repos, "--base")
+        integrations = scoped_values(args["integrations"], args["repos"], repos, "--integration")
 
         # Point 14 for EVERY repository this teammate will work in - the
         # session's own included, because register_spawn checks the entity too.
-        for r in ([project_dir] if repo != project_dir else []) + [repo]:
-            notes.append(ensure_integration(r, args["integration"] if r == repo else "",
-                                            args["integration_why"] if r == repo else "", session))
+        for r in ([project_dir] if project_dir not in repos else []) + repos:
+            notes.append(ensure_integration(r, integrations.get(r, ""),
+                                            args["integration_why"] if r in integrations else "",
+                                            session))
 
-        same_repo = (repo == project_dir)
-        workspace = ""
+        workspaces = []
         planned = []
-        if not same_repo:
-            workspace = W.realpath(args["dir"]) if args["dir"] else W.realpath(
-                os.path.join(os.path.dirname(repo), os.path.basename(repo) + "-wt", args["name"]))
-            planned = [{"path": workspace, "repo": repo, "branch": W.CC_PREFIX + args["name"]}]
-            notes.append("workspace:   %s  (%s%s)" % (workspace, W.CC_PREFIX, args["name"]))
-        else:
-            notes.append("workspace:   native isolation only (the target repository IS this session's)")
+        for r in repos:
+            if r == project_dir:
+                notes.append("workspace:   native isolation only for %s (it IS this session's "
+                             "repository)" % r)
+                continue
+            w = W.realpath(dirs[r]) if r in dirs else W.realpath(
+                os.path.join(os.path.dirname(r), os.path.basename(r) + "-wt", args["name"]))
+            if w in workspaces:
+                raise Refusal("two of this teammate's workspaces would be at the same path (%s); "
+                              "scope them with --dir <repo>=<path>." % w)
+            workspaces.append(w)
+            planned.append({"path": w, "repo": r, "branch": W.CC_PREFIX + args["name"]})
+            notes.append("workspace:   %s  (%s%s in %s)" % (w, W.CC_PREFIX, args["name"], r))
 
-        payload = build_payload(args, brief, workspace)
+        payload = build_payload(args, brief, workspaces)
         # THE PROVENANCE OF THE BRIEF ITSELF, decided here so the guards evaluate the
         # text that will actually be dispatched. It never refuses: a statement with no
         # source is named to the agent, and the agent re-derives it. On a brief that
         # sources everything, nothing is appended and the payload is byte-identical.
-        payload["prompt"], findings = PROV.annotate(payload["prompt"], repo)
+        # Both annotators read ONE repository's record (brief-provenance resolves
+        # the brief's citations in it; brief-scope reads its verdict history), so
+        # they are given the FIRST --repo: the repository this work is primarily
+        # in. With one --repo that is exactly today's behavior.
+        payload["prompt"], findings = PROV.annotate(payload["prompt"], repos[0])
         # WHO CHOOSES THE MECHANISM, appended for the same reason and in the same
         # place. It fires only when the brief anchors an item to a spec point that
         # a previous round left red — the CEO's own scoping clause for a prescribed
         # design, computed from the verdict history rather than read off the prose.
         # On every other brief it appends nothing and the payload is unchanged.
-        payload["prompt"], stamp_notes = SCOPE.annotate(payload["prompt"], repo)
+        payload["prompt"], stamp_notes = SCOPE.annotate(payload["prompt"], repos[0])
         for _n in stamp_notes:
             notes.append("design:      %s" % _n)
     except Refusal as exc:
@@ -664,19 +765,24 @@ def main(argv):
     # looks identical either way), so the caller carries the answer.
     mine = not os.path.exists(W.agent_path(W.named_key(session, args["name"])))
     created = None
-    if planned:
-        cmd = [os.path.join(ENGINE, "mega-lander", "create-teammate-worktree.sh"), repo, args["name"],
-               "--dir", planned[0]["path"], "--session", session]
-        if args["base"]:
-            cmd += ["--base", args["base"]]
+    # EVERY WORKSPACE, UNDER THE ONE NAME, AND A FAILURE OF ANY OF THEM UNDOES
+    # ALL OF THEM. `withdraw_cc` withdraws the whole registration - every
+    # workspace on it, its branches and the record - so a half-created teammate
+    # never survives this loop (points 3, 10).
+    for p in planned:
+        cmd = [os.path.join(ENGINE, "mega-lander", "create-teammate-worktree.sh"), p["repo"],
+               args["name"], "--dir", p["path"], "--session", session]
+        if p["repo"] in bases:
+            cmd += ["--base", bases[p["repo"]]]
         rc, out, err = sh(cmd, timeout=300)
         if rc != 0:
-            report_problems("could not create the workspace",
+            report_problems("could not create the workspace in %s" % p["repo"],
                             [{"headline": "create-teammate-worktree.sh exited %d" % rc,
                               "detail": (err.strip() or out.strip())}])
             _rollback(session, args["name"], mine)
             return 1
-        created = planned[0]["path"]
+    if planned:
+        created = [p["path"] for p in planned]
 
     # --- the same guards again, against the real thing ----------------------
     post = run_guards(guards, envelope_for(payload, session, project_dir, []), project_dir)
@@ -729,8 +835,8 @@ def _print_report(notes, results, guards, created, args, findings=()):
     print("spawn: READY - %s" % args["name"], file=out)
     for n in notes:
         print("  %s" % n, file=out)
-    if created:
-        print("  created:     %s" % created, file=out)
+    for path in (created or []):
+        print("  created:     %s" % path, file=out)
     ok = len([r for r in results if r["verdict"] == "ok"])
     print("  guards:      %d evaluated, %d passed (%s)"
           % (len(guards), ok, ", ".join(sorted(set("%s:%d" % (lbl, len([g for g in guards

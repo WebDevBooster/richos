@@ -19,6 +19,14 @@
 #      contract), a path that already exists, a branch that already exists,
 #      and a base that is a codex/ branch (point 2: an agent works from a copy
 #      in its own cc/ workspace, never inside a codex/ one).
+#      A SECOND REPOSITORY UNDER THE SAME NAME IS NOT ONE OF THOSE REFUSALS.
+#      Run it again with a different <repo> and the same <teammate-name>: the
+#      teammate gets a second registered cc/ workspace, and all of an agent's
+#      workspaces go together when its work is landed or discarded (point 10).
+#      What stays refused is a second workspace in the SAME repository under
+#      that name - it would want the same cc/<name> branch, which already
+#      exists there (point 3, one registration per repository). Normally you do
+#      not run this twice either: `spawn.sh --repo A --repo B` does both.
 #   2. REGISTERS the workspace — session, teammate, repository, path, cc/
 #      branch — in the workspace registry (mega-lander/workspaces.py) BEFORE
 #      anything exists on disk. If the registration cannot be written, nothing
@@ -210,5 +218,6 @@ echo "A cwd-only spawn is refused."
 echo "Prepare the full Agent JSON, including its mandatory acknowledgement contract:"
 echo "  python3 \"$SCRIPT_DIR/../scripts/prepare-agent-spawn.py\" --file <task-input.json>"
 echo "...or do the whole thing, guards evaluated first, in ONE command next time:"
-echo "  $SCRIPT_DIR/../scripts/spawn.sh <teammate-name> --repo <repo|name> --type <subagent-type> --brief <file>"
+echo "  $SCRIPT_DIR/../scripts/spawn.sh <teammate-name> --repo <repo|name> [--repo <repo|name> ...] --type <subagent-type> --brief <file>"
+echo "  (--repo once per repository this teammate works in; they go together at the land, point 10.)"
 exit 0

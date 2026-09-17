@@ -13,10 +13,17 @@
 # This file only finds python3 and the library. The mechanism, and the reason it
 # exists, are in scripts/lib/spawn.py.
 #
-#   spawn.sh <teammate-name> --repo <repo> --type <subagent-type> --brief <file>
-#            [--model <alias>] [--description <text>] [--base <ref>] [--dir <path>]
-#            [--integration <branch>] [--integration-why <text>]
-#            [--payload-out <file>] [--json] [--dry-run]
+#   spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
+#            --type <subagent-type> --brief <file>
+#            [--model <alias>] [--description <text>] [--base [<repo>=]<ref>]
+#            [--dir [<repo>=]<path>] [--integration [<repo>=]<branch>]
+#            [--integration-why <text>] [--payload-out <file>] [--json] [--dry-run]
+#
+# --repo IS GIVEN ONCE PER REPOSITORY the teammate works in. It creates and
+# REGISTERS one cc/ workspace in each, all under the ONE name, and the payload
+# carries one `cross-repo-worktree:` line per workspace. All of an agent's
+# workspaces go together when its work is landed or discarded
+# (docs/plans/worktree-spec-2026-09-11.md, point 10).
 #
 # The payload goes to STDOUT; everything a person reads goes to stderr, so
 # `spawn.sh ... > payload.json` is a payload and nothing else.

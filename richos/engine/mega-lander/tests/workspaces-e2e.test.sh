@@ -16,6 +16,8 @@
 #   E1  spawn -> register -> commit -> finish -> land -> every workspace and branch gone
 #   E2  the same, discarded
 #   E3  a cross-repository agent with two workspaces, landed: both gone, as one
+#   E7  ONE agent with workspaces in TWO other repositories: all three of its
+#       workspaces and branches go together (point 10's "every workspace it has")
 #   E4  a session that ends mid-work: the next session is told first, is refused
 #       new work and the end of its turn, and lands it
 #   E6  the pair of events: a branch the agent creates inside one tool call is
@@ -197,6 +199,65 @@ RICHOS_SESSION_ID="$CUR_SID" "$WS" discard orphan-rogue --reason "made by hand, 
 check "E3.8 discarded: workspace and branch gone" \
     "[ $rc -eq 0 ] && [ ! -e '$T/rogue' ] && ! has_branch '$OTHER' cc/rogue" "$(cat "$T/discard.out")"
 
+echo "=== E5 ONE agent with workspaces in TWO other repositories ==="
+# Point 10 is "every workspace and branch it has", and its sentence's "two" is
+# the example, not the rule. Before 2026-09-17 a teammate needing a second
+# repository was given a SECOND NAME — a second agent, landed separately, and
+# the CEO found one of the strays himself.
+THIRD="$T/third"; new_repo "$THIRD"
+RICHOS_SESSION_ID="$CUR_SID" "$WS" integration --repo "$THIRD" --branch main \
+    --why "the end-to-end run's body of work" >>"$T/integration.out" 2>&1
+RICHOS_SESSION_ID="$CUR_SID" bash "$ENGINE/mega-lander/create-teammate-worktree.sh" "$OTHER" zach-opus-e7 >"$T/create7a.out" 2>&1; rc1=$?
+RICHOS_SESSION_ID="$CUR_SID" bash "$ENGINE/mega-lander/create-teammate-worktree.sh" "$THIRD" zach-opus-e7 >"$T/create7b.out" 2>&1; rc2=$?
+CC7A="$T/other-wt/zach-opus-e7"
+CC7B="$T/third-wt/zach-opus-e7"
+check "E7.1 two repositories, ONE name: both cc/ workspaces are created and registered (points 1, 3)" \
+    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -d '$CC7A' ] && [ -d '$CC7B' ] && has_branch '$OTHER' cc/zach-opus-e7 && has_branch '$THIRD' cc/zach-opus-e7" \
+    "$(cat "$T/create7a.out" "$T/create7b.out")"
+REC7="$CLAUDE_CONFIG_DIR/state/workspaces/agents/$CUR_SID--zach-opus-e7.json"
+check "E7.2 and both are on the ONE agent's record" \
+    "[ \"\$(python3 -c 'import json,sys; print(len([w for w in json.load(open(sys.argv[1]))[\"workspaces\"] if not w.get(\"deleted_at\")]))' '$REC7')\" = 2 ]" \
+    "$(cat "$REC7" 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
+spawn "zach-opus-e7" "$(printf 'edit both repositories\ncross-repo-worktree: %s\ncross-repo-worktree: %s\n' "$CC7A" "$CC7B")"; rc=$?
+check "E7.3 a spawn naming BOTH registered workspaces is registered (clause 4c reads every marker line)" \
+    "[ $rc -eq 0 ]" "$(cat "$T/spawn.err")"
+# NEGATIVE, with its first line REGISTERED so the refusal can only be about the
+# second: one real workspace for this name, one made by hand in another
+# repository. Nothing about a payload's FIRST marker line excuses its second.
+RICHOS_SESSION_ID="$CUR_SID" bash "$ENGINE/mega-lander/create-teammate-worktree.sh" "$OTHER" zach-opus-e7x >"$T/create7x.out" 2>&1; rc=$?
+CC7X="$T/other-wt/zach-opus-e7x"
+check "E7.4a POSITIVE CONTROL: the first of the two workspaces IS registered and created" \
+    "[ $rc -eq 0 ] && [ -d '$CC7X' ]" "$(cat "$T/create7x.out")"
+git -C "$THIRD" worktree add -q "$T/rogue2" -b cc/rogue2      # made raw: registered by nothing
+commit_in "$T/rogue2" rogue2.txt                              # ...with work in it, so it is not landed by itself
+spawn "zach-opus-e7x" "$(printf 'x\ncross-repo-worktree: %s\ncross-repo-worktree: %s\n' "$CC7X" "$T/rogue2")"; rc=$?
+check "E7.4 NEGATIVE: a payload whose SECOND marker line names an unregistered workspace does not happen, and the refusal names THAT path (point 3)" \
+    "[ $rc -ne 0 ] && grep -q 'rogue2' '$T/spawn.err'" "$(cat "$T/spawn.err")"
+RICHOS_SESSION_ID="$CUR_SID" "$WS" withdraw-cc --name zach-opus-e7x \
+    --why "its spawn was refused for the workspace it did not register" >"$T/withdraw7.out" 2>&1; rc=$?
+check "E7.4b the registered half of that refused spawn is withdrawn: nothing left behind (point 3)" \
+    "[ $rc -eq 0 ] && [ ! -e '$CC7X' ] && ! has_branch '$OTHER' cc/zach-opus-e7x" "$(cat "$T/withdraw7.out")"
+stop_gate; rc=$?
+check "E7.4c the hand-made one is finished work of an ended session: the turn cannot end (point 3)" \
+    "[ $rc -eq 2 ] && grep -q 'orphan-rogue2' '$T/stop.err'" "$(cat "$T/stop.err")"
+RICHOS_SESSION_ID="$CUR_SID" "$WS" discard orphan-rogue2 --reason "made by hand for the negative case, never registered" \
+    --not-ceo-ordered "a test fixture made by this demonstration" >"$T/discard7.out" 2>&1; rc=$?
+check "E7.4d and it is discarded: workspace and branch gone" \
+    "[ $rc -eq 0 ] && [ ! -e '$T/rogue2' ] && ! has_branch '$THIRD' cc/rogue2" "$(cat "$T/discard7.out")"
+platform_spawn "zach-opus-e7" "ae7e7e7e7e7e7e7e7"
+NP7="$ENT/.claude/worktrees/agent-ae7e7e7e7e7e7e7e7"
+commit_in "$CC7A" e7a.txt; commit_in "$CC7B" e7b.txt; commit_in "$NP7" e7n.txt
+subagent_stop "ae7e7e7e7e7e7e7e7"
+git -C "$OTHER" merge -q --no-edit cc/zach-opus-e7
+git -C "$THIRD" merge -q --no-edit cc/zach-opus-e7
+git -C "$ENT" merge -q --no-edit "worktree-agent-ae7e7e7e7e7e7e7e7"
+stop_gate; rc=$?
+check "E7.5 landed as ONE (exit $rc)" "[ $rc -eq 0 ]" "$(cat "$T/stop.err")"
+check "E7.6 ALL THREE workspaces are gone — none is left behind (point 10)" \
+    "[ ! -e '$CC7A' ] && [ ! -e '$CC7B' ] && [ ! -e '$NP7' ] && ! listed '$OTHER' '$CC7A' && ! listed '$THIRD' '$CC7B' && ! listed '$ENT' '$NP7'"
+check "E7.7 and all three branches are gone, in all three repositories (point 10)" \
+    "! has_branch '$OTHER' cc/zach-opus-e7 && ! has_branch '$THIRD' cc/zach-opus-e7 && ! has_branch '$ENT' worktree-agent-ae7e7e7e7e7e7e7e7"
+
 echo "=== E4 a session that ends mid-work ==="
 spawn "zach-opus-e4" "long work"; rc=$?
 check "E4.1 spawn registered" "[ $rc -eq 0 ]" "$(cat "$T/spawn.err")"
@@ -266,8 +327,9 @@ check "E6.7 every ref it created is gone with its workspace (point 10)" \
 echo "=== every workspace and branch the agents had ==="
 check "E5.1 the entity repository has only its main checkout" "[ \"\$(git -C '$ENT' worktree list --porcelain | grep -c '^worktree ')\" = 1 ]"
 check "E5.2 the other repository has only its main checkout" "[ \"\$(git -C '$OTHER' worktree list --porcelain | grep -c '^worktree ')\" = 1 ]"
+check "E5.2b the third repository has only its main checkout" "[ \"\$(git -C '$THIRD' worktree list --porcelain | grep -c '^worktree ')\" = 1 ]"
 check "E5.3 no agent branch survives anywhere" \
-    "[ -z \"\$(git -C '$ENT' for-each-ref refs/heads/worktree-agent-* refs/heads/cc; git -C '$OTHER' for-each-ref refs/heads/cc)\" ]"
+    "[ -z \"\$(git -C '$ENT' for-each-ref refs/heads/worktree-agent-* refs/heads/cc; git -C '$OTHER' for-each-ref refs/heads/cc; git -C '$THIRD' for-each-ref refs/heads/cc)\" ]"
 if [ -s "$T/hooks.err" ]; then
     bad "E5.4 the lifecycle hook reported nothing unexpected" "$(head -5 "$T/hooks.err")"
 else
