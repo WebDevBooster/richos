@@ -94,14 +94,21 @@ command -v python3 >/dev/null 2>&1 || { echo "create-teammate-worktree.sh: pytho
 refuse() { echo "create-teammate-worktree.sh: REFUSED — $*" >&2; exit 3; }
 
 # --- 1. the name is the spawn contract's name --------------------------------
-ALLOWED_MODELS="fable opus sonnet haiku"
-if [ -f "$SCRIPT_DIR/../orchestration.config" ]; then
-    _am="$(sed -n 's/^ALLOWED_MODELS="\(.*\)"$/\1/p' "$SCRIPT_DIR/../orchestration.config" | head -1)"
-    [ -n "$_am" ] && ALLOWED_MODELS="$_am"
+# THE RULE ITSELF LIVES IN scripts/lib/teammate-name.sh — shared with
+# guard-worktree-isolation.sh, which used to carry a LOOSER shape check of its
+# own (no length bound, any case, any number of extra segments). See that
+# file's header for the 2026-09-17 defect this replaces: a name could pass the
+# guard and be refused here, one round trip after spawn.sh's own guard table
+# said "passed" — spawn.sh always runs guard-worktree-isolation.sh (from the
+# engine's own hooks.json) before creating anything, so the guard now sharing
+# this rule is what closes that round trip; nothing here needed to change to
+# fix it.
+# shellcheck source=../scripts/lib/teammate-name.sh
+. "$SCRIPT_DIR/../scripts/lib/teammate-name.sh"
+ALLOWED_MODELS="$(teammate_name_engine_allowed_models "$SCRIPT_DIR/..")"
+if ! _name_msg="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then
+    refuse "$_name_msg"
 fi
-NAME_RE="^[a-z][a-z0-9]{1,15}-($(printf '%s' "$ALLOWED_MODELS" | tr ' ' '|'))-[a-z0-9]{1,12}$"
-printf '%s' "$NAME" | grep -qE "$NAME_RE" \
-    || refuse "'$NAME' is not a teammate name of the form <role>-<model>-<identifier> (model one of: $ALLOWED_MODELS)."
 
 # --- the repository's MAIN checkout, from git, never from the argument -------
 [ -d "$REPO_ARG" ] || refuse "'$REPO_ARG' is not a directory"

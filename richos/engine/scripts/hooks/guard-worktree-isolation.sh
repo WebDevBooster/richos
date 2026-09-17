@@ -399,6 +399,27 @@ fi
 # shellcheck source=../lib/resolve-model.sh
 . "$_RM_LIB"
 
+# THE SHARED TEAMMATE-NAME SHAPE RULE — see scripts/lib/teammate-name.sh's own
+# header. This guard's own NAME_SHAPE_RE below is a loose PRE-check (any case,
+# no length bound, extra segments allowed) that exists only to produce its own
+# "missing/malformed name" message for the badly-broken cases (bare, 2-part,
+# run-together); teammate_name_check applies the CREATOR's stricter rule on
+# top of it (clause 2c, below), so a name the creator would refuse is refused
+# here too, rather than one round trip later inside create-teammate-worktree.sh.
+_TN_LIB="$SCRIPT_DIR/../lib/teammate-name.sh"
+if [ ! -f "$_TN_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-worktree-isolation.sh"
+        echo "  scripts/lib/teammate-name.sh is missing at: $_TN_LIB"
+        echo "  Without it clause 2c (the creator's stricter name shape) cannot be"
+        echo "  evaluated. It will not guess, and it will not carry on quietly."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/teammate-name.sh
+. "$_TN_LIB"
+
 # Parse subagent_type / isolation / name / prompt (with embedded newlines
 # preserved via a \001 placeholder so the "main-checkout-run:" marker can be
 # matched with a line-start anchor).
@@ -764,6 +785,19 @@ else
   NAME_REST="${NAME#*-}"
   NAME_MODEL_TOKEN="${NAME_REST%%-*}"
   NAME_ID="${NAME_REST#*-}"
+
+  # Clause 2c — the CREATOR (mega-lander/create-teammate-worktree.sh) reads a
+  # STRICTER shape than this guard's own NAME_SHAPE_RE ever did: lower-case
+  # only, role <=16 chars, identifier <=12 chars, EXACTLY three dash-joined
+  # parts (no fourth segment). The two rules now live in one place,
+  # scripts/lib/teammate-name.sh, and this is that shared rule applied here
+  # too — so a name the creator will refuse is refused HERE, before spawn.sh's
+  # guard table ever says "passed" (2026-09-17: zach-sonnet-multirepodemo1, a
+  # 14-character identifier, passed this guard's own loose check and was only
+  # then refused by the creator, one round trip later).
+  if ! _TN_MSG="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then
+    PROBLEMS+=("$_TN_MSG")
+  fi
 
   # Clause 2a — the <model> token must be a real alias.
   if ! model_in_allowed_set "$NAME_MODEL_TOKEN"; then

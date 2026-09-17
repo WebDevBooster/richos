@@ -212,8 +212,40 @@ def project(scope, path, record):
     save(path, record)
 
 
+def build_spawn_command(repo_dests, name, role, brief_path, title, integration=None, base=None):
+    """The exact `spawn.py` invocation for one worker/reviewer, given
+    `repo_dests` = [(repo_str, dest_str), ...] in order, PRIMARY repository
+    first. One `--repo` per entry (`spawn.sh`'s own convention: given once per
+    repository the teammate works in). `--dir` is scoped with the
+    `<repo>=<value>` form the instant there is more than one repository —
+    `spawn.py`'s own `scoped_values` REFUSES an unscoped value against several
+    repositories (point 14: nothing guesses which repository an unscoped value
+    is for) — and stays bare with exactly one, so a single-repository worker's
+    command is BYTE-IDENTICAL to what this function replaced.
+
+    `integration`/`base` apply to the PRIMARY repository only: `prepare()`'s
+    own arguments carry one `integration`/`base` value per worker, and
+    continuation/review state is already tracked against that one repository
+    (`request["repo"]`, untouched by this function) — there is no per-repo
+    value to scope them to."""
+    scoped = len(repo_dests) > 1
+    command = [sys.executable, str(ENGINE / "scripts/lib/spawn.py"), name]
+    for repo, _dest in repo_dests:
+        command += ["--repo", repo]
+    command += ["--type", f"richos-app-engine:{role}", "--model", "sonnet",
+                "--brief", str(brief_path), "--description", title]
+    for repo, dest in repo_dests:
+        command += ["--dir", (f"{repo}={dest}" if scoped else dest)]
+    command += ["--json"]
+    primary = repo_dests[0][0]
+    for field, value in (("integration", integration), ("base", base)):
+        if value:
+            command += ["--" + field, (f"{primary}={value}" if scoped else value)]
+    return command
+
+
 def prepare(scope_path, scope, args):
-    if set(args) - {"request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of"}:
+    if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
     obligation = text(args,"obligation_id")
@@ -229,10 +261,29 @@ def prepare(scope_path, scope, args):
     if raw not in allowed or str(repo) != raw:
         raise ValueError("connect this exact repository to the active company before dispatch")
     if W.main_checkout(str(repo)) != str(repo): raise ValueError("the connected main checkout changed")
+    # A worker may also need a workspace in OTHER connected repositories, all
+    # under the ONE name (docs/plans/worktree-spec-2026-09-11.md, point 10).
+    # "repo" (above) stays the PRIMARY repository — every other field in this
+    # record (continuation, review, target_workspace lookups) is keyed off it
+    # unchanged; "repos" (below) exists only to give build_spawn_command the
+    # full list a multi-repository worker needs.
+    raw_extra = args.get("repos", [])
+    if not isinstance(raw_extra, list) or len(raw_extra) > 8 or not all(isinstance(r, str) and r.strip() for r in raw_extra):
+        raise ValueError("repos must be a list of at most 8 nonempty repository paths")
+    extra_repos = []
+    for raw_r in raw_extra:
+        extra = Path(raw_r).resolve(strict=True)
+        if raw_r not in allowed or str(extra) != raw_r:
+            raise ValueError("connect this exact repository to the active company before dispatch")
+        if W.main_checkout(str(extra)) != str(extra): raise ValueError("the connected main checkout changed")
+        if extra == repo or extra in extra_repos:
+            raise ValueError("each of this worker's repositories must be distinct")
+        extra_repos.append(extra)
+    repos_all = [repo] + extra_repos
     role = args.get("role", "worker")
     if role not in ("worker","reviewer"): raise ValueError("only the shipped worker and reviewer roles are supported")
     title, brief = text(args,"title",256), text(args,"brief",32000)
-    normalized = {"obligation_id":obligation,"repo":str(repo),"title":title,"brief":brief,"role":role,
+    normalized = {"obligation_id":obligation,"repo":str(repo),"repos":[str(r) for r in repos_all],"title":title,"brief":brief,"role":role,
         "integration":args.get("integration"),"base":args.get("base"),"review_of":args.get("review_of"),"continue_of":args.get("continue_of")}
     identity = hashlib.sha256(json.dumps([scope["binding"]["entity_id"],scope["binding"]["thread_id"],request_id],separators=(",", ":")).encode()).hexdigest()
     with locked(scope) as root:
@@ -293,15 +344,21 @@ def prepare(scope_path, scope, args):
         brief_path = root / (identity + ".brief")
         fd = os.open(brief_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,"w") as out: out.write(brief); out.flush(); os.fsync(out.fileno())
-        destination = state() / "target-worktrees" / folder(scope).name / name
-        command = [sys.executable,str(ENGINE / "scripts/lib/spawn.py"),name,"--repo",str(repo),
-            "--type",f"richos-app-engine:{role}","--model","sonnet","--brief",str(brief_path),
-            "--description",title,"--dir",str(destination),"--json"]
-        for field in ("integration","base"):
-            value = args.get(field)
-            if field == "base":
-                value = record.get("review_target", record.get("continuation", {})).get("commit", value)
-            if value: command += ["--"+field, value]
+        base_dir = state() / "target-worktrees" / folder(scope).name / name
+        if len(repos_all) == 1:
+            repo_dests = [(str(repos_all[0]), str(base_dir))]
+        else:
+            # Several repositories under the one name: each gets its own
+            # distinct destination (a bare basename could collide between two
+            # unrelated repositories sharing it, e.g. two checkouts both
+            # named "engine"), so the short hash of the resolved path is
+            # appended to keep every destination unique and deterministic.
+            repo_dests = [(str(r), str(base_dir / f"{r.name}-{hashlib.sha256(str(r).encode()).hexdigest()[:8]}"))
+                          for r in repos_all]
+        base_value = args.get("base")
+        base_value = record.get("review_target", record.get("continuation", {})).get("commit", base_value)
+        command = build_spawn_command(repo_dests, name, role, brief_path, title,
+                                       integration=args.get("integration"), base=base_value)
         try:
             ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
             read_scope(scope_path)  # Stop cannot turn preparation into permission to dispatch.
@@ -672,7 +729,7 @@ def call(scope_path, name, args):
 TOOLS = [
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["obligation_id","worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal.","inputSchema":{"type":"object","properties":{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]

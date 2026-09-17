@@ -927,6 +927,31 @@ fi
 }
 mut_pool_submit M23 _mutant_M23
 
+# --- M24: CLAUSE 2c deleted — the guard falls back to its own looser
+# NAME_SHAPE_RE (no length bound, no exact-three-parts requirement), so a name
+# the creator (mega-lander/create-teammate-worktree.sh) refuses passes this
+# guard again, exactly the 2026-09-17 defect (zach-sonnet-multirepodemo1,
+# a 14-character identifier) this clause exists to close.
+_mutant_M24() {
+    local ENG GUARD SUITE W_DIR MUT_SCORE
+    _mut_worker_sandbox || return 1
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = '  if ! _TN_MSG="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then\n    PROBLEMS+=("$_TN_MSG")\n  fi\n\n'
+assert old in s, "clause 2c anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, "", 1))
+PY
+if applied M24 "clause 2c deleted (the creator's stricter shape no longer applied here)" \
+   && alive M24 "clause 2c deleted (the creator's stricter shape no longer applied here)"; then
+    check M24 "clause 2c deleted (the creator's stricter shape no longer applied here)" \
+        "C2C1"
+fi
+    _mut_score
+}
+mut_pool_submit M24 _mutant_M24
+
 
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
 # hold under every mutation above because they assert that the NORMAL path is
