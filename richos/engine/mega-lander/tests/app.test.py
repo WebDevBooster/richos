@@ -54,6 +54,58 @@ class DesktopWork(unittest.TestCase):
         self.assertFalse((self.repo/"result.txt").exists())
         self.assertEqual(len(self.call("inspect")["records"]),1)
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"brief":"Different task"})
+    def test_build_spawn_command_one_repository_is_byte_identical_to_todays_command(self):
+        # POSITIVE CONTROL: the exact list `prepare()` built before this
+        # function existed, for one repository. Any change to this function
+        # that touches the single-repository path must fail here first.
+        name,brief_path,title="worker-sonnet-abc123456789",Path("/x/y.brief"),"Some title"
+        got=self.app.build_spawn_command([("/some/repo","/dest/path")],name,"worker",brief_path,title,
+            integration="main",base=None)
+        want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,"--repo","/some/repo",
+            "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
+            "--description",title,"--dir","/dest/path","--json","--integration","main"]
+        self.assertEqual(got,want)
+
+    def test_build_spawn_command_two_repositories_emits_two_repo_and_scoped_values(self):
+        name,brief_path,title="worker-sonnet-def456789012","/x/y.brief","Some title"
+        got=self.app.build_spawn_command(
+            [("/repoA","/destA"),("/repoB","/destB")],name,"worker",brief_path,title,
+            integration="main",base="deadbeef")
+        want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,
+            "--repo","/repoA","--repo","/repoB",
+            "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
+            "--description",title,"--dir","/repoA=/destA","--dir","/repoB=/destB","--json",
+            "--integration","/repoA=main","--base","/repoA=deadbeef"]
+        self.assertEqual(got,want)
+
+    def test_prepare_with_repos_creates_a_workspace_in_each_and_scopes_the_form(self):
+        second=self.root/"second project";second.mkdir()
+        subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
+        subprocess.run(["git","-C",str(second),"-c","core.hooksPath=/dev/null","-c","commit.gpgSign=false","-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","--allow-empty","-qm","Fixture"],check=True)
+        self.registry.write_text(json.dumps({"version":2,"entities":[{"id":"depot","roots":[str(self.repo),str(second)],
+            "connected_repositories":[str(self.repo),str(second)]}]}))
+        ready=self.call("prepare",{**self.args,"request_id":"prepare-multi","repos":[str(second)]})
+        self.assertEqual(ready["status"],"prepared")
+        lines=[l for l in ready["agent_payload"]["prompt"].splitlines() if l.startswith("cross-repo-worktree:")]
+        # Neither self.repo nor second is this session's own repository
+        # (RICHOS_ENTITY_ROOT is self.coord), so EACH gets its own registered
+        # cc/ workspace and its own line in the one payload (point 10).
+        self.assertEqual(len(lines),2)
+        # Each cross-repo-worktree line names its own DESTINATION (the
+        # workspace path), not the source repository — the destination is
+        # namespaced by the repository's own basename, so that is what each
+        # repository's line is checked against.
+        self.assertTrue(any(self.repo.name in l for l in lines))
+        self.assertTrue(any(second.name in l for l in lines))
+        self.assertEqual(self.call("inspect")["records"][0]["request"]["repos"],[str(self.repo),str(second)])
+
+    def test_prepare_rejects_a_repeated_or_unconnected_repos_entry(self):
+        with self.assertRaisesRegex(ValueError,"distinct"):
+            self.call("prepare",{**self.args,"request_id":"prepare-dup","repos":[str(self.repo)]})
+        unconnected=self.root/"not connected";unconnected.mkdir()
+        with self.assertRaisesRegex(ValueError,"connect this exact repository"):
+            self.call("prepare",{**self.args,"request_id":"prepare-unconnected","repos":[str(unconnected)]})
+
     def test_dispatch_requires_exact_payload_and_blocks_duplicate_attempt(self):
         ready=self.call("prepare",self.args)
         envelope={"session_id":self.session,"tool_use_id":"actual-native-id","tool_input":ready["agent_payload"]}
