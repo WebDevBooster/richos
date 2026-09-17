@@ -639,6 +639,28 @@ export function workspaceSyncStatePath(zone = workspaceZone()) {
 }
 
 /**
+ * The CEO's OAuth CLIENT config (§6.1 / the setup guide's Step 5): client id, loopback redirect, the
+ * scopes to request, and the account the grant is bound to. It carries NO secret — a desktop PKCE
+ * client has none — but it does name the CEO's own address, so it lives beside the sync state inside
+ * the zone, which `workspaceZone()` has already refused to place inside the product repo.
+ */
+export function workspaceClientConfigPath(zone = workspaceZone()) {
+  return process.env.RICHOS_WORKSPACE_CLIENT_CONFIG
+    ? expand(process.env.RICHOS_WORKSPACE_CLIENT_CONFIG)
+    : path.join(zone, '_oauth_client.json');
+}
+
+/**
+ * What the last `workspace sync` actually did, per source instance — operational state, not evidence:
+ * counts and auth health only, never an item, a title or a token. `workspace status` reads its "last
+ * sync outcome" from here, so the answer comes from the run that happened rather than being inferred
+ * from a cursor's timestamp.
+ */
+export function workspaceRunStatePath(zone = workspaceZone()) {
+  return path.join(zone, '_last_sync.json');
+}
+
+/**
  * Least-privilege READ-ONLY Google scopes (§6.2). Calendar is P1 (smallest privacy surface, temporal
  * skeleton first), Drive is P2; Gmail is wired in P3. `calendar.events.readonly` is the narrowest that
  * lists events. NO write scopes — this layer observes, it never modifies the CEO's cloud.
