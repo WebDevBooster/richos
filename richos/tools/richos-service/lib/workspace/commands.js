@@ -853,6 +853,13 @@ export async function sync(deps = {}) {
         d.out(`${L(e.label.toLowerCase())}observed ${summary.observed}, ingested ${summary.ingested}, deduped ${summary.deduped}`
           + (summary.quarantined ? `, quarantined ${summary.quarantined}` : '')
           + (summary.resynced ? '  (cursor was lost — bounded full resync, deduped by the ledger)' : ''));
+        // A source that can span more than one sub-resource (Calendar: which calendars) says which
+        // ones it actually read, by name and count, so a zero above can be explained at a glance
+        // rather than read as "nothing anywhere" (§"a person has several calendars").
+        if (Array.isArray(summary.calendars) && summary.calendars.length) {
+          d.out(`            calendars: ${summary.calendars.map((c) => `${c.label} ${c.count}`).join(', ')}`);
+        }
+        if (summary.degraded) d.out(`            LIMITED: ${summary.degraded}`);
         if (summary.events.length || summary.commitments.length || summary.entityCandidates.length) {
           d.out(`            candidates: ${summary.events.length} event, ${summary.commitments.length} commitment, ${summary.entityCandidates.length} entity`);
         }

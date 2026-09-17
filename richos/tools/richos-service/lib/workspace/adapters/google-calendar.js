@@ -12,20 +12,70 @@
  *
  * The adapter is a thin normalizer over an injected GoogleClient — no auth logic, no governance, no
  * storage. It talks to ONE vendor API and turns raw → `SourceItem`. Everything downstream is vendor-blind.
+ *
+ * ── A PERSON HAS SEVERAL CALENDARS (2026-09-17) ──────────────────────────────────────────────────
+ * Until this change the adapter read exactly one calendar (`opts.calendarId || 'primary'`) and nothing
+ * else — a shared calendar, a secondary calendar, a subscribed team calendar never reached RichOS. Two
+ * modes now exist, chosen by what the caller passes:
+ *
+ *   - LEGACY / EXPLICIT SINGLE CALENDAR (`opts.calendarId` given): byte-identical to the old behavior.
+ *     `sourceInstanceId` still hashes in the calendar id, so an existing caller pinning a specific
+ *     calendar keeps its own cursor and its own identity exactly as before. Every test that already
+ *     exercised this shape (independent-cursor tests, the legacy-cursor-retirement test) is unaffected.
+ *
+ *   - MULTI-CALENDAR (the default — no `calendarId`, which is what `registry.js` actually constructs
+ *     for a real account): the adapter enumerates the account's calendars on every poll
+ *     (`calendarList.list`) and runs the same per-calendar events sync against each one, honoring
+ *     `accessRole`/`hidden`/`deleted`. `opts.calendarIds` (an explicit array) skips discovery and syncs
+ *     exactly that list — the escape hatch used when discovery is unavailable and by tests.
+ *
+ * IDENTITY DECISION (documented per the brief): in multi-calendar mode the source INSTANCE is the
+ * ACCOUNT, not a calendar — `sourceInstanceId = hash(['google','calendar',accountId])`, no calendar
+ * component. One instance means one `ingestOnce` pass, one entry in `sync-state.json`/`_last_sync.json`,
+ * and ONE cursor value — which is why the cursor's shape changes from a bare `syncToken` string to an
+ * object keyed by calendar id (`{ [calendarId]: syncToken }`). `sync-state.js` already persists an
+ * opaque cursor for any adapter, so nothing there needed to change. A cursor written before this change
+ * (a bare string) is read as belonging to the FIRST calendar synced this poll — normally `primary` — so
+ * nobody's stored progress is discarded (`normalizeCursorMap`).
+ *
+ * DEDUP ACROSS CALENDARS: the SAME event can appear on two calendars the account can see (an invite
+ * copied onto a shared calendar is the same meeting, with the same `iCalUID`, per Google's own
+ * documentation — "the iCalUID is identical across calendars" even though each copy's `id` and `etag`
+ * differ). The ledger dedups on (sourceItemId, vendorEtag), which would NOT collapse two copies with
+ * different etags, so the adapter itself merges same-poll duplicates by `iCalUID`+start time BEFORE
+ * anything reaches the ledger, keeping the first calendar's copy. That is collector-path parity for
+ * "the same event," not "the same calendar."
+ *
+ * SCOPE (checked, not assumed): `calendarList.list` needs `calendar.readonly`, `calendar`,
+ * `calendar.calendarlist` or `calendar.calendarlist.readonly` (Google's own method reference). The
+ * scope this adapter is pinned to, `calendar.events.readonly` (`config.js:GOOGLE_SCOPES.calendar`,
+ * unchanged by this file), is none of those — it grants `events.*` only. So discovery under the
+ * CURRENT grant fails with 403, every time, for every account. That is reported as `degraded`, not
+ * silently masked: the adapter falls back to `primary` only and says so, rather than either widening
+ * the scope (a consent decision, not this file's to make — CEO decision §40 fixes the scope set) or
+ * pretending the account has one calendar.
  */
 
 import { createHash } from 'node:crypto';
 import { buildSourceItem } from '../source-item.js';
+import { GoneError } from '../google-client.js';
 
 export const ADAPTER_VERSION = '1.0.0';
 const API_BASE = 'https://www.googleapis.com/calendar/v3';
 /** A bounded first-sync window: the CEO's recent + near-future calendar, not all history (§4.3). */
 export const DEFAULT_FULL_SYNC_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
+/** Why `calendarList.list` cannot run under the scope this adapter is pinned to (see module docblock). */
+export const CALENDAR_LIST_DEGRADED_REASON =
+  'calendar list requires a broader Google scope than calendar.events.readonly grants '
+  + '(calendarList.list needs calendar.readonly, calendar, calendar.calendarlist or '
+  + 'calendar.calendarlist.readonly) — syncing the primary calendar only until you re-consent to a '
+  + 'wider scope';
+
 export class GoogleCalendarAdapter {
   /**
    * @param {{client:import('../google-client.js').GoogleClient, accountId:string, calendarId?:string,
-   *   fullSyncWindowMs?:number, maxResults?:number, now?:() => number}} opts
+   *   calendarIds?:string[], fullSyncWindowMs?:number, maxResults?:number, now?:() => number}} opts
    */
   constructor(opts) {
     if (typeof opts.accountId !== 'string' || !opts.accountId.trim()) {
@@ -33,9 +83,23 @@ export class GoogleCalendarAdapter {
     }
     this.accountId = opts.accountId.trim();
     this.client = opts.client;
-    this.calendarId = opts.calendarId || 'primary';
-    this.sourceInstanceId = createHash('sha256')
-      .update(JSON.stringify(['google', 'calendar', this.accountId, this.calendarId])).digest('hex');
+
+    // LEGACY mode: an explicit single calendar id, byte-identical to the pre-2026-09-17 behavior.
+    this.legacyCalendarId = typeof opts.calendarId === 'string' && opts.calendarId ? opts.calendarId : null;
+    // MULTI mode, explicit list: skips discovery (the scope-degraded fallback path, and tests).
+    this.explicitCalendarIds = Array.isArray(opts.calendarIds) && opts.calendarIds.length
+      ? [...new Set(opts.calendarIds)]
+      : null;
+    this.multiCalendar = !this.legacyCalendarId;
+
+    // Kept for reporting/labels and as the legacy path's own calendar id (default 'primary').
+    this.calendarId = this.legacyCalendarId || 'primary';
+
+    this.sourceInstanceId = this.multiCalendar
+      ? createHash('sha256').update(JSON.stringify(['google', 'calendar', this.accountId])).digest('hex')
+      : createHash('sha256')
+        .update(JSON.stringify(['google', 'calendar', this.accountId, this.calendarId])).digest('hex');
+
     this.fullSyncWindowMs = opts.fullSyncWindowMs ?? DEFAULT_FULL_SYNC_WINDOW_MS;
     this.maxResults = opts.maxResults || 250;
     this.now = opts.now || (() => Date.now());
@@ -49,33 +113,144 @@ export class GoogleCalendarAdapter {
   }
 
   /**
+   * `calendarList.list`, paginated, filtered to calendars actually worth syncing: neither hidden
+   * (the CEO chose not to show it, which is a real signal — a calendar unhidden later is picked up
+   * on the next poll) nor deleted. Ordered with `primary` first, then by id, so calendar order — and
+   * therefore which copy of a cross-calendar duplicate wins the merge below — is deterministic.
+   * @returns {Promise<{id:string, label:string, accessRole:string}[]>}
+   */
+  async listCalendars() {
+    const entries = [];
+    let pageToken = null;
+    for (;;) {
+      const u = new URL(`${API_BASE}/users/me/calendarList`);
+      u.searchParams.set('maxResults', String(this.maxResults));
+      u.searchParams.set('showHidden', 'false');
+      u.searchParams.set('showDeleted', 'false');
+      if (pageToken) u.searchParams.set('pageToken', pageToken);
+      // eslint-disable-next-line no-await-in-loop
+      const page = await this.client.getJson(u.toString());
+      for (const c of page.items || []) {
+        if (c.hidden || c.deleted || !c.id) continue;
+        entries.push({ id: c.id, label: c.summaryOverride || c.summary || c.id, accessRole: c.accessRole || 'unknown' });
+      }
+      if (page.nextPageToken) {
+        pageToken = page.nextPageToken;
+        continue;
+      }
+      break;
+    }
+    entries.sort((a, b) => (a.id === 'primary' ? -1 : b.id === 'primary' ? 1 : a.id.localeCompare(b.id)));
+    return entries;
+  }
+
+  /**
    * Poll for changes. `syncState` is the opaque cursor the core persisted last time (or null for a
-   * first run / after a 410 reset). Pages through the feed until a `nextSyncToken` is returned; the
-   * core stores that token and never re-pulls the world.
-   * @param {{syncToken?:string}|null} syncState
-   * @returns {Promise<{items:any[], nextSyncState:{syncToken:string}}>}
+   * first run / after a 410 reset). In LEGACY mode this is byte-identical to the original single
+   * calendar loop. In MULTI mode it enumerates calendars, syncs each with its own cursor, merges the
+   * results (deduping the same event seen on two calendars), and persists one cursor MAP.
+   * @param {{syncToken?:string|Object<string,string|null>}|null} syncState
+   * @returns {Promise<{items:any[], nextSyncState:{syncToken:*},
+   *   calendars?:Array<{id:string,label:string,count:number,resynced:boolean}>, degraded?:string}>}
    */
   async listChanges(syncState) {
+    if (!this.multiCalendar) {
+      return this.listChangesForCalendar(this.calendarId, syncState ? syncState.syncToken : null);
+    }
+
+    let calendars;
+    let degraded;
+    if (this.explicitCalendarIds) {
+      calendars = this.explicitCalendarIds.map((id) => ({ id, label: id }));
+    } else {
+      try {
+        calendars = await this.listCalendars();
+        if (!calendars.length) calendars = [{ id: 'primary', label: 'Primary' }];
+      } catch (err) {
+        if (err && err.status === 403) {
+          degraded = CALENDAR_LIST_DEGRADED_REASON;
+          calendars = [{ id: 'primary', label: 'Primary' }];
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    const priorMap = normalizeCursorMap(syncState ? syncState.syncToken : null, calendars[0].id);
+    const nextMap = {};
+    const report = [];
+    const merged = [];
+    const seen = new Set(); // cross-calendar de-dup key: iCalUID (or id) + start
+
+    for (const cal of calendars) {
+      const priorToken = priorMap[cal.id] ?? null;
+      let resynced = false;
+      let calResult;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        calResult = await this.listChangesForCalendar(cal.id, priorToken);
+      } catch (err) {
+        if (err instanceof GoneError) {
+          // A 410 on ONE calendar resets only that calendar's cursor — the others are untouched, and
+          // this poll's items from every other calendar still land.
+          // eslint-disable-next-line no-await-in-loop
+          calResult = await this.listChangesForCalendar(cal.id, null);
+          resynced = true;
+        } else {
+          throw err;
+        }
+      }
+      nextMap[cal.id] = calResult.nextSyncState.syncToken;
+      let landedCount = 0;
+      for (const ev of calResult.items) {
+        const key = dedupKeyFor(ev);
+        if (key) {
+          if (seen.has(key)) continue; // same event, already landed from an earlier calendar this poll
+          seen.add(key);
+        }
+        merged.push(ev);
+        landedCount += 1;
+      }
+      report.push({ id: cal.id, label: cal.label, count: landedCount, resynced });
+    }
+
+    return {
+      items: merged,
+      nextSyncState: { syncToken: nextMap },
+      calendars: report,
+      ...(degraded ? { degraded } : {}),
+    };
+  }
+
+  /**
+   * The original single-calendar poll loop, now reusable per calendar id. Pages through the feed
+   * until a `nextSyncToken` is returned.
+   * @param {string} calendarId
+   * @param {string|null} token
+   * @returns {Promise<{items:any[], nextSyncState:{syncToken:string|null}}>}
+   */
+  async listChangesForCalendar(calendarId, token) {
     const items = [];
     let pageToken = null;
     let nextSyncToken = null;
     for (;;) {
-      const url = this.buildListUrl({ syncToken: syncState?.syncToken || null, pageToken });
+      const url = this.buildListUrl({ calendarId, syncToken: token || null, pageToken });
+      // eslint-disable-next-line no-await-in-loop
       const page = await this.client.getJson(url); // throws GoneError(410) on an expired syncToken
       for (const ev of page.items || []) items.push(ev);
       if (page.nextPageToken) {
         pageToken = page.nextPageToken;
         continue;
       }
-      nextSyncToken = page.nextSyncToken || (syncState && syncState.syncToken) || null;
+      nextSyncToken = page.nextSyncToken || token || null;
       break;
     }
     return { items, nextSyncState: { syncToken: nextSyncToken } };
   }
 
   /** Build the events.list URL. Full sync (no token) uses a bounded timeMin window; delta uses syncToken. */
-  buildListUrl({ syncToken, pageToken }) {
-    const u = new URL(`${API_BASE}/calendars/${encodeURIComponent(this.calendarId)}/events`);
+  buildListUrl({ calendarId, syncToken, pageToken }) {
+    const u = new URL(`${API_BASE}/calendars/${encodeURIComponent(calendarId || this.calendarId)}/events`);
     u.searchParams.set('maxResults', String(this.maxResults));
     u.searchParams.set('singleEvents', 'true'); // expand recurrence so each instance is its own item
     u.searchParams.set('showDeleted', 'true'); // cancellations arrive as deletions → supersede/removal
@@ -168,4 +343,36 @@ function cheapScopeHint(attendees) {
   const others = attendees.filter((a) => a.orgRelation !== 'self');
   if (others.length === 0) return 'ceo-private'; // solo/self block
   return 'unknown'; // governance resolves domains and decides
+}
+
+/**
+ * The cross-calendar identity key for de-dup: `iCalUID` (identical across every calendar's copy of
+ * the same event, per Google's own documentation — an event's `id` is NOT) plus the start time (so
+ * distinct instances of a recurring series, which can share an `iCalUID` base, stay distinct). Falls
+ * back to the event's own `id` when `iCalUID` is absent, which only ever narrows the merge back to
+ * "same calendar, same id" — never a false collapse across calendars.
+ * @param {any} ev
+ * @returns {string|null}
+ */
+function dedupKeyFor(ev) {
+  if (!ev || !ev.id) return null;
+  const uid = ev.iCalUID || ev.id;
+  const start = ev.start ? (ev.start.dateTime || ev.start.date || '') : '';
+  return `${uid}|${start}`;
+}
+
+/**
+ * Migrate the persisted cursor into a per-calendar map. A cursor written before multi-calendar sync
+ * existed is a bare string belonging to whichever calendar was synced back then — `firstCalendarId`
+ * (normally `primary`) — so it is read as that calendar's token rather than discarded. Anything else
+ * (already a map, or absent) passes through/starts empty.
+ * @param {string|Object<string,string|null>|null|undefined} cursor
+ * @param {string} firstCalendarId
+ * @returns {Object<string,string|null>}
+ */
+export function normalizeCursorMap(cursor, firstCalendarId) {
+  if (!cursor) return {};
+  if (typeof cursor === 'string') return { [firstCalendarId]: cursor };
+  if (typeof cursor === 'object') return { ...cursor };
+  return {};
 }

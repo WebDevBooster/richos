@@ -67,6 +67,11 @@ export function recordRun(run, file = workspaceRunStatePath()) {
         quarantined: s.quarantined || 0,
         resynced: Boolean(s.resynced),
         healthState: s.health && s.health.state ? s.health.state : 'unknown',
+        // Which sub-resources this poll actually read, by name and count — a source that can span
+        // more than one (Calendar: which calendars) reports it so a zero count can be explained at a
+        // glance rather than read as "nothing observed at all" (§"a person has several calendars").
+        ...(Array.isArray(s.calendars) ? { calendars: s.calendars } : {}),
+        ...(s.degraded ? { degraded: String(s.degraded) } : {}),
       };
   writePrivateFile(file, `${JSON.stringify(map, null, 2)}\n`);
   return map[key];
@@ -113,5 +118,9 @@ export function describeRun(run) {
   if (!run.polled) return `${when} — did not poll (auth needed re-consent)`;
   return `${when} — observed ${run.observed}, ingested ${run.ingested}, deduped ${run.deduped}`
     + (run.quarantined ? `, quarantined ${run.quarantined}` : '')
-    + (run.resynced ? ' (full resync)' : '');
+    + (run.resynced ? ' (full resync)' : '')
+    + (Array.isArray(run.calendars) && run.calendars.length
+      ? ` — calendars: ${run.calendars.map((c) => `${c.label} ${c.count}`).join(', ')}`
+      : '')
+    + (run.degraded ? ` — LIMITED: ${run.degraded}` : '');
 }

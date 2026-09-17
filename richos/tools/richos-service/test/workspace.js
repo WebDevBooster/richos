@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCHEMA_VERSION } from '../lib/workspace/source-item.js';
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
@@ -30,7 +31,9 @@ import {
   readInstalledClientFile, clientSecretAccount, readClientSecret, storeClientSecret, expandHome,
 } from '../lib/workspace/client-secret.js';
 import { GoogleClient, GoneError } from '../lib/workspace/google-client.js';
-import { GoogleCalendarAdapter, ADAPTER_VERSION } from '../lib/workspace/adapters/google-calendar.js';
+import {
+  GoogleCalendarAdapter, ADAPTER_VERSION, CALENDAR_LIST_DEGRADED_REASON, normalizeCursorMap,
+} from '../lib/workspace/adapters/google-calendar.js';
 import {
   GoogleDriveAdapter, ADAPTER_VERSION as DRIVE_ADAPTER_VERSION, assertNoFileContent,
   DRIVE_METADATA_SCOPE, DRIVE_CONTENT_SCOPE,
@@ -75,6 +78,7 @@ import {
 import {
   MicrosoftCalendarAdapter, parseGraphDateTime, eventBodyText,
   CALENDAR_SCOPE, EVENT_SELECT, ADAPTER_VERSION as MS_CAL_ADAPTER_VERSION,
+  normalizeCursorMap as msNormalizeCursorMap,
 } from '../lib/workspace/adapters/microsoft-calendar.js';
 import {
   MicrosoftOneDriveAdapter, assertNoFileContent as assertNoOneDriveContent, planBody as planOneDriveBody,
@@ -907,7 +911,7 @@ await atest('listChanges pages through nextPageToken and returns the final nextS
     { items: [EVENT_ORG], nextPageToken: 'p2' },
     { items: [EVENT_PRIVATE], nextSyncToken: 'SYNC-NEXT' },
   ]);
-  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   const res = await a.listChanges(null);
   assert.equal(res.items.length, 2);
   assert.equal(res.nextSyncState.syncToken, 'SYNC-NEXT');
@@ -1221,7 +1225,7 @@ group('CORE end-to-end (§4) — the vendor-agnostic spine, mocked adapter, gove
 function coreEnv() {
   const zone = tmp();
   const client = clientMock([{ items: [EVENT_ORG, EVENT_PRIVATE, EVENT_EXTERNAL, EVENT_INJECTION], nextSyncToken: 'SYNC-1' }]);
-  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   return { zone, adapter };
 }
 
@@ -1267,7 +1271,7 @@ await atest('ingestOnce recovers from a 410 by resetting the cursor and doing a 
       return { items: [EVENT_ORG], nextSyncToken: 'FRESH' };
     },
   };
-  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client, now });
   setSyncState('google', 'calendar', 'STALE-TOKEN', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId);
   const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now });
   assert.equal(summary.resynced, true);
@@ -1395,6 +1399,165 @@ await atest('legacy unscoped cursors are retired explicitly before a full source
     assert.equal(second.legacyCursorRetired, false);
     assert.deepEqual(seen, [null, 'scoped-new-token']);
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+// =================================================================================================
+group('Calendar multi-calendar sync (2026-09-17) — a person has several calendars, so the adapter '
+  + 'enumerates and syncs every one it can read, dedupes across them, and names what it read');
+
+/** A GoogleClient-shaped mock keyed by URL substring — for tests that need discovery + N calendars. */
+function urlMock(handlers) {
+  return {
+    async getJson(url) {
+      for (const [match, respond] of handlers) {
+        if (url.includes(match)) {
+          if (respond instanceof Error) throw respond;
+          return typeof respond === 'function' ? respond(url) : respond;
+        }
+      }
+      throw new Error(`urlMock: no handler matched ${url}`);
+    },
+  };
+}
+
+test('legacy explicit calendarId keeps the OLD per-(account,calendar) identity formula — cursors on disk before this change still resolve', () => {
+  const a = new GoogleCalendarAdapter({ accountId: 'acct', calendarId: 'work@x.com', client: null, now });
+  const expected = createHash('sha256')
+    .update(JSON.stringify(['google', 'calendar', 'acct', 'work@x.com'])).digest('hex');
+  assert.equal(a.sourceInstanceId, expected);
+});
+
+test('the new default (no calendarId) is account-scoped identity, distinct from the legacy per-calendar one', () => {
+  const legacy = new GoogleCalendarAdapter({ accountId: 'acct', calendarId: 'primary', client: null, now });
+  const multi = new GoogleCalendarAdapter({ accountId: 'acct', client: null, now });
+  assert.notEqual(multi.sourceInstanceId, legacy.sourceInstanceId);
+  const expected = createHash('sha256').update(JSON.stringify(['google', 'calendar', 'acct'])).digest('hex');
+  assert.equal(multi.sourceInstanceId, expected);
+});
+
+test('normalizeCursorMap: a flat legacy cursor migrates to the first calendar synced; a map passes through; absence is empty', () => {
+  assert.deepEqual(normalizeCursorMap('OLD-TOKEN', 'primary'), { primary: 'OLD-TOKEN' });
+  assert.deepEqual(normalizeCursorMap({ primary: 'X', other: 'Y' }, 'primary'), { primary: 'X', other: 'Y' });
+  assert.deepEqual(normalizeCursorMap(null, 'primary'), {});
+  assert.deepEqual(normalizeCursorMap(undefined, 'primary'), {});
+});
+
+await atest('multi-calendar: an account with three calendars syncs all three, named by label and count', async () => {
+  const client = urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal' },
+      { id: 'team-cal', summary: 'Coaching Ops team' },
+      { id: 'family-cal', summary: 'Family' },
+    ] }],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' }, summary: 'Personal event' }], nextSyncToken: 'TOK-primary' }],
+    ['calendars/team-cal/events', { items: [{ id: 't1', iCalUID: 'uid-t1', etag: '"t1"', start: { dateTime: '2025-08-02T10:00:00Z' }, summary: 'Team event' }], nextSyncToken: 'TOK-team' }],
+    ['calendars/family-cal/events', { items: [{ id: 'f1', iCalUID: 'uid-f1', etag: '"f1"', start: { dateTime: '2025-08-03T10:00:00Z' }, summary: 'Family event' }], nextSyncToken: 'TOK-family' }],
+  ]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.items.length, 3);
+  assert.deepEqual(res.calendars.map((c) => c.id).sort(), ['family-cal', 'primary', 'team-cal']);
+  assert.equal(res.calendars.find((c) => c.id === 'team-cal').label, 'Coaching Ops team');
+  assert.ok(res.calendars.every((c) => c.count === 1));
+  assert.deepEqual(res.nextSyncState.syncToken, { primary: 'TOK-primary', 'team-cal': 'TOK-team', 'family-cal': 'TOK-family' });
+  assert.equal(res.degraded, undefined);
+});
+
+await atest('multi-calendar: a hidden calendar is skipped — unhiding it makes it sync (positive control)', async () => {
+  const makeClient = (hidden) => urlMock([
+    ['calendarList', { items: [
+      { id: 'primary', summary: 'Personal' },
+      { id: 'archive-cal', summary: 'Old Team', hidden },
+    ] }],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' } }], nextSyncToken: 'TOK-primary' }],
+    ['calendars/archive-cal/events', { items: [{ id: 'a1', iCalUID: 'uid-a1', etag: '"a1"', start: { dateTime: '2025-08-04T10:00:00Z' } }], nextSyncToken: 'TOK-archive' }],
+  ]);
+  const hidden = await new GoogleCalendarAdapter({ accountId: 'fixture-account', client: makeClient(true), now }).listChanges(null);
+  assert.equal(hidden.items.length, 1, 'the hidden calendar contributes nothing');
+  assert.deepEqual(hidden.calendars.map((c) => c.id), ['primary']);
+
+  const unhidden = await new GoogleCalendarAdapter({ accountId: 'fixture-account', client: makeClient(false), now }).listChanges(null);
+  assert.equal(unhidden.items.length, 2, 'unhidden, the same calendar now syncs — this is the positive control');
+  assert.deepEqual(unhidden.calendars.map((c) => c.id).sort(), ['archive-cal', 'primary']);
+});
+
+await atest('multi-calendar: calendarList.list refused (403, insufficient scope) degrades to primary only, named', async () => {
+  const scopeErr = new Error('insufficient scope for calendarList.list');
+  scopeErr.status = 403;
+  const client = urlMock([
+    ['calendarList', scopeErr],
+    ['calendars/primary/events', { items: [{ id: 'p1', iCalUID: 'uid-p1', etag: '"p1"', start: { dateTime: '2025-08-01T10:00:00Z' } }], nextSyncToken: 'TOK-primary' }],
+  ]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.degraded, CALENDAR_LIST_DEGRADED_REASON);
+  assert.deepEqual(res.calendars.map((c) => c.id), ['primary']);
+  assert.equal(res.items.length, 1);
+});
+
+await atest('multi-calendar: a network failure OTHER than insufficient scope still surfaces (never silently degraded)', async () => {
+  const serverErr = new Error('backend hiccup');
+  serverErr.status = 503;
+  const client = urlMock([['calendarList', serverErr]]);
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', client, now });
+  await assert.rejects(() => a.listChanges(null), /backend hiccup/);
+});
+
+await atest("multi-calendar: a 410 on one calendar resets only that calendar's cursor", async () => {
+  let aCalls = 0;
+  const client = {
+    async getJson(url) {
+      if (url.includes('calendars/a/events')) {
+        aCalls += 1;
+        if (aCalls === 1) throw new GoneError('gone');
+        return { items: [{ id: 'a-fresh', iCalUID: 'uid-a-fresh', etag: '"af"', start: { dateTime: '2025-08-05T10:00:00Z' } }], nextSyncToken: 'FRESH-A' };
+      }
+      if (url.includes('calendars/b/events')) {
+        return { items: [{ id: 'b1', iCalUID: 'uid-b1', etag: '"b1"', start: { dateTime: '2025-08-06T10:00:00Z' } }], nextSyncToken: 'TOK-B-2' };
+      }
+      throw new Error(`unexpected url ${url}`);
+    },
+  };
+  const a = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now });
+  const res = await a.listChanges({ syncToken: { a: 'STALE-A', b: 'TOK-B' } });
+  assert.equal(res.items.length, 2);
+  assert.deepEqual(res.nextSyncState.syncToken, { a: 'FRESH-A', b: 'TOK-B-2' });
+  assert.equal(res.calendars.find((c) => c.id === 'a').resynced, true, "calendar a lost its token and got a bounded full resync");
+  assert.equal(res.calendars.find((c) => c.id === 'b').resynced, false, "calendar b was never touched by a's 410");
+});
+
+await atest('multi-calendar: the same iCalUID on two calendars lands once, not twice (collector-path parity)', async () => {
+  const client = urlMock([
+    ['calendars/a/events', { items: [{ id: 'evtA', iCalUID: 'UID-SHARED', etag: '"a1"', start: { dateTime: '2025-08-12T15:00:00Z' }, summary: 'Shared meeting (calendar a copy)' }], nextSyncToken: 'TOK-A' }],
+    ['calendars/b/events', { items: [{ id: 'evtB', iCalUID: 'UID-SHARED', etag: '"b1"', start: { dateTime: '2025-08-12T15:00:00Z' }, summary: 'Shared meeting (calendar b copy)' }], nextSyncToken: 'TOK-B' }],
+  ]);
+  const res = await new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now }).listChanges(null);
+  assert.equal(res.items.length, 1, 'the same event on two calendars lands once, not twice');
+  assert.equal(res.items[0].id, 'evtA', 'the first calendar in order wins the merge');
+
+  const zone = tmp();
+  try {
+    const summary = await ingestOnce({
+      adapter: new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now }),
+      identity: IDENTITY, zone, repoRoot: zone, now,
+    });
+    assert.equal(summary.observed, 1);
+    assert.equal(summary.ingested, 1);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest("multi-calendar: an old flat cursor (from before this change) is read as the calendar it belonged to, not discarded", async () => {
+  let requestedToken = null;
+  const client = {
+    async getJson(url) {
+      requestedToken = new URL(url).searchParams.get('syncToken');
+      return { items: [], nextSyncToken: 'AFTER-MIGRATION' };
+    },
+  };
+  const adapter = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['primary'], client, now });
+  const res = await adapter.listChanges({ syncToken: 'OLD-FLAT-TOKEN' });
+  assert.equal(requestedToken, 'OLD-FLAT-TOKEN', "the legacy string cursor is honored as primary's own token");
+  assert.deepEqual(res.nextSyncState.syncToken, { primary: 'AFTER-MIGRATION' });
 });
 
 // =================================================================================================
@@ -1875,7 +2038,7 @@ await atest('Drive and Calendar on one account keep independent cursors under th
   const zone = tmp();
   try {
     const drive = driveAdapter({ client: driveIngestClient() });
-    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
+    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
     await ingestOnce({ adapter: drive, identity: IDENTITY, zone, repoRoot: zone, now });
     await ingestOnce({ adapter: cal, identity: IDENTITY, zone, repoRoot: zone, now });
     const file = path.join(zone, '_sync_state.json');
@@ -2575,7 +2738,7 @@ await atest('Gmail, Drive and Calendar coexist in one zone without colliding (§
   const zone = tmp();
   try {
     const mail = gmailAdapter({ client: mailbox([MAIL_INTERNAL], { anchor: 'MAIL-1' }) });
-    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
+    const cal = new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarId: 'primary', client: clientMock([{ items: [EVENT_ORG], nextSyncToken: 'CAL-1' }]), now });
     await ingestOnce({ adapter: mail, identity: IDENTITY, zone, repoRoot: zone, now });
     await ingestOnce({ adapter: cal, identity: IDENTITY, zone, repoRoot: zone, now });
     const file = path.join(zone, '_sync_state.json');
@@ -4017,8 +4180,11 @@ const MS_EVENT_SOLO = {
 };
 const MS_EVENT_TOMBSTONE = { id: 'AAMkAD_gone', '@removed': { reason: 'deleted' } };
 
+// `calendarId: 'primary'` pins the LEGACY single-calendar path so every test written before
+// multi-calendar sync existed keeps exercising exactly what it always tested — discovery-mode tests
+// construct `MicrosoftCalendarAdapter` directly rather than through this helper.
 function msCalendar(opts = {}) {
-  return new MicrosoftCalendarAdapter({ client: graphMock([]), accountId: MS_ACCOUNT, now, ...opts });
+  return new MicrosoftCalendarAdapter({ client: graphMock([]), accountId: MS_ACCOUNT, now, calendarId: 'primary', ...opts });
 }
 
 // =================================================================================================
@@ -4411,6 +4577,99 @@ test('eventBodyText prefers the body, falls back to bodyPreview, and survives ne
   assert.match(eventBodyText(MS_EVENT_ORG), /Action items to follow/);
   assert.equal(eventBodyText({ bodyPreview: 'just the preview' }), 'just the preview');
   assert.equal(eventBodyText({}), '');
+});
+
+// =================================================================================================
+group('Microsoft Calendar multi-calendar sync (2026-09-17) — same defect, same fix as Google\'s, '
+  + 'except this scope genuinely covers discovery so it runs for real');
+
+test('legacy explicit calendarId keeps the OLD per-(account,calendar) identity formula', () => {
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarId: 'work-cal', client: graphMock([]), now });
+  const expected = createHash('sha256')
+    .update(JSON.stringify(['microsoft', 'calendar', MS_ACCOUNT, 'work-cal'])).digest('hex');
+  assert.equal(a.sourceInstanceId, expected);
+});
+
+test('the new default (no calendarId) is account-scoped identity, distinct from the legacy per-calendar one', () => {
+  const legacy = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarId: 'primary', client: graphMock([]), now });
+  const multi = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, client: graphMock([]), now });
+  assert.notEqual(multi.sourceInstanceId, legacy.sourceInstanceId);
+  const expected = createHash('sha256').update(JSON.stringify(['microsoft', 'calendar', MS_ACCOUNT])).digest('hex');
+  assert.equal(multi.sourceInstanceId, expected);
+});
+
+test('normalizeCursorMap (Microsoft): a flat legacy deltaLink migrates to the first calendar; a map passes through', () => {
+  assert.deepEqual(msNormalizeCursorMap(DELTA_LINK, 'cal-a'), { 'cal-a': DELTA_LINK });
+  assert.deepEqual(msNormalizeCursorMap({ 'cal-a': 'X' }, 'cal-a'), { 'cal-a': 'X' });
+  assert.deepEqual(msNormalizeCursorMap(null, 'cal-a'), {});
+});
+
+await atest('multi-calendar: an account with three calendars syncs all three, named by label and count', async () => {
+  const client = graphMock([
+    ['/me/calendars?', { value: [
+      { id: 'cal-personal', name: 'Calendar', isDefaultCalendar: true },
+      { id: 'cal-team', name: 'Coaching Ops team' },
+      { id: 'cal-family', name: 'Family' },
+    ] }],
+    ['/me/calendars/cal-personal/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'p1', iCalUId: 'uid-p1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=P' }],
+    ['/me/calendars/cal-team/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 't1', iCalUId: 'uid-t1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=T' }],
+    ['/me/calendars/cal-family/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'f1', iCalUId: 'uid-f1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=F' }],
+  ]);
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, client, now });
+  const res = await a.listChanges(null);
+  assert.equal(res.items.length, 3);
+  assert.deepEqual(res.calendars.map((c) => c.id).sort(), ['cal-family', 'cal-personal', 'cal-team']);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-team').label, 'Coaching Ops team');
+  assert.ok(res.calendars.every((c) => c.count === 1));
+});
+
+await atest("multi-calendar: a 410 on one calendar resets only that calendar's cursor", async () => {
+  const client = {
+    async getJson(url) {
+      const s = String(url);
+      // The FIRST request per calendar re-requests its STORED token URL verbatim (no calendar id
+      // embedded in it) — only a reset (token: null) re-derives the URL from the calendar's own id.
+      if (s.includes('STALE-A')) throw new GoneError('gone');
+      if (s.includes('/me/calendars/cal-a/calendarView/delta')) {
+        return { value: [{ ...MS_EVENT_ORG, id: 'a-fresh', iCalUId: 'uid-a-fresh' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=FRESH-A' };
+      }
+      if (s.includes('TOK-B')) {
+        return { value: [{ ...MS_EVENT_ORG, id: 'b1', iCalUId: 'uid-b1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=TOK-B-2' };
+      }
+      throw new Error(`unexpected url ${url}`);
+    },
+  };
+  const a = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a', 'cal-b'], client, now });
+  const res = await a.listChanges({ syncToken: { 'cal-a': 'https://graph.microsoft.com/v1.0/x?$deltatoken=STALE-A', 'cal-b': 'https://graph.microsoft.com/v1.0/x?$deltatoken=TOK-B' } });
+  assert.equal(res.items.length, 2);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-a').resynced, true);
+  assert.equal(res.calendars.find((c) => c.id === 'cal-b').resynced, false);
+  assert.match(res.nextSyncState.syncToken['cal-a'], /FRESH-A/);
+  assert.match(res.nextSyncState.syncToken['cal-b'], /TOK-B-2/);
+});
+
+await atest('multi-calendar: the same iCalUId on two calendars lands once, not twice (collector-path parity)', async () => {
+  const client = graphMock([
+    ['/me/calendars/cal-a/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'evtA', iCalUId: 'UID-SHARED' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=A' }],
+    ['/me/calendars/cal-b/calendarView/delta', { value: [{ ...MS_EVENT_ORG, id: 'evtB', iCalUId: 'UID-SHARED' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=B' }],
+  ]);
+  const res = await new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a', 'cal-b'], client, now }).listChanges(null);
+  assert.equal(res.items.length, 1, 'the same event on two calendars lands once, not twice');
+  assert.equal(res.items[0].id, 'evtA', 'the first calendar in order wins the merge');
+});
+
+await atest("multi-calendar: an old flat cursor (from before this change) is read as the calendar it belonged to", async () => {
+  let requestedUrl = null;
+  const client = {
+    async getJson(url) {
+      requestedUrl = url;
+      return { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/x?$deltatoken=AFTER' };
+    },
+  };
+  const adapter = new MicrosoftCalendarAdapter({ accountId: MS_ACCOUNT, calendarIds: ['cal-a'], client, now });
+  const res = await adapter.listChanges({ syncToken: DELTA_LINK });
+  assert.equal(requestedUrl, DELTA_LINK, "the legacy deltaLink string is honored as cal-a's own token");
+  assert.deepEqual(res.nextSyncState.syncToken, { 'cal-a': 'https://graph.microsoft.com/v1.0/x?$deltatoken=AFTER' });
 });
 
 // =================================================================================================
@@ -5457,6 +5716,13 @@ function msHttpMock(opts = {}) {
       }));
     }
     const u = new URL(url);
+    // Calendar discovery (2026-09-17): `GET /me/calendars`, distinct from a per-calendar
+    // `/me/calendars/{id}/calendarView/delta`, which is why this checks for the EXACT bare path.
+    if (u.pathname.endsWith('/me/calendars')) {
+      return httpResponse(200, JSON.stringify({
+        value: opts.calendars || [{ id: 'MS-CAL-DEFAULT', name: 'Calendar', isDefaultCalendar: true }],
+      }));
+    }
     if (u.pathname.includes('/calendarView/delta')) {
       return httpResponse(200, JSON.stringify({
         value: opts.calendarItems || [MS_EVENT_ORG],
