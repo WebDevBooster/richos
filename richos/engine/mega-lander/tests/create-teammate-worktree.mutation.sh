@@ -14,6 +14,11 @@ mutation_begin "create-teammate-worktree" "mega-lander/tests/create-teammate-wor
 
 F="mega-lander/create-teammate-worktree.sh"
 
+mutant name-check-skipped "C07" "$F" \
+    'if ! _name_msg="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then{NL}    refuse "$_name_msg"{NL}fi' \
+    ':' \
+    "a name that fails the shared shape (scripts/lib/teammate-name.sh) — including 2-part, run-together and over-length-identifier names guard-worktree-isolation.sh also refuses on this same rule — would create a workspace anyway (point 1)."
+
 mutant create-without-registration "C17" "$F" \
     '    refuse "the workspace could not be registered, so it was not created: ${_reg_err#workspaces: REFUSED — }"' \
     '    :' \

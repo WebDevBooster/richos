@@ -308,6 +308,20 @@ run_case "garbage model token 'gpt' -> BLOCKED" 2 \
 run_case_msg "garbage-token message says 'not an allowed model'" 'is not an allowed model' \
     "$(json_agent 'dev' 'dev-gpt-1' 'worktree' 'Do the thing.')"
 
+# --- (l) CLAUSE 2c — the CREATOR's stricter shape (scripts/lib/teammate-name.sh):
+# lower-case only, role <=16 chars, identifier <=12 chars, EXACTLY three parts.
+# 'zach-sonnet-multirepodemo1' is the real 2026-09-17 case: a 14-character
+# identifier that passed this guard's own loose NAME_SHAPE_RE (clause 2, above)
+# and was refused only by mega-lander/create-teammate-worktree.sh, one round
+# trip later. It must be BLOCKED here too, in the creator's exact wording.
+run_case "C2C1 over-length identifier (14 chars) passes clause 2 but fails the creator's shape -> BLOCKED" 2 \
+    "$(json_agent 'dev' 'zach-sonnet-multirepodemo1' 'worktree' 'Do the thing.')"
+run_case_msg "C2C1m the refusal is the CREATOR's exact wording" \
+    "'zach-sonnet-multirepodemo1' is not a teammate name of the form <role>-<model>-<identifier>" \
+    "$(json_agent 'dev' 'zach-sonnet-multirepodemo1' 'worktree' 'Do the thing.')"
+run_case "C2C2 POSITIVE CONTROL: a 12-character identifier is exactly within the shared shape -> allowed" 0 \
+    "$(json_agent 'dev' 'dev-sonnet-multirepodem' 'worktree' 'Do the thing.')"
+
 # 'fable' is an allowed model alias too (orchestration.config's ALLOWED_MODELS
 # default): a truthfully-named dev-fable-* spawn with an explicit model:"fable"
 # override passes both set-membership (2a) and truthfulness (2b).
@@ -462,7 +476,7 @@ mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
 mkdir -p "$C6NOLIB/mega-lander"
 cp "$SCRIPT_DIR/../../mega-lander/workspaces.py" "$C6NOLIB/mega-lander/"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$C6NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/teammate-name.sh" "$C6NOLIB/scripts/lib/"
 cp "$SCRIPT_DIR/workspace-lifecycle.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$C6NOLIB/scripts/hooks/"
 chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh" "$C6NOLIB/scripts/hooks/workspace-lifecycle.sh" "$C6NOLIB/scripts/hooks/guard-sealed-worktree.sh"
 c6_config "fable > opus > sonnet > haiku"
@@ -506,7 +520,7 @@ chmod +x "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh"
 # declaration. Without the library it refuses to start; without the declaration
 # it would write the log into the launching session's repository, which is the
 # very behavior under repair.
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SANDBOX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/teammate-name.sh" "$SANDBOX/scripts/lib/"
 printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$SANDBOX/orchestration.config"
 printf '%s' "$(json_agent 'worker' 'worker-sonnet-log1' '' $'Do the task.\nmain-checkout-run: needs main checkout for X.')" \
     | RICHOS_ENTITY_ROOT="$SANDBOX" "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
@@ -896,7 +910,7 @@ fi
 NOTX="$(cd "$(mktemp -d -t guard-isolation-notx.XXXXXX)" && pwd -P)"
 mkdir -p "$NOTX/scripts/hooks" "$NOTX/scripts/lib" "$NOTX/.claude/agents"
 cp "$HOOK" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/workspace-lifecycle.sh" "$NOTX/scripts/hooks/"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$NOTX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/teammate-name.sh" "$NOTX/scripts/lib/"
 cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$NOTX/"
 cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$NOTX/.claude/agents/" 2>/dev/null || true
 chmod +x "$NOTX/scripts/hooks/"*.sh
@@ -1051,7 +1065,7 @@ cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/script
 # registration), and a guard that cannot register refuses the spawn — point 3.
 mkdir -p "$M9/mega-lander"
 cp "$SCRIPT_DIR/../../mega-lander/workspaces.py" "$M9/mega-lander/"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$SCRIPT_DIR/../lib/teammate-name.sh" "$M9/scripts/lib/" 2>/dev/null || true
 {
     printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
     printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'

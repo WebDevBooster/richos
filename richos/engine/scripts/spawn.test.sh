@@ -204,6 +204,31 @@ run "zach-sonnet-r4" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
 [ "$RC" -eq 0 ] && ok "an absolute path resolves" || bad "an absolute path resolves" "rc=$RC $OUT"
 
 # ---------------------------------------------------------------------------
+echo "  the shared teammate-name shape (scripts/lib/teammate-name.sh, 2026-09-17)"
+# ---------------------------------------------------------------------------
+# BEFORE the fix: guard-worktree-isolation.sh's own shape check had no length
+# bound, so 'zach-sonnet-multirepodemo1' (a 14-character identifier) passed
+# every guard in this table and was refused only later, inside
+# create-teammate-worktree.sh — one round trip after spawn.sh's own guard
+# table said "passed". Both readers now source the same rule
+# (scripts/lib/teammate-name.sh), so the guard refuses it HERE, in this table,
+# before anything is registered — proving spawn.sh's own claim that every
+# refusal is found before anything is created, for THIS rule specifically.
+run "zach-sonnet-multirepodemo1" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "refused by 1 of [0-9]+ guard\(s\) - NOTHING WAS CREATED" \
+   && printf '%s' "$OUT" | grep -qF "'zach-sonnet-multirepodemo1' is not a teammate name of the form <role>-<model>-<identifier>"; then
+    ok "an over-length identifier (14 chars) is refused BEFORE creation, in the guard table, in the creator's exact wording"
+else
+    bad "the creator's stricter name shape is refused up front" "rc=$RC $OUT"
+fi
+[ ! -d "$SANDBOX/widgets-wt/zach-sonnet-multirepodemo1" ] \
+    && ok "and nothing was created for it" \
+    || bad "nothing was created for the refused name" "the workspace exists"
+run "zach-sonnet-shapeok1" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
+[ "$RC" -eq 0 ] && ok "POSITIVE CONTROL: a name within the shared shape (12-char identifier) still passes" \
+                || bad "the positive control name passes" "rc=$RC $OUT"
+
+# ---------------------------------------------------------------------------
 echo "  the branch this work integrates on (point 14)"
 # ---------------------------------------------------------------------------
 # A repository nothing has recorded yet. (By now $TARGET HAS a record, written
