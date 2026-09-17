@@ -86,7 +86,10 @@ import {
 } from '../lib/workspace/adapters/microsoft-outlook.js';
 // Imported rather than spelled as a literal: `_sync_state.json` (cursors) and `_last_sync.json`
 // (run state) are two different files, and hardcoding either name lets a test drift from the product.
-import { MICROSOFT_SCOPES, workspaceSyncStatePath } from '../lib/config.js';
+import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } from '../lib/config.js';
+import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
+import { corpusFromZone } from '../lib/workspace/promote-run.js';
+import { promotionLedgerPath } from '../lib/workspace/promotion.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
 
 let passed = 0;
@@ -3283,9 +3286,27 @@ await atest('a scheduler flag is REFUSED BY NAME — PROBE: --once is accepted a
 await atest('an unknown vendor is refused by name instead of half-running', async () => {
   const f = wsFixture();
   try {
-    const r = await runWorkspace({ sub: 'status', deps: f.deps({ vendor: 'microsoft' }) });
+    // `microsoft` was this test's example until the Entra ceremony landed (2026-09-17) and made it a
+    // SUPPORTED vendor. The assertion was about the refusal, not about Microsoft, so the example
+    // moves to a vendor RichOS genuinely has no adapters for rather than the assertion being deleted.
+    const r = await runWorkspace({ sub: 'status', deps: f.deps({ vendor: 'dropbox' }) });
     assert.equal(r.exitCode, 1);
-    assert.match(f.text(), /not a Workspace vendor RichOS can connect yet/);
+    assert.match(f.text(), /"dropbox" is not a Workspace vendor RichOS can connect/);
+    assert.match(f.text(), /google, microsoft/, 'the refusal lists what IS available');
+  } finally { f.cleanup(); }
+});
+
+await atest('POSITIVE CONTROL for the refusal above: `microsoft` is accepted and reports its own state', async () => {
+  const f = wsFixture();
+  try {
+    // Nothing is configured for Microsoft in this fixture, so the right answer is "not set up" with
+    // the path and the template — NOT "unknown vendor". The two failures look alike from the exit
+    // code alone, which is why this probe reads the words.
+    const r = await runWorkspace({ sub: 'status', deps: { ...f.deps(), vendor: 'microsoft', clientConfigFile: path.join(f.zone, '_oauth_client_microsoft.json') } });
+    assert.equal(r.exitCode, 1);
+    assert.doesNotMatch(f.text(), /is not a Workspace vendor/);
+    assert.match(f.text(), /No Microsoft 365 OAuth client config yet/);
+    assert.match(f.text(), /PASTE_YOUR_TENANT_ID/, 'the template it prints is Entra\'s, not Google\'s');
   } finally { f.cleanup(); }
 });
 
@@ -5084,6 +5105,10 @@ test('the account validator is VENDOR-PARAMETERIZED — a Graph scope passes for
   // validator whose refusals would list Google's scopes at a Microsoft config.
   const ms = validateClientConfig({
     clientId: FAKE_CLIENT_ID,
+    // The tenant became REQUIRED for microsoft when the ceremony landed (2026-09-17): an Entra config
+    // without one means `/common`, which is a different directory from the one the app is registered
+    // in. This assertion carried no tenant when it was written against the table alone.
+    tenant: 'contoso.onmicrosoft.com',
     accounts: [{ accountId: ACCT_A, scopes: [MICROSOFT_SCOPES.calendar, MICROSOFT_SCOPES.mail] }],
   }, { vendor: 'microsoft' });
   assert.equal(ms.ok, true, ms.problems.join('; '));
@@ -5243,6 +5268,663 @@ await atest('connect --source widens ONE account\'s grant — PROBE: the other a
     // PROBE: A's entry is byte-for-byte what it was — a re-consent on one account is not a config
     // edit on another.
     assert.deepEqual(accountView(on, ACCT_A).scopes, [GOOGLE_SCOPES.calendar]);
+  } finally { f.cleanup(); }
+});
+
+
+// =================================================================================================
+group('`workspace connect microsoft` (P4) — the second vendor gets the SAME four commands');
+
+// #################################################################################################
+// ##  Mocked Entra + mocked Graph, behind the same fetch-shaped transport the real commands use.  ##
+// ##  No live Microsoft call is made by this group, and no real credential exists anywhere in it. ##
+// #################################################################################################
+
+const MS_CLIENT_ID = '11111111-2222-3333-4444-555555555555';
+const MS_TENANT = 'contoso.onmicrosoft.com';
+const MS_ACCESS = 'fake-graph-access-token-for-tests';
+const MS_REFRESH = 'fake-graph-refresh-token-for-tests';
+
+/**
+ * A mocked ENTRA + GRAPH. `opts.tokenError` makes the token endpoint refuse with a real AADSTS
+ * shape, which is how the one refusal that matters — "your registration is not a public client" —
+ * is exercised without an app registration existing anywhere.
+ */
+function msHttpMock(opts = {}) {
+  const calls = [];
+  const http = async (url, init = {}) => {
+    calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
+    if (url.includes('login.microsoftonline.com') && url.endsWith('/token')) {
+      if (opts.tokenError) {
+        return httpResponse(opts.tokenStatus || 400, JSON.stringify({
+          error: opts.tokenError,
+          error_description: opts.tokenErrorDescription
+            || "AADSTS7000218: The request body must contain the following parameter: 'client_assertion' or 'client_secret'.",
+        }));
+      }
+      return httpResponse(200, JSON.stringify({
+        access_token: MS_ACCESS,
+        ...(opts.noRefreshToken ? {} : { refresh_token: MS_REFRESH }),
+        expires_in: 3600,
+        // ENTRA'S OWN SPELLING: the short form, never the fully-qualified URIs RichOS requested.
+        scope: opts.grantedScope ?? 'Calendars.Read Files.Read Mail.ReadBasic',
+        token_type: 'Bearer',
+      }));
+    }
+    const u = new URL(url);
+    if (u.pathname.includes('/calendarView/delta')) {
+      return httpResponse(200, JSON.stringify({
+        value: opts.calendarItems || [MS_EVENT_ORG],
+        '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=MS-CAL-1',
+      }));
+    }
+    if (u.pathname.includes('/drive/root/delta')) {
+      return httpResponse(200, JSON.stringify({
+        value: opts.driveItems || [],
+        '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/drive/root/delta?token=MS-DRIVE-1',
+      }));
+    }
+    if (u.pathname.includes('/messages/delta')) {
+      return httpResponse(200, JSON.stringify({
+        value: opts.mailItems || [],
+        '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=MS-MAIL-1',
+      }));
+    }
+    return httpResponse(404, '{}');
+  };
+  return { http, calls };
+}
+
+/** A whole isolated MICROSOFT install: its own zone, its own client config file, its own keychain. */
+function msFixture(opts = {}) {
+  const zone = tmp();
+  // The real default, spelled out so the test proves the file is a DIFFERENT one from Google's.
+  const clientConfigFile = path.join(zone, '_oauth_client_microsoft.json');
+  if (opts.config !== false) {
+    saveClientConfig({
+      clientId: MS_CLIENT_ID,
+      tenant: MS_TENANT,
+      accountId: MS_ACCOUNT,
+      scopes: opts.scopes || Object.values(MICROSOFT_SCOPES),
+    }, clientConfigFile, { vendor: 'microsoft' });
+  }
+  const lines = [];
+  const backend = memorySecretBackend();
+  return {
+    zone, clientConfigFile, backend, lines,
+    text: () => lines.join('\n'),
+    record: (accountId = MS_ACCOUNT) => {
+      const raw = backend.get('com.richos.workspace.microsoft', `oauth-tokens ${accountId}`);
+      return raw ? JSON.parse(raw) : null;
+    },
+    deps: (extra = {}) => ({
+      vendor: 'microsoft', zone, clientConfigFile, backend, linkBase: zone, now,
+      out: (line) => lines.push(line),
+      ...extra,
+    }),
+    cleanup: () => fs.rmSync(zone, { recursive: true, force: true }),
+  };
+}
+
+await atest('connect microsoft completes the Entra ceremony and stores the grant under its OWN service', async () => {
+  const f = msFixture();
+  const mock = msHttpMock();
+  try {
+    const r = await connect(f.deps(connectStubs(mock)));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.connected, true);
+    assert.deepEqual(r.enabled, ['calendar', 'drive', 'mail'],
+      'the SHORT-FORM grant Entra returned selected all three adapters');
+
+    // The tokens are in the Microsoft keychain service, keyed by this account — not Google's.
+    const rec = f.record();
+    assert.equal(rec.accessToken, MS_ACCESS);
+    assert.equal(rec.refreshToken, MS_REFRESH);
+    assert.equal(rec.tenant, MS_TENANT, 'the directory the grant belongs to travels with it');
+    assert.equal(f.backend.get('com.richos.workspace.google', `oauth-tokens ${MS_ACCOUNT}`), null,
+      "a Microsoft connect writes nothing under Google's service");
+
+    // The exchange: PKCE, no secret, and the scope string carries offline_access.
+    const exchange = mock.calls.find((c) => c.url.endsWith('/token'));
+    const sent = Object.fromEntries(new URLSearchParams(exchange.body));
+    assert.equal(sent.grant_type, 'authorization_code');
+    assert.ok(sent.code_verifier, 'PKCE proves possession...');
+    assert.equal(sent.client_secret, undefined, '...and a public client sends no secret');
+    assert.match(sent.scope, /offline_access/, 'without it Entra issues no refresh token at all');
+    assert.match(exchange.url, new RegExp(MS_TENANT), "the CEO's own directory, never /common");
+
+    assert.match(f.text(), /CONNECTED — ceo@acme\.com/);
+    assert.match(f.text(), /tenant:     contoso\.onmicrosoft\.com/);
+    assert.match(f.text(), /com\.richos\.workspace\.microsoft/);
+    // NEVER A GUESSED CLOCK: Entra publishes no lifetime, so no countdown is printed.
+    assert.doesNotMatch(f.text(), /expire[sd] after ~7 days/);
+    assert.match(f.text(), /publishes no fixed lifetime/);
+  } finally { f.cleanup(); }
+});
+
+await atest("connect microsoft writes its own config file and never reads or writes Google's", async () => {
+  const zone = tmp();
+  const lines = [];
+  const backend = memorySecretBackend();
+  try {
+    // A CEO with Google already set up in this zone. Its file must come through untouched.
+    const googleFile = workspaceClientConfigPath(zone, 'google');
+    saveClientConfig({ clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com', scopes: [GOOGLE_SCOPES.calendar] }, googleFile);
+    const googleBefore = fs.readFileSync(googleFile, 'utf8');
+
+    const r = await connect({
+      vendor: 'microsoft', zone, backend, linkBase: zone, now,
+      clientId: MS_CLIENT_ID, tenant: MS_TENANT, accountId: MS_ACCOUNT,
+      sources: ['calendar'],
+      out: (line) => lines.push(line),
+      ...connectStubs(msHttpMock({ grantedScope: 'Calendars.Read' })),
+    });
+    assert.equal(r.exitCode, 0, lines.join('\n'));
+
+    const msFile = workspaceClientConfigPath(zone, 'microsoft');
+    assert.notEqual(msFile, googleFile, 'two vendors, two files — one client id per OAuth app');
+    assert.equal(path.basename(msFile), '_oauth_client_microsoft.json');
+    const written = JSON.parse(fs.readFileSync(msFile, 'utf8'));
+    assert.equal(written.clientId, MS_CLIENT_ID);
+    assert.equal(written.tenant, MS_TENANT);
+    assert.equal(written.redirectUri, MICROSOFT_REDIRECT_URI,
+      "Entra matches the redirect string exactly, so it is the port the Microsoft guide pins — not Google's");
+    assert.deepEqual(written.accounts, [{ accountId: MS_ACCOUNT, scopes: [MICROSOFT_SCOPES.calendar] }]);
+
+    assert.equal(fs.readFileSync(googleFile, 'utf8'), googleBefore, "Google's config is byte-identical");
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('a Microsoft config with NO tenant is refused, and the refusal says why /common is not a default', async () => {
+  const f = msFixture({ config: false });
+  try {
+    const r = await connect(f.deps({ ...connectStubs(msHttpMock()), clientId: MS_CLIENT_ID, accountId: MS_ACCOUNT }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /tenant is missing/);
+    assert.match(f.text(), /RichOS will not fall back to "\/common"/);
+    assert.equal(f.record(), null, 'and nothing was stored');
+  } finally { f.cleanup(); }
+
+  // POSITIVE CONTROL: the identical command WITH a tenant connects.
+  const ok = msFixture({ config: false });
+  try {
+    const r = await connect(ok.deps({
+      ...connectStubs(msHttpMock()), clientId: MS_CLIENT_ID, tenant: MS_TENANT, accountId: MS_ACCOUNT,
+    }));
+    assert.equal(r.exitCode, 0, ok.text());
+    assert.ok(ok.record());
+  } finally { ok.cleanup(); }
+});
+
+await atest('THE ENTRA REFUSAL THAT NAMES A ONE-LINE FIX: a registration that is not a public client', async () => {
+  const f = msFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(msHttpMock({ tokenError: 'invalid_client' }))));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /NOT CONNECTED — Microsoft 365 refused the token exchange/);
+    assert.match(f.text(), /AADSTS7000218/, 'the code Microsoft gave, which is what support articles are keyed on');
+    // The fix, in the guide's own words, where the refusal is — not in a source file he would have
+    // to find. The Google side spent a night on the mirror image of this.
+    assert.match(f.text(), /"Allow public client flows" = Yes/);
+    assert.match(f.text(), /Microsoft 365 setup/);
+    // ...and the other legitimate answer is offered rather than the CEO being left stuck.
+    assert.match(f.text(), /--client-secret/);
+    assert.equal(f.record(), null, 'no half-grant was stored');
+  } finally { f.cleanup(); }
+
+  // POSITIVE CONTROL: the same command against a token endpoint that does NOT refuse connects, so
+  // the assertions above are about the refusal and not about the mock being broken.
+  const ok = msFixture();
+  try {
+    const r = await connect(ok.deps(connectStubs(msHttpMock())));
+    assert.equal(r.exitCode, 0, ok.text());
+    assert.doesNotMatch(ok.text(), /Allow public client flows/);
+  } finally { ok.cleanup(); }
+});
+
+await atest('--client-secret records the app as CONFIDENTIAL, keeps the value in the keychain, and prints it nowhere', async () => {
+  const f = msFixture();
+  // Not a credential: a fixture value that never leaves the mocked token endpoint.
+  const FIXTURE_SECRET = 'fixture-entra-secret-value';
+  try {
+    const mock = msHttpMock();
+    const r = await connect(f.deps({ ...connectStubs(mock), clientSecret: FIXTURE_SECRET }));
+    assert.equal(r.exitCode, 0, f.text());
+
+    // The declaration is on the record, where `assertPublicClient` asks for it to be.
+    const written = JSON.parse(fs.readFileSync(f.clientConfigFile, 'utf8'));
+    assert.equal(written.confidentialClient, true);
+    assert.equal(written.clientSecret, undefined, 'the VALUE is never in the file');
+    assert.equal(readClientSecret(f.backend, 'com.richos.workspace.microsoft', MS_CLIENT_ID), FIXTURE_SECRET);
+
+    // It IS sent at the exchange — that is the whole point of declaring it.
+    const sent = Object.fromEntries(new URLSearchParams(mock.calls.find((c) => c.url.endsWith('/token')).body));
+    assert.equal(sent.client_secret, FIXTURE_SECRET);
+
+    // And it is in no line the CEO sees, not truncated and not hashed.
+    assert.equal(f.text().includes(FIXTURE_SECRET), false);
+    assert.match(f.text(), /CONFIDENTIAL client/);
+    // PROBE: every byte of every file in the zone, not a spot check.
+    for (const blob of allFileBytes(f.zone)) assert.equal(blob.includes(FIXTURE_SECRET), false, blob.split('\n')[0]);
+  } finally { f.cleanup(); }
+});
+
+await atest('status microsoft reports its own vendor, tenant and per-source state', async () => {
+  const f = msFixture();
+  try {
+    await connect(f.deps(connectStubs(msHttpMock())));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: msHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /vendor:     Microsoft 365/);
+    assert.match(f.text(), /tenant:     contoso\.onmicrosoft\.com/);
+    assert.match(f.text(), /calendar:   ON/);
+    assert.match(f.text(), /onedrive:   ON/);
+    assert.match(f.text(), /outlook:    ON/);
+    // A PUBLIC client has no secret and that is the intended shape, so it is not reported as a lack.
+    assert.match(f.text(), /secret:     none — a public client/);
+    assert.doesNotMatch(f.text(), /secret:     missing/);
+  } finally { f.cleanup(); }
+});
+
+await atest('sync microsoft --once pulls through the SAME spine and files its cursors under its own vendor', async () => {
+  const f = msFixture();
+  try {
+    await connect(f.deps(connectStubs(msHttpMock())));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: msHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /calendar:   observed 1, ingested 1/);
+
+    // The cursor is filed under `microsoft`, so a Google sync of the same source cannot read it.
+    const cursors = JSON.parse(fs.readFileSync(workspaceSyncStatePath(f.zone), 'utf8'));
+    // An instance-scoped key is `JSON.stringify([vendor, source, instance])` (sync-state.js:18),
+    // so the vendor is the first element rather than a prefix of a colon-joined string.
+    const keys = Object.keys(cursors);
+    assert.ok(keys.some((k) => k.includes('["microsoft","calendar"')), keys.join(' | '));
+    assert.equal(keys.some((k) => k.includes('["google"')), false, 'and nothing was filed under Google');
+
+    // And the evidence landed under the Microsoft branch of the zone.
+    assert.ok(fs.existsSync(path.join(f.zone, 'microsoft', 'calendar')), 'evidence is filed by vendor');
+  } finally { f.cleanup(); }
+});
+
+await atest('A MIXED RUN: Google and Microsoft sync side by side, each reporting its own counts', async () => {
+  // One zone, one machine, both vendors connected — which is the state the CEO ends up in if he
+  // connects both, and the one where a shared cursor file, a shared keychain key or a shared client
+  // config would show up as one vendor quietly reading the other's position.
+  const zone = tmp();
+  const backend = memorySecretBackend();
+  const lines = [];
+  const out = (line) => lines.push(line);
+  const text = () => lines.join('\n');
+  try {
+    const googleFile = workspaceClientConfigPath(zone, 'google');
+    const msFile = workspaceClientConfigPath(zone, 'microsoft');
+    saveClientConfig({ clientId: FAKE_CLIENT_ID, accountId: 'ceo@acme.com', scopes: [GOOGLE_SCOPES.calendar] }, googleFile);
+    storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
+    saveClientConfig({ clientId: MS_CLIENT_ID, tenant: MS_TENANT, accountId: MS_ACCOUNT, scopes: [MICROSOFT_SCOPES.calendar] },
+      msFile, { vendor: 'microsoft' });
+
+    const gDeps = { zone, clientConfigFile: googleFile, backend, linkBase: zone, now, out };
+    const mDeps = { vendor: 'microsoft', zone, clientConfigFile: msFile, backend, linkBase: zone, now, out };
+
+    assert.equal((await connect({ ...gDeps, ...connectStubs(googleHttpMock()) })).exitCode, 0, text());
+    assert.equal((await connect({ ...mDeps, ...connectStubs(msHttpMock({ grantedScope: 'Calendars.Read' })) })).exitCode, 0, text());
+    lines.length = 0;
+
+    const g = await sync({ ...gDeps, http: googleHttpMock().http });
+    const m = await sync({ ...mDeps, http: msHttpMock().http });
+    assert.equal(g.exitCode, 0, text());
+    assert.equal(m.exitCode, 0, text());
+    assert.equal(g.results.length, 1);
+    assert.equal(m.results.length, 1);
+    assert.equal(g.results[0].summary.ingested, 1, 'the Google calendar item');
+    assert.equal(m.results[0].summary.ingested, 1, 'and the Microsoft one, separately');
+
+    // Two vendors, two grants, two cursors, two evidence branches — nothing shared but the zone.
+    const cursors = JSON.parse(fs.readFileSync(workspaceSyncStatePath(zone), 'utf8'));
+    assert.ok(Object.keys(cursors).some((k) => k.includes('["google","calendar"')), Object.keys(cursors).join(' | '));
+    assert.ok(Object.keys(cursors).some((k) => k.includes('["microsoft","calendar"')), Object.keys(cursors).join(' | '));
+    assert.ok(fs.existsSync(path.join(zone, 'google', 'calendar')));
+    assert.ok(fs.existsSync(path.join(zone, 'microsoft', 'calendar')));
+    assert.ok(backend.get('com.richos.workspace.google', 'oauth-tokens ceo@acme.com'));
+    assert.ok(backend.get('com.richos.workspace.microsoft', 'oauth-tokens ceo@acme.com'));
+
+    // doctor answers for BOTH, rather than for whichever vendor was hard-coded.
+    assert.match(doctorLine(gDeps), /ceo@acme\.com — healthy, Calendar/);
+    assert.match(doctorLine(mDeps), /ceo@acme\.com — healthy, Calendar/);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('disconnect microsoft FORGETS LOCALLY and never claims a revocation Entra cannot perform', async () => {
+  const f = msFixture();
+  try {
+    await connect(f.deps(connectStubs(msHttpMock())));
+    assert.ok(f.record(), 'connected first, so there is something to forget');
+    f.lines.length = 0;
+
+    const mock = msHttpMock();
+    const r = await disconnect(f.deps({ http: mock.http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.disconnected, true);
+    assert.equal(r.vendorSideRevoked, false, 'the CLAIM itself, returned so it can be asserted');
+    assert.equal(f.record(), null, 'the local grant is gone — which IS the guarantee');
+
+    assert.match(f.text(), /NOT REVOKED/);
+    assert.match(f.text(), /gives an app no way to revoke its own grant/);
+    assert.match(f.text(), /myapps\.microsoft\.com/, 'and names where the CEO finishes the job');
+    // The words that would be a lie here. Google's disconnect prints them; this one must not.
+    assert.doesNotMatch(f.text(), /asked Microsoft 365 to invalidate/);
+    // Nothing was even attempted against a revoke endpoint, because there is none to attempt.
+    assert.equal(mock.calls.some((c) => c.url.includes('revoke')), false);
+  } finally { f.cleanup(); }
+
+  // POSITIVE CONTROL: Google's disconnect DOES revoke and DOES say so, so the assertion above is
+  // about Microsoft rather than about the word "revoked" having quietly disappeared everywhere.
+  const g = wsFixture();
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock())));
+    g.lines.length = 0;
+    const r = await disconnect(g.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, g.text());
+    assert.equal(r.vendorSideRevoked, true);
+    assert.match(g.text(), /asked Google to invalidate the refresh token/);
+    assert.doesNotMatch(g.text(), /NOT REVOKED/);
+  } finally { g.cleanup(); }
+});
+
+await atest('a second Microsoft account ADDS itself, exactly as the Google side does', async () => {
+  const f = msFixture();
+  const SECOND = 'ceo@fabrikam.com';
+  try {
+    await connect(f.deps(connectStubs(msHttpMock())));
+    f.lines.length = 0;
+    const r = await connect(f.deps({ ...connectStubs(msHttpMock()), accountId: SECOND }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.deepEqual(r.accounts, [MS_ACCOUNT, SECOND]);
+    assert.match(f.text(), new RegExp(`keeping:    ${MS_ACCOUNT}`), 'and says whose grant it did not touch');
+
+    // Two grants, two keychain items, one shared app registration — the client and the tenant.
+    assert.ok(f.record(MS_ACCOUNT), "the first account's grant survived the second consent");
+    assert.ok(f.record(SECOND));
+    const written = JSON.parse(fs.readFileSync(f.clientConfigFile, 'utf8'));
+    assert.equal(written.tenant, MS_TENANT, 'one tenant: it is one app registration in one directory');
+    assert.deepEqual(written.accounts.map((a) => a.accountId), [MS_ACCOUNT, SECOND]);
+  } finally { f.cleanup(); }
+});
+
+
+// =================================================================================================
+group('`sync` PROMOTES what it pulled (§4.4 step 4) — the step between evidence and an answer');
+
+/**
+ * A whole isolated CORPUS, with the Workspace evidence zone in the place the product puts it.
+ *
+ * The zone is NOT a scratch directory here: it is `<corpus>/ceo/unfiled/evidence/workspace`, exactly
+ * what `config.js:evidenceRoot` produces, because that relationship is the thing under test. The
+ * promotion step derives its corpus BACKWARD from the zone, so a zone assembled by hand somewhere
+ * else would be testing a path the product never takes.
+ */
+function corpusFixture(opts = {}) {
+  const root = tmp();
+  const corpus = path.join(root, 'corpus');
+  for (const rel of ['ceo/records', 'ceo/pages', 'ceo/unfiled']) {
+    fs.mkdirSync(path.join(corpus, rel), { recursive: true });
+  }
+  const zone = path.join(corpus, 'ceo', 'unfiled', 'evidence', 'workspace');
+  fs.mkdirSync(zone, { recursive: true });
+  const clientConfigFile = path.join(zone, '_oauth_client.json');
+  saveClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    redirectUri: DEFAULT_REDIRECT_URI,
+    accounts: (opts.accounts || ['ceo@acme.com']).map((accountId) => ({
+      accountId, scopes: opts.scopes || [GOOGLE_SCOPES.calendar],
+    })),
+  }, clientConfigFile);
+  const lines = [];
+  const backend = memorySecretBackend();
+  storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
+  return {
+    root, corpus, zone, clientConfigFile, backend, lines,
+    entitiesFile: path.join(corpus, 'ceo', 'entities.json'),
+    records: () => (fs.existsSync(path.join(corpus, 'ceo', 'unfiled'))
+      ? fs.readdirSync(path.join(corpus, 'ceo', 'unfiled')).filter((f) => f.endsWith('.md'))
+      : []),
+    text: () => lines.join('\n'),
+    deps: (extra = {}) => ({
+      zone, clientConfigFile, backend, linkBase: corpus, now,
+      out: (line) => lines.push(line),
+      ...extra,
+    }),
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+/** A recursive listing of a tree, or null when it is not there — the "nothing was touched" probe. */
+function treeSnapshot(dir) {
+  if (!fs.existsSync(dir)) return null;
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) { out.push(`d ${full}`); walk(full); } else {
+        const st = fs.statSync(full);
+        out.push(`f ${full} ${st.size} ${st.mtimeMs}`);
+      }
+    }
+  };
+  walk(dir);
+  return out.join('\n');
+}
+
+test('THE DERIVATION IS THE PRODUCT CONFIGURATION: corpusFromZone(workspaceZone()) === corpusRoot()', () => {
+  // The claim the whole isolation argument rests on. If this is false, promotion either writes
+  // nowhere on the CEO's real machine or writes somewhere a test can reach — and both are silent.
+  //
+  // The environment is set explicitly rather than inherited: earlier groups in this file set
+  // RICHOS_WORKSPACE_ZONE, and an assertion about the PRODUCT's own configuration must not be
+  // answered by whatever a previous test left behind.
+  const savedZone = process.env.RICHOS_WORKSPACE_ZONE;
+  const savedCorpus = process.env.LORO_CORPUS;
+  try {
+    delete process.env.RICHOS_WORKSPACE_ZONE;
+    process.env.LORO_CORPUS = path.join(os.tmpdir(), 'richos-derivation-probe');
+    assert.equal(corpusFromZone(workspaceZone()), corpusRoot());
+    // ...and with no corpus configured at all, which is the CEO's real machine before he sets one.
+    delete process.env.LORO_CORPUS;
+    assert.equal(corpusFromZone(workspaceZone()), corpusRoot());
+  } finally {
+    if (savedZone === undefined) delete process.env.RICHOS_WORKSPACE_ZONE; else process.env.RICHOS_WORKSPACE_ZONE = savedZone;
+    if (savedCorpus === undefined) delete process.env.LORO_CORPUS; else process.env.LORO_CORPUS = savedCorpus;
+  }
+  assert.equal(corpusFromZone(path.join('/srv/x', 'companies', 'acme', 'evidence', 'workspace')), '/srv/x');
+  // POSITIVE CONTROL for the negative below: the two shapes above ARE recognized, so a null from
+  // anything else is a real answer about the path rather than the matcher being broken.
+  assert.equal(corpusFromZone('/tmp/scratch/whatever'), null);
+  assert.equal(corpusFromZone(path.join('/srv/x', 'ceo', 'evidence', 'workspace')), null, 'the partition must be complete');
+  assert.equal(corpusFromZone(''), null);
+});
+
+await atest('sync PROMOTES: the pull ends with records in the corpus and a promoted: line that says so', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // Alice is on BOTH meetings on purpose: the entity feed's corroboration threshold is 2, so a
+    // one-off invitee is deliberately not learned and a single-event fixture would assert nothing.
+    const EVENT_ORG_2 = {
+      ...EVENT_ORG,
+      id: 'evt_org2', etag: '"org2v1"', summary: 'Q3 plan review',
+      start: { dateTime: '2025-08-19T15:00:00Z' }, end: { dateTime: '2025-08-19T16:00:00Z' },
+    };
+    const r = await sync(f.deps({
+      http: googleHttpMock({ calendarItems: [EVENT_ORG, EVENT_ORG_2, EVENT_INJECTION] }).http,
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+
+    assert.equal(r.promotion.ran, true, f.text());
+    assert.equal(r.promotion.corpus, f.corpus, 'derived from the zone this sync read, not from the environment');
+    assert.equal(r.promotion.events, 2, 'the two meetings; the prompt-injection invite is quarantined');
+    assert.equal(r.promotion.entities, 2, 'Alice and Bob, each seen on both meetings');
+    assert.ok(r.promotion.held.length, 'and every absence carries its reason');
+    assert.deepEqual(r.promotion.failed, []);
+
+    // THE LINE THE CEO READS.
+    assert.match(f.text(), /promoted:   2 events into memory, \d+ (person|people) learned, \d+ items? held/);
+    assert.match(f.text(), /held: \d+ × /, 'held is reported BY CAUSE, never as a bare number');
+    assert.match(f.text(), new RegExp(`memory:     ${f.corpus.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&')}`));
+
+    // ...and the records really are on disk, which is what makes the line true.
+    const records = f.records();
+    assert.equal(records.length, 2, records.join(', '));
+    assert.ok(records.every((n) => n.startsWith('ws-google-calendar-')), records.join(', '));
+    const body = fs.readFileSync(path.join(f.corpus, 'ceo', 'unfiled', records[0]), 'utf8');
+    assert.match(body, /workspace:google:calendar/, 'each record cites the evidence it came from');
+
+    // §4.5: the people are learned from the same pass, into the corpus's own vocabulary file.
+    assert.ok(fs.existsSync(f.entitiesFile), 'created on a machine that has never transcribed a call');
+    const entities = JSON.parse(fs.readFileSync(f.entitiesFile, 'utf8'));
+    assert.ok(entities.entities.some((e) => e.canonical === 'Alice Nguyen'),
+      JSON.stringify(entities.entities.map((e) => e.canonical)));
+  } finally { f.cleanup(); }
+});
+
+await atest('promotion runs ONCE for a sync over two accounts, not once per account', async () => {
+  const f = corpusFixture({ accounts: ['ceo@acme.com', 'ceo@other.com'] });
+  try {
+    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@acme.com' }));
+    await connect(f.deps({ ...connectStubs(googleHttpMock()), accountId: 'ceo@other.com' }));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results.length, 2, 'both accounts were polled');
+
+    // ONE pass over the zone, covering both accounts' evidence — not two passes over the same zone.
+    const promotedLines = f.text().split('\n').filter((l) => l.startsWith('promoted:'));
+    assert.equal(promotedLines.length, 1, f.text());
+
+    // Both accounts' items went through THAT one pass. The same meeting is a different SourceItem
+    // per account (the id carries the account's source instance), and the two are judged separately:
+    // `EVENT_ORG` is an internal meeting for ceo@acme.com and an outside one for ceo@other.com, so
+    // one is promoted and the other is held WITH ITS REASON. Asserting "2 promoted" would have been
+    // asserting my expectation rather than what the governance gate actually decides.
+    const heldTotal = r.promotion.held.reduce((n, h) => n + h.count, 0);
+    assert.equal(r.promotion.events + heldTotal, 2, JSON.stringify(r.promotion));
+    assert.ok(r.promotion.events >= 1, JSON.stringify(r.promotion));
+    assert.ok(r.promotion.held.every((h) => h.reason && h.reason.length > 10), 'no silent absence');
+
+    // The ledger holds each promoted item once, which is what a second pass would have violated.
+    const ledger = fs.readFileSync(promotionLedgerPath(f.zone), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(ledger.length, r.promotion.events);
+    assert.equal(new Set(ledger.map((e) => e.sourceItemId)).size, ledger.length, 'no item promoted twice');
+
+    // And a SECOND sync promotes nothing new rather than re-writing the same records.
+    const recordsAfterFirst = f.records().length;
+    f.lines.length = 0;
+    const again = await sync(f.deps({ http: googleHttpMock({ calendarItems: [EVENT_ORG] }).http }));
+    assert.equal(again.promotion.events, 0);
+    assert.equal(f.records().length, recordsAfterFirst, 'the same records, not a second copy of each');
+  } finally { f.cleanup(); }
+});
+
+await atest('--no-promote is a DIAGNOSTIC pull: it says so, and it writes no memory', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http, promote: false }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.promotion, null);
+    assert.match(f.text(), /promoted:   skipped — --no-promote/);
+    assert.match(f.text(), /memory was NOT updated/, 'doing less is SAID, never just done');
+    assert.equal(f.records().length, 0, 'nothing reached the corpus');
+    assert.equal(fs.existsSync(f.entitiesFile), false);
+    // The evidence WAS pulled, which is the whole point of the flag.
+    assert.equal(r.results[0].summary.ingested, 1);
+
+    // POSITIVE CONTROL: the identical sync WITHOUT the flag promotes, so the assertions above are
+    // about the flag and not about a promotion path that is broken for everyone.
+    f.lines.length = 0;
+    const promoted = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(promoted.promotion.ran, true, f.text());
+    assert.equal(f.records().length, 1);
+  } finally { f.cleanup(); }
+});
+
+await atest('THE ISOLATION GUARANTEE: a sync with an injected zone touches no corpus, and says why', async () => {
+  // This is the reason promotion was left unwired until now. Every sync test in this suite injects a
+  // temporary `zone` and sets no LORO_CORPUS, so a promotion resolving its corpus from the ambient
+  // environment would have written the CEO's real `~/RichOS` from a unit test on his own machine.
+  const home = os.homedir();
+  const realCorpus = path.join(home, 'RichOS');
+  const before = treeSnapshot(realCorpus);
+
+  const f = wsFixture(); // the ordinary fixture: a scratch zone, exactly like every other sync test
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.results[0].summary.ingested, 1, 'the pull itself worked');
+
+    // Promotion did not run, and the refusal names the cause and the fix rather than being silent.
+    assert.equal(r.promotion.ran, false);
+    assert.match(r.promotion.reason, /not inside a loro corpus/);
+    assert.match(f.text(), /promoted:   not run — this evidence zone is not inside a loro corpus/);
+    assert.match(f.text(), /RICHOS_WORKSPACE_ZONE|LORO_CORPUS/, 'and names what would fix it');
+  } finally { f.cleanup(); }
+
+  assert.equal(treeSnapshot(realCorpus), before,
+    `a unit test must not be able to write ${realCorpus} — this is the assertion the whole derivation exists for`);
+});
+
+await atest('a promotion that cannot RUN refuses loudly, and the pull it could not promote is still honest', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // No loro writer where the caller says it is. `promotion-writer.js` refuses rather than handing
+    // back a writer that silently drops promotions, and that refusal has to reach the CEO's terminal.
+    const r = await sync(f.deps({ http: googleHttpMock().http, loroDir: path.join(f.root, 'no-loro-here') }));
+    assert.equal(r.promotion.ran, false);
+    assert.match(f.text(), /promoted:   not run — /);
+    // MEASURED, not assumed: `loroWriter` takes an explicit `loroDir` AHEAD of `resolveLoroDir`, so
+    // an explicitly-wrong directory surfaces Node's own module error rather than the curated
+    // "the loro writer is not installed" sentence. That is still loud and still names the exact path
+    // — which is what this test is about — and the gap is recorded in the handoff rather than
+    // papered over by asserting a sentence the code does not produce on this path.
+    assert.match(r.promotion.reason, /no-loro-here[/\\]writer[/\\]writer\.js/);
+    assert.equal(f.records().length, 0);
+    // The PULL still succeeded and is still reported honestly — a refusal to promote is not a
+    // reason to throw away the evidence or to claim the sync did not happen.
+    assert.equal(r.results[0].summary.ingested, 1);
+    assert.match(f.text(), /calendar:   observed 1, ingested 1/);
+  } finally { f.cleanup(); }
+});
+
+await atest('a promotion that FAILS AT THE WRITE is a non-zero sync, never a success with a small number in it', async () => {
+  const f = corpusFixture();
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    f.lines.length = 0;
+    // The partition directory is made read-only AFTER the evidence path below it exists, so the pull
+    // still writes its evidence and only the RECORD write fails — which is the shape that matters:
+    // the sync worked and the memory it exists to build did not get written.
+    const partition = path.join(f.corpus, 'ceo', 'unfiled');
+    fs.chmodSync(partition, 0o555);
+    let r;
+    try {
+      r = await sync(f.deps({ http: googleHttpMock().http }));
+    } finally {
+      fs.chmodSync(partition, 0o755);
+    }
+    assert.equal(r.promotion.ran, true, 'the pass RAN — it is the write inside it that failed');
+    assert.ok(r.promotion.failed.length, JSON.stringify(r.promotion));
+    assert.equal(r.exitCode, 2, 'the same exit code a failed source gets, for the same reason');
+    assert.match(f.text(), /FAILED: /);
+    assert.equal(r.results[0].summary.ingested, 1, 'and the pull is still reported truthfully');
   } finally { f.cleanup(); }
 });
 

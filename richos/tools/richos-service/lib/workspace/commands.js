@@ -46,19 +46,20 @@ import {
   migrateClientConfig, accountsOf, accountView, upsertAccount,
 } from './client-config.js';
 import { readInstalledClientFile } from './client-secret.js';
-import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry, GOOGLE_SOURCES } from './registry.js';
+import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry } from './registry.js';
 import { awaitAuthorizationCode, consentState } from './consent.js';
-import { pkcePair, buildAuthUrl, exchangeCode } from './oauth.js';
-import { TokenManager } from './token-manager.js';
+import { pkcePair } from './oauth.js';
 import { defaultSecretBackend } from './keychain.js';
-import { GOOGLE_SCOPES } from '../config.js';
-import { GoogleClient } from './google-client.js';
+import {
+  SUPPORTED_VENDORS, profileFor, registryForGrant, hasStoredClientSecret, saveStoredClientSecret,
+  wantsClientAuth, vendorWords,
+} from './vendors.js';
 import { getSyncState, forgetInstances as forgetCursorsFor } from './sync-state.js';
 import { getRunState, recordRun, describeRun, forgetInstances as forgetRunsFor } from './run-state.js';
 import { ingestOnce } from './core.js';
+import { runPromotion, describePromotion } from './promote-run.js';
 
-/** The only vendor with an auth ceremony and adapters today. Microsoft is P4 (§8). */
-export const SUPPORTED_VENDORS = ['google'];
+export { SUPPORTED_VENDORS };
 
 /** Label column width, matching `doctor`'s existing alignment. */
 const L = (label) => `${label}:`.padEnd(12);
@@ -69,10 +70,19 @@ const L = (label) => `${label}:`.padEnd(12);
  */
 function resolve(deps = {}) {
   const zone = deps.zone || workspaceZone();
+  // The vendor is resolved FIRST because the client config file, the keychain service, the loopback
+  // port and every refusal's vocabulary all hang off it. A default computed before the vendor is how
+  // a Microsoft connect ends up reading Google's config file.
+  const vendor = deps.vendor || 'google';
+  const known = SUPPORTED_VENDORS.includes(vendor);
   return {
-    vendor: deps.vendor || 'google',
+    vendor,
+    // Null for a vendor nobody supports, so `checkVendor` below can answer with a sentence instead of
+    // a stack trace. Every command calls it before it touches `profile`.
+    profile: known ? profileFor(vendor) : null,
+    words: known ? vendorWords(vendor) : null,
     zone,
-    clientConfigFile: deps.clientConfigFile || workspaceClientConfigPath(zone),
+    clientConfigFile: deps.clientConfigFile || workspaceClientConfigPath(zone, vendor),
     syncStateFile: deps.syncStateFile || workspaceSyncStatePath(zone),
     runStateFile: deps.runStateFile || workspaceRunStatePath(zone),
     backend: deps.backend || null, // resolved lazily: the platform store throws off macOS
@@ -88,7 +98,15 @@ function resolve(deps = {}) {
     only: deps.only || null,
     clientId: deps.clientId || null,
     clientFile: deps.clientFile || null,
+    tenant: deps.tenant || null,
+    clientSecret: deps.clientSecret || null,
     accountId: deps.accountId || null,
+    // Promotion is ON by default: a sync exists so Rich can answer from the CEO's calendar, and
+    // evidence nobody promoted answers nothing. `--no-promote` is the diagnostic pull.
+    promote: deps.promote !== false,
+    // Where the loro writer component lives. Injected only by the suite, which runs against the
+    // in-repo one; in production `promotion-writer.js` resolves it (RICHOS_LORO_DIR, then in-repo).
+    loroDir: deps.loroDir || null,
     timeoutMs: deps.timeoutMs,
     keychainService: deps.keychainService,
     forgetCursors: Boolean(deps.forgetCursors),
@@ -137,9 +155,15 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
   // config already on disk it ADDS that account rather than replacing what is there. That is the
   // whole fix: the same command the CEO ran for his first account is the command for his second, and
   // the first account's entry comes through it untouched.
-  if (mayAdd && (d.clientId || d.accountId)) {
+  if (mayAdd && (d.clientId || d.accountId || d.tenant)) {
     const base = migrateClientConfig(raw).config;
-    let merged = { ...base, ...(d.clientId ? { clientId: String(d.clientId).trim() } : {}) };
+    let merged = {
+      ...base,
+      ...(d.clientId ? { clientId: String(d.clientId).trim() } : {}),
+      // Entra's second id. It belongs to the CLIENT, not to an account, so `--tenant` on any connect
+      // sets it for the whole app — which is what it is: one app registration, one directory.
+      ...(d.tenant ? { tenant: String(d.tenant).trim() } : {}),
+    };
     if (d.accountId) {
       // An account already in the file keeps its own scopes; a new one starts with the shared
       // default and is narrowed or widened by `--source` in `connect` below.
@@ -150,32 +174,38 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
         orgDomains: existing ? existing.orgDomains : [],
       });
     }
-    const check = validateClientConfig(merged);
+    const check = validateClientConfig(merged, { vendor: d.vendor });
     if (!check.ok) {
       d.out('That is not yet a complete OAuth client config:');
       for (const p of check.problems) d.out(`  - ${p}`);
       return { exitCode: 1 };
     }
-    saveClientConfig(check.config, d.clientConfigFile);
+    saveClientConfig(check.config, d.clientConfigFile, { vendor: d.vendor });
     d.out(`${L('config')}wrote ${d.clientConfigFile}`);
     return { config: check.config };
   }
 
   if (!raw) {
-    d.out(`No Google OAuth client config yet. RichOS never ships one — the OAuth app is yours (§6.1).`);
+    d.out(`No ${d.words.label} OAuth client config yet. RichOS never ships one — the app registration is yours (§6.1).`);
     d.out('');
     d.out(`Put your own client details at:  ${d.clientConfigFile}`);
     d.out('');
-    for (const line of clientConfigTemplate().split('\n')) d.out(`  ${line}`);
+    for (const line of clientConfigTemplate(d.vendor).split('\n')) d.out(`  ${line}`);
     d.out('');
-    d.out('Or let RichOS read it out of the JSON your Google Cloud console downloads:');
-    d.out('  richos-service workspace connect google --client-file <client_secret_….json> --account you@yourcompany.com');
+    if (d.vendor === 'google') {
+      d.out('Or let RichOS read it out of the JSON your Google Cloud console downloads:');
+      d.out('  richos-service workspace connect google --client-file <client_secret_….json> --account you@yourcompany.com');
+    } else {
+      d.out('Or hand both ids straight to connect, which writes this file for you:');
+      d.out('  richos-service workspace connect microsoft --client-id <application (client) id> \\');
+      d.out('      --tenant <directory (tenant) id> --account you@yourcompany.com');
+    }
     d.out('');
-    d.out('The 10-minute Google Cloud setup is the "Google Workspace OAuth setup" guide, Steps 1-5.');
+    d.out(`The 10-minute setup is ${d.profile.guide}.`);
     return { exitCode: 1 };
   }
 
-  const check = validateClientConfig(raw);
+  const check = validateClientConfig(raw, { vendor: d.vendor });
   if (!check.ok) {
     d.out(`The OAuth client config at ${d.clientConfigFile} is not usable yet:`);
     for (const p of check.problems) d.out(`  - ${p}`);
@@ -185,7 +215,7 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
   // FIRST READ, in place, with nothing about the existing account changed. Announced rather than
   // done quietly: the CEO is invited to open this file, so he is told when its shape moved.
   if (check.migrated) {
-    saveClientConfig(check.config, d.clientConfigFile);
+    saveClientConfig(check.config, d.clientConfigFile, { vendor: d.vendor });
     d.out(`${L('config')}${d.clientConfigFile} now lists accounts (your existing account is unchanged)`);
   }
   return { config: check.config };
@@ -200,15 +230,7 @@ function requireClientConfig(d, { mayAdd = false } = {}) {
  * so the rule can never reach a second account's grant.
  */
 function tokenManagerFor(account, backend, d, opts = {}) {
-  return new TokenManager({
-    config: { clientId: account.clientId, redirectUri: account.redirectUri, scopes: account.scopes },
-    accountId: account.accountId,
-    adoptLegacyTokens: Boolean(opts.adoptLegacyTokens),
-    backend,
-    http: d.http,
-    now: d.now,
-    ...(d.keychainService ? { service: d.keychainService } : {}),
-  });
+  return d.profile.tokenManager(account, backend, d, opts);
 }
 
 /**
@@ -216,15 +238,7 @@ function tokenManagerFor(account, backend, d, opts = {}) {
  * @returns {{enabled:Array, skipped:Array, granted:string[]}}
  */
 function registryFor(record, account, tm, d) {
-  const granted = parseGrantedScopes(record && record.scope);
-  const { enabled, skipped } = buildRegistry({
-    grantedScopes: granted,
-    accountId: account.accountId,
-    now: d.now,
-    only: d.only,
-    makeClient: () => new GoogleClient({ getAccessToken: () => tm.getAccessToken(), http: d.http }),
-  });
-  return { enabled, skipped, granted };
+  return registryForGrant(d.profile, record, account, tm, d);
 }
 
 /**
@@ -239,10 +253,11 @@ function registryFor(record, account, tm, d) {
  */
 function instanceIdsFor(account, tm, d) {
   const { enabled } = buildRegistry({
-    grantedScopes: Object.values(GOOGLE_SCOPES),
+    vendor: d.vendor,
+    grantedScopes: Object.values(d.profile.scopes),
     accountId: account.accountId,
     now: d.now,
-    makeClient: () => new GoogleClient({ getAccessToken: () => tm.getAccessToken(), http: d.http }),
+    makeClient: () => d.profile.makeClient(tm, d),
   });
   return enabled.map((e) => e.adapter.sourceInstanceId);
 }
@@ -259,24 +274,25 @@ function instanceIdsFor(account, tm, d) {
  */
 function selectAccounts(config, d, opts = {}) {
   const all = accountsOf(config);
+  const view = (id) => accountView(config, id, { vendor: d.vendor });
   if (d.accountId) {
     const want = String(d.accountId).trim().toLowerCase();
-    const view = accountView(config, want);
-    if (!view) {
-      d.out(`"${want}" is not a Google account in ${d.clientConfigFile}. Configured:`);
+    const one = view(want);
+    if (!one) {
+      d.out(`"${want}" is not a ${d.words.account} in ${d.clientConfigFile}. Configured:`);
       for (const a of all) d.out(`  ${a.accountId}`);
       d.out('');
       d.out(`Add it with:  richos-service workspace connect ${d.vendor} --account ${want}`);
       return { exitCode: 1 };
     }
-    return { views: [view] };
+    return { views: [one] };
   }
   if (opts.one && all.length > 1) {
-    d.out(`${all.length} Google accounts are configured, so RichOS will not pick one to ${opts.verb}:`);
+    d.out(`${all.length} ${d.words.label} accounts are configured, so RichOS will not pick one to ${opts.verb}:`);
     for (const a of all) d.out(`  --account ${a.accountId}`);
     return { exitCode: 1 };
   }
-  return { views: all.map((a) => accountView(config, a.accountId)) };
+  return { views: all.map((a) => view(a.accountId)) };
 }
 
 /** True for the account that owns the pre-list keychain item — the first in the file, and only it. */
@@ -286,7 +302,14 @@ function isFirstAccount(config, accountId) {
 }
 
 /** Health states, worst first — so a run over several accounts reports the one that needs him. */
-const HEALTH_ORDER = ['refresh-expired', 'no-consent', 'refresh-expiring-soon', 'healthy'];
+const HEALTH_ORDER = [
+  'refresh-expired',   // Google: the Testing-mode 7-day clock ran out
+  'refresh-refused',   // Microsoft: Entra actually refused the stored grant (an observed fact)
+  'no-consent',
+  'refresh-expiring-soon',
+  'idle-advisory',     // Microsoft: unused for months — a heads-up, never a deadline
+  'healthy',
+];
 
 function worstHealth(states) {
   for (const s of HEALTH_ORDER) if (states.includes(s)) return s;
@@ -295,9 +318,9 @@ function worstHealth(states) {
 
 /** Refuse anything but a vendor that actually has an auth ceremony and adapters. */
 function checkVendor(d) {
-  if (SUPPORTED_VENDORS.includes(d.vendor)) return null;
-  d.out(`"${d.vendor}" is not a Workspace vendor RichOS can connect yet. Available: ${SUPPORTED_VENDORS.join(', ')}.`);
-  d.out('Microsoft 365 is phase P4 — the adapter interface is vendor-neutral, the ceremony is not written.');
+  if (d.profile) return null;
+  d.out(`"${d.vendor}" is not a Workspace vendor RichOS can connect. Available: ${SUPPORTED_VENDORS.join(', ')}.`);
+  d.out('Each one is a separate consent, a separate keychain entry and a separate sync position; you may connect either or both.');
   return { exitCode: 1 };
 }
 
@@ -359,19 +382,19 @@ export async function connect(deps = {}) {
   // the guide — so a scope the CEO re-rules (Drive's width, §40) moves in one place.
   let scopes = account.scopes;
   if (d.sources && d.sources.length) {
-    const unknown = d.sources.filter((s) => !sourceEntry(s));
+    const unknown = d.sources.filter((s) => !sourceEntry(s, d.vendor));
     if (unknown.length) {
-      d.out(`unknown source(s): ${unknown.join(', ')}. Known: ${GOOGLE_SOURCES.map((s) => s.source).join(', ')}.`);
+      d.out(`unknown source(s): ${unknown.join(', ')}. Known: ${d.profile.sources.map((s) => s.source).join(', ')}.`);
       return { exitCode: 1 };
     }
-    scopes = scopesForSources(d.sources);
+    scopes = scopesForSources(d.sources, d.vendor);
     // Persist what he actually chose, so a re-consent a week later requests the same sources
     // without him having to remember the flags. A config that disagrees with the live grant is a
     // wrong number waiting for the next 7-day expiry. `upsertAccount` writes THIS account's entry
     // and no other: `--source drive` on the mail account may not narrow the calendar account.
     if (scopes.join(' ') !== account.scopes.join(' ')) {
       config = upsertAccount(config, { ...account, scopes });
-      saveClientConfig(config, d.clientConfigFile);
+      saveClientConfig(config, d.clientConfigFile, { vendor: d.vendor });
       account.scopes = scopes;
     }
   }
@@ -381,8 +404,31 @@ export async function connect(deps = {}) {
     d.out(`cannot reach a secure token store: ${backendResult.error}`);
     return { exitCode: 1 };
   }
-  const tm = tokenManagerFor({ ...account, scopes }, backendResult.backend, d,
-    { adoptLegacyTokens: isFirstAccount(config, account.accountId) });
+  const backend = backendResult.backend;
+
+  // THE SECRET IS TAKEN IN BEFORE THE TOKEN MANAGER IS BUILT, because the manager reads it at
+  // construction: storing it afterwards would put it in the keychain and NOT in the config the
+  // exchange sends, and the connect would fail for a reason the keychain contradicts.
+  //
+  // `--client-secret` is also the DECLARATION that a registration is confidential. On the Microsoft
+  // side `assertPublicClient` refuses a secret that arrives with no such declaration, and it is right
+  // to: a secret appearing by habit and a registration that genuinely needs one need opposite
+  // responses. Handing it over on this command is the CEO saying which of the two this is, so it is
+  // recorded in his config rather than inferred from a stray field.
+  if (d.clientSecret) {
+    saveStoredClientSecret(d.profile, account, backend, d, String(d.clientSecret));
+    if (!account.confidentialClient) {
+      config = { ...config, confidentialClient: true };
+      saveClientConfig(config, d.clientConfigFile, { vendor: d.vendor });
+      account.confidentialClient = true;
+    }
+  }
+  if (downloaded) {
+    saveStoredClientSecret(d.profile, account, backend, d, downloaded.clientSecret);
+  }
+
+  const tm = tokenManagerFor({ ...account, scopes }, backend,
+    d, { adoptLegacyTokens: isFirstAccount(config, account.accountId) });
 
   d.out(`${L('account')}${account.accountId}`);
   // What this run is NOT touching, said before the browser opens. The failure this replaced was
@@ -390,20 +436,38 @@ export async function connect(deps = {}) {
   const others = accountsOf(config).filter((a) => a.accountId !== account.accountId);
   if (others.length) d.out(`${L('keeping')}${others.map((a) => a.accountId).join(', ')}  (untouched by this consent)`);
   d.out(`${L('client')}${account.clientId}  (yours — RichOS ships no OAuth client of its own)`);
+  // The DIRECTORY the sign-in is pinned to, printed before the browser opens because it is the one
+  // field of an Entra config whose mistake is invisible afterwards: a wrong tenant signs him in
+  // somewhere that is not his, and the failure arrives as an AADSTS code after a consent screen.
+  if (account.tenant) d.out(`${L('tenant')}${account.tenant}  (your own directory — never "/common")`);
   d.out(`${L('requesting')}${scopes.length} read-only scope${scopes.length === 1 ? '' : 's'}:`);
   for (const s of scopes) {
-    const entry = GOOGLE_SOURCES.find((e) => e.scope === s);
+    const entry = d.profile.sources.find((e) => e.scope === s);
     d.out(`            ${s}${entry ? `   (${entry.label})` : ''}`);
   }
 
-  // THE SECRET, BEFORE THE BROWSER. Google refuses a Desktop-app client's token exchange without
-  // `client_secret` (client-secret.js has the probe), and the first live attempt found that out
-  // AFTER the CEO had approved the consent screen — a wasted approval and a `400 invalid_request`
-  // for an answer. So the check happens here, where the fix costs one flag instead of one consent.
+  // THE SECRET, BEFORE THE BROWSER — AND WHAT IS CHECKABLE HERE IS DIFFERENT PER VENDOR.
+  //
+  // GOOGLE: its Desktop-app client type refuses the token exchange without `client_secret` even under
+  // PKCE (client-secret.js has the probe), and the first live attempt found that out AFTER the CEO had
+  // approved the consent screen — a wasted approval and a `400 invalid_request` for an answer. That is
+  // a fact about the client TYPE, so it is checkable before the browser opens, and it is checked here
+  // where the fix costs one flag instead of one consent.
+  //
+  // MICROSOFT: the intended registration is a PUBLIC client that needs no secret, and Entra's own
+  // discovery document does not advertise `none` as a token-endpoint auth method — so "no secret is
+  // required" is the DOCUMENTED path and not a proven one, and whether THIS registration allows public
+  // client flows is a per-app switch nothing outside the CEO's tenant can read. There is therefore
+  // nothing honest to check before the attempt. What there IS is a precise refusal afterwards, which
+  // `connect` prints at the exchange below: Entra names the condition with an AADSTS code, and the
+  // fix is one switch in the portal. A pre-check here would be this file inventing a fact about his
+  // app registration, which is exactly what the Google side got wrong in the other direction.
   if (downloaded) {
-    tm.saveClientSecret(downloaded.clientSecret);
     d.out(`${L('secret')}read from ${downloaded.file} and stored in the OS keychain — never written to any RichOS file`);
-  } else if (!tm.hasClientSecret()) {
+  } else if (d.clientSecret) {
+    d.out(`${L('secret')}stored in the OS keychain (service ${tm.service}) — never written to any RichOS file`);
+    d.out(`            your ${d.words.label} app is recorded as a CONFIDENTIAL client, so RichOS will send it at the token exchange`);
+  } else if (d.vendor === 'google' && !hasStoredClientSecret(d.profile, account, backend, d)) {
     d.out('');
     d.out('NOT CONNECTED — no client secret on file, and Google will refuse the token exchange');
     d.out('without one. Your OAuth client is a "Desktop app": Google requires its secret at the');
@@ -415,6 +479,19 @@ export async function connect(deps = {}) {
     d.out('');
     d.out(`RichOS reads the client id and the secret out of that file, keeps the secret in the OS`);
     d.out(`keychain (service ${tm.service}), and writes it to no file. You can delete the download afterwards.`);
+    return { exitCode: 1 };
+  } else if (account.confidentialClient && !hasStoredClientSecret(d.profile, account, backend, d)) {
+    // The config says confidential and the keychain holds nothing — so the exchange would be sent
+    // without the credential the registration demands, and Entra would answer with a code about a
+    // missing secret while this machine believed it had one.
+    d.out('');
+    d.out(`NOT CONNECTED — your config records this ${d.words.label} app as a confidential client, but no client`);
+    d.out(`secret is in the keychain (service ${tm.service}).`);
+    d.out('');
+    d.out(`  richos-service workspace connect ${d.vendor} --client-id ${account.clientId} --account ${account.accountId} --client-secret <the value>`);
+    d.out('');
+    d.out('RichOS keeps it in the OS keychain and writes it to no file. If the app is actually a public');
+    d.out(`client, delete "confidentialClient" from ${d.clientConfigFile} and run connect again.`);
     return { exitCode: 1 };
   }
   d.out('');
@@ -441,17 +518,19 @@ export async function connect(deps = {}) {
       redirectReady,
       codePromise.then(() => account.redirectUri, () => account.redirectUri),
     ]);
-    const authUrl = buildAuthUrl({ clientId: account.clientId, redirectUri: effectiveRedirect, scopes }, { challenge: pkce.challenge, state });
+    const authUrl = d.profile.authUrl({
+      account, scopes, redirectUri: effectiveRedirect, challenge: pkce.challenge, state,
+    });
     const opened = await d.openBrowser(authUrl);
     d.out(opened
-      ? 'Opened Google\'s consent screen in your browser. Approve it there and come back.'
+      ? `Opened ${d.words.label}'s consent screen in your browser. Approve it there and come back.`
       : 'Could not open a browser. Open this URL yourself:');
     if (!opened) {
       d.out('');
       d.out(`  ${authUrl}`);
       d.out('');
     }
-    d.out('Google shows an "unverified app" notice for a personal Testing-mode app — that is expected; choose Continue.');
+    d.out(d.profile.consentNotice);
     ({ code } = await codePromise);
   } catch (err) {
     d.out('');
@@ -461,19 +540,47 @@ export async function connect(deps = {}) {
 
   let tokens;
   try {
-    tokens = await exchangeCode({ ...tm.authConfig(), redirectUri: effectiveRedirect, scopes }, { code, verifier: pkce.verifier }, d.http);
+    tokens = await d.profile.exchange({
+      account, tm, redirectUri: effectiveRedirect, scopes, code, verifier: pkce.verifier, d,
+    });
   } catch (err) {
     d.out('');
-    d.out(`NOT CONNECTED — Google refused the token exchange: ${String(err.message || err)}`);
+    // The AADSTS code is quoted explicitly when the vendor gave one: Microsoft localizes the
+    // description and does not localize the number, so the number is the string a support article is
+    // keyed on and the one worth putting in front of the CEO.
+    const detail = String(err.message || err);
+    const code = err && err.aadsts;
+    d.out(`NOT CONNECTED — ${d.words.label} refused the token exchange: ${detail}${code && !detail.includes(code) ? ` (${code})` : ''}`);
+    // THE ONE REFUSAL THAT NAMES A ONE-LINE FIX. Entra answers a public-client exchange with an
+    // AADSTS code when the registration is not actually registered as public — and that is a switch,
+    // not a code change. The CEO has the portal open two steps behind him; telling him which switch
+    // costs him thirty seconds, and not telling him costs a night (the Google side spent one).
+    if (d.vendor === 'microsoft' && wantsClientAuth(err)) {
+      d.out('');
+      d.out('That code means Entra is treating your app registration as a CONFIDENTIAL client, so it wants');
+      d.out('client authentication RichOS deliberately does not hold. The one-line fix is Step 4 of');
+      d.out(`${d.profile.guide}:`);
+      d.out('');
+      d.out('  Entra → your app → Authentication → Advanced settings → "Allow public client flows" = Yes → Save');
+      d.out('');
+      d.out('Then run this command again. You do not need to create a secret, and nothing else changes.');
+      d.out('');
+      d.out('If your organization forbids public client flows, that is the other legitimate answer, and');
+      d.out('RichOS takes it deliberately rather than by inference:');
+      d.out('');
+      d.out(`  richos-service workspace connect ${d.vendor} --account ${account.accountId} --client-secret <the value>`);
+      d.out('');
+      d.out('which records the app as confidential and keeps the secret in the OS keychain, in no file.');
+    }
     return { exitCode: 1 };
   }
 
   if (!tokens.refresh_token) {
     // Without the durable secret there is nothing to poll with tomorrow. Say so now, loudly.
     d.out('');
-    d.out('NOT CONNECTED — Google returned an access token but no refresh token, so RichOS could only');
+    d.out(`NOT CONNECTED — ${d.words.label} returned an access token but no refresh token, so RichOS could only`);
     d.out('read your calendar for the next hour and then go silent. Remove RichOS at');
-    d.out('https://myaccount.google.com/permissions and run connect again to force a fresh consent.');
+    d.out(`${d.profile.consentUrl} and run connect again to force a fresh consent.`);
     return { exitCode: 1 };
   }
 
@@ -488,15 +595,23 @@ export async function connect(deps = {}) {
   for (const e of enabled) {
     d.out(`${L('enabled')}${e.label} — ${e.scope}`);
     if (e.degraded) d.out(`            LIMITED: ${e.degraded}`);
+    // A wider grant held and deliberately not used is a fact he should see, and it is NOT a
+    // degradation — saying "degraded" about it would misdescribe it in the one direction that matters.
+    if (e.grantNote) d.out(`            NOTE: ${e.grantNote}`);
   }
   for (const s of skipped) d.out(`${L('skipped')}${s.label} — ${s.reason}`);
   if (health.msUntilRefreshExpiry != null) {
     d.out(`${L('expires')}${new Date(d.now() + health.msUntilRefreshExpiry).toISOString()}  (${health.state}; External+Testing apps expire after ~7 days — re-run connect to re-consent)`);
+  } else if (!d.profile.publishesGrantLifetime) {
+    // NOT a missing feature and never a guessed clock: Entra publishes no fixed lifetime for a public
+    // client's refresh token, so a countdown here would produce a confident re-consent prompt on a day
+    // nothing is wrong and silence on the day something is.
+    d.out(`${L('expires')}${d.words.label} publishes no fixed lifetime for this authorization, so RichOS shows no countdown — it will ask you to sign in again when, and only when, ${d.words.label} actually refuses`);
   }
   d.out('');
   d.out(`Pull it now with:  richos-service workspace sync ${d.vendor} --once${others.length ? '   (every connected account)' : ''}`);
   if (!others.length) {
-    d.out(`Add another Google account:  richos-service workspace connect ${d.vendor} --account <the other address>`);
+    d.out(`Add another ${d.words.account}:  richos-service workspace connect ${d.vendor} --account <the other address>`);
   }
   return {
     exitCode: 0,
@@ -540,7 +655,9 @@ export async function status(deps = {}) {
   if (chosen.exitCode) return { exitCode: chosen.exitCode };
   const views = chosen.views;
 
+  d.out(`${L('vendor')}${d.words.label}`);
   d.out(`${L('client')}${config.clientId}`);
+  if (config.tenant) d.out(`${L('tenant')}${config.tenant}`);
   d.out(`${L('config')}${d.clientConfigFile}`);
   d.out(`${L('zone')}${d.zone}`);
   if (views.length > 1) d.out(`${L('accounts')}${views.length} — ${views.map((v) => v.accountId).join(', ')}`);
@@ -555,7 +672,14 @@ export async function status(deps = {}) {
 
     d.out('');
     d.out(`${L('account')}${account.accountId}`);
-    d.out(`${L('secret')}${tm.hasClientSecret() ? 'in keychain' : 'missing'}`);
+    // For Google, "missing" is a real fault — the exchange cannot happen without it. For Microsoft a
+    // public client is the INTENDED shape, so an absent secret is reported as that rather than as a
+    // lack: a status line that reads "missing" about something nothing needs sends the CEO looking.
+    if (d.vendor === 'google' || account.confidentialClient) {
+      d.out(`${L('secret')}${hasStoredClientSecret(d.profile, account, backendResult.backend, d) ? 'in keychain' : 'missing'}`);
+    } else {
+      d.out(`${L('secret')}none — a public client, which is the intended registration (PKCE is the proof)`);
+    }
 
     if (!record) {
       d.out(`${L('auth')}NOT CONNECTED — no grant in the keychain (service ${tm.service})`);
@@ -573,10 +697,11 @@ export async function status(deps = {}) {
     const { enabled, skipped, granted } = registryFor(record, account, tm, d);
     d.out(`${L('granted')}${granted.length} scope${granted.length === 1 ? '' : 's'}`);
     for (const e of enabled) {
-      const cursor = getSyncState('google', e.source, d.syncStateFile, e.adapter.sourceInstanceId);
-      const run = getRunState('google', e.source, e.adapter.sourceInstanceId, d.runStateFile);
+      const cursor = getSyncState(d.vendor, e.source, d.syncStateFile, e.adapter.sourceInstanceId);
+      const run = getRunState(d.vendor, e.source, e.adapter.sourceInstanceId, d.runStateFile);
       d.out(`${L(e.label.toLowerCase())}ON — ${cursor ? 'delta cursor stored (next poll is incremental)' : 'no cursor yet (next poll is a bounded full sync)'}`);
       if (e.degraded) d.out(`            LIMITED: ${e.degraded}`);
+      if (e.grantNote) d.out(`            NOTE: ${e.grantNote}`);
       d.out(`            last sync: ${describeRun(run)}`);
     }
     for (const s of skipped) d.out(`${L(s.label.toLowerCase())}off — ${s.reason}`);
@@ -677,6 +802,7 @@ export async function sync(deps = {}) {
       // A source running narrower than it could is said out loud on every pull, not only in `status`:
       // the counts below look identical either way, and that is exactly how a silent downgrade hides.
       if (e.degraded) d.out(`${L('limited')}${e.label} — ${e.degraded}`);
+      if (e.grantNote) d.out(`${L('note')}${e.label} — ${e.grantNote}`);
     }
     if (!enabled.length) {
       d.out('nothing to sync: the grant enables no source RichOS has an adapter for.');
@@ -715,7 +841,7 @@ export async function sync(deps = {}) {
         }
       }
       recordRun({
-        vendor: 'google', source: e.source, instance: e.adapter.sourceInstanceId,
+        vendor: d.vendor, source: e.source, instance: e.adapter.sourceInstanceId,
         at: d.now(), summary, error, unavailable,
       }, d.runStateFile);
 
@@ -737,10 +863,38 @@ export async function sync(deps = {}) {
 
   if (many) d.out('');
   d.out(`${L('evidence')}${d.zone}`);
-  if (!polled) return { exitCode: 1, polled: false, results };
+
+  // ── PROMOTION (§4.4 step 4) — ONCE PER SYNC RUN, NOT ONCE PER ACCOUNT ──────────────────────────
+  // The pull is not the point; being able to ANSWER from what was pulled is. Until this call existed
+  // a sync ended with evidence on disk and loro still unable to say what happened on Tuesday.
+  //
+  // It runs after EVERY account has been polled, and exactly once, because `promoteFromEvidence`
+  // reads the ZONE — which holds every account's and every vendor's evidence. Inside the loop it
+  // would redo all of it per account, which is why the engineer who wired multi-account left it out
+  // rather than putting it in the wrong place.
+  //
+  // Gated on `polled`: a run that reached nothing has nothing new to promote, and a promotion line on
+  // a run that never reached the vendor would read as progress that did not happen.
+  let promotion = null;
+  if (!d.promote) {
+    d.out(`${L('promoted')}skipped — --no-promote, so this was a diagnostic pull: the evidence is stored and`);
+    d.out("            loro's memory was NOT updated. Run sync again without the flag to promote it.");
+  } else if (polled) {
+    promotion = await runPromotion({ zone: d.zone, now: d.now, ...(d.loroDir ? { loroDir: d.loroDir } : {}) });
+    for (const line of describePromotion(promotion, L)) d.out(line);
+  }
+
+  if (!polled) return { exitCode: 1, polled: false, results, promotion };
   // An account that could not be polled is a non-zero exit even when every account that DID poll
-  // succeeded — the CEO asked for all of them.
-  return { exitCode: failures ? 2 : (refused ? 1 : 0), polled: true, results };
+  // succeeded — the CEO asked for all of them. A promotion that FAILED is the same class of problem
+  // as a source that failed: the pull worked and the memory it exists to build did not get written.
+  const promotionFailed = Boolean(promotion && promotion.failed && promotion.failed.length);
+  return {
+    exitCode: (failures || promotionFailed) ? 2 : (refused ? 1 : 0),
+    polled: true,
+    results,
+    promotion,
+  };
 }
 
 // =================================================================================================
@@ -787,16 +941,28 @@ export async function disconnect(deps = {}) {
   // dependency obvious to whoever reads this next.
   const instances = instanceIdsFor(account, tm, d);
 
-  await tm.disconnect();
+  const outcome = await tm.disconnect();
   d.out(`DISCONNECTED — ${account.accountId}`);
-  d.out(`${L('revoked')}asked Google to invalidate the refresh token (best-effort; the local deletion is the guarantee)`);
-  d.out(`${L('keychain')}entry removed (service ${tm.service})`);
+  // WHAT ACTUALLY HAPPENED, PER VENDOR, AND NEVER A SUCCESS-SHAPED SENTENCE FOR A STEP THAT DID NOT
+  // RUN. Google publishes a revoke endpoint and this really did call it. Entra publishes NONE — its
+  // discovery document has no `revocation_endpoint` at all — so there is no request to make and the
+  // consent record in the CEO's account is still standing. Printing Google's line here would be
+  // telling him RichOS revoked something it has no way to revoke, which is the precise failure the
+  // never-silent posture exists to prevent. The local deletion is a real guarantee on both: no
+  // token, no access from this machine.
+  if (d.profile.revokesVendorSide) {
+    d.out(`${L('revoked')}asked ${d.words.label} to invalidate the refresh token (best-effort; the local deletion is the guarantee)`);
+  } else {
+    d.out(`${L('revoked')}NOT REVOKED — ${d.words.label} gives an app no way to revoke its own grant, so RichOS did not try and is not claiming it did`);
+    d.out(`            your consent record is still listed in your account: remove "RichOS" at ${outcome && outcome.revokeUrl ? outcome.revokeUrl : d.profile.consentUrl} to finish it`);
+  }
+  d.out(`${L('keychain')}entry removed (service ${tm.service}) — from this moment this machine cannot read your ${d.words.label} data`);
   // The GRANT is what disconnect forgets. The client secret is not part of the grant — it identifies
   // your own OAuth app the way the client id does, it opens nothing on its own now the refresh token
   // is revoked, and `_oauth_client.json` beside it is kept for exactly the same reason. Deleting it
   // would make the next connect a console trip instead of two clicks, so it stays, and says so.
-  if (tm.hasClientSecret()) {
-    d.out(`${L('secret')}your client secret stays in the keychain, so reconnecting needs no flags (delete the OAuth client in Google's console to retire it for good)`);
+  if (hasStoredClientSecret(d.profile, account, backendResult.backend, d)) {
+    d.out(`${L('secret')}your client secret stays in the keychain, so reconnecting needs no flags (delete the app registration in the ${d.words.console} to retire it for good)`);
   }
 
   const others = accountsOf(config).filter((a) => a.accountId !== account.accountId);
@@ -815,8 +981,15 @@ export async function disconnect(deps = {}) {
   d.out(`${L('evidence')}kept at ${d.zone} — it is yours; delete it yourself if you want it gone`);
   d.out('');
   d.out(`Reconnect this account with:  richos-service workspace connect ${d.vendor} --account ${account.accountId}`);
-  d.out('You can also revoke at https://myaccount.google.com/permissions at any time.');
-  return { exitCode: 0, disconnected: true, account: account.accountId };
+  d.out(`You can ${d.profile.revokesVendorSide ? 'also revoke' : 'remove the consent record'} at ${d.profile.consentUrl} at any time.`);
+  return {
+    exitCode: 0,
+    disconnected: true,
+    account: account.accountId,
+    // The claim itself, returned rather than only printed, so a caller (and the suite) can assert
+    // that `disconnect microsoft` never reports a revocation.
+    vendorSideRevoked: Boolean(d.profile.revokesVendorSide),
+  };
 }
 
 // =================================================================================================
@@ -826,9 +999,15 @@ export async function disconnect(deps = {}) {
 export const USAGE = [
   '  richos-service workspace connect google [--client-file <client_secret_….json>] [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]',
   '                                                                          # run it again with a different --account to ADD a second Google account',
-  '  richos-service workspace status [google] [--account you@co.com]         # every account unless one is named',
-  '  richos-service workspace sync [google] [--once] [--account you@co.com] [--source calendar]      # --once is the only mode: no daemon',
-  '  richos-service workspace disconnect google --account you@co.com [--forget-cursors]',
+  '  richos-service workspace connect microsoft --client-id <application (client) id> --tenant <directory (tenant) id|consumers> --account you@co.com [--source calendar --source drive --source mail]',
+  '                                                                          # the two ids are Step 3 of the Microsoft 365 setup guide; no secret — it is a public client',
+  '  richos-service workspace status [google|microsoft] [--account you@co.com]         # every account of that vendor unless one is named',
+  '  richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar] [--no-promote]',
+  '                                                                          # --once is the only mode: no daemon. Promotes what it pulled into loro memory unless --no-promote',
+  '  richos-service workspace disconnect google|microsoft --account you@co.com [--forget-cursors]',
+  '',
+  '  The two vendors are separate everywhere: separate consent, separate client config file, separate',
+  '  keychain entries, separate cursors. Connect either or both; disconnecting one touches nothing of the other.',
 ].join('\n');
 
 /** Flags that would mean "keep running" — refused by name, because that is a decision, not a flag. */
@@ -883,11 +1062,12 @@ export function doctorLine(deps = {}) {
   } catch (err) {
     return `unavailable — ${String(err.message || err)}`;
   }
+  if (!d.profile) return `unavailable — "${d.vendor}" is not a Workspace vendor RichOS can connect`;
   let config;
   try {
     const raw = loadClientConfig(d.clientConfigFile);
-    if (!raw) return `not set up — run \`richos-service workspace connect google\` (needs your own OAuth client first)`;
-    const check = validateClientConfig(raw);
+    if (!raw) return `not set up — run \`richos-service workspace connect ${d.vendor}\` (needs your own OAuth client first)`;
+    const check = validateClientConfig(raw, { vendor: d.vendor });
     if (!check.ok) return `config needs a fix — ${check.problems[0]}`;
     config = check.config;
   } catch (err) {
@@ -898,20 +1078,25 @@ export function doctorLine(deps = {}) {
   try {
     // One clause per account, joined — so a machine with two accounts says so on doctor's one line
     // rather than reporting whichever account happened to be first and being silent about the other.
-    const views = accountsOf(config).map((a) => accountView(config, a.accountId));
-    if (!views.length) return 'not set up — run `richos-service workspace connect google --account you@yourcompany.com`';
+    const views = accountsOf(config).map((a) => accountView(config, a.accountId, { vendor: d.vendor }));
+    if (!views.length) return `not set up — run \`richos-service workspace connect ${d.vendor} --account you@yourcompany.com\``;
     const clauses = views.map((account) => {
       const tm = tokenManagerFor(account, backendResult.backend, d,
         { adoptLegacyTokens: isFirstAccount(config, account.accountId) });
       const record = tm.load();
       if (!record) return `${account.accountId} — not connected`;
       const health = tm.health();
-      const granted = parseGrantedScopes(record.scope);
-      const on = GOOGLE_SOURCES.filter((s) => s.create && granted.includes(s.scope)).map((s) => s.label);
+      const record2 = record;
+      // Through the SAME registry `status` and `sync` build from, so doctor's one line cannot disagree
+      // with what a sync would actually poll — a display fed by its own second opinion is a wrong
+      // number waiting for a release. It also means Microsoft's short-form grant matches here too: a
+      // literal `granted.includes(scope)` would report "no source enabled" for every Entra grant.
+      const { enabled } = registryFor(record2, account, tm, d);
+      const on = enabled.map((e) => e.label);
       return `${account.accountId} — ${health.state}${on.length ? `, ${on.join(' + ')}` : ', no source enabled'}`;
     });
     if (clauses.length === 1 && clauses[0].endsWith('not connected')) {
-      return 'not connected — run `richos-service workspace connect google`';
+      return `not connected — run \`richos-service workspace connect ${d.vendor}\``;
     }
     return clauses.join('; ');
   } catch (err) {

@@ -1,0 +1,115 @@
+diff --git a/docs/guides/microsoft-365-setup.md b/docs/guides/microsoft-365-setup.md
+--- a/docs/guides/microsoft-365-setup.md
++++ b/docs/guides/microsoft-365-setup.md
+@@ -54,7 +54,9 @@
+    > it is the one case that behaves differently.
+ 
+ 3. **Redirect URI:** select platform **Public client/native (mobile & desktop)** and enter
+-   `http://127.0.0.1:53682/callback`.
++   `http://127.0.0.1:53682/callback`. Copy it exactly — Microsoft matches this string character for
++   character, and it is the address RichOS listens on for the Microsoft sign-in. (The Google setup
++   uses a different port; they do not share one.)
+ 
+    > Plain `http` on `127.0.0.1` is correct and deliberate here: this is the standard desktop
+    > sign-in pattern, the address is your own machine, and the response never crosses a network. A
+@@ -120,25 +122,91 @@
+ 
+ ## Step 6 — Give RichOS the two IDs and authorize
+ 
+-> **Not wired yet.** The `workspace connect microsoft` command is the one remaining piece; the
+-> adapters, the transport, the Entra sign-in and the permission wiring underneath it are built and
+-> tested. This section is written so that the moment that command lands, the steps above are already
+-> done and nothing here changes.
++One command, with the two IDs from Step 3 and the address whose calendar, files and mail you want
++RichOS to read:
+ 
+-When it lands, it will be one command that takes the two IDs from Step 3, opens your browser once to
+-the Microsoft sign-in page, receives the response on `127.0.0.1`, and stores the result in your
+-Keychain. You will see a consent screen listing exactly the three read-only permissions from Step 5 —
+-**read it, and if it lists anything else, stop and say so.**
++```
++richos-service workspace connect microsoft \
++    --client-id <Application (client) ID> \
++    --tenant <Directory (tenant) ID> \
++    --account you@yourcompany.com \
++    --source calendar --source drive --source mail
++```
+ 
+-After that, `workspace status` will show what RichOS can see, and `workspace sync` will pull it.
++It opens your browser once at the Microsoft sign-in page, receives the response on `127.0.0.1`, and
++stores the result in your Keychain. **You will see a consent screen listing exactly the three
++read-only permissions from Step 5 — read it, and if it lists anything else, stop and say so.**
+ 
++Before the browser opens, RichOS prints what it is about to ask for and which directory it is asking
++in, so a mistyped tenant is something you catch here rather than after approving a screen:
++
++```
++account:    you@yourcompany.com
++client:     <your Application (client) ID>  (yours — RichOS ships no OAuth client of its own)
++tenant:     <your Directory (tenant) ID>  (your own directory — never "/common")
++requesting: 3 read-only scopes:
++            https://graph.microsoft.com/Calendars.Read   (Calendar)
++            https://graph.microsoft.com/Files.Read        (OneDrive)
++            https://graph.microsoft.com/Mail.ReadBasic    (Outlook)
++```
++
++Leave `--source` off and RichOS asks for whatever that account asked for last time — the first time,
++that is Calendar only. Naming the sources is how you widen or narrow it, and re-running the command
++for the same account re-consents rather than adding anything.
++
++**If RichOS reports `NOT CONNECTED` with an `AADSTS…` code about a client secret,** your registration
++is not actually a public client. That is Step 4 above, and it is one switch:
++**Entra → your app → Authentication → Advanced settings → "Allow public client flows" = Yes → Save**.
++Run the command again; you do not need to create a secret. The refusal prints those words too, so you
++do not have to come back here for them. (If your organization genuinely forbids public client flows,
++the refusal names the other way through, and RichOS keeps that secret in your Keychain and in no
++file.)
++
++After that, `workspace status microsoft` shows what RichOS can see, and
++`workspace sync microsoft --once` pulls it:
++
++```
++richos-service workspace status microsoft
++richos-service workspace sync microsoft --once
++```
++
++### More than one Microsoft 365 account
++
++Run the same command again with a different `--account`. It **adds** that account — its own consent
++screen, its own Keychain entry, its own sync position — and every account already connected is left
++exactly as it was; RichOS names them on a `keeping:` line before the browser opens so you can see
++that for yourself. The app registration and the tenant are shared, because they are your one app in
++your one directory.
++
++`status` and `sync` then cover every connected account unless you name one with `--account`.
++`disconnect` needs `--account` once two are connected, and will not pick one for you.
++
+ ---
+ 
+ ## Things worth knowing afterwards
+ 
++**What a sync prints.** Pulling is only half of it — the pull ends by promoting what it found into
++loro's memory, which is what makes it answerable later:
++
++```
++calendar:   observed 2, ingested 2, deduped 0
++evidence:   ~/RichOS/corpus/ceo/unfiled/evidence/workspace
++promoted:   2 events into memory, 2 people learned, 0 items held
++memory:     ~/RichOS/corpus
++```
++
++Anything held is listed with the reason it was held, never as a bare number. `--no-promote` pulls
++without promoting, for when you want to see what a sync would fetch and nothing else; it says so on
++the same line rather than quietly doing less.
++
+ **Where your tokens live.** In your Mac's Keychain, under `com.richos.workspace.microsoft`, encrypted
+ at rest by macOS — never in a file in any RichOS folder. You can see the entry in Keychain Access.
+ 
++**Where your two IDs live.** In `_oauth_client_microsoft.json` inside your corpus — your client ID,
++your tenant, the loopback redirect and the list of accounts you have connected, each with the
++permissions it asked for. Neither ID is a secret and there is no secret in that file. It is a separate
++file from the Google one, so connecting one vendor cannot disturb the other.
++
+ **How to disconnect.** `workspace disconnect microsoft` deletes those tokens, and from that moment
+ this machine cannot read anything of yours. It will also tell you, plainly, that **the consent record
+ in your Microsoft account is still there** — Microsoft gives an app no way to revoke its own

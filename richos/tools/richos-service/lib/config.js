@@ -645,11 +645,25 @@ export function workspaceSyncStatePath(zone = workspaceZone()) {
  * keychain with the tokens (client-secret.js), never here. This file does name the CEO's own address,
  * so it lives beside the sync state inside the zone, which `workspaceZone()` has already refused to
  * place inside the product repo.
+ *
+ * ONE FILE PER VENDOR (2026-09-17, P4). `_oauth_client.json` is Google's, unchanged; Microsoft's is
+ * `_oauth_client_microsoft.json` beside it and carries the Entra tenant as well. The CEO may have
+ * connected either vendor or both, and the two share no field — not the client id, not the redirect
+ * port, not the grant.
  */
-export function workspaceClientConfigPath(zone = workspaceZone()) {
-  return process.env.RICHOS_WORKSPACE_CLIENT_CONFIG
-    ? expand(process.env.RICHOS_WORKSPACE_CLIENT_CONFIG)
-    : path.join(zone, '_oauth_client.json');
+export function workspaceClientConfigPath(zone = workspaceZone(), vendor = 'google') {
+  const v = String(vendor || 'google').trim().toLowerCase();
+  // ONE FILE PER VENDOR, and the env override is per vendor too. Google's file and its variable keep
+  // the exact names and the exact behavior they had before Microsoft existed, so nothing already on
+  // disk moves: the second vendor is a NEW file beside the first, never a shared one. A single file
+  // could not hold both anyway — the client id is per OAuth app, and Entra needs a tenant Google has
+  // no field for — and a shared `RICHOS_WORKSPACE_CLIENT_CONFIG` would point two vendors at one
+  // document, which is how one vendor's connect silently overwrites the other's client.
+  const override = v === 'google'
+    ? process.env.RICHOS_WORKSPACE_CLIENT_CONFIG
+    : process.env[`RICHOS_WORKSPACE_CLIENT_CONFIG_${v.toUpperCase()}`];
+  if (override) return expand(override);
+  return path.join(zone, v === 'google' ? '_oauth_client.json' : `_oauth_client_${v}.json`);
 }
 
 /**
