@@ -811,6 +811,17 @@ module.exports = [
   { s: "Which entity is this work in?", c: "CONTROL", why: "Entity picker title over its list." },
   { s: "Search entities, threads and conversations…", c: "CONTROL", why: "#search-input placeholder." },
   { s: "Talk to Rich", c: "CONTROL", why: "#talk-toggle title." },
+  {
+    s: "Message to Rich",
+    c: "CONTROL",
+    why:
+      "#input's accessible name — candidate-.2 defect #7. The box had none and fell back to " +
+      "its PLACEHOLDER, which is state: it reads 'Send is off until I know the company' while " +
+      "a company block is up, so the control was renamed underneath a screen-reader user as " +
+      "the app changed condition. The name holds still now and the placeholder carries the " +
+      "state. Not 'Talk to Rich', which is #talk-toggle's name three rows up: two controls " +
+      "with one name is the thing a screen reader cannot tell apart.",
+  },
   { s: "Talk to Rich…", c: "CONTROL", why: "#input idle placeholder." },
   { s: "Add context or steer Rich…", c: "CONTROL", why: "#input working placeholder (§9.2)." },
   { s: "more threads in", c: "CONTROL", why: "'Show more' accessible name." },

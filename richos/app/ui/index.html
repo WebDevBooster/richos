@@ -560,8 +560,29 @@
                    description. It costs nothing while send is allowed: an `aria-describedby`
                    pointing at a `hidden` element contributes no description, and
                    `#composer-blocked` is hidden in every state but a block. -->
+              <!-- AND THE BOX ITSELF HAS A NAME (candidate-.2 defect #7, second half).
+                   The walk found it unnamed but exposing `AXPlaceholderValue = "Talk to
+                   Rich…"`. A placeholder IS a last-resort accessible name in HTML-AAM, so
+                   this was not quite nameless — it was worse than nameless in one specific
+                   way: the placeholder is STATE. It reads "Send is off until I know the
+                   company" while a company block is up, so the control's NAME changed with
+                   its condition, and a screen-reader user would hear the field renamed
+                   underneath them. `aria-label` is the name and does not move; the
+                   placeholder carries the state; `aria-describedby` carries the reason. One
+                   fact each.
+
+                   "Message to Rich" and not "Talk to Rich": the talk control eighteen lines
+                   above is already named "Talk to Rich" and this is the typed route to the
+                   same place. Two controls with one name is what a screen reader cannot
+                   tell apart, which is the defect one floor up from this one. -->
               <div id="input-shell" data-contrast-role="indicator">
-                <textarea id="input" rows="1" placeholder="Talk to Rich…" aria-describedby="composer-blocked"></textarea>
+                <textarea
+                  id="input"
+                  rows="1"
+                  placeholder="Talk to Rich…"
+                  aria-label="Message to Rich"
+                  aria-describedby="composer-blocked"
+                ></textarea>
               </div>
               <!-- §9.2: "a stop button replaces or sits beside send when the composer is
                    empty". Empty + working shows stop alone; words in the box show both, so
@@ -571,8 +592,23 @@
               <button id="stop" type="button" title="Stop" aria-label="Stop Rich" hidden>
                 <span class="stop-glyph" aria-hidden="true"></span>
               </button>
-              <button id="send" type="submit" title="Send">
-                <span class="send-glyph">▷</span>
+              <!-- IT HAS A NAME, AND THE NAME IS NOT THE SHAPE (candidate-.2 defect #7).
+                   Read live from the accessibility tree during the on-screen walk:
+                   `AXButton` with `AXTitle = "▷"` and an empty `AXDescription`; the word
+                   "Send" existed only as `AXHelp`, which is the tooltip. A screen-reader
+                   user heard a geometric shape where the primary affordance of the composer
+                   should be. WCAG 4.1.2.
+
+                   TWO HALVES, AND BOTH ARE NEEDED. `aria-label` supplies the name;
+                   `aria-hidden` on the glyph takes the shape out of the name computation, so
+                   the name cannot become "Send ▷" if the label is ever removed again. This
+                   is exactly the shape `#stop` beside it already had — "Stop Rich" plus an
+                   `aria-hidden` glyph — which is the control this was measured against.
+
+                   `title` STAYS, and it is not the name. It is the pointer tooltip, and the
+                   whole of this defect was a name that lived only there. -->
+              <button id="send" type="submit" title="Send" aria-label="Send">
+                <span class="send-glyph" aria-hidden="true">▷</span>
               </button>
             </form>
 
