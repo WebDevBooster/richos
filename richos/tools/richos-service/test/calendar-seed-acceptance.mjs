@@ -196,8 +196,11 @@ function noteFor({ row, expected, observed, members }) {
   if (expected === observed) return '';
   if (members && members.length > 1 && observed.endsWith('copies landed')) {
     return 'the cross-calendar merge did not collapse these copies — check that both came back with the '
-      + 'SAME iCalUID and the same start (`dedupKeyFor` keys on exactly that), and that both were seen '
-      + 'inside ONE poll (the merge is per-poll; the ledger dedups on id+etag, which two copies do not share).';
+      + 'SAME iCalUID and the same start (`dedupKeyFor` keys on exactly that, and the item carries it as '
+      + '`identityKey`), and that both belong to ONE account (the key is account-scoped, because one zone '
+      + 'holds every account\'s evidence). Since 2026-09-17 the merge no longer depends on the two copies '
+      + 'arriving in the same poll — the ingest ledger remembers the identity — so a poll boundary is no '
+      + 'longer an explanation for this row.';
   }
   if (expected === 'held' && observed === 'absent' && row.reason.startsWith('withdrawn')) {
     return 'a withdrawn event is only returned by `events.list` when `showDeleted=true` AND Google still '
