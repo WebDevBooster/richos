@@ -138,8 +138,13 @@ def checkpoint(store: EventStore, request: dict, *, session: str, turn: str,
     payload["outcomes"] = [dict(index=i, verb=o.statement.verb, status=o.status,
                                 record_id=o.record_id, detail=safe_detail(o.detail))
                            for i, o in enumerate(outcomes, 1)]
+    # turn.checkpointed is conversational too, and _on_turn_checkpointed compares
+    # the receipt's session and turn against the fenced row -- the row belonging to
+    # the EVENT's person. Left to default, a thread seat's receipt was checked
+    # against ceo-default's session and turn, which is another thread's.
     store.append("turn.checkpointed", entity_id=context["entity_id"],
                  thread_id=context["thread_id"], session_id=session,
+                 person_id=context["person_id"],
                  source_ref=scope.source_ref, idempotency_key=key,
                  active_context_revision=revision, payload=payload,
                  actor_kind="extractor", actor_id="ecs-structured-checkpoint-v1")
