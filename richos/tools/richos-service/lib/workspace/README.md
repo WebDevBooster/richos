@@ -228,8 +228,16 @@ calendar:   observed 2, ingested 2, deduped 0
             candidates: 2 event, 2 commitment, 4 entity
 evidence:   ~/RichOS/corpus/ceo/unfiled/evidence/workspace
 promoted:   2 events into memory, 2 people learned, 0 items held
+superseded: 1 of those replaced an earlier revision — the event changed at the source (the earlier record is retired, never overwritten)
 memory:     ~/RichOS/corpus
 ```
+
+**An event that CHANGED at the source** — rescheduled, renamed, or one attendee heavier — is
+re-ingested as a new record that **supersedes** its predecessor: the earlier belief stays on disk,
+stamped with what replaced it, and the run reports `superseded: N` beside promoted and held. That is
+the ordinary life of a calendar, so it is never a failure and never a non-zero exit; the older
+revisions still in the (immutable, cumulative) evidence zone are recognized as already promoted and
+offered to the writer exactly once each.
 
 Every hold is reported **by cause** (`held: 3 x already promoted (unchanged revision)`), never as a
 bare number, and a write that fails is a `FAILED:` line and exit `2` — the same exit code a failed
