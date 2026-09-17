@@ -66,8 +66,9 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 350 tests**
-(`npm run -s test:workspace` → `350 passed, 0 failed`, measured 2026-09-17)**:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 354 tests**
+(`npm run -s test:workspace` → `354 passed, 0 failed`, measured 2026-09-17, after Calendar widened
+to `calendar.readonly` §44)**:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
@@ -187,8 +188,9 @@ source whose scope is not in the grant is **skipped and named**, with the scope 
 sync that quietly covers less than the CEO believes is the failure this layer exists to prevent. A
 source that can run under more than one grant takes the widest the token carries: Drive reads
 document text under `drive.readonly` and falls back to metadata under the older
-`drive.metadata.readonly`, reporting that as `LIMITED` on **every** pull, since the counts look
-identical either way.
+`drive.metadata.readonly`; Calendar reads every calendar under `calendar.readonly` (§44) and falls
+back to the primary calendar only under the older `calendar.events.readonly`. Either fallback reports
+as `LIMITED` on **every** pull, since the counts look identical either way.
 
 Three disciplines are enforced by tests rather than asserted here: **no token and no client secret is
 ever printed** (with positive controls proving the keychain does hold both and that the same check
@@ -448,8 +450,9 @@ npm run test:workspace     # this layer (mocked Google + Microsoft APIs)
 npm test                   # transcription + workspace suites
 ```
 
-`npm run -s test:workspace` → **350 passed, 0 failed** (2026-09-17, after the multi-calendar sync
-change added above; 62 of them Microsoft, including the ten that drive `connect/status/sync/
+`npm run -s test:workspace` → **354 passed, 0 failed** (2026-09-17, after the multi-calendar sync
+change and the Calendar scope widening to `calendar.readonly` (§44) added above; 62 of them Microsoft,
+including the ten that drive `connect/status/sync/
 disconnect microsoft` end to end against a mocked Entra token endpoint). No live Microsoft call is
 made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
 been mutation-probed — neutered in turn, with the suite confirmed red each time and green after
@@ -477,12 +480,20 @@ own `sourceInstanceId`, its own cursor, no discovery call — for a caller that 
 purpose. `calendarIds` (a list) syncs exactly that set without a discovery call, which is also the
 fallback when `calendarList.list` is unavailable: it needs a broader Google scope than
 `calendar.events.readonly` grants (`calendarList.list` needs `calendar.readonly`, `calendar`,
-`calendar.calendarlist` or `calendar.calendarlist.readonly` — Google's own method reference), so
-under the scope this adapter is pinned to today, discovery fails with 403 on every account and the
-adapter reports itself DEGRADED and falls back to `primary` only, rather than either silently
-covering one calendar or silently widening the scope (a re-consent decision, not this adapter's to
-make). The Microsoft counterpart has no such gap: `Calendars.Read` genuinely covers `GET
-/me/calendars`, so its discovery runs for real.
+`calendar.calendarlist` or `calendar.calendarlist.readonly` — Google's own method reference).
+
+**Widened to `calendar.readonly` so every calendar syncs (2026-09-17, §44).** Asked "read events" vs
+"read calendars, so every calendar syncs", the CEO said **yes** to the wider one
+(`richos-hq/wiki/ceo-decisions.md` §44), so `config.js` now pins `GOOGLE_SCOPES.calendar` to
+`calendar.readonly` — one of the four scopes discovery accepts — and `calendarList.list` succeeds for
+an account that has re-consented. The adapter's own code is unchanged by which grant is live: it
+always attempts discovery, and it is Google's 403 that confines an account still holding the older
+`calendar.events.readonly` grant to `primary` only, reported as `degraded`
+(`CALENDAR_LIST_DEGRADED_REASON`) rather than silently masked — the same consent-gated, not
+code-gated, shape §40 set for Drive. `registry.js` reports the same fact before the first poll even
+runs, so `workspace status`/`connect` say `LIMITED — … re-consent …` for such an account too. The
+Microsoft counterpart has no such gap: `Calendars.Read` genuinely covers `GET /me/calendars`, so its
+discovery has always run for real.
 
 In multi-calendar mode the adapter's `sourceInstanceId` identifies the **account**, not a calendar —
 one `ingestOnce` pass, one cursor entry, holding a cursor **map** keyed by calendar id rather than a
