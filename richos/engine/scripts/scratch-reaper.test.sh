@@ -11,8 +11,8 @@
 #
 #     WHEN IT IS WRONG, IS IT WRONG IN THE DIRECTION THAT COSTS NOTHING?
 #
-# The liveness cases use a REAL PROCESS NAMED `claude` — /bin/sleep started as
-# `exec -a claude` — with a REAL entry in the process table and a REAL session
+# The liveness cases use a REAL SESSION PROCESS — /bin/sleep started as
+# `exec -a "$SUITE_PROC"` — with a REAL entry in the process table and a REAL session
 # file naming its pid and its start time. Nothing about liveness is faked or
 # injected, because the defect this suite exists to catch is a liveness check
 # that has quietly stopped working, and a faked process table cannot catch it.
@@ -71,10 +71,22 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 echo "=== scratch-reaper tests ==="
 
 # ---------------------------------------------------------------------------
-# A REAL PROCESS CALLED claude — `exec -a claude /bin/sleep`. It is /bin/sleep,
-# it is in the process table as `claude`, it has a genuine start time, and it
-# can be killed to make a genuinely dead one. The reaper reads it with the same
-# ps call it uses in production, and cannot tell it from a session.
+# THE PROCESS NAME IS UNIQUE TO THIS RUN, and that is what makes this suite
+# hermetic. The reaper reads the MACHINE-WIDE process table, which is shared
+# state: the mutation harness runs eight copies of this suite at once, each
+# starting session processes of its own, and under the shared name `claude`
+# every run saw the others' processes as unattributed and correctly answered
+# INDETERMINATE for everything. Three mutants then scored green against a
+# reaper that was deleting nothing — the exact green-for-the-wrong-reason this
+# suite exists to refuse, arriving through the suite itself.
+#
+# SCRATCH_SESSION_PROCESS_NAMES is declared per world, so the shipped code path
+# is byte-for-byte the production one and only this run's processes are in it.
+#
+# A REAL PROCESS — `exec -a "$SUITE_PROC" /bin/sleep`. It is /bin/sleep,
+# it is in the process table under that name, it has a genuine start time, and
+# it can be killed to make a genuinely dead one. The reaper reads it with the
+# same ps call it uses in production and cannot tell it from a session.
 #
 # TWO EARLIER SHAPES WERE MEASURED AND BOTH LIED:
 #   * `cp /bin/sleep $sandbox/claude` — macOS SIGKILLs the copy of a signed
@@ -85,9 +97,10 @@ echo "=== scratch-reaper tests ==="
 #     away with it. The pid came back; the bookkeeping did not.
 # The pid is therefore returned in a variable set by the CURRENT shell.
 # ---------------------------------------------------------------------------
+SUITE_PROC="zsr${$}claude"
 LAST_CLAUDE=""
 start_claude() {           # -> LAST_CLAUDE
-    ( exec -a claude /bin/sleep 600 ) >/dev/null 2>&1 &
+    ( exec -a "$SUITE_PROC" /bin/sleep 600 ) >/dev/null 2>&1 &
     LAST_CLAUDE=$!
     KILL_LIST="$KILL_LIST $LAST_CLAUDE"
 }
@@ -111,17 +124,16 @@ PY
 # shipped script sources its declarations from a file and a test that bypassed
 # that would not be testing the shipped path.
 # ---------------------------------------------------------------------------
-# EVERY claude PROCESS ALREADY RUNNING ON THIS MACHINE IS REGISTERED IN THE
-# SANDBOX, with a filler session id. Without this the operator's own live
-# session is an unattributed process, every sandbox directory is correctly
-# INDETERMINATE, and the suite silently stops testing anything — which is what
-# it did on the first run. Attributing them reproduces the real machine, where
-# a running session IS named by a session file, and leaves the suite testing
-# only the processes it starts itself.
+# EVERY SESSION PROCESS THIS SUITE HAS ALREADY STARTED IS REGISTERED IN EACH
+# NEW WORLD, with a filler session id: an earlier case's process is still
+# running, and an unregistered running process is a correct INDETERMINATE and a
+# suite that has stopped testing anything. Measured on the first run, where the
+# operator's own live session did exactly that to all 22 cases.
 attribute_running_claudes() {   # <sessions-dir>
     local sd="$1" pid i=0
     for pid in $(LC_ALL=C LANG=C TZ=UTC0 ps -Ao pid=,comm= \
-                 | awk '{ n=split($2, p, "/"); if (p[n] == "claude") print $1 }'); do
+                 | awk -v want="$SUITE_PROC" \
+                       '{ n=split($2, p, "/"); if (p[n] == want) print $1 }'); do
         i=$((i + 1))
         register "$sd" "$pid" "$(printf 'f0000000-0000-0000-0000-%012d' "$i")"
     done
@@ -138,7 +150,7 @@ world() {                  # <name> -> exports W_*
     mkdir -p "$W_SCRATCH" "$W_SESSIONS" "$W_HOME/state" "$W_TMP" "$W_NIGHTLY"
     {
         echo 'SCRATCH_REAPER_ENABLE="1"'
-        echo 'SCRATCH_SESSION_PROCESS_NAMES="claude"'
+        echo "SCRATCH_SESSION_PROCESS_NAMES=\"$SUITE_PROC\""
         echo "SCRATCH_CLAUDE_ROOTS=\"$W_SCRATCH\""
         echo 'SCRATCH_TMP_PATTERNS="richos-*-workspace"'
         echo 'SCRATCH_AGE_FLOOR_MINUTES="0"'
@@ -409,7 +421,7 @@ if command -v lsof >/dev/null 2>&1; then
     # that ends up SITTING IN the directory. Backgrounding inside the subshell
     # instead leaves the child orphaned the moment the subshell exits, and it
     # was measured dying before lsof ever saw it.
-    ( cd "$W_TMP/richos-held-workspace" && exec -a claude /bin/sleep 600 ) >/dev/null 2>&1 &
+    ( cd "$W_TMP/richos-held-workspace" && exec -a "$SUITE_PROC" /bin/sleep 600 ) >/dev/null 2>&1 &
     HELD=$!
     KILL_LIST="$KILL_LIST $HELD"
     sleep 1
@@ -426,6 +438,7 @@ if command -v lsof >/dev/null 2>&1; then
         bad "S10b a held workspace was deleted out from under a process"
     fi
     kill "$HELD" >/dev/null 2>&1 || true
+    wait "$HELD" >/dev/null 2>&1 || true
 else
     ok "S10  SKIPPED — lsof is not on this host, and without it the reaper is
         required to answer INDETERMINATE rather than delete"
@@ -434,6 +447,28 @@ else
         *"lsof could not answer"*) ok "S10b no lsof means INDETERMINATE, not deletion" ;;
         *) bad "S10b without lsof the temp-workspace class did not say so" ;;
     esac
+fi
+
+# --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
+# run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and
+# eight harnesses in this engine were once run by nothing at all. It matters
+# more here than usual: MOST OF THE CASES ABOVE ARE THINGS THAT MUST NOT
+# HAPPEN, and every one of them passes against a reaper that deletes nothing.
+# The harness is what proves they are not passing for that reason.
+#
+# ITS FAILURE IS THIS SUITE'S FAILURE, and a MISSING harness is a failure and
+# never a skip. RICHOS_MUTATION_INNER is the only thing between this and an
+# infinite regress — the harness exports it before running any copy of this
+# suite, so never remove one half without the other.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
+    echo ""
+    echo "=== running the mutation harness: scratch-reaper.mutation.sh ==="
+    if [ -x "$SCRIPT_DIR/scratch-reaper.mutation.sh" ]; then
+        "$SCRIPT_DIR/scratch-reaper.mutation.sh" || FAIL=$((FAIL + 1))
+    else
+        echo "  FAIL  MUT. scratch-reaper.mutation.sh is missing or not executable — IT DID NOT RUN"
+        FAIL=$((FAIL + 1))
+    fi
 fi
 
 echo ""

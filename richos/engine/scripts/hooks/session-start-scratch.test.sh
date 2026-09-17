@@ -66,7 +66,7 @@ mkdir -p "$SCRATCH" "$SESSIONS" "$HOME_DIR/state" "$LAUNCHD" "$NIGHTLY" "$TMPD"
 write_config() {           # <notice-bytes>
     {
         echo 'SCRATCH_REAPER_ENABLE="1"'
-        echo 'SCRATCH_SESSION_PROCESS_NAMES="claude"'
+        echo "SCRATCH_SESSION_PROCESS_NAMES=\"$SUITE_PROC\""
         echo "SCRATCH_CLAUDE_ROOTS=\"$SCRATCH\""
         echo 'SCRATCH_TMP_PATTERNS="richos-*-workspace"'
         echo 'SCRATCH_AGE_FLOOR_MINUTES="0"'
@@ -78,14 +78,18 @@ write_config() {           # <notice-bytes>
     } >"$CFG"
 }
 
-# EVERY RUNNING claude IS ATTRIBUTED in this sandbox, for the reason
-# scratch-reaper.test.sh gives at length: the operator's own live session is
-# otherwise an unattributed process and every verdict becomes correctly
-# undecidable, which would make this suite assert nothing.
+# THE SESSION PROCESS NAME IS UNIQUE TO THIS RUN, and nothing on the machine
+# carries it — so the reaper sees an empty set of session processes and every
+# dead scratch directory in the sandbox is decidable. This suite tests the
+# NOTICE, not liveness; scratch-reaper.test.sh owns liveness and explains at
+# length why a shared name makes both suites read the whole machine's process
+# table and assert nothing.
+SUITE_PROC="zsn${$}claude"
 attribute() {
     local pid i=0 start
     for pid in $(LC_ALL=C LANG=C TZ=UTC0 ps -Ao pid=,comm= \
-                 | awk '{ n=split($2, p, "/"); if (p[n] == "claude") print $1 }'); do
+                 | awk -v want="$SUITE_PROC" \
+                       '{ n=split($2, p, "/"); if (p[n] == want) print $1 }'); do
         i=$((i + 1))
         start="$(LC_ALL=C LANG=C TZ=UTC0 ps -o lstart= -p "$pid" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
         python3 - "$SESSIONS/$pid.json" "$pid" "$i" "$start" <<'PY'
