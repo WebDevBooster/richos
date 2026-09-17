@@ -854,10 +854,14 @@ impl PartFile {
 
     /// The transfer stopped early. The prefix is KEPT so the next attempt resumes.
     ///
+    /// **RETURNS A `Finding`, NOT AN `Outcome`**, because an interruption has exactly one shape
+    /// and a signature that admits a success the caller must then rule out is a signature that
+    /// invites the caller to forget.
+    ///
     /// Deliberately NOT a verification path: an interrupted transfer has nothing to verify, and
     /// running the whole-file hash over a known-partial file would burn a second per 500 MB to
     /// learn what the byte count already said.
-    pub fn interrupted(self, detail: &str) -> Outcome {
+    pub fn interrupted(self, detail: &str) -> Finding {
         let got = self.received;
         drop(self.file);
         // A prefix that does not start like a model is not worth keeping: the next attempt would
@@ -867,12 +871,10 @@ impl PartFile {
         if !keepable {
             let _ = fs::remove_file(&self.part);
         }
-        Outcome::Failed {
-            finding: Finding {
-                detail: Some(detail.to_string()),
-                resumable: keepable,
-                ..Finding::counts(Failure::Short, got, self.pin.bytes)
-            },
+        Finding {
+            detail: Some(detail.to_string()),
+            resumable: keepable,
+            ..Finding::counts(Failure::Short, got, self.pin.bytes)
         }
     }
 
@@ -921,6 +923,64 @@ impl PartFile {
         }
         Outcome::Installed { path: dest, bytes, sha256: sha, resumed_from }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The event the webview renders. The CONTRACT lives here, with the rules it reports on.
+// ---------------------------------------------------------------------------------------------
+
+/// Progress and outcome of getting the speech model. `rich://` name and camelCase payload, the
+/// convention `event.rs` established and `richos-core`'s `stream.rs` established before it.
+pub const EVENT_VOICE_MODEL: &str = "rich://voice-model";
+
+/// Where a model install has got to.
+///
+/// `Verifying` IS ITS OWN PHASE and is not cosmetic. Hashing 487,614,201 bytes takes 0.93–0.95 s
+/// on the reference M4 (`toolchain.rs` measured it), and a progress bar that sits at 100% for a
+/// second with no explanation is the moment a person decides the app has hung. It is also the
+/// truth: the transfer IS finished and the check is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPhase {
+    Started,
+    Progress,
+    Verifying,
+    Installed,
+    Failed,
+}
+
+impl ModelPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelPhase::Started => "started",
+            ModelPhase::Progress => "progress",
+            ModelPhase::Verifying => "verifying",
+            ModelPhase::Installed => "installed",
+            ModelPhase::Failed => "failed",
+        }
+    }
+}
+
+/// The payload the webview reads. Numbers stay numbers — a UI that has to parse a string to draw
+/// a progress bar is a UI that draws the wrong bar the day the format changes.
+pub fn model_event_payload(
+    phase: ModelPhase,
+    model_id: &str,
+    received: u64,
+    total: u64,
+    message: Option<&str>,
+    retryable: bool,
+    at: u64,
+) -> Value {
+    serde_json::json!({
+        "phase": phase.as_str(),
+        "modelId": model_id,
+        "received": received,
+        "total": total,
+        "totalLabel": human(total),
+        "message": message,
+        "retryable": retryable,
+        "at": at,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1003,4 +1063,67 @@ fn expand_tilde(p: &str) -> String {
         }
     }
     p.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// INVARIANT: the payload keys are camelCase and are the ones `app/ui/main.js` reads.
+    #[test]
+    fn the_model_event_payload_keys_are_the_ones_the_webview_reads() {
+        let p = model_event_payload(ModelPhase::Progress, "small.en", 1_000, 487_614_201, None, false, 7);
+        assert_eq!(p["phase"], "progress");
+        assert_eq!(p["modelId"], "small.en");
+        assert_eq!(p["received"].as_u64(), Some(1_000));
+        assert_eq!(p["total"].as_u64(), Some(487_614_201));
+        assert_eq!(p["totalLabel"], "487.6 MB");
+        assert!(p["message"].is_null());
+        assert_eq!(p["at"].as_u64(), Some(7));
+    }
+
+    /// INVARIANT: the event name is stable — it is a published contract.
+    #[test]
+    fn the_model_event_name_is_stable() {
+        assert_eq!(EVENT_VOICE_MODEL, "rich://voice-model");
+    }
+
+    /// INVARIANT: a failure carries BOTH the sentence and whether asking again could help, so the
+    /// UI never has to guess which failures deserve a control.
+    #[test]
+    fn a_failed_phase_says_whether_asking_again_could_possibly_help() {
+        let dropped = Finding { resumable: true, ..Finding::counts(Failure::Short, 10, 100) };
+        let p = model_event_payload(
+            ModelPhase::Failed,
+            "small.en",
+            10,
+            100,
+            Some(&dropped.ceo_sentence()),
+            dropped.retryable(),
+            1,
+        );
+        assert_eq!(p["phase"], "failed");
+        assert_eq!(p["retryable"], true);
+
+        let tampered = Finding::hashes(Failure::HashMismatch, "aa", "bb");
+        let p = model_event_payload(ModelPhase::Failed, "small.en", 100, 100, Some("x"), tampered.retryable(), 1);
+        assert_eq!(p["retryable"], false, "a corrupted download is never offered a retry loop");
+    }
+
+    /// The five phases are distinct strings. Two phases sharing a name is a UI that cannot tell
+    /// "still downloading" from "finished and checking".
+    #[test]
+    fn every_phase_has_its_own_name() {
+        let all = [
+            ModelPhase::Started,
+            ModelPhase::Progress,
+            ModelPhase::Verifying,
+            ModelPhase::Installed,
+            ModelPhase::Failed,
+        ];
+        let mut names: Vec<&str> = all.iter().map(|p| p.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), all.len());
+    }
 }

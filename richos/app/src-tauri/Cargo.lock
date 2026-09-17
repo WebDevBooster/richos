@@ -2819,10 +2819,13 @@ name = "richos-tauri"
 version = "1.2.0"
 dependencies = [
  "base64 0.22.1",
+ "futures-util",
  "minisign-verify",
+ "reqwest",
  "richos-core",
  "richos-user-update",
  "richos-voice",
+ "rustls",
  "semver",
  "serde",
  "serde_json",

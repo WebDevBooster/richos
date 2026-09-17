@@ -100,7 +100,7 @@ fn drive(pin: &Pin, dir: &Path, chunks: &[Vec<u8>], die_after: Option<usize>) ->
     for (i, c) in chunks.iter().enumerate() {
         f.write(c).expect("write chunk");
         if die_after == Some(i + 1) {
-            return f.interrupted("the connection dropped");
+            return Outcome::Failed { finding: f.interrupted("the connection dropped") };
         }
     }
     f.finish()

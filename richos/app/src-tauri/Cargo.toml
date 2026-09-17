@@ -72,6 +72,30 @@ tauri-plugin-updater = "2.11.0"
 # via tauri 2.x. Named here because a file that calls `tokio::time::sleep` while depending
 # on it only transitively breaks the day tauri changes runtimes.
 tokio = { version = "1", features = ["time"] }
+# THE SPEECH-MODEL DOWNLOAD (src/voice_provision.rs).
+#
+# NO NEW CRATE, AND THE FEATURE LIST IS WHY IT IS SPELLED OUT RATHER THAN LEFT TO A DEFAULT.
+# `tauri-plugin-updater` already depends on `reqwest 0.13` with `default-features = false` and
+# exactly `["json", "stream"]`, and its own default feature set adds `reqwest/rustls-no-provider`
+# and `reqwest/system-proxy`. Cargo unifies features across the graph, so every feature named
+# below is ALREADY enabled in this binary today. Naming a feature the plugin does not enable
+# (`http2`, `rustls`) would pull `h2` or `aws-lc-rs` — and `aws-lc-rs` needs a C toolchain the
+# build does not have — which is exactly the kind of inherited default the CEO's standing rule
+# refuses. The proof is the Cargo.lock diff for this commit: it adds no [[package]] entry.
+reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls-no-provider"] }
+# `StreamExt::next` over the response byte stream, and nothing else. Already in the lock.
+futures-util = { version = "0.3", default-features = false }
+# THE TLS CRYPTO PROVIDER, INSTALLED BY US RATHER THAN HOPED FOR.
+#
+# `reqwest/rustls-no-provider` means reqwest picks no cipher implementation: a process-level
+# provider must be installed before a client is built, or the build fails. Today the only code
+# in this binary that installs one is `tauri-plugin-updater-2.11.0/src/updater.rs:492-494`, and
+# it does so lazily, inside the update check. So a model download that happens before the app has
+# ever checked for an update would find no provider at all — a dependency on the ORDER two
+# unrelated features run in, which is a defect waiting for the one first run that hits it.
+# `voice_provision.rs` therefore installs the same `ring` provider itself, idempotently, before
+# building its client. Already in the lock at 0.23.43 beneath the updater plugin.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 # `examples/verify_update_signature.rs` — the pre-publication check that a produced
