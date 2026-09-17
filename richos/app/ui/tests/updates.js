@@ -1079,6 +1079,94 @@ async function main() {
     return "unchecked clause printed verbatim; 3 days -> said; 1 hour -> silent";
   });
 
+  // ---- 18. THE VERSION ON SCREEN IS THE RUNNING BUILD'S, AND NOTHING ELSE ---------------
+  //
+  // CEO, 2026-09-17, item 4 of his v1.0.2 list, verbatim:
+  //
+  //     "The RichOS app is currently lying about the current version saying "RichOS 1.0.3 is
+  //      up to date." even though the current version is 1.0.2. Make sure the app always
+  //      displays the correct version."
+  //
+  // WHERE 1.0.3 CAME FROM, measured rather than guessed, because the fix depends on it. The
+  // bundle he was running IS 1.0.3: `~/Applications/RichOS.app/Contents/Info.plist` reports
+  // `CFBundleShortVersionString = 1.0.3` and the bundle is dated 2026-09-08 12:01. That number
+  // entered the tree at 7bd1e727 (2026-09-07, "prepare version 1.0.3"), which bumped
+  // `app/src-tauri/Cargo.toml` from 1.0.2 to 1.0.3 as the NEXT UNRELEASED stable version — the
+  // convention `scripts/nightly.py` enforces in as many words ("Cargo.toml must contain the
+  // next unreleased stable version"). No `v1.0.3` tag and no 1.0.3 release ever existed
+  // (`git tag -l 'v1.0.*'` -> v1.0.0, v1.0.1, v1.0.2), and main moved on to 1.2.0 at d9cd1b6c.
+  // So he was handed a build stamped with a version reserved for a release that never
+  // happened, and the updater — comparing it against a manifest whose newest is 1.0.2 —
+  // correctly found nothing newer and said so.
+  //
+  // THIS SURFACE WAS NOT THE LIAR, AND THAT IS PRECISELY WHY IT IS PINNED HERE. The number it
+  // printed was the running build's own, which is the only number it may ever print. This
+  // check is what keeps that true: drive the up-to-date headline from a `currentVersion` and
+  // assert the sentence contains THAT string and no other version-shaped token — never the
+  // manifest's, never a constant, never a blank where a version should be.
+  await run.check("18. the version on screen is the running build's, and only that", async () => {
+    const page = await openApp(browser);
+    await settled(page);
+    await openMenu(page);
+    // Including his own case, so the regression has his number in it.
+    for (const running of ["1.0.3", "1.0.2", "1.2.0-nightly.20260917.1", "0.1.0"]) {
+      await setState(
+        page,
+        view({
+          state: "upToDate",
+          currentVersion: running,
+          // A manifest version sitting in the same payload. If the headline ever reaches for
+          // it instead, this is the check that says so.
+          availableVersion: "9.9.9",
+          checkedAt: Date.now(),
+          endpointIsPlaceholder: false,
+          endpoint: "https://u.example.com/x",
+        })
+      );
+      const row = await readRow(page);
+      assertEqual(
+        row.headline,
+        "RichOS " + running + " is up to date.",
+        "the up-to-date headline is the running version and the sentence, nothing else"
+      );
+      const versions = (row.headline.match(/\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/g) || []);
+      assertEqual(versions, [running], "a second version reached the headline: " + row.headline);
+      // ...and the same number, unaltered, in every other state that names the running build.
+      for (const state of ["idle", "checking", "unconfigured"]) {
+        await setState(page, view({ state, currentVersion: running }));
+        const other = await readRow(page);
+        assert(
+          other.headline.indexOf("RichOS " + running) === 0,
+          state + " renamed the running build: " + other.headline
+        );
+      }
+    }
+    // AND THERE IS EXACTLY ONE PLACE IT COMES FROM. `updates.rs` sets `current_version` once,
+    // at `init`, from `app.package_info().version`; nothing in the check/download/install path
+    // writes it again, so a manifest can never rename the build the CEO is running. Read off
+    // the Rust rather than trusted: a second assignment appearing here fails this check.
+    // COMMENTS STRIPPED FIRST, which `setup.js` case 14 learned the hard way and this check
+    // then repeated within the hour: the note above the test in `updates.rs` quotes the shape
+    // it forbids (`x.current_version = ...`), so a naive scan matches the explanation and
+    // reports the defect it exists to prevent.
+    const writes = UPDATES_RS.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => !line.startsWith("//"))
+      .filter((line) => /\bcurrent_version\s*=[^=]/.test(line) && !line.includes("assert"));
+    assertEqual(
+      writes.length,
+      0,
+      "`current_version` is assigned after construction in updates.rs, so the running build " +
+        "can be renamed by something other than the bundle it is"
+    );
+    assert(
+      /let version = app\.package_info\(\)\.version\.to_string\(\);/.test(UPDATES_RS),
+      "the running version no longer comes from the package the bundle was built as"
+    );
+    await page.close();
+    return "four versions, five states each, one source in the Rust and no second writer";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);

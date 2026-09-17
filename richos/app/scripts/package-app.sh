@@ -234,6 +234,7 @@ warn() { printf '%s\n' "$*" >&2; }
 BUNDLE_CDHASH=""
 BUNDLE_MIC=""
 BUNDLE_DR=""
+BUNDLE_VERSION=""
 
 # ---------------------------------------------------------------------------
 # Verification of a finished bundle. Shared by the build path and --verify-only,
@@ -382,6 +383,54 @@ verify_bundle() {
     failures+=("Contents/Info.plist has no NSMicrophoneUsageDescription — voice mode cannot even ask for the microphone")
   fi
 
+  # 5. THE VERSION THIS BUNDLE WILL CALL ITSELF, and whether any release is that version.
+  #
+  # CEO, 2026-09-17, item 4: *"The RichOS app is currently lying about the current version
+  # saying "RichOS 1.0.3 is up to date." even though the current version is 1.0.2. Make sure
+  # the app always displays the correct version."*
+  #
+  # WHAT ACTUALLY HAPPENED, and it is why this check reports rather than refuses. The bundle
+  # he was running IS 1.0.3 — `~/Applications/RichOS.app/Contents/Info.plist` reports
+  # CFBundleShortVersionString = 1.0.3, dated 2026-09-08 12:01 — and `updates.rs` printed
+  # that number honestly, because `app.package_info().version` is exactly what the bundle was
+  # compiled as. The number entered the tree at 7bd1e727 (2026-09-07, "prepare version
+  # 1.0.3"), which set Cargo.toml to the NEXT UNRELEASED stable version, the convention
+  # `nightly.py` states in as many words. No v1.0.3 tag and no 1.0.3 release ever existed;
+  # main went on to 1.2.0 at d9cd1b6c. So a development build was stamped with a version
+  # reserved for a release that never happened, handed to him, and had no way to say so.
+  #
+  # THIS IS THE MOMENT THAT FACT IS KNOWABLE, so it is the moment it is said. A REFUSAL would
+  # be wrong here and the reason is exact: `make-release.sh` builds the bundle BEFORE it
+  # creates `v$VERSION` ("$TAG does not exist locally yet — create it on THIS commit"), so
+  # every genuine release build runs with no tag either. What separates the two cases is
+  # intent, which this script cannot read; what it can do is print the version, print whether
+  # a release of that version exists, and leave neither to be discovered on the CEO's Mac.
+  local short_version
+  short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+                     "$app/Contents/Info.plist" 2>/dev/null || true)"
+  if [ -z "$short_version" ]; then
+    failures+=("Contents/Info.plist has no CFBundleShortVersionString — this bundle cannot tell anyone which version it is, and the settings menu would render \"RichOS \" with nothing after it")
+  else
+    BUNDLE_VERSION="$short_version"
+    # The version this run INTENDED. Cargo.toml is the only copy (`make-release.sh` refuses a
+    # `version` key in tauri.conf.json for exactly that reason) — except for the one caller
+    # that overrides it on purpose: `updater-e2e.sh` builds 0.1.0 and 0.1.1 from one tree
+    # through RICHOS_EXTRA_TAURI_CONFIG, and both of those bundles are correct.
+    local intended
+    intended="$(sed -n 's/^version = "\(.*\)"/\1/p' "$src_tauri/Cargo.toml" 2>/dev/null | head -1 || true)"
+    if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
+      local overridden
+      overridden="$(printf '%s' "$RICHOS_EXTRA_TAURI_CONFIG" \
+        | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("version") or "")
+except Exception: print("")' 2>/dev/null || true)"
+      [ -n "$overridden" ] && intended="$overridden"
+    fi
+    if [ -n "$intended" ] && [ "$short_version" != "$intended" ]; then
+      failures+=("the bundle says it is $short_version and this build intended $intended. A manifest announcing one version over a bundle that is another is how an installed copy reports a version nobody shipped — the first version of the updater artifact line hit exactly this and announced 0.1.0 over a 0.1.1 bundle.")
+    fi
+  fi
+
   if [ ${#failures[@]} -gt 0 ]; then
     warn ""
     warn "FAILED — the bundle is not shippable:"
@@ -398,6 +447,40 @@ verify_bundle() {
 }
 
 # ---------------------------------------------------------------------------
+# WHAT THIS BUNDLE WILL TELL THE CEO IT IS, said out loud at the moment it is
+# knowable. Called from both exits of this script, so the build path and
+# --verify-only cannot drift into saying different things.
+#
+# It states a fact and draws no conclusion, because the fact has two innocent
+# readings and one bad one, and only the person running it knows which:
+#
+#   a release of this version exists    -> this is that release, or a rebuild of it
+#   it does not, and this IS a release  -> normal: make-release.sh tags AFTER it builds
+#   it does not, and this is not        -> the 2026-09-08 bundle. A build stamped with
+#                                          a version reserved for a release that never
+#                                          happened, telling him "RichOS 1.0.3 is up to
+#                                          date" about a number nobody ever shipped.
+# ---------------------------------------------------------------------------
+say_version_identity() {
+  [ -n "$BUNDLE_VERSION" ] || return 0
+  say ""
+  say "  version         : $BUNDLE_VERSION   (app/src-tauri/Cargo.toml, the only copy)"
+  local tagged=""
+  if command -v git >/dev/null 2>&1; then
+    tagged="$(git -C "$src_tauri" rev-parse -q --verify "refs/tags/v$BUNDLE_VERSION^{commit}" 2>/dev/null || true)"
+  fi
+  if [ -n "$tagged" ]; then
+    say "                    v$BUNDLE_VERSION is a release in this repository ($tagged)."
+  else
+    say "                    NO v$BUNDLE_VERSION RELEASE EXISTS in this repository. This bundle"
+    say "                    will tell the CEO it is \"RichOS $BUNDLE_VERSION\". That is expected"
+    say "                    while MAKING that release — make-release.sh tags after it builds —"
+    say "                    and it means a development build stamped with an unreleased number"
+    say "                    at any other time. Do not hand this copy to him as a release."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # --verify-only: re-check a bundle built earlier, no compile.
 # ---------------------------------------------------------------------------
 if [ -n "$verify_only" ]; then
@@ -407,8 +490,9 @@ if [ -n "$verify_only" ]; then
   if ! verify_bundle "$verify_only" "$sign_mode" "$expect_notarized"; then
     exit 1
   fi
+  say_version_identity
   say ""
-  say "OK: $(basename "$verify_only") verifies — ${sign_mode} signature, cdhash ${BUNDLE_CDHASH}, shipped icon matches this repository, microphone usage string present.${BUNDLE_DR:+ Designated requirement: ${BUNDLE_DR}}"
+  say "OK: $(basename "$verify_only") verifies — ${sign_mode} signature, cdhash ${BUNDLE_CDHASH}, version ${BUNDLE_VERSION}, shipped icon matches this repository, microphone usage string present.${BUNDLE_DR:+ Designated requirement: ${BUNDLE_DR}}"
   exit 0
 fi
 
@@ -1270,6 +1354,8 @@ fi
 # real verdict is printed instead of inferred.
 say ""
 say "  Gatekeeper assessment (spctl): $(spctl -a -vv "$app_bundle" 2>&1 | sed -n 's/^.*: //p' | head -1)"
+
+say_version_identity
 
 if [ "$sign_mode" = "adhoc" ]; then
   say ""
