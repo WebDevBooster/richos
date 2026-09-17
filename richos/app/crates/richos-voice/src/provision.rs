@@ -39,7 +39,7 @@
 //!
 //! [`Finding::describe`] is the engineer's sentence and carries the numbers, the hashes and the
 //! file name — it goes to stderr and into the record, which is where that detail is worth
-//! something. [`Finding::ceo_sentence`] is what the CEO reads, and it follows the rule
+//! something. [`Finding::ceo_message`] is what the CEO reads, and it follows the rule
 //! `SttError::ceo_message` already set for this product: no paths, no exit codes, no model
 //! filenames. Sizes survive into it, because a size is a fact about his disk rather than a
 //! detail of our implementation.
@@ -290,6 +290,29 @@ impl Finding {
         matches!(self.kind, Failure::Empty | Failure::Short | Failure::Network)
     }
 
+    /// **WOULD THE CEO PRESSING "TRY AGAIN" POSSIBLY HELP?** A DIFFERENT QUESTION FROM
+    /// [`Finding::retryable`], and the difference is a defect this project's own affordance rule
+    /// caught before it shipped.
+    ///
+    /// `retryable` answers whether the AUTOMATIC attempt loop should go round again, by itself,
+    /// within seconds, with nothing about the machine changed. For a captive portal the answer is
+    /// plainly no — the next attempt fetches the same login page.
+    ///
+    /// This answers whether asking again LATER, after the person has done the thing the sentence
+    /// names, could succeed. For that same captive portal the answer is plainly yes: `ceo_message`
+    /// tells him in as many words to *"Sign in to the network, then ask me again."* Driving the
+    /// retry button off `retryable` put that instruction on screen with no button under it — a
+    /// state he could change, rendered apart from the thing that changes it, which is exactly what
+    /// `ui/tests/affordances.js` exists to refuse. Every one of these sentences names something he
+    /// can do and then invites him back.
+    ///
+    /// `Unpinned` is the one that says no, and it is not about him: a model with no hash in
+    /// `model-pins.json` is a fact about this repository's source, and no amount of asking changes
+    /// what the shipped table contains.
+    pub fn worth_asking_again(&self) -> bool {
+        !matches!(self.kind, Failure::Unpinned)
+    }
+
     /// The engineer's sentence: what happened, with every number. stderr and the record.
     ///
     /// Ported from `model-integrity.js::describe`. `on_disk` picks the right next step for a
@@ -389,7 +412,16 @@ impl Finding {
     /// SIZES SURVIVE, hashes and filenames do not. "There isn't room for a 536 MB download" is a
     /// fact about his disk that he can act on; "expected sha256 c6138d6d58ec…" is a fact about our
     /// implementation that he cannot. The full detail is one `describe` away, on stderr.
-    pub fn ceo_sentence(&self) -> String {
+    ///
+    /// **NAMED `ceo_message` RATHER THAN `ceo_message`, AND THE NAME IS WHAT PUTS IT UNDER THE
+    /// AFFORDANCE RULE.** `ui/tests/lib/state-strings.js` scrapes every sentence the CEO can read
+    /// into an inventory that `ui/tests/lib/state-registry.js` must classify, and outside
+    /// `src-tauri/src` it recognizes exactly one function name: `ceo_message`. Called
+    /// `ceo_message`, the eight sentences below — the whole of what he reads when a download
+    /// refuses — were invisible to that rule while being the most CEO-facing strings in the
+    /// module. It is also simply the right name: `SttError::ceo_message` came first and one
+    /// product should not have two words for one idea.
+    pub fn ceo_message(&self) -> String {
         match self.kind {
             Failure::NoSpace => format!(
                 "There isn't enough room on this disk for my speech model — it needs about {} free, \
@@ -404,11 +436,23 @@ impl Finding {
             Failure::TextBody | Failure::Http => "The server sent back an error instead of my speech \
                  model. Ask me again in a moment. Nothing was installed."
                 .into(),
-            Failure::CompressedBody | Failure::NotGgml | Failure::Oversize | Failure::Unpinned => {
+            Failure::CompressedBody | Failure::NotGgml | Failure::Oversize => {
                 "What came back isn't my speech model, so I didn't install it. Ask me again when \
                  you're on a network you trust."
                     .into()
             }
+            // ITS OWN SENTENCE, AND THE TEST BELOW IS WHY IT HAS ONE. It used to share the line
+            // above, which ends "Ask me again when you're on a network you trust" — and no network
+            // has anything to do with it. An unpinned model is a fact about what
+            // `model-pins.json` contains in the build he is running, so asking again produces the
+            // identical refusal forever. `no_failure_sentence_asks_him_to_come_back_without_
+            // setting_the_control_flag` caught the mismatch: the shared sentence invited him back
+            // while `worth_asking_again` correctly said no, which is an instruction rendered with
+            // no control under it. NAMES THE PARTY instead, the way every other unfixable-by-him
+            // state in this product does.
+            Failure::Unpinned => "I don't have a way to check that this speech model is genuine, so I won't install \
+                 it — whoever set RichOS up can put that right. I can still read what you type."
+                .into(),
             Failure::HashMismatch => "What arrived isn't the speech model I was expecting, so I threw it \
                  away rather than listen to you through it. Ask me again when you're on a network you \
                  trust."
@@ -968,7 +1012,7 @@ pub fn model_event_payload(
     received: u64,
     total: u64,
     message: Option<&str>,
-    retryable: bool,
+    ask_again: bool,
     at: u64,
 ) -> Value {
     serde_json::json!({
@@ -978,7 +1022,11 @@ pub fn model_event_payload(
         "total": total,
         "totalLabel": human(total),
         "message": message,
-        "retryable": retryable,
+        // NAMED FOR WHAT IT DECIDES: whether the "try again" control appears. It is
+        // `Finding::worth_asking_again`, NOT `Finding::retryable` — see that function for the
+        // instruction-with-no-control this separation removes. Calling the field `retryable`
+        // would invite the next reader to wire it to the other rule.
+        "askAgain": ask_again,
         "at": at,
     })
 }
@@ -1098,16 +1146,74 @@ mod tests {
             "small.en",
             10,
             100,
-            Some(&dropped.ceo_sentence()),
-            dropped.retryable(),
+            Some(&dropped.ceo_message()),
+            dropped.worth_asking_again(),
             1,
         );
         assert_eq!(p["phase"], "failed");
-        assert_eq!(p["retryable"], true);
+        assert_eq!(p["askAgain"], true);
 
+        // THE SEPARATION, ASSERTED. A tampered download must never be retried automatically and
+        // MUST still offer him the control, because its own sentence tells him to ask again once
+        // he is on a network he trusts. One flag could not have said both.
         let tampered = Finding::hashes(Failure::HashMismatch, "aa", "bb");
-        let p = model_event_payload(ModelPhase::Failed, "small.en", 100, 100, Some("x"), tampered.retryable(), 1);
-        assert_eq!(p["retryable"], false, "a corrupted download is never offered a retry loop");
+        assert!(!tampered.retryable(), "no automatic loop over corruption");
+        assert!(tampered.worth_asking_again(), "and yet the sentence invites him back");
+        let p = model_event_payload(
+            ModelPhase::Failed,
+            "small.en",
+            100,
+            100,
+            Some(&tampered.ceo_message()),
+            tampered.worth_asking_again(),
+            1,
+        );
+        assert_eq!(p["askAgain"], true);
+        assert!(
+            p["message"].as_str().unwrap().contains("Ask me again"),
+            "the control and the sentence must agree"
+        );
+
+        // And the one that genuinely cannot be helped by asking.
+        let unpinned = Finding::of(Failure::Unpinned);
+        assert!(!unpinned.worth_asking_again(), "a missing pin is a fact about our source");
+    }
+
+    /// **EVERY SENTENCE THAT INVITES HIM BACK MUST COME WITH THE CONTROL THAT TAKES HIM THERE.**
+    ///
+    /// The static half of `affordances.js`'s rule, asserted at the source of the sentences rather
+    /// than after they have crossed into JavaScript: if `ceo_message` says "ask me again", the
+    /// payload built from the same finding must set `askAgain`.
+    #[test]
+    fn no_failure_sentence_asks_him_to_come_back_without_setting_the_control_flag() {
+        let kinds = [
+            Failure::Absent,
+            Failure::Empty,
+            Failure::HtmlBody,
+            Failure::TextBody,
+            Failure::CompressedBody,
+            Failure::NotGgml,
+            Failure::Short,
+            Failure::Oversize,
+            Failure::HashMismatch,
+            Failure::NoSpace,
+            Failure::Unpinned,
+            Failure::Network,
+            Failure::Http,
+        ];
+        let mut invited = 0;
+        for kind in kinds {
+            let f = Finding::of(kind);
+            let says_come_back = f.ceo_message().to_lowercase().contains("ask me again");
+            if says_come_back {
+                invited += 1;
+                assert!(
+                    f.worth_asking_again(),
+                    "{kind:?} tells him to ask again and would render with no control"
+                );
+            }
+        }
+        assert!(invited >= 6, "only {invited} sentences invite him back - the scan stopped working");
     }
 
     /// The five phases are distinct strings. Two phases sharing a name is a UI that cannot tell

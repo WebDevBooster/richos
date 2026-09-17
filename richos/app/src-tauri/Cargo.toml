@@ -71,7 +71,11 @@ tauri-plugin-updater = "2.11.0"
 # builds on it), so no new download: `cargo tree -i tokio` in this crate shows it arriving
 # via tauri 2.x. Named here because a file that calls `tokio::time::sleep` while depending
 # on it only transitively breaks the day tauri changes runtimes.
-tokio = { version = "1", features = ["time"] }
+# `rt` joins `time` for `examples/provision_model.rs`, which drives the shipped async fetch loop
+# on a current-thread runtime so a real download can be proven without launching the app.
+# `tauri` already builds on tokio's runtime, so features unify and the Cargo.lock diff for this
+# line is empty.
+tokio = { version = "1", features = ["time", "rt"] }
 # THE SPEECH-MODEL DOWNLOAD (src/voice_provision.rs).
 #
 # NO NEW CRATE, AND THE FEATURE LIST IS WHY IT IS SPELLED OUT RATHER THAN LEFT TO A DEFAULT.
@@ -96,6 +100,14 @@ futures-util = { version = "0.3", default-features = false }
 # `voice_provision.rs` therefore installs the same `ring` provider itself, idempotently, before
 # building its client. Already in the lock at 0.23.43 beneath the updater plugin.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+# THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
+# examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.
+# Declared here rather than left to auto-discovery so every example this crate ships is visible in
+# one list.
+[[example]]
+name = "provision_model"
+path = "examples/provision_model.rs"
 
 [dev-dependencies]
 # `examples/verify_update_signature.rs` — the pre-publication check that a produced

@@ -2349,8 +2349,25 @@ fn voice_readiness() -> serde_json::Value {
     let readiness = richos_voice::stt::readiness();
     let available = matches!(readiness, richos_voice::stt::SpeechReadiness::Ready(_));
     let reason = readiness.ceo_message();
-    if let Some(r) = &reason {
-        eprintln!("[richos] voice: not ready on this machine ({}) — {r}", readiness.tag());
+    // SAID OUT LOUD EITHER WAY, and the ready branch is the one that was missing.
+    //
+    // Until 2026-09-17 this printed only on a refusal, so "voice works on this machine" was
+    // reported by SILENCE — in the one log `gui-boot.test.sh` exists to hold every line of to
+    // account, and on the one question a boot log most needs to answer after a model is
+    // installed. An absence is not a signal: it reads identically to a command that was never
+    // invoked, a frontend that never loaded, and a window that died before `init()`. The same
+    // rule the crash watchdog keeps about a worker's death applies to a capability's life.
+    //
+    // The ready line names the MODEL and why it was chosen, because "voice is on" and "voice is
+    // on with the weakest recognizer this machine could have taken" are different facts.
+    match (&readiness, &reason) {
+        (_, Some(r)) => eprintln!("[richos] voice: not ready on this machine ({}) — {r}", readiness.tag()),
+        (richos_voice::stt::SpeechReadiness::Ready(rec), None) => eprintln!(
+            "[richos] voice: ready on this machine ({}) — {}",
+            readiness.tag(),
+            rec.provenance_full()
+        ),
+        (_, None) => {}
     }
     // THE OFFER IS PART OF THE READINESS ANSWER, not a second command the window has to know to
     // ask. One round trip, one moment, one machine — the same reason `voice_readiness` and
@@ -2378,7 +2395,8 @@ fn voice_readiness() -> serde_json::Value {
 #[tauri::command(async)]
 async fn provision_speech_model(app: AppHandle) -> Result<serde_json::Value, String> {
     let state = ensure_model_fetch_state(&app);
-    voice_provision::fetch_model(app, state).await
+    let emitter = voice_provision::TauriModelEmitter { app };
+    voice_provision::fetch_model(&emitter, state).await
 }
 
 /// Stop the download that is running. A stop the CEO asked for is not a failure and does not

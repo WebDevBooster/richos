@@ -237,9 +237,9 @@ fn a_captive_portal_is_caught_by_name_and_nothing_is_installed() {
     assert_eq!(finding.kind, Failure::HtmlBody);
     assert!(!finding.retryable(), "retrying a portal in a loop is not a fix");
     assert!(
-        finding.ceo_sentence().contains("sign-in page"),
+        finding.ceo_message().contains("sign-in page"),
         "the CEO is told what actually happened: {}",
-        finding.ceo_sentence()
+        finding.ceo_message()
     );
     assert!(finding.describe(&pin.file, false).contains("hotel"));
     assert!(!s.path().join(&pin.file).exists(), "nothing installed");
@@ -305,9 +305,9 @@ fn an_interrupted_transfer_keeps_its_prefix_says_so_and_is_retryable() {
     assert!(finding.retryable(), "truncation is what a flaky connection does — it resumes");
     assert!(finding.resumable, "the prefix was kept");
     assert!(
-        finding.ceo_sentence().contains("picks up where it left off"),
+        finding.ceo_message().contains("picks up where it left off"),
         "he is told it resumes: {}",
-        finding.ceo_sentence()
+        finding.ceo_message()
     );
     let part = s.path().join(format!("{}.part", pin.file));
     assert_eq!(provision::file_bytes(&part), 2048, "exactly what arrived is kept");
@@ -384,9 +384,9 @@ fn a_full_disk_is_refused_before_a_single_request_and_a_roomy_one_is_not() {
     let FetchPlan::Refused { finding } = plan else { panic!("a full disk must refuse, got {plan:?}") };
     assert_eq!(finding.kind, Failure::NoSpace);
     assert!(
-        finding.ceo_sentence().contains("enough room"),
+        finding.ceo_message().contains("enough room"),
         "he is told it is about disk: {}",
-        finding.ceo_sentence()
+        finding.ceo_message()
     );
     assert!(!s.path().join(format!("{}.part", pin.file)).exists(), "nothing was started");
 
@@ -618,7 +618,7 @@ fn the_ceo_facing_sentences_never_carry_an_implementation_detail() {
     let mut seen = 0;
     for v in &kinds {
         let f = v.finding().expect("these are all failures");
-        let s = f.ceo_sentence();
+        let s = f.ceo_message();
         assert!(!s.contains(".bin"), "a filename reached the CEO: {s}");
         assert!(!s.contains("sha256"), "a hash reached the CEO: {s}");
         assert!(!s.contains('/'), "a path reached the CEO: {s}");

@@ -40,6 +40,79 @@ use futures_util::StreamExt;
 use richos_voice::provision::{self, FetchPlan, Finding, ModelPhase, Outcome, PartFile, Pin};
 use tauri::{AppHandle, Emitter};
 
+/// Where a download's progress goes.
+///
+/// **A TRAIT, FOR THE REASON `richos_voice::event::VoiceObserver` IS ONE**: the audio pipeline
+/// made itself UI-agnostic so the Tauri shell could be one sink and a recording `Vec` another, and
+/// this is the same problem one layer up. With `AppHandle` wired directly into the fetch loop the
+/// only way to run a real download was to launch the whole app and press a button in a webview —
+/// so the one part of this feature that touches the network was the one part no proof could reach
+/// except by hand.
+///
+/// `examples/provision_model.rs` is the reason it exists and the thing it buys: the REAL fetch
+/// loop, the REAL `reqwest` client, the REAL pinned bytes, against a directory given on the
+/// command line, printing every phase to stderr. Everything in this file except
+/// [`TauriModelEmitter`] is then exercised outside a window.
+pub trait ModelObserver: Send + Sync {
+    fn on_model_event(&self, name: &str, payload: serde_json::Value);
+}
+
+/// The shipping sink: straight onto the webview's event bus, verbatim.
+pub struct TauriModelEmitter {
+    pub app: AppHandle,
+}
+
+impl ModelObserver for TauriModelEmitter {
+    fn on_model_event(&self, name: &str, payload: serde_json::Value) {
+        let _ = self.app.emit(name, payload);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE THREE SENTENCES FOR A GAP RICHOS CANNOT CLOSE.
+//
+// CONSTANTS, AND THE FORM IS LOAD-BEARING. `ui/tests/lib/state-strings.js` derives the
+// inventory of everything the CEO can read by scanning a Rust literal's own line plus the two
+// above it for `Err(`, `ok_or`, `.into()` or a `const … : &str =`. Written inline inside an
+// `unwrap_or_else(|| { … })` these sentences fell OUTSIDE that window — the `.into()` landed on
+// the line below the literal — so they became invisible to the affordance rule while remaining
+// perfectly visible to the CEO. A sentence the rule cannot see is a sentence that can quietly
+// become an instruction with no control beside it.
+//
+// So they are `const … : &str =` items with the literal starting on the same line, which is the
+// shape that scrape explicitly supports, and each is classified in
+// `ui/tests/lib/state-registry.js`. Naming them also matches what `main.rs` already does with
+// `LEASE_UNAVAILABLE_MESSAGE`.
+//
+// EVERY ONE NAMES THE PARTY. These are states the CEO cannot fix, and the affordance rule's
+// NEEDS-SOMEONE-ELSE clause requires the sentence to say who can — "aren't installed yet"
+// implies somebody will and never says who, leaving a reader who cannot install anything
+// holding a job with no owner. `SttError::ceo_message` set that precedent and these follow it.
+
+/// No decoder on this machine, or weights that are not the pinned weights: two gaps RichOS
+/// cannot close by downloading anything it has a hash for.
+const NO_HEARING_HERE: &str = "I can't set up my hearing on this machine — whoever set RichOS up adds that. \
+     I can still read what you type.";
+
+/// The resolver asked for a model that is not in the pin table. RichOS will not download a model
+/// it cannot verify, and this is what that refusal reads as. Says nothing about checksums: that is
+/// a word that tells him nothing he can act on.
+const MODEL_NOT_PINNED: &str = "I can't prove the speech model this machine needs is the genuine one, so I won't download it \
+     — whoever set RichOS up can put that right. I can still read what you type.";
+
+/// `HOME` is unset. Not a launch a double-click produces, so this is a machine somebody
+/// configured rather than one he can fix.
+const NOWHERE_TO_PUT_IT: &str = "I can't tell where to put my speech model on this machine — whoever set RichOS up can put \
+     that right. I can still read what you type.";
+
+/// What he reads when HE stopped the download. Not a failure, and it must not wear one.
+///
+/// A const for the same reason the three above are: written inline as an argument to `emit` it
+/// sat outside the affordance scrape's window, so the one sentence in this file that tells him
+/// his stop was honored would have been the one sentence the rule could not see.
+const STOPPED_BY_REQUEST: &str = "I've stopped the download. What arrived is saved, so asking me again picks up where it \
+     left off rather than starting over.";
+
 /// Emit at most this many progress events across a whole download.
 ///
 /// MEASURED RATHER THAN CHOSEN BY FEEL. `reqwest`'s stream yields chunks far smaller than the
@@ -73,32 +146,34 @@ fn now_millis() -> u64 {
 }
 
 fn emit(
-    app: &AppHandle,
+    obs: &dyn ModelObserver,
     phase: ModelPhase,
     model_id: &str,
     received: u64,
     total: u64,
     message: Option<&str>,
-    retryable: bool,
+    ask_again: bool,
 ) {
-    let _ = app.emit(
+    obs.on_model_event(
         provision::EVENT_VOICE_MODEL,
-        provision::model_event_payload(phase, model_id, received, total, message, retryable, now_millis()),
+        provision::model_event_payload(phase, model_id, received, total, message, ask_again, now_millis()),
     );
 }
 
 /// Both sentences, to the two places each belongs: the CEO's to the webview, the engineer's to
 /// stderr and whatever caught it.
-fn report(app: &AppHandle, model_id: &str, pin: &Pin, received: u64, finding: &Finding) {
+fn report(obs: &dyn ModelObserver, model_id: &str, pin: &Pin, received: u64, finding: &Finding) {
     eprintln!("[richos] voice model: {}", finding.describe(&pin.file, false));
     emit(
-        app,
+        obs,
         ModelPhase::Failed,
         model_id,
         received,
         pin.bytes,
-        Some(&finding.ceo_sentence()),
-        finding.retryable(),
+        Some(&finding.ceo_message()),
+        // WHETHER THE CONTROL APPEARS, which is not whether the loop retries. See
+        // `Finding::worth_asking_again`.
+        finding.worth_asking_again(),
     );
 }
 
@@ -149,7 +224,7 @@ pub fn offer() -> Option<serde_json::Value> {
 /// **BOUNDED, AND VISIBLE AT EVERY STEP.** At most [`provision::MAX_ATTEMPTS`] attempts, and only
 /// for a failure a second attempt could plausibly fix. Every attempt emits; the last failure emits
 /// with `retryable` so the UI knows whether to offer a control rather than guessing from prose.
-pub async fn fetch_model(app: AppHandle, state: Arc<ModelFetchState>) -> Result<serde_json::Value, String> {
+pub async fn fetch_model(obs: &dyn ModelObserver, state: Arc<ModelFetchState>) -> Result<serde_json::Value, String> {
     let readiness = richos_voice::stt::readiness();
     let model_id = match &readiness {
         richos_voice::stt::SpeechReadiness::ModelMissing { model_id, .. } => model_id.clone(),
@@ -159,15 +234,15 @@ pub async fn fetch_model(app: AppHandle, state: Arc<ModelFetchState>) -> Result<
         // The two gaps RichOS cannot close by downloading anything. Saying "downloading…" here
         // would be a promise the next screen breaks.
         other => {
-            return Err(other
-                .ceo_message()
-                .unwrap_or_else(|| "I can't set up my hearing on this machine.".into()))
+            return Err(other.ceo_message().unwrap_or_else(|| NO_HEARING_HERE.to_string()))
         }
     };
 
     let pin = provision::pin_for(&model_id)
-        .ok_or_else(|| "I don't have a checksum for the speech model this machine needs, so I won't download it.".to_string())?;
-    let dir = provision::install_dir().ok_or_else(|| "I can't tell where to put my speech model on this machine.".to_string())?;
+        // NO PIN, NO DOWNLOAD. RichOS will not fetch a model it cannot verify against
+        // `model-pins.json`, and it says so rather than trying and failing later.
+        .ok_or_else(|| MODEL_NOT_PINNED.to_string())?;
+    let dir = provision::install_dir().ok_or_else(|| NOWHERE_TO_PUT_IT.to_string())?;
 
     if state.in_flight.swap(true, Ordering::SeqCst) {
         return Ok(serde_json::json!({ "status": "already-running" }));
@@ -180,7 +255,7 @@ pub async fn fetch_model(app: AppHandle, state: Arc<ModelFetchState>) -> Result<
         if state.cancel.load(Ordering::SeqCst) {
             break;
         }
-        match attempt_once(&app, &state, &pin, &model_id, &dir).await {
+        match attempt_once(obs, &state, &pin, &model_id, &dir).await {
             Ok(value) => return Ok(value),
             Err(finding) => {
                 let retryable = finding.retryable();
@@ -197,19 +272,19 @@ pub async fn fetch_model(app: AppHandle, state: Arc<ModelFetchState>) -> Result<
         // A stop the CEO asked for is not a failure, and it must not wear a failure's face. The
         // partial is left where it is, so asking again resumes.
         emit(
-            &app,
+            obs,
             ModelPhase::Failed,
             &model_id,
             received,
             pin.bytes,
-            Some("I've stopped the download. What arrived is saved, so asking me again picks up where it left off."),
+            Some(STOPPED_BY_REQUEST),
             true,
         );
         return Ok(serde_json::json!({ "status": "canceled" }));
     }
 
     let finding = last.unwrap_or_else(|| provision::disk_preflight(Some(0), pin.bytes).expect("a finding"));
-    let mut sentence = finding.ceo_sentence();
+    let mut sentence = finding.ceo_message();
     if finding.retryable() {
         // SAID OUT LOUD THAT IT STOPPED. A bounded retry that goes quiet after its last attempt is
         // indistinguishable from one still running.
@@ -218,7 +293,7 @@ pub async fn fetch_model(app: AppHandle, state: Arc<ModelFetchState>) -> Result<
             provision::MAX_ATTEMPTS
         ));
     }
-    report(&app, &model_id, &pin, received, &finding);
+    report(obs, &model_id, &pin, received, &finding);
     Err(sentence)
 }
 
@@ -232,7 +307,7 @@ impl Drop for InFlight {
 
 /// ONE attempt. Every judgment in here is `provision`'s; this function supplies bytes and a socket.
 async fn attempt_once(
-    app: &AppHandle,
+    obs: &dyn ModelObserver,
     state: &ModelFetchState,
     pin: &Pin,
     model_id: &str,
@@ -241,7 +316,7 @@ async fn attempt_once(
     let free = provision::free_bytes_for(dir);
     let (url, dest, part, from) = match provision::plan_fetch(pin, dir, free) {
         FetchPlan::AlreadyPresent { path } => {
-            emit(app, ModelPhase::Installed, model_id, pin.bytes, pin.bytes, None, false);
+            emit(obs, ModelPhase::Installed, model_id, pin.bytes, pin.bytes, None, false);
             eprintln!("[richos] voice model: {} is already installed and verifies", pin.file);
             return Ok(serde_json::json!({ "status": "already-present", "path": path }));
         }
@@ -253,7 +328,7 @@ async fn attempt_once(
     };
 
     state.received.store(from, Ordering::SeqCst);
-    emit(app, ModelPhase::Started, model_id, from, pin.bytes, None, false);
+    emit(obs, ModelPhase::Started, model_id, from, pin.bytes, None, false);
 
     ensure_crypto_provider();
     let client = reqwest::Client::builder().build().map_err(|e| Finding {
@@ -334,7 +409,10 @@ async fn attempt_once(
 
     while let Some(chunk) = stream.next().await {
         if state.cancel.load(Ordering::SeqCst) {
-            return Err(file.interrupted("stopped at the CEO's request"));
+            // The string is the ENGINEER's detail, not the CEO's: it reaches `describe` on
+            // stderr and never `ceo_message`. What he reads is the sentence composed below,
+            // after the loop, which says his stop was honored and what it cost him.
+            return Err(file.interrupted("stopped on request"));
         }
         let chunk = match chunk {
             Ok(c) => c,
@@ -347,7 +425,7 @@ async fn attempt_once(
         if got >= next_at {
             next_at = got + step;
             state.received.store(got, Ordering::SeqCst);
-            emit(app, ModelPhase::Progress, model_id, got, pin.bytes, None, false);
+            emit(obs, ModelPhase::Progress, model_id, got, pin.bytes, None, false);
         }
     }
 
@@ -355,7 +433,7 @@ async fn attempt_once(
     // sitting at 100% with no explanation is where a person decides the app has hung.
     let got = file.received();
     state.received.store(got, Ordering::SeqCst);
-    emit(app, ModelPhase::Verifying, model_id, got, pin.bytes, None, false);
+    emit(obs, ModelPhase::Verifying, model_id, got, pin.bytes, None, false);
 
     match file.finish() {
         Outcome::Installed { path, bytes, sha256, resumed_from } => {
@@ -363,7 +441,7 @@ async fn attempt_once(
                 "[richos] voice model: {} installed and verified against its pinned sha256 ({bytes} bytes, resumed from {resumed_from})",
                 pin.file
             );
-            emit(app, ModelPhase::Installed, model_id, bytes, pin.bytes, None, false);
+            emit(obs, ModelPhase::Installed, model_id, bytes, pin.bytes, None, false);
             Ok(serde_json::json!({
                 "status": "installed",
                 "path": path,
