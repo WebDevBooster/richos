@@ -486,6 +486,7 @@ export async function sync(deps = {}) {
   for (const e of enabled) {
     let summary = null;
     let error = null;
+    let unavailable = null;
     try {
       // eslint-disable-next-line no-await-in-loop
       summary = await ingestOnce({
@@ -497,15 +498,24 @@ export async function sync(deps = {}) {
         ...(d.linkBase ? { repoRoot: d.linkBase } : {}),
       });
     } catch (err) {
-      error = String(err.message || err);
-      failures += 1;
+      // A stated account condition (`err.unavailable`, e.g. Gmail's "no mailbox on this Google
+      // account") is not a failure this loop reports as one: the vocabulary is generic here — any
+      // adapter can raise it — so this file never needs to know which vendor's error shape it is.
+      if (err && err.unavailable) {
+        unavailable = String(err.reason || err.message || err);
+      } else {
+        error = String(err.message || err);
+        failures += 1;
+      }
     }
     recordRun({
       vendor: 'google', source: e.source, instance: e.adapter.sourceInstanceId,
-      at: d.now(), summary, error,
+      at: d.now(), summary, error, unavailable,
     }, d.runStateFile);
 
-    if (error) {
+    if (unavailable) {
+      d.out(`${L(e.label.toLowerCase())}unavailable — ${unavailable}`);
+    } else if (error) {
       d.out(`${L(e.label.toLowerCase())}FAILED — ${error}`);
     } else {
       d.out(`${L(e.label.toLowerCase())}observed ${summary.observed}, ingested ${summary.ingested}, deduped ${summary.deduped}`
@@ -515,7 +525,7 @@ export async function sync(deps = {}) {
         d.out(`            candidates: ${summary.events.length} event, ${summary.commitments.length} commitment, ${summary.entityCandidates.length} entity`);
       }
     }
-    results.push({ source: e.source, summary, error });
+    results.push({ source: e.source, summary, error, unavailable });
   }
 
   d.out(`${L('evidence')}${d.zone}`);
