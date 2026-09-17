@@ -20,6 +20,85 @@
 
 use serde::{Deserialize, Serialize};
 
+/// THE SCHEMA NUMBER THIS BUILD STAMPS ON EVERY RECORD IT APPENDS.
+///
+/// Spec point 18 (`richos-hq docs/plans/nightly-channel-spec-2026-09-17.md`): *"Every record
+/// carries the version that wrote it."* [`Ledger::history_health`](crate::ledger::Ledger::history_health)
+/// asked for exactly this field and declined to write it; the CEO's 2026-09-17 ruling
+/// authorizes the change. The precedent for the SHAPE is `LAUNCH_SCHEMA_VERSION` in
+/// `launch.rs` — a plain monotonic integer, not a marketing version string, because the only
+/// question a reader ever asks of it is *"higher than mine, or not"*.
+///
+/// **That precedent is named in prose and deliberately NOT linked.** An intra-doc link would
+/// spell the launch module's path, and `launch_no_outbound_tests.rs`'s
+/// `no_other_module_in_the_crate_consumes_the_launch_record` scans this crate's sources as
+/// TEXT for exactly that string. It cannot tell a doc reference from a use, and it should not
+/// have to: the guarantee it holds — the CEO's usage history is reachable from the crate root
+/// and nowhere else — is worth more than a hyperlink. Measured, not assumed: adding the link
+/// turned that test red.
+///
+/// **It is a WRITER-SCHEMA number, not the app version.** Two builds that write the same
+/// record shapes stamp the same number. It goes up when, and only when, a record shape
+/// changes — which is the same event that, from point 26, carries a declared migration.
+///
+/// `1` is the shape every published build through v1.0.2 writes; those builds simply do not
+/// say so, and [`classify_line`] treats an absent stamp as exactly that.
+pub const WRITER_SCHEMA_VERSION: u32 = 1;
+
+/// The JSON key [`WRITER_SCHEMA_VERSION`] is written under. One constant so a writer and a
+/// reader can never disagree about the spelling.
+pub const WRITTEN_BY_KEY: &str = "written_by";
+
+/// Serialize one record as the line this build appends: its own JSON, plus
+/// [`WRITTEN_BY_KEY`].
+///
+/// **No trailing newline** — every caller adds its own, next to its own
+/// `ensure_line_boundary`.
+///
+/// **Safe against a reader that predates the field**, which is every published build:
+/// serde ignores unknown fields on a known variant, pinned by
+/// `ledger_forward_compat_tests.rs`. That is what makes this legal to start writing to
+/// customers' disks.
+///
+/// A record that does not serialize to a JSON OBJECT cannot carry the stamp and is written
+/// unstamped rather than refused. Nothing in this crate has that shape (every store's
+/// record enum is internally tagged, which serde requires be a map), and a line that is not
+/// an object is classified `Damaged` at step 2 of [`classify_line`] regardless — so the
+/// fallback costs a stamp on a line no reader would trust anyway.
+pub fn stamped_line<T: Serialize>(record: &T) -> Result<String, serde_json::Error> {
+    let mut value = serde_json::to_value(record)?;
+    if let Some(object) = value.as_object_mut() {
+        object.insert(WRITTEN_BY_KEY.to_string(), serde_json::json!(WRITER_SCHEMA_VERSION));
+    }
+    serde_json::to_string(&value)
+}
+
+/// What a line's [`WRITTEN_BY_KEY`] says about the build that wrote it.
+///
+/// Only ever consulted on a line that already passed the structural checks — valid JSON, an
+/// object, a plain-identifier tag — because a stamp on a line whose structure is not trusted
+/// is not evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WriterStamp {
+    /// No `written_by` at all: written by a build from before the field existed, or by one
+    /// that is not this app.
+    Absent,
+    /// `written_by <= WRITER_SCHEMA_VERSION` — a writer whose record shapes this build
+    /// already knows.
+    AtOrBelowMine,
+    /// `written_by > WRITER_SCHEMA_VERSION` — a writer with shapes this build has never
+    /// seen.
+    AboveMine,
+}
+
+fn writer_stamp(object: &serde_json::Map<String, serde_json::Value>) -> WriterStamp {
+    match object.get(WRITTEN_BY_KEY).and_then(|v| v.as_u64()) {
+        None => WriterStamp::Absent,
+        Some(v) if v > u64::from(WRITER_SCHEMA_VERSION) => WriterStamp::AboveMine,
+        Some(_) => WriterStamp::AtOrBelowMine,
+    }
+}
+
 /// Why a record on disk was NOT folded into the projection.
 ///
 /// A record from the future and a damaged record are not the same event and are never
@@ -47,9 +126,14 @@ pub enum SkipKind {
     ///
     /// **This build cannot tell which it is**, and says so rather than picking. A newer
     /// RichOS that added a required field to an existing record produces exactly this, and
-    /// so does a record whose bytes were mangled in place. Neither file format carries a
-    /// writer version on a record, so there is nothing in the file to decide it with — see
-    /// `Ledger::history_health` for the one-field change that would.
+    /// so does a record whose bytes were mangled in place.
+    ///
+    /// **Since spec point 18 this is the answer for UNSTAMPED records only.** A line
+    /// carrying [`WRITTEN_BY_KEY`] is decided: above this build's
+    /// [`WRITER_SCHEMA_VERSION`] it is [`SkipKind::FromFuture`], at or below it is
+    /// [`SkipKind::Damaged`]. So this verdict now means precisely *"written before RichOS
+    /// stamped its records, and nothing in the line decides it"* — a set that can only
+    /// shrink as stamped records replace unstamped ones on disk.
     Ambiguous,
 }
 
@@ -135,9 +219,19 @@ pub fn not_utf8(line_no: usize, bytes: usize) -> SkippedRecord {
 ///      name is `[A-Za-z_][A-Za-z0-9_]*`, so a tag that is not one did not come out of a
 ///      newer RichOS; it came out of damage. This is what stops corruption from being
 ///      waved through as "the future".
-///   4. **A tag this build KNOWS, payload that does not fit** — `Ambiguous`. A newer
-///      version that added a required field to an existing record looks exactly like a
-///      record whose bytes were mangled, and nothing in the file distinguishes them.
+///   4. **A tag this build KNOWS, payload that does not fit** — decided by the record's
+///      own [`WRITTEN_BY_KEY`] stamp (spec point 18): above this build's
+///      [`WRITER_SCHEMA_VERSION`] is `FromFuture`, at or below it is `Damaged`, and ABSENT
+///      is `Ambiguous` — a newer version that added a required field to an existing record
+///      looks exactly like a record whose bytes were mangled, and on an unstamped line
+///      nothing in the file distinguishes them.
+///
+///      **The stamp is read only here, after checks 1-3 have passed**, so it is only ever
+///      trusted on a line whose structure is already trusted. The residual limit, stated
+///      rather than left to be discovered: damage that rewrites the stamp itself into a
+///      larger integer reads as `FromFuture`. That is strictly better than today, where
+///      the same line reads as `Ambiguous` and decides nothing, and it is the reason the
+///      stamp never overrides checks 1-3.
 ///   5. **A tag this build does not know** — `FromFuture`. The benign case.
 ///
 /// Nothing derived from the line's CONTENT is kept. The serde error is deliberately not
@@ -194,17 +288,50 @@ pub fn classify_line(line_no: usize, line: &str, dialect: &SkipDialect) -> Skipp
         }
     };
     if dialect.known_tags.contains(&tag.as_str()) {
-        return make(
-            SkipKind::Ambiguous,
-            Some(tag.clone()),
-            format!(
-                "the record says it is a `{tag}`, which this build knows, but its fields do \
-                 not fit that shape. This build cannot tell whether a newer version of \
-                 RichOS changed that record or the bytes were damaged — {} carries no \
-                 writer version to decide it with",
-                dialect.record_noun
+        // THE ONE PLACE `written_by` EARNS ITS BYTES (spec point 18).
+        //
+        // A known tag whose fields do not fit is the case `Ambiguous` exists for: a newer
+        // RichOS that added a required field, and a record whose bytes were mangled in
+        // place, produce byte-identical evidence. The stamp decides it — above mine and it
+        // is the future, at or below mine and it is damage — and only where the line
+        // actually carries one.
+        return match writer_stamp(object) {
+            WriterStamp::AboveMine => make(
+                SkipKind::FromFuture,
+                Some(tag.clone()),
+                format!(
+                    "the record is a `{tag}`, a type this build knows, in a shape it does \
+                     not — and it says it was written by a newer version of RichOS \
+                     (`{WRITTEN_BY_KEY}` is higher than this build's {WRITER_SCHEMA_VERSION}). \
+                     Everything else in the file still loads and the record is untouched on \
+                     disk"
+                ),
             ),
-        );
+            WriterStamp::AtOrBelowMine => make(
+                SkipKind::Damaged,
+                Some(tag.clone()),
+                format!(
+                    "the record says it is a `{tag}`, which this build knows, and that it \
+                     was written at a schema this build also knows \
+                     (`{WRITTEN_BY_KEY}` is not above {WRITER_SCHEMA_VERSION}) — so its \
+                     fields not fitting means the bytes are damaged, not that the format \
+                     moved on"
+                ),
+            ),
+            // The whole existing corpus: every record written before this field existed.
+            // Nothing in the file decides it, so this build still refuses to guess.
+            WriterStamp::Absent => make(
+                SkipKind::Ambiguous,
+                Some(tag.clone()),
+                format!(
+                    "the record says it is a `{tag}`, which this build knows, but its \
+                     fields do not fit that shape. This build cannot tell whether a newer \
+                     version of RichOS changed that record or the bytes were damaged — \
+                     {} carries no writer version (`{WRITTEN_BY_KEY}`) to decide it with",
+                    dialect.record_noun
+                ),
+            ),
+        };
     }
     make(
         SkipKind::FromFuture,

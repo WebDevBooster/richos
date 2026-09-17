@@ -81,6 +81,59 @@ pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// **POINT 24, CHECKED RATHER THAN ASSUMED.** Spec point 24 says `engine-state` is
+    /// "subject to 18-20 like anything else". Reading it must therefore leave it exactly as
+    /// it is (point 19) and must never answer with a SHORT list when it hits something it
+    /// cannot read (points 19 and 20) — a partial list of running workers tells the update
+    /// gate it is safe to replace the app while a worker is still going.
+    ///
+    /// Point 18 is NOT applied here, and the reason is that this app is not the writer: the
+    /// engine's Python hook is, and it already stamps every row with `"schema": 1`, which the
+    /// reader refuses to proceed past when it is anything else.
+    #[test]
+    fn reading_the_engine_state_evidence_writes_nothing_and_never_answers_short() {
+        let root = std::env::temp_dir().join(format!("app-worker-ro-{}", uuid::Uuid::new_v4()));
+        let folder = root.join("evidence/session-one");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        let path = folder.join("callbacks.jsonl");
+        let row = |event: &str, id: &str| {
+            serde_json::json!({"schema":1,"callback":{"session_id":"session-one","hook_event_name":event,"agent_id":id}})
+                .to_string()
+                + "\n"
+        };
+
+        // POSITIVE CONTROL: three workers open, and the reader really does see them.
+        let good = row("SubagentStart", "w1") + &row("SubagentStart", "w2") + &row("SubagentStart", "w3");
+        std::fs::write(&path, &good).unwrap();
+        assert_eq!(status(&root, Some("session-one")).liveness_unknown, 3);
+        assert_eq!(std::fs::read(&path).unwrap(), good.as_bytes(), "a read writes nothing");
+
+        // A row this build cannot read, in the MIDDLE. The answer must be "I cannot tell you",
+        // never "two workers".
+        let mut bytes = row("SubagentStart", "w1").into_bytes();
+        bytes.extend_from_slice(&[0xff, 0xfe, b'\n']);
+        bytes.extend_from_slice(row("SubagentStart", "w3").as_bytes());
+        std::fs::write(&path, &bytes).unwrap();
+        let view = status(&root, Some("session-one"));
+        assert_eq!(
+            view.unattributed,
+            Some(Unattributed::AppEvidenceUnavailable),
+            "a line it cannot read costs the whole VIEW, not the workers below it"
+        );
+        assert!(view.items.is_empty(), "and it hands back no partial list at all");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "and it still writes nothing");
+
+        // A schema this build does not know is the same answer — point 18's field, written by
+        // the engine rather than by this build, and respected here.
+        let future = serde_json::json!({"schema":2,"callback":{"session_id":"session-one","hook_event_name":"SubagentStart","agent_id":"w1"}}).to_string() + "\n";
+        std::fs::write(&path, &future).unwrap();
+        assert_eq!(status(&root, Some("session-one")).unattributed, Some(Unattributed::AppEvidenceUnavailable));
+        assert_eq!(std::fs::read(&path).unwrap(), future.as_bytes());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     #[cfg(unix)]
     fn readers_wait_for_a_complete_callback_and_a_stuck_writer_is_unavailable() {

@@ -532,6 +532,63 @@ except Exception: print("")' 2>/dev/null || true)"
     fi
   fi
 
+  # 6. THE BUNDLE HOLDS NO STATE — spec point 17, checked at BUILD TIME rather than at a
+  #    customer's next update.
+  #
+  # Point 17 is already enforced structurally by the updater: the receipt carries a
+  # `tree_sha256` over the bundle tree and the installer refuses when the tree no longer
+  # matches. That failure is correct and it is loud, but it arrives at the worst possible
+  # moment — on the CEO's machine, at the next update. The spec asks for the same fact to be
+  # discovered here, where it costs a build instead of an install.
+  #
+  # ## THE ASSERTION THE SPEC NAMES CANNOT BE WRITTEN, AND THIS IS WHAT REPLACES IT
+  #
+  # Point 17 says: "a packaging-test assertion that no shipped path inside `Contents/` is
+  # owner-writable". Measured on this Mac, 2026-09-17, with
+  # `find <app>/Contents -perm -u+w | wc -l` against `find <app>/Contents | wc -l`:
+  #
+  #     ~/Applications/RichOS.app          8 of 8        owner-writable
+  #     /System/Applications/Calculator.app  111 of 111  owner-writable
+  #     /Applications/Safari.app         2044 of 2044    owner-writable
+  #
+  # 2163 of 2163. Owner-writable is the NORMAL macOS bundle layout — 0755 directories and
+  # 0644 files — so that assertion would refuse every correct bundle ever built, Apple's
+  # included. It is not a strict check that needs softening; it is the wrong predicate.
+  #
+  # The same command found group- or world-writable: 0 of 2163. THAT is the permission bit
+  # that is always a defect inside a signed bundle — another user able to write into the app
+  # is a privilege-escalation path and breaks the seal for everyone. So the writability half
+  # is checked as `-g+w -o -o+w`.
+  #
+  # And the half that is actually point 17 — "the bundle holds no STATE" — is a question
+  # about WHICH PATHS SHIPPED, not about their mode. Every durable store this app owns is
+  # enumerated in the spec's own point 16 table and in `ledger.rs`'s survey; none of them is
+  # a plausible bundle resource, and a `.jsonl` file inside an application bundle has no
+  # honest reason to exist at all. A bundle that ships one is a state-in-bundle defect
+  # whatever its permissions say, and that is the case this catches.
+  local unsafe_paths=()
+  while IFS= read -r p; do
+    [ -n "$p" ] && unsafe_paths+=("${p#$app/}")
+  done < <(find "$app/Contents" \( -perm -g+w -o -perm -o+w \) 2>/dev/null)
+  if [ ${#unsafe_paths[@]} -gt 0 ]; then
+    failures+=("$(printf '%d path(s) inside Contents/ are writable by group or other, so another account on this Mac can rewrite the signed app: %s' \
+                  "${#unsafe_paths[@]}" "$(printf '%s ' "${unsafe_paths[@]}")")")
+  fi
+
+  local state_paths=()
+  while IFS= read -r p; do
+    [ -n "$p" ] && state_paths+=("${p#$app/}")
+  done < <(find "$app/Contents" \( \
+             -name '*.jsonl' -o -name 'config.json' -o -name 'launches.json' \
+             -o -name 'navigation.json' -o -name 'entities.json' \
+             -o -name 'owned-work-baseline.json' -o -name 'engine-state' \
+             -o -name 'run-notices' -o -name 'voice-scratch' -o -name 'runs' \
+             \) 2>/dev/null)
+  if [ ${#state_paths[@]} -gt 0 ]; then
+    failures+=("$(printf 'the bundle ships %d path(s) that are this app'"'"'s own durable state, which must live in the data directory and survive a rollback: %s. Spec point 17 — the bundle holds no state.' \
+                  "${#state_paths[@]}" "$(printf '%s ' "${state_paths[@]}")")")
+  fi
+
   if [ ${#failures[@]} -gt 0 ]; then
     warn ""
     warn "FAILED — the bundle is not shippable:"

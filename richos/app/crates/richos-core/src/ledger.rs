@@ -47,9 +47,9 @@
 //! | reader | file it reads | what one dropped record costs | would anyone notice |
 //! |---|---|---|---|
 //! | `steering.rs:304` | the intake log — **the CEO's own typed words, before they become turns** | a steering message or a stop that never becomes a turn: he typed it, watched it accepted, and it never reached Rich | **no — and it was the one place that mattered. FIXED here: classified, counted, reported, never fatal** |
-//! | `correction.rs:466` | the loro correction desk | one proposal or one answered decision; a confirmed write can silently revert to pending, or a pending one vanish before he ever sees it | no. Worth the second look now that the intake log is done |
+//! | `correction.rs` `replay` | the loro correction desk | one proposal or one answered decision; a confirmed write can silently revert to pending, or a pending one vanish before he ever sees it | no. Worth the second look now that the intake log is done |
 //! | `staging.rs:300` | the spoken-correction staging desk | one candidate question he was going to be asked | no — but §7 forbids a write without a human answer, so a lost candidate under-asks rather than acting alone. Fails safe |
-//! | `journal.rs:412`, `:474` | the per-thread machinery journal | one technical-mode row. `ThreadMachinery::Unreadable` covers a dead SHARD, not a dead LINE | not really — technical view only, and the ledger still holds the conversation |
+//! | `journal.rs` `read_day_shard` | the per-thread machinery journal | one technical-mode row. `ThreadMachinery::Unreadable` covers a dead SHARD, not a dead LINE — and since 2026-09-17 it covers a shard that dies MID-read too, not only one that fails to open | not really — technical view only, and the ledger still holds the conversation |
 //! | `journal.rs:668` | the raw-retention journal | one payload; the record above it still renders, with `payload: None` | no, and the shape degrades honestly |
 //! | `heard.rs:715` | the dictation log | one dictation-review entry. The turn it produced is already in the ledger | no. This is a review aid over durable data |
 //! | `feedback.rs:270` | the feedback log | one past feedback entry in his history list. Nothing sends | no, and nothing downstream depends on it |
@@ -57,12 +57,72 @@
 //! | `config.rs:488` | `config.json` (whole file) | every preference at once. Already handles the one field that DELETES by keeping `raw_retention: FOREVER` on a corrupt file | he would see his preferences reset. Loud by accident, correct by design |
 //! | `src-tauri/src/nav.rs:108` | `navigation.json` (whole file) | sidebar and inspector widths | he would see the panels move. Pure view state |
 //!
-//! **A second, quieter defect runs through five of them**, and it is worse than the one
-//! they were surveyed for: `lines().map_while(Result::ok)` ends the ITERATOR at the first
-//! non-UTF-8 line, so ONE bad byte discards every record after it rather than its own.
-//! `steering.rs` is fixed (`read_until`); `journal.rs:407/469/667`, `staging.rs:293` and
-//! `correction.rs:459` still have it. It costs least where it matters least, so it is
-//! recorded here rather than fixed on sight.
+//! **A second, quieter defect was recorded here on 2026-09-05, and it has since been
+//! CLOSED — but not in the shape it was written down.** The entry read: "`lines()
+//! .map_while(Result::ok)` ends the ITERATOR at the first non-UTF-8 line, so ONE bad byte
+//! discards every record after it rather than its own", still present in
+//! `journal.rs:407/469/667`, `staging.rs:293` and `correction.rs:459`.
+//!
+//! Re-derived on 2026-09-17, site by site, because spec point 20 was about to be built on it:
+//!
+//!   * `correction.rs` was FIXED on 2026-09-05, the same day — it is `read_until` with
+//!     `skip::classify_line`. The line number in the entry above was stale within hours.
+//!   * `staging.rs` never had it. That loop is `split(b'\n')` with `let line = line?;` — an
+//!     IO error propagates and there is no UTF-8 error to end anything.
+//!   * `journal.rs` never had it EITHER, and this is the one worth understanding.
+//!     `BufRead::split` yields `io::Result<Vec<u8>>`, so its `Err` arm is an IO error on the
+//!     reader — a `Vec<u8>` has no encoding to be wrong about. Bad bytes always reached
+//!     `serde_json::from_slice` and always cost one record. **The defect is specific to
+//!     `lines()`**, which is what `steering.rs`, `correction.rs` and this module had.
+//!
+//! **What `map_while(Result::ok)` did cost at the `split` sites is different and louder:** a
+//! genuine IO error part way down a shard ended the read and returned a SHORT LIST. Measured,
+//! not reasoned: an `EISDIR` on one day shard made `read_thread_checked` answer
+//! `ThreadMachinery::NothingRecorded` — "nothing was ever recorded for this thread", said
+//! about a file sitting right there. That is point 19's other prohibition, treating what
+//! cannot be read as absent. `journal.rs` now reports it; both properties are pinned by
+//! `one_bad_line_in_the_middle_costs_its_own_record_and_no_other` and
+//! `an_io_error_part_way_through_a_shard_is_reported_and_never_returned_as_a_short_list`.
+//!
+//! The general lesson, since this entry is the thing that got quoted into a spec and then
+//! into a brief: a survey row is a claim with a date on it, and `lines()` and `split()` are
+//! not the same iterator.
+//!
+//! ## The two roots this survey did not cover, and what they turn out to be (point 24)
+//!
+//! Spec point 24 names `~/Library/Application Support/RichOS/ecs` (`main.rs:267`) and the
+//! app's `engine-state` directory (`updates.rs:662`) as "written ABOUT engine runs and
+//! subject to 18-20 like anything else". Both were checked against this build on 2026-09-17.
+//! The conclusion holds for one of them and is true of the other for a stronger reason than
+//! the point gives.
+//!
+//! | root | who WRITES it | who READS it here | verdict against 18-20 |
+//! |---|---|---|---|
+//! | `RichOS/ecs` | the ENGINE's Python, via `bin/ecs --state-root` (`ecs.rs::EcsBridge::request`) | **nobody in this app** | out of scope by construction. This crate never opens a path inside it: it hands the directory to a subprocess and reads that subprocess's stdout. Point 18 needs a writer and there is none here; points 19-20 need a reader and there is none either. Its shape is versioned by the engine's own `ecs/migrations/`. |
+//! | `engine-state/evidence/<session>/callbacks.jsonl` | the engine's Python callback hook, under an exclusive `flock` | `app_workers::status` — read-only, under a SHARED `flock` | **already satisfies all three, written by someone else.** Every row carries `"schema": 1` — point 18's field, under another name, on a per-record basis — and the reader REFUSES the whole view on any row whose schema is not 1. |
+//!
+//! **That reader fails CLOSED, and it is the one place in this crate where that is right.**
+//! Every other store here degrades: it drops the record it cannot read and returns the rest.
+//! `app_workers::status` returns `Unattributed::AppEvidenceUnavailable` for the whole view
+//! instead, because its answer feeds the update gate — the question is *"is it safe to
+//! replace the app right now"*, and a partial list of running workers answers "yes" to that
+//! question while being wrong. A short list is the failure mode; refusing to produce one is
+//! the fix.
+//!
+//! **Point 18 is therefore not applied to either**, and the rule is the same one that
+//! selected the three stores that ARE stamped: this build stamps what this build writes. See
+//! `docs/architecture/data-migration.md` for the stores still to be stamped and why they are
+//! not urgent.
+//!
+//! One near-miss worth recording, since it looks like a point-21 hazard and is not:
+//! `ecs::ToolScope` and `onboarding_tools::OnboardingToolScope` are whole-file documents this
+//! app DOES write, and both carry `#[serde(deny_unknown_fields)]` — which in a durable
+//! document is the point-21 failure in mirror image, a newer build's extra field costing an
+//! older build the whole file. They are safe because they are not durable: each is created
+//! fresh under a fresh UUID at lease start (`native.rs:1783-1785`, `:1800-1802`) inside a
+//! `scopes/` working directory, and a file left behind by a dead process is garbage rather
+//! than history. Recorded here so the next person does not have to re-derive it — and so that
+//! moving either of them anywhere durable is visibly a decision.
 //!
 //! Two readers do it properly, and they are the precedent this module's
 //! [`Ledger::history_health`] follows: `entity.rs:681` fails the whole registry CLOSED
@@ -1338,7 +1398,11 @@ impl Ledger {
     /// Append + FLUSH one event durably, then fold it into the projection.
     /// `sync` forces an fsync for crash-critical events (the persist-before-send floor).
     fn append(&mut self, event: Event, sync: bool) -> Result<(), LedgerError> {
-        let mut line = serde_json::to_string(&event)?;
+        // `stamped_line`, not `to_string` — spec point 18. The line carries this build's
+        // `written_by` so a LATER build can tell a record from the future from a damaged
+        // one without guessing; see [`crate::skip::classify_line`] step 4 and the note on
+        // [`Ledger::history_health`] that asked for it.
+        let mut line = crate::skip::stamped_line(&event)?;
         line.push('\n');
         crate::util::ensure_line_boundary(&mut self.file)?;
         self.file.write_all(line.as_bytes())?;

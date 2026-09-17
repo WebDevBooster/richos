@@ -78,6 +78,17 @@ pub enum Assertiveness {
     Quiet,
     Balanced,
     UrgentOnly,
+    /// **A value on disk that this build has no name for.** Spec point 21: a closed enum in
+    /// a persisted document is a schema change waiting to happen that no shape-diff will
+    /// ever report, and without this arm an unknown value fails the parse of the WHOLE
+    /// `config.json` and costs every preference in it.
+    ///
+    /// It is never a value the app SETS — [`ConfigStore::set_assertiveness`] refuses it by
+    /// name — and never a value the CEO sees: [`ConfigStore::assertiveness`] answers with
+    /// the default for the read, and [`ConfigStore::persist`] writes the original string
+    /// back out verbatim rather than this placeholder.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Default for Assertiveness {
@@ -94,6 +105,12 @@ impl Assertiveness {
             Assertiveness::Quiet => "quiet",
             Assertiveness::Balanced => "balanced",
             Assertiveness::UrgentOnly => "urgent-only",
+            // Unreachable through the store, which resolves `Unknown` to the default before
+            // any caller sees it. Answering with the DEFAULT's wire string rather than a
+            // word like "unknown" means that if a path is ever added that reaches here, it
+            // hands the UI a radio value the UI actually has — a wrong-but-valid answer
+            // instead of a dead one. The durable file is never written from this.
+            Assertiveness::Unknown => Assertiveness::Quiet.as_str(),
         }
     }
 
@@ -124,6 +141,14 @@ pub enum Theme {
     Dark,
     Light,
     System,
+    /// **A lighting on disk that this build has no name for** — the worked example in spec
+    /// point 21, where a nightly adds `Theme::Sepia`, the CEO picks it, and a rollback to
+    /// stable used to lose every preference in the file permanently.
+    ///
+    /// Same contract as [`Assertiveness::Unknown`]: never set, never shown, never persisted
+    /// as itself.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Default for Theme {
@@ -138,6 +163,10 @@ impl Theme {
             Theme::Dark => "dark",
             Theme::Light => "light",
             Theme::System => "system",
+            // See `Assertiveness::as_str`: the DEFAULT's wire string, so a hypothetical
+            // future caller gets a palette the UI has rather than a `data-th` value it does
+            // not. The store never lets this be reached, and `persist` never writes it.
+            Theme::Unknown => Theme::Dark.as_str(),
         }
     }
 
@@ -224,8 +253,35 @@ fn splash_default() -> bool {
     true
 }
 
+/// THE SHAPE NUMBER OF `config.json` — spec point 5 and point 21's second enforcement.
+///
+/// `grep -n schema_version config.rs` returned nothing before this change; the real file on
+/// the CEO's Mac has fourteen keys and none of them was a version. Without one, a genuine
+/// shape change to this file is undeclarable and therefore invisible to point 25's gate.
+///
+/// It goes up when, and only when, this document's shape changes — the same event that, from
+/// point 26, carries a declared migration.
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+
+/// **An ABSENT `schema_version` reads as 1, and that is the opposite of what `launch.rs`
+/// does with its own absent version.** The difference is deliberate and it is about which
+/// mistake each file can afford.
+///
+/// `launches.json` treats an absent version as "not ours", because announcing that a foreign
+/// file is one of ours would fire the first-run reward at the person who has been here
+/// longest. `config.json` cannot take that line: every config file that exists today was
+/// written before this field did, so reading absence as unreadable would make this very
+/// change wipe the preferences of every user it is meant to protect — the exact failure spec
+/// point 21 describes, caused by the fix for it.
+fn config_schema_version_default() -> u32 {
+    CONFIG_SCHEMA_VERSION
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredConfig {
+    /// See [`CONFIG_SCHEMA_VERSION`] and [`config_schema_version_default`].
+    #[serde(default = "config_schema_version_default")]
+    schema_version: u32,
     company_name: Option<String>,
     #[serde(default)]
     assertiveness: Assertiveness,
@@ -329,6 +385,7 @@ struct StoredConfig {
 impl Default for StoredConfig {
     fn default() -> Self {
         StoredConfig {
+            schema_version: CONFIG_SCHEMA_VERSION,
             company_name: None,
             assertiveness: Assertiveness::default(),
             splash_enabled: splash_default(),
@@ -473,29 +530,108 @@ impl RetentionChoice {
 pub struct ConfigStore {
     path: PathBuf,
     config: StoredConfig,
+    /// **The document exactly as it was read**, kept so [`ConfigStore::persist`] can write
+    /// back a value this build cannot represent instead of flattening it to a placeholder.
+    /// `None` when there was no file, or when the file could not be read at all — in which
+    /// case nothing is written anyway.
+    raw: Option<serde_json::Map<String, serde_json::Value>>,
+    /// False when the file on disk exists and this build could not read it. Every write is
+    /// gated on this; see [`ConfigStore::persist`].
+    readable: bool,
+    /// Why, in a sentence composed here. Never a parser message — see
+    /// [`ConfigStore::unreadable_reason`].
+    unreadable_reason: Option<String>,
 }
 
 impl ConfigStore {
-    /// Open (or initialize with defaults if absent/corrupt) the config file at `path`.
-    /// A corrupt file degrades to defaults rather than failing the app boot — config is
-    /// a preference layer, never a reason "talk to Rich" can't start.
+    /// Open the config file at `path`.
+    ///
+    /// # What this does with a file it cannot read, and why it changed
+    ///
+    /// **It leaves it exactly as it is.** Spec point 19 — *"a reader that does not understand
+    /// what it finds never rewrites, never truncates, never treats it as absent"* — and spec
+    /// point 5, which names this function as the row of `ledger.rs`'s own survey
+    /// (`ledger.rs:56`) that contradicted it.
+    ///
+    /// Until 2026-09-17 this took `unwrap_or_else` into defaults and the first subsequent
+    /// `set_*` wrote the whole file back, so an unreadable `config.json` cost every
+    /// preference in it PERMANENTLY — going forward to the build that could read it did not
+    /// bring them back. The preferences are now served from memory at their defaults for that
+    /// boot, the file is untouched, and the app still starts: config is a preference layer,
+    /// never a reason "talk to Rich" cannot open.
+    ///
+    /// The one piece of the old path that was already right and is kept: `raw_retention`
+    /// resolves to `FOREVER` rather than its default, because it is the only preference here
+    /// whose default DELETES. A wrong theme costs a re-tick; a wrong retention window costs
+    /// records, at the next boot, silently.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let config = match fs::read_to_string(&path) {
+        // What a boot gets when the file is there and unreadable: defaults in memory, and
+        // the one field whose default deletes kept at FOREVER.
+        let held_open = || StoredConfig {
+            raw_retention: RawRetention::FOREVER,
+            ..StoredConfig::default()
+        };
+
+        let (config, raw, readable, reason) = match fs::read_to_string(&path) {
             // No file: a fresh install. Every default applies, `raw_retention` included —
             // which is the shipping window and nothing new.
-            Err(_) => StoredConfig::default(),
-            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| StoredConfig {
-                // A file that EXISTS and will not parse is NOT a fresh install, and the one
-                // preference in here that DELETES must not be reconstructed from a guess.
-                // Every other field degrading to its default costs a preference; this one
-                // degrading to 14 days costs records, silently, at the next boot. So the
-                // corrupt-file path keeps everything and the CEO can set it again.
-                raw_retention: RawRetention::FOREVER,
-                ..StoredConfig::default()
-            }),
+            Err(_) => (StoredConfig::default(), None, true, None),
+            Ok(text) => match serde_json::from_str::<StoredConfig>(&text) {
+                Ok(c) if c.schema_version <= CONFIG_SCHEMA_VERSION => {
+                    // Keep the document itself. `persist` reads it to restore any value this
+                    // build parsed into an `Unknown` placeholder.
+                    let raw = serde_json::from_str::<serde_json::Value>(&text)
+                        .ok()
+                        .and_then(|v| v.as_object().cloned());
+                    (c, raw, true, None)
+                }
+                Ok(c) => (
+                    held_open(),
+                    None,
+                    false,
+                    Some(format!(
+                        "the settings file on disk is schema version {} and this build knows \
+                         version {CONFIG_SCHEMA_VERSION}; it is being left exactly as it is \
+                         rather than read as a fresh install, and nothing is written over it",
+                        c.schema_version
+                    )),
+                ),
+                Err(e) => (
+                    held_open(),
+                    None,
+                    false,
+                    Some(format!(
+                        "the settings file on disk stops being readable at line {}, column {}; \
+                         it is being left exactly as it is rather than read as a fresh \
+                         install, and nothing is written over it",
+                        e.line(),
+                        e.column()
+                    )),
+                ),
+            },
         };
-        Ok(ConfigStore { path, config })
+        Ok(ConfigStore { path, config, raw, readable, unreadable_reason: reason })
+    }
+
+    /// Whether the file on disk is one this build could read.
+    ///
+    /// `false` means every getter below is answering from a default rather than from his
+    /// settings, and every setter is refusing to write. A surface that shows preferences has
+    /// to be able to say that, which is the whole reason this is public — the same contract
+    /// `launch.rs`'s `LaunchStore::readable` carries.
+    pub fn readable(&self) -> bool {
+        self.readable
+    }
+
+    /// The sentence to show when [`ConfigStore::readable`] is false, or `None`.
+    ///
+    /// **Composed here, never taken from serde.** serde's messages quote the offending value
+    /// — `invalid type: string "…"` — and in THIS file that value is the company he works
+    /// for, his own name, or a thread title. Only the parser's line and column are used: they
+    /// locate the damage and reveal nothing. Same rule `skip.rs` holds for the ledger.
+    pub fn unreadable_reason(&self) -> Option<&str> {
+        self.unreadable_reason.as_deref()
     }
 
     /// The configured company name, or `None` if never set.
@@ -519,11 +655,29 @@ impl ConfigStore {
         self.persist()
     }
 
+    /// The dial's position. A value on disk this build has no name for answers with the
+    /// DEFAULT — spec point 21: *"an unknown value degrades to a known default for that
+    /// field instead of failing the whole document"*. The original string stays on disk and
+    /// goes back out at the next write; see [`ConfigStore::persist`].
     pub fn assertiveness(&self) -> Assertiveness {
-        self.config.assertiveness
+        match self.config.assertiveness {
+            Assertiveness::Unknown => Assertiveness::default(),
+            known => known,
+        }
     }
 
+    /// Refuses [`Assertiveness::Unknown`] by name: it is a READER's placeholder for a value
+    /// written by some other build, and nothing in this app is entitled to mint one. Without
+    /// this refusal, `set_*(Unknown)` would make `persist` restore a string the caller never
+    /// asked for, which is a silent write of something nobody chose.
     pub fn set_assertiveness(&mut self, level: Assertiveness) -> io::Result<()> {
+        if level == Assertiveness::Unknown {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Assertiveness::Unknown is what a value written by another build reads as; it \
+                 is not a setting this build can choose",
+            ));
+        }
         self.config.assertiveness = level;
         self.persist()
     }
@@ -580,11 +734,25 @@ impl ConfigStore {
     // ---- appearance: the two lightings and the type knob (§15) ---------------------
 
     /// Which lighting he chose. `Theme::Dark` on a fresh install, by ruling.
+    /// Which lighting the app opens in. A value on disk this build has no name for answers
+    /// with the DEFAULT (dark) — see [`ConfigStore::assertiveness`] for the rule, and
+    /// [`ConfigStore::persist`] for what keeps his actual choice alive on disk meanwhile.
     pub fn theme(&self) -> Theme {
-        self.config.theme
+        match self.config.theme {
+            Theme::Unknown => Theme::default(),
+            known => known,
+        }
     }
 
+    /// Refuses [`Theme::Unknown`] by name — see [`ConfigStore::set_assertiveness`].
     pub fn set_theme(&mut self, theme: Theme) -> io::Result<()> {
+        if theme == Theme::Unknown {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Theme::Unknown is what a value written by another build reads as; it is not a \
+                 setting this build can choose",
+            ));
+        }
         if self.config.theme == theme {
             return Ok(());
         }
@@ -816,13 +984,64 @@ impl ConfigStore {
         self.persist()
     }
 
+    /// Write the whole file.
+    ///
+    /// # Two things this will not do, and they are the point of spec points 5, 19 and 21
+    ///
+    /// **1. It does not write at all over a file this build could not read.** `fs::write` here
+    /// is where the CEO's preferences actually died: the read degraded to defaults and the
+    /// first `set_*` made that permanent. Now an unreadable file is left alone for the whole
+    /// boot. The caller is told nothing went wrong because nothing did go wrong — the file is
+    /// intact and [`ConfigStore::readable`] is how a surface asks.
+    ///
+    /// **2. It does not flatten a value it cannot represent.** A `theme` or `assertiveness`
+    /// this build has no name for parses to `Unknown` (spec point 21's `#[serde(other)]`);
+    /// serializing that placeholder would write the literal `"unknown"` over his `"sepia"`
+    /// and destroy it exactly as surely as the old path did, one field at a time instead of
+    /// all of them. So the ORIGINAL string is restored from the document that was read, and
+    /// only the fields this build actually understands are rewritten from memory.
+    ///
+    /// The restore can only ever fire on a key that came off disk: `Unknown` has no other
+    /// source. [`ConfigStore::set_theme`] and [`ConfigStore::set_assertiveness`] refuse it by
+    /// name, so there is no path by which this build invents one.
     fn persist(&self) -> io::Result<()> {
+        if !self.readable {
+            return Ok(());
+        }
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let serialized = serde_json::to_string_pretty(&self.config)
+        let mut document = serde_json::to_value(&self.config)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        if let (Some(object), Some(raw)) = (document.as_object_mut(), self.raw.as_ref()) {
+            for key in self.keys_this_build_cannot_represent() {
+                if let Some(original) = raw.get(key) {
+                    object.insert(key.to_string(), original.clone());
+                }
+            }
+        }
+        let serialized = serde_json::to_string_pretty(&document)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         fs::write(&self.path, serialized)
+    }
+
+    /// Which keys currently hold an `Unknown` placeholder, and therefore have to be written
+    /// back from the original document rather than from memory.
+    ///
+    /// A list rather than a trait or a macro: there are two closed enums in this file, both
+    /// named in spec point 21, and a third one added later should be added here with a test
+    /// beside it. The general rule the spec states — *"a closed enum in a persisted document
+    /// is a schema change waiting to happen that no shape-diff will ever report"* — is what
+    /// this function is the local answer to.
+    fn keys_this_build_cannot_represent(&self) -> Vec<&'static str> {
+        let mut keys = Vec::new();
+        if self.config.theme == Theme::Unknown {
+            keys.push("theme");
+        }
+        if self.config.assertiveness == Assertiveness::Unknown {
+            keys.push("assertiveness");
+        }
+        keys
     }
 }
 
@@ -1534,6 +1753,287 @@ mod tests {
         assert_eq!(store.entity_raw(), Some("femcboost"));
         assert_eq!(store.entity().unwrap().as_str(), "femcboost");
         assert_eq!(store.company_name(), None, "the company NAME is a different field again");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // -----------------------------------------------------------------------------------
+    // POINTS 5, 19 AND 21 — THE CLOSED-ENUM WIPE, AND THE FILE THAT IS LEFT ALONE
+    //
+    // Spec: `richos-hq docs/plans/nightly-channel-spec-2026-09-17.md`. Point 21 walks the
+    // exact failure these hold shut, in five steps: a nightly adds `Theme::Sepia`; the CEO
+    // picks it; he rolls back; `from_str::<StoredConfig>` fails on the unknown VARIANT
+    // (serde's unknown-FIELD tolerance does not extend to variants); `open` degraded to
+    // defaults; the first `set_*` wrote them over his file. Going forward again did not
+    // bring them back.
+    //
+    // Every negative below carries a positive control, because all of them would pass on a
+    // store that simply never wrote anything at all.
+    // -----------------------------------------------------------------------------------
+
+    /// A file with four preferences in it, one of which names a theme this build has never
+    /// heard of. `raw_retention` is deliberately NOT the default, so the test can tell
+    /// "preserved" from "happened to match".
+    fn config_with_a_sepia_theme() -> &'static str {
+        r#"{
+  "company_name": "Booster Labs",
+  "assertiveness": "balanced",
+  "theme": "sepia",
+  "font_scale": 120,
+  "raw_retention": { "days": null, "max_total_bytes": null }
+}"#
+    }
+
+    #[test]
+    fn a_theme_written_by_a_newer_build_costs_that_field_and_nothing_else() {
+        let path = tmp_path("sepia-reads");
+        std::fs::write(&path, config_with_a_sepia_theme()).unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        let store = ConfigStore::open(&path).unwrap();
+        assert!(store.readable(), "the document PARSES — one unknown value is not a broken file");
+        assert_eq!(store.theme(), Theme::Dark, "the one field it cannot name degrades to the default");
+        assert_eq!(
+            store.company_name(),
+            Some("Booster Labs"),
+            "and every other preference is his, not a default"
+        );
+        assert_eq!(store.assertiveness(), Assertiveness::Balanced);
+        assert_eq!(store.font_scale(), 120);
+        assert_eq!(store.raw_retention(), RawRetention::FOREVER, "including the one that DELETES");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "and opening the file did not write a byte"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// **THE CASE THE WHOLE POINT EXISTS FOR.** He sets some OTHER preference while a value
+    /// this build cannot represent is on disk. The write must not flatten it.
+    #[test]
+    fn setting_another_field_writes_his_unknown_theme_back_out_verbatim() {
+        let path = tmp_path("sepia-survives-a-write");
+        std::fs::write(&path, config_with_a_sepia_theme()).unwrap();
+
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_company_name("Booster Labs Ltd").unwrap();
+
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk.get("theme").and_then(|v| v.as_str()),
+            Some("sepia"),
+            "his theme is still his theme — not \"unknown\", not \"dark\""
+        );
+        assert_eq!(
+            on_disk.get("company_name").and_then(|v| v.as_str()),
+            Some("Booster Labs Ltd"),
+            "and the field he actually set did change"
+        );
+
+        // POSITIVE CONTROL: the restore is not a pin. When he picks a theme this build DOES
+        // know, that is what lands, and the unknown value is gone because he replaced it.
+        store.set_theme(Theme::Light).unwrap();
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after.get("theme").and_then(|v| v.as_str()), Some("light"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The same contract on the second closed enum named in point 21. Two enums, one rule —
+    /// and a test each, because `keys_this_build_cannot_represent` is a hand-written list and
+    /// a hand-written list is exactly the thing that grows a hole.
+    #[test]
+    fn an_assertiveness_written_by_a_newer_build_survives_a_write_too() {
+        let path = tmp_path("dial-survives");
+        std::fs::write(&path, r#"{"company_name":"X","assertiveness":"insistent","theme":"light"}"#).unwrap();
+
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.assertiveness(), Assertiveness::Quiet, "degrades to the default for the read");
+        assert_eq!(store.theme(), Theme::Light, "and the fields it knows are untouched");
+        store.set_font_scale(120).unwrap();
+
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk.get("assertiveness").and_then(|v| v.as_str()), Some("insistent"));
+        assert_eq!(on_disk.get("font_scale").and_then(|v| v.as_u64()), Some(120));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Both placeholders at once, and this is the rollback his sentence is about: go
+    /// forward, come back, change something, go forward again, and find what you left.
+    #[test]
+    fn a_rollback_across_two_unknown_values_loses_neither_of_them() {
+        let path = tmp_path("rollback-round-trip");
+        std::fs::write(
+            &path,
+            r#"{"company_name":"Booster","assertiveness":"insistent","theme":"sepia","font_scale":100}"#,
+        )
+        .unwrap();
+
+        // The older build boots, is used, and writes.
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_font_scale(120).unwrap();
+            store.set_company_name("Booster Labs").unwrap();
+            store.set_splash_enabled(false, 1).unwrap();
+        }
+        // The newer build comes back and finds its own values where it left them.
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk.get("theme").and_then(|v| v.as_str()), Some("sepia"));
+        assert_eq!(on_disk.get("assertiveness").and_then(|v| v.as_str()), Some("insistent"));
+        // And the older build's own work is there too.
+        assert_eq!(on_disk.get("font_scale").and_then(|v| v.as_u64()), Some(120));
+        assert_eq!(on_disk.get("company_name").and_then(|v| v.as_str()), Some("Booster Labs"));
+        assert_eq!(on_disk.get("splash_enabled").and_then(|v| v.as_bool()), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// `Unknown` is a READER's verdict about somebody else's bytes. Nothing in this build may
+    /// mint one — otherwise `persist` would restore a string the caller never chose.
+    #[test]
+    fn the_placeholder_is_not_a_setting_this_build_can_choose() {
+        let path = tmp_path("refuse-placeholder");
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(store.set_theme(Theme::Unknown).is_err());
+        assert!(store.set_assertiveness(Assertiveness::Unknown).is_err());
+        // POSITIVE CONTROL: the real values are accepted on the same store.
+        store.set_theme(Theme::Light).unwrap();
+        store.set_assertiveness(Assertiveness::Balanced).unwrap();
+        assert_eq!(store.theme(), Theme::Light);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// **Point 19 on this file.** A `config.json` this build cannot parse at all is left
+    /// EXACTLY as it is, for the whole boot, through every setter — and the app still opens.
+    #[test]
+    fn an_unparseable_config_is_left_on_disk_and_nothing_is_written_over_it() {
+        let path = tmp_path("unparseable");
+        let original = r#"{"company_name":"Booster","theme":"light",,,}"#;
+        std::fs::write(&path, original).unwrap();
+
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(!store.readable(), "the file exists and this build cannot read it");
+        assert!(store.unreadable_reason().is_some(), "and it can say so");
+        assert_eq!(store.theme(), Theme::Dark, "the boot is served from defaults");
+        assert_eq!(store.company_name(), None);
+        assert_eq!(
+            store.raw_retention(),
+            RawRetention::FOREVER,
+            "the one default that DELETES is never reconstructed from a guess"
+        );
+
+        store.set_theme(Theme::Light).unwrap();
+        store.set_company_name("Anything").unwrap();
+        store.set_font_scale(120).unwrap();
+        store.set_assertiveness(Assertiveness::Balanced).unwrap();
+        store.set_raw_retention(RawRetention::FOREVER).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original,
+            "five writes later, the file is byte-for-byte what it was"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The positive control for the test above, and it is load-bearing: every one of those
+    /// assertions would pass on a `ConfigStore` that had simply stopped writing altogether.
+    #[test]
+    fn a_readable_config_really_is_written_to() {
+        let path = tmp_path("writes-do-land");
+        std::fs::write(&path, r#"{"company_name":"Booster","theme":"light"}"#).unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(store.readable());
+        store.set_font_scale(120).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_ne!(after, before, "a readable file IS written");
+        assert_eq!(ConfigStore::open(&path).unwrap().font_scale(), 120);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A `theme` whose JSON TYPE is wrong is a different failure from a theme whose VALUE is
+    /// unknown: `#[serde(other)]` catches an unknown variant name, not a number where a
+    /// string belongs. That falls to point 19 — unreadable, untouched — and this pins which
+    /// of the two happens, so nobody later assumes `#[serde(other)]` covers more than it does.
+    #[test]
+    fn a_theme_of_the_wrong_json_type_is_point_19_not_point_21() {
+        let path = tmp_path("theme-wrong-type");
+        let original = r#"{"company_name":"Booster","theme":42}"#;
+        std::fs::write(&path, original).unwrap();
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(!store.readable());
+        store.set_font_scale(120).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// **The regression that would make this whole change the disaster it prevents.** Every
+    /// `config.json` in existence was written before `schema_version` was, so an absent
+    /// version MUST read as version 1. If it read as unreadable, shipping this would reset
+    /// the preferences of every user it is meant to protect.
+    #[test]
+    fn a_config_written_before_schema_versions_existed_reads_every_preference() {
+        let path = tmp_path("no-version-key");
+        std::fs::write(
+            &path,
+            r#"{"company_name":"Booster","assertiveness":"balanced","theme":"light","font_scale":120}"#,
+        )
+        .unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert!(store.readable(), "a file with no version key is one of OURS, written before the key");
+        assert_eq!(store.company_name(), Some("Booster"));
+        assert_eq!(store.assertiveness(), Assertiveness::Balanced);
+        assert_eq!(store.theme(), Theme::Light);
+        assert_eq!(store.font_scale(), 120);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_config_from_a_newer_schema_is_left_exactly_as_it_is() {
+        let path = tmp_path("newer-schema");
+        let original = r#"{"schema_version":99,"company_name":"Booster","theme":"light"}"#;
+        std::fs::write(&path, original).unwrap();
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(!store.readable(), "a shape this build does not know is not read");
+        assert!(store.unreadable_reason().unwrap().contains("99"), "and it names the version it found");
+        assert_eq!(store.company_name(), None, "nothing is read out of a document it cannot understand");
+        store.set_company_name("Anything").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original, "and nothing is written over it");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn this_builds_own_schema_version_round_trips() {
+        let path = tmp_path("version-round-trip");
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_company_name("Booster").unwrap();
+        }
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk.get("schema_version").and_then(|v| v.as_u64()),
+            Some(u64::from(CONFIG_SCHEMA_VERSION)),
+            "a file this build writes declares its shape, so point 25 has something to check"
+        );
+        assert!(ConfigStore::open(&path).unwrap().readable());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// serde's messages quote the offending value. In THIS file that value is the company he
+    /// works for, his own name, or a thread title — so the sentence is composed here from the
+    /// parser's line and column and nothing else. Same rule `skip.rs` holds for the ledger.
+    #[test]
+    fn the_unreadable_reason_never_quotes_one_word_of_his_settings() {
+        const SECRET: &str = "ACQUISITION-PRICE-IS-FORTY-MILLION";
+        let path = tmp_path("no-content-in-the-reason");
+        std::fs::write(&path, format!(r#"{{"company_name":"{SECRET}","theme":}}"#)).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        let reason = store.unreadable_reason().expect("unreadable");
+        assert!(!reason.contains(SECRET), "his settings must not reach a report: {reason}");
+        assert!(reason.contains("line") && reason.contains("column"), "it locates the damage: {reason}");
         let _ = std::fs::remove_file(&path);
     }
 }
