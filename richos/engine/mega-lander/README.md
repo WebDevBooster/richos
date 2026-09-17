@@ -93,10 +93,28 @@ Cross-repo worktrees default to a sibling `<repo>-wt/<agent-name>` directory
 with branch `cc/<agent-name>`. Native worktrees remain under the base repository's
 `.claude/worktrees/agent-<id>`. `codex/` protections are unchanged.
 
+Land locks are the one piece of state that is deliberately **not** in that
+store, because that store is partitioned per conversation. `app.py`'s
+`integrate` takes one `flock` per target repository in
+`$CLAUDE_CONFIG_DIR/state/land-locks` (otherwise `~/.claude/state/land-locks`),
+keyed to the realpath of the repository's `--git-common-dir`, so two paths to
+one repository — a symlinked connection, a linked worktree — are one lock and
+two different repositories are two. It is held across the whole land: the
+recorded-tip check, the fast-forward, and the workspace cleanup. Two
+conversations may share a repository and their lands take turns; the second one
+waits, reports what it waited for, and refuses only if the holder has not
+released within `RICHOS_LAND_LOCK_TIMEOUT` (600s) — a refusal that names the
+holding thread and confirms nothing was merged. Order among waiters is the
+kernel's rather than a first-come queue, because a ticket file is not
+kernel-released and a queue would have to decide whether a waiter is still
+alive. `RICHOS_LAND_LOCKS_DIR` overrides the home for tests and is refused if
+it resolves inside either per-conversation partition.
+
 ## Verification and installation
 
 ```sh
 bash mega-lander/tests/workspaces.test.sh
+bash mega-lander/tests/app.test.sh
 bash mega-lander/tests/create-teammate-worktree.test.sh
 bash mega-lander/tests/workspaces-e2e.test.sh
 bash mega-lander/tests/workspace-spec-fourteen.test.sh
