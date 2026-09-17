@@ -65,6 +65,15 @@ The usual spawn entry point remains `scripts/spawn.sh`. It calls Mega Lander's
 creator as part of preparing a cross-repo agent. The creator can also be run
 directly: `mega-lander/create-teammate-worktree.sh <repo> <agent-name>`.
 
+One agent can work in SEVERAL other repositories: give `spawn.sh` one `--repo`
+per repository, and it creates and registers one `cc/` workspace in each under
+the one agent name, with one `cross-repo-worktree:` line per workspace in the
+payload. Run by hand, the creator does the same thing when it is run again with
+a different `<repo>` and the same `<agent-name>`; a second workspace in the SAME
+repository under that name stays refused. `land` and `discard` delete every
+workspace and branch the agent has, across every repository, as one (spec point
+10).
+
 Existing command paths in `scripts/` forward here. The old
 `scripts/lib/workspaces.py` import path also forwards here for external callers
 and historical probes. These compatibility files contain no lifecycle policy.
