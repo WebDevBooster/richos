@@ -1145,8 +1145,14 @@ async function main() {
     // at `init`, from `app.package_info().version`; nothing in the check/download/install path
     // writes it again, so a manifest can never rename the build the CEO is running. Read off
     // the Rust rather than trusted: a second assignment appearing here fails this check.
-    const rust = UPDATES_RS;
-    const writes = rust.match(/\bcurrent_version\s*=[^=]/g) || [];
+    // COMMENTS STRIPPED FIRST, which `setup.js` case 14 learned the hard way and this check
+    // then repeated within the hour: the note above the test in `updates.rs` quotes the shape
+    // it forbids (`x.current_version = ...`), so a naive scan matches the explanation and
+    // reports the defect it exists to prevent.
+    const writes = UPDATES_RS.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => !line.startsWith("//"))
+      .filter((line) => /\bcurrent_version\s*=[^=]/.test(line) && !line.includes("assert"));
     assertEqual(
       writes.length,
       0,
@@ -1154,7 +1160,7 @@ async function main() {
         "can be renamed by something other than the bundle it is"
     );
     assert(
-      /let version = app\.package_info\(\)\.version\.to_string\(\);/.test(rust),
+      /let version = app\.package_info\(\)\.version\.to_string\(\);/.test(UPDATES_RS),
       "the running version no longer comes from the package the bundle was built as"
     );
     await page.close();
