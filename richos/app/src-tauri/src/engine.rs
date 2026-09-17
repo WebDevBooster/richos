@@ -180,13 +180,26 @@ impl EngineResolution {
         }
     }
 
-    /// The release half of the boot line. A pinned build states the pin it just satisfied; an
-    /// unpinned one says it pinned nothing, rather than leaving the reader to infer which of
-    /// the two situations produced a silent line.
+    /// The release half of the boot line, **read off the directory that was chosen** and never
+    /// off the pin.
+    ///
+    /// Reporting the PIN here would be a line that is true on four paths out of five and false
+    /// on the fifth — the explicit override, which is taken verbatim and may carry any release
+    /// at all (that is the whole point of it). A boot line stating a version the running engine
+    /// does not have is the shape of defect this file exists to have ended, so the version
+    /// comes from the engine and the pin is named beside it when the two disagree.
     fn release_note(&self, dir: &Path) -> String {
         let found = richos_core::setup::engine_version(dir);
         match (&self.needed, found) {
-            (Some(needed), _) => format!("engine {needed} as this build pins"),
+            (Some(needed), Some(found)) if &found == needed => {
+                format!("engine {found} as this build pins")
+            }
+            (Some(needed), Some(found)) => {
+                format!("engine {found}, NOT the {needed} this build pins — taken as named")
+            }
+            (Some(needed), None) => {
+                format!("no readable version, and this build pins engine {needed} — taken as named")
+            }
             (None, Some(found)) => format!("engine {found}, pinned by nothing in this build"),
             (None, None) => "no readable version, and this build pins none".to_string(),
         }
@@ -903,6 +916,37 @@ mod tests {
             got.describe().contains("pinned by nothing in this build"),
             "an unpinned build must say so: {}",
             got.describe()
+        );
+    }
+
+    /// **THE BOOT LINE STATES THE ENGINE THAT IS THERE, NEVER THE PIN.** An explicit override is
+    /// taken verbatim and may carry any release at all, so a line that reported the PIN would be
+    /// true on four paths and false on the fifth — a launch announcing a version the running
+    /// engine does not have, which is the class of defect this file was written to end.
+    #[test]
+    fn the_boot_line_names_the_release_that_is_there_even_when_it_is_not_the_pin() {
+        let root = scratch("pin-boot-line");
+        let named = make_engine_release(&root.join("named"), "0.9.0-someone-elses");
+        let paths = LaunchPaths {
+            env_engine_dir: Some(named.display().to_string()),
+            cwd: Some(PathBuf::from("/")),
+            ..Default::default()
+        };
+
+        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        assert_eq!(got.dir.as_deref(), Some(named.as_path()), "{got:?}");
+        let line = got.describe();
+        assert!(line.contains("0.9.0-someone-elses"), "the running engine is not named: {line}");
+        assert!(line.contains("1.2.0"), "the pin it does not satisfy is not named: {line}");
+        // The shape `gui-boot.test.sh`'s `engine directory` proof matches is preserved.
+        assert!(line.contains(" (via ") && line.ends_with(')'), "{line}");
+
+        // And the matching case says so plainly, with one version in it rather than two.
+        let matching = resolve_engine_dir_pinned(&paths, Some("0.9.0-someone-elses"));
+        assert!(
+            matching.describe().contains("engine 0.9.0-someone-elses as this build pins"),
+            "{}",
+            matching.describe()
         );
     }
 
