@@ -800,13 +800,24 @@
                on a surface that says what is missing and carries the control that fixes it
                — which is why this is a deferral and not the §21 leak the modal was guarding
                against. The line below says exactly that, in his words, the way the
-               interview offer says what ITS "Not now" costs. -->
-          <p id="entity-picker-defer-note" class="overlay-note" hidden>
-            Not now is fine. I'll leave the message box switched off until you pick one, and
-            the button to do it stays right there.
-          </p>
-          <div id="entity-picker-defer" class="memory-setup-actions" hidden>
-            <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
+               interview offer says what ITS "Not now" costs.
+
+               THE SENTENCE IS INSIDE THE GROUP NOW (candidate-.2 defect #5). It used to be
+               a sibling ABOVE this block, and `.overlay-note`'s `margin: -4px 0 12px` — a
+               negative top margin written for a note that follows a heading — put it 4px
+               INTO the bottom of "Add this company" and 12px clear of the "Not now" it
+               describes. Measured on the running page: gapAbove -4px, gapBelow 12px. It
+               read as the caption of the wrong button, which the audit called it. Nesting
+               it is the fix rather than a margin override, because the thing that was
+               wrong is that it belonged to the wrong control. -->
+          <div id="entity-picker-defer" class="picker-defer" hidden>
+            <p id="entity-picker-defer-note" class="overlay-note picker-defer-note" hidden>
+              Not now is fine. I'll leave the message box switched off until you pick one, and
+              the button to do it stays right there.
+            </p>
+            <div class="memory-setup-actions">
+              <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
+            </div>
           </div>
         </div>
       </div>
