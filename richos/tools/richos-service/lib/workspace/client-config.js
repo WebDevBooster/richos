@@ -8,12 +8,15 @@
  *   - `clientId`      the CEO's OWN desktop client (§6.1). RichOS never bundles one, and never a
  *                     secret of its own. HIS client's secret — which Google's token endpoint
  *                     demands of a Desktop-app client — is in the keychain (client-secret.js),
- *                     deliberately not in this file.
+ *                     deliberately not in this file. ONE client per vendor: it is his app, and every
+ *                     account he authorizes authorizes THAT app, so the id is shared by all of them.
  *   - `redirectUri`   a loopback the consent code comes back on — checked by `assertLoopbackRedirect`.
+ *   - `accounts`      a LIST, one entry per Google account, each with its own `scopes` (§6.2) and its
+ *                     own `orgDomains`. See below for why this is a list and not one address.
  *   - `scopes`        ONLY values declared in `config.js:GOOGLE_SCOPES`. A scope string typed here that
  *                     the registry does not declare is REFUSED, not requested: widening what the CEO
  *                     consents to is his decision on the Google screen (§6.2), never a config typo.
- *   - `accountId`     the address the grant is bound to. It is NOT derivable from the tokens we hold:
+ *   - `accountId`     the address a grant is bound to. It is NOT derivable from the tokens we hold:
  *                     the least-privilege grant is `calendar.events.readonly`, which carries no identity
  *                     scope, so there is no `id_token` and no People API call available. Asking for
  *                     `openid`/`email` to learn it would change the consent screen — a CEO decision, not
@@ -21,17 +24,29 @@
  *                     jobs: the adapters' stable `sourceInstanceId`, and the governance identity (§5.1)
  *                     that decides which of his meetings are internal.
  *
+ * WHY `accounts` IS A LIST (2026-09-17). The CEO's first connected account is a Google account built on
+ * an outside address: it has Drive, no Gmail mailbox and an empty calendar. His mail lives on a SECOND
+ * Google account. One `accountId` per file made connecting the second REPLACE the first — the same
+ * file, the same keychain item, the earlier grant gone. Neither account is the odd one out, so the
+ * shape holds both: the client is shared (it is his one OAuth app), while the grant, the scopes, the
+ * governance identity, the tokens, the cursors and the evidence are every one of them per account.
+ *
+ * A file written before that — one `accountId` at the top level, call it v1 — is READ, MIGRATED to the
+ * list shape and rewritten in place on first use, with nothing about the existing account changed. A
+ * hand-edited `accountId` sitting alongside an `accounts` list is folded INTO the list rather than
+ * ignored, because a CEO who typed an address there meant an account, not a decoration.
+ *
  * The file holds no credential — the one credential this flow needs beyond the tokens, the client
- * secret, is kept in the OS keychain instead — but it names the CEO's own address,
+ * secret, is kept in the OS keychain instead — but it names the CEO's own addresses,
  * so it is written with `writePrivateFile` (0600, no symlink, no hard link) into the zone, which
  * `workspaceZone()` has already refused to place inside the publicly-shipping product repo.
  */
 
 import fs from 'node:fs';
-import { GOOGLE_SCOPES, workspaceClientConfigPath } from '../config.js';
+import { GOOGLE_SCOPES, MICROSOFT_SCOPES, workspaceClientConfigPath } from '../config.js';
 import { writePrivateFile } from '../private-files.js';
 import { assertLoopbackRedirect } from './privacy.js';
-import { GOOGLE_SOURCES, grantsFor } from './registry.js';
+import { sourcesForVendor, grantsFor } from './registry.js';
 
 /**
  * The loopback redirect the setup guide's Step 5 pins. Pinned here too, rather than left to a caller,
@@ -42,9 +57,23 @@ export const DEFAULT_REDIRECT_URI = 'http://127.0.0.1:47121/callback';
 /** The placeholder the guide prints. Pasting the template unedited is a refusal, never a request. */
 export const CLIENT_ID_PLACEHOLDER = 'PASTE_YOUR_CLIENT_ID';
 
+/**
+ * The scope table for a vendor. `google` is the default so every existing caller keeps its behavior
+ * exactly — the Microsoft table (P4) is reached only by asking for it by name.
+ */
+const SCOPES_BY_VENDOR = { google: GOOGLE_SCOPES, microsoft: MICROSOFT_SCOPES };
+
+function scopeTable(vendor) {
+  const table = SCOPES_BY_VENDOR[vendor];
+  // Never default: silently validating a Microsoft config against Google's scope table would refuse
+  // every legitimate Graph scope and name Google's in the refusal.
+  if (!table) throw new Error(`no scope table for vendor "${vendor}" — known: ${Object.keys(SCOPES_BY_VENDOR).join(', ')}`);
+  return table;
+}
+
 /** Every scope RichOS is allowed to ask for, by source. Nothing outside this map is requestable. */
-export function declaredScopes() {
-  return { ...GOOGLE_SCOPES };
+export function declaredScopes(vendor = 'google') {
+  return { ...scopeTable(vendor) };
 }
 
 /**
@@ -53,16 +82,19 @@ export function declaredScopes() {
  * taken before the CEO widened Drive (§40) keeps working — the registry can run
  * `drive.metadata.readonly` in metadata mode, so a config that asks for it is not a mistake to refuse.
  * Anything else is: it would mean requesting a permission no adapter here knows what to do with.
+ *
+ * Both halves come from the VENDOR'S tables, never from Google's by name, so the P4 ceremony can
+ * validate a Microsoft config through this same function instead of needing its own.
  */
-export function requestableScopes() {
-  const out = new Set(Object.values(GOOGLE_SCOPES));
-  for (const entry of GOOGLE_SOURCES) for (const g of grantsFor(entry)) out.add(g.scope);
+export function requestableScopes(vendor = 'google') {
+  const out = new Set(Object.values(scopeTable(vendor)));
+  for (const entry of sourcesForVendor(vendor)) for (const g of grantsFor(entry)) out.add(g.scope);
   return [...out];
 }
 
 /** The source a declared scope belongs to, or null if nothing declares it. */
-export function sourceForScope(scope) {
-  for (const [source, value] of Object.entries(GOOGLE_SCOPES)) {
+export function sourceForScope(scope, vendor = 'google') {
+  for (const [source, value] of Object.entries(scopeTable(vendor))) {
     if (value === scope) return source;
   }
   return null;
@@ -91,77 +123,208 @@ export function loadClientConfig(file = workspaceClientConfigPath()) {
   }
 }
 
+/** Shape one account entry. Lower-cases the address, because an email is not case-sensitive and a
+ * keychain account, a cursor key and an evidence path all are. */
+function normalizeAccount(entry) {
+  const e = entry && typeof entry === 'object' ? entry : {};
+  const orgDomains = Array.isArray(e.orgDomains)
+    ? e.orgDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+    : [];
+  return {
+    accountId: typeof e.accountId === 'string' ? e.accountId.trim().toLowerCase() : '',
+    scopes: Array.isArray(e.scopes) ? e.scopes.map((s) => String(s).trim()).filter(Boolean) : [],
+    ...(orgDomains.length ? { orgDomains } : {}),
+  };
+}
+
+/**
+ * Bring ANY config shape to the one this module writes: one client, a list of accounts.
+ *
+ * Shape only — it validates nothing, so a garbage account survives migration and is then refused by
+ * `validateClientConfig` with a sentence the CEO can act on, rather than vanishing quietly here.
+ *
+ * @param {object|null} raw
+ * @returns {{migrated:boolean, config:{clientId:string, redirectUri?:string,
+ *   accounts:Array<{accountId:string, scopes:string[], orgDomains?:string[]}>}}}
+ */
+export function migrateClientConfig(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const listed = Array.isArray(src.accounts) ? src.accounts : null;
+  const accounts = (listed || []).map(normalizeAccount);
+
+  // A v1 file names its one account beside the client. So does a v2 file the CEO hand-edited an
+  // `accountId` back into — and in both cases that address is an account he means. A top-level entry
+  // matching one already in the list UPDATES it (his edit is the newer statement of intent); one that
+  // matches nothing is appended. Duplicates WITHIN the list are left alone for the validator to
+  // refuse by name: merging them here would be this module picking which of two grants he meant.
+  if (typeof src.accountId === 'string' && src.accountId.trim()) {
+    const top = normalizeAccount({ accountId: src.accountId, scopes: src.scopes, orgDomains: src.orgDomains });
+    const at = accounts.findIndex((a) => a.accountId === top.accountId);
+    if (at >= 0) {
+      accounts[at] = { ...accounts[at], ...top, scopes: top.scopes.length ? top.scopes : accounts[at].scopes };
+    } else {
+      accounts.push(top);
+    }
+  }
+
+  return {
+    migrated: !listed,
+    config: {
+      clientId: typeof src.clientId === 'string' ? src.clientId.trim() : '',
+      ...(typeof src.redirectUri === 'string' && src.redirectUri.trim() ? { redirectUri: src.redirectUri.trim() } : {}),
+      accounts,
+    },
+  };
+}
+
+/** The refusal for an account RichOS cannot name. Worded once: two commands print it. */
+const ACCOUNT_MISSING =
+  'accountId is missing — the Google address this authorization belongs to (e.g. "you@yourcompany.com"). ' +
+  'RichOS cannot read it from the grant: the read-only Calendar scope carries no identity, and asking ' +
+  'for one would change your consent screen.';
+
 /**
  * Validate and normalize a raw config. Never throws — returns every problem at once, in the CEO's
  * vocabulary, because a setup step that reports its first failure and stops costs him another round
- * trip for each remaining field.
+ * trip for each remaining field. Every per-account problem NAMES the account it is about: with more
+ * than one account in the file, "scope X is not declared" without an address is a hunt.
+ *
+ * The `config` it returns carries the account list and NOTHING mirrored out of it. A first draft
+ * kept the first account's `accountId`/`scopes` at the top level so single-account callers could go
+ * on reading them, and it cost a real bug inside an hour: `connect --source` updated an account's
+ * entry, the save path folded the stale top-level mirror back over it, and the widened scopes were
+ * gone from the file the moment they were written. Two spellings of one fact do not stay equal. Read
+ * an account through `accountView()`.
+ *
  * @param {object|null} raw
- * @returns {{ok:boolean, problems:string[], config:{clientId:string, redirectUri:string, scopes:string[], accountId:string, orgDomains:string[]}}}
+ * @param {{vendor?:'google'|'microsoft'}} [opts]  the scope table to validate against; the config
+ *   file is Google's today, and the parameter is here so P4's ceremony reuses this function instead
+ *   of growing a second validator whose refusals would name the wrong vendor's scopes.
+ * @returns {{ok:boolean, problems:string[], migrated:boolean, config:{clientId:string, redirectUri:string,
+ *   accounts:Array<{accountId:string, scopes:string[], orgDomains:string[]}>}}}
  */
-export function validateClientConfig(raw) {
+export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   const problems = [];
-  const src = raw && typeof raw === 'object' ? raw : {};
+  const { config: shaped, migrated } = migrateClientConfig(raw);
 
-  const clientId = typeof src.clientId === 'string' ? src.clientId.trim() : '';
+  const clientId = shaped.clientId;
   if (!clientId) {
     problems.push('clientId is missing — paste the Client ID from your own Google Cloud OAuth client (guide Step 4).');
   } else if (clientId.includes(CLIENT_ID_PLACEHOLDER)) {
     problems.push(`clientId is still the template placeholder "${CLIENT_ID_PLACEHOLDER}" — replace it with your own Client ID.`);
   }
 
-  const redirectUri = typeof src.redirectUri === 'string' && src.redirectUri.trim()
-    ? src.redirectUri.trim()
-    : DEFAULT_REDIRECT_URI;
+  const redirectUri = shaped.redirectUri || DEFAULT_REDIRECT_URI;
   try {
     assertLoopbackRedirect(redirectUri);
   } catch (err) {
     problems.push(String(err.message));
   }
 
-  let scopes = Array.isArray(src.scopes) ? src.scopes.map((s) => String(s).trim()).filter(Boolean) : [];
-  if (!scopes.length) scopes = [GOOGLE_SCOPES.calendar]; // the guide's Step 3 enables Calendar and nothing else
-  const requestable = requestableScopes();
-  for (const s of scopes) {
-    if (!requestable.includes(s)) {
-      problems.push(
-        `scope "${s}" is not one RichOS declares (config.js GOOGLE_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
-          'Widening what you consent to is a decision on the Google consent screen, not a config edit.',
-      );
+  const requestable = requestableScopes(vendor);
+  const accounts = [];
+  const seen = new Set();
+
+  if (!shaped.accounts.length) problems.push(ACCOUNT_MISSING);
+
+  for (const entry of shaped.accounts) {
+    const accountId = entry.accountId;
+    if (!accountId) {
+      problems.push(ACCOUNT_MISSING);
+    } else if (!accountId.includes('@')) {
+      problems.push(`accountId "${accountId}" does not look like an email address — it must be the Google account you authorize.`);
+    } else if (seen.has(accountId)) {
+      // Two entries for one address is two answers to "what did he grant it?", and nothing here may
+      // pick one. It is also always a hand edit, so it is cheap to say and cheap for him to fix.
+      problems.push(`the account "${accountId}" is listed twice — give each Google account exactly one entry under "accounts".`);
+      continue;
     }
+    if (accountId) seen.add(accountId);
+
+    let scopes = entry.scopes.length ? entry.scopes : [scopeTable(vendor).calendar]; // Step 3 enables Calendar and nothing else
+    const who = accountId ? ` (account ${accountId})` : '';
+    for (const s of scopes) {
+      if (!requestable.includes(s)) {
+        problems.push(
+          `scope "${s}"${who} is not one RichOS declares (config.js ${vendor.toUpperCase()}_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
+            'Widening what you consent to is a decision on the Google consent screen, not a config edit.',
+        );
+      }
+    }
+    scopes = [...new Set(scopes)];
+    accounts.push({ accountId, scopes, orgDomains: entry.orgDomains || [] });
   }
-  scopes = [...new Set(scopes)];
 
-  const accountId = typeof src.accountId === 'string' ? src.accountId.trim().toLowerCase() : '';
-  if (!accountId) {
-    problems.push(
-      'accountId is missing — the Google address this authorization belongs to (e.g. "you@yourcompany.com"). ' +
-        'RichOS cannot read it from the grant: the read-only Calendar scope carries no identity, and asking ' +
-        'for one would change your consent screen.',
-    );
-  } else if (!accountId.includes('@')) {
-    problems.push(`accountId "${accountId}" does not look like an email address — it must be the Google account you authorize.`);
-  }
+  return { ok: problems.length === 0, problems, migrated, config: { clientId, redirectUri, accounts } };
+}
 
-  const orgDomains = Array.isArray(src.orgDomains)
-    ? src.orgDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-    : [];
+/** Every account entry in a config, in the order the file lists them. */
+export function accountsOf(config) {
+  return config && Array.isArray(config.accounts) ? config.accounts : [];
+}
 
-  return { ok: problems.length === 0, problems, config: { clientId, redirectUri, scopes, accountId, orgDomains } };
+/**
+ * ONE account's view of the config: the shared client, plus that account's own grant and identity.
+ *
+ * A `TokenManager`, a registry build and a governance identity are each constructed from one of these
+ * and never from the whole config — so nothing downstream is able to read one account's scopes while
+ * holding another account's address.
+ * @returns {{clientId:string, redirectUri:string, accountId:string, scopes:string[], orgDomains:string[]}|null}
+ */
+export function accountView(config, accountId, { vendor = 'google' } = {}) {
+  const want = String(accountId || '').trim().toLowerCase();
+  const entry = accountsOf(config).find((a) => a.accountId === want);
+  if (!entry) return null;
+  return {
+    clientId: config.clientId,
+    redirectUri: config.redirectUri || DEFAULT_REDIRECT_URI,
+    accountId: entry.accountId,
+    scopes: entry.scopes && entry.scopes.length ? [...entry.scopes] : [scopeTable(vendor).calendar],
+    orgDomains: entry.orgDomains ? [...entry.orgDomains] : [],
+  };
+}
+
+/**
+ * Add an account, or replace the entry the same address already has. Returns a NEW config and touches
+ * no other account — which is the whole point: `connect --account B` must not be able to disturb A's
+ * scopes, A's org domains or A's place in the list.
+ */
+export function upsertAccount(config, account) {
+  const accountId = String((account && account.accountId) || '').trim().toLowerCase();
+  if (!accountId) throw new Error('an account entry needs the Google address it belongs to');
+  const accounts = accountsOf(config).map((a) => ({ ...a }));
+  const orgDomains = Array.isArray(account.orgDomains) ? account.orgDomains.filter(Boolean) : [];
+  const next = {
+    accountId,
+    scopes: Array.isArray(account.scopes) ? [...account.scopes] : [],
+    ...(orgDomains.length ? { orgDomains } : {}),
+  };
+  const at = accounts.findIndex((a) => a.accountId === accountId);
+  if (at >= 0) accounts[at] = next;
+  else accounts.push(next);
+  return { ...config, accounts };
 }
 
 /**
  * Persist a config (0600, outside the product repo by construction). Used by `connect --client-id ...`,
  * which is the one-command form of the guide's Step 5 for a CEO who would rather not open an editor.
+ *
+ * It takes either shape — a single-account object or one carrying `accounts` — and always WRITES the
+ * list shape, so the v1 → v2 migration happens wherever the file is next written rather than in one
+ * special place that has to be remembered.
  * @param {object} config
  * @param {string} [file]
  */
-export function saveClientConfig(config, file = workspaceClientConfigPath()) {
+export function saveClientConfig(config, file = workspaceClientConfigPath(), { vendor = 'google' } = {}) {
+  const { config: shaped } = migrateClientConfig(config);
   const body = {
-    clientId: config.clientId,
-    redirectUri: config.redirectUri || DEFAULT_REDIRECT_URI,
-    scopes: config.scopes && config.scopes.length ? config.scopes : [GOOGLE_SCOPES.calendar],
-    accountId: config.accountId,
-    ...(config.orgDomains && config.orgDomains.length ? { orgDomains: config.orgDomains } : {}),
+    clientId: shaped.clientId,
+    redirectUri: shaped.redirectUri || DEFAULT_REDIRECT_URI,
+    accounts: shaped.accounts.map((a) => ({
+      accountId: a.accountId,
+      scopes: a.scopes && a.scopes.length ? a.scopes : [scopeTable(vendor).calendar],
+      ...(a.orgDomains && a.orgDomains.length ? { orgDomains: a.orgDomains } : {}),
+    })),
   };
   writePrivateFile(file, `${JSON.stringify(body, null, 2)}\n`);
   return body;
@@ -169,16 +332,19 @@ export function saveClientConfig(config, file = workspaceClientConfigPath()) {
 
 /**
  * The exact JSON to paste, matching the guide's Step 5 template. Printed by any command that finds no
- * config, so the fix is in front of whoever hit the refusal instead of in a document.
+ * config, so the fix is in front of whoever hit the refusal instead of in a document. One account is
+ * shown because one is where everybody starts; a second is added by running connect again with
+ * `--account`, never by editing this file by hand.
  * @returns {string}
  */
-export function clientConfigTemplate() {
+export function clientConfigTemplate(vendor = 'google') {
   return JSON.stringify(
     {
       clientId: `${CLIENT_ID_PLACEHOLDER}.apps.googleusercontent.com`,
       redirectUri: DEFAULT_REDIRECT_URI,
-      scopes: [GOOGLE_SCOPES.calendar],
-      accountId: 'you@yourcompany.com',
+      accounts: [
+        { accountId: 'you@yourcompany.com', scopes: [scopeTable(vendor).calendar] },
+      ],
     },
     null,
     2,
@@ -189,12 +355,17 @@ export function clientConfigTemplate() {
  * The governance identity (§5.1) the ingest spine classifies against, derived from the one address the
  * CEO already gave. `ceoIdentity` makes that address's domain an org domain, so "internal" works with
  * no second question; `orgDomains` is there for the CEO who owns more than one.
- * @param {{accountId:string, orgDomains?:string[]}} config
+ *
+ * It takes ONE account's view, never the whole config, and that is a correctness requirement rather
+ * than tidiness: internal-vs-external is a fact about the account an item came from. The same
+ * colleague is internal in his company account and external in his personal one, and one shared
+ * identity across both accounts would get that wrong on every item of whichever account lost.
+ * @param {{accountId:string, orgDomains?:string[]}} account
  * @returns {{selfEmails:string[], orgDomains:string[]}}
  */
-export function identityFrom(config) {
+export function identityFrom(account) {
   return {
-    selfEmails: config.accountId ? [config.accountId] : [],
-    orgDomains: Array.isArray(config.orgDomains) ? config.orgDomains : [],
+    selfEmails: account && account.accountId ? [account.accountId] : [],
+    orgDomains: account && Array.isArray(account.orgDomains) ? account.orgDomains : [],
   };
 }

@@ -54,6 +54,41 @@ export function resetSyncState(vendor, source, file = workspaceSyncStatePath(), 
   return null;
 }
 
+/**
+ * Drop the cursors belonging to a set of source instances, and NOTHING else.
+ *
+ * `disconnect --forget-cursors` used to delete the whole file, which was exactly right while one
+ * account existed and is data loss the moment two do: the account still connected would silently
+ * re-pull its world on its next poll. The file is removed only when the last entry leaves it, so
+ * "no cursors at all" still looks on disk the way it always did.
+ *
+ * @param {string[]} instances  `sourceInstanceId`s, produced by the same adapters a sync polls with
+ * @returns {number} how many entries were dropped
+ */
+export function forgetInstances(instances, file = workspaceSyncStatePath()) {
+  const want = new Set(instances.filter(Boolean));
+  if (!want.size) return 0;
+  const map = loadSyncState(file);
+  let dropped = 0;
+  for (const key of Object.keys(map)) {
+    if (!key.startsWith('[')) continue; // a legacy `vendor:source` key belongs to no account
+    let parsed;
+    try {
+      parsed = JSON.parse(key);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(parsed) && want.has(parsed[2])) {
+      delete map[key];
+      dropped += 1;
+    }
+  }
+  if (!dropped) return 0;
+  if (Object.keys(map).length) writePrivateFile(file, `${JSON.stringify(map, null, 2)}\n`);
+  else fs.rmSync(file, { force: true });
+  return dropped;
+}
+
 /** Old cursors have no account/resource owner. Retain their history and force a scoped full sync. */
 export function retireUnscopedCursor(vendor, source, file = workspaceSyncStatePath()) {
   const map = loadSyncState(file);

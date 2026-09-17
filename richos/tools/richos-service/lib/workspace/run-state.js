@@ -72,6 +72,38 @@ export function recordRun(run, file = workspaceRunStatePath()) {
   return map[key];
 }
 
+/**
+ * Drop the last-run records belonging to a set of source instances, and NOTHING else — the same
+ * discipline `forgetInstances` in sync-state.js applies to cursors, and for the same reason: with two
+ * accounts connected, `disconnect --forget-cursors` on one of them may not erase the other's history.
+ * The file goes away only when its last entry does.
+ *
+ * @param {string[]} instances  `sourceInstanceId`s, from the adapters a sync actually polls with
+ * @returns {number} how many entries were dropped
+ */
+export function forgetInstances(instances, file = workspaceRunStatePath()) {
+  const want = new Set(instances.filter(Boolean));
+  if (!want.size) return 0;
+  const map = loadRunState(file);
+  let dropped = 0;
+  for (const key of Object.keys(map)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(key);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(parsed) && want.has(parsed[2])) {
+      delete map[key];
+      dropped += 1;
+    }
+  }
+  if (!dropped) return 0;
+  if (Object.keys(map).length) writePrivateFile(file, `${JSON.stringify(map, null, 2)}\n`);
+  else fs.rmSync(file, { force: true });
+  return dropped;
+}
+
 /** Human-readable one-liner for `status`. */
 export function describeRun(run) {
   if (!run) return 'never run';
