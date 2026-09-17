@@ -52,7 +52,9 @@ import { ingestOnce } from '../lib/workspace/core.js';
 import {
   validateClientConfig, saveClientConfig, loadClientConfig, clientConfigTemplate, identityFrom,
   requestableScopes, DEFAULT_REDIRECT_URI, CLIENT_ID_PLACEHOLDER,
+  migrateClientConfig, accountsOf, accountView, upsertAccount,
 } from '../lib/workspace/client-config.js';
+import { tokenAccount, LEGACY_TOKEN_ACCOUNT } from '../lib/workspace/token-manager.js';
 import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
@@ -527,7 +529,10 @@ test('assertPollingOnly: the Calendar adapter is poll-only (no watch/subscribe =
 // =================================================================================================
 group('OAuth (§6) — PKCE, auth URL, code exchange + refresh (mocked HTTP, the CEO-owned app)');
 
-const OAUTH_CONFIG = { clientId: 'ceo-owned-client.apps.googleusercontent.com', redirectUri: 'http://127.0.0.1:47121/callback', scopes: ['https://www.googleapis.com/auth/calendar.events.readonly'] };
+// `accountId` is part of this config because a TokenManager is per ACCOUNT: its keychain item is
+// keyed by the address, and one constructed without an address is refused rather than given a
+// shared item that another account could revoke.
+const OAUTH_CONFIG = { clientId: 'ceo-owned-client.apps.googleusercontent.com', redirectUri: 'http://127.0.0.1:47121/callback', scopes: ['https://www.googleapis.com/auth/calendar.events.readonly'], accountId: 'ceo@acme.com' };
 
 test('pkcePair produces a verifier + S256 challenge', () => {
   const p = pkcePair();
@@ -2545,7 +2550,7 @@ test('a config written BEFORE the CEO widened Drive (§40) is still accepted, no
 
 test('an omitted scope list means CALENDAR ONLY — the least-privilege grant the guide sets up', () => {
   const v = validateClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com' });
-  assert.deepEqual(v.config.scopes, [GOOGLE_SCOPES.calendar]);
+  assert.deepEqual(v.config.accounts[0].scopes, [GOOGLE_SCOPES.calendar]);
   assert.equal(v.config.redirectUri, DEFAULT_REDIRECT_URI, 'and the loopback the guide pins');
 });
 
@@ -2570,7 +2575,9 @@ test('saveClientConfig round-trips through a private 0600 file', () => {
     const file = path.join(dir, '_oauth_client.json');
     saveClientConfig({ clientId: 'real-client-9.apps.googleusercontent.com', accountId: 'ceo@acme.com', redirectUri: DEFAULT_REDIRECT_URI, scopes: [GOOGLE_SCOPES.calendar] }, file);
     assert.equal((fs.statSync(file).mode & 0o777), 0o600);
-    assert.equal(loadClientConfig(file).accountId, 'ceo@acme.com');
+    // Given a single-account object it writes the LIST shape — the migration happens wherever the
+    // file is next written, rather than in one special place somebody has to remember to call.
+    assert.equal(loadClientConfig(file).accounts[0].accountId, 'ceo@acme.com');
     assert.equal(loadClientConfig(path.join(dir, 'absent.json')), null, 'a missing config is a state, not a crash');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -2749,8 +2756,10 @@ function wsFixture(opts = {}) {
     zone, clientConfigFile, backend, lines,
     secretInStore: () => readClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID),
     text: () => lines.join('\n'),
-    record: () => {
-      const raw = backend.get('com.richos.workspace.google', 'oauth-tokens');
+    // A grant is keyed by the ACCOUNT it belongs to, so the fixture asks for one by address. The
+    // default is the fixture's own account, which is what every single-account test here means.
+    record: (accountId = 'ceo@acme.com') => {
+      const raw = backend.get('com.richos.workspace.google', `oauth-tokens ${accountId}`);
       return raw ? JSON.parse(raw) : null;
     },
     deps: (extra = {}) => ({
@@ -3289,7 +3298,7 @@ await atest('END TO END: connect google -> sync --once -> status, exactly as the
       assert.match(f.text(), new RegExp(`enabled:\\s+${label}`));
     }
     // The config on disk now reproduces this consent without the flags.
-    assert.deepEqual(loadClientConfig(f.clientConfigFile).scopes, Object.values(GOOGLE_SCOPES));
+    assert.deepEqual(loadClientConfig(f.clientConfigFile).accounts[0].scopes, Object.values(GOOGLE_SCOPES));
 
     // 2. richos-service workspace sync google --once
     f.lines.length = 0;
@@ -3731,6 +3740,517 @@ await atest('a later sync recovers once the account gains a mailbox — no recon
     const mail2 = second.results.find((x) => x.source === 'mail');
     assert.equal(mail2.unavailable, null);
     assert.equal(mail2.summary.ingested, 1, 'the mailbox synced normally on the very next attempt');
+  } finally { f.cleanup(); }
+});
+
+// =================================================================================================
+group('SEVERAL Google accounts side by side (2026-09-17) — connecting the second ADDS it');
+
+// The CEO's first connected account is a Google account on an outside address: Drive, no Gmail
+// mailbox, an empty calendar. His mail lives on a second Google account. Before this, connecting the
+// second REPLACED the first — one `accountId` in the config, one `oauth-tokens` item in the keychain.
+// Everything below is about the two of them existing at once and never reaching into each other.
+
+const ACCT_A = 'ceo@acme.com';
+const ACCT_B = 'ceo.personal@gmail.com';
+
+/**
+ * A mocked Google whose token endpoint mints an access token unique to ONE account, so a later mock
+ * can tell whose request it is looking at from the `Authorization` header — which is the only thing
+ * that distinguishes two accounts on the wire.
+ */
+function accountHttp(accessToken, opts = {}) {
+  const base = googleHttpMock(opts);
+  return {
+    calls: base.calls,
+    http: async (url, init = {}) => {
+      if (url.startsWith(TOKEN_URL)) {
+        base.calls.push({ url, method: init.method || 'POST', body: init.body || null, auth: null });
+        return httpResponse(200, JSON.stringify({
+          access_token: accessToken,
+          refresh_token: `refresh-for-${accessToken}`,
+          expires_in: 3600,
+          scope: opts.grantedScope ?? GOOGLE_SCOPES.calendar,
+          token_type: 'Bearer',
+        }));
+      }
+      return base.http(url, init);
+    },
+  };
+}
+
+/** Route a poll to the mock belonging to whichever account's access token it carries. */
+function byAccessToken(routes) {
+  const calls = [];
+  return {
+    calls,
+    http: async (url, init = {}) => {
+      const auth = (init.headers || {}).authorization || '';
+      calls.push({ url, auth });
+      const mock = routes[auth.replace(/^Bearer /, '')];
+      // A poll that reaches neither mock is a token this test did not mean to see; 401 makes that
+      // loud rather than letting it fall through to somebody else's fixture.
+      if (!mock) return httpResponse(401, '{}');
+      return mock.http(url, init);
+    },
+  };
+}
+
+/** Connect two accounts into one fixture, each with its own grant. Returns their access tokens. */
+async function connectTwo(f, opts = {}) {
+  const scope = opts.grantedScope ?? FULL_GRANT;
+  const sources = opts.sources || ['calendar', 'drive', 'mail'];
+  await connect(f.deps({
+    ...connectStubs(accountHttp('AT-account-a', { grantedScope: scope })),
+    clientId: FAKE_CLIENT_ID, accountId: ACCT_A, sources,
+  }));
+  await connect(f.deps({
+    ...connectStubs(accountHttp('AT-account-b', { grantedScope: scope })),
+    accountId: ACCT_B, sources,
+  }));
+  return { a: 'AT-account-a', b: 'AT-account-b' };
+}
+
+await atest('connect --account a SECOND time adds it — PROBE: the first account\'s grant is still there', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f);
+    assert.deepEqual(accountsOf(loadClientConfig(f.clientConfigFile)).map((a) => a.accountId), [ACCT_A, ACCT_B],
+      'both accounts are in the config, in the order he connected them');
+    // PROBE, and the whole point: the FIRST account's grant survived the second consent. This is the
+    // assertion that fails on every build before 2026-09-17.
+    assert.equal(f.record(ACCT_A).refreshToken, 'refresh-for-AT-account-a', 'the first grant is intact');
+    assert.equal(f.record(ACCT_B).refreshToken, 'refresh-for-AT-account-b', 'and the second is its own record');
+    assert.notEqual(f.record(ACCT_A).accessToken, f.record(ACCT_B).accessToken);
+  } finally { f.cleanup(); }
+});
+
+await atest('the keychain key CARRIES the address — one item per account, and the shared key is unused', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f);
+    assert.ok(f.backend.get('com.richos.workspace.google', tokenAccount(ACCT_A)), 'account A has its own item');
+    assert.ok(f.backend.get('com.richos.workspace.google', tokenAccount(ACCT_B)), 'account B has its own item');
+    assert.equal(f.backend.get('com.richos.workspace.google', LEGACY_TOKEN_ACCOUNT), null,
+      'and nothing is written to the unqualified key any more');
+    // The client SECRET stays keyed by client id, not by account: it identifies his one OAuth app,
+    // which both accounts authorize. One copy, not two.
+    assert.equal(f.secretInStore(), FAKE_CLIENT_SECRET);
+  } finally { f.cleanup(); }
+});
+
+await atest('a TokenManager REFUSES to exist without an account — PROBE: given one, it stores under that key', () => {
+  assert.throws(
+    () => new TokenManager({ config: { clientId: 'c', redirectUri: DEFAULT_REDIRECT_URI, scopes: [] }, backend: memorySecretBackend(), http: async () => {} }),
+    /stored against an account address/,
+    'a manager with no address would share one item with every other account',
+  );
+  const backend = memorySecretBackend();
+  const m = new TokenManager({ config: { clientId: 'c', redirectUri: DEFAULT_REDIRECT_URI, scopes: [] }, accountId: ACCT_B, backend, http: async () => {} });
+  m.save({ refreshToken: 'RT' });
+  assert.equal(m.account, `oauth-tokens ${ACCT_B}`);
+  assert.ok(backend.get('com.richos.workspace.google', tokenAccount(ACCT_B)), 'PROBE: and it lands under the account key');
+});
+
+await atest('sync runs EVERY connected account, reporting per account and per source', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f);
+    f.lines.length = 0;
+    const r = await sync(f.deps({
+      http: byAccessToken({
+        [t.a]: googleHttpMock({ grantedScope: FULL_GRANT }),
+        [t.b]: googleHttpMock({ grantedScope: FULL_GRANT }),
+      }).http,
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    for (const id of [ACCT_A, ACCT_B]) {
+      assert.match(f.text(), new RegExp(`account:\\s+${id.replace(/[.]/g, '\\.')}`), `${id} has its own block`);
+    }
+    // Six results: three sources times two accounts, each carrying the account it belongs to.
+    assert.equal(r.results.length, 6);
+    for (const id of [ACCT_A, ACCT_B]) {
+      const mine = r.results.filter((x) => x.account === id);
+      assert.deepEqual(mine.map((x) => x.source), ['calendar', 'drive', 'mail'], `${id} polled all three`);
+      for (const x of mine) assert.equal(x.summary.ingested, 1, `${id}/${x.source} ingested its item`);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('the SAME Google item id under two accounts is two items — cursors and evidence are per account', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f, { sources: ['calendar'], grantedScope: GOOGLE_SCOPES.calendar });
+    await sync(f.deps({
+      http: byAccessToken({
+        [t.a]: googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }),
+        [t.b]: googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }),
+      }).http,
+    }));
+    // Both accounts were served the identical fixture event (`evt_org`). They are not one item: the
+    // account is inside `sourceInstanceId`, which is inside the item id, the cursor key and the path.
+    const cursors = JSON.parse(fs.readFileSync(path.join(f.zone, '_sync_state.json'), 'utf8'));
+    assert.equal(Object.keys(cursors).length, 2, 'one calendar cursor per account, never one shared');
+    const evidence = fs.readdirSync(path.join(f.zone, 'google', 'calendar'));
+    assert.equal(evidence.length, 2, 'and two evidence trees, so neither account overwrites the other');
+    const ledger = fs.readFileSync(path.join(f.zone, '_workspace_ingest.jsonl'), 'utf8').trim().split('\n');
+    assert.equal(ledger.length, 2, 'PROBE: the ledger deduped nothing — they are genuinely two items');
+  } finally { f.cleanup(); }
+});
+
+await atest('a stated condition is PER ACCOUNT: no mailbox on the first, a real count on the second, one run', async () => {
+  // This is the CEO's actual machine: his first Google account has no Gmail mailbox and his second
+  // has his mail. One `sync` has to say both things, and neither may be a FAILED.
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f);
+    f.lines.length = 0;
+    const r = await sync(f.deps({
+      http: byAccessToken({
+        [t.a]: withNoGmailMailbox(googleHttpMock({ grantedScope: FULL_GRANT })),
+        [t.b]: googleHttpMock({ grantedScope: FULL_GRANT }),
+      }).http,
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    const mailA = r.results.find((x) => x.account === ACCT_A && x.source === 'mail');
+    const mailB = r.results.find((x) => x.account === ACCT_B && x.source === 'mail');
+    assert.equal(mailA.unavailable, 'this Google account has no Gmail mailbox');
+    assert.equal(mailA.error, null, 'never presented under the FAILED vocabulary');
+    // PROBE: the very same adapter, the same run, the other account — a real ingested count.
+    assert.equal(mailB.unavailable, null);
+    assert.equal(mailB.summary.ingested, 1);
+    assert.match(f.text(), /gmail:\s+unavailable — this Google account has no Gmail mailbox/);
+    assert.match(f.text(), /gmail:\s+observed 1, ingested 1, deduped 0/);
+    // And the first account's OTHER sources are untouched by its missing mailbox.
+    for (const s of ['calendar', 'drive']) {
+      assert.equal(r.results.find((x) => x.account === ACCT_A && x.source === s).summary.ingested, 1);
+    }
+  } finally { f.cleanup(); }
+});
+
+await atest('status lists EVERY account with its own expiry and health', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f);
+    f.lines.length = 0;
+    // Account A's grant is one day older than B's, so at this clock A is inside the 7-day warning
+    // window and B is not — one status, two different answers, neither borrowed from the other.
+    const r = await status(f.deps({
+      http: byAccessToken({ [t.a]: googleHttpMock(), [t.b]: googleHttpMock() }).http,
+      now: () => NOW + 6.5 * 24 * 3600 * 1000,
+    }));
+    assert.equal(r.accounts.length, 2);
+    assert.deepEqual(r.accounts.map((a) => a.accountId), [ACCT_A, ACCT_B]);
+    for (const a of r.accounts) assert.equal(a.connected, true);
+    assert.match(f.text(), /accounts:\s+2 —/);
+    assert.equal(f.text().match(/auth:\s+REFRESH-EXPIRING-SOON/g).length, 2, 'each account states its own grant health');
+    assert.equal(f.text().match(/~\d+h left on the grant/g).length, 2, 'and its own expiry, not one shared number');
+  } finally { f.cleanup(); }
+});
+
+await atest('status exits non-zero when ONE account needs him — PROBE: the healthy one still reports in full', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f);
+    // Take account B's grant away behind status's back — the machine state after a keychain purge.
+    f.backend.remove('com.richos.workspace.google', tokenAccount(ACCT_B));
+    f.lines.length = 0;
+    const r = await status(f.deps({ http: byAccessToken({ [t.a]: googleHttpMock({ grantedScope: FULL_GRANT }) }).http }));
+    assert.equal(r.exitCode, 1, 'the account that needs him decides the exit code');
+    assert.equal(r.connected, false);
+    assert.equal(r.accounts.find((a) => a.accountId === ACCT_B).connected, false);
+    assert.match(f.text(), new RegExp(`connect google --account ${ACCT_B.replace(/[.]/g, '\\.')}`), 'and it names the command that fixes THAT account');
+    // PROBE: the working account was not cut short by the broken one.
+    const good = r.accounts.find((a) => a.accountId === ACCT_A);
+    assert.equal(good.connected, true);
+    assert.deepEqual(good.enabled, ['calendar', 'drive', 'mail']);
+  } finally { f.cleanup(); }
+});
+
+await atest('disconnect --account revokes ONE — PROBE: the other account still holds its grant and syncs', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f);
+    f.lines.length = 0;
+    const r = await disconnect(f.deps({ http: googleHttpMock().http, accountId: ACCT_A }));
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.account, ACCT_A);
+    assert.equal(f.record(ACCT_A), null, 'A is gone from the keychain');
+    assert.match(f.text(), new RegExp(`keeping:\\s+${ACCT_B.replace(/[.]/g, '\\.')}`), 'and it says whose grant it did not touch');
+    // PROBE: B is not merely present in the store — it still completes a real sync.
+    f.lines.length = 0;
+    const synced = await sync(f.deps({ http: byAccessToken({ [t.b]: googleHttpMock({ grantedScope: FULL_GRANT }) }).http }));
+    assert.equal(synced.polled, true, f.text());
+    assert.ok(synced.results.every((x) => x.account === ACCT_B), 'only the account that is still connected polled');
+    assert.equal(synced.results.find((x) => x.source === 'calendar').summary.ingested, 1);
+  } finally { f.cleanup(); }
+});
+
+await atest('disconnect with NO --account refuses and lists them — PROBE: with one account it just runs', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f);
+    f.lines.length = 0;
+    const refused = await disconnect(f.deps({ http: googleHttpMock().http }));
+    assert.equal(refused.exitCode, 1);
+    assert.match(f.text(), /2 Google accounts are configured, so RichOS will not pick one to disconnect/);
+    for (const id of [ACCT_A, ACCT_B]) assert.ok(f.text().includes(`--account ${id}`), `it offers ${id}`);
+    assert.ok(f.record(ACCT_A) && f.record(ACCT_B), 'and nothing was revoked while it refused');
+  } finally { f.cleanup(); }
+
+  // PROBE: the refusal is about the AMBIGUITY, not about the flag. One account, no flag, it runs.
+  const g = wsFixture();
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock())));
+    const r = await disconnect(g.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, g.text());
+    assert.equal(r.disconnected, true);
+    assert.equal(g.record(), null);
+  } finally { g.cleanup(); }
+});
+
+await atest('--forget-cursors drops ONLY that account\'s cursors — PROBE: the other account keeps its place', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    const t = await connectTwo(f, { sources: ['calendar'], grantedScope: GOOGLE_SCOPES.calendar });
+    await sync(f.deps({
+      http: byAccessToken({
+        [t.a]: googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }),
+        [t.b]: googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }),
+      }).http,
+    }));
+    const cursorFile = path.join(f.zone, '_sync_state.json');
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(cursorFile, 'utf8'))).length, 2);
+
+    f.lines.length = 0;
+    await disconnect(f.deps({ http: googleHttpMock().http, accountId: ACCT_A, forgetCursors: true }));
+    const left = JSON.parse(fs.readFileSync(cursorFile, 'utf8'));
+    // PROBE: one cursor went and one stayed. Deleting the file — which is what this did while one
+    // account existed — would have made the connected account silently re-pull its world.
+    assert.equal(Object.keys(left).length, 1, 'account B still knows where it got to');
+    assert.match(f.text(), new RegExp(`cursors:\\s+forgotten for ${ACCT_A.replace(/[.]/g, '\\.')}`));
+    const runs = JSON.parse(fs.readFileSync(path.join(f.zone, '_last_sync.json'), 'utf8'));
+    assert.equal(Object.keys(runs).length, 1, 'and the same for the last-run records');
+  } finally { f.cleanup(); }
+});
+
+// ---- The file the CEO already has on disk -------------------------------------------------------
+
+/** The exact single-account shape every config written before 2026-09-17 has. */
+function writeV1Config(file, scopes = [GOOGLE_SCOPES.calendar]) {
+  fs.writeFileSync(file, `${JSON.stringify({
+    clientId: FAKE_CLIENT_ID,
+    redirectUri: DEFAULT_REDIRECT_URI,
+    scopes,
+    accountId: ACCT_A,
+    orgDomains: ['acme.com'],
+  }, null, 2)}\n`, { mode: 0o600 });
+}
+
+test('a single-account config migrates to the list shape, losing nothing — PROBE: an already-migrated file is left alone', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, '_oauth_client.json');
+    writeV1Config(file, [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive]);
+    const v1 = validateClientConfig(loadClientConfig(file));
+    assert.equal(v1.ok, true, v1.problems.join('; '));
+    assert.equal(v1.migrated, true, 'it knows the file was the old shape');
+    assert.deepEqual(accountsOf(v1.config).map((a) => a.accountId), [ACCT_A]);
+    const view = accountView(v1.config, ACCT_A);
+    assert.deepEqual(view.scopes, [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive], 'his scopes came across');
+    assert.deepEqual(view.orgDomains, ['acme.com'], 'and his org domains');
+    assert.equal(v1.config.clientId, FAKE_CLIENT_ID);
+    assert.equal(v1.config.redirectUri, DEFAULT_REDIRECT_URI);
+
+    // PROBE: the same check on the list shape reports NOT migrated, so `migrated` is about the file
+    // and not a constant that would rewrite a healthy config on every read.
+    saveClientConfig(v1.config, file);
+    const v2 = validateClientConfig(loadClientConfig(file));
+    assert.equal(v2.migrated, false);
+    assert.deepEqual(accountView(v2.config, ACCT_A).scopes, [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a hand-edited accountId beside a list is FOLDED IN, never silently ignored', () => {
+  // The CEO is invited to open this file. If he adds an address the way the old template taught him,
+  // dropping it would lose an account he meant; the fold makes his edit mean what it looks like.
+  const merged = migrateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }],
+    accountId: ACCT_B,
+    scopes: [GOOGLE_SCOPES.mail],
+  }).config;
+  assert.deepEqual(merged.accounts.map((a) => a.accountId), [ACCT_A, ACCT_B]);
+  assert.deepEqual(merged.accounts[1].scopes, [GOOGLE_SCOPES.mail]);
+  assert.deepEqual(merged.accounts[0].scopes, [GOOGLE_SCOPES.calendar], 'and the listed account is untouched');
+  // PROBE: the same edit naming an account ALREADY in the list updates that entry rather than
+  // appending a duplicate the validator would then refuse.
+  const updated = migrateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }],
+    accountId: ACCT_A,
+    scopes: [GOOGLE_SCOPES.drive],
+  }).config;
+  assert.equal(updated.accounts.length, 1);
+  assert.deepEqual(updated.accounts[0].scopes, [GOOGLE_SCOPES.drive]);
+});
+
+test('one account listed twice is REFUSED by name — PROBE: listed once, the same config is accepted', () => {
+  const twice = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }, { accountId: ACCT_A, scopes: [GOOGLE_SCOPES.drive] }],
+  });
+  assert.equal(twice.ok, false);
+  assert.ok(twice.problems.some((p) => p.includes(`"${ACCT_A}" is listed twice`)));
+  const once = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }, { accountId: ACCT_B, scopes: [GOOGLE_SCOPES.drive] }],
+  });
+  assert.equal(once.ok, true, once.problems.join('; '));
+});
+
+test('a bad scope names the ACCOUNT it is on — with two in the file, the address is the fix', () => {
+  const v = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }, { accountId: ACCT_B, scopes: [GMAIL_CONTENT_SCOPE] }],
+  });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => p.includes('gmail.readonly') && p.includes(`account ${ACCT_B}`)));
+  // PROBE: the account that is fine is not named in any problem.
+  assert.ok(!v.problems.some((p) => p.includes(ACCT_A)));
+});
+
+await atest('the PRE-MIGRATION file still works through the commands, and is rewritten in place once', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    writeV1Config(f.clientConfigFile);
+    f.lines.length = 0;
+    // The old shape connects — the CEO's existing install does not need a migration step he runs.
+    const r = await connect(f.deps(connectStubs(accountHttp('AT-account-a'))));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.account, ACCT_A);
+    assert.match(f.text(), /now lists accounts \(your existing account is unchanged\)/);
+    const onDisk = loadClientConfig(f.clientConfigFile);
+    assert.ok(Array.isArray(onDisk.accounts), 'and the file itself has moved to the list shape');
+    assert.equal(onDisk.accountId, undefined, 'with no second spelling of the account left behind');
+    assert.deepEqual(onDisk.accounts[0].orgDomains, ['acme.com'], 'his org domains survived the rewrite');
+
+    // PROBE: a second account goes on beside the migrated one, which is the point of migrating.
+    await connect(f.deps({ ...connectStubs(accountHttp('AT-account-b')), accountId: ACCT_B }));
+    assert.deepEqual(accountsOf(loadClientConfig(f.clientConfigFile)).map((a) => a.accountId), [ACCT_A, ACCT_B]);
+    assert.ok(f.record(ACCT_A) && f.record(ACCT_B));
+  } finally { f.cleanup(); }
+});
+
+await atest('the grant stored before keys carried an address is ADOPTED — PROBE: and removed from the old key', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    writeV1Config(f.clientConfigFile);
+    // Exactly what is in the CEO's keychain right now: one record at the unqualified account.
+    const legacy = JSON.stringify({
+      accessToken: 'AT-legacy', accessTokenExpiresAt: NOW + 3600_000,
+      refreshToken: 'RT-legacy', refreshTokenObtainedAt: NOW,
+      scope: GOOGLE_SCOPES.calendar, appMode: 'external-testing',
+    });
+    f.backend.set('com.richos.workspace.google', LEGACY_TOKEN_ACCOUNT, legacy);
+
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.equal(r.accounts[0].connected, true, 'his existing grant is read, not asked for again');
+    assert.equal(f.record(ACCT_A).refreshToken, 'RT-legacy', 'it now lives under his address');
+    // PROBE: copy-verify-DELETE. A record left at the old key would be a live refresh token no
+    // disconnect ever reaches.
+    assert.equal(f.backend.get('com.richos.workspace.google', LEGACY_TOKEN_ACCOUNT), null);
+  } finally { f.cleanup(); }
+});
+
+await atest('adoption reaches the FIRST account only — a second account never inherits a stranded grant', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    saveClientConfig({
+      clientId: FAKE_CLIENT_ID,
+      redirectUri: DEFAULT_REDIRECT_URI,
+      accounts: [{ accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar] }, { accountId: ACCT_B, scopes: [GOOGLE_SCOPES.calendar] }],
+    }, f.clientConfigFile);
+    f.backend.set('com.richos.workspace.google', LEGACY_TOKEN_ACCOUNT, JSON.stringify({
+      accessToken: 'AT-legacy', accessTokenExpiresAt: NOW + 3600_000,
+      refreshToken: 'RT-legacy', refreshTokenObtainedAt: NOW,
+      scope: GOOGLE_SCOPES.calendar, appMode: 'external-testing',
+    }));
+    const r = await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(f.record(ACCT_A).refreshToken, 'RT-legacy', 'the account that was connected then owns it');
+    // PROBE: the second account is reported NOT CONNECTED rather than handed somebody else's grant.
+    assert.equal(f.record(ACCT_B), null);
+    assert.equal(r.accounts.find((a) => a.accountId === ACCT_B).connected, false);
+    assert.equal(r.exitCode, 1);
+  } finally { f.cleanup(); }
+});
+
+test('the governance identity is PER ACCOUNT — the same colleague is internal in one and external in the other', () => {
+  // §5.1 decides internal-vs-external from the account an item came from. One identity shared across
+  // both accounts would get every item of whichever account lost.
+  const config = upsertAccount(
+    { clientId: FAKE_CLIENT_ID, redirectUri: DEFAULT_REDIRECT_URI, accounts: [] },
+    { accountId: ACCT_A, scopes: [GOOGLE_SCOPES.calendar], orgDomains: ['acme.com'] },
+  );
+  const both = upsertAccount(config, { accountId: ACCT_B, scopes: [GOOGLE_SCOPES.mail] });
+  const work = ceoIdentity(identityFrom(accountView(both, ACCT_A)));
+  const personal = ceoIdentity(identityFrom(accountView(both, ACCT_B)));
+  assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, work), 'internal');
+  assert.equal(resolveOrgRelation({ email: 'alice@acme.com' }, personal), 'external', 'the same colleague, the other account');
+  assert.equal(resolveOrgRelation({ email: ACCT_A }, work), 'self');
+  assert.equal(resolveOrgRelation({ email: ACCT_A }, personal), 'external', 'and his work address is not "self" in his personal account');
+});
+
+await atest('doctor names every account on its one line — PROBE: one account still reads exactly as it did', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f, { sources: ['calendar'], grantedScope: GOOGLE_SCOPES.calendar });
+    const line = doctorLine(f.deps());
+    assert.match(line, new RegExp(`${ACCT_A.replace(/[.]/g, '\\.')} — healthy, Calendar`));
+    assert.match(line, new RegExp(`${ACCT_B.replace(/[.]/g, '\\.')} — healthy, Calendar`));
+  } finally { f.cleanup(); }
+
+  const g = wsFixture();
+  try {
+    await connect(g.deps(connectStubs(googleHttpMock())));
+    assert.equal(doctorLine(g.deps()), 'ceo@acme.com — healthy, Calendar', 'PROBE: no list punctuation for one account');
+  } finally { g.cleanup(); }
+});
+
+await atest('--account names an address that is not configured: refused, with the configured ones listed', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f, { sources: ['calendar'], grantedScope: GOOGLE_SCOPES.calendar });
+    f.lines.length = 0;
+    const r = await sync(f.deps({ http: googleHttpMock().http, accountId: 'typo@acme.com' }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /"typo@acme\.com" is not a Google account in/);
+    for (const id of [ACCT_A, ACCT_B]) assert.ok(f.text().includes(id), `it lists ${id}`);
+    // PROBE: the same command with a configured address polls that one account and no other.
+    f.lines.length = 0;
+    const ok = await sync(f.deps({
+      http: byAccessToken({ 'AT-account-b': googleHttpMock({ grantedScope: GOOGLE_SCOPES.calendar }) }).http,
+      accountId: ACCT_B,
+    }));
+    assert.equal(ok.exitCode, 0, f.text());
+    assert.ok(ok.results.every((x) => x.account === ACCT_B));
+  } finally { f.cleanup(); }
+});
+
+await atest('connect --source widens ONE account\'s grant — PROBE: the other account\'s scopes do not move', async () => {
+  const f = wsFixture({ config: false });
+  try {
+    await connectTwo(f, { sources: ['calendar'], grantedScope: GOOGLE_SCOPES.calendar });
+    await connect(f.deps({
+      ...connectStubs(accountHttp('AT-account-b', { grantedScope: FULL_GRANT })),
+      accountId: ACCT_B, sources: ['calendar', 'drive', 'mail'],
+    }));
+    const on = loadClientConfig(f.clientConfigFile);
+    assert.deepEqual(accountView(on, ACCT_B).scopes, Object.values(GOOGLE_SCOPES), 'B asked for all three');
+    // PROBE: A's entry is byte-for-byte what it was — a re-consent on one account is not a config
+    // edit on another.
+    assert.deepEqual(accountView(on, ACCT_A).scopes, [GOOGLE_SCOPES.calendar]);
   } finally { f.cleanup(); }
 });
 
