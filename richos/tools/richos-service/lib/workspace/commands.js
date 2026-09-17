@@ -651,13 +651,16 @@ export async function connect(deps = {}) {
   // line cannot know which Google account was signed in in the browser — but the grant itself can be
   // ASKED, using only the read scopes it already carries.
   const granted = parseGrantedScopes(tokens.scope || scopes.join(' '));
+  // The SAME client a sync polls with, given the token this exchange just returned rather than the
+  // keychain's — collector-path parity, and the only token that can answer the question being asked.
+  // A `getAccessToken` that closes over the fresh token is all the manager interface this needs, and
+  // using the real manager instead would read the record that has not been written yet.
+  const probeClient = d.profile.makeClient({ getAccessToken: async () => tokens.access_token }, d);
   const identity = await resolveGrantedIdentity({
     probes: d.profile.identityProbes || [],
     grantedScopes: granted,
     matches: scopeMatcherFor(d.vendor),
-    // The SAME client a sync polls with, given the token this exchange just returned rather than the
-    // keychain's — collector-path parity, and the only token that can answer the question being asked.
-    get: (url) => d.profile.makeClient({ getAccessToken: async () => tokens.access_token }, d).getJson(url),
+    get: (url) => probeClient.getJson(url),
   });
 
   if (identity.email && !sameAddress(identity.email, account.accountId)) {
