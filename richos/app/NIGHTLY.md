@@ -55,7 +55,7 @@ still touches the network — the engine asset has to actually be published at
 the URL the app's Developer-ID-signed pin claims, or the app cannot be
 compiled against it (`make-release.sh` `verify-engine`, which `build` runs
 itself, immediately before compiling) — but nothing here uploads the app
-archive, writes `latest.json`, or advances `nightly-channel`. Nobody's
+archive, writes `latest.json`, or advances the update channel. Nobody's
 existing install can see or fetch anything `build` produced. It prints the run
 id, the staged candidate's path and exactly how to walk it:
 
@@ -134,7 +134,7 @@ The same credentials as stable releases are used:
 - `~/.richos-privacy/named-persons`, the real release privacy-check list.
 - Your configured Git identity, `git config user.name` and `user.email`.
 
-The release commit and the nightly-channel commit are authored with this Mac's
+The release commit and the channel commit are authored with this Mac's
 configured Git identity rather than a synthetic `nightly@` one, because the release is
 your own act and this machine's commit-identity guard refuses to push a commit that
 says otherwise; `check` prints the identity it will author with, and refuses in
@@ -171,9 +171,20 @@ The check command validates a present cache but never builds a missing one.
 
 ## Publication
 
-The repository's `main-only` ruleset needs an exception for exactly
-`refs/heads/nightly-channel`. Other non-main branches remain blocked. No GitHub
-Actions secrets, environment or enabled CI workflows are needed.
+The repository's `main-only` ruleset needs **no exception of any kind**, and the
+publisher reads it back before every publish to make sure it still has none:
+`nightly.py check-rules` refuses the run unless `main` is the only branch exempt
+from it, the ruleset is active, nobody can bypass it, and both `creation` and
+`update` are restricted. The runner asks the same question in preflight so a
+widened rule costs seconds instead of forty minutes of gates.
+
+That check exists because the opposite one used to. Until 2026-09-17 this page
+asked for an exception for exactly `refs/heads/nightly-channel` and the runner
+refused to start without one; on 2026-09-16 the exception was added, and the next
+morning the public repository page read "2 Branches". The channel is a release tag
+now (below), so there is nothing left to grant.
+
+No GitHub Actions secrets, environment or enabled CI workflows are needed.
 
 Each explicitly triggered release runs `build` (steps 1-6) immediately
 followed by `finish` (steps 7-8) — or, under the QA-gated path above, an
@@ -200,8 +211,19 @@ candidate in between:
    current `main`. Otherwise uploads immutable artifacts, provenance and
    checksums, with the release's manifest last, then downloads them again and
    verifies bytes and signatures.
-8. Atomically advances `nightly-channel` using a Git compare-and-swap push.
-   Older versions and regressed/divergent source commits are refused.
+8. Advances the update channel, in that order: a Git compare-and-swap push moves
+   the rolling `nightly` release tag to a commit carrying the new `latest.json`
+   and `build-info.json`, and only then is that `latest.json` uploaded over the
+   `nightly` release's asset, which is the file installed copies fetch. Older
+   versions and regressed/divergent source commits are refused.
+
+   The lease comes first deliberately. It is what decides who may publish, so a
+   failure between the two steps leaves the tag naming a version whose asset was
+   not replaced — installed copies simply stay on the previous nightly — and the
+   command exits non-zero. Re-run `publish --run <run-id>`: it recognizes that the
+   channel already records this exact candidate and re-uploads the asset without
+   moving anything. The reverse order would put a build in front of users that no
+   lease was ever taken for.
 
 The release is marked prerelease and `--latest=false`, so stable updates are
 unaffected. An engine-only partial release is not offered to nightly users.
@@ -213,7 +235,7 @@ GitHub as a prerelease carrying only the engine asset — that is unavoidable,
 because the app's compiled pin is a claim about bytes already served from
 that exact tag's release, and the only way to make the claim true is to put
 them there first. What a walker's candidate does NOT yet have is an
-installable app archive, a `latest.json`, or any effect on `nightly-channel`
+installable app archive, a `latest.json`, or any effect on the update channel
 — those three are `finish`'s alone.
 
 ## Installing and leaving the channel
@@ -221,8 +243,19 @@ installable app archive, a `latest.json`, or any effect on `nightly-channel`
 Installing a versioned nightly ZIP is the opt-in. Nightlies use:
 
 ```text
-https://raw.githubusercontent.com/WebDevBooster/richos/nightly-channel/latest.json
+https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json
 ```
+
+That is an asset on `nightly`, a permanent prerelease whose tag moves on every
+publish. It is pinned to that tag, so unlike the stable endpoint it does not
+depend on which release GitHub considers `latest`, and it puts nothing on the
+public repository but a release tag.
+
+**Copies installed before 2026-09-17 point at the retired
+`raw.githubusercontent.com/.../nightly-channel/latest.json` and will not see any
+further nightly through the updater.** An endpoint is compiled into the binary,
+so it cannot be changed by an update that copy can no longer fetch. Replace those
+copies by hand, once, with any nightly published from this change onward.
 
 Stable builds keep their stable endpoint. Nightlies replace the same app and use
 the same data; there is no separate side-by-side application or settings toggle.
