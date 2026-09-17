@@ -18,8 +18,9 @@
  * 1. NEVER-SILENT. Every refusal names the file, the scope or the step that would fix it. A source
  *    that will not run is printed BY NAME with the scope it lacks, because a sync that quietly covers
  *    fewer sources than the CEO believes is the exact failure this layer was built to prevent.
- * 2. NO TOKEN IS EVER PRINTED — not truncated, not hashed, not in an error. The durable secret lives
- *    in the keychain and is read only by `TokenManager`; nothing here formats one.
+ * 2. NO TOKEN AND NO CLIENT SECRET IS EVER PRINTED — not truncated, not hashed, not in an error. Both
+ *    live in the keychain and are read only by `TokenManager`; nothing here formats either. What the
+ *    CEO sees of his client secret is the word "missing" or the words "in keychain".
  * 3. ONE PATH, NOT TWO. `status` reports the sources it does by calling the SAME `buildRegistry` that
  *    `sync` polls through, so what it displays cannot drift from what a sync would actually do. A
  *    display fed by its own second opinion is a wrong number waiting for a release.
@@ -35,6 +36,7 @@ import {
   workspaceZone, workspaceClientConfigPath, workspaceRunStatePath, workspaceSyncStatePath,
 } from '../config.js';
 import { loadClientConfig, saveClientConfig, validateClientConfig, clientConfigTemplate, identityFrom } from './client-config.js';
+import { readInstalledClientFile } from './client-secret.js';
 import { buildRegistry, parseGrantedScopes, scopesForSources, sourceEntry, GOOGLE_SOURCES } from './registry.js';
 import { awaitAuthorizationCode, consentState } from './consent.js';
 import { pkcePair, buildAuthUrl, exchangeCode } from './oauth.js';
@@ -75,6 +77,7 @@ function resolve(deps = {}) {
     sources: deps.sources || null,
     only: deps.only || null,
     clientId: deps.clientId || null,
+    clientFile: deps.clientFile || null,
     accountId: deps.accountId || null,
     timeoutMs: deps.timeoutMs,
     keychainService: deps.keychainService,
@@ -135,8 +138,8 @@ function requireClientConfig(d) {
     d.out('');
     for (const line of clientConfigTemplate().split('\n')) d.out(`  ${line}`);
     d.out('');
-    d.out('Or let RichOS write it for you:');
-    d.out('  richos-service workspace connect google --client-id <id>.apps.googleusercontent.com --account you@yourcompany.com');
+    d.out('Or let RichOS read it out of the JSON your Google Cloud console downloads:');
+    d.out('  richos-service workspace connect google --client-file <client_secret_….json> --account you@yourcompany.com');
     d.out('');
     d.out('The 10-minute Google Cloud setup is the "Google Workspace OAuth setup" guide, Steps 1-5.');
     return { exitCode: 1 };
@@ -191,14 +194,37 @@ function checkVendor(d) {
 // =================================================================================================
 
 /**
- * The §6 auth ceremony. Loopback PKCE against the CEO's OWN OAuth client: no secret, no RichOS server,
- * tokens straight into the OS keychain. Re-running it re-consents (the guide's "2-click re-consent"):
- * the keychain write is an update, so a fresh grant replaces the old record cleanly.
+ * The §6 auth ceremony. Loopback PKCE against the CEO's OWN OAuth client: no RichOS server, tokens
+ * straight into the OS keychain, and the client secret Google demands of a Desktop-app client kept in
+ * that same keychain rather than in any file. Re-running it re-consents (the guide's "2-click
+ * re-consent"): the keychain write is an update, so a fresh grant replaces the old record cleanly.
  */
 export async function connect(deps = {}) {
   const d = resolve(deps);
   const bad = checkVendor(d);
   if (bad) return bad;
+
+  // `--client-file <the client_secret_….json the console downloads>` is Steps 4 and 5 in one flag.
+  // TWO fields are read out of it and nothing else: the client id, which goes in the config file the
+  // CEO can read, and the client secret, which goes into the keychain below and into no file at all.
+  let downloaded = null;
+  if (d.clientFile) {
+    try {
+      downloaded = readInstalledClientFile(d.clientFile);
+    } catch (err) {
+      d.out(String(err.message));
+      return { exitCode: 1 };
+    }
+    if (d.clientId && d.clientId !== downloaded.clientId) {
+      // Two different clients named in one command is a coin toss, and the losing side is a consent
+      // screen for an app the CEO did not mean. Refuse, and show both.
+      d.out('--client-id and --client-file name two different OAuth clients, so RichOS will not pick one:');
+      d.out(`  --client-id    ${d.clientId}`);
+      d.out(`  --client-file  ${downloaded.file}`);
+      return { exitCode: 1 };
+    }
+    d.clientId = downloaded.clientId;
+  }
 
   const loaded = requireClientConfig(d);
   if (loaded.exitCode) return { exitCode: loaded.exitCode };
@@ -232,11 +258,33 @@ export async function connect(deps = {}) {
   const tm = tokenManagerFor({ ...config, scopes }, backendResult.backend, d);
 
   d.out(`${L('account')}${config.accountId}`);
-  d.out(`${L('client')}${config.clientId}  (yours — RichOS ships no client and no secret)`);
+  d.out(`${L('client')}${config.clientId}  (yours — RichOS ships no OAuth client of its own)`);
   d.out(`${L('requesting')}${scopes.length} read-only scope${scopes.length === 1 ? '' : 's'}:`);
   for (const s of scopes) {
     const entry = GOOGLE_SOURCES.find((e) => e.scope === s);
     d.out(`            ${s}${entry ? `   (${entry.label})` : ''}`);
+  }
+
+  // THE SECRET, BEFORE THE BROWSER. Google refuses a Desktop-app client's token exchange without
+  // `client_secret` (client-secret.js has the probe), and the first live attempt found that out
+  // AFTER the CEO had approved the consent screen — a wasted approval and a `400 invalid_request`
+  // for an answer. So the check happens here, where the fix costs one flag instead of one consent.
+  if (downloaded) {
+    tm.saveClientSecret(downloaded.clientSecret);
+    d.out(`${L('secret')}read from ${downloaded.file} and stored in the OS keychain — never written to any RichOS file`);
+  } else if (!tm.hasClientSecret()) {
+    d.out('');
+    d.out('NOT CONNECTED — no client secret on file, and Google will refuse the token exchange');
+    d.out('without one. Your OAuth client is a "Desktop app": Google requires its secret at the');
+    d.out('exchange even with PKCE, and does not treat it as confidential.');
+    d.out('');
+    d.out('On your OAuth client page in the Google Cloud console, use "Download JSON", then:');
+    d.out('');
+    d.out(`  richos-service workspace connect ${d.vendor} --client-file <the downloaded client_secret_….json>`);
+    d.out('');
+    d.out(`RichOS reads the client id and the secret out of that file, keeps the secret in the OS`);
+    d.out(`keychain (service ${tm.service}), and writes it to no file. You can delete the download afterwards.`);
+    return { exitCode: 1 };
   }
   d.out('');
 
@@ -282,7 +330,7 @@ export async function connect(deps = {}) {
 
   let tokens;
   try {
-    tokens = await exchangeCode({ clientId: config.clientId, redirectUri: effectiveRedirect, scopes }, { code, verifier: pkce.verifier }, d.http);
+    tokens = await exchangeCode({ ...tm.authConfig(), redirectUri: effectiveRedirect, scopes }, { code, verifier: pkce.verifier }, d.http);
   } catch (err) {
     d.out('');
     d.out(`NOT CONNECTED — Google refused the token exchange: ${String(err.message || err)}`);
@@ -344,6 +392,7 @@ export async function status(deps = {}) {
   d.out(`${L('account')}${config.accountId}`);
   d.out(`${L('client')}${config.clientId}`);
   d.out(`${L('config')}${d.clientConfigFile}`);
+  d.out(`${L('secret')}${tm.hasClientSecret() ? 'in keychain' : 'missing'}`);
   d.out(`${L('zone')}${d.zone}`);
 
   if (!record) {
@@ -502,6 +551,13 @@ export async function disconnect(deps = {}) {
   d.out(`DISCONNECTED — ${config.accountId}`);
   d.out(`${L('revoked')}asked Google to invalidate the refresh token (best-effort; the local deletion is the guarantee)`);
   d.out(`${L('keychain')}entry removed (service ${tm.service})`);
+  // The GRANT is what disconnect forgets. The client secret is not part of the grant — it identifies
+  // your own OAuth app the way the client id does, it opens nothing on its own now the refresh token
+  // is revoked, and `_oauth_client.json` beside it is kept for exactly the same reason. Deleting it
+  // would make the next connect a console trip instead of two clicks, so it stays, and says so.
+  if (tm.hasClientSecret()) {
+    d.out(`${L('secret')}your client secret stays in the keychain, so reconnecting needs no flags (delete the OAuth client in Google's console to retire it for good)`);
+  }
 
   if (d.forgetCursors) {
     for (const file of [d.syncStateFile, d.runStateFile]) {
@@ -524,7 +580,7 @@ export async function disconnect(deps = {}) {
 // =================================================================================================
 
 export const USAGE = [
-  '  richos-service workspace connect google [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]',
+  '  richos-service workspace connect google [--client-file <client_secret_….json>] [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]',
   '  richos-service workspace status [google]',
   '  richos-service workspace sync [google] [--once] [--source calendar]      # --once is the only mode: no daemon',
   '  richos-service workspace disconnect google [--forget-cursors]',

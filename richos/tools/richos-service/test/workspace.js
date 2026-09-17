@@ -25,6 +25,9 @@ import { entitiesFilePath } from '../lib/entities.js';
 import { pkcePair, buildAuthUrl, exchangeCode, refreshAccessToken, revokeToken } from '../lib/workspace/oauth.js';
 import { TokenManager, TESTING_REFRESH_TOKEN_TTL_MS, REFRESH_EXPIRY_WARN_MS } from '../lib/workspace/token-manager.js';
 import { memorySecretBackend } from '../lib/workspace/keychain.js';
+import {
+  readInstalledClientFile, clientSecretAccount, readClientSecret, storeClientSecret, expandHome,
+} from '../lib/workspace/client-secret.js';
 import { GoogleClient, GoneError } from '../lib/workspace/google-client.js';
 import { GoogleCalendarAdapter, ADAPTER_VERSION } from '../lib/workspace/adapters/google-calendar.js';
 import {
@@ -521,7 +524,7 @@ test('assertPollingOnly: the Calendar adapter is poll-only (no watch/subscribe =
 });
 
 // =================================================================================================
-group('OAuth (§6) — PKCE, auth URL, code exchange + refresh (mocked HTTP, CEO-owned app, no secret)');
+group('OAuth (§6) — PKCE, auth URL, code exchange + refresh (mocked HTTP, the CEO-owned app)');
 
 const OAUTH_CONFIG = { clientId: 'ceo-owned-client.apps.googleusercontent.com', redirectUri: 'http://127.0.0.1:47121/callback', scopes: ['https://www.googleapis.com/auth/calendar.events.readonly'] };
 
@@ -531,14 +534,16 @@ test('pkcePair produces a verifier + S256 challenge', () => {
   assert.ok(p.verifier.length >= 43 && !/[+/=]/.test(p.challenge), 'base64url, no padding');
 });
 
-test('buildAuthUrl targets accounts.google.com with offline access + PKCE + no client secret', () => {
+test('buildAuthUrl targets accounts.google.com with offline access + PKCE, and NEVER a client secret', () => {
   const url = buildAuthUrl(OAUTH_CONFIG, { challenge: 'CH', state: 'ST' });
   const u = new URL(url);
   assert.equal(u.hostname, 'accounts.google.com');
   assert.equal(u.searchParams.get('access_type'), 'offline');
   assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(u.searchParams.get('client_id'), OAUTH_CONFIG.clientId);
-  assert.equal(u.searchParams.get('client_secret'), null, 'no client secret ever in the flow');
+  // The token endpoint needs the secret; the CONSENT leg never does — and this is the one URL in
+  // the flow a browser puts on screen, in a history file, and in a shoulder's line of sight.
+  assert.equal(u.searchParams.get('client_secret'), null, 'no client secret in the authorization URL, ever');
 });
 
 await atest('exchangeCode + refreshAccessToken parse token responses via mocked HTTP', async () => {
@@ -561,6 +566,118 @@ await atest('a token endpoint error surfaces (never a silent success)', async ()
 await atest('revokeToken treats 200 and 400 both as "no longer valid"', async () => {
   assert.equal((await revokeToken('t', fetchMock([{ status: 200 }]))).revoked, true);
   assert.equal((await revokeToken('t', fetchMock([{ status: 400 }]))).revoked, true);
+});
+
+// =================================================================================================
+group('The CLIENT SECRET Google demands of a Desktop-app client (probed live 2026-09-17)');
+
+// The whole reason this group exists, reproduced against Google with a bogus code so nothing was
+// consumed (client id elided; the reasoning is the header of lib/workspace/client-secret.js):
+//   no client_secret   -> 400 {"error":"invalid_request","error_description":"client_secret is missing."}
+//   with a throwaway   -> 400 {"error":"invalid_client","error_description":"The provided client secret is invalid."}
+// Both grant types answer the same way, so BOTH calls below carry it.
+const SECRET_CONFIG = { ...OAUTH_CONFIG, clientSecret: 'fixture-client-secret' };
+
+await atest('exchangeCode SENDS client_secret when one is known — PROBE: the same call omits it when none is', async () => {
+  const sent = [];
+  const http = (url, init) => {
+    sent.push(init.body);
+    return fetchMock([{ status: 200, body: { access_token: 'AT', refresh_token: 'RT', expires_in: 3600 } }])(url, init);
+  };
+  await exchangeCode(SECRET_CONFIG, { code: 'c', verifier: 'V' }, http);
+  assert.match(sent[0], /client_secret=fixture-client-secret/, 'Google refuses this exchange without it');
+  await exchangeCode(OAUTH_CONFIG, { code: 'c', verifier: 'V' }, http);
+  assert.ok(!sent[1].includes('client_secret'), 'and a client with no secret is not made to invent one');
+  assert.match(sent[1], /code_verifier=V/, 'PROBE: the request was built — the parameter is what differs');
+});
+
+await atest('refreshAccessToken SENDS client_secret too — PROBE: omitted when none is known', async () => {
+  const sent = [];
+  const http = (url, init) => {
+    sent.push(init.body);
+    return fetchMock([{ status: 200, body: { access_token: 'AT', expires_in: 3600 } }])(url, init);
+  };
+  await refreshAccessToken(SECRET_CONFIG, 'RT', http);
+  assert.match(sent[0], /client_secret=fixture-client-secret/, 'the refresh grant refuses it the same way');
+  await refreshAccessToken(OAUTH_CONFIG, 'RT', http);
+  assert.ok(!sent[1].includes('client_secret'));
+  assert.match(sent[1], /grant_type=refresh_token/, 'PROBE: the request was built — the parameter is what differs');
+});
+
+await atest("a token-endpoint refusal carries Google's error_description, not just its error code", async () => {
+  const http = fetchMock([{ status: 400, body: { error: 'invalid_request', error_description: 'client_secret is missing.' } }]);
+  await assert.rejects(
+    () => exchangeCode(OAUTH_CONFIG, { code: 'c', verifier: 'V' }, http),
+    (err) => {
+      // The live failure printed `400 invalid_request` and threw away the sentence that explained it.
+      assert.match(err.message, /client_secret is missing\./);
+      assert.equal(err.oauthError, 'invalid_request');
+      assert.equal(err.oauthErrorDescription, 'client_secret is missing.');
+      return true;
+    },
+  );
+});
+
+test('a client secret is keyed by client id in the SAME keychain service as the tokens', () => {
+  const backend = memorySecretBackend();
+  storeClientSecret(backend, 'com.richos.workspace.google', 'client-A', 'secret-A');
+  assert.equal(readClientSecret(backend, 'com.richos.workspace.google', 'client-A'), 'secret-A');
+  assert.equal(readClientSecret(backend, 'com.richos.workspace.google', 'client-B'), null, 'a different client is a different key');
+  assert.match(clientSecretAccount('client-A'), /^oauth-client-secret client-A$/);
+  assert.throws(() => storeClientSecret(backend, 'svc', 'client-A', '   '), /empty client secret/);
+});
+
+test('--client-file reads installed.client_id + installed.client_secret and NOTHING else', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, 'client_secret_test.json');
+    fs.writeFileSync(file, JSON.stringify({
+      installed: {
+        client_id: 'from-file.apps.googleusercontent.com',
+        project_id: 'ignored-project',
+        auth_uri: 'https://example.invalid/ignored',
+        token_uri: 'https://example.invalid/ignored',
+        client_secret: 'from-file-secret',
+        redirect_uris: ['http://localhost'],
+      },
+    }));
+    const read = readInstalledClientFile(file);
+    assert.deepEqual(Object.keys(read).sort(), ['clientId', 'clientSecret', 'file']);
+    assert.equal(read.clientId, 'from-file.apps.googleusercontent.com');
+    assert.equal(read.clientSecret, 'from-file-secret');
+    // Nothing else in Google's file is carried anywhere: an ignored field cannot reach a request,
+    // and `auth_uri`/`token_uri` taken from a file would be a way to point RichOS off Google.
+    assert.ok(!JSON.stringify(read).includes('ignored'), 'project_id, auth_uri, token_uri and the rest stay in the file');
+    assert.equal(expandHome('~/x').startsWith(os.homedir()), true, 'a quoted ~ is the path he meant');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a Web-application client JSON is refused BY NAME — PROBE: the Desktop shape is accepted', () => {
+  const dir = tmp();
+  try {
+    const web = path.join(dir, 'web.json');
+    fs.writeFileSync(web, JSON.stringify({ web: { client_id: 'w', client_secret: 'ws' } }));
+    assert.throws(() => readInstalledClientFile(web), /Web application client/);
+    const desktop = path.join(dir, 'desktop.json');
+    fs.writeFileSync(desktop, JSON.stringify({ installed: { client_id: 'd', client_secret: 'ds' } }));
+    assert.equal(readInstalledClientFile(desktop).clientId, 'd', 'PROBE: the refusal is about the client type');
+    assert.throws(() => readInstalledClientFile(path.join(dir, 'nope.json')), /no such file/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an unparsable client file NEVER quotes itself back — the file is where the secret is', () => {
+  const dir = tmp();
+  try {
+    const file = path.join(dir, 'broken.json');
+    fs.writeFileSync(file, '{ "installed": { "client_secret": "sk-do-not-echo-this" ');
+    assert.throws(() => readInstalledClientFile(file), (err) => {
+      assert.ok(!err.message.includes('sk-do-not-echo-this'), 'no parser detail, because the detail is the secret');
+      assert.match(err.message, /not valid JSON/);
+      // PROBE: the assertion above can fail — the string IS in the file it just read.
+      assert.ok(fs.readFileSync(file, 'utf8').includes('sk-do-not-echo-this'));
+      return true;
+    });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 // =================================================================================================
@@ -615,6 +732,40 @@ await atest('getAccessToken returns a valid token, and refreshes an expired one 
   assert.equal(await m.getAccessToken(), 'AT', 'still valid → no refresh');
   t = NOW + 3600 * 1000 + 1; // access token expired
   assert.equal(await m.getAccessToken(), 'AT-new', 'refreshed via the refresh token');
+});
+
+await atest('the REFRESH sends the stored client secret — PROBE: the same manager sends none when the keychain has none', async () => {
+  const sent = [];
+  const http = (url, init) => {
+    sent.push(init.body);
+    return fetchMock([{ status: 200, body: { access_token: 'AT-new', expires_in: 3600 } }])(url, init);
+  };
+  // One manager per keychain, so the two runs differ in exactly one thing: whether a secret is stored.
+  const refreshBody = async (storedSecret) => {
+    let t = NOW;
+    const m = new TokenManager({ config: OAUTH_CONFIG, backend: memorySecretBackend(), http, now: () => t });
+    if (storedSecret) m.saveClientSecret(storedSecret);
+    assert.equal(m.hasClientSecret(), Boolean(storedSecret));
+    m.onAuthorized({ access_token: 'AT', refresh_token: 'RT', expires_in: 3600 });
+    t = NOW + 3600 * 1000 + 1; // the access token has expired, so the next read refreshes
+    await m.getAccessToken();
+    return sent[sent.length - 1];
+  };
+  assert.ok(!(await refreshBody(null)).includes('client_secret'), 'PROBE: nothing stored, nothing sent');
+  assert.match(await refreshBody('stored-secret'), /client_secret=stored-secret/, 'the value comes from the keychain, not from a config field');
+});
+
+await atest('a refresh refused for a MISSING secret says so in Google\'s words, not "re-authorize"', async () => {
+  const http = fetchMock([{ status: 400, body: { error: 'invalid_request', error_description: 'client_secret is missing.' } }]);
+  let t = NOW;
+  const m = new TokenManager({ config: OAUTH_CONFIG, backend: memorySecretBackend(), http, now: () => t });
+  m.onAuthorized({ access_token: 'AT', refresh_token: 'RT', expires_in: 3600 });
+  t = NOW + 3600 * 1000 + 1;
+  await assert.rejects(() => m.getAccessToken(), (err) => {
+    assert.match(err.message, /client_secret is missing\./, 'a consent screen cannot fix this, so do not send him to one');
+    assert.match(err.message, /--client-file/);
+    return true;
+  });
 });
 
 await atest('getAccessToken maps invalid_grant to a LOUD re-auth error (never silent)', async () => {
@@ -2510,6 +2661,8 @@ group('`richos-service workspace …` — the commands the setup guide tells the
 const FAKE_CLIENT_ID = 'test-client-1234.apps.googleusercontent.com';
 const FAKE_ACCESS = 'fake-access-token-for-tests';
 const FAKE_REFRESH = 'fake-refresh-token-for-tests';
+// Not a credential: a fixture value, never sent anywhere but the mocked token endpoint.
+const FAKE_CLIENT_SECRET = 'fake-client-secret-for-tests';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
@@ -2534,7 +2687,12 @@ function googleHttpMock(opts = {}) {
   const http = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', body: init.body || null, auth: (init.headers || {}).authorization || null });
     if (url.startsWith(TOKEN_URL)) {
-      if (opts.tokenStatus && opts.tokenStatus !== 200) return httpResponse(opts.tokenStatus, JSON.stringify({ error: opts.tokenError || 'invalid_grant' }));
+      if (opts.tokenStatus && opts.tokenStatus !== 200) {
+        return httpResponse(opts.tokenStatus, JSON.stringify({
+          error: opts.tokenError || 'invalid_grant',
+          ...(opts.tokenErrorDescription ? { error_description: opts.tokenErrorDescription } : {}),
+        }));
+      }
       return httpResponse(200, JSON.stringify({
         access_token: FAKE_ACCESS,
         ...(opts.noRefreshToken ? {} : { refresh_token: opts.refreshToken || FAKE_REFRESH }),
@@ -2581,8 +2739,14 @@ function wsFixture(opts = {}) {
   }
   const lines = [];
   const backend = memorySecretBackend();
+  // The CEO who has run `connect --client-file …` once has his client secret in the keychain, and
+  // every command after that runs in this state. `clientSecret: false` is the machine that has not.
+  if (opts.clientSecret !== false) {
+    storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
+  }
   return {
     zone, clientConfigFile, backend, lines,
+    secretInStore: () => readClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID),
     text: () => lines.join('\n'),
     record: () => {
       const raw = backend.get('com.richos.workspace.google', 'oauth-tokens');
@@ -2595,6 +2759,42 @@ function wsFixture(opts = {}) {
     }),
     cleanup: () => fs.rmSync(zone, { recursive: true, force: true }),
   };
+}
+
+/**
+ * Capture the REAL stdout/stderr of a command left on its default sink. The commands print through
+ * `console.log`, and "the secret is in no log line" is a claim about THAT, not about a test double —
+ * so this test drives the same path the CLI does and reads what the terminal would have shown.
+ */
+async function captureConsole(fn) {
+  const chunks = [];
+  const { log, error, warn } = console;
+  console.log = (...a) => chunks.push(a.join(' '));
+  console.error = (...a) => chunks.push(a.join(' '));
+  console.warn = (...a) => chunks.push(a.join(' '));
+  try {
+    await fn();
+  } finally {
+    Object.assign(console, { log, error, warn });
+  }
+  return chunks.join('\n');
+}
+
+/** Every byte of every file in a directory tree — the "not in any file" check, not a spot check. */
+function allFileBytes(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...allFileBytes(full));
+    else if (entry.isFile()) out.push(`${full}\n${fs.readFileSync(full, 'utf8')}`);
+  }
+  return out;
+}
+
+/** The one line `status` prints about the client secret, whitespace-normalized. */
+function secretLineOf(text) {
+  const line = text.split('\n').find((l) => l.startsWith('secret:'));
+  return line === undefined ? null : line.replace(/\s+/g, ' ').trim();
 }
 
 /** The connect ceremony with the browser + loopback legs stubbed (both are proven above, live). */
@@ -2630,8 +2830,10 @@ await atest('connect completes the ceremony against a mocked Google and stores t
     assert.equal(rec.appMode, 'external-testing', 'the 7-day countdown is anchored');
     assert.equal(rec.refreshTokenObtainedAt, NOW);
     const exchange = mock.calls.find((c) => c.url.startsWith(TOKEN_URL));
-    assert.match(exchange.body, /code_verifier=/, 'PKCE, not a secret');
-    assert.ok(!exchange.body.includes('client_secret'), 'RichOS has no client secret to send');
+    assert.match(exchange.body, /code_verifier=/, 'PKCE is still used');
+    // Google refuses a Desktop-app client without this, PKCE or no PKCE (2026-09-17: the CEO's own
+    // consent succeeded and the exchange came back `400 invalid_request: client_secret is missing.`).
+    assert.match(exchange.body, /client_secret=fake-client-secret-for-tests/, 'and the secret Google demands goes with it');
   } finally { f.cleanup(); }
 });
 
@@ -2668,6 +2870,110 @@ await atest('connect refuses loudly when Google rejects the code exchange', asyn
     assert.match(f.text(), /NOT CONNECTED/);
     assert.match(f.text(), /invalid_grant/);
   } finally { f.cleanup(); }
+});
+
+await atest('connect --client-file puts the secret in the KEYCHAIN — never in a file, never in a log line', async () => {
+  const f = wsFixture({ clientSecret: false });
+  const dir = tmp();
+  try {
+    // Google's own download shape, extra fields and all.
+    const download = path.join(dir, `client_secret_${FAKE_CLIENT_ID}.json`);
+    fs.writeFileSync(download, JSON.stringify({
+      installed: {
+        client_id: FAKE_CLIENT_ID,
+        project_id: 'fixture-project',
+        client_secret: FAKE_CLIENT_SECRET,
+        redirect_uris: ['http://localhost'],
+      },
+    }, null, 2));
+    const mock = googleHttpMock();
+    // No `out` override: this run prints through console, exactly as the CLI does.
+    const captured = await captureConsole(async () => {
+      const r = await connect(f.deps({ ...connectStubs(mock), clientFile: download, out: undefined }));
+      assert.equal(r.exitCode, 0);
+    });
+
+    const leaks = (text) => text.includes(FAKE_CLIENT_SECRET);
+    assert.equal(leaks(captured), false, 'not in anything the CEO sees');
+    assert.equal(leaks(`${captured}\n${FAKE_CLIENT_SECRET}`), true, 'PROBE: the same check catches a planted one');
+    assert.ok(captured.includes(FAKE_CLIENT_ID), 'PROBE: real output was captured — the client id is in it');
+
+    const configBytes = fs.readFileSync(f.clientConfigFile, 'utf8');
+    assert.equal(leaks(configBytes), false, 'not in _oauth_client.json');
+    assert.ok(configBytes.includes(FAKE_CLIENT_ID), 'PROBE: those are the real bytes of that file');
+    for (const file of allFileBytes(f.zone)) {
+      assert.equal(leaks(file), false, `not in any file in the zone: ${file.split('\n')[0]}`);
+    }
+
+    assert.equal(f.secretInStore(), FAKE_CLIENT_SECRET, 'it is in the keychain, keyed by client id');
+    const exchange = mock.calls.find((c) => c.url.startsWith(TOKEN_URL));
+    assert.match(exchange.body, /client_secret=fake-client-secret-for-tests/, 'and it reached Google, which is the point');
+  } finally { f.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+await atest('connect REFUSES before opening a browser when no client secret is stored — PROBE: stored, the same flow connects', async () => {
+  const f = wsFixture({ clientSecret: false });
+  try {
+    let opened = 0;
+    let listened = 0;
+    const r = await connect(f.deps({
+      http: googleHttpMock().http,
+      openBrowser: async () => { opened += 1; return true; },
+      awaitCode: async () => { listened += 1; return { code: 'auth-code-abc' }; },
+    }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /NOT CONNECTED — no client secret on file/);
+    assert.match(f.text(), /--client-file/, 'and the flag that fixes it');
+    // THE POINT OF THE ORDERING: on 2026-09-17 the CEO approved a consent screen and the exchange
+    // then failed. An approval spent on a request that cannot succeed is the failure, not the 400.
+    assert.equal(opened, 0, 'no consent screen');
+    assert.equal(listened, 0, 'and no loopback port');
+    assert.equal(f.record(), null, 'nothing stored');
+  } finally { f.cleanup(); }
+  const g = wsFixture(); // identical, except the keychain has the secret
+  try {
+    assert.equal((await connect(g.deps(connectStubs(googleHttpMock())))).exitCode, 0, g.text());
+  } finally { g.cleanup(); }
+});
+
+await atest('connect refuses when --client-id and --client-file name two different clients', async () => {
+  const f = wsFixture({ clientSecret: false });
+  const dir = tmp();
+  try {
+    const download = path.join(dir, 'client_secret_other.json');
+    fs.writeFileSync(download, JSON.stringify({ installed: { client_id: 'other-client.apps.googleusercontent.com', client_secret: 'other-value' } }));
+    const r = await connect(f.deps({ ...connectStubs(googleHttpMock()), clientFile: download, clientId: FAKE_CLIENT_ID }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /two different OAuth clients/);
+    assert.equal(f.secretInStore(), null, 'and it stored neither');
+  } finally { f.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+await atest('connect prints GOOGLE\'S OWN reason for a refused exchange, not just the status code', async () => {
+  const f = wsFixture();
+  try {
+    const r = await connect(f.deps(connectStubs(googleHttpMock({
+      tokenStatus: 400, tokenError: 'invalid_request', tokenErrorDescription: 'client_secret is missing.',
+    }))));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /NOT CONNECTED — Google refused the token exchange/);
+    // The live failure printed `400 invalid_request` and dropped this sentence, which was the answer.
+    assert.match(f.text(), /client_secret is missing\./);
+  } finally { f.cleanup(); }
+});
+
+await atest('status says whether the client secret is in the keychain, and nothing more about it', async () => {
+  const f = wsFixture();
+  try {
+    await status(f.deps({ http: googleHttpMock().http }));
+    assert.equal(secretLineOf(f.text()), 'secret: in keychain');
+    assert.ok(!f.text().includes(FAKE_CLIENT_SECRET), 'the word, never the value');
+  } finally { f.cleanup(); }
+  const g = wsFixture({ clientSecret: false });
+  try {
+    await status(g.deps({ http: googleHttpMock().http }));
+    assert.equal(secretLineOf(g.text()), 'secret: missing', 'PROBE: the line reports the state it finds');
+  } finally { g.cleanup(); }
 });
 
 await atest('re-running connect RE-CONSENTS — the guide\'s 2-click recovery from the 7-day expiry', async () => {
