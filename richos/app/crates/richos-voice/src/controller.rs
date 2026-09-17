@@ -47,7 +47,7 @@ use crate::tts::{MacSay, SpeechSynth};
 use crate::vad::{frames_to_secs, Vad};
 use crate::voiced::VoiceEvidence;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -56,11 +56,166 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// audio frame, so the UI never lags the mic and the tick never competes with audio.
 const TICK: Duration = Duration::from_millis(25);
 
+/// **HOW FAR BACK AN UTTERANCE'S RECORDING ACTUALLY REACHES, in VAD frames.**
+///
+/// `CapMsg::Started` does not mean "the first recorded sample is now". The recorder keeps
+/// [`crate::endpoint::PRE_ROLL_FRAMES`] of audio from BEFORE onset (so whisper hears the first
+/// consonant), and the onset itself takes [`crate::endpoint::SPEECH_ONSET_FRAMES`] to confirm.
+/// So the WAV that reaches the recognizer begins:
+///
+/// ```text
+///   PRE_ROLL_FRAMES + SPEECH_ONSET_FRAMES = 19 + 7 = 26 frames
+///   26 x 256 / 16000 = 0.416 s before `Started` fires
+/// ```
+///
+/// A taint test that only looks at `speaking` ON the `Started` frame therefore ignores 0.416 s
+/// of audio that is already in the buffer — and whisper transcribes the whole buffer. If Rich
+/// was audible anywhere in that window, his voice is in the file.
+const ECHO_LOOKBACK_FRAMES: u32 =
+    crate::endpoint::PRE_ROLL_FRAMES as u32 + crate::endpoint::SPEECH_ONSET_FRAMES;
+
 /// Emit a level update at most this often — a 62.5 Hz meter is wasted work in a webview.
 const LEVEL_EMIT_EVERY: Duration = Duration::from_millis(100);
 
 pub fn now_millis() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// `HH:MM:SS.mmmZ` in UTC, with no dependency and no allocation beyond the string.
+///
+/// **It exists because a log line that cannot be lined up against the ledger is not evidence.**
+/// Ray's candidate-.5 walk could establish that Rich's own counting was submitted as the CEO's
+/// prompt at `20:06:43.693Z`, and could NOT establish whether the utterance began in a gap
+/// between spoken sentences or after playout had been marked ended — because `app.log` carries
+/// no timestamps at all. The ledger stamps in UTC milliseconds; so does this.
+pub fn wall_clock_utc() -> String {
+    let ms = now_millis();
+    let secs = ms / 1000;
+    format!("{:02}:{:02}:{:02}.{:03}Z", (secs / 3600) % 24, (secs / 60) % 60, secs % 60, ms % 1000)
+}
+
+/// One edge of a boolean that is being watched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Rose,
+    Fell,
+}
+
+/// **THE WINDOW IN WHICH RICH IS AUDIBLE — the whole of an answer, not the queue's state.**
+///
+/// The flag the capture path calls `speaking` used to be `playout.is_playing()`, which is
+/// `queued_samples() > 0`. Ray's candidate-.5 walk proved that insufficient on the CEO's rig:
+/// Rich answered *"Please count slowly out loud from 1 to 20"*, and his own *"One... two...
+/// three... four... five..."* came back through the Wave:3, was recognized, and was submitted
+/// as the CEO's message at `20:06:43.693Z` — a model turn spent on words he never said.
+///
+/// A queue-depth test is false in three places inside one answer:
+///
+/// | hole | why the queue is empty | covered by |
+/// |---|---|---|
+/// | before the first sample | `say` has not finished spawning | `owed` |
+/// | between spoken sentences | synthesis of N+1 is slower than playback of N | `owed` |
+/// | after the last sample | the device has it, the room has not heard it yet | `hold` |
+///
+/// The second is the one that matters most here. Deltas chunk on runs of `.`/`!`/`?`
+/// ([`crate::chunk`]), so `One... two... three...` becomes roughly twenty one-word sentences
+/// and therefore twenty separate `say` spawns, each with its own gap.
+///
+/// `hold` is MEASURED, never assumed — see [`audible_hold_secs`].
+///
+/// Pure: driven by a millisecond count the caller supplies, so the whole rule is unit-testable
+/// without a device, a clock or a sound.
+pub struct AudibleWindow {
+    open: bool,
+    queued: bool,
+    /// The last observation at which Rich was queued or owed.
+    last_live_ms: u64,
+}
+
+impl Default for AudibleWindow {
+    fn default() -> Self {
+        AudibleWindow::new()
+    }
+}
+
+impl AudibleWindow {
+    pub fn new() -> Self {
+        AudibleWindow { open: false, queued: false, last_live_ms: 0 }
+    }
+
+    /// Is Rich audible right now, in the sense the taint rule needs?
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Advance the window.
+    ///
+    /// - `queued` — the playout queue is non-empty.
+    /// - `owed` — at least one sentence is between the speaker channel and the queue.
+    /// - `hold_secs` — how long the window stays open after the last of both, from
+    ///   [`audible_hold_secs`].
+    /// - `now_ms` — a MONOTONIC millisecond count. Never the wall clock: the wall clock can
+    ///   step backwards and a half-duplex window that closes early is the whole defect.
+    ///
+    /// Returns `(answer edge, chunk edge)` — the first is the extended window, the second is
+    /// the raw queue. Both are logged, because the difference between them IS the diagnosis
+    /// Ray could not make from the record.
+    pub fn observe(
+        &mut self,
+        queued: bool,
+        owed: bool,
+        hold_secs: f32,
+        now_ms: u64,
+    ) -> (Option<Edge>, Option<Edge>) {
+        let live = queued || owed;
+        if live {
+            self.last_live_ms = now_ms;
+        }
+        let hold_ms = (hold_secs.max(0.0) * 1000.0).ceil() as u64;
+        // The tail only holds a window that was already open. Nothing has played, nothing to
+        // hold.
+        let within_hold =
+            !live && self.open && now_ms.saturating_sub(self.last_live_ms) < hold_ms;
+        let open = live || within_hold;
+
+        let answer = match (self.open, open) {
+            (false, true) => Some(Edge::Rose),
+            (true, false) => Some(Edge::Fell),
+            _ => None,
+        };
+        let chunk = match (self.queued, queued) {
+            (false, true) => Some(Edge::Rose),
+            (true, false) => Some(Edge::Fell),
+            _ => None,
+        };
+        self.open = open;
+        self.queued = queued;
+        (answer, chunk)
+    }
+}
+
+/// **HOW LONG RICH STAYS AUDIBLE AFTER THE LAST SAMPLE LEAVES THE QUEUE.** Every term is a
+/// measurement taken from the running stream; nothing here is a constant someone chose.
+///
+/// ```text
+///   output device tail   Playout::audible_tail_secs()  the DAC has it, the room does not yet
+/// + input device latency Capture::input_latency_secs() this frame's audio is already that old
+/// + one VAD frame        0.016 s                       the slicer's maximum hold, 256/16000
+/// ```
+///
+/// The input term is there because the capture callback reads `speaking` at PROCESSING time
+/// while judging audio that was in the room earlier; the slicer term because `FrameSlicer`
+/// holds up to 255 samples waiting to complete a 256-sample frame.
+///
+/// Floored at one [`TICK`], because this hold is evaluated once per tick: a window shorter
+/// than the interval at which it is sampled cannot be enforced, and claiming otherwise would
+/// be a timing assertion the code cannot keep.
+///
+/// Measured on the CEO's rig on 2026-09-17 (Mac mini Speakers out, Elgato Wave:3 in):
+/// output tail 10.7 ms, so the sum is well under one 25 ms tick and the floor is what applies.
+pub fn audible_hold_secs(out_tail_secs: f32, in_latency_secs: f32) -> f32 {
+    let slicer = frames_to_secs(1);
+    (out_tail_secs + in_latency_secs + slicer).max(TICK.as_secs_f32())
 }
 
 #[derive(Debug)]
@@ -209,10 +364,14 @@ pub struct CaptureBrain {
     /// Scratch for the residual. Preallocated: this runs on the audio callback thread.
     residual: Vec<f32>,
     was_recording: bool,
-    /// This utterance began while Rich was audible: echo until proven otherwise.
+    /// This utterance overlaps Rich being audible: echo until proven otherwise.
     tainted: bool,
     /// A barge-in fired during the current utterance, which proves it is NOT echo.
     barged: bool,
+    /// Consecutive frames on which Rich was NOT audible, saturating. Compared against
+    /// [`ECHO_LOOKBACK_FRAMES`] so the pre-roll already sitting in the recorder is judged too,
+    /// not just the frame `Started` happens to land on.
+    quiet_frames: u32,
 }
 
 impl Default for CaptureBrain {
@@ -235,6 +394,7 @@ impl CaptureBrain {
             was_recording: false,
             tainted: false,
             barged: false,
+            quiet_frames: u32::MAX,
         }
     }
 
@@ -324,6 +484,10 @@ impl CaptureBrain {
     ) {
         let is_speech = self.vad.push_frame(frame);
 
+        // How long since Rich was last audible, in frames. Saturating, and updated BEFORE any
+        // decision below reads it, so `quiet_frames == 0` means "he is audible on this frame".
+        self.quiet_frames = if speaking { 0 } else { self.quiet_frames.saturating_add(1) };
+
         // COLLECTOR-PATH PARITY: `self.vad.last_rms()` is the RMS of THIS frame — the very
         // buffer handed to `self.recorder.push_frame` below and, from there, to whisper. The
         // silent-input verdict is therefore computed on the recorded audio itself and cannot
@@ -379,15 +543,37 @@ impl CaptureBrain {
         self.was_recording = recording;
 
         if started {
-            // **THE TAINT RULE, now conditional.** With a confident canceller Rich's voice is
-            // no longer meaningfully present in `frame` — it has been subtracted, and the
-            // residual has been MEASURED 6 dB below the VAD's speech floor for 2.000 s. An
-            // utterance beginning while he speaks is therefore the CEO starting a sentence,
-            // not an echo of Rich's, and throwing it away is the bug rather than the fix.
+            // **THE TAINT RULE, conditional on the canceller and now on the WHOLE utterance.**
             //
-            // Whenever the canceller is not confident, this is byte-for-byte the old rule.
-            self.tainted = speaking && !self.barged && !confident;
+            // With a confident canceller Rich's voice is no longer meaningfully present in
+            // `frame` — it has been subtracted, and the residual has been MEASURED 6 dB below
+            // the VAD's speech floor for 2.000 s. An utterance beginning while he speaks is
+            // therefore the CEO starting a sentence, not an echo of Rich's, and throwing it
+            // away is the bug rather than the fix. That half is untouched.
+            //
+            // What changed on 2026-09-17 is the other half. The rule used to be
+            // `speaking && !barged && !confident`, evaluated ONCE, on this frame. Two things
+            // were outside it, and Rich's own counting came back through the CEO's speakers
+            // and was submitted as his message because of them:
+            //
+            //   1. **The 0.416 s already in the buffer.** See `ECHO_LOOKBACK_FRAMES`.
+            //   2. **Everything after this frame.** An utterance born in a synthesis gap was
+            //      born untainted and stayed untainted while Rich spoke over the rest of it —
+            //      `SILENCE_HANGOVER_FRAMES` is 0.800 s, so it survives the gaps easily and is
+            //      admitted whole. That is the `else if` below.
+            //
+            // `speaking` itself now covers the whole answer rather than the queue's depth
+            // (`AudibleWindow`), so "Rich was audible" finally means what it says.
+            let echo_is_in_the_recording = speaking || self.quiet_frames < ECHO_LOOKBACK_FRAMES;
+            self.tainted = echo_is_in_the_recording && !self.barged && !confident;
             out.push(CapMsg::Started { tainted: self.tainted });
+        } else if recording && !self.tainted && speaking && !self.barged && !confident {
+            // **TAINT IS RE-EVALUATED FOR AS LONG AS THE UTTERANCE IS ALIVE.** Rich became
+            // audible during an utterance that had already started, and the canceller cannot
+            // separate the two voices, so the recording now contains him. Once set it stays
+            // set until the utterance ends — only a barge-in clears it, and a barge-in is a
+            // positive signal that the CEO is the one talking.
+            self.tainted = true;
         }
 
         if let Some(utterance) = finished {
@@ -418,11 +604,52 @@ struct SpeakMsg {
     text: String,
 }
 
+/// **THE DECREMENT OF [`Shared::pending_speech`], MADE STRUCTURAL.**
+///
+/// A counter that says "Rich still owes the speakers a sentence" is only safe if it can never
+/// be left high: a stuck non-zero value would hold `speaking` true forever, and a microphone
+/// that is permanently tainted is a microphone that has stopped working. The speaker loop has
+/// four exits from one iteration — the stale-generation skip before synthesis, the stale-
+/// generation skip after it, a synthesis error, and the success path — plus unwind. A `Drop`
+/// guard covers all five by construction, which an `else` branch does not.
+struct PendingSpeech(Arc<Shared>);
+
+impl Drop for PendingSpeech {
+    fn drop(&mut self) {
+        // Saturating, so a decrement that somehow outnumbers its increment reads zero rather
+        // than `usize::MAX` — the failure mode here must be "Rich is heard", never "the CEO
+        // is never heard again".
+        let _ = self.0.pending_speech.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            Some(n.saturating_sub(1))
+        });
+    }
+}
+
 struct Shared {
     /// Live input level 0..1, f32 bits. Written per frame by the audio thread.
     level: AtomicU32,
-    /// True while Rich has audio queued — read by the audio thread to arm barge-in.
+    /// **TRUE FOR THE WHOLE OF RICH'S ANSWER**, not merely while the playout queue is
+    /// non-empty — read by the audio thread to arm barge-in and to taint what it records.
+    ///
+    /// It used to be exactly `playout.is_playing()`, and that left two holes an utterance
+    /// could be born in, both of them inside an answer the CEO can hear:
+    ///
+    /// 1. **The gaps between spoken sentences.** Sentences are synthesized one at a time on
+    ///    the speaker thread (`MacSay` spawns `say` per sentence). Whenever synthesis of
+    ///    sentence N+1 takes longer than the playback of sentence N, the queue empties and
+    ///    this flag went false mid-answer. Ray's candidate-.5 walk on 2026-09-17 answered
+    ///    *"Please count slowly out loud from 1 to 20"*, whose deltas chunk into roughly
+    ///    twenty one-word sentences and therefore twenty separate `say` spawns.
+    /// 2. **The device tail.** See [`crate::playout::Playout::audible_tail_secs`].
+    ///
+    /// So it is now `queued || synthesis still owed || within the measured tail of either`.
+    /// [`Shared::pending_speech`] is the "still owed" term.
     speaking: AtomicBool,
+    /// Sentences handed to the speaker thread that have NOT yet reached the playout queue —
+    /// synthesis in flight. Non-zero means Rich's answer is not over however empty the queue
+    /// is, which is the fact that closes hole 1 above. Incremented at the send, decremented
+    /// by a guard that runs on every exit from the speaker loop's body including unwind.
+    pending_speech: AtomicUsize,
     /// Bumped on every barge-in/stop. Synthesis for an older generation is discarded.
     generation: AtomicU64,
     /// The open stream is delivering nothing (see `noaudio.rs`). Owned by the supervisor,
@@ -692,6 +919,39 @@ pub enum VoiceNotice {
     ///
     /// **Latched once per voice session**, not per run — see [`HalfDuplexNotice`]. What it
     /// describes is a standing property of the room and the hardware, not an event.
+    ///
+    /// ## It KEEPS this trigger after the half-duplex window was widened — decided, with the number
+    ///
+    /// On 2026-09-17 the window stopped being the playout queue's depth and became the whole of
+    /// Rich's answer, gaps and device tail included (`AudibleWindow`), and taint stopped being
+    /// decided once at `Started`. That makes this line fire on strictly more discards, so the
+    /// question was asked directly: is there anything left for it to say that is TRUE, or is
+    /// every discard on this path now indistinguishable from echo, leaving the sentence saying
+    /// nothing?
+    ///
+    /// **It is still true on every firing, and there is no honest narrower trigger.** Two
+    /// different things produce a tainted discard here — Rich's own echo, and the CEO genuinely
+    /// talking over Rich without meeting the 5.008 s debounce — and the line already refuses to
+    /// choose between them: every clause about him is conditional. That is not a hedge, it is
+    /// the measurement.
+    ///
+    /// The candidate narrower trigger was "fire only on a voiced residual standing above the
+    /// echo the canceller expects". It does not survive contact with the numbers:
+    ///
+    /// - **Voicing cannot separate them.** Rich's echo IS voiced speech, so `voiced.rs`'s pitch
+    ///   and harmonicity evidence answers yes to both. Only LEVEL is left.
+    /// - **Level cannot either, on this path.** Measured over the CEO's own recording with no
+    ///   near-end talker present, so every decibel of it is Rich
+    ///   (`tests/self_voice_replay.rs::separating_the_ceo_from_richs_echo_by_level_needs_a_margin_this_large`,
+    ///   447 far-active blocks): median residual **-48.6 dBFS**, p90 **-40.2**, p99 **-36.2**,
+    ///   peak **-34.3** — a spread of **14.3 dB** above the median. A level test would have to
+    ///   sit at -34.3 dBFS to stop firing on Rich alone, and the VAD's own absolute speech
+    ///   floor is 0.005 RMS = **-46.02 dBFS** (`vad.rs:86-91`). So the discriminator would sit
+    ///   **11.7 dB above the level at which the app is willing to call something speech at
+    ///   all**: it would stay silent for a CEO speaking normally and announce itself only when
+    ///   he raised his voice, which is the wrong way round.
+    ///
+    /// So the sentence stays, unchanged, latched once per session. It is what the app knows.
     CouldNotListenWhileSpeaking,
 }
 
@@ -1035,6 +1295,7 @@ impl VoiceController {
         let shared = Arc::new(Shared {
             level: AtomicU32::new(0),
             speaking: AtomicBool::new(false),
+            pending_speech: AtomicUsize::new(0),
             generation: AtomicU64::new(0),
             no_audio: AtomicBool::new(false),
             running: AtomicBool::new(true),
@@ -1154,6 +1415,9 @@ impl VoiceController {
             let observer = observer.clone();
             threads.push(std::thread::spawn(move || {
                 while let Ok(msg) = speak_rx.recv() {
+                    // This sentence is no longer "owed" from the moment this body ends,
+                    // whichever way it ends. See `PendingSpeech`.
+                    let _pending = PendingSpeech(shared.clone());
                     // Dropped before we start: a barge-in already invalidated this sentence.
                     if msg.generation != shared.generation.load(Ordering::Relaxed) {
                         continue;
@@ -1187,8 +1451,18 @@ impl VoiceController {
             // The canceller's live state, published per frame by the audio thread. The
             // supervisor reads it to report WHY a discard happened instead of guessing.
             let aec_state = aec_state_for_diagnostics.clone();
+            let input_latency = capture.latency();
             threads.push(std::thread::spawn(move || {
-                supervise(shared, machine, playout, observer, cap_rx, utt_tx, aec_state);
+                supervise(
+                    shared,
+                    machine,
+                    playout,
+                    observer,
+                    cap_rx,
+                    utt_tx,
+                    aec_state,
+                    input_latency,
+                );
             }));
         }
 
@@ -1258,6 +1532,28 @@ impl VoiceController {
         self.shared.no_audio.load(Ordering::Relaxed)
     }
 
+    /// **THE ONLY PLACE A SENTENCE IS HANDED TO THE SPEAKER THREAD.**
+    ///
+    /// One function because the increment of [`Shared::pending_speech`] has to happen at the
+    /// SEND and not at the synthesis: between the two sits `say`'s process spawn, and that
+    /// interval is precisely the gap an utterance used to be born untainted in. Counting from
+    /// the send means Rich's answer is "in progress" from the instant its first sentence is
+    /// handed over, before any sound exists — which also closes the 25 ms `TICK` the
+    /// supervisor would otherwise take to notice the queue filling.
+    ///
+    /// A failed send decrements immediately: the speaker thread is gone, so nothing is owed.
+    fn send_speak(&self, generation: u64, text: String) {
+        let Some(tx) = &self.speak_tx else { return };
+        self.shared.pending_speech.fetch_add(1, Ordering::Relaxed);
+        if tx.send(SpeakMsg { generation, text }).is_err() {
+            let _ = self.shared.pending_speech.fetch_update(
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+                |n| Some(n.saturating_sub(1)),
+            );
+        }
+    }
+
     /// A `rich://chunk` delta arrived. Accumulate, and hand every completed sentence to the
     /// speaker thread immediately — this is the pipelining.
     pub fn speak_delta(&self, delta: &str) {
@@ -1266,10 +1562,8 @@ impl VoiceController {
             Ok(mut c) => c.push(delta),
             Err(_) => return,
         };
-        if let Some(tx) = &self.speak_tx {
-            for text in sentences {
-                let _ = tx.send(SpeakMsg { generation, text });
-            }
+        for text in sentences {
+            self.send_speak(generation, text);
         }
     }
 
@@ -1280,8 +1574,8 @@ impl VoiceController {
             Ok(mut c) => c.flush(),
             Err(_) => None,
         };
-        if let (Some(tx), Some(text)) = (&self.speak_tx, tail) {
-            let _ = tx.send(SpeakMsg { generation, text });
+        if let Some(text) = tail {
+            self.send_speak(generation, text);
         }
     }
 
@@ -1306,11 +1600,8 @@ impl VoiceController {
         }
         // 2. and 3. — the decision itself, in the unit-tested desk.
         let generation = self.shared.generation.load(Ordering::Relaxed);
-        let tx = self.speak_tx.clone();
         CutOffDesk::handle(reason, observer, |text| {
-            if let Some(tx) = &tx {
-                let _ = tx.send(SpeakMsg { generation, text: text.to_string() });
-            }
+            self.send_speak(generation, text.to_string());
         });
         // 4. The state machine last: the turn is over whatever the speaker does with the
         //    sentences, and `turn_ended` is what puts the panel back to listening.
@@ -1439,6 +1730,7 @@ impl HalfDuplexNotice {
 }
 
 /// The supervisor loop: owns the state machine, emits every UI event, dispatches work.
+#[allow(clippy::too_many_arguments)]
 fn supervise(
     shared: Arc<Shared>,
     machine: Arc<Mutex<VoiceStateMachine>>,
@@ -1447,8 +1739,13 @@ fn supervise(
     cap_rx: Receiver<CapMsg>,
     utt_tx: Sender<Box<Utterance>>,
     shared_aec: Arc<AecShared>,
+    input_latency: crate::capture::InputLatency,
 ) {
     let mut last_state = VoiceState::Off;
+    // Rich's audible window, and the monotonic clock that drives it. `Instant`, never the wall
+    // clock: a window that closes early because the system clock stepped is the defect again.
+    let mut audible = AudibleWindow::new();
+    let started_at = Instant::now();
     // `VoiceNotice::CouldNotListenWhileSpeaking` has been said in this voice session. Latched
     // for the whole session rather than per run — see `HalfDuplexNotice`, which carries the
     // measurement that decided it.
@@ -1463,6 +1760,14 @@ fn supervise(
         loop {
             match cap_rx.try_recv() {
                 Ok(CapMsg::Started { tainted }) => {
+                    // **PRINTED WHETHER TRUE OR FALSE** — Ray's walk could not tell an admitted
+                    // utterance from a discarded one in the log, because only discards printed.
+                    // An invariant you can only ever see violated is not one you can audit.
+                    eprintln!(
+                        "[richos-voice] {} utterance START tainted={tainted} (Rich audible={})",
+                        wall_clock_utc(),
+                        shared.speaking.load(Ordering::Relaxed)
+                    );
                     if !tainted {
                         if let Ok(mut m) = machine.lock() {
                             m.utterance_started();
@@ -1470,12 +1775,23 @@ fn supervise(
                     }
                 }
                 Ok(CapMsg::Utterance(u)) => {
+                    eprintln!(
+                        "[richos-voice] {} utterance END ADMITTED — {:.3} s, on to the recognizer (Rich audible={})",
+                        wall_clock_utc(),
+                        u.samples.len() as f32 / crate::vad::SAMPLE_RATE as f32,
+                        shared.speaking.load(Ordering::Relaxed)
+                    );
                     if let Ok(mut m) = machine.lock() {
                         m.utterance_ended();
                     }
                     let _ = utt_tx.send(u);
                 }
                 Ok(CapMsg::Discarded { tainted }) => {
+                    eprintln!(
+                        "[richos-voice] {} utterance END DISCARDED tainted={tainted} (Rich audible={})",
+                        wall_clock_utc(),
+                        shared.speaking.load(Ordering::Relaxed)
+                    );
                     if let Ok(mut m) = machine.lock() {
                         m.utterance_ended();
                     }
@@ -1564,10 +1880,53 @@ fn supervise(
             }
         }
 
-        // 2. Reconcile playout with the state machine. The queue is the ground truth for
-        //    "is Rich audible", not the turn state.
-        let playing = playout.is_playing();
+        // 2. Reconcile playout with the state machine, and decide whether Rich is AUDIBLE.
+        //
+        //    **THE QUEUE IS NOT THE GROUND TRUTH FOR THAT, and this line used to say it was.**
+        //    `playout.is_playing()` is `queued_samples() > 0`, which is false before the first
+        //    sample of an answer, false in every gap between spoken sentences, and false while
+        //    the device is still emitting the last one. See `AudibleWindow`.
+        let queued = playout.is_playing();
+        let owed = shared.pending_speech.load(Ordering::Relaxed);
+        let hold = audible_hold_secs(playout.audible_tail_secs(), input_latency.secs());
+        let now_ms = started_at.elapsed().as_millis() as u64;
+        let (answer_edge, chunk_edge) = audible.observe(queued, owed > 0, hold, now_ms);
+        let playing = audible.is_open();
         shared.speaking.store(playing, Ordering::Relaxed);
+
+        // **THE BOUNDARIES, WITH A WALL CLOCK.** Ray's candidate-.5 walk could not say from the
+        // record whether the admitted utterance began in a gap between spoken sentences or
+        // after playout had ended, because nothing here was timestamped and the chunk
+        // boundaries were never printed at all. Both are printed now, in the ledger's own
+        // format, so the next walk reads the answer off the log instead of inferring it.
+        match chunk_edge {
+            Some(Edge::Rose) => eprintln!(
+                "[richos-voice] {} playout chunk START — {:.3} s queued, {owed} sentence(s) still in synthesis",
+                wall_clock_utc(),
+                playout.queued_secs()
+            ),
+            Some(Edge::Fell) => eprintln!(
+                "[richos-voice] {} playout chunk END — queue empty, {owed} sentence(s) still in synthesis",
+                wall_clock_utc()
+            ),
+            None => {}
+        }
+        match answer_edge {
+            Some(Edge::Rose) => eprintln!(
+                "[richos-voice] {} ANSWER AUDIBLE — half-duplex window OPEN (hold after the last sample {:.0} ms = out {:.1} + in {:.1} + slicer {:.1})",
+                wall_clock_utc(),
+                hold * 1000.0,
+                playout.audible_tail_secs() * 1000.0,
+                input_latency.secs() * 1000.0,
+                frames_to_secs(1) * 1000.0
+            ),
+            Some(Edge::Fell) => eprintln!(
+                "[richos-voice] {} answer over — half-duplex window CLOSED, the microphone is the CEO's again",
+                wall_clock_utc()
+            ),
+            None => {}
+        }
+
         if let Ok(mut m) = machine.lock() {
             if playing {
                 m.playout_started();
