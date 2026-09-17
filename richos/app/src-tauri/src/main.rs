@@ -19,7 +19,7 @@ mod update_startup;
 // `read_displays` and `remember_window_geometry`, live next to the window they serve below.
 mod window_geometry;
 
-use richos_core::native::{resolve_claude_bin, NativeCognition};
+use richos_core::native::{resolve_claude_bin, resolve_claude_bin_checked, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
 use richos_core::launch::{LaunchCounts, LaunchKind, LaunchStore, PriorRun};
@@ -1676,7 +1676,21 @@ fn main() {
             // THE CELL THE LEASE FACTORY READS. Shared, so a successful first-run install can
             // re-point it without a relaunch (`setup_view::run`).
             let engine_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(engine.clone()));
-            let claude_bin = resolve_claude_bin();
+            // RESOLVED OR REFUSED, NEVER SILENTLY DEGRADED — the 2026-09-17 candidate-walk
+            // fix. `resolve_claude_bin` used to fall through to the bare name `claude` here,
+            // which this launch's own boot went on to hand a provider whose `PATH` gets
+            // replaced by `runtime.rs::EngineRuntime::path` (`engine_profile.rs`); a bare name
+            // that PATH can never resolve. The failure then surfaced two turns later,
+            // misclassified by `interruption.rs` as "usually clears on its own" — false for a
+            // binary that was never there. `resolve_claude_bin_checked` names every place
+            // looked when nothing answers, exactly like the "first-run setup" block below.
+            let claude_bin = match resolve_claude_bin_checked() {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("[richos] compute connection: {e}");
+                    std::path::PathBuf::from("claude")
+                }
+            };
             // THE CELL THE LEASE FACTORY READS, beside `engine_cell` and for the same reason
             // (see `EngineLeaseFactory`). A successful first-run install rewrites it.
             let claude_bin_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(claude_bin.clone()));

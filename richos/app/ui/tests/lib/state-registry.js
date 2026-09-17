@@ -163,6 +163,25 @@ module.exports = [
       "honest shape for a state he does not own.",
   },
   {
+    s:
+      "I couldn't start that. The copy of Claude Code RichOS tried to run isn't on this Mac " +
+      "where I expected it, so there was nothing here to think with. This one needs whoever " +
+      "set RichOS up — it isn't something you can fix from here, and asking me again won't " +
+      "change it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: null,
+    why:
+      "`InterruptionCause::ProviderMissing` — the 2026-09-17 candidate-walk defect. " +
+      "`resolve_claude_bin` used to fall through to a bare `claude` that a Finder-launched " +
+      "provider's own replaced PATH could never resolve, and the resulting failure " +
+      "(`provider-supervisor.py`'s own `Provider could not start: [Errno 2] No such file or " +
+      "directory`) was misclassified as `Transient`, promising a retry that could never work. " +
+      "A DIFFERENT class from the credential row above for the same reason that row is " +
+      "different from the sign-in row: the CEO's own account is fine, and the fix (installing " +
+      "or pointing at Claude Code) is whoever set RichOS up's to make, not his.",
+  },
+  {
     s: "Stopped, as you asked. Nothing is running, and nothing of yours was lost.",
     c: "INFORMATIONAL",
     fixture: null,

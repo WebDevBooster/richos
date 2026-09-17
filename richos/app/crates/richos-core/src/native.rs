@@ -235,6 +235,17 @@ pub enum NativeError {
     /// an exit code.
     #[error("the claude binary was not found at {path} — RichOS drives Claude Code directly and cannot run without it")]
     BinaryMissing { path: String },
+    /// **LOUD, raised by [`resolve_claude_bin_checked`] before any process exists at all —
+    /// the 2026-09-17 candidate-walk fix.** [`resolve_claude_bin`] used to fall through to
+    /// the bare name `claude` here, which a caller then handed to a provider whose `PATH`
+    /// `engine_profile.rs` had already replaced with [`crate::runtime::EngineRuntime::path`];
+    /// a bare name that `PATH` can never resolve. The failure surfaced two layers downstream,
+    /// misclassified by `interruption.rs` as [`crate::interruption::InterruptionCause::Transient`]
+    /// ("that kind of thing usually clears on its own") — false for a binary that was never
+    /// installed. This variant names every place actually looked, the way `setup.rs::find_claude`
+    /// already does for the first-run advisory.
+    #[error("no `claude` install could be found on this Mac — looked in: {looked} — install Claude Code, or set RICHOS_CLAUDE_BIN to its path")]
+    ClaudeNotFound { looked: String },
     /// **LOUD.** The `claude` binary is exactly where we looked and cannot be run: the
     /// execute bit is off, or the path names a directory. A DIFFERENT fault from
     /// [`NativeError::BinaryMissing`] with a different fix, so it is a different variant —
@@ -1705,35 +1716,147 @@ impl Drop for NativeClient {
     }
 }
 
-/// Resolve the `claude` binary.
+/// Every environment fact [`search_claude_bin`] reads, gathered once into a plain struct so a
+/// test drives the search with a value instead of mutating this process's real `$HOME`,
+/// `$HOMEBREW_PREFIX` or `~/.npmrc` — the same discipline `setup.rs::SetupPaths` documents:
+/// *"injected rather than read… the GUI condition is then a VALUE in a test instead of a
+/// mutation of the test process."* `Default` yields an environment with nothing to check, on
+/// purpose: a test names exactly the candidates it means to exercise, and never accidentally
+/// finds a real `claude` sitting on the machine actually running the test.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ClaudeBinEnv {
+    /// `$RICHOS_CLAUDE_BIN` — exclusive. Named by an operator, so a miss here is reported,
+    /// never silently routed around to a place nobody named.
+    pub(crate) explicit: Option<String>,
+    /// `$HOME` — the `~/.local/bin/claude` launcher Anthropic's own installer writes and
+    /// retargets on every self-update (see the module doc above, §16).
+    pub(crate) home: Option<String>,
+    /// Every Homebrew prefix to check, IN ORDER. In production this is `$HOMEBREW_PREFIX`
+    /// (exported by `brew shellenv`, when it has been sourced) followed by Homebrew's own two
+    /// real install roots — Apple Silicon then Intel — checked UNCONDITIONALLY, because a
+    /// Finder-launched app carries neither `$HOMEBREW_PREFIX` nor a shell's `$PATH` (see
+    /// `main.rs`: *"A Finder launch's PATH is /usr/bin:/bin:/usr/sbin:/sbin"*, the identical
+    /// reason `PATH`-search cannot be the whole answer here either).
+    pub(crate) homebrew_prefixes: Vec<String>,
+    /// npm's own configured global prefix: `$npm_config_prefix` (npm's env spelling of
+    /// `npm config set prefix …`) when exported, else the `prefix` line of `~/.npmrc`, npm's
+    /// on-disk record of the same setting, read without executing `npm` on a boot path.
+    pub(crate) npm_prefix: Option<String>,
+}
+
+impl ClaudeBinEnv {
+    fn from_process() -> Self {
+        let nonempty = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        let home = nonempty("HOME");
+        let mut homebrew_prefixes = Vec::new();
+        if let Some(exported) = nonempty("HOMEBREW_PREFIX") {
+            homebrew_prefixes.push(exported);
+        }
+        for default in HOMEBREW_DEFAULT_PREFIXES {
+            if !homebrew_prefixes.iter().any(|p| p == default) {
+                homebrew_prefixes.push(default.to_string());
+            }
+        }
+        let npm_prefix = nonempty("npm_config_prefix")
+            .or_else(|| home.as_deref().and_then(read_npmrc_prefix));
+        ClaudeBinEnv { explicit: nonempty("RICHOS_CLAUDE_BIN"), home, homebrew_prefixes, npm_prefix }
+    }
+}
+
+/// Homebrew's own two install roots on macOS — Apple Silicon first, since that is every Mac
+/// RichOS ships to today; Intel second, for a Rosetta-era machine or a relocated Homebrew.
+const HOMEBREW_DEFAULT_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+
+/// Read `prefix = <path>` out of an npm config file, the way `npm config get prefix` would
+/// without executing `npm` on a boot path. Anything else in the file — comments, other keys,
+/// surrounding whitespace, quoting — is tolerated or ignored; a malformed file reads as an
+/// absent one rather than a panic.
+fn read_npmrc_prefix(home: &str) -> Option<String> {
+    let text = std::fs::read_to_string(Path::new(home).join(".npmrc")).ok()?;
+    for line in text.lines() {
+        let line = line.trim();
+        let rest = line.strip_prefix("prefix")?.trim_start();
+        let value = rest.strip_prefix('=')?.trim();
+        if !value.is_empty() {
+            return Some(value.trim_matches('"').trim_matches('\'').to_string());
+        }
+    }
+    None
+}
+
+/// The one search both [`resolve_claude_bin`] and [`resolve_claude_bin_checked`] run, so the
+/// two can never answer differently about the same machine — which is exactly how the
+/// 2026-09-17 candidate walk failed: `setup.rs::find_claude` walked `$PATH` and could say
+/// "found", while this file's own resolver checked a narrower list and could still hand the
+/// provider a bare name.
 ///
-/// Order, and each step is a decision:
+/// Returns the absolute path on success — **never a bare name**, so PATH is irrelevant to
+/// every caller from here on, including the provider whose own `PATH` gets replaced
+/// (`runtime.rs::EngineRuntime::path`) — or every place looked, in order, on failure.
+fn search_claude_bin(env: &ClaudeBinEnv) -> Result<std::path::PathBuf, Vec<String>> {
+    let mut looked = Vec::new();
+
+    if let Some(explicit) = &env.explicit {
+        let path = std::path::PathBuf::from(explicit);
+        looked.push(format!("{} ($RICHOS_CLAUDE_BIN)", path.display()));
+        // EXCLUSIVE, as `setup.rs::find_claude` treats the same override: an operator who
+        // named a path is making a statement, and falling through to a place nobody named
+        // would silently overrule it.
+        return if path.is_file() { Ok(path) } else { Err(looked) };
+    }
+
+    if let Some(home) = &env.home {
+        let path = Path::new(home).join(".local/bin/claude");
+        looked.push(path.display().to_string());
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+
+    for root in &env.homebrew_prefixes {
+        let path = Path::new(root).join("bin/claude");
+        looked.push(format!("{} (Homebrew)", path.display()));
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+
+    if let Some(prefix) = &env.npm_prefix {
+        let path = Path::new(prefix).join("bin/claude");
+        looked.push(format!("{} (npm global prefix)", path.display()));
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+
+    Err(looked)
+}
+
+/// Resolve the `claude` binary, for callers that accept the old, infallible shape — examples
+/// and dev scripts run from a terminal, where a bare name and the caller's OWN shell `$PATH`
+/// are a reasonable, well-understood default. **The desktop app's own boot never calls this
+/// one** — see [`resolve_claude_bin_checked`] — because a bare name is exactly the value that
+/// produced the 2026-09-17 candidate-walk defect once handed to a provider whose `PATH` had
+/// already been replaced.
 ///
-/// 1. **`$RICHOS_CLAUDE_BIN`** — an explicit operator override, and the seam the tests use
-///    to drive a scripted fake child over real stdio.
-/// 2. **`$HOME/.local/bin/claude`** — Anthropic's own installer puts a launcher here and
-///    RETARGETS it on every self-update, with the real executables under
-///    `~/.local/share/claude/versions/`. §16 records the consequence and it is why this step
-///    exists: a custom launcher at this path SURVIVES auto-update, so
-///    `--permission-prompt-tool stdio` can be pinned without modifying any binary — which
-///    also keeps the licence's "must not be modified" condition intact. Preferring this path
-///    is what makes that mitigation reachable rather than theoretical.
-/// 3. **the bare name on `PATH`** — the last resort. A missing binary then surfaces as
-///    [`NativeError::BinaryMissing`] from the spawn itself.
+/// Order: [`search_claude_bin`] — `$RICHOS_CLAUDE_BIN`, then `$HOME/.local/bin/claude`, then
+/// Homebrew, then npm's global prefix — and only on a total miss, the bare name `claude`,
+/// left for the caller's own `PATH` to resolve or for [`NativeError::BinaryMissing`] to name
+/// at the spawn.
 ///
 /// **Never the keychain, never a token, never an API key.** This function resolves an
 /// executable path and nothing else.
 pub fn resolve_claude_bin() -> std::path::PathBuf {
-    if let Ok(explicit) = std::env::var("RICHOS_CLAUDE_BIN") {
-        return std::path::PathBuf::from(explicit);
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        let launcher = std::path::PathBuf::from(home).join(".local/bin/claude");
-        if launcher.exists() {
-            return launcher;
-        }
-    }
-    std::path::PathBuf::from("claude")
+    search_claude_bin(&ClaudeBinEnv::from_process())
+        .unwrap_or_else(|_| std::path::PathBuf::from("claude"))
+}
+
+/// The same search as [`resolve_claude_bin`], but for the one caller that must never silently
+/// keep going on a bare name — the desktop boot. On a total miss this refuses, naming every
+/// place looked, the way `setup.rs::find_claude` already reports a missing engine at boot.
+pub fn resolve_claude_bin_checked() -> Result<std::path::PathBuf, NativeError> {
+    search_claude_bin(&ClaudeBinEnv::from_process())
+        .map_err(|looked| NativeError::ClaudeNotFound { looked: looked.join("; ") })
 }
 
 /// The real Cognition: a live native session behind the durable spine.
@@ -2193,6 +2316,95 @@ mod native_driver_tests {
             assert_eq!(client.onboarding_tools_verdict(), expected);
             assert_eq!(client.ensure_onboarding_tools_loaded().is_ok(), expected == OnboardingToolsVerdict::Loaded);
         }
+    }
+
+    // ---- resolving `claude` itself (the 2026-09-17 candidate-walk defect) --------------
+    //
+    // Every test here drives `search_claude_bin` with an INJECTED `ClaudeBinEnv` rather than
+    // mutating this process's real `$HOME`/`$HOMEBREW_PREFIX`/`~/.npmrc` — the same reason
+    // `setup.rs::SetupPaths` is injected rather than read, and it is what keeps these
+    // deterministic under `cargo test`'s parallel threads and honest about a machine that
+    // happens to have a real Homebrew or npm install sitting on it.
+
+    #[test]
+    fn search_claude_bin_finds_a_homebrew_style_install() {
+        let dir = std::env::temp_dir().join(format!("richos-claude-bin-brew-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let bin = dir.join("bin/claude");
+        std::fs::write(&bin, "#!/bin/sh\n").unwrap();
+        let env = ClaudeBinEnv { homebrew_prefixes: vec![dir.display().to_string()], ..Default::default() };
+        let found = search_claude_bin(&env).expect("a Homebrew-style install must resolve");
+        assert_eq!(found, bin);
+    }
+
+    #[test]
+    fn search_claude_bin_finds_an_npm_global_prefix_install() {
+        let dir = std::env::temp_dir().join(format!("richos-claude-bin-npm-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let bin = dir.join("bin/claude");
+        std::fs::write(&bin, "#!/bin/sh\n").unwrap();
+        let env = ClaudeBinEnv { npm_prefix: Some(dir.display().to_string()), ..Default::default() };
+        let found = search_claude_bin(&env).expect("an npm global prefix install must resolve");
+        assert_eq!(found, bin);
+    }
+
+    #[test]
+    fn search_claude_bin_still_finds_the_installer_launcher_at_home_local_bin() {
+        // POSITIVE CONTROL: the ordinary, already-working case, unchanged by everything else
+        // added around it.
+        let home = std::env::temp_dir().join(format!("richos-claude-bin-home-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let bin = home.join(".local/bin/claude");
+        std::fs::write(&bin, "#!/bin/sh\n").unwrap();
+        let env = ClaudeBinEnv { home: Some(home.display().to_string()), ..Default::default() };
+        let found = search_claude_bin(&env).expect("the installer's own launcher must still resolve");
+        assert_eq!(found, bin);
+    }
+
+    #[test]
+    fn search_claude_bin_lets_an_explicit_override_win_even_over_a_real_install() {
+        let dir = std::env::temp_dir().join(format!("richos-claude-bin-explicit-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let winner = dir.join("winner");
+        std::fs::write(&winner, "#!/bin/sh\n").unwrap();
+        // A decoy that WOULD resolve if the override were not exclusive.
+        let decoy_home = dir.join("home");
+        std::fs::create_dir_all(decoy_home.join(".local/bin")).unwrap();
+        std::fs::write(decoy_home.join(".local/bin/claude"), "#!/bin/sh\n").unwrap();
+        let env = ClaudeBinEnv {
+            explicit: Some(winner.display().to_string()),
+            home: Some(decoy_home.display().to_string()),
+            ..Default::default()
+        };
+        let found = search_claude_bin(&env).expect("the explicit override exists and must win");
+        assert_eq!(found, winner);
+    }
+
+    #[test]
+    fn search_claude_bin_refuses_by_name_when_found_nowhere() {
+        let env = ClaudeBinEnv {
+            home: Some("/nonexistent/richos-test-home".into()),
+            homebrew_prefixes: vec!["/nonexistent/richos-test-homebrew".into()],
+            npm_prefix: Some("/nonexistent/richos-test-npm".into()),
+            ..Default::default()
+        };
+        let looked = search_claude_bin(&env).expect_err("nothing here should resolve");
+        assert!(looked.iter().any(|p| p.contains("richos-test-home/.local/bin/claude")), "{looked:?}");
+        assert!(looked.iter().any(|p| p.contains("richos-test-homebrew/bin/claude")), "{looked:?}");
+        assert!(looked.iter().any(|p| p.contains("richos-test-npm/bin/claude")), "{looked:?}");
+        assert_eq!(looked.len(), 3, "every place looked is named, and only those: {looked:?}");
+    }
+
+    #[test]
+    fn resolve_claude_bin_checked_names_every_place_looked_when_nothing_is_found() {
+        // Same claim through the public, `NativeError`-carrying entry point `main.rs` boot
+        // actually calls — proven against a `ClaudeBinEnv` that cannot find its own explicit
+        // override, so the exclusive-return path is exercised too.
+        let looked = vec!["/a".to_string(), "/b".to_string()];
+        let err = NativeError::ClaudeNotFound { looked: looked.join("; ") };
+        let msg = err.to_string();
+        assert!(msg.contains("/a; /b"), "{msg}");
+        assert!(msg.contains("install Claude Code"), "{msg}");
     }
 
     #[test]

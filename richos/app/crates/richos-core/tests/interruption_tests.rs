@@ -76,6 +76,28 @@ fn an_io_failure_is_transient_and_says_asking_again_is_worth_a_try() {
     assert!(cause.ceo_message().contains("asking again"), "{}", cause.ceo_message());
 }
 
+/// **THE 2026-09-17 CANDIDATE-WALK DEFECT, AS A VALUE.** `provider-supervisor.py`'s own
+/// ENOENT text, wrapped exactly the way `native.rs::NativeError::Startup` and
+/// `CognitionError::Io` actually wrap it before it reaches the ledger — carrying
+/// `OUR_IO_PREFIX` too, which is what made this misclassify as `Transient` before this fix
+/// (measured on the candidate walk: `[Errno 2] No such file or directory`, an ENOENT that
+/// `native.rs`'s own `BinaryMissing` mapping never sees, because it fires inside a forked
+/// child after `Command::spawn` already succeeded spawning the supervisor).
+#[test]
+fn a_missing_provider_binary_is_never_classified_as_transient() {
+    let reason = "cognition io: claude failed to start (the child exited before answering \
+                  the handshake); the child said: Provider could not start: [Errno 2] No \
+                  such file or directory";
+    let cause = classify(reason);
+    assert_eq!(cause, InterruptionCause::ProviderMissing, "{reason}");
+    assert!(!cause.offers_retry(), "a missing binary cannot be fixed by asking again");
+    assert!(
+        !cause.ceo_message().to_lowercase().contains("usually clears on its own"),
+        "{}",
+        cause.ceo_message()
+    );
+}
+
 /// A stop is not a failure and must never be dressed as one.
 #[test]
 fn a_stop_the_ceo_asked_for_is_classified_as_his_own_stop() {
@@ -204,6 +226,7 @@ fn no_two_causes_share_a_sentence() {
     let all = [
         InterruptionCause::NotSignedIn,
         InterruptionCause::CredentialRejected,
+        InterruptionCause::ProviderMissing,
         InterruptionCause::StoppedByCeo,
         InterruptionCause::Transient,
         InterruptionCause::Unknown,
@@ -225,6 +248,7 @@ fn every_sentence_survives_being_spoken() {
     for cause in [
         InterruptionCause::NotSignedIn,
         InterruptionCause::CredentialRejected,
+        InterruptionCause::ProviderMissing,
         InterruptionCause::StoppedByCeo,
         InterruptionCause::Transient,
         InterruptionCause::Unknown,
