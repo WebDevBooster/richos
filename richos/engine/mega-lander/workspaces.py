@@ -2729,6 +2729,15 @@ _MAX_OPEN_CALLS = 64
 # left exactly where it was). The CLI prints them after the CREATED rows so the
 # observe hook can announce them.
 PROTECTED_REF_FINDINGS = []
+# What each action is called ON THE AGENT'S OWN RECORD. Three actions, three
+# sentences, and the third is not a variation of the second: "another
+# conversation landed" is news about somebody else's finished work, while
+# "moved" is an unexplained write on a protected ref.
+_PROTECTED_REF_FACTS = {
+    "RESTORED": "protected ref restored",
+    "MOVED": "protected ref moved (reported, not restored)",
+    "LANDED": "another conversation landed on this branch",
+}
 
 
 def _refs_dir(key):
@@ -2961,9 +2970,24 @@ def _restore_protected_refs(rec, priors, latest):
     commits (it committed or merged onto it — which is ALSO what Rich's land of
     that same agent looks like, and is now reported rather than undone).
 
+    AND, FROM 2026-09-17, THE ONE DESCENDANT THAT IS NOT HIS. The CEO runs two
+    conversation threads whose back ends share a repository; their lands take
+    one machine-wide lock per repository, so they never collide — but the
+    second one's land moves the recorded branch UNDER the first one's running
+    agents, and until now that was the silent case above, indistinguishable
+    from the lead's own land. It is no longer inferred from the shape: app.py's
+    `integrate` appends a land record naming the conversation that landed, and
+    `land_by_another_conversation` reads it. A land by THIS conversation stays
+    silent; one by another conversation is reported, with its thread, its time
+    and its two tips; and where a repository keeps land records at all, a
+    fast-forward that no record names is reported as exactly that. A repository
+    with NO land records is the terminal path, and it stays silent as before —
+    Rich's hand-run `git merge` writes no record, and those teammates are told
+    by guard-inflight-notify.sh at the push instead.
+
     Returns [(action, repo, branch, snapshot_tip, found_tip_or_"", why)], with
-    action "RESTORED" (a deletion put back) or "MOVED" (seen, reported, left
-    alone).
+    action "RESTORED" (a deletion put back), "MOVED" (seen, reported, left
+    alone) or "LANDED" (another conversation's land, announced to this one).
 
     THE OWN-WORK RULE APPLIES ONLY INSIDE A WINDOW. A descendant that carries
     the agent's own unlanded commits is evidence of the AGENT's move only while
@@ -3005,12 +3029,16 @@ def _restore_protected_refs(rec, priors, latest):
                 cur = refs.get(b)
                 if cur == old:
                     continue
+                action = "MOVED"
                 if cur is None:
                     why = "deleted"
                 elif not is_ancestor(repo, old, cur):
                     why = "moved to %s, which does not descend from %s (a rewind, a force-move or a symref)" % (cur[:12], old[:12])
                 elif b not in windowed:
-                    continue                            # no call open: a descendant is the lead's land, whatever it carries
+                    landed = land_by_another_conversation(repo, b, old, cur)
+                    if not landed:
+                        continue                        # no call open: a descendant is the lead's land, whatever it carries
+                    action, why = "LANDED", landed      # except when the land record names another conversation
                 else:
                     if own is None:
                         # The agent's own unlanded tips are measured against the
@@ -3024,8 +3052,25 @@ def _restore_protected_refs(rec, priors, latest):
                     if any(t == cur or is_ancestor(repo, t, cur) for t in own):
                         why = "moved to %s, which carries this agent's own unlanded work (it committed or merged onto it)" % cur[:12]
                     else:
-                        continue                        # a descendant carrying none of the agent's work: the lead's land
+                        landed = land_by_another_conversation(repo, b, old, cur)
+                        if not landed:
+                            continue                    # a descendant carrying none of the agent's work: the lead's land
+                        action, why = "LANDED", landed  # except when the land record names another conversation
                 if cur is not None:
+                    if action == "LANDED":
+                        # ANOTHER CONVERSATION'S LAND, REPORTED TO THE THREAD IT
+                        # MOVED UNDER. Nothing was lost and nothing is changed
+                        # here either: a fast-forward is announced, not judged.
+                        # It is deliberately NOT one of the classes
+                        # scripts/lib/protected-ref-moves.py reads — that
+                        # reader's whole question is "were commits lost", and
+                        # the answer here is no.
+                        findings.append((action, repo, b, old, cur, why))
+                        PROTECTED_REF_FINDINGS.append((action, repo, b, old, cur, why))
+                        event("protected-ref-landed-elsewhere", key=rec["key"], repo=repo, branch=b,
+                              tip=old, found=cur, why=why,
+                              action="reported: another conversation's land, nothing was changed")
+                        continue
                     # A MOVE IS REPORTED AND LEFT ALONE. See the docstring: the
                     # shape cannot tell Rich's land from an agent's doorway, and
                     # the write this used to make was destructive, self-
@@ -3050,8 +3095,7 @@ def _restore_protected_refs(rec, priors, latest):
                 fresh = load_agent(rec["key"])
                 if fresh:
                     fresh.setdefault("history", []).extend(
-                        {"at": iso(),
-                         "fact": "protected ref restored" if a == "RESTORED" else "protected ref moved (reported, not restored)",
+                        {"at": iso(), "fact": _PROTECTED_REF_FACTS[a],
                          "repo": r, "branch": b, "tip": o, "found": c, "why": w}
                         for a, r, b, o, c, w in findings)
                     save_agent(fresh)

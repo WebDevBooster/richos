@@ -288,14 +288,44 @@ mutant p14-protected-set-keyed-by-name-across-repositories "test_point_14_a_reco
     "the protected set would go back to matching on branch NAME across every body of work, so 'main' recorded for one repository would protect -- and make writable -- refs/heads/main in every other. Three bodies of work on this machine, all three integrating on main (forensics §4)."
 
 mutant p14-the-leads-move-reported-too "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone" "$W" \
-    '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
+    '                    else:{NL}                        landed = land_by_another_conversation(repo, b, old, cur){NL}                        if not landed:{NL}                            continue                    # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
     '                    else:{NL}                        why = "moved"' \
     "the lead's own land onto the recorded branch during an agent's call would be reported as an agent's move (point 14: landing is his). It no longer UNDOES his land -- nothing does -- but a report that fires on every ordinary land is alarm fatigue, and this check's whole remaining value is that it only speaks when something is wrong."
 
 mutant p14-end-of-run-reports-the-leads-land "test_point_14_the_leads_land_after_the_agents_last_call_is_not_undone" "$W" \
-    '                elif b not in windowed:{NL}                    continue' \
-    '                elif False:{NL}                    continue' \
+    '                elif b not in windowed:' \
+    '                elif False:' \
     "the own-work rule would apply with no call open, so the lead's fast-forward of the agent's OWN branch onto the recorded one -- made after its last call, before its end signal -- would be reported as the agent's doing at the end signal (measured as a LAND REFUSAL on certification-sage-runner-round case R8, 2026-09-13, back when this branch of the rule also wrote)."
+
+# --- THE OTHER CONVERSATION'S LAND (2026-09-17) ---------------------------
+# The land lock made two threads' lands take turns. These five prove the second
+# half: the thread that waited moved the branch under the other one's agents,
+# and they are TOLD -- from the land record, never from the shape of the move.
+
+mutant p14-another-conversations-land-not-reported "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
+    '                        landed = land_by_another_conversation(repo, b, old, cur)' \
+    '                        landed = None' \
+    "the before-state restored: EVERY fast-forward of the recorded branch during an agent's call would be silent, including the one made by the other conversation's land. Its agents would carry on against a base that had moved, with their snapshots, their records and their own land's before-tip stale and nothing saying so."
+
+mutant p14-end-of-run-land-not-reported "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
+    '                elif b not in windowed:{NL}                    landed = land_by_another_conversation(repo, b, old, cur)' \
+    '                elif b not in windowed:{NL}                    landed = None' \
+    "another conversation's land made after the agent's LAST call -- the commonest moment for it, since that is when the agent is being landed and cleaned up -- would go unrecorded on the one record that outlives the run."
+
+mutant p14-this-conversations-own-land-reported "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
+    '            if thread == mine:{NL}                return None             # this conversation'"'"'s own land' \
+    '            if False:{NL}                return None             # this conversation'"'"'s own land' \
+    "a conversation would be told about its OWN land -- the one it made, on the work of the very agents being told. Every land in a one-thread day would fire it, which is how a report becomes wallpaper and the cross-thread case it exists for stops being read."
+
+mutant p14-terminal-land-reported-as-unattributed "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
+    '        if not records:{NL}            return None                 # land records are not in use here' \
+    '        if not records:{NL}            records = [{}]' \
+    "a repository that keeps NO land records -- the terminal path, where Rich lands with a hand-run git merge that writes nothing -- would have every one of his lands reported as a move nothing names. Those teammates are already told at the push by guard-inflight-notify.sh; this would put an alarm on the most ordinary write a recorded branch ever receives."
+
+mutant p14-land-attributed-by-branch-alone "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
+    '            if record.get("branch") != branch or record.get("commit") != found:' \
+    '            if record.get("branch") != branch:' \
+    "attribution would answer with the LATEST land on the branch instead of the one that made this move, so with two lands in a row an agent would be told the wrong conversation moved its base -- which is worse than being told nothing, and is exactly what the append-only record was written to prevent."
 
 mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported" "$W" \
     '        cx = _codex_workspace_of(fp){NL}        if cx:' \

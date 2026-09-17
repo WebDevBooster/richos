@@ -152,6 +152,19 @@ if [ -n "$OUT" ]; then
                 # snapshot recorded. The write is create-only and carries a reflog
                 # message, so it can neither clobber nor move anything.
                 [ -n "$branch" ] && echo "=== PROTECTED REF RESTORED: $branch in $repo was $why during this agent's tool call and has been re-created at $tip. A RECORDED integration branch is moved only by Rich (point 14) and a codex/ ref is never deleted without the CEO's express word (point 2) — docs/plans/worktree-spec-2026-09-11.md. Recorded on the agent's record and in the store's event log (protected-ref-restored). ===" >&2 ;;
+            LANDED)
+                # ANOTHER CONVERSATION'S LAND, ANNOUNCED TO THE THREAD IT MOVED
+                # UNDER (2026-09-17). The CEO runs two threads whose back ends
+                # share a repository; their lands take one machine-wide lock per
+                # repository, so they never collide — and the second one's land
+                # still moves the recorded branch under the first one's running
+                # agents. This is the one case where the AGENT is the right
+                # audience for a protected-ref notice: it is not being accused
+                # of anything, it is being told its base moved. Nothing was
+                # lost (a fast-forward) and nothing was written, so the Stop
+                # notice in notice-protected-ref-moves.sh deliberately never
+                # speaks about it — its question is "were commits lost".
+                [ -n "$branch" ] && echo "=== $branch MOVED UNDER YOU: in $repo it was $why. Nothing was lost and nothing was changed — this is a fast-forward by another conversation's land, taken in its turn under this repository's land lock. Your workspace was branched from $tip, so anything you measured, based or recorded against that tip is now behind: re-read before you rely on it, and expect your own land to fast-forward onto the newer tip. Inspect it with: git -C $repo log --oneline $tip..$found. Recorded on this agent's record and in the store's event log (protected-ref-landed-elsewhere). ===" >&2 ;;
             MOVED)
                 # THE MOVE HALF, AND NOTHING WAS WRITTEN. Until 2026-09-14 this case put
                 # the ref back, and that line moved refs/heads/main in richos three times
