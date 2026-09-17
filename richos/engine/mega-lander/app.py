@@ -5,6 +5,7 @@ Receipts join app obligations to provider calls. They are not a second workspace
 registry. Uncertain dispatch is retained for reconciliation, never replayed.
 """
 import contextlib
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import uuid
 
 ENGINE = Path(__file__).resolve().parents[1]
@@ -567,94 +569,355 @@ def verification_evidence(scope, identity):
     return f"git:{repo}:{integration['branch']}:{commit}:review:{reviewer['id']}"
 
 
+# ===========================================================================
+# THE LAND LOCK — ONE PER TARGET REPOSITORY, OUTSIDE EVERY CONVERSATION
+# ===========================================================================
+# `locked(scope)` above serializes one conversation's receipts and keeps doing
+# exactly that. It does not serialize a LAND, and neither does the workspace
+# registry's own lock, because both files are partitioned per conversation:
+#
+#   folder(scope)   = <RICHOS_APP_STATE>/work-receipts/sha256(entity,thread)
+#   W.state_dir()   = $RICHOS_WORKSPACES_DIR, which the app sets to
+#                     <state>/workspaces/sha256(entity,thread)
+#                     (engine_profile.rs:148-155, :205)
+#
+# Two conversation threads therefore take two different lock files and the
+# `git merge --ff-only` below runs with no lock on the repository at all. Frank
+# reproduced the two paths from the engine's own identity hash:
+#
+#   $ python3 -c 'import hashlib,json; f=lambda e,t: hashlib.sha256(
+#       json.dumps([e,t],separators=(",",":")).encode()).hexdigest();
+#       print(f("acme","thread-A")); print(f("acme","thread-B"))'
+#   b447822dc584e545fefdaf85c0415fcf229fc64b927a4b3aa2771726a8b5c344
+#   ad0ffd91066fe26a6aba8489bd6ef0ffe6233682f2316a473c9d940c4911924f
+#
+# Nothing was CORRUPTED by that: the recorded-tip compare-and-swap below
+# ("integration target moved after intent") fails the loser safe. But the loser
+# is then thrown back to a fresh implementation and a fresh review, because this
+# function infers no rebase and no merge commit — so a lost race costs the work
+# twice over. THE POINT OF THE LOCK IS THAT A LOST RACE BECOMES A WAIT.
+#
+# Keyed to the REPOSITORY, not machine-wide. Two conversations landing into two
+# different repositories are the case the CEO says he will actually run, and
+# there is no reason for one to wait on the other. Two into the same repository
+# take turns — which is also the honest answer to the collision the lock cannot
+# fix: `integrate` requires the repository's checkout to be standing on the
+# recorded integration branch, and one checkout cannot be on two branches.
+LAND_LOCK_TIMEOUT = 600.0
+
+
+def land_locks_dir():
+    """The machine-wide home of the per-repository land locks.
+
+    Deliberately NOT `state()` and NOT `W.state_dir()`: those are the two
+    partitions this lock exists to sit outside of. It is derived instead from
+    `CLAUDE_CONFIG_DIR` (else `~/.claude`) — the same machine-wide home the
+    workspace registry falls back to and the worktree ledger lives in — because
+    the app neither sets nor removes that variable for the engine it launches:
+    `EngineProfile::configure` strips every inherited `RICHOS_`/`LORO_`/`ECS_`/
+    `GIT_` name and re-adds its own list, and `CLAUDE_CONFIG_DIR` is in neither
+    (engine_profile.rs:156-210; the app reads it only to FIND the engine,
+    setup.rs:146 and engine.rs:95). One value for every thread of one app, and
+    for a terminal beside it.
+
+    `RICHOS_LAND_LOCKS_DIR` overrides it for tests. That override cannot reach
+    an app-launched engine at all, because the strip above removes it — and so
+    that the property is CHECKED rather than argued from that, a home resolving
+    inside either partition is REFUSED rather than used. A lock inside a
+    partition is not a lock; it is the defect this function was written for,
+    wearing the new name."""
+    override = (os.environ.get("RICHOS_LAND_LOCKS_DIR") or "").strip()
+    if override:
+        base = Path(os.path.realpath(os.path.expanduser(override)))
+    else:
+        home = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(os.path.expanduser("~"), ".claude")
+        base = Path(os.path.realpath(os.path.expanduser(home))) / "state" / "land-locks"
+    if not base.is_absolute():
+        raise ValueError("the land lock home must be an absolute path")
+    for name in ("RICHOS_APP_STATE", "RICHOS_WORKSPACES_DIR"):
+        partition = (os.environ.get(name) or "").strip()
+        if not partition:
+            continue
+        partition = Path(os.path.realpath(os.path.expanduser(partition)))
+        if base == partition or base.is_relative_to(partition):
+            raise ValueError("the land lock cannot live inside a per-conversation partition (%s); "
+                             "a lock two conversations cannot share serializes nothing" % name)
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if base.is_symlink():
+        raise ValueError("the land lock home cannot be redirected")
+    return base
+
+
+def canonical_repository(repo):
+    """The identity of the ref store a land mutates, not the string it was
+    reached by.
+
+    `--git-common-dir`, made absolute and then realpath'd: two symlinked paths
+    to one repository resolve to one value, and so do a repository and a linked
+    worktree of it — which share a ref store and would otherwise race on the
+    same branch through two different lock files. If git cannot answer (the
+    path is gone, it is not a repository) the realpath of the given path is the
+    key, so this never turns into a refusal `integrate` did not already make."""
+    try:
+        common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except (ValueError, OSError, subprocess.SubprocessError):
+        common = ""
+    return os.path.realpath(os.path.expanduser(common or str(repo)))
+
+
+def land_lock_path(repo):
+    """One file per repository. The digest is the discriminator; the readable
+    prefix is there so that an operator listing the directory sees repositories
+    rather than hashes."""
+    canonical = canonical_repository(repo)
+    name = os.path.basename(canonical.rstrip("/"))
+    if name in (".git", ""):
+        name = os.path.basename(os.path.dirname(canonical.rstrip("/")))
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")[:48] or "repository"
+    return land_locks_dir() / ("%s-%s.lock" % (label, hashlib.sha256(canonical.encode()).hexdigest()[:16]))
+
+
+def land_lock_timeout():
+    raw = (os.environ.get("RICHOS_LAND_LOCK_TIMEOUT") or "").strip()
+    if not raw:
+        return LAND_LOCK_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError("RICHOS_LAND_LOCK_TIMEOUT must be a number of seconds")
+    if not 0 < value <= 86400:
+        raise ValueError("RICHOS_LAND_LOCK_TIMEOUT must be a positive bounded number of seconds")
+    return value
+
+
+def _write_land_lock(handle, record):
+    """The holder's identity, written IN PLACE into the file it holds.
+
+    Never `os.replace`: a replacement gives the path a new inode, and the flock
+    we hold would then guard a file nobody else opens — the lock would silently
+    stop being a lock. In-place truncate-and-write is therefore the only shape
+    available, and a reader can consequently catch a partial record. That is
+    tolerated rather than prevented: `_read_land_lock` returns None for anything
+    that is not complete JSON and the waiter then names the holder as
+    "another conversation", which is a worse message and never a wrong wait."""
+    body = json.dumps(record, sort_keys=True)[:4000] + "\n"
+    handle.seek(0)
+    handle.truncate()
+    handle.write(body)
+    handle.flush()
+    try:
+        os.fsync(handle.fileno())
+    except OSError:
+        pass
+
+
+def _read_land_lock(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.loads(handle.read(8192))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _land_holder_text(holder):
+    if not holder:
+        return "another conversation, which left no readable record in the lock file"
+    return "conversation thread %s of company %s (pid %s), landing since %s" % (
+        holder.get("thread_id") or "an unnamed thread", holder.get("entity_id") or "an unnamed company",
+        holder.get("pid") or "unknown", holder.get("since") or "an unrecorded time")
+
+
+@contextlib.contextmanager
+def land_lock(scope, repo):
+    """Hold this repository's land for the whole land: the recorded-tip check,
+    the fast-forward, and the workspace cleanup that deletes worktrees and
+    branches in the same repository.
+
+    TAKEN BEFORE `locked(scope)`, AND THAT ORDER IS THE POINT. A wait here can
+    be minutes long and belongs to ANOTHER conversation; holding this
+    conversation's own receipt lock across it would freeze its `prepare`,
+    `inspect` and — worst — `observe`, which runs from the PostToolUse hook of
+    every tool call every one of its agents makes. The repository is read under
+    the receipt lock, the receipt lock is released, this one is taken, and then
+    every record is re-read from disk: the only value carried across the gap is
+    the repository path, which `prepare` has already made immutable for a
+    receipt, and which is asserted again on the far side.
+
+    WAITING, NOT FAILING, AND IT SAYS SO. The second lander blocks and reports
+    what it waited for; it never returns a refusal that would send finished,
+    reviewed work back for a fresh implementation.
+
+    THE ORDER AMONG WAITERS IS THE KERNEL'S, NOT A TICKET QUEUE, and that is a
+    deliberate limit rather than an oversight. A ticket file is not released by
+    the kernel when its holder dies, so a first-come queue would have to decide
+    whether a waiter is still alive — the one question this subsystem refuses to
+    ask of a process, and the reason `flock` is used throughout it. At the
+    cardinality the CEO actually runs (a few threads, each landing rarely)
+    starvation is not a real risk; if it ever becomes one, the shape that keeps
+    the kernel's guarantee is a per-waiter ticket that each waiter flocks itself.
+
+    RELEASED BY THE KERNEL. Nothing here has to run for the lock to go: the fd
+    closes with the process."""
+    path = land_lock_path(repo)
+    timeout = land_lock_timeout()
+    binding = scope.get("binding") or {}
+    mine = {"schema": 1, "repository": str(repo), "canonical": canonical_repository(repo), "pid": os.getpid(),
+            "entity_id": binding.get("entity_id") or "", "thread_id": binding.get("thread_id") or "",
+            "session_id": binding.get("session_id") or "", "state": "landing", "since": W.iso()}
+    started = time.monotonic()
+    holder = None
+    handle = os.fdopen(os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "r+")
+    try:
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in (errno.EAGAIN, errno.EACCES):
+                    raise
+                holder = _read_land_lock(path) or holder
+                waited = time.monotonic() - started
+                if waited >= timeout:
+                    raise ValueError(
+                        "this repository's land is held by %s and did not finish within %.0f seconds, so "
+                        "nothing here was merged and nothing was cleaned up. Two conversations may share a "
+                        "repository and their lands take turns; this one waited rather than refusing, "
+                        "because a refused land sends finished, reviewed work back for a fresh "
+                        "implementation and a fresh review. The bound is not about a holder that crashed "
+                        "— the kernel releases that lock the moment its process dies — it is about one "
+                        "that is alive and stuck, and a land is local Git only (integrate never pushes), "
+                        "so %.0f seconds is far above any real one. Retry once that land has finished."
+                        % (_land_holder_text(holder), timeout, timeout))
+                time.sleep(min(0.5, 0.01 + waited / 20.0))
+        status = {"repository": str(repo), "lock": str(path),
+                  "waited_seconds": round(time.monotonic() - started, 3)}
+        if holder is not None:
+            status["waited_for"] = _land_holder_text(holder)
+            if holder.get("landed"):
+                status["waited_for_land"] = holder["landed"]
+        _write_land_lock(handle, mine)
+        try:
+            yield status
+        finally:
+            mine["state"] = "released"
+            mine["until"] = W.iso()
+            if status.get("landed"):
+                mine["landed"] = status["landed"]
+            try:
+                _write_land_lock(handle, mine)
+            except OSError:
+                pass
+    finally:
+        handle.close()
+
+
 def integrate(scope_path,scope,args):
     if set(args)!={"worker_id","reviewer_id"}: raise ValueError("integration needs the worker and reviewer receipts")
+    # The repository is read under this conversation's own receipt lock, which
+    # is then RELEASED before the repository land lock is taken: see land_lock()
+    # for why a wait that belongs to another conversation must not be held
+    # across this one's prepare/inspect/observe. Nothing but the repository path
+    # crosses the gap, and it is asserted again on the far side.
     with locked(scope) as root:
-        worker=refresh(read_record(root,args["worker_id"]))
-        reviewer=refresh(read_record(root,args["reviewer_id"]))
-        path=root/(worker["id"]+".json")
-        existing=worker.get("integration")
-        if existing and existing["reviewer_id"] != reviewer["id"]:
-            raise ValueError("integration already has a different reviewer; reconcile its receipt")
-        if existing and existing.get("verified"):
-            verification_evidence(scope,worker["id"])
-        else:
-            if worker["status"]!="run-ended" or reviewer["status"]!="run-ended":
-                raise ValueError("both provider runs must have an observed end before integration")
-            target=target_workspace(worker)
-            review_target=target_workspace(reviewer)
-            commit=git(target["path"],"rev-parse","HEAD")
-            if reviewer.get("review_target")!={"worker_id":worker["id"],"commit":commit}:
-                raise ValueError("worker commit changed or this reviewer reviewed another assignment")
-            report=reviewer.get("review_observation",{})
-            if not report.get("valid") or report.get("report",{}).get("verdict")!="passed":
-                raise ValueError("the actual reviewer has not returned a passing review")
-            if git(review_target["path"],"rev-parse","HEAD")!=commit:
-                raise ValueError("reviewer changed its commit; a fresh independent review is required")
-            repo=worker["request"]["repo"]
-            if repo not in repositories(scope): raise ValueError("target repository is no longer connected")
-            canonical=W.load_agent(worker["workspace_ref"])
-            branch,tip,problem=W.integration_target([canonical],repo)
-            if problem: raise ValueError(problem)
-            if git(repo,"symbolic-ref","--short","HEAD")!=branch:
-                raise ValueError("select the recorded integration branch before integrating")
-            for tree in (repo,target["path"],review_target["path"]):
-                if git(tree,"status","--porcelain","--untracked-files=all"):
-                    raise ValueError("integration preserves local edits; reconcile the dirty checkout first")
-                for marker in ("MERGE_HEAD","CHERRY_PICK_HEAD","REVERT_HEAD","rebase-merge","rebase-apply"):
-                    if Path(git(tree,"rev-parse","--path-format=absolute","--git-path",marker)).exists():
-                        raise ValueError("finish or explicitly abandon the existing Git operation first")
-            # No rebase, conflict resolution or merge commit is inferred here. A
-            # moved target requiring new changes needs another implementation/review.
-            if not existing:
-                git(repo,"merge-base","--is-ancestor",tip,commit)
-                worker["integration"]={"reviewer_id":reviewer["id"],"commit":commit,"branch":branch,
-                    "before":tip,"instruction_ref":scope.get("user_instruction",{}).get("ledger_ref"),"verified":False}
-                save(path,worker)
-            elif existing["commit"]!=commit or existing["branch"]!=branch:
-                raise ValueError("prepared integration identity changed")
-            read_scope(scope_path)
-            if tip!=commit:
-                if tip!=worker["integration"]["before"]:
-                    raise ValueError("integration target moved after intent; reconcile before retrying")
-                git(repo,"merge","--ff-only",commit)
-            git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)
-            worker["integration"]["verified"]=True
-            worker["status"]="integrated"
-            save(path,worker)
-        # Cleanup remains canonical Mega Lander. Its result is separate from Git
-        # integration; partial cleanup never rolls back a verified target commit.
-        # A revision can leave earlier review workspaces outside the worker's
-        # canonical continuation chain. Include those reviews in the same safe
-        # cleanup attempt, including a rejected review whose commit is now an
-        # ancestor of the integrated fix. Canonical land still decides eligibility.
-        ancestors={worker["id"]}
-        ancestor=worker
-        while ancestor.get("continuation"):
-            previous=ancestor["continuation"]["worker_id"]
-            if previous in ancestors or len(ancestors)>=50:
-                raise ValueError("invalid or excessive continuation chain; reconcile before cleanup")
-            ancestor=read_record(root,previous)
-            if any(ancestor["request"][key] != worker["request"][key] for key in ("obligation_id","repo","role")):
-                raise ValueError("continuation cleanup cannot cross its assignment or repository")
-            ancestors.add(previous)
-        reviews=[refresh(record) for _,record in receipts(root)
-            if record["request"]["role"]=="reviewer" and record.get("review_target",{}).get("worker_id") in ancestors]
-        failures=[]
-        for record in [worker,*reviews]:
-            try:
+        repository=read_record(root,args["worker_id"])["request"]["repo"]
+    with land_lock(scope,repository) as land:
+        with locked(scope) as root:
+            worker=refresh(read_record(root,args["worker_id"]))
+            # The repository is fixed on a receipt at prepare time, so this can
+            # only be an impossible state -- and an unchecked impossible state
+            # here would mean landing one repository under another's lock.
+            if worker["request"]["repo"]!=repository:
+                raise ValueError("this receipt named another repository between being read and being locked")
+            reviewer=refresh(read_record(root,args["reviewer_id"]))
+            path=root/(worker["id"]+".json")
+            existing=worker.get("integration")
+            if existing and existing["reviewer_id"] != reviewer["id"]:
+                raise ValueError("integration already has a different reviewer; reconcile its receipt")
+            if existing and existing.get("verified"):
+                verification_evidence(scope,worker["id"])
+            else:
+                if worker["status"]!="run-ended" or reviewer["status"]!="run-ended":
+                    raise ValueError("both provider runs must have an observed end before integration")
+                target=target_workspace(worker)
+                review_target=target_workspace(reviewer)
+                commit=git(target["path"],"rev-parse","HEAD")
+                if reviewer.get("review_target")!={"worker_id":worker["id"],"commit":commit}:
+                    raise ValueError("worker commit changed or this reviewer reviewed another assignment")
+                report=reviewer.get("review_observation",{})
+                if not report.get("valid") or report.get("report",{}).get("verdict")!="passed":
+                    raise ValueError("the actual reviewer has not returned a passing review")
+                if git(review_target["path"],"rev-parse","HEAD")!=commit:
+                    raise ValueError("reviewer changed its commit; a fresh independent review is required")
+                repo=worker["request"]["repo"]
+                if repo not in repositories(scope): raise ValueError("target repository is no longer connected")
+                canonical=W.load_agent(worker["workspace_ref"])
+                branch,tip,problem=W.integration_target([canonical],repo)
+                if problem: raise ValueError(problem)
+                if git(repo,"symbolic-ref","--short","HEAD")!=branch:
+                    raise ValueError("select the recorded integration branch before integrating")
+                for tree in (repo,target["path"],review_target["path"]):
+                    if git(tree,"status","--porcelain","--untracked-files=all"):
+                        raise ValueError("integration preserves local edits; reconcile the dirty checkout first")
+                    for marker in ("MERGE_HEAD","CHERRY_PICK_HEAD","REVERT_HEAD","rebase-merge","rebase-apply"):
+                        if Path(git(tree,"rev-parse","--path-format=absolute","--git-path",marker)).exists():
+                            raise ValueError("finish or explicitly abandon the existing Git operation first")
+                # No rebase, conflict resolution or merge commit is inferred here. A
+                # moved target requiring new changes needs another implementation/review.
+                if not existing:
+                    git(repo,"merge-base","--is-ancestor",tip,commit)
+                    worker["integration"]={"reviewer_id":reviewer["id"],"commit":commit,"branch":branch,
+                        "before":tip,"instruction_ref":scope.get("user_instruction",{}).get("ledger_ref"),"verified":False}
+                    save(path,worker)
+                elif existing["commit"]!=commit or existing["branch"]!=branch:
+                    raise ValueError("prepared integration identity changed")
                 read_scope(scope_path)
-                result = W.land(record["workspace_ref"],me=scope["binding"]["session_id"])
-                if not result.get("landed") or result.get("cleanup_pending"):
-                    raise ValueError(f"Workspace cleanup for {record['name']} remains pending; its reviewed commit is still integrated.")
-            except Exception as error: failures.append(str(error)[-4000:])
-        worker["integration"]["cleanup_pending"]=failures
-        save(path,worker); project(scope,path,worker)
-        for reviewed in reviews:
-            project(scope,root/(reviewed["id"]+".json"),reviewed)
-        return {"work_integrated":True,"commit":worker["integration"]["commit"],
-            "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
-            "obligation_closed":False,"published":False}
+                if tip!=commit:
+                    if tip!=worker["integration"]["before"]:
+                        raise ValueError("integration target moved after intent; reconcile before retrying")
+                    git(repo,"merge","--ff-only",commit)
+                git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)
+                worker["integration"]["verified"]=True
+                worker["status"]="integrated"
+                save(path,worker)
+            # Cleanup remains canonical Mega Lander. Its result is separate from Git
+            # integration; partial cleanup never rolls back a verified target commit.
+            # A revision can leave earlier review workspaces outside the worker's
+            # canonical continuation chain. Include those reviews in the same safe
+            # cleanup attempt, including a rejected review whose commit is now an
+            # ancestor of the integrated fix. Canonical land still decides eligibility.
+            ancestors={worker["id"]}
+            ancestor=worker
+            while ancestor.get("continuation"):
+                previous=ancestor["continuation"]["worker_id"]
+                if previous in ancestors or len(ancestors)>=50:
+                    raise ValueError("invalid or excessive continuation chain; reconcile before cleanup")
+                ancestor=read_record(root,previous)
+                if any(ancestor["request"][key] != worker["request"][key] for key in ("obligation_id","repo","role")):
+                    raise ValueError("continuation cleanup cannot cross its assignment or repository")
+                ancestors.add(previous)
+            reviews=[refresh(record) for _,record in receipts(root)
+                if record["request"]["role"]=="reviewer" and record.get("review_target",{}).get("worker_id") in ancestors]
+            failures=[]
+            for record in [worker,*reviews]:
+                try:
+                    read_scope(scope_path)
+                    result = W.land(record["workspace_ref"],me=scope["binding"]["session_id"])
+                    if not result.get("landed") or result.get("cleanup_pending"):
+                        raise ValueError(f"Workspace cleanup for {record['name']} remains pending; its reviewed commit is still integrated.")
+                except Exception as error: failures.append(str(error)[-4000:])
+            worker["integration"]["cleanup_pending"]=failures
+            save(path,worker); project(scope,path,worker)
+            for reviewed in reviews:
+                project(scope,root/(reviewed["id"]+".json"),reviewed)
+            # Recorded in the lock file as it is released, so the NEXT lander in
+            # this repository can say what it waited for rather than only that
+            # it waited.
+            land["landed"]={"branch":worker["integration"]["branch"],"before":worker["integration"]["before"],
+                "commit":worker["integration"]["commit"],"at":W.iso()}
+            return {"work_integrated":True,"commit":worker["integration"]["commit"],
+                "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
+                "obligation_closed":False,"published":False,"land_lock":dict(land)}
 
 
 OPEN_ASSIGNMENT_STATUSES = ("candidate", "accepted", "active", "pending", "blocked")
