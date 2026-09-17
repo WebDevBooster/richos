@@ -66,8 +66,8 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 287 tests**
-(`npm run -s test:workspace` → `287 passed, 0 failed`)**:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 328 tests**
+(`npm run -s test:workspace` → `328 passed, 0 failed`, measured 2026-09-17)**:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
@@ -83,8 +83,10 @@ the governance gate over a mailbox, the promotion refusals, the bulk-mail filter
 across two accounts, and the privacy refusals — each negative case with a positive control beside it.
 
 **Pending the CEO's OAuth setup + consent (gated human step):** live OAuth consent, real Keychain
-token storage, real `syncToken`/`410`/`404` behavior against Google, and pulling the CEO's real
-calendar, Drive and mailbox. Guide: the Google Workspace OAuth setup guide.
+token storage, real `syncToken`/`410`/`404` behavior against Google and Graph, and pulling the CEO's
+real calendar, Drive/OneDrive and mailbox. Guides: the Google Workspace OAuth setup guide and the
+Microsoft 365 setup guide. Nothing below that line is blocked on code any more — both vendors have a
+connect command, and `sync --once` promotes what it pulls.
 
 ## The commands (`commands.js`, `registry.js`, `client-config.js`, `consent.js`)
 
@@ -95,9 +97,10 @@ binary did not have. Four commands close that:
 
 ```
 richos-service workspace connect google [--client-file <client_secret_....json>] [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]
-richos-service workspace status [google] [--account you@co.com]
-richos-service workspace sync [google] [--once] [--account you@co.com] [--source calendar]
-richos-service workspace disconnect google --account you@co.com [--forget-cursors]
+richos-service workspace connect microsoft --client-id <application (client) id> --tenant <directory (tenant) id|consumers> --account you@co.com [--source calendar --source drive --source mail]
+richos-service workspace status [google|microsoft] [--account you@co.com]
+richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar] [--no-promote]
+richos-service workspace disconnect google|microsoft --account you@co.com [--forget-cursors]
 ```
 
 - **`connect`** is §6's ceremony: PKCE, a loopback consent leg (`consent.js` — Node's own `http`,
@@ -114,11 +117,51 @@ richos-service workspace disconnect google --account you@co.com [--forget-cursor
   what the last pull actually did (`run-state.js` — a tally recorded BY the pass that produced it,
   because a cursor's timestamp is the wrong answer for a poll that observed nothing and for a poll
   that failed on auth).
-- **`sync --once`** runs one `ingestOnce` per granted source. `--once` is the only mode; `--daemon`,
-  `--watch` and `--every` are refused **by name**, because a background poller is a daemon with its
-  own lifecycle and switching one on for the CEO's calendar is a deliberate decision, not a flag.
-- **`disconnect`** revokes vendor-side and deletes the local grant; cursors survive unless
+- **`sync --once`** runs one `ingestOnce` per granted source, **and then promotes what it pulled**
+  (see below). `--once` is the only mode; `--daemon`, `--watch` and `--every` are refused **by name**,
+  because a background poller is a daemon with its own lifecycle and switching one on for the CEO's
+  calendar is a deliberate decision, not a flag.
+- **`disconnect`** deletes the local grant — and revokes vendor-side *only where the vendor offers a
+  way to*. Google does; Entra does not, so `disconnect microsoft` says `NOT REVOKED` and names where
+  the CEO finishes the job rather than reporting a step that did not run. Cursors survive unless
   `--forget-cursors`, so reconnecting resumes rather than re-pulling.
+
+### `sync --once` promotes what it pulled (§4.4 step 4)
+
+A pull is not the point; being able to **answer** from what was pulled is. A sync ends with a
+`promoted:` line and the records really on disk:
+
+```
+calendar:   observed 2, ingested 2, deduped 0
+            candidates: 2 event, 2 commitment, 4 entity
+evidence:   ~/RichOS/corpus/ceo/unfiled/evidence/workspace
+promoted:   2 events into memory, 2 people learned, 0 items held
+memory:     ~/RichOS/corpus
+```
+
+Every hold is reported **by cause** (`held: 3 x already promoted (unchanged revision)`), never as a
+bare number, and a write that fails is a `FAILED:` line and exit `2` — the same exit code a failed
+source gets, for the same reason: the pull worked and the memory it exists to build did not get
+written. `--no-promote` is the diagnostic pull, and it *says* the memory was not updated rather than
+quietly doing less.
+
+**It runs ONCE per sync run, after every account has been polled** — not once per account.
+`promoteFromEvidence` reads the *zone*, and the zone holds every account's and every vendor's
+evidence, so inside the per-account loop it would redo all of it N times.
+
+**The corpus is derived BACKWARD from the zone, never from the environment** (`promote-run.js`). The
+evidence zone is inside the corpus by construction (`<corpus>/{ceo/unfiled|companies/<id>}/evidence/workspace`),
+so the corpus is that path with the partition stripped, and `corpusFromZone(workspaceZone()) ===
+corpusRoot()` is asserted. A zone that is *not* inside a corpus — a diagnostic run pointed somewhere
+by `RICHOS_WORKSPACE_ZONE` — has nowhere for its evidence to become memory, and that is reported by
+name with the fix rather than falling back to `corpusRoot()`. That fallback is precisely the thing
+that would let a unit test write the CEO's real `~/RichOS`, which is why promotion was left unwired
+when the pieces landed; a test asserts the real corpus tree is untouched by an ordinary sync test.
+
+The **§4.5 entity feed** rides in the same pass and is the *caller's* job, not the writer's:
+`promotion.js` returns candidates because the corroboration threshold is a decision about a batch. It
+is not conditional on a record being promoted — a Drive document and a mail message promote nothing
+of their own and still corroborate a colleague into the vocabulary the transcriber shares.
 
 **More than one Google account, side by side.** `connect google --account <the other address>` is
 how a second account is added: the same command, a second consent screen, a second entry in
@@ -322,8 +365,41 @@ classes, a transport, an auth ceremony and two additive wiring lines — exactly
 | Content | invite body, as text | document text | **metadata only** |
 | Cursor | `@odata.deltaLink` (a URL) | same | same |
 
-Connect is **not wired yet** — `workspace connect microsoft` needs `commands.js` and
-`client-config.js`. Everything below it is built and mock-verified.
+**Connect is wired** (2026-09-17). One command, the two ids from the guide's Step 3:
+
+```
+richos-service workspace connect microsoft --client-id <application (client) id> \
+    --tenant <directory (tenant) id> --account you@yourcompany.com \
+    --source calendar --source drive --source mail
+```
+
+`status`, `sync --once` and `disconnect --account` take `microsoft` the same way, per vendor and per
+account, through the same consent leg, registry, cursors and ingest spine. What is different per
+vendor lives in **`vendors.js`** as a table rather than as branches through `commands.js`:
+
+- **A separate client config file.** `_oauth_client.json` is Google's, untouched;
+  `_oauth_client_microsoft.json` is Microsoft's, and it carries a **`tenant`**. A missing tenant is
+  refused rather than defaulted to `/common` — `/common` signs the CEO in against a directory that is
+  not the one his app is registered in, and the failure would arrive as an `AADSTS…` code *after* a
+  consent screen he had already approved. The loopback port differs too (53682, not Google's 47121):
+  Entra matches the redirect string exactly, and it is the port the setup guide pins.
+- **No secret pre-check, because there is nothing honest to check.** Google's Desktop client type
+  demands a secret at the token endpoint even under PKCE, so that connect refuses before opening a
+  browser. Entra's intended registration is a **public** client with no secret — but its discovery
+  document does not advertise `none` as a token-endpoint auth method, and whether *this* registration
+  allows public client flows is a per-app switch nothing outside the CEO's tenant can read. So the
+  exchange is attempted, and its refusal names the one-line fix in the guide's own words: *Entra →
+  your app → Authentication → "Allow public client flows" = Yes*. The other legitimate answer is
+  offered rather than leaving him stuck — `--client-secret` records the app as confidential (which is
+  what `assertPublicClient` asks for) and puts the value in the **OS keychain** and in no file.
+- **No guessed clock.** Google prints its 7-day Testing-mode countdown. Microsoft prints that no fixed
+  lifetime is published and that RichOS will ask for a sign-in when, and only when, Entra refuses.
+- **`status` reports `secret: none — a public client`** rather than `missing`: a status line reading
+  "missing" about something nothing needs sends the CEO looking for a problem he does not have.
+
+A second Microsoft account is added exactly as a second Google one is: the same command with a
+different `--account`, one shared app registration and tenant, its own consent, grant, keychain item,
+cursors and evidence paths.
 
 **Three things a reader should not have to discover by reading the code:**
 
@@ -350,9 +426,10 @@ guessing. `Prefer: outlook.timezone="UTC"` is pinned alongside it, because Graph
 whatever zone the mailbox is set to.
 
 **Entra differs from Google in two ways worth knowing before debugging either:** Entra publishes **no
-`revocation_endpoint`** (checked in its own discovery document), so `disconnect` deletes the local
-token and says plainly that the consent record still stands, with the URL to finish it — it never
-reports a revocation it could not perform. And Entra reports a grant in the **short** form
+`revocation_endpoint`** (checked in its own discovery document), so `disconnect microsoft` deletes the
+local token, prints `NOT REVOKED`, and names <https://myapps.microsoft.com/> to finish it — it never
+reports a revocation it could not perform, and a test asserts both directions so the word "revoked"
+cannot quietly disappear from Google's disconnect either. And Entra reports a grant in the **short** form
 (`Calendars.Read`) while RichOS requests the fully-qualified URI; `normalizeGraphScope` reconciles
 them, without which every Microsoft source would be skipped and the CEO told he had not granted a
 scope he had just granted.
@@ -366,8 +443,9 @@ npm run test:workspace     # this layer (mocked Google + Microsoft APIs)
 npm test                   # transcription + workspace suites
 ```
 
-`npm run -s test:workspace` → **287 passed, 0 failed** (45 of them Microsoft). No live Microsoft call
-is made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
+`npm run -s test:workspace` → **328 passed, 0 failed** (2026-09-17; 55 of them Microsoft, including
+the ten that drive `connect/status/sync/disconnect microsoft` end to end against a mocked Entra token
+endpoint). No live Microsoft call is made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
 been mutation-probed — neutered in turn, with the suite confirmed red each time and green after
 restore — because a negative test that passes because nothing ever reaches it is worth nothing.
 
