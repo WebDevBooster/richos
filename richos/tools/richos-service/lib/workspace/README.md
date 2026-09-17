@@ -8,6 +8,11 @@ the **Google Drive** adapter against those same contracts — no core change, no
 the **Gmail** adapter the same way, completing the CEO's own source order (Calendar → Drive → Gmail).
 The Microsoft adapter set (P4) is additive against the identical contracts.
 
+All three are reachable from the command line — `richos-service workspace connect|status|sync|
+disconnect` (see "The commands" below). That sentence is new: until 2026-09-17 this layer had a
+219-case suite and no runtime whatsoever, and the CEO's own setup guide named a command that did not
+exist.
+
 A **module inside the existing `richos-service`**, not a second daemon — it reuses the ledger pattern
 (`lib/ledger.js`), the config seam (`lib/config.js`), and the `entities.js`/`correct()` seam it feeds.
 
@@ -61,13 +66,14 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 173 tests:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 219 tests:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
 GoogleClient (backoff, 410→resync) with a mocked transport, the Calendar adapter (URL building,
 normalization, pagination), the **Drive adapter** (see below), the **Gmail adapter** (see below),
-synthesis, the entity feed, and the full `ingestOnce` spine end-to-end for all three sources.
+synthesis, the entity feed, the full `ingestOnce` spine end-to-end for all three sources, and — since
+this layer stopped being a library with no caller — the **four CLI commands** (see below).
 
 The **Gmail** cases (30 of the 173) cover history-based delta sync (first page, continuation, an empty
 page, a repeated message deduped, and an aged-out `historyId` → resync), the bounded first sweep and
@@ -78,6 +84,61 @@ across two accounts, and the privacy refusals — each negative case with a posi
 **Pending the CEO's OAuth setup + consent (gated human step):** live OAuth consent, real Keychain
 token storage, real `syncToken`/`410`/`404` behavior against Google, and pulling the CEO's real
 calendar, Drive and mailbox. Guide: the Google Workspace OAuth setup guide.
+
+## The commands (`commands.js`, `registry.js`, `client-config.js`, `consent.js`)
+
+Until these existed, everything above was a library **with no runtime**: nothing outside `adapters/`,
+this file and the suite named an adapter class, and `core.js` had no caller at all. The CEO's setup
+guide meanwhile ended by telling him to run `richos-service workspace connect google`, which the
+binary did not have. Four commands close that:
+
+```
+richos-service workspace connect google [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]
+richos-service workspace status [google]
+richos-service workspace sync [google] [--once] [--source calendar]
+richos-service workspace disconnect google [--forget-cursors]
+```
+
+- **`connect`** is §6's ceremony: PKCE, a loopback consent leg (`consent.js` — Node's own `http`,
+  bound explicitly to the address parsed out of the redirect, single-shot, closed in a `finally`,
+  `state` checked before a code is accepted), the code exchange, then the tokens into the OS keychain.
+  Re-running it re-consents, which is the guide's recovery from the 7-day Testing-mode expiry.
+- **`status`** reports the grant's health state, which sources run, each one's cursor position, and
+  what the last pull actually did (`run-state.js` — a tally recorded BY the pass that produced it,
+  because a cursor's timestamp is the wrong answer for a poll that observed nothing and for a poll
+  that failed on auth).
+- **`sync --once`** runs one `ingestOnce` per granted source. `--once` is the only mode; `--daemon`,
+  `--watch` and `--every` are refused **by name**, because a background poller is a daemon with its
+  own lifecycle and switching one on for the CEO's calendar is a deliberate decision, not a flag.
+- **`disconnect`** revokes vendor-side and deletes the local grant; cursors survive unless
+  `--forget-cursors`, so reconnecting resumes rather than re-pulling.
+
+**`registry.js` is where a scope becomes a source.** It derives everything from `config.js`
+`GOOGLE_SCOPES` and nothing from a second list, so the scope table and what runs cannot drift. A
+source whose scope is not in the grant is **skipped and named**, with the scope it would need — a
+sync that quietly covers less than the CEO believes is the failure this layer exists to prevent. A
+source that can run under more than one grant takes the widest the token carries: Drive reads
+document text under `drive.readonly` and falls back to metadata under the older
+`drive.metadata.readonly`, reporting that as `LIMITED` on **every** pull, since the counts look
+identical either way.
+
+Three disciplines are enforced by tests rather than asserted here: **no token is ever printed** (with
+a positive control proving the keychain record does hold one, so the assertion is about the display);
+**`status` lists sources by calling the same `buildRegistry` that `sync` polls through**, so what it
+shows cannot drift from what a sync does; and **`connect` requests `GOOGLE_SCOPES.drive`**, read out of
+the authorization URL the browser is actually handed rather than out of the config it was built from.
+
+Everything external is injected — HTTP transport, keychain backend, browser opener, clock, output —
+so the suite drives the real dispatcher end to end against a mocked Google. The loopback listener is
+exercised for real on `127.0.0.1` with an ephemeral port, including a forged `state` and a
+closed-port check afterwards.
+
+**Where the client config lives:** `<zone>/_oauth_client.json` (`workspaceClientConfigPath`, override
+`RICHOS_WORKSPACE_CLIENT_CONFIG`) — client id, loopback redirect, requested scopes, and the account
+the grant is bound to. **No secret**, because a desktop PKCE client has none. The account is asked for
+rather than derived: the least-privilege grant carries no identity scope, so there is no `id_token`
+and no People call, and requesting one would change what the CEO consents to. That one address then
+serves as both the adapters' stable `accountId` and the governance identity (§5.1).
 
 ## Drive (P2) — document text, under `drive.readonly`, since the CEO said yes (§40)
 
