@@ -640,9 +640,11 @@ export function workspaceSyncStatePath(zone = workspaceZone()) {
 
 /**
  * The CEO's OAuth CLIENT config (§6.1 / the setup guide's Step 5): client id, loopback redirect, the
- * scopes to request, and the account the grant is bound to. It carries NO secret — a desktop PKCE
- * client has none — but it does name the CEO's own address, so it lives beside the sync state inside
- * the zone, which `workspaceZone()` has already refused to place inside the product repo.
+ * scopes to request, and the account the grant is bound to. It carries NO secret — his Desktop-app
+ * client does have one, and Google demands it at the token endpoint, but that value lives in the OS
+ * keychain with the tokens (client-secret.js), never here. This file does name the CEO's own address,
+ * so it lives beside the sync state inside the zone, which `workspaceZone()` has already refused to
+ * place inside the product repo.
  */
 export function workspaceClientConfigPath(zone = workspaceZone()) {
   return process.env.RICHOS_WORKSPACE_CLIENT_CONFIG

@@ -8,7 +8,9 @@
  *
  * This is not a policy note — it is the shape of the design, and this module makes two of its three
  * guarantees CHECKABLE (the third, CEO-owned OAuth client, is enforced by shipping instructions + a
- * config template, never a bundled secret — see oauth.js):
+ * config template, never a bundled RichOS secret. The CEO's OWN client has a secret and Google
+ * requires it at the token endpoint — see client-secret.js — which changes where that value is kept,
+ * not whose app it is: the OS keychain, alongside the tokens, under guarantee 2 below):
  *
  *   1. Every API call is machine-DIRECT to the CEO's own cloud. `assertDirectGoogleEndpoint` rejects
  *      any URL whose host is not a Google-owned API host — so no code path can point the client at a
@@ -16,7 +18,8 @@
  *   2. Tokens never leave the machine. `assertLocalTokenLocation` rejects any token-store target that
  *      is not the OS secure store or a path under the user's home — never a repo file, never a network
  *      location. (The repo secret-scan write-guard already blocks credential literals in commits — the
- *      same posture.)
+ *      same posture.) The CEO's OAuth client secret is held to the identical rule: keychain only,
+ *      never `_oauth_client.json`, never any other file in the zone, never a printed line.
  *   3. Polling, not webhooks (§4.3): there is deliberately NO listener/server in this layer. The core
  *      polls with delta tokens; adapters expose `listChanges`, never a `watch`/`subscribe` method. A
  *      structural test asserts the adapter surface has no push method.

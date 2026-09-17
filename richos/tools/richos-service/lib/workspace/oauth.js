@@ -3,8 +3,18 @@
  *
  * The OAuth client belongs to the CEO, NOT to RichOS (§1 guarantee #1). RichOS ships step-by-step
  * registration instructions + a config TEMPLATE (client id + the exact scope list) — never a bundled
- * client secret, because a native/desktop client with PKCE needs none, and because a bundled secret
- * would be a shared RichOS-owned credential that violates the privacy invariant.
+ * client secret, because a bundled secret would be a shared RichOS-owned credential that violates the
+ * privacy invariant.
+ *
+ * THE CEO'S OWN CLIENT DOES HAVE A SECRET, AND GOOGLE DEMANDS IT. A Google "Desktop app" client is
+ * refused at the token endpoint — `400 invalid_request: client_secret is missing.` — on both
+ * `authorization_code` and `refresh_token` grants, PKCE notwithstanding (probed 2026-09-17; the probe
+ * and the reasoning are the header of client-secret.js). Google exempts only Android, iOS and Chrome
+ * clients, and treats a desktop client's secret as not confidential. So `config.clientSecret` is sent
+ * when one is known and omitted when it is not — the parameter is conditional here rather than
+ * mandatory, because the request shape is Google's to dictate and a client type that needs no secret
+ * must not be forced to invent one. It never appears in the authorization URL: the consent leg has no
+ * use for it, and that URL is the one thing in this flow a browser puts on screen.
  *
  * This module is PURE where it can be (building the authorization URL, the PKCE verifier/challenge,
  * the token-exchange request shape) and takes the HTTP transport as an injected function so the token
@@ -36,9 +46,11 @@ export function pkcePair() {
 }
 
 /**
- * The CEO-owned OAuth config template. `clientId` is the CEO's own; there is deliberately NO secret.
- * `redirectUri` is a loopback (`http://127.0.0.1:<port>`) — the native-app PKCE pattern, no public URL.
- * @typedef {{clientId:string, redirectUri:string, scopes:string[]}} OAuthConfig
+ * The CEO-owned OAuth config. `clientId` is the CEO's own; `clientSecret` is his client's, read from
+ * the OS keychain by the caller and present only on the token-endpoint calls that Google refuses
+ * without it. `redirectUri` is a loopback (`http://127.0.0.1:<port>`) — the native-app pattern, no
+ * public URL.
+ * @typedef {{clientId:string, clientSecret?:string, redirectUri:string, scopes:string[]}} OAuthConfig
  */
 
 /**
@@ -83,16 +95,32 @@ async function postForm(http, url, params) {
     json = {};
   }
   if (!res.ok) {
-    const err = new Error(`oauth ${url} failed: ${res.status} ${json.error || text}`);
+    // SURFACE `error_description`. The first live attempt failed with nothing but
+    // `400 invalid_request`, while the body Google actually sent said `client_secret is missing.` —
+    // the whole answer, discarded one line from the CEO's screen. The description is safe to print:
+    // it describes the REQUEST, never carries a token, and it is the difference between a refusal
+    // that explains itself and an evening spent guessing.
+    const detail = [json.error, json.error_description].filter(Boolean).join(': ');
+    const err = new Error(`oauth ${url} failed: ${res.status} ${detail || text}`);
     err.status = res.status;
     err.oauthError = json.error;
+    err.oauthErrorDescription = json.error_description;
     throw err;
   }
   return json;
 }
 
+/** The credential parameters Google's token endpoint wants: the id always, the secret when known. */
+function clientParams(config) {
+  return {
+    client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+  };
+}
+
 /**
- * Exchange an authorization code for tokens (loopback PKCE — no client secret).
+ * Exchange an authorization code for tokens (loopback PKCE, plus the client secret Google requires of
+ * a Desktop-app client — see the header).
  * @param {OAuthConfig} config
  * @param {{code:string, verifier:string}} args
  * @param {HttpFn} http
@@ -100,7 +128,7 @@ async function postForm(http, url, params) {
  */
 export function exchangeCode(config, args, http) {
   return postForm(http, TOKEN_ENDPOINT, {
-    client_id: config.clientId,
+    ...clientParams(config),
     code: args.code,
     code_verifier: args.verifier,
     grant_type: 'authorization_code',
@@ -109,7 +137,8 @@ export function exchangeCode(config, args, http) {
 }
 
 /**
- * Refresh an access token using the durable refresh token.
+ * Refresh an access token using the durable refresh token. Same rule as the exchange: Google's refresh
+ * grant refuses this client type without `client_secret` (probed, same shape, same message).
  * @param {OAuthConfig} config
  * @param {string} refreshToken
  * @param {HttpFn} http
@@ -117,7 +146,7 @@ export function exchangeCode(config, args, http) {
  */
 export function refreshAccessToken(config, refreshToken, http) {
   return postForm(http, TOKEN_ENDPOINT, {
-    client_id: config.clientId,
+    ...clientParams(config),
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   });

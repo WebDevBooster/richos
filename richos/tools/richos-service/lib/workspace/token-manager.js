@@ -7,6 +7,11 @@
  * BACKEND is injected so the unit suite exercises the full lifecycle with an in-memory store and no
  * live credentials; the default backend is the platform keychain (see keychain.js).
  *
+ * The same store holds ONE other thing: the CEO's OAuth CLIENT SECRET, keyed by client id, because
+ * Google's token endpoint refuses a Desktop-app client without it (client-secret.js has the probe).
+ * It is a second item in the same service, not a field in the token record, so a grant that is
+ * revoked, expired or replaced never takes the client's own identity with it.
+ *
  * The one genuinely awkward case (§6.1 / roadmap): the CEO's OAuth app is External + Testing, whose
  * sensitive/restricted-scope refresh tokens EXPIRE ~7 DAYS after issuance. This manager tracks the
  * refresh-token issue time and surfaces a LOUD, never-silent re-auth prompt as that window closes —
@@ -16,6 +21,7 @@
 
 import { assertLocalTokenLocation } from './privacy.js';
 import { refreshAccessToken, revokeToken } from './oauth.js';
+import { readClientSecret, storeClientSecret } from './client-secret.js';
 
 /** External+Testing refresh tokens for sensitive/restricted scopes expire ~7 days after issuance. */
 export const TESTING_REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -58,6 +64,33 @@ export class TokenManager {
     this.now = opts.now || (() => Date.now());
     // Enforce the privacy invariant on the chosen storage location at construction time.
     assertLocalTokenLocation({ backend: 'keychain', service: this.service });
+  }
+
+  /**
+   * THE ONE READER of the CEO's client secret (§6.1). The token exchange in `connect`, the refresh
+   * below, and the `secret:` line `status` prints all come through `authConfig()`/`hasClientSecret()`
+   * — never through a second lookup of their own. A display fed by its own second opinion is how
+   * "secret: in keychain" starts disagreeing with what the next refresh actually sends.
+   * @returns {string|null}
+   */
+  clientSecret() {
+    return readClientSecret(this.backend, this.service, this.config.clientId);
+  }
+
+  /** Whether a client secret is stored for this client id. Never returns or logs the value. */
+  hasClientSecret() {
+    return Boolean(this.clientSecret());
+  }
+
+  /** Put the CEO's client secret in the OS secure store, keyed by client id. */
+  saveClientSecret(secret) {
+    storeClientSecret(this.backend, this.service, this.config.clientId, secret);
+  }
+
+  /** The OAuth config as the token endpoint must receive it: the config plus the stored secret. */
+  authConfig() {
+    const secret = this.clientSecret();
+    return secret ? { ...this.config, clientSecret: secret } : { ...this.config };
   }
 
   /** Read the persisted token record (or null if the CEO has not consented yet). */
@@ -144,8 +177,16 @@ export class TokenManager {
     // Refresh.
     let resp;
     try {
-      resp = await refreshAccessToken(this.config, rec.refreshToken, this.http);
+      resp = await refreshAccessToken(this.authConfig(), rec.refreshToken, this.http);
     } catch (err) {
+      // A missing client secret is NOT an expired grant, and saying so would send the CEO through a
+      // consent screen that cannot fix it. Google names this case itself; pass its words through.
+      if (err.oauthError === 'invalid_request' || err.oauthError === 'invalid_client') {
+        throw reauthError(
+          `Google refused the refresh: ${err.oauthErrorDescription || err.oauthError}. `
+            + 'Re-supply your OAuth client with `workspace connect google --client-file <the client_secret_….json you downloaded>`.',
+        );
+      }
       if (err.status === 400 || err.oauthError === 'invalid_grant') {
         throw reauthError('Google refused the refresh token (expired or revoked) — re-authorize RichOS');
       }

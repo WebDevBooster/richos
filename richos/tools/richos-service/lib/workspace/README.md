@@ -93,7 +93,7 @@ guide meanwhile ended by telling him to run `richos-service workspace connect go
 binary did not have. Four commands close that:
 
 ```
-richos-service workspace connect google [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]
+richos-service workspace connect google [--client-file <client_secret_....json>] [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]
 richos-service workspace status [google]
 richos-service workspace sync [google] [--once] [--source calendar]
 richos-service workspace disconnect google [--forget-cursors]
@@ -103,6 +103,12 @@ richos-service workspace disconnect google [--forget-cursors]
   bound explicitly to the address parsed out of the redirect, single-shot, closed in a `finally`,
   `state` checked before a code is accepted), the code exchange, then the tokens into the OS keychain.
   Re-running it re-consents, which is the guide's recovery from the 7-day Testing-mode expiry.
+  `--client-file` takes the JSON the Google Cloud console downloads for the client and reads exactly
+  two fields out of it: the client id, which goes in the config file, and the **client secret**, which
+  goes in the keychain and nowhere else. **It refuses BEFORE opening a browser when no secret is
+  stored**, because Google will refuse the exchange and a consent the CEO has already approved is the
+  expensive half of that round trip — which is exactly how this was found (2026-09-17: consent
+  succeeded, exchange came back `400 invalid_request`).
 - **`status`** reports the grant's health state, which sources run, each one's cursor position, and
   what the last pull actually did (`run-state.js` — a tally recorded BY the pass that produced it,
   because a cursor's timestamp is the wrong answer for a poll that observed nothing and for a poll
@@ -122,8 +128,9 @@ document text under `drive.readonly` and falls back to metadata under the older
 `drive.metadata.readonly`, reporting that as `LIMITED` on **every** pull, since the counts look
 identical either way.
 
-Three disciplines are enforced by tests rather than asserted here: **no token is ever printed** (with
-a positive control proving the keychain record does hold one, so the assertion is about the display);
+Three disciplines are enforced by tests rather than asserted here: **no token and no client secret is
+ever printed** (with positive controls proving the keychain does hold both and that the same check
+catches a planted value, so the assertion is about the display rather than about an empty buffer);
 **`status` lists sources by calling the same `buildRegistry` that `sync` polls through**, so what it
 shows cannot drift from what a sync does; and **`connect` requests `GOOGLE_SCOPES.drive`**, read out of
 the authorization URL the browser is actually handed rather than out of the config it was built from.
@@ -135,7 +142,10 @@ closed-port check afterwards.
 
 **Where the client config lives:** `<zone>/_oauth_client.json` (`workspaceClientConfigPath`, override
 `RICHOS_WORKSPACE_CLIENT_CONFIG`) — client id, loopback redirect, requested scopes, and the account
-the grant is bound to. **No secret**, because a desktop PKCE client has none. The account is asked for
+the grant is bound to. **No secret in that file**: a Google "Desktop app" client does have one, and
+Google's token endpoint refuses both the code exchange and the refresh without it (`client-secret.js`
+carries the live probe), so it lives in the **OS keychain** beside the tokens, in the same service,
+keyed by client id — never in a file the CEO is invited to open, never in a log line. The account is asked for
 rather than derived: the least-privilege grant carries no identity scope, so there is no `id_token`
 and no People call, and requesting one would change what the CEO consents to. That one address then
 serves as both the adapters' stable `accountId` and the governance identity (§5.1).

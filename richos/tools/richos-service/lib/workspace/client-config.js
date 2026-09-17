@@ -5,7 +5,10 @@
  * it is a module rather than three lines inside the CLI because every field in it is a decision with a
  * consent screen or a privacy invariant behind it:
  *
- *   - `clientId`      the CEO's OWN desktop client (§6.1). RichOS never bundles one, and never a secret.
+ *   - `clientId`      the CEO's OWN desktop client (§6.1). RichOS never bundles one, and never a
+ *                     secret of its own. HIS client's secret — which Google's token endpoint
+ *                     demands of a Desktop-app client — is in the keychain (client-secret.js),
+ *                     deliberately not in this file.
  *   - `redirectUri`   a loopback the consent code comes back on — checked by `assertLoopbackRedirect`.
  *   - `scopes`        ONLY values declared in `config.js:GOOGLE_SCOPES`. A scope string typed here that
  *                     the registry does not declare is REFUSED, not requested: widening what the CEO
@@ -18,7 +21,8 @@
  *                     jobs: the adapters' stable `sourceInstanceId`, and the governance identity (§5.1)
  *                     that decides which of his meetings are internal.
  *
- * The file holds no credential — a desktop PKCE client has none — but it names the CEO's own address,
+ * The file holds no credential — the one credential this flow needs beyond the tokens, the client
+ * secret, is kept in the OS keychain instead — but it names the CEO's own address,
  * so it is written with `writePrivateFile` (0600, no symlink, no hard link) into the zone, which
  * `workspaceZone()` has already refused to place inside the publicly-shipping product repo.
  */

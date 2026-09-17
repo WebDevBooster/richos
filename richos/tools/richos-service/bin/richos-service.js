@@ -599,6 +599,7 @@ function main() {
         schedulerFlags: process.argv.slice(3).filter((a) => a.startsWith('--')).map((a) => a.replace(/^--/, '').split('=')[0]),
         deps: {
           ...(vendorArg ? { vendor: vendorArg } : {}),
+          ...(flag('client-file') ? { clientFile: String(flag('client-file')) } : {}),
           ...(flag('client-id') ? { clientId: String(flag('client-id')) } : {}),
           ...(flag('account') ? { accountId: String(flag('account')) } : {}),
           ...(sources.length ? { sources, only: sources } : {}),
