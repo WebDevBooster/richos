@@ -37,13 +37,24 @@
  *      the outcome: `isMemoryCandidate` short-circuits on `withdrawn` before it looks at anything else.
  *   3. The same meeting copied onto two calendars keeps ONE `iCalUID` and gets a different `id` per
  *      calendar — the documented fact the cross-calendar merge in the adapter is built on.
+ *   3b. AN IMPORTED EVENT'S `id` IS GOOGLE'S TO CHOOSE, NEVER OURS. The reference is explicit —
+ *      "the iCalUID and the id are not identical and only one of them should be supplied at event
+ *      creation time" — and `events.import`'s required body is `iCalUID` + `start` + `end`, with no
+ *      `id` among them. The first version of this file pinned BOTH, and Google refused all three
+ *      import writes on the CEO's real account with `400 Invalid resource id value` while every
+ *      `events.insert` carrying the SAME pinned id succeeded. So an import fixture's real id is only
+ *      known after the write; the seed run records it in the manifest and `observedEvents` is handed
+ *      it back through `ctx.eventIds`. `write.eventId` survives as the DRY-RUN STAND-IN alone — a
+ *      dry run has no real id to use, and no decision below depends on the id's value.
  *   4. An event's `organizer` is THE CALENDAR IT LIVES ON unless the write named one (only
  *      `events.import` may). On the primary calendar that address is the account's own; on a
- *      SECONDARY calendar it is `…@group.calendar.google.com`, which the governance gate reads as
- *      external — so a meeting created natively on a secondary calendar is `untrusted` and is HELD.
- *      That is not a prediction this file makes about the product; it is what the product's own
- *      decision function answers when asked, and `board-prep-shared` exists to put it in front of a
- *      reader instead of leaving it to be discovered on the CEO's real calendar.
+ *      SECONDARY calendar it is `…@group.calendar.google.com` — an address that authors events
+ *      without being a person. `board-prep-shared` exists to put that in front of a reader instead
+ *      of leaving it to be discovered on the CEO's real calendar, and it did its job: until
+ *      `governance.js` learned that a container the account OWNS is the account, every event on
+ *      every secondary calendar he owns resolved external → `untrusted` → HELD. What this file
+ *      predicts for that fixture is still not written down here — it is whatever the product's own
+ *      decision function answers, which is why the row moved the moment the rule did.
  *
  * PURE. No fs, no network, no keychain — `calendar-seed.js` is the runtime that writes any of this to
  * a real account, and it is the only file here that can.
@@ -183,8 +194,8 @@ export function planFixtures(opts) {
   /** One fixture, with its write payload(s) filled in from the shared shape. */
   const make = (f) => {
     const id = seedEventId(setId, f.key);
+    const imported = f.method === 'import';
     const body = {
-      id,
       summary: `${SEED_TITLE_PREFIX} · ${f.title}`,
       ...(f.description ? { description: f.description } : {}),
       ...(f.location ? { location: f.location } : {}),
@@ -193,7 +204,7 @@ export function planFixtures(opts) {
       ...(f.recurrence ? { recurrence: f.recurrence } : {}),
       ...(f.attendees ? { attendees: f.attendees } : {}),
       ...(f.organizer ? { organizer: f.organizer } : {}),
-      ...(f.method === 'import' ? { iCalUID: seedICalUid(setId, f.key) } : {}),
+      ...(imported ? { iCalUID: seedICalUid(setId, f.key) } : {}),
       extendedProperties: props(f.key),
       // A seeded event is never a working invitation: nobody is notified, and nothing about it
       // reaches a real inbox. The runtime pins `sendUpdates=none` as well — belt and braces.
@@ -210,13 +221,19 @@ export function planFixtures(opts) {
       withdraw: Boolean(f.withdraw),
       recurring: Boolean(f.recurrence),
       occurrenceStarts: f.occurrenceStarts || null,
-      writes: targets.map((target) => ({
-        target,
+      writes: targets.map((target) => {
         // Two calendars holding ONE meeting need one iCalUID and two ids: an id is unique within a
         // calendar and says nothing across calendars, which is the fact the dedup merge rests on.
-        eventId: targets.length > 1 ? seedEventId(setId, f.key, target) : id,
-        body: targets.length > 1 ? { ...body, id: seedEventId(setId, f.key, target) } : body,
-      })),
+        const eventId = targets.length > 1 ? seedEventId(setId, f.key, target) : id;
+        return {
+          target,
+          eventId,
+          // AN IMPORT NEVER CARRIES AN `id`. Google refuses the pair (header fact 3b), and an
+          // imported copy's real id is whatever Google assigns — recorded by the seed run, and only
+          // stood in for by `eventId` when there has been no run yet (a dry run).
+          body: imported ? body : { ...body, id: eventId },
+        };
+      }),
     };
   };
 
@@ -384,7 +401,10 @@ export function planFixtures(opts) {
       method: 'import',
       targets: ['primary', 'seed'],
       description: 'The duplicate case: identical iCalUID, one copy per calendar.',
-      organizer: { email: accountId, displayName: 'You', self: true },
+      // No `self` here: it is read-only at Google ("whether the organizer corresponds to the calendar
+      // on which this copy of the event appears"), so it is COMPUTED per landing calendar in
+      // `observedEvents`, never asserted by the write.
+      organizer: { email: accountId, displayName: 'You' },
       start: { dateTime: start, timeZone: SEED_TIME_ZONE },
       end: { dateTime: plusMinutes(start, 30), timeZone: SEED_TIME_ZONE },
       attendees: [attendee(P.self), attendee(P.corroborated)],
@@ -403,26 +423,37 @@ export function planFixtures(opts) {
  * changes — every extra field feeds a rule that has already decided.
  *
  * @param {object} fixture  one entry from `planFixtures`
- * @param {{calendarIds:Object<string,string>, accountId:string}} ctx  target name → real calendar id
+ * @param {{calendarIds:Object<string,string>, accountId:string,
+ *   eventIds?:Object<string,string>}} ctx  target name → real calendar id, and (after a real run)
+ *   `"<fixture key>|<target>"` → the id Google actually gave that copy. Imports have no other way to
+ *   know it (header fact 3b); everything else is pinned by the write and the map is redundant.
  * @returns {Array<{target:string, calendarId:string, raw:object}>}
  */
 export function observedEvents(fixture, ctx) {
   const out = [];
   for (const write of fixture.writes) {
     const calendarId = (ctx.calendarIds || {})[write.target] || write.target;
+    const eventId = (ctx.eventIds || {})[`${fixture.key}|${write.target}`] || write.eventId;
     const base = write.body;
-    const uid = base.iCalUID || `${write.eventId}@google.com`;
+    const uid = base.iCalUID || `${eventId}@google.com`;
+    // Fact 4 in the header: with no organizer on the write, the organizer IS the calendar. And
+    // `organizer.self` is Google's answer to one question only — is that address this very calendar —
+    // so it is derived here rather than copied off a write that has no business asserting it.
+    const organizerEmail = (base.organizer && base.organizer.email) || calendarId;
     const common = {
-      etag: `"seed-${write.eventId}"`,
-      htmlLink: `https://calendar.google.com/event?eid=${write.eventId}`,
+      etag: `"seed-${eventId}"`,
+      htmlLink: `https://calendar.google.com/event?eid=${eventId}`,
       iCalUID: uid,
       status: 'confirmed',
       summary: base.summary,
       ...(base.description ? { description: base.description } : {}),
       ...(base.location ? { location: base.location } : {}),
       creator: { email: ctx.accountId, self: true },
-      // Fact 4 in the header: with no organizer on the write, the organizer IS the calendar.
-      organizer: base.organizer ? { ...base.organizer } : { email: calendarId, self: true },
+      organizer: {
+        ...(base.organizer || {}),
+        email: organizerEmail,
+        self: String(organizerEmail).toLowerCase() === String(calendarId).toLowerCase(),
+      },
       ...(base.attendees ? { attendees: base.attendees.map((a) => ({ ...a })) } : {}),
       extendedProperties: base.extendedProperties,
     };
@@ -432,7 +463,7 @@ export function observedEvents(fixture, ctx) {
       out.push({
         target: write.target,
         calendarId,
-        raw: { id: write.eventId, status: GOOGLE_STATUS_WITHDRAWN, etag: common.etag },
+        raw: { id: eventId, status: GOOGLE_STATUS_WITHDRAWN, etag: common.etag },
       });
       continue;
     }
@@ -445,8 +476,8 @@ export function observedEvents(fixture, ctx) {
           calendarId,
           raw: {
             ...common,
-            id: instanceId(write.eventId, start),
-            recurringEventId: write.eventId,
+            id: instanceId(eventId, start),
+            recurringEventId: eventId,
             originalStartTime: { dateTime: start, timeZone: SEED_TIME_ZONE },
             start: { dateTime: start, timeZone: SEED_TIME_ZONE },
             end: { dateTime: plusMinutes(start, minutes), timeZone: SEED_TIME_ZONE },
@@ -459,7 +490,7 @@ export function observedEvents(fixture, ctx) {
     out.push({
       target: write.target,
       calendarId,
-      raw: { ...common, id: write.eventId, start: base.start, end: base.end },
+      raw: { ...common, id: eventId, start: base.start, end: base.end },
     });
   }
   return out;
@@ -483,20 +514,31 @@ export function seedAdapter(accountId, now = () => Date.now()) {
  * rather than from a claim here: rows sharing a dedup key are one landing.
  *
  * @param {ReturnType<typeof planFixtures>} plan
- * @param {{calendarIds?:Object<string,string>, orgDomains?:string[], now?:number}} [opts]
+ * @param {{calendarIds?:Object<string,string>, eventIds?:Object<string,string>,
+ *   orgDomains?:string[], now?:number}} [opts]
  */
 export function expectationsFor(plan, opts = {}) {
   const now = Number.isFinite(opts.now) ? opts.now : plan.now || Date.now();
   const adapter = seedAdapter(plan.accountId, () => now);
-  const identity = ceoIdentity({ selfEmails: [plan.accountId], orgDomains: opts.orgDomains || [] });
   const calendarIds = opts.calendarIds || {};
+  const identity = ceoIdentity({
+    selfEmails: [plan.accountId],
+    orgDomains: opts.orgDomains || [],
+    // Every calendar this set lands on is one the account OWNS — the primary, and the "RichOS test"
+    // calendar this tool created. That is the same fact `ingestOnce` reads off the adapter's own
+    // `owned` report on a real poll, so the prediction and the product are asking one question.
+    selfCalendars: Object.values(calendarIds).filter(Boolean),
+  });
+  // The ids Google actually gave, once there has been a run to give them. Empty before that, which
+  // is a dry run, which falls back to the planned stand-ins (header fact 3b).
+  const eventIds = opts.eventIds || {};
 
   const rows = [];
   const candidates = [];
   const seenDedup = new Map();
 
   for (const fixture of plan.fixtures) {
-    for (const observed of observedEvents(fixture, { calendarIds, accountId: plan.accountId })) {
+    for (const observed of observedEvents(fixture, { calendarIds, eventIds, accountId: plan.accountId })) {
       const item = adapter.toSourceItem(observed.raw);
       const resolved = resolveActors(item, identity);
       const governed = classifyTrust(resolved, { now });

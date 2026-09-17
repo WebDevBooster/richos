@@ -43,7 +43,9 @@ import { connect, sync, seedCalendar } from '../lib/workspace/commands.js';
 import { readEvidenceZone, readPromotionLedger, promotionDecision } from '../lib/workspace/promotion.js';
 import { corpusFromZone, entitiesFileFor } from '../lib/workspace/promote-run.js';
 import { workspaceZone } from '../lib/config.js';
-import { seedManifestPath, SEED_KEYCHAIN_SERVICE, SEED_REDIRECT_PORT } from '../lib/workspace/calendar-seed.js';
+import {
+  seedManifestPath, eventIdsFrom, SEED_KEYCHAIN_SERVICE, SEED_REDIRECT_PORT,
+} from '../lib/workspace/calendar-seed.js';
 import {
   planFixtures, expectationsFor, instanceId, SEED_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
 } from '../lib/workspace/calendar-fixtures.js';
@@ -74,8 +76,15 @@ export function checkZone(opts) {
   }
 
   // RE-DERIVE the expectation rather than trusting the stored one — and report a disagreement.
+  // The real event ids come from the manifest for the same reason the real calendar ids do: an
+  // imported copy's id is Google's, so a derivation that guessed it would name a source item the
+  // sync never wrote and would report every import as `absent`.
   const plan = planFixtures({ accountId: manifest.accountId, setId: manifest.setId, now: manifest.writtenAt });
-  const derived = expectationsFor(plan, { calendarIds: manifest.calendars, now: manifest.writtenAt });
+  const derived = expectationsFor(plan, {
+    calendarIds: manifest.calendars,
+    eventIds: eventIdsFrom(manifest.events),
+    now: manifest.writtenAt,
+  });
   const storedRows = (manifest.expectations && manifest.expectations.rows) || [];
   for (const row of derived.rows) {
     const stored = storedRows.find((r) => r.sourceItemId === row.sourceItemId);
@@ -261,6 +270,32 @@ const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const READ_ONLY_TOKEN = 'mock-access-readonly';
 const READ_WRITE_TOKEN = 'mock-access-readwrite';
 
+/**
+ * Google's own `organizer`, computed rather than echoed.
+ *
+ * The address is whatever the write named (an import may name one) or the calendar itself; `self` is
+ * READ-ONLY at Google and answers exactly one question — "whether the organizer corresponds to the
+ * calendar on which this copy of the event appears".
+ */
+function organizerFor(calendar, body, previous) {
+  const named = body.organizer || (previous && previous.organizer) || null;
+  const email = (named && named.email) || calendar.id;
+  return {
+    ...(named || {}),
+    email,
+    self: String(email).toLowerCase() === String(calendar.id).toLowerCase(),
+  };
+}
+
+/** The 400 Google answered every `events.import` that carried an `id`, verbatim. */
+const INVALID_RESOURCE_ID = JSON.stringify({
+  error: {
+    errors: [{ domain: 'global', reason: 'invalid', message: 'Invalid resource id value.' }],
+    code: 400,
+    message: 'Invalid resource id value.',
+  },
+});
+
 function httpResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -283,6 +318,30 @@ export function mockGoogleCalendar(opts = {}) {
   const accountId = opts.accountId;
   const calendars = new Map();
   calendars.set(accountId, { id: accountId, summary: 'Primary', primary: true, accessRole: 'owner', events: new Map() });
+  // A calendar the account SUBSCRIBES to and does not own — the CEO's real account carries one
+  // (`Holidays in United Kingdom`, 119 events read by the sync that found the ownership defect).
+  // Off by default so the seeding tests still count calendars; `runMockedAcceptance` turns it on,
+  // because it is the control that keeps "a container the account owns is the account" from
+  // becoming "any calendar in the list is the account".
+  for (const sub of opts.subscribed || []) {
+    const events = new Map();
+    for (const ev of sub.events || []) {
+      events.set(ev.id, {
+        etag: `"sub-${ev.id}"`,
+        htmlLink: `https://calendar.google.com/event?eid=${ev.id}`,
+        iCalUID: `${ev.id}@google.com`,
+        status: 'confirmed',
+        // Authored by the calendar it lives on, exactly as Google hands back every event on a
+        // calendar nobody named an organizer for — `self` and all.
+        creator: { email: sub.id, self: true },
+        organizer: { email: sub.id, displayName: sub.summary, self: true },
+        ...ev,
+      });
+    }
+    calendars.set(sub.id, {
+      id: sub.id, summary: sub.summary, accessRole: sub.accessRole || 'reader', events,
+    });
+  }
   let etagCounter = 0;
   let calendarCounter = 0;
   const calls = [];
@@ -331,7 +390,10 @@ export function mockGoogleCalendar(opts = {}) {
       status: body.status || 'confirmed',
       creator: { email: accountId, self: true },
       // Google's own rule: the organizer is the calendar, unless the write named one (import only).
-      organizer: body.organizer ? { ...body.organizer } : { email: calendar.id, self: true },
+      // `organizer.self` is READ-ONLY at Google and means one thing — is that address this very
+      // calendar — so it is computed here and never copied off the request body. A mock that echoed
+      // a caller's `self: true` would be the one place the governance rule under test could not fail.
+      organizer: organizerFor(calendar, body, calendar.events.get(target)),
       ...(body.attendees
         ? {
           attendees: body.attendees.map((a) => ({
@@ -411,6 +473,9 @@ export function mockGoogleCalendar(opts = {}) {
       const prop = u.searchParams.get('privateExtendedProperty');
       let items = [...cal.events.values()].flatMap((e) => expand(e, { singleEvents }));
       if (!showDeleted) items = items.filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
+      // `iCalUID` — the only way to address an imported copy, whose `id` belongs to Google.
+      const uid = u.searchParams.get('iCalUID');
+      if (uid) items = items.filter((e) => e.iCalUID === uid);
       if (prop) {
         const [k, v] = prop.split('=');
         items = items.filter((e) => e.extendedProperties && e.extendedProperties.private
@@ -431,7 +496,22 @@ export function mockGoogleCalendar(opts = {}) {
     if (importMatch) {
       const cal = resolveCalendar(decodeURIComponent(importMatch[1]));
       if (!cal) return httpResponse(404, '{}');
-      return httpResponse(200, JSON.stringify(storeEvent(cal, JSON.parse(init.body || '{}'), { imported: true })));
+      const body = JSON.parse(init.body || '{}');
+      // THE REFUSAL THIS MOCK EXISTS TO REPRODUCE. Google's reference: the iCalUID and the id "are
+      // not identical and only one of them should be supplied at event creation time" — and the live
+      // 2026-09-17 seed run learned what that costs, a 400 on all three import writes while every
+      // insert carrying the same pinned id landed. Before this line the mock accepted the pair, so
+      // the whole mocked loop was green on a body Google would not take.
+      if (body.id) return httpResponse(400, INVALID_RESOURCE_ID);
+      // `iCalUID` is a REQUIRED body field for import, so an import without one is refused too —
+      // with its own message, because a mock that gives every refusal the same words teaches nobody
+      // which refusal they hit.
+      if (!body.iCalUID) {
+        return httpResponse(400, JSON.stringify({
+          error: { code: 400, message: 'Missing iCalUID.' },
+        }));
+      }
+      return httpResponse(200, JSON.stringify(storeEvent(cal, body, { imported: true })));
     }
 
     const oneMatch = p.match(/^\/calendar\/v3\/calendars\/([^/]+)\/events\/([^/]+)$/);
@@ -498,8 +578,34 @@ export async function runMockedAcceptance(opts = {}) {
   const backend = memorySecretBackend();
   storeClientSecret(backend, 'com.richos.workspace.google', FAKE_CLIENT_ID, FAKE_CLIENT_SECRET);
 
-  const google = mockGoogleCalendar({ accountId });
   const NOW = Date.parse('2026-09-17T10:00:00Z');
+  // THE CONTROL FOR THE OWNERSHIP RULE, and it is deliberately meeting-shaped rather than
+  // holiday-shaped: a description and two attendees, so promotion would take it on any other
+  // grounds. The only thing standing between it and the CEO's memory is that he does not OWN the
+  // calendar it lives on — which is the whole of what `selfCalendars` is allowed to mean. A control
+  // with no description and no attendees would be held by the solo-block rule and would pass while
+  // the ownership rule was broken.
+  const SUBSCRIBED_CALENDAR_ID = 'c_partnerteam@group.calendar.google.com';
+  const SUBSCRIBED_EVENT_ID = 'submeeting01';
+  const google = mockGoogleCalendar({
+    accountId,
+    subscribed: [{
+      id: SUBSCRIBED_CALENDAR_ID,
+      summary: 'Northwind partner calendar (shared with you)',
+      accessRole: 'reader',
+      events: [{
+        id: SUBSCRIBED_EVENT_ID,
+        summary: 'Partner team planning',
+        description: 'Their planning session; we have read access to the calendar and nothing else.',
+        start: { dateTime: '2026-09-25T09:00:00Z', timeZone: 'Europe/London' },
+        end: { dateTime: '2026-09-25T10:00:00Z', timeZone: 'Europe/London' },
+        attendees: [
+          { email: 'dana.reyes@northwind.example.com', displayName: 'Dana Reyes', responseStatus: 'accepted' },
+          { email: accountId, displayName: 'You', self: true, responseStatus: 'accepted' },
+        ],
+      }],
+    }],
+  });
   const quiet = [];
   const deps = (extra = {}) => ({
     zone,
@@ -531,12 +637,32 @@ export async function runMockedAcceptance(opts = {}) {
 
   // 3. The check.
   const result = checkZone({ zone });
+
+  // …and the control, read off the same zone by the product's own reader: the subscribed calendar's
+  // meeting must be INGESTED (it is evidence, and evidence is never dropped) and NOT promoted, held
+  // for external authorship rather than for being empty.
+  const subscribedSourceId = [...readEvidenceZone(zone)]
+    .map((e) => e.item.sourceItemId)
+    .find((id) => id.endsWith(`:${SUBSCRIBED_EVENT_ID}`)) || null;
+  const subscribedEntry = subscribedSourceId
+    ? readEvidenceZone(zone).find((e) => e.item.sourceItemId === subscribedSourceId)
+    : null;
+  const subscribedControl = {
+    calendarId: SUBSCRIBED_CALENDAR_ID,
+    sourceItemId: subscribedSourceId,
+    ingested: Boolean(subscribedEntry),
+    promoted: subscribedSourceId ? readPromotionLedger(zone).has(subscribedSourceId) : false,
+    authorRelation: subscribedEntry ? subscribedEntry.item.actors.author.orgRelation : null,
+    heldReason: subscribedEntry ? promotionDecision(subscribedEntry.item).reason : null,
+  };
+
   result.mock = {
     root,
     zone,
     corpus,
     seeded,
     synced,
+    subscribedControl,
     // The two grants really are two keychain items, and this is the assertion that says so.
     seedGrant: backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${accountId}`),
     productGrant: backend.get('com.richos.workspace.google', `oauth-tokens ${accountId}`),
@@ -586,6 +712,17 @@ async function main(argv) {
       assert.deepEqual(writesOnReadOnlyToken, [], 'the product grant never attempted a write');
       console.log(`grants:     seed and product hold different tokens; ${result.mock.google.calls.length} calls, `
         + 'no write was attempted on the read-only grant.');
+
+      // The ownership rule's control, asserted rather than described.
+      const sub = result.mock.subscribedControl;
+      assert.ok(sub.ingested, 'a meeting on a calendar the account does not own is still evidence');
+      assert.equal(sub.authorRelation, 'external',
+        'and a calendar he merely subscribes to is NOT him, however loudly the vendor flags it `self`');
+      assert.equal(sub.promoted, false, 'so it is not promoted into his memory');
+      assert.match(sub.heldReason, /single untrusted item/,
+        'held for external authorship — not for being empty, which is why the control has a description');
+      console.log(`control:    ${sub.calendarId} is read-only to this account; its meeting was ingested `
+        + 'as evidence, resolved external, and held.');
       return result.ok ? 0 : 1;
     } finally {
       cleanupMockedAcceptance(result);
