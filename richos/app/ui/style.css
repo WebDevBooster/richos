@@ -4363,32 +4363,115 @@ body.bp-narrow .tl-user-bubble {
   padding: 5px 6px 5px 10px;
   min-height: 36px;
 }
+/* THE ROW'S BUTTON MUST NEVER BE THE ONE THAT SHRINKS (audit D7, 2026-09-17: measured
+   clipped to "Company butt…" on `#set-home-open`). A flex item's automatic minimum width
+   collapses to 0 the instant its own `overflow` is not `visible` — and a native `<button>`
+   ships `overflow: hidden` / `text-overflow: ellipsis` from the OS chrome whether or not
+   this file says so — so flexbox happily shrank the BUTTON below its own text before it
+   ever touched `.set-name`, which can already absorb the pressure by wrapping onto two
+   lines ("Home" / "screen", visible in the very same screenshot). `flex-shrink: 0` gives
+   the button its full content width back and lets the label keep doing the shrinking it
+   was already doing. Measured (Playwright/WebKit, this row, 1400px viewport): `scrollWidth`
+   156px vs a `clientWidth` of 150px before this rule — 6px of real content clipped to an
+   ellipsis; 0px short after, confirmed by `tests/appearance.js`'s own overflow check. This
+   is a container fix, not a text change: the button's label is untouched.
+
+   `flex-shrink: 0` alone left a SUB-PIXEL gap: `scrollWidth` and `clientWidth` both read
+   166 (equal, "not clipped" by that measure) while the glyphs still visibly ended in three
+   real dots rather than the label's own single "…" character — WebKit's ellipsis paint
+   step is triggered by a fractional overflow the two rounded-to-integer measurements
+   cannot see. Since `flex-shrink: 0` already guarantees this button its full content
+   width, the ellipsis behavior has nothing left to do, so it is turned off outright rather
+   than chased with another few pixels of padding. */
+.set-row > button {
+  flex-shrink: 0;
+  overflow: visible;
+  text-overflow: clip;
+}
 .set-name {
   font-weight: 600;
   font-size: 1rem;
   color: var(--ink);
 }
 
-/* WHICH COMPANY THIS COPY OF RICH WORKS FOR. Border is `--line-control`, the token this
-   file reserves for indicator-grade edges: the outline is the only thing that says "this
-   is a menu you can open", so it carries the 3:1 non-text floor rather than `--line`,
-   which is a divider. The label is `--ink` at 1rem — the 4.5:1 tier — and the type is not
-   allowed to shrink below it, because a company name is a thing he has to READ before he
-   picks it. */
-.set-select {
+/* TWO NATIVE `<select>`s SHIPPED WITH ZERO CHROME OF THEIR OWN in both themes: this one
+   (`.set-select`, "Company" in the universal settings menu, `16-settings.png`) and
+   `#provider-account-select` ("Account type" in first-run setup, `19-setup-progress.png`)
+   — the only unstyled controls in an otherwise finished UI (audit D7, 2026-09-17).
+   `.set-select` ALREADY declared `--surface-sunk`/`--ink`/`--line-control` before this
+   change and none of it painted: WebKit draws a `<select>` as its own native popup button
+   — white fill, black text, the OS's own arrow — and ignores `background`/`border`/`color`
+   entirely until `appearance: none` tells it to stop. That is the actual defect; the
+   tokens were already right.
+
+   `.chrome-select` below is the shared fix, used by both controls (`.set-select` keeps only
+   the `max-width` unique to its row). The chevron is a REAL TEXT GLYPH in its own `<span>`,
+   not a CSS `background-image` or an inline SVG: `tests/contrast.js`'s own header says it
+   "CANNOT" read an SVG's `stroke`, and a `background-image` has no computed color at all —
+   either shape would ship an indicator nothing could ever prove passed. A glyph is a real
+   DOM text node with a real `color`, and `data-contrast-role="indicator"` declares it the
+   non-text UI indicator it visually is (WCAG 1.4.11) rather than the 4.5:1 "text meant to
+   be read" tier the row's actual label already carries and already passes.
+
+   Both controls sit on `--card` panels (`.setmenu` and `.overlay-panel` both paint
+   `var(--surface)` = `var(--card)`), so one set of numbers, computed against
+   https://webaim.org/resources/contrastchecker/ rather than eyeballed, covers both:
+
+     Text     --ink on --surface-sunk (the select's own fill)   14.78:1 dark   15.58:1 light  (>= 4.5)
+     Chevron  --ink-soft composited on --surface-sunk           6.51:1 dark    5.98:1 light   (>= 3.0, indicator)
+     Border   --line-control (solid) on --card (the panel)      3.79:1 dark    4.06:1 light   (>= 3.0, indicator)
+     Fill     --surface-sunk on --card (the panel)              1.23:1 dark    1.16:1 light   (below 3.0 alone —
+                                                                                                 not the failure it
+                                                                                                 looks like: §1.4.11
+                                                                                                 needs EITHER a
+                                                                                                 filled OR a bordered
+                                                                                                 boundary at 3:1, and
+                                                                                                 the border already
+                                                                                                 clears it)
+
+   `contrast.js`'s walker takes the fill/border indicator check as `max(fill, border)` vs the
+   surrounding panel, exactly this MAX, so the low fill number above is not a shipped defect
+   — it is the reading the border already covers. Full derivation and the script that
+   produced these numbers: see the commit message. */
+.chrome-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.chrome-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   font-family: inherit;
   font-size: 1rem;
   color: var(--ink);
   background: var(--surface-sunk);
   border: 1px solid var(--line-control);
   border-radius: 8px;
-  padding: 4px 8px;
-  max-width: 168px;
+  padding: 4px 26px 4px 8px;
+  cursor: pointer;
 }
-
-.set-select:focus-visible {
+.chrome-select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+/* `aria-hidden` and `pointer-events: none`: this glyph identifies nothing a screen reader
+   or a click needs — the `<select>` is already the affordance and already has the
+   accessible name. It exists purely so the visual "this opens a list" cue clears §1.4.11
+   at a color the walker can prove rather than a browser default nobody chose. */
+.chrome-select-chevron {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+
+.set-select {
+  max-width: 168px;
 }
 
 /* The read-only variant of the same row: `RICHOS_ENTITY` decided it and nothing in the
