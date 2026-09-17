@@ -643,14 +643,17 @@ export function workspaceSyncStatePath(zone = workspaceZone()) {
  * skeleton first), Drive is P2; Gmail is wired in P3. `calendar.events.readonly` is the narrowest that
  * lists events. NO write scopes — this layer observes, it never modifies the CEO's cloud.
  *
- * `drive.metadata.readonly` is the narrower of the two options §6.2 lists, and it is a BINDING choice
- * rather than a placeholder: it cannot read file bodies, so the Drive adapter is metadata-only and
- * refuses any payload carrying content (`adapters/google-drive.js`). Widening to `drive.readonly`
- * would change what the CEO consents to on the OAuth screen (§6.1) — his decision, not a code change.
+ * Drive was pinned to `drive.metadata.readonly` — the narrower of the two options §6.2 lists — because
+ * widening changes what the CEO consents to on the OAuth screen (§6.1), which is HIS decision and not
+ * a code change. He made it on 2026-09-17 (`richos-hq/wiki/ceo-decisions.md` §40, "Drive contents:
+ * yes"), so Drive is now `drive.readonly`: the adapter may read file bodies and exported document
+ * text (`adapters/google-drive.js`), the next `connect` re-consents, and a deployment still holding
+ * the old metadata-only grant is refused a body rather than silently given one. Mail is NOT part of
+ * that decision and stays metadata-first (§40: "graduated privacy for mail was not asked").
  */
 export const GOOGLE_SCOPES = {
   calendar: 'https://www.googleapis.com/auth/calendar.events.readonly',
-  drive: 'https://www.googleapis.com/auth/drive.metadata.readonly', // P2 — metadata only, no bodies
+  drive: 'https://www.googleapis.com/auth/drive.readonly', // P2 — bodies, per CEO decision §40
   mail: 'https://www.googleapis.com/auth/gmail.metadata', // P3, metadata-first (graduated privacy)
 };
 

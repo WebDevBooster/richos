@@ -1224,27 +1224,49 @@ const FILE_INJECTION = {
   lastModifyingUser: { displayName: 'Mallory', emailAddress: 'mallory@attacker.com' },
 };
 
-/** A URL-dispatching Drive client mock: the full-sync path makes two DIFFERENT calls in order. */
-function driveClientMock(routes) {
+/**
+ * A URL-dispatching Drive client mock. `calls` records METADATA requests (getJson — the full-sync path
+ * makes two DIFFERENT ones, in order); `textCalls` records BODY requests (getText — an export or an
+ * `alt=media` download), so a test can tell "no metadata round trip" from "no body read".
+ */
+function driveClientMock(routes, textRoutes = []) {
   const calls = [];
+  const textCalls = [];
+  const dispatch = (url, table, log) => {
+    log.push(url);
+    const u = new URL(url);
+    for (const [match, reply] of table) {
+      if (u.pathname.endsWith(match)) {
+        const r = typeof reply === 'function' ? reply(u, log.length) : reply;
+        if (r instanceof Error) throw r;
+        return r;
+      }
+    }
+    throw new Error(`unmocked Drive URL: ${url}`);
+  };
+  const textAccepts = [];
   return {
     calls,
+    textCalls,
+    textAccepts,
     async getJson(url) {
-      calls.push(url);
-      const u = new URL(url);
-      for (const [match, reply] of routes) {
-        if (u.pathname.endsWith(match)) {
-          const r = typeof reply === 'function' ? reply(u, calls.length) : reply;
-          if (r instanceof Error) throw r;
-          return r;
-        }
-      }
-      throw new Error(`unmocked Drive URL: ${url}`);
+      return dispatch(url, routes, calls);
+    },
+    async getText(url, accept) {
+      textAccepts.push(accept);
+      return dispatch(url, textRoutes, textCalls);
     },
   };
 }
 
+/**
+ * Since CEO decision §40 the adapter's default is `contentMode: 'body'`. A test that wants the
+ * pre-re-consent posture asks for it explicitly, exactly as a wiring holding the old grant would.
+ */
 const driveAdapter = (opts = {}) => new GoogleDriveAdapter({ accountId: 'fixture-account', client: null, now, ...opts });
+const driveAdapterMetadataOnly = (opts = {}) => driveAdapter({
+  contentMode: 'metadata', scopes: [DRIVE_METADATA_SCOPE], ...opts,
+});
 
 test('validateAdapter accepts the Drive adapter surface, and it is poll-only (no webhook method)', () => {
   const a = driveAdapter();
@@ -1265,10 +1287,29 @@ test('Drive and Calendar on the SAME account are different source instances (ind
   assert.notEqual(driveAdapter().sourceInstanceId, new GoogleDriveAdapter({ accountId: 'other-account', client: null, now }).sourceInstanceId);
 });
 
-test('the adapter asks for the scope config.js pins — metadata-only, never the content scope', () => {
-  assert.deepEqual(driveAdapter().requiredScopes, [DRIVE_METADATA_SCOPE]);
-  assert.equal(GOOGLE_SCOPES.drive, DRIVE_METADATA_SCOPE, 'the shipped scope list and the adapter agree');
+test('the adapter asks for the scope config.js pins — the CONTENT scope, since CEO decision §40', () => {
+  assert.deepEqual(driveAdapter().requiredScopes, [DRIVE_CONTENT_SCOPE]);
+  assert.equal(GOOGLE_SCOPES.drive, DRIVE_CONTENT_SCOPE, 'the shipped scope list and the adapter agree');
+  // POSITIVE CONTROL for the other posture: an installation that has not re-consented asks for less.
+  assert.deepEqual(driveAdapterMetadataOnly().requiredScopes, [DRIVE_METADATA_SCOPE]);
   assert.notEqual(DRIVE_METADATA_SCOPE, DRIVE_CONTENT_SCOPE);
+});
+
+test('body mode without the content grant is REFUSED at construction, never downgraded silently', () => {
+  assert.throws(
+    () => driveAdapter({ contentMode: 'body', scopes: [DRIVE_METADATA_SCOPE] }),
+    (err) => {
+      assert.match(err.message, /refusing body-level Drive ingestion/);
+      assert.ok(err.message.includes(DRIVE_CONTENT_SCOPE), 'names the grant that is missing');
+      assert.match(err.message, /§40/, 'and says the CEO already answered yes');
+      return true;
+    },
+    'a stale metadata-only grant must not quietly read bodies, nor quietly stop reading them',
+  );
+  assert.throws(() => driveAdapter({ contentMode: 'sideways' }), /unknown Drive contentMode/);
+  // POSITIVE CONTROLS: the grant present → body mode; the grant absent AND metadata mode → fine.
+  assert.equal(driveAdapter({ contentMode: 'body', scopes: [DRIVE_CONTENT_SCOPE] }).contentMode, 'body');
+  assert.equal(driveAdapterMetadataOnly().contentMode, 'metadata');
 });
 
 // ---- URL building: every parameter pinned, no third-party defaults inherited --------------------
@@ -1299,12 +1340,20 @@ test('every Drive URL is machine-direct to Google (the §1 choke point accepts t
   }
 });
 
-test('no Drive URL ever requests file media or an export (metadata-only at the wire)', () => {
+test('no METADATA Drive URL requests a body — the two body paths are the only ones that do', () => {
   const a = driveAdapter();
   for (const url of [a.buildStartTokenUrl(), a.buildFilesUrl({ pageToken: null }), a.buildChangesUrl({ pageToken: 'T' }), a.buildFileUrl('file_org')]) {
     assert.equal(new URL(url).searchParams.get('alt'), null, 'alt=media would be the file body');
     assert.ok(!url.includes('/export'), 'files.export would be the document text');
   }
+  // POSITIVE CONTROL: the body builders do exactly, and only, what §40 permits.
+  const exportUrl = new URL(a.buildExportUrl('file_org', 'text/plain'));
+  assert.ok(exportUrl.pathname.endsWith('/files/file_org/export'));
+  assert.equal(exportUrl.searchParams.get('mimeType'), 'text/plain', 'the export format is pinned, never Google\'s pick');
+  const mediaUrl = new URL(a.buildMediaUrl('file_org'));
+  assert.equal(mediaUrl.searchParams.get('alt'), 'media');
+  assert.equal(mediaUrl.searchParams.get('acknowledgeAbuse'), 'false', 'never assert that on the CEO\'s behalf');
+  assert.ok(assertDirectGoogleEndpoint(exportUrl.toString()) && assertDirectGoogleEndpoint(mediaUrl.toString()));
 });
 
 // ---- listChanges: first page, continuation, empty, token expired → resync -----------------------
@@ -1364,15 +1413,16 @@ await atest('listChanges propagates GoneError from an expired page token (→ co
 });
 
 // ---- fetchItem ---------------------------------------------------------------------------------
-await atest('fetchItem uses the inline file resource, fetches only when a change lacks one', async () => {
-  const client = driveClientMock([['/files/file_org', { ...FILE_ORG }]]);
-  const a = driveAdapter({ client });
+await atest('fetchItem uses the inline file resource, fetches METADATA only when a change lacks one', async () => {
+  const client = driveClientMock([['/files/file_org', { ...FILE_ORG }]], [['/files/file_org/export', 'body']]);
+  const a = driveAdapterMetadataOnly({ client });
   const inline = await a.fetchItem({ fileId: 'file_org', removed: false, file: FILE_ORG, changeTime: null });
   assert.equal(inline.file, FILE_ORG);
   assert.equal(client.calls.length, 0, 'no round trip when the feed already returned the file');
   const fetched = await a.fetchItem({ fileId: 'file_org', removed: false, file: null, changeTime: null });
   assert.equal(fetched.file.id, 'file_org');
   assert.equal(client.calls.length, 1, 'positive control: a bare ref DOES fetch');
+  assert.deepEqual(client.textCalls, [], 'a metadata-mode adapter has no code path that asks for a body');
 });
 
 await atest('fetchItem never calls Drive for a REMOVED file (it is gone; asking 404s every poll)', async () => {
@@ -1438,21 +1488,22 @@ test('scopeHint: an unshared file is the private perimeter; a shared one defers 
   assert.equal(driveAdapter().toSourceItem(driveRef(FILE_ORG)).scopeHint, 'unknown', '§5.1 makes the binding call');
 });
 
-// ---- THE PRIVACY DECISION: metadata only, enforced and refused loudly ---------------------------
-test('a Drive SourceItem carries METADATA and a deep link — never the file body', () => {
+// ---- THE PRIVACY DECISION: bodies since §40, and the refusal inverted, not deleted --------------
+test('a ref that carries no body normalizes to metadata + a deep link, and SAYS the body is unread', () => {
   const item = driveAdapter().toSourceItem(driveRef(FILE_ORG));
-  // The only text is the file's own `description` METADATA field (an injection surface §5.3 must scan).
+  // Nothing fetched a body for this ref, so the only text is the file's own `description` metadata.
   assert.equal(item.content.text, 'Finalize Q3 plan. Action items to follow.');
   assert.equal(item.content.structured.contentPolicy, 'metadata-only');
+  assert.equal(item.content.structured.bodyExcludedReason, 'body-not-fetched', 'an absence with a reason on it');
   assert.equal(item.content.structured.mimeType, 'application/vnd.google-apps.document');
-  // The body is a REF back into the CEO's own Drive, never a copy (§4.1).
+  // The document is also always a REF back into the CEO's own Drive (§4.1) — body or no body.
   assert.deepEqual(item.content.attachmentsRefs.map((r) => r.fileUrl), ['https://drive.google.com/file/d/file_org/view']);
   assert.ok(!JSON.stringify(item).includes('alt=media'));
 });
 
-test('toSourceItem REFUSES a payload carrying file content, in the privacy-invariant vocabulary', () => {
-  const a = driveAdapter();
-  for (const key of ['exportedText', 'body', 'content', 'mediaBytes', 'fileContent', 'data']) {
+test('toSourceItem REFUSES a body-bearing payload when this installation has NOT re-consented', () => {
+  const a = driveAdapterMetadataOnly();
+  for (const key of ['extractedText', 'exportedText', 'body', 'content', 'mediaBytes', 'fileContent', 'data']) {
     assert.throws(
       () => a.toSourceItem(driveRef({ ...FILE_ORG, [key]: 'THE ENTIRE STRATEGY DOCUMENT' })),
       /privacy invariant: refusing a Drive payload carrying file content/,
@@ -1464,13 +1515,17 @@ test('toSourceItem REFUSES a payload carrying file content, in the privacy-invar
   // POSITIVE CONTROL: the identical payload WITHOUT a body normalizes cleanly — the guard is not
   // simply throwing on everything.
   assert.deepEqual(validateSourceItem(a.toSourceItem(driveRef(FILE_ORG))), []);
+  // POSITIVE CONTROL for the §40 posture: a re-consented adapter normalizes the very same body.
+  const consented = driveAdapter().toSourceItem({ ...driveRef(FILE_ORG), extractedText: 'THE STRATEGY', bodyMeta: { via: 'export', exportMimeType: 'text/plain', truncated: false, bytes: 12, reason: null } });
+  assert.match(consented.content.text, /THE STRATEGY/, 'the grant is what decides, not the payload shape');
 });
 
 test('the content refusal names the scope that would be required, so it explains itself', () => {
   assert.throws(() => assertNoFileContent({ exportedText: 'x' }), (err) => {
     assert.match(err.message, /metadata-only/);
     assert.ok(err.message.includes(DRIVE_METADATA_SCOPE), 'names the scope it runs under');
-    assert.ok(err.message.includes(DRIVE_CONTENT_SCOPE), 'names the scope a body would require');
+    assert.ok(err.message.includes(DRIVE_CONTENT_SCOPE), 'names the scope a body needs');
+    assert.match(err.message, /§40/, 'and that the CEO has already said yes — what is missing is the re-consent');
     return true;
   });
   assert.equal(assertNoFileContent(driveRef(FILE_ORG)), undefined, 'positive control: a clean payload passes');
@@ -1517,12 +1572,18 @@ const asChanges = (files) => ({
   newStartPageToken: '1002',
 });
 
-/** A client serving BOTH paths, so a second `ingestOnce` follows the cursor into the delta feed. */
+/**
+ * A client serving BOTH paths, so a second `ingestOnce` follows the cursor into the delta feed — plus
+ * the export path, because since §40 the core's `fetchItem` reads the body of every Google Doc it sees.
+ * The two PDFs in the fixture set are never asked for: they have no text export and no extractor.
+ */
 function driveIngestClient(files = ALL_FILES) {
   return driveClientMock([
     ['/changes/startPageToken', { startPageToken: '1001' }],
     ['/changes', asChanges(files)],
     ['/files', { files }],
+  ], [
+    ['/export', (u) => `exported text of ${u.pathname.split('/').slice(-2, -1)[0]}`],
   ]);
 }
 
@@ -1570,7 +1631,7 @@ await atest('ingestOnce on Drive recovers from a 410 by resetting the cursor and
       ['/changes/startPageToken', { startPageToken: 'FRESH' }],
       ['/changes', () => { if (gone) { gone = false; return new GoneError('page token expired'); } return { changes: [], newStartPageToken: 'x' }; }],
       ['/files', { files: [FILE_ORG] }],
-    ]);
+    ], [['/export', 'exported text of file_org']]);
     const adapter = driveAdapter({ client });
     setSyncState('google', 'drive', 'STALE-PAGE-TOKEN', path.join(zone, '_sync_state.json'), adapter.sourceInstanceId);
     const summary = await ingestOnce({ adapter, identity: IDENTITY, zone, repoRoot: zone, now });
