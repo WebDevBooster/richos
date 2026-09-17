@@ -1648,11 +1648,24 @@ fn main() {
                             richos_core::setup::Component::ClaudeCode => &s.claude,
                             richos_core::setup::Component::Engine => &s.engine,
                         };
+                        // ONE PLACE PER LINE, and never a trailing colon with nothing after
+                        // it. On 2026-09-17 the published nightly printed exactly that —
+                        // `the RichOS engine is NOT installed — looked in: ` — on four
+                        // consecutive launches, because the list was empty and `join("; ")`
+                        // on an empty Vec is the empty string. A detector that names no
+                        // candidates reads as one that can never find anything, which is
+                        // what it was; `setup.rs` now guarantees the list is non-empty, and
+                        // this prints it a place at a time so a rejection reason (which
+                        // carries its own em dash) is legible rather than run together with
+                        // the next path.
                         eprintln!(
-                            "[richos] first-run setup: {} is NOT installed — looked in: {}",
+                            "[richos] first-run setup: {} is NOT installed — {} place(s) looked:",
                             c.display_name(),
-                            what.looked_in.join("; ")
+                            what.looked_in.len()
                         );
+                        for place in &what.looked_in {
+                            eprintln!("[richos]   looked in {place}");
+                        }
                     }
                     // WHETHER THIS BUILD CAN FIX IT. An unpinned build must say so here, not
                     // discover it when he presses the button.
