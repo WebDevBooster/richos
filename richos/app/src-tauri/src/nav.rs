@@ -96,23 +96,54 @@ impl Default for NavState {
 pub struct NavStore {
     path: PathBuf,
     state: NavState,
+    /// False when a file exists at `path` and this build could not read it. Every write is
+    /// gated on it — see [`NavStore::persist`].
+    readable: bool,
 }
 
 impl NavStore {
     /// Load, or start from defaults. NEVER fails on a corrupt or unreadable file — a
     /// mangled preferences file must not stop the CEO's app from launching.
+    ///
+    /// # What it does with a file it cannot read, and why that changed
+    ///
+    /// **It leaves it exactly as it is.** Spec point 19
+    /// (`richos-hq docs/plans/nightly-channel-spec-2026-09-17.md`): *"a reader that does not
+    /// understand what it finds never rewrites, never truncates, never treats it as
+    /// absent"*, generalized to every store in `ledger.rs`'s survey — of which this is the
+    /// last row that still rewrote.
+    ///
+    /// Until 2026-09-17 an unreadable file degraded to defaults and the first `set_*` wrote
+    /// those defaults over it. The survey called the cost "sidebar and inspector widths…
+    /// pure view state", and that undersells the file: `pinned_threads`, `archived_threads`
+    /// and `renamed_threads` are the CEO's own decisions about his own conversations, and a
+    /// title he typed is not view state. The app still opens either way; what changed is
+    /// that the file it could not read survives the boot.
     pub fn open(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref().to_path_buf();
-        let state = std::fs::read_to_string(&path)
+        let parsed = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|raw| serde_json::from_str::<NavState>(&raw).ok())
-            .map(|mut s| {
+            .map(|raw| serde_json::from_str::<NavState>(&raw).ok());
+        let (state, readable) = match parsed {
+            // No file at all: a fresh install, and defaults are the honest answer.
+            None => (NavState::default(), true),
+            Some(Some(mut s)) => {
                 s.sidebar_width = clamp_width(s.sidebar_width);
                 s.inspector_width = clamp_inspector_width(s.inspector_width);
-                s
-            })
-            .unwrap_or_default();
-        NavStore { path, state }
+                (s, true)
+            }
+            // A file that EXISTS and will not parse. Defaults for this boot, in memory only.
+            Some(None) => (NavState::default(), false),
+        };
+        NavStore { path, state, readable }
+    }
+
+    /// Whether the file on disk is one this build could read. `false` means the rail is
+    /// rendering defaults and nothing it does will be remembered — which a surface has to be
+    /// able to say, the same contract `LaunchStore::readable` and `ConfigStore::readable`
+    /// carry.
+    pub fn readable(&self) -> bool {
+        self.readable
     }
 
     pub fn state(&self) -> &NavState {
@@ -120,7 +151,17 @@ impl NavStore {
     }
 
     /// Write whole, fsync, then atomically rename over the live file.
+    ///
+    /// **Never over a file this build could not read** (spec point 19). The atomic rename
+    /// below is exactly what made the old behavior permanent: it replaced the unreadable
+    /// file with defaults in one step, so his pins, his archives and his own thread titles
+    /// were gone the moment he dragged a divider. The caller is told nothing went wrong
+    /// because nothing did — the file is intact, and [`NavStore::readable`] is how a surface
+    /// asks.
     fn persist(&self) -> std::io::Result<()> {
+        if !self.readable {
+            return Ok(());
+        }
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -319,6 +360,55 @@ mod tests {
         std::fs::write(&path, b"{ this is not json").unwrap();
         let store = NavStore::open(&path);
         assert_eq!(store.state(), &NavState::default());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// **POINT 19 ON THIS FILE, which the survey's "pure view state" line undersells.** The
+    /// test above pins that the app still opens. This one pins the other half: the file it
+    /// could not read is still there afterwards, unchanged, through every setter.
+    ///
+    /// What is at stake is not widths. `pinned_threads`, `archived_threads` and
+    /// `renamed_threads` are his own decisions about his own conversations, and the atomic
+    /// rename in `persist` is what used to make losing them permanent in a single step.
+    #[test]
+    fn an_unreadable_file_survives_the_whole_boot_byte_for_byte() {
+        let path = tmp_path("unreadable-survives");
+        let original: &[u8] = br#"{"sidebar_width":300,"renamed_threads":{"thr_a":"Acme counter"},,,}"#;
+        std::fs::write(&path, original).unwrap();
+
+        let mut store = NavStore::open(&path);
+        assert!(!store.readable(), "the file exists and this build cannot read it");
+        assert_eq!(store.state(), &NavState::default(), "the boot is served from defaults");
+
+        store.set_sidebar_width(420.0).unwrap();
+        store.set_inspector_width(380.0).unwrap();
+        store.set_sidebar_collapsed(true).unwrap();
+        store.set_entity_collapsed("ent_a", true).unwrap();
+        store.set_thread_pinned("thr_a", true).unwrap();
+        store.set_thread_archived("thr_b", true).unwrap();
+        store.rename_thread("thr_a", "Something Else").unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "seven writes later, his file is byte-for-byte what it was"
+        );
+        // The temp sibling `persist` would have written must not be left behind either.
+        assert!(!path.with_extension("json.tmp").exists());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The positive control the test above is worthless without: every one of its assertions
+    /// passes on a `NavStore` that has simply stopped writing anything at all.
+    #[test]
+    fn a_readable_file_really_is_written_to() {
+        let path = tmp_path("readable-writes");
+        std::fs::write(&path, br#"{"sidebar_width":300}"#).unwrap();
+        let mut store = NavStore::open(&path);
+        assert!(store.readable());
+        store.rename_thread("thr_a", "Acme counter").unwrap();
+        let reopened = NavStore::open(&path);
+        assert!(reopened.readable());
+        assert_eq!(reopened.state().renamed_threads.get("thr_a").unwrap(), "Acme counter");
         let _ = std::fs::remove_file(&path);
     }
 }
