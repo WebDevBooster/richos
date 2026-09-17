@@ -724,6 +724,11 @@ export async function runMockedAcceptance(opts = {}) {
     seeded,
     synced,
     subscribedControl,
+    accountId,
+    // A CHANGED event is the ordinary life of a calendar, so a caller must be able to change one at
+    // the source and run the product's own sync a second time. `deps` is the very builder the two
+    // runs above used — a second sync assembled any other way would not be the same product path.
+    deps,
     // The two grants really are two keychain items, and this is the assertion that says so.
     seedGrant: backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${accountId}`),
     productGrant: backend.get('com.richos.workspace.google', `oauth-tokens ${accountId}`),

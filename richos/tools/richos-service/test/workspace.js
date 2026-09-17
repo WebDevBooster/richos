@@ -105,8 +105,9 @@ import {
 // (run state) are two different files, and hardcoding either name lets a test drift from the product.
 import { MICROSOFT_SCOPES, workspaceSyncStatePath, workspaceClientConfigPath } from '../lib/config.js';
 import { MICROSOFT_REDIRECT_URI } from '../lib/workspace/client-config.js';
-import { corpusFromZone } from '../lib/workspace/promote-run.js';
-import { promotionLedgerPath, readEvidenceZone } from '../lib/workspace/promotion.js';
+import { corpusFromZone, describePromotion } from '../lib/workspace/promote-run.js';
+import { resolveLoroDir } from '../lib/workspace/promotion-writer.js';
+import { promotionLedgerPath, readEvidenceZone, readPromotionHistory } from '../lib/workspace/promotion.js';
 import { planRepair, repairLedgerPath } from '../lib/workspace/repair.js';
 import { DEFAULT_MIN_CORROBORATION } from '../lib/workspace/entity-feed.js';
 import { MICROSOFT_SOURCES, sourcesForVendor, scopeMatcherFor, VENDORS as REGISTRY_VENDORS } from '../lib/workspace/registry.js';
@@ -7536,6 +7537,103 @@ await atest('THE WHOLE LOOP, MOCKED: seed → sync → promote → acceptance, w
     const readOnlyWrites = result.mock.google.calls.filter((c) => c.method !== 'GET'
       && c.token === 'mock-access-readonly' && !c.url.includes('oauth2.googleapis.com'));
     assert.deepEqual(readOnlyWrites, [], 'the sync path never attempted a write');
+  } finally { cleanupMockedAcceptance(result); }
+});
+
+await atest('AN EVENT THAT CHANGES AT THE SOURCE IS RE-INGESTED AS A SUPERSEDE — twice, without exit 2', async () => {
+  // THE DEFECT THIS TEST EXISTS FOR, end to end through the product's own path. The CEO's third live
+  // run of the seeded calendar (2026-09-17) exited 2 with fourteen refusals: "already exists.
+  // Refusing to overwrite it — a belief is superseded, never silently replaced." The evidence zone
+  // keeps EVERY revision, so a twice-changed event leaves three of them, and the promotion pass —
+  // which asked the ledger only for the NEWEST promoted revision — re-offered the oldest one to the
+  // writer, which already held it. Two changes is therefore the minimum this test can prove anything
+  // with: one change was green before the fix.
+  const result = await runMockedAcceptance({ out: () => {} });
+  try {
+    const { google, deps, zone, corpus, accountId } = result.mock;
+    const calendar = google.calendars.get(accountId);
+    const loro = await import(`file://${path.join(resolveLoroDir(), 'lib', 'frontmatter.js')}`);
+    const recordFile = (ref) => path.join(corpus, `${ref.replace(/^rec:/, '')}.md`);
+    const record = (ref) => loro.parseFrontMatter(fs.readFileSync(recordFile(ref), 'utf8'));
+
+    // Pick a promoted event off the product's OWN ledger rather than by summary: the thing under
+    // test is a record that already exists, so the fixture has to be one that became memory.
+    const before = readPromotionHistory(zone).head;
+    const sourceItemId = [...before.keys()].find((id) => calendar.events.has(id.split(':').pop()));
+    assert.ok(sourceItemId, 'the first sync promoted at least one event off the primary calendar');
+    const eventId = sourceItemId.split(':').pop();
+    const first = before.get(sourceItemId);
+    const firstRecord = record(first.ref);
+
+    // Google's own shape for a rescheduled event: a new time, a bumped `sequence`, a new `etag`.
+    const moveTo = (day, etag) => {
+      const stored = calendar.events.get(eventId);
+      calendar.events.set(eventId, {
+        ...stored,
+        summary: `${String(stored.summary).replace(/ \(moved.*\)$/, '')} (moved to the ${day}th)`,
+        start: { ...stored.start, dateTime: `2026-10-${day}T15:00:00Z` },
+        end: { ...stored.end, dateTime: `2026-10-${day}T16:00:00Z` },
+        sequence: (stored.sequence || 0) + 1,
+        etag: `"${etag}"`,
+      });
+      return `2026-10-${day}T15:00:00.000Z`;
+    };
+
+    // ── the first change ─────────────────────────────────────────────────────────────────────────
+    const firstMoveIso = moveTo('06', 'moved-once');
+    const second = await sync(deps());
+    assert.equal(second.exitCode, 0, `a changed event is a normal outcome, not exit 2:\n${JSON.stringify(second.promotion, null, 2)}`);
+    assert.deepEqual(second.promotion.failed, []);
+    assert.equal(second.promotion.events, 1);
+    assert.equal(second.promotion.superseded, 1, 'the change is COUNTED as a supersede, beside promoted and held');
+    assert.ok(describePromotion(second.promotion, (l) => `${l}:`.padEnd(12))
+      .some((line) => /^superseded: 1 of those replaced an earlier revision/.test(line)),
+    'the sync says so in the summary the CEO reads');
+
+    const afterFirst = readPromotionHistory(zone).head.get(sourceItemId);
+    assert.notEqual(afterFirst.ref, first.ref, 'a new revision is a NEW record, never an overwrite');
+    const movedRecord = record(afterFirst.ref);
+    assert.equal(movedRecord.data.observedAt, firstMoveIso, 'the promoted memory carries the NEW time');
+    assert.equal(movedRecord.data.supersedes, first.ref);
+    // …and the earlier belief is still on disk, still says what the calendar said at the time, and
+    // now points forward. That is the whole reason the writer refuses an overwrite.
+    const retired = record(first.ref);
+    assert.equal(retired.data.supersededBy, afterFirst.ref);
+    assert.equal(retired.data.observedAt, firstRecord.data.observedAt, 'the old revision is unchanged apart from the chain');
+    assert.ok(retired.body.includes('Calendar entry for'), 'the superseded record is still readable');
+
+    // ── the second change: the run that used to fail ─────────────────────────────────────────────
+    const secondMoveIso = moveTo('13', 'moved-twice');
+    const third = await sync(deps());
+    assert.equal(third.exitCode, 0, `THE REGRESSION: ${JSON.stringify(third.promotion && third.promotion.failed, null, 2)}`);
+    assert.deepEqual(third.promotion.failed, [], 'no revision is ever offered to the writer twice');
+    assert.equal(third.promotion.events, 1);
+    assert.equal(third.promotion.superseded, 1);
+    const afterSecond = readPromotionHistory(zone).head.get(sourceItemId);
+    assert.equal(record(afterSecond.ref).data.observedAt, secondMoveIso);
+    assert.equal(record(afterSecond.ref).data.supersedes, afterFirst.ref);
+    assert.equal(record(afterFirst.ref).data.supersededBy, afterSecond.ref);
+    // The whole chain is walkable from the oldest belief to the newest, three revisions deep.
+    assert.equal(record(record(first.ref).data.supersededBy).data.supersededBy, afterSecond.ref);
+    assert.equal(readPromotionHistory(zone).revisions.size >= 3, true);
+    // The pass recognized the two OLDER revisions rather than re-promoting them — the defect itself.
+    const held = third.promotion.held.find((h) => h.reason === 'already promoted (an earlier revision, since superseded)');
+    assert.ok(held && held.count >= 2, JSON.stringify(third.promotion.held));
+
+    // ── POSITIVE CONTROL: nothing changed at the source ──────────────────────────────────────────
+    // Without this, a pass that had stopped promoting changes altogether would pass everything above
+    // on its way to promoting nothing at all — and the fix must not have been bought with a blanket
+    // skip. An unchanged revision is still reported as unchanged, and nothing is written.
+    const fourth = await sync(deps());
+    assert.equal(fourth.exitCode, 0);
+    assert.deepEqual(fourth.promotion.failed, []);
+    assert.equal(fourth.promotion.events, 0, 'an unchanged calendar promotes nothing');
+    assert.equal(fourth.promotion.superseded, 0);
+    assert.ok(fourth.promotion.held.some((h) => h.reason === 'already promoted (unchanged revision)'),
+      JSON.stringify(fourth.promotion.held));
+    assert.ok(!describePromotion(fourth.promotion, (l) => `${l}:`.padEnd(12)).some((line) => line.startsWith('superseded:')),
+      'a run with no change says nothing about supersedes');
+    assert.equal(readPromotionHistory(zone).head.get(sourceItemId).ref, afterSecond.ref);
   } finally { cleanupMockedAcceptance(result); }
 });
 
