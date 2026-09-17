@@ -59,6 +59,7 @@ import { getSyncState, forgetInstances as forgetCursorsFor } from './sync-state.
 import { getRunState, recordRun, describeRun, forgetInstances as forgetRunsFor } from './run-state.js';
 import { ingestOnce } from './core.js';
 import { runPromotion, describePromotion } from './promote-run.js';
+import { planRepair, applyRepair, describeRepair, parseInstant } from './repair.js';
 
 export { SUPPORTED_VENDORS };
 
@@ -125,6 +126,13 @@ function resolve(deps = {}) {
     timeoutMs: deps.timeoutMs,
     keychainService: deps.keychainService,
     forgetCursors: Boolean(deps.forgetCursors),
+    // `repair`'s window and mode. `since`/`until` are whatever the operator typed — parsed by
+    // `repair.js`, which refuses a time it cannot read rather than letting it become a NaN that
+    // matches everything or nothing.
+    since: deps.since ?? null,
+    until: deps.until ?? null,
+    apply: Boolean(deps.apply),
+    dryRun: Boolean(deps.dryRun),
   };
 }
 
@@ -1093,6 +1101,77 @@ export async function disconnect(deps = {}) {
 }
 
 // =================================================================================================
+// repair
+// =================================================================================================
+
+/**
+ * UNDO ONE SYNC RUN — the command that exists because one crossed-consent run already happened
+ * before `connect` could refuse it (`identity.js`, `repair.js`).
+ *
+ * VENDOR-FREE ON PURPOSE. The evidence zone, the ingest ledger and the cursor file hold every
+ * vendor's and every account's work in one place, and a run is identified by WHEN it wrote — so
+ * taking a vendor here would invite `repair google` to look like it repaired only Google's rows,
+ * which is not something the ledger can express.
+ *
+ * DRY RUN IS THE DEFAULT, and `--apply` is the only way past it: a window is a claim about a run,
+ * and the only way to check a claim about a run is to read what acting on it would do.
+ */
+export async function repair(deps = {}) {
+  const d = resolve(deps);
+
+  if (d.apply && d.dryRun) {
+    d.out('--apply and --dry-run are opposite instructions, so RichOS will not pick one. Run it with neither');
+    d.out('(which reports and changes nothing), or with --apply.');
+    return { exitCode: 1 };
+  }
+  if (!d.since) {
+    d.out('workspace repair undoes ONE sync run, and a run is identified by the window it wrote in.');
+    d.out('');
+    d.out('  richos-service workspace repair --since <ISO instant> [--until <ISO instant>] [--apply]');
+    d.out('');
+    d.out('Take the window from the run\'s own output. Without --apply it reports exactly what it would do');
+    d.out('and changes nothing.');
+    return { exitCode: 1 };
+  }
+
+  let plan;
+  try {
+    plan = planRepair({
+      zone: d.zone,
+      since: parseInstant(d.since, 'since'),
+      ...(d.until ? { until: parseInstant(d.until, 'until') } : {}),
+      now: d.now,
+    });
+  } catch (err) {
+    d.out(String(err.message || err));
+    return { exitCode: 1 };
+  }
+
+  const dryRun = !d.apply;
+  const nothing = !plan.ledger.removing.length && !plan.cursors.resetting.length;
+  if (nothing && !plan.refusals.length) {
+    d.out(`${L('zone')}${d.zone}`);
+    d.out(`${L('window')}${new Date(plan.since).toISOString()}  ..  ${new Date(plan.until).toISOString()}`);
+    d.out('');
+    d.out('Nothing was ingested and no cursor moved inside that window, so there is nothing to undo.');
+    d.out('If you expected rows here, check the window against the run\'s own output — the times in it are UTC.');
+    return { exitCode: 0, dryRun, plan, nothing: true };
+  }
+
+  const done = dryRun ? null : applyRepair(plan, { now: d.now });
+  for (const line of describeRepair(plan, L, { dryRun, ...(done ? { done } : {}) })) d.out(line);
+
+  if (!dryRun) {
+    d.out('');
+    d.out(`Next: richos-service workspace sync ${d.vendor} --once   (a bounded full sync, deduped by the repaired ledger)`);
+  }
+  // A refusal inside an otherwise-successful repair is not a success: the run did what it could and
+  // says what it would not touch, and the exit code carries that so a script cannot miss it.
+  const exitCode = plan.refusals.length || (done && done.errors.length) ? 1 : 0;
+  return { exitCode, dryRun, plan, ...(done ? { done } : {}) };
+}
+
+// =================================================================================================
 // dispatch + the line `doctor` prints
 // =================================================================================================
 
@@ -1105,6 +1184,9 @@ export const USAGE = [
   '  richos-service workspace sync [google|microsoft] [--once] [--account you@co.com] [--source calendar] [--no-promote]',
   '                                                                          # --once is the only mode: no daemon. Promotes what it pulled into loro memory unless --no-promote',
   '  richos-service workspace disconnect google|microsoft --account you@co.com [--forget-cursors]',
+  '  richos-service workspace repair --since <ISO instant> [--until <ISO instant>] [--apply]',
+  '                                                                          # undo ONE sync run: its ledger rows, its evidence and the cursors it moved.',
+  '                                                                          # Reports and changes nothing unless --apply. Vendor-free: one zone holds them all.',
   '',
   '  The two vendors are separate everywhere: separate consent, separate client config file, separate',
   '  keychain entries, separate cursors. Connect either or both; disconnecting one touches nothing of the other.',
@@ -1142,6 +1224,7 @@ export async function runWorkspace(args) {
     case 'status': return status(deps);
     case 'sync': return sync(deps);
     case 'disconnect': return disconnect(deps);
+    case 'repair': return repair(deps);
     default:
       out(`unknown workspace command "${sub}".`);
       out('usage:');

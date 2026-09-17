@@ -339,10 +339,17 @@ function listDirs(dir) {
  * Layout is `evidence.js`'s: `<zone>/<vendor>/<source>/<safeId>/rev-<etag>/item.json`. The stored
  * item has its body lifted out into `content.txt` (`evidence.js:96`), so it is put back here —
  * `synthesis.js` reads `content.text` and would otherwise FILTER every item as "no description".
+ * `opts.exclude` answers "pretend this revision is not there". It exists for ONE caller — `repair`,
+ * which has to ask what the §4.5 corroboration counts would be WITHOUT the evidence it is about to
+ * remove, and must ask it with the same reader and the same threshold the promotion pass uses rather
+ * than a second implementation that can drift. Nothing is filtered when it is absent.
+ *
  * @param {string} zone
+ * @param {{exclude?:(dir:string) => boolean}} [opts]
  * @returns {Array<{item:Object, governance:Object, dir:string, evidenceLink:string}>}
  */
-export function readEvidenceZone(zone = workspaceZone()) {
+export function readEvidenceZone(zone = workspaceZone(), opts = {}) {
+  const exclude = typeof opts.exclude === 'function' ? opts.exclude : null;
   const out = [];
   for (const vendor of listDirs(zone)) {
     for (const source of listDirs(path.join(zone, vendor))) {
@@ -350,6 +357,7 @@ export function readEvidenceZone(zone = workspaceZone()) {
         const itemDir = path.join(zone, vendor, source, id);
         for (const rev of listDirs(itemDir)) {
           const dir = path.join(itemDir, rev);
+          if (exclude && exclude(dir)) continue;
           const item = readJson(path.join(dir, 'item.json'));
           if (!item) continue;
           const governance = readJson(path.join(dir, 'governance.json')) || {};
@@ -472,10 +480,11 @@ export function promoteFromEvidence(opts) {
  * once is not yet a person loro knows. Drive and Gmail items contribute here even though they are
  * not promotable as memory — their people are exactly what §4.5 wants.
  * @param {string} [zone]
+ * @param {{exclude?:(dir:string) => boolean}} [opts]  see `readEvidenceZone` — `repair`'s counterfactual
  */
-export function entityCandidatesFromEvidence(zone = workspaceZone()) {
+export function entityCandidatesFromEvidence(zone = workspaceZone(), opts = {}) {
   const candidates = [];
-  for (const { item } of readEvidenceZone(zone)) {
+  for (const { item } of readEvidenceZone(zone, opts)) {
     if (item.trust?.quarantine) continue;
     for (const candidate of extractCandidates(item).entities) candidates.push(candidate);
   }
