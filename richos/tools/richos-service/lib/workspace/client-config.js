@@ -54,8 +54,65 @@ import { sourcesForVendor, grantsFor } from './registry.js';
  */
 export const DEFAULT_REDIRECT_URI = 'http://127.0.0.1:47121/callback';
 
+/**
+ * The loopback redirect the MICROSOFT guide pins (`richos-hq/docs/guides/microsoft-365-setup.md`,
+ * Step 2.3). A DIFFERENT PORT FROM GOOGLE'S, and deliberately so: the CEO registers this exact URI in
+ * the Entra portal, Entra matches the redirect string exactly, and one port shared by two vendors
+ * would mean two registrations claiming one listener. The value is pinned here rather than in the
+ * command because the guide he follows and the listener the command opens have to agree on it.
+ */
+export const MICROSOFT_REDIRECT_URI = 'http://127.0.0.1:53682/callback';
+
 /** The placeholder the guide prints. Pasting the template unedited is a refusal, never a request. */
 export const CLIENT_ID_PLACEHOLDER = 'PASTE_YOUR_CLIENT_ID';
+
+/** Entra's second id. Same discipline: the template's value is a refusal, not a tenant. */
+export const TENANT_PLACEHOLDER = 'PASTE_YOUR_TENANT_ID';
+
+/**
+ * The words a refusal uses, per vendor.
+ *
+ * Every sentence this module prints is read by the CEO in the middle of a setup guide, so it has to
+ * name HIS vendor's portal, HIS vendor's consent screen and HIS vendor's address. "Paste the Client
+ * ID from your own Google Cloud OAuth client" in front of a man looking at the Entra portal is a
+ * refusal that costs him a search instead of a paste.
+ */
+const VENDOR_WORDS = {
+  google: {
+    label: 'Google',
+    account: 'Google account',
+    address: 'Google address',
+    console: 'Google Cloud console',
+    screen: 'Google consent screen',
+    idStep: 'the "Google Workspace OAuth setup" guide, Step 4',
+    redirectUri: DEFAULT_REDIRECT_URI,
+    clientIdSample: `${CLIENT_ID_PLACEHOLDER}.apps.googleusercontent.com`,
+    tenant: false,
+  },
+  microsoft: {
+    label: 'Microsoft 365',
+    account: 'Microsoft 365 account',
+    address: 'Microsoft 365 address',
+    console: 'Entra ID portal',
+    screen: 'Microsoft sign-in screen',
+    idStep: 'the "Microsoft 365 setup" guide, Step 3',
+    redirectUri: MICROSOFT_REDIRECT_URI,
+    clientIdSample: CLIENT_ID_PLACEHOLDER,
+    tenant: true,
+  },
+};
+
+/** The vocabulary for a vendor. Never defaults: a refusal naming the wrong vendor is worse than none. */
+export function vendorWords(vendor = 'google') {
+  const words = VENDOR_WORDS[String(vendor || '').trim().toLowerCase()];
+  if (!words) throw new Error(`no client-config vocabulary for vendor "${vendor}" — known: ${Object.keys(VENDOR_WORDS).join(', ')}`);
+  return words;
+}
+
+/** The loopback this vendor's setup guide pins. */
+export function defaultRedirectUri(vendor = 'google') {
+  return vendorWords(vendor).redirectUri;
+}
 
 /**
  * The scope table for a vendor. `google` is the default so every existing caller keeps its behavior
@@ -172,14 +229,19 @@ export function migrateClientConfig(raw) {
     config: {
       clientId: typeof src.clientId === 'string' ? src.clientId.trim() : '',
       ...(typeof src.redirectUri === 'string' && src.redirectUri.trim() ? { redirectUri: src.redirectUri.trim() } : {}),
+      // Entra-only, and carried through SHAPE-ONLY exactly like every other field here: a Google
+      // config never has them, and a Microsoft config that loses its tenant on a save would sign the
+      // CEO in against `/common` — a different directory from the one he registered the app in.
+      ...(typeof src.tenant === 'string' && src.tenant.trim() ? { tenant: src.tenant.trim() } : {}),
+      ...(src.confidentialClient === true ? { confidentialClient: true } : {}),
       accounts,
     },
   };
 }
 
 /** The refusal for an account RichOS cannot name. Worded once: two commands print it. */
-const ACCOUNT_MISSING =
-  'accountId is missing — the Google address this authorization belongs to (e.g. "you@yourcompany.com"). ' +
+const accountMissing = (vendor) =>
+  `accountId is missing — the ${vendorWords(vendor).address} this authorization belongs to (e.g. "you@yourcompany.com"). ` +
   'RichOS cannot read it from the grant: the read-only Calendar scope carries no identity, and asking ' +
   'for one would change your consent screen.';
 
@@ -205,16 +267,45 @@ const ACCOUNT_MISSING =
  */
 export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   const problems = [];
+  const words = vendorWords(vendor);
   const { config: shaped, migrated } = migrateClientConfig(raw);
 
   const clientId = shaped.clientId;
   if (!clientId) {
-    problems.push('clientId is missing — paste the Client ID from your own Google Cloud OAuth client (guide Step 4).');
+    problems.push(`clientId is missing — paste the Client ID from your own ${words.console} app registration (${words.idStep}).`);
   } else if (clientId.includes(CLIENT_ID_PLACEHOLDER)) {
     problems.push(`clientId is still the template placeholder "${CLIENT_ID_PLACEHOLDER}" — replace it with your own Client ID.`);
   }
 
-  const redirectUri = shaped.redirectUri || DEFAULT_REDIRECT_URI;
+  // THE TENANT IS NOT OPTIONAL FOR ENTRA, and defaulting it would be the worst kind of helpful: an
+  // absent tenant means `/common`, which signs the CEO in against a directory that is not the one he
+  // registered his app in, and the failure arrives as an AADSTS code after a consent screen.
+  const tenant = shaped.tenant || '';
+  if (words.tenant) {
+    if (!tenant) {
+      problems.push(
+        `tenant is missing — the Directory (tenant) ID from your Entra app's Overview page (${words.idStep}), `
+          + 'or your verified domain (e.g. "yourcompany.onmicrosoft.com"). "consumers" is the personal-account '
+          + 'endpoint. RichOS will not fall back to "/common": that would sign you in against a directory '
+          + 'other than the one your app is registered in.',
+      );
+    } else if (tenant.includes(TENANT_PLACEHOLDER)) {
+      problems.push(`tenant is still the template placeholder "${TENANT_PLACEHOLDER}" — replace it with your own Directory (tenant) ID.`);
+    }
+  }
+
+  // A SECRET IN THIS FILE IS REFUSED, WHICHEVER VENDOR. `_oauth_client.json` is a document the CEO is
+  // invited to open, and the one credential either flow needs beyond the tokens lives in the OS
+  // keychain (`client-secret.js`). Accepting it here would quietly move a live credential into a file
+  // that the rest of this component promises does not hold one.
+  if (typeof (raw || {}).clientSecret === 'string' && String((raw || {}).clientSecret).trim()) {
+    problems.push(
+      'clientSecret must not be in this file — RichOS keeps it in the OS keychain and writes it to no '
+        + 'RichOS file. Delete the line, then hand it over on the connect command instead.',
+    );
+  }
+
+  const redirectUri = shaped.redirectUri || words.redirectUri;
   try {
     assertLoopbackRedirect(redirectUri);
   } catch (err) {
@@ -225,18 +316,18 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   const accounts = [];
   const seen = new Set();
 
-  if (!shaped.accounts.length) problems.push(ACCOUNT_MISSING);
+  if (!shaped.accounts.length) problems.push(accountMissing(vendor));
 
   for (const entry of shaped.accounts) {
     const accountId = entry.accountId;
     if (!accountId) {
-      problems.push(ACCOUNT_MISSING);
+      problems.push(accountMissing(vendor));
     } else if (!accountId.includes('@')) {
-      problems.push(`accountId "${accountId}" does not look like an email address — it must be the Google account you authorize.`);
+      problems.push(`accountId "${accountId}" does not look like an email address — it must be the ${words.account} you authorize.`);
     } else if (seen.has(accountId)) {
       // Two entries for one address is two answers to "what did he grant it?", and nothing here may
       // pick one. It is also always a hand edit, so it is cheap to say and cheap for him to fix.
-      problems.push(`the account "${accountId}" is listed twice — give each Google account exactly one entry under "accounts".`);
+      problems.push(`the account "${accountId}" is listed twice — give each ${words.account} exactly one entry under "accounts".`);
       continue;
     }
     if (accountId) seen.add(accountId);
@@ -247,7 +338,7 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
       if (!requestable.includes(s)) {
         problems.push(
           `scope "${s}"${who} is not one RichOS declares (config.js ${vendor.toUpperCase()}_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
-            'Widening what you consent to is a decision on the Google consent screen, not a config edit.',
+            `Widening what you consent to is a decision on the ${words.screen}, not a config edit.`,
         );
       }
     }
@@ -255,7 +346,18 @@ export function validateClientConfig(raw, { vendor = 'google' } = {}) {
     accounts.push({ accountId, scopes, orgDomains: entry.orgDomains || [] });
   }
 
-  return { ok: problems.length === 0, problems, migrated, config: { clientId, redirectUri, accounts } };
+  return {
+    ok: problems.length === 0,
+    problems,
+    migrated,
+    config: {
+      clientId,
+      redirectUri,
+      ...(tenant ? { tenant } : {}),
+      ...(shaped.confidentialClient ? { confidentialClient: true } : {}),
+      accounts,
+    },
+  };
 }
 
 /** Every account entry in a config, in the order the file lists them. */
@@ -277,7 +379,12 @@ export function accountView(config, accountId, { vendor = 'google' } = {}) {
   if (!entry) return null;
   return {
     clientId: config.clientId,
-    redirectUri: config.redirectUri || DEFAULT_REDIRECT_URI,
+    redirectUri: config.redirectUri || defaultRedirectUri(vendor),
+    // The Entra directory this account signs in against. Part of the CLIENT half of the view, not
+    // the account half: it is the app's registration, shared by every account the CEO connects
+    // through that app, exactly like the client id.
+    ...(config.tenant ? { tenant: config.tenant } : {}),
+    ...(config.confidentialClient ? { confidentialClient: true } : {}),
     accountId: entry.accountId,
     scopes: entry.scopes && entry.scopes.length ? [...entry.scopes] : [scopeTable(vendor).calendar],
     orgDomains: entry.orgDomains ? [...entry.orgDomains] : [],
@@ -319,7 +426,9 @@ export function saveClientConfig(config, file = workspaceClientConfigPath(), { v
   const { config: shaped } = migrateClientConfig(config);
   const body = {
     clientId: shaped.clientId,
-    redirectUri: shaped.redirectUri || DEFAULT_REDIRECT_URI,
+    redirectUri: shaped.redirectUri || defaultRedirectUri(vendor),
+    ...(shaped.tenant ? { tenant: shaped.tenant } : {}),
+    ...(shaped.confidentialClient ? { confidentialClient: true } : {}),
     accounts: shaped.accounts.map((a) => ({
       accountId: a.accountId,
       scopes: a.scopes && a.scopes.length ? a.scopes : [scopeTable(vendor).calendar],
@@ -338,10 +447,12 @@ export function saveClientConfig(config, file = workspaceClientConfigPath(), { v
  * @returns {string}
  */
 export function clientConfigTemplate(vendor = 'google') {
+  const words = vendorWords(vendor);
   return JSON.stringify(
     {
-      clientId: `${CLIENT_ID_PLACEHOLDER}.apps.googleusercontent.com`,
-      redirectUri: DEFAULT_REDIRECT_URI,
+      clientId: words.clientIdSample,
+      ...(words.tenant ? { tenant: TENANT_PLACEHOLDER } : {}),
+      redirectUri: words.redirectUri,
       accounts: [
         { accountId: 'you@yourcompany.com', scopes: [scopeTable(vendor).calendar] },
       ],

@@ -20,7 +20,7 @@
  *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
  *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service toolchain             # which binary, which ggml backends, which weights — and did they change
- *   richos-service workspace ...         # the CEO's own Google Workspace source: connect / status / sync / disconnect
+ *   richos-service workspace ...         # the CEO's own Google / Microsoft 365 source: connect / status / sync / disconnect
  *                                        # --account <address> picks one of several connected Google accounts
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
@@ -39,7 +39,10 @@ import { resolveToolchain, lockPath as toolchainLockPath } from '../lib/toolchai
 import { modelStatus, downloadModel } from '../../../engine/voice/provisioning/model-fetch.js';
 import { inspectFile } from '../../../engine/voice/provisioning/model-integrity.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
-import { runWorkspace, doctorLine as workspaceDoctorLine, USAGE as WORKSPACE_USAGE } from '../lib/workspace/commands.js';
+import {
+  runWorkspace, doctorLine as workspaceDoctorLine, USAGE as WORKSPACE_USAGE,
+  SUPPORTED_VENDORS as WORKSPACE_VENDORS,
+} from '../lib/workspace/commands.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
@@ -602,6 +605,12 @@ function main() {
           ...(vendorArg ? { vendor: vendorArg } : {}),
           ...(flag('client-file') ? { clientFile: String(flag('client-file')) } : {}),
           ...(flag('client-id') ? { clientId: String(flag('client-id')) } : {}),
+          // Entra's Directory (tenant) ID — the second of the two ids the Microsoft guide's Step 3
+          // hands over. Google has no equivalent and never reads it.
+          ...(flag('tenant') ? { tenant: String(flag('tenant')) } : {}),
+          // The deliberate confidential-client path. It goes STRAIGHT into the OS keychain and into no
+          // RichOS file; nothing downstream prints it, hashes it or puts it in an error.
+          ...(flag('client-secret') ? { clientSecret: String(flag('client-secret')) } : {}),
           ...(flag('account') ? { accountId: String(flag('account')) } : {}),
           ...(sources.length ? { sources, only: sources } : {}),
           ...(flag('forget-cursors') === true ? { forgetCursors: true } : {}),
@@ -667,7 +676,12 @@ function main() {
       console.log(`drop zone:  ${zone}`);
       // Read-only, and deliberately never fatal: the Workspace source is optional, so an unconnected
       // Google account must not turn a healthy transcription toolchain into a red `doctor`.
-      console.log(`workspace:  ${workspaceDoctorLine()}`);
+      // ONE LINE PER VENDOR. A single line would report whichever vendor happened to be hard-coded
+      // and be silent about the other — which is the failure `doctorLine` itself was rewritten to
+      // avoid for accounts, applied one level up. The CEO may have connected either, or both.
+      for (const wsVendor of WORKSPACE_VENDORS) {
+        console.log(`workspace:  ${wsVendor} — ${workspaceDoctorLine({ vendor: wsVendor })}`);
+      }
       process.exit(ok ? 0 : 1);
       break;
     }
