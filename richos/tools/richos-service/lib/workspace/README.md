@@ -94,9 +94,9 @@ binary did not have. Four commands close that:
 
 ```
 richos-service workspace connect google [--client-file <client_secret_....json>] [--client-id <id>] [--account you@co.com] [--source calendar --source drive --source mail]
-richos-service workspace status [google]
-richos-service workspace sync [google] [--once] [--source calendar]
-richos-service workspace disconnect google [--forget-cursors]
+richos-service workspace status [google] [--account you@co.com]
+richos-service workspace sync [google] [--once] [--account you@co.com] [--source calendar]
+richos-service workspace disconnect google --account you@co.com [--forget-cursors]
 ```
 
 - **`connect`** is §6's ceremony: PKCE, a loopback consent leg (`consent.js` — Node's own `http`,
@@ -118,6 +118,23 @@ richos-service workspace disconnect google [--forget-cursors]
   own lifecycle and switching one on for the CEO's calendar is a deliberate decision, not a flag.
 - **`disconnect`** revokes vendor-side and deletes the local grant; cursors survive unless
   `--forget-cursors`, so reconnecting resumes rather than re-pulling.
+
+**More than one Google account, side by side.** `connect google --account <the other address>` is
+how a second account is added: the same command, a second consent screen, a second entry in
+`accounts` and a second keychain item — every account already connected untouched. The OAuth client
+is shared, because it is the CEO's one app and each account authorizes *that* app; everything after
+the consent screen is per account (the grant, the scopes, the governance identity, the tokens, the
+cursors, the last-run records and the evidence paths, which already carried the account inside
+`sourceInstanceId`). `status` and `sync` run every account unless `--account` names one, reporting
+per account **and** per source, so a stated condition like "no Gmail mailbox on this account" is
+true of one account and not of the other in the same run. `disconnect` takes `--account` and refuses
+to guess while more than one is configured, and its `--forget-cursors` drops that account's cursors
+only. The **second account must also be a test user of the Cloud project** (guide Step 3) — an
+External+Testing app only consents accounts on that list, and Google refuses the rest at the consent
+screen with no useful detail. A config written before 2026-09-17 has one `accountId` at the top
+level; it is read, migrated to the list in place on first use and announced, with nothing about the
+existing account changed, and the single grant that predates per-account keychain keys is copied to
+its account's key, read back, and only then removed from the old one.
 
 **`registry.js` is where a scope becomes a source.** It derives everything from `config.js`
 `GOOGLE_SCOPES` and nothing from a second list, so the scope table and what runs cannot drift. A
@@ -141,14 +158,16 @@ exercised for real on `127.0.0.1` with an ephemeral port, including a forged `st
 closed-port check afterwards.
 
 **Where the client config lives:** `<zone>/_oauth_client.json` (`workspaceClientConfigPath`, override
-`RICHOS_WORKSPACE_CLIENT_CONFIG`) — client id, loopback redirect, requested scopes, and the account
-the grant is bound to. **No secret in that file**: a Google "Desktop app" client does have one, and
-Google's token endpoint refuses both the code exchange and the refresh without it (`client-secret.js`
-carries the live probe), so it lives in the **OS keychain** beside the tokens, in the same service,
-keyed by client id — never in a file the CEO is invited to open, never in a log line. The account is asked for
-rather than derived: the least-privilege grant carries no identity scope, so there is no `id_token`
-and no People call, and requesting one would change what the CEO consents to. That one address then
-serves as both the adapters' stable `accountId` and the governance identity (§5.1).
+`RICHOS_WORKSPACE_CLIENT_CONFIG`) — client id, loopback redirect, and an `accounts` list, each entry
+an address with its own requested scopes and org domains. **No secret in that file**: a Google
+"Desktop app" client does have one, and Google's token endpoint refuses both the code exchange and
+the refresh without it (`client-secret.js` carries the live probe), so it lives in the **OS keychain**
+beside the tokens, in the same service, keyed by client id — never in a file the CEO is invited to
+open, never in a log line. Each account's grant is its own keychain item, `oauth-tokens <address>` in
+that same service. The account is asked for rather than derived: the least-privilege grant carries no
+identity scope, so there is no `id_token` and no People call, and requesting one would change what
+the CEO consents to. Each address then serves as both the adapters' stable `accountId` and that
+account's governance identity (§5.1).
 
 ## Drive (P2) — document text, under `drive.readonly`, since the CEO said yes (§40)
 
