@@ -186,7 +186,7 @@ richos/app/
                               file replays into. Run it with two builds against the same
                               file and diff: identical output is what a claim that a reader
                               change left every existing history alone is made of
-    tests/ledger_forward_compat_tests.rs 20 tests holding one line — NOTHING ALREADY
+    tests/ledger_forward_compat_tests.rs 25 tests holding one line — NOTHING ALREADY
                               READABLE MAY BECOME LESS READABLE. Two committed fixtures
                               carrying every record shape the shipped builds wrote, pinned
                               against goldens captured BEFORE the tolerant reader existed;
@@ -444,7 +444,7 @@ richos/app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
-    tests/setup.rs           38 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
+    tests/setup.rs           43 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
                               two executables a customer's Mac does not have, fetched and
                               verified. Every failure path is a VALUE rather than a network
                               condition — no network, a 404, a truncated body, a tampered
@@ -946,7 +946,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1089 tests + 5 doc-tests (1085 direct, 4 ignored)
+cargo test -p richos-core                       # 1146 tests + 5 doc-tests (1142 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -974,7 +974,7 @@ cargo test -p richos-core                       # 1089 tests + 5 doc-tests (1085
 #     Last run: PASS against 2.1.263 (docs/verification/inner-doctrine-live-2026-09-06/).
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 258 tests
+cargo test -p richos-voice                      # 270 tests
 #     …of which 253 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
