@@ -71,6 +71,17 @@
  *     taken AFTER the sweep would silently lose every message that arrived during it; taken before,
  *     the worst case is that the first delta re-reports a message the sweep already saw, which the
  *     ingest ledger dedups by (sourceItemId, vendorEtag).
+ *   - THE WINDOW IS ENFORCED CLIENT-SIDE, NEVER WITH `q` (found live, 2026-09-17). Google refuses the
+ *     `q` search parameter on `users.messages.list` under `gmail.metadata` — `403 PERMISSION_DENIED,
+ *     "Metadata scope does not support 'q' parameter"` — because `q` is a search over content the
+ *     metadata grant does not authorize reading. So the sweep pages `messages.list` with no `q` at
+ *     all (Gmail's own, undocumented-but-relied-on default order for an unfiltered list is newest
+ *     first) and this adapter draws the boundary itself: for each page it reads the `internalDate` of
+ *     that page's OLDEST message (the last ref, given newest-first order) via the same
+ *     `messages.get?format=metadata` call `fetchItem` already makes for headers, and stops — mid-page
+ *     if needed, message by message — the moment a date falls before the rolling window. An
+ *     unparseable date fails OPEN (the message is kept) rather than silently dropping mail the CEO
+ *     can see in his own inbox.
  *   - THEREAFTER: page `history.list` from the stored id, ending on the page with no `nextPageToken`.
  *   - TOKEN LOSS: Gmail reports a `historyId` that has aged out of its window as **404**, where
  *     Calendar and Drive report an expired token as **410**. Same meaning, different number, so the
@@ -83,9 +94,11 @@
  * nor cares — which is the point of an opaque cursor, and is why Gmail needs no core change.
  *
  * NO THIRD-PARTY DEFAULTS (standing CEO rule). Every parameter that changes what comes back is pinned
- * explicitly below — `maxResults`, `includeSpamTrash`, the `q` window, `historyTypes`, `format` and
- * the exact `metadataHeaders` list. Gmail's defaults are Google's to change; inheriting them would let
- * a vendor release silently alter which of the CEO's mail RichOS reads.
+ * explicitly below — `maxResults`, `includeSpamTrash`, `historyTypes`, `format` and the exact
+ * `metadataHeaders` list. The one exception is the FIRST-SYNC WINDOW, which cannot be a request
+ * parameter at all under `gmail.metadata` (above) and is instead enforced by this adapter reading
+ * dates back out of what Google returns. Gmail's defaults are Google's to change; inheriting them
+ * would let a vendor release silently alter which of the CEO's mail RichOS reads.
  *
  * The adapter is a thin normalizer over an injected GoogleClient — no auth logic, no governance, no
  * storage. It talks to ONE vendor API and turns raw → `SourceItem`. Everything downstream is vendor-blind.
@@ -265,6 +278,14 @@ export class GoogleGmailAdapter {
    * A BOUNDED first sync (§4.3). The anchor `historyId` is read from the profile BEFORE the sweep, so
    * a message arriving mid-sweep is re-reported by the next delta rather than lost; the ledger dedups
    * the overlap. The reverse order would leave a hole no later poll could fill.
+   *
+   * The bound cannot be a `q` parameter (Google 403s it under `gmail.metadata` — see the class doc),
+   * so it is enforced here: page `messages.list` with no filter (newest-first is Gmail's own default
+   * order for an unfiltered list) and, for each page, read the `internalDate` of that page's OLDEST
+   * message — the last ref, given newest-first order — before committing the page. Once a page's
+   * oldest date falls before the window, walk that page message-by-message (still newest-first) and
+   * stop the whole sweep at the first one older than the window, rather than dropping or keeping an
+   * entire page on one boundary sample.
    */
   async listFullSync() {
     let profile;
@@ -280,15 +301,53 @@ export class GoogleGmailAdapter {
       throw err;
     }
     const anchor = String(profile.historyId || '');
+    const cutoffMs = this.now() - this.fullSyncWindowMs;
     const items = [];
     let pageToken = null;
     for (;;) {
       const page = await this.client.getJson(this.buildListUrl({ pageToken }));
-      for (const ref of page.messages || []) items.push({ id: ref.id, threadId: ref.threadId });
+      const refs = page.messages || [];
+      if (refs.length) {
+        const oldestRef = refs[refs.length - 1];
+        const oldestDate = await this.fetchInternalDate(oldestRef.id);
+        if (oldestDate !== null && oldestDate < cutoffMs) {
+          let boundaryHit = false;
+          for (const ref of refs) {
+            const date = ref.id === oldestRef.id ? oldestDate : await this.fetchInternalDate(ref.id);
+            // An unparseable date (null) fails OPEN — kept, never silently dropped — because the
+            // alternative is losing mail the CEO can plainly see sitting in his own inbox.
+            if (date !== null && date < cutoffMs) { boundaryHit = true; break; }
+            items.push({ id: ref.id, threadId: ref.threadId });
+          }
+          if (boundaryHit) break;
+        } else {
+          for (const ref of refs) items.push({ id: ref.id, threadId: ref.threadId });
+        }
+      }
       if (!page.nextPageToken) break;
       pageToken = page.nextPageToken;
     }
     return { items: dedupeRefs(items), nextSyncState: { syncToken: anchor } };
+  }
+
+  /**
+   * The `internalDate` of one message, fetched the same way `fetchItem` reads headers
+   * (`format=metadata`, no body possible) but trimmed to the one field this needs. Used only to draw
+   * the first-sync window boundary — never to normalize a `SourceItem`.
+   * @param {string} id
+   * @returns {Promise<number|null>}
+   */
+  async fetchInternalDate(id) {
+    const msg = await this.client.getJson(this.buildInternalDateUrl(id));
+    return parseInternalDate(msg && msg.internalDate);
+  }
+
+  /** The minimal-fields URL `fetchInternalDate` uses. Pinned like every other request here. */
+  buildInternalDateUrl(id) {
+    const u = new URL(`${API_BASE}/users/${USER_ID}/messages/${encodeURIComponent(id)}`);
+    u.searchParams.set('format', 'metadata');
+    u.searchParams.set('fields', 'internalDate');
+    return u.toString();
   }
 
   /** Delta sync: `history.list` from the stored `historyId`, paged to exhaustion. */
@@ -311,8 +370,11 @@ export class GoogleGmailAdapter {
   }
 
   /**
-   * The bounded full-sync listing URL. Every parameter that changes what comes back is pinned, not
-   * inherited: page size, the spam/trash decision, and the rolling window.
+   * The full-sync listing URL. Every parameter that changes what comes back is pinned, not inherited:
+   * page size and the spam/trash decision. NO `q` — Google 403s that parameter under `gmail.metadata`
+   * ("Metadata scope does not support 'q' parameter"), so the rolling window is enforced by
+   * `listFullSync` reading dates back out of the response instead (see the class doc and
+   * `fetchInternalDate`).
    */
   buildListUrl({ pageToken }) {
     const u = new URL(`${API_BASE}/users/${USER_ID}/messages`);
@@ -320,7 +382,6 @@ export class GoogleGmailAdapter {
     // Spam and trash are excluded on purpose, stated rather than inherited: the first sweep is the
     // CEO's correspondence, and the junk folder is the one corpus an attacker fully controls.
     u.searchParams.set('includeSpamTrash', 'false');
-    u.searchParams.set('q', `after:${Math.floor((this.now() - this.fullSyncWindowMs) / 1000)}`);
     if (pageToken) u.searchParams.set('pageToken', pageToken);
     return u.toString();
   }
