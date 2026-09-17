@@ -176,6 +176,13 @@ mutation_copy_engine() { # <dest> <src-engine-root>
     cp -R "$src/scripts" "$dir/scripts" || return 1
     cp -R "$src/mega-lander" "$dir/mega-lander" || return 1
     cp -R "$src/ass-kicker" "$dir/ass-kicker" || return 1
+    # mega-lander/app.py loads ecs/core and ecs/adapters at import, and its
+    # suite reads agents/*.md. Without these the sandbox cannot import the file
+    # being mutated -- which the zero-case run would report loudly, and which is
+    # the same "the sandbox lacked a dependency" trap this file's header
+    # describes. Copying MORE of the real engine is the answer that header gives.
+    cp -R "$src/ecs" "$dir/ecs" || return 1
+    cp -R "$src/agents" "$dir/agents" || return 1
     cp -R "$src/hooks" "$dir/hooks" || return 1
     cp "$src/orchestration.config" "$dir/orchestration.config" || return 1
     [ -f "$src/.claude/settings.local.json" ] && cp "$src/.claude/settings.local.json" "$dir/.claude/"

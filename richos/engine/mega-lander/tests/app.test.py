@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -36,7 +37,13 @@ class DesktopWork(unittest.TestCase):
              "RICHOS_ENGINE_ROOT":str(ENGINE),"RICHOS_ENGINE_DIR":str(ENGINE),"RICHOS_ENTITY_ROOT":str(self.coord),"CLAUDE_PROJECT_DIR":str(self.coord),
              "RICHOS_APP_ENTITY":"depot","RICHOS_APP_THREAD":"thread-a",
              "RICHOS_WORKSPACES_DIR":str(self.root/"engine-state/workspaces"/hashlib.sha256(b'["depot","thread-a"]').hexdigest()),"RICHOS_SESSION_ID":self.session,"RICHOS_SESSION_PID":str(os.getpid()),
-             "RICHOS_SPAWN_HOOK_SOURCES":f"app={hook}","GIT_CONFIG_GLOBAL":"/dev/null","GIT_CONFIG_NOSYSTEM":"1","PYTHONDONTWRITEBYTECODE":"1"}
+             "RICHOS_SPAWN_HOOK_SOURCES":f"app={hook}","GIT_CONFIG_GLOBAL":"/dev/null","GIT_CONFIG_NOSYSTEM":"1","PYTHONDONTWRITEBYTECODE":"1",
+             # The land locks are machine-wide by design (~/.claude/state/land-locks).
+             # A test must not touch the operator's real ones, and this is the
+             # override that exists for exactly that -- it cannot reach an
+             # app-launched engine, whose configure() strips every inherited
+             # RICHOS_* name and re-adds only its own list.
+             "RICHOS_LAND_LOCKS_DIR":str(self.root/"land locks")}
         self.env=patch.dict(os.environ,env);self.env.start();self.addCleanup(self.env.stop)
         self.app=load();ecs=self.root/"ecs"
         binding=self.app.ECS.execute(ecs,{"protocol":1,"command":"bind","scope":{"entity_id":"depot","thread_id":"thread-a","session_id":self.session,"turn_id":"turn-a","audience":"ceo"},"request_id":"bind-first","source_ref":"ledger:thread-a:turn-a","expected_revision":None})["binding"]
@@ -533,5 +540,214 @@ class DesktopWork(unittest.TestCase):
             self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":command,
                 "binding":self.scope["binding"],**fields})
 
+    # =======================================================================
+    # THE LAND LOCK — ONE PER REPOSITORY, SHARED BY EVERY CONVERSATION
+    # =======================================================================
+    # BEFORE THIS EXISTED, reproduced by Frank from the engine's own identity
+    # hash (docs/plans/two-riches-spec-2026-09-17-frank-check.md, item 3):
+    #
+    #   $ python3 -c 'import hashlib,json; f=lambda e,t: hashlib.sha256(
+    #       json.dumps([e,t],separators=(",",":")).encode()).hexdigest();
+    #       print(f("acme","thread-A")); print(f("acme","thread-B"))'
+    #   b447822dc584e545fefdaf85c0415fcf229fc64b927a4b3aa2771726a8b5c344
+    #   ad0ffd91066fe26a6aba8489bd6ef0ffe6233682f2316a473c9d940c4911924f
+    #
+    # Two threads, two lock files, both taken happily at the same moment, and
+    # the `git merge --ff-only` under neither. These tests are the after-state.
 
-if __name__=="__main__":unittest.main()
+    HOLDER_PROGRAM = (
+        "import importlib.util,os,sys\n"
+        "spec=importlib.util.spec_from_file_location('held_app',sys.argv[1])\n"
+        "module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)\n"
+        "scope={'binding':{'entity_id':os.environ.get('RICHOS_APP_ENTITY',''),"
+        "'thread_id':sys.argv[3],'session_id':'holder-session'}}\n"
+        "with module.land_lock(scope,sys.argv[2]):\n"
+        "    sys.stdout.write('HELD\\n');sys.stdout.flush()\n"
+        "    sys.stdin.readline()\n"
+        "sys.stdout.write('RELEASED\\n');sys.stdout.flush()\n")
+
+    PROBE_PROGRAM = (
+        "import fcntl,os,sys\n"
+        "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600)\n"
+        "try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)\n"
+        "except OSError: sys.exit(3)\n"
+        "sys.exit(0)\n")
+
+    def land_lock_free(self,path):
+        """Can the lock be taken RIGHT NOW, asked from another process?
+
+        Another process rather than this one on purpose: the whole question is
+        whether a second conversation's back end would be held off, and a second
+        conversation is a second process."""
+        probe=subprocess.run([sys.executable,"-c",self.PROBE_PROGRAM,str(path)])
+        self.assertIn(probe.returncode,(0,3),"the lock probe itself failed")
+        return probe.returncode==0
+
+    def start_land_lock_holder(self,repo,thread):
+        """Hold the repository's land lock from a SECOND conversation — a second
+        process, a second thread id, a second workspace partition — through the
+        shipped `land_lock`, not a hand-rolled flock."""
+        env={**os.environ,"RICHOS_APP_THREAD":thread,
+             "RICHOS_WORKSPACES_DIR":str(self.root/"engine-state/workspaces"
+                 /hashlib.sha256(json.dumps(["depot",thread],separators=(",",":")).encode()).hexdigest())}
+        holder=subprocess.Popen([sys.executable,"-c",self.HOLDER_PROGRAM,str(ENGINE/"mega-lander/app.py"),str(repo),thread],
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,env=env)
+        self.addCleanup(self.release_land_lock_holder,holder)
+        self.assertEqual(holder.stdout.readline().strip(),"HELD","the second conversation never took the lock")
+        return holder
+
+    def release_land_lock_holder(self,holder):
+        if holder.poll() is not None: return
+        try:
+            holder.stdin.write("go\n");holder.stdin.flush()
+        except (BrokenPipeError,ValueError):
+            holder.kill()
+        holder.wait(timeout=30)
+
+    def reviewed_pair(self,tag,repo=None):
+        """A worker and a passing reviewer, both run-ended: the exact state
+        `integrate` is called from."""
+        spec={**self.args,"request_id":"prepare-"+tag}
+        if repo: spec["repo"]=str(repo)
+        worker=self.call("prepare",spec)
+        target=self.start_fixture_worker(worker,tag+"-worker")
+        (target/"result.txt").write_text("FICTIONAL "+tag)
+        self.app.git(target,"add","result.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+tag)
+        commit=self.app.git(target,"rev-parse","HEAD")
+        self.finish_fixture_worker(tag+"-worker")
+        reviewer=self.call("prepare",{**spec,"request_id":"review-"+tag,"role":"reviewer","review_of":worker["id"],
+            "title":"Review "+tag,"brief":"Review the exact result.txt change; do not modify any files."})
+        self.start_fixture_worker(reviewer,tag+"-reviewer")
+        self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
+        return {"worker_id":worker["id"],"reviewer_id":reviewer["id"]}
+
+    def test_two_conversations_landing_in_one_repository_take_one_lock_and_the_merge_is_under_it(self):
+        args=self.reviewed_pair("onelock")
+        lock=self.app.land_lock_path(self.repo)
+        # ONE LOCK FOR TWO PARTITIONS. Frank's reproduction above is two
+        # different paths for two threads; this is the same call from the second
+        # thread's partition returning the FIRST one's file, byte for byte.
+        other=self.root/"engine-state/workspaces"/hashlib.sha256(b'["depot","thread-b"]').hexdigest()
+        with patch.dict(os.environ,{"RICHOS_APP_THREAD":"thread-b","RICHOS_WORKSPACES_DIR":str(other)}):
+            self.assertEqual(self.app.land_lock_path(self.repo),lock)
+        self.assertNotEqual(str(other),os.environ["RICHOS_WORKSPACES_DIR"])   # the partitions really do differ
+        # POSITIVE CONTROL: the probe can say "free", and does, before the land.
+        self.assertTrue(self.land_lock_free(lock))
+        held=[]
+        original=self.app.git
+        def watch(repo,*argv):
+            if argv[:2]==("merge","--ff-only"): held.append(not self.land_lock_free(lock))
+            return original(repo,*argv)
+        with patch.object(self.app,"git",side_effect=watch):
+            result=self.call("integrate",args)
+        self.assertTrue(result["work_integrated"])
+        self.assertEqual(held,[True],"the fast-forward ran without this repository's land lock held")
+        self.assertTrue(self.land_lock_free(lock),"the land lock outlived the land")
+        self.assertLess(result["land_lock"]["waited_seconds"],1.0)
+        self.assertNotIn("waited_for",result["land_lock"])
+
+    def test_the_second_lander_waits_for_the_first_and_never_refuses_the_work(self):
+        args=self.reviewed_pair("inorder")
+        lock=self.app.land_lock_path(self.repo)
+        holder=self.start_land_lock_holder(self.repo,"thread-b")
+        self.assertFalse(self.land_lock_free(lock))      # POSITIVE CONTROL: it is genuinely held
+        original=self.app.git
+        release=[]
+        def release_once_waiting(repo,*argv):
+            # `land_lock` asks git for the repository's identity immediately
+            # before it blocks, so this fires once, at the start of the wait —
+            # which is what makes the measured wait below deterministic rather
+            # than a race with a timer.
+            result=original(repo,*argv)
+            if argv[:2]==("rev-parse","--path-format=absolute") and not release:
+                timer=threading.Timer(0.5,self.release_land_lock_holder,[holder])
+                release.append(timer);timer.start()
+            return result
+        with patch.object(self.app,"git",side_effect=release_once_waiting):
+            landed=self.call("integrate",args)
+        # IT WAITED AND THEN LANDED. It did not refuse, and a refusal here would
+        # have sent finished, reviewed work back for a fresh implementation.
+        self.assertTrue(landed["work_integrated"])
+        self.assertGreater(landed["land_lock"]["waited_seconds"],0.05)
+        self.assertIn("thread-b",landed["land_lock"]["waited_for"])
+        self.assertEqual(holder.stdout.readline().strip(),"RELEASED")
+
+    def test_a_holder_past_the_bound_is_refused_by_name_with_nothing_merged(self):
+        args=self.reviewed_pair("bound")
+        before=self.app.git(self.repo,"rev-parse","HEAD")
+        holder=self.start_land_lock_holder(self.repo,"thread-stuck")
+        with patch.dict(os.environ,{"RICHOS_LAND_LOCK_TIMEOUT":"0.4"}):
+            with self.assertRaises(ValueError) as caught: self.call("integrate",args)
+        refusal=str(caught.exception)
+        self.assertIn("thread-stuck",refusal)            # the holder is NAMED
+        self.assertIn("did not finish within 0 seconds",refusal)
+        self.assertIn("nothing here was merged",refusal)
+        self.assertEqual(self.app.git(self.repo,"rev-parse","HEAD"),before)
+        # POSITIVE CONTROL: released, the very same land goes straight through.
+        self.release_land_lock_holder(holder)
+        self.assertTrue(self.call("integrate",args)["work_integrated"])
+
+    def test_one_repository_reached_two_ways_is_one_lock_and_two_repositories_are_two(self):
+        link=self.root/"linked project";link.symlink_to(self.repo,target_is_directory=True)
+        self.assertEqual(self.app.land_lock_path(link),self.app.land_lock_path(self.repo))
+        # A LINKED WORKTREE SHARES THE REF STORE, so it shares the lock: two
+        # paths that can move one branch must never hold two locks.
+        checkout=self.root/"linked worktree"
+        self.app.git(self.repo,"worktree","add","-q","-b","landlock-probe",str(checkout),"HEAD")
+        self.assertEqual(self.app.land_lock_path(checkout),self.app.land_lock_path(self.repo))
+        # TWO REPOSITORIES DO NOT WAIT ON EACH OTHER — the case the CEO says he
+        # will actually run. A machine-wide lock would make them, for no reason.
+        second=self.root/"second project";second.mkdir()
+        subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
+        self.assertNotEqual(self.app.land_lock_path(second),self.app.land_lock_path(self.repo))
+        self.start_land_lock_holder(self.repo,"thread-b")
+        self.assertFalse(self.land_lock_free(self.app.land_lock_path(self.repo)))   # POSITIVE CONTROL
+        self.assertTrue(self.land_lock_free(self.app.land_lock_path(second)))
+        with self.app.land_lock(self.scope,str(second)) as land:
+            self.assertLess(land["waited_seconds"],1.0)
+            self.assertNotIn("waited_for",land)
+
+    def test_the_land_lock_refuses_to_live_inside_either_conversation_partition(self):
+        for name in ("RICHOS_WORKSPACES_DIR","RICHOS_APP_STATE"):
+            with patch.dict(os.environ,{"RICHOS_LAND_LOCKS_DIR":str(Path(os.environ[name])/"land-locks")}):
+                with self.assertRaisesRegex(ValueError,"per-conversation partition"):
+                    self.app.land_lock_path(self.repo)
+        # POSITIVE CONTROL: outside both, the same call answers.
+        self.assertTrue(str(self.app.land_lock_path(self.repo)).endswith(".lock"))
+        # AND THE DEFAULT IS THE MACHINE-WIDE HOME, which is neither partition:
+        # CLAUDE_CONFIG_DIR, the one variable the app neither sets nor strips for
+        # the engine it launches (engine_profile.rs:156-210).
+        home=self.root/"machine home"
+        with patch.dict(os.environ,{"CLAUDE_CONFIG_DIR":str(home)}):
+            del os.environ["RICHOS_LAND_LOCKS_DIR"]
+            self.assertEqual(self.app.land_locks_dir(),Path(os.path.realpath(home))/"state"/"land-locks")
+
+
+
+class _Result(unittest.TextTestResult):
+    """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
+    (app.mutation.sh) can tell WHICH property went red, rather than only that
+    something did. Same shape as workspaces.test.py's reporter."""
+
+    def addSuccess(self,test):
+        super().addSuccess(test);self.stream.write("  PASS  %s\n"%test._testMethodName)
+
+    def addFailure(self,test,err):
+        super().addFailure(test,err);self.stream.write("  FAIL  %s\n"%test._testMethodName)
+
+    def addError(self,test,err):
+        super().addError(test,err);self.stream.write("  FAIL  %s (error)\n"%test._testMethodName)
+
+
+if __name__=="__main__":
+    runner=unittest.TextTestRunner(stream=sys.stdout,verbosity=0,resultclass=_Result)
+    loader=unittest.defaultTestLoader
+    names=[a for a in sys.argv[1:] if a]
+    suite=(loader.loadTestsFromNames(names,sys.modules[__name__]) if names
+           else loader.loadTestsFromModule(sys.modules[__name__]))
+    result=runner.run(suite)
+    print("=== desktop dispatch tests: %d run, %d failed ==="%(
+        result.testsRun,len(result.failures)+len(result.errors)))
+    sys.exit(0 if result.wasSuccessful() else 1)
