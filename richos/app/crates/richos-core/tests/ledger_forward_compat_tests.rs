@@ -619,3 +619,168 @@ fn a_new_value_in_a_nested_enum_costs_the_whole_record_and_the_turn_with_it() {
         "the turn whose PromptReceived was unreadable does not exist"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// POINT 18 — `written_by`: THE CASE THE FORMAT COULD NOT DECIDE, DECIDED
+//
+// Spec: `richos-hq docs/plans/nightly-channel-spec-2026-09-17.md` point 18, which quotes
+// `Ledger::history_health`'s own request for this field and the reason it was declined
+// ("starting to write a new field is a change to what goes on customers' disks"). The CEO's
+// 2026-09-17 ruling authorizes that change; these tests are what it bought.
+//
+// Every negative below carries its positive control ON THE SAME BYTES: the identical record
+// with the stamp removed, or carrying a different one, so the verdict is proven to turn on
+// the stamp and on nothing else.
+// ---------------------------------------------------------------------------------------------
+
+/// **THE BRIEF'S CASE, and the one that decides whether this field is legal to write at
+/// all.** A record carrying `written_by` from a build that does not exist yet must REPLAY —
+/// not be skipped, not be classified, not be reported. Its shape is one this build knows;
+/// the stamp is an unknown field on a known variant, and serde ignores those.
+///
+/// This is the same property in the OPPOSITE direction to the rest of this file: everywhere
+/// else here pins that today's reader still reads yesterday's bytes. This pins that
+/// yesterday's reader — every published build through v1.0.2 — still reads today's.
+#[test]
+fn a_record_carrying_a_written_by_from_a_newer_build_replays_on_this_build() {
+    let unstamped = r#"{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","session_id":"s4","at":1788223894000}"#;
+    let stamped = r#"{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","session_id":"s4","at":1788223894000,"written_by":9999}"#;
+
+    let (control, control_path) = open_edited("v1-current", |mut l| {
+        l.push(unstamped.to_string());
+        l
+    });
+    let (from_future, future_path) = open_edited("v1-current", |mut l| {
+        l.push(stamped.to_string());
+        l
+    });
+
+    let ch = control.history_health();
+    let sh = from_future.history_health();
+    assert_eq!(ch.skipped, 0, "positive control: the unstamped record replays");
+    assert_eq!(
+        sh.skipped, 0,
+        "and so does the identical record carrying a written_by this build has never seen"
+    );
+    assert_eq!(
+        sh.records_applied, ch.records_applied,
+        "the stamp costs nothing: same bytes, same record count, stamped or not"
+    );
+    assert_eq!(
+        projection_lines(&future_path, "v1-current"),
+        projection_lines(&control_path, "v1-current"),
+        "and the CONVERSATION the two produce is identical, character for character"
+    );
+}
+
+/// A known tag, a shape that does not fit, and a stamp ABOVE this build's: the format moved
+/// on. `FromFuture` — calm, expected, nothing went wrong.
+///
+/// Positive control: the same bytes without the stamp are `Ambiguous`, which is what this
+/// build said about every such record before point 18.
+#[test]
+fn a_stamp_above_this_build_turns_an_undetermined_record_into_a_calm_one() {
+    let bad_shape = r#"{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","at":1788223894000"#;
+    let (from_future, _) = open_edited("v1-current", |mut l| {
+        l.push(format!(r#"{bad_shape},"written_by":2}}"#));
+        l
+    });
+    let (control, _) = open_edited("v1-current", |mut l| {
+        l.push(format!("{bad_shape}}}"));
+        l
+    });
+
+    let fh = from_future.history_health();
+    assert_eq!(fh.from_future, 1, "the stamp says a newer build wrote it, so it is the future");
+    assert_eq!(fh.ambiguous, 0, "and nothing is left undetermined");
+    assert_eq!(fh.damaged, 0);
+    assert_eq!(from_future.skipped_records()[0].kind, SkipKind::FromFuture);
+    assert_eq!(from_future.skipped_records()[0].tag.as_deref(), Some("TurnStarted"));
+
+    assert_eq!(
+        control.history_health().ambiguous,
+        1,
+        "positive control: the identical record with no stamp is undetermined"
+    );
+    assert_eq!(control.history_health().from_future, 0);
+}
+
+/// A known tag, a shape that does not fit, and a stamp AT OR BELOW this build's: the writer
+/// and the reader agree about the shapes, so the bytes are damaged. `Damaged` — the loud one.
+///
+/// This is the half a rollback needs. Without it a damaged record on a build that also
+/// understands newer records is waved through as "the future", and the CEO is told to wait
+/// for an update that is never going to bring it back.
+#[test]
+fn a_stamp_at_or_below_this_build_turns_an_undetermined_record_into_a_loud_one() {
+    let bad_shape = r#"{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","at":1788223894000"#;
+    let (damaged, _) = open_edited("v1-current", |mut l| {
+        l.push(format!(r#"{bad_shape},"written_by":1}}"#));
+        l
+    });
+    let (control, _) = open_edited("v1-current", |mut l| {
+        l.push(format!("{bad_shape}}}"));
+        l
+    });
+
+    let dh = damaged.history_health();
+    assert_eq!(dh.damaged, 1, "the writer knew the same shapes this build does, so this is damage");
+    assert_eq!(dh.ambiguous, 0);
+    assert_eq!(dh.from_future, 0);
+    assert_eq!(damaged.skipped_records()[0].kind, SkipKind::Damaged);
+
+    assert_eq!(
+        control.history_health().ambiguous,
+        1,
+        "positive control: the identical record with no stamp is still undetermined"
+    );
+}
+
+/// A stamp that is not a plain non-negative integer is not a stamp. Damage that lands on the
+/// `written_by` value itself must not be read as evidence about anything — the record falls
+/// back to `Ambiguous`, which is exactly what this build said before the field existed.
+#[test]
+fn a_stamp_that_is_not_a_plain_number_decides_nothing() {
+    let bad_shape = r#"{"event":"TurnStarted","turn_id":"turn_00000000000000000000000000000004","at":1788223894000"#;
+    for junk in [r#""written_by":"2""#, r#""written_by":-1"#, r#""written_by":null"#, r#""written_by":2.5"#] {
+        let (ledger, _) = open_edited("v1-current", |mut l| {
+            l.push(format!("{bad_shape},{junk}}}"));
+            l
+        });
+        let h = ledger.history_health();
+        assert_eq!(h.ambiguous, 1, "a non-integer stamp decides nothing: {junk}");
+        assert_eq!(h.from_future, 0, "and is never read as the future: {junk}");
+    }
+}
+
+/// **The write side.** Every record THIS build appends carries the stamp — otherwise point
+/// 25's gate has nothing to read, and point 18 is a reader with no writer.
+#[test]
+fn every_record_this_build_appends_carries_its_writer_schema_version() {
+    let dir = scratch("stamped-writes");
+    let path = dir.join("ledger.jsonl");
+    let mut ledger = Ledger::open(&path).unwrap();
+    let thread = ledger.create_thread("stamped", &EntityId::parse("richos").unwrap()).unwrap();
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(!lines.is_empty(), "the write above is on disk");
+    for line in &lines {
+        let v: serde_json::Value = serde_json::from_str(line).expect("every appended line is JSON");
+        assert_eq!(
+            v.get("written_by").and_then(|x| x.as_u64()),
+            Some(u64::from(richos_core::skip::WRITER_SCHEMA_VERSION)),
+            "an appended record with no writer version: {line}"
+        );
+    }
+    assert!(!thread.is_empty());
+
+    // And the file this build just wrote reads back clean ON THIS BUILD — the stamp is not a
+    // field its own reader trips over.
+    let reread = Ledger::open(&path).unwrap();
+    assert_eq!(
+        reread.history_health().skipped,
+        0,
+        "our own stamped file has nothing unreadable in it"
+    );
+}

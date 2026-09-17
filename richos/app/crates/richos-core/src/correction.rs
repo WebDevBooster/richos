@@ -890,7 +890,9 @@ impl CorrectionDesk {
     }
 
     fn write_record(&mut self, rec: &DeskRecord) -> Result<(), CorrectionError> {
-        let mut line = serde_json::to_string(rec).map_err(|e| CorrectionError::Io(e.to_string()))?;
+        // Stamped with this build's `written_by` — spec point 18, the same stamp the ledger
+        // and the intake log write, so all three speak one dialect to `skip::classify_line`.
+        let mut line = crate::skip::stamped_line(rec).map_err(|e| CorrectionError::Io(e.to_string()))?;
         line.push('\n');
         let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
         crate::util::ensure_line_boundary(&mut f)?;

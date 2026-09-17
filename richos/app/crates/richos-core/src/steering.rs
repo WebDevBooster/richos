@@ -488,7 +488,10 @@ impl IntakeLog {
     }
 
     fn write(&mut self, rec: &IntakeRecord) -> Result<(), SteeringError> {
-        let mut line = serde_json::to_string(rec).map_err(|e| SteeringError::Io(e.to_string()))?;
+        // Stamped with this build's `written_by` — spec point 18. This log holds the CEO's
+        // own typed words, so it is the last file that should ever leave a reader guessing
+        // between "a newer RichOS wrote this" and "these bytes are damaged".
+        let mut line = crate::skip::stamped_line(rec).map_err(|e| SteeringError::Io(e.to_string()))?;
         line.push('\n');
         let mut f = std::fs::OpenOptions::new().create(true).read(true).append(true).open(&self.path)?;
         crate::util::ensure_line_boundary(&mut f)?;
@@ -560,8 +563,8 @@ impl IntakeLog {
         debug_assert!(self.pending.is_empty());
         debug_assert!(self.skipped.is_empty(), "compaction would delete a record nothing could read");
         let tmp = self.path.with_extension("compacting");
-        let mut line =
-            serde_json::to_string(&IntakeRecord::Drained { through }).map_err(|e| SteeringError::Io(e.to_string()))?;
+        let mut line = crate::skip::stamped_line(&IntakeRecord::Drained { through })
+            .map_err(|e| SteeringError::Io(e.to_string()))?;
         line.push('\n');
         {
             let mut f = std::fs::File::create(&tmp)?;

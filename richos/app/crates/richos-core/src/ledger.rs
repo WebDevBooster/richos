@@ -1338,7 +1338,11 @@ impl Ledger {
     /// Append + FLUSH one event durably, then fold it into the projection.
     /// `sync` forces an fsync for crash-critical events (the persist-before-send floor).
     fn append(&mut self, event: Event, sync: bool) -> Result<(), LedgerError> {
-        let mut line = serde_json::to_string(&event)?;
+        // `stamped_line`, not `to_string` — spec point 18. The line carries this build's
+        // `written_by` so a LATER build can tell a record from the future from a damaged
+        // one without guessing; see [`crate::skip::classify_line`] step 4 and the note on
+        // [`Ledger::history_health`] that asked for it.
+        let mut line = crate::skip::stamped_line(&event)?;
         line.push('\n');
         crate::util::ensure_line_boundary(&mut self.file)?;
         self.file.write_all(line.as_bytes())?;
