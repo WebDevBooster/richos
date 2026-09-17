@@ -211,6 +211,15 @@ struct EngineLeaseFactory {
     /// never writes (`config.rs`), and `set_user_name` persists immediately, so the file is as
     /// current as the lock would have been.
     data_dir: PathBuf,
+    /// **Did an operator NAME this engine?** `$RICHOS_ENGINE_DIR` / `$RICHOS_ENGINE_ROOT`, read
+    /// once at boot with everything else the launch is made of.
+    ///
+    /// It is here because the release gate in `spawn_chat` honors the same rule the resolver
+    /// does (`locate-engine.sh` rule 1): a named directory is a statement, and a gate that
+    /// refused what the operator named would overrule it. Read at boot rather than in
+    /// `spawn_chat` because a lease is spawned mid-turn, from inside the spine's mutex, and
+    /// reading global state there is what this file keeps off the hot path on purpose.
+    explicit_engine: bool,
 }
 
 impl LeaseFactory for EngineLeaseFactory {
@@ -258,6 +267,21 @@ impl EngineLeaseFactory {
         let skills = richos_core::skills::ensure_rendered(&self.data_dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let executable = std::env::current_exe().map_err(|e| CognitionError::Io(e.to_string()))?;
+        // **THE RELEASE GATE — spec point 22, and the half of it that stops the wrong engine
+        // WRITING.** A refused resolution does not end the launch: `resolve_engine` hands the
+        // lease factory the last place it looked, and on macOS that is
+        // `~/Library/Application Support/RichOS/engine` — the one directory RichOS writes, and
+        // exactly where a newer engine sits after the app has been rolled back. Everything
+        // below this line would then succeed, and the engine the CEO rolled away from would be
+        // the one writing into his corpus. An operator who NAMED the directory is honored, as
+        // everywhere else (`setup::engine_boot_refusal`).
+        if let Some(why) = richos_core::setup::engine_boot_refusal(
+            &dir,
+            self.explicit_engine,
+            richos_core::setup::required_engine_version().as_deref(),
+        ) {
+            return Err(CognitionError::Io(why));
+        }
         let runtime = richos_core::runtime::verify_engine(&dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
@@ -1634,6 +1658,15 @@ fn main() {
                     eprintln!("[richos]   looked in {} ({})", path.display(), source.as_str());
                 }
             }
+            // AN ENGINE THAT IS THERE AND IS NOT THIS BUILD'S — one line each, with both
+            // versions in it. Printed whether or not the walk went on to find the right
+            // engine elsewhere: "there is no engine" and "there is an engine and it belongs to
+            // a different release of this app" are different problems with different repairs,
+            // and a rollback produces the second one on a machine where everything else is
+            // healthy (spec point 22).
+            for (source, path, why) in &resolution.rejected {
+                eprintln!("[richos]   passed over {} ({}) — {why}", path.display(), source.as_str());
+            }
             // THE ENGINE THE BOOT ACTUALLY FOUND, as opposed to the sentinel above. First-run
             // setup asks the same question through this value, so it never offers to install
             // something the boot already resolved — the dogfood checkout being the case that
@@ -1659,6 +1692,14 @@ fn main() {
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
+                // Whether THIS launch was told which engine to use. `EnvEngineDir` and
+                // `EnvEngineRoot` are the only two sources that are a statement rather than a
+                // search (`engine.rs` candidates 1 and 2).
+                explicit_engine: matches!(
+                    resolution.source,
+                    Some(engine::EngineSource::EnvEngineDir)
+                        | Some(engine::EngineSource::EnvEngineRoot)
+                ),
             }));
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 

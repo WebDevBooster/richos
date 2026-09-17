@@ -142,53 +142,103 @@ pub struct EngineResolution {
     /// nothing matched, so the failure names the places it looked instead of a bare "not
     /// found" — `locate-engine.sh` prints the same list for the same reason.
     pub tried: Vec<(EngineSource, PathBuf)>,
+    /// The engine release this build pins, `None` when it pins none. Printed with the answer,
+    /// because "which engine is this app running" has two halves and only one of them is a
+    /// path.
+    pub needed: Option<String>,
+    /// **Engine-shaped directories this build does NOT boot**, with the release each carries.
+    /// Only near misses go here — a candidate that held no engine at all is already a line in
+    /// `tried`, and a twelve-level ancestor walk that reported every place it did not find an
+    /// engine would be noise thick enough to hide this.
+    pub rejected: Vec<(EngineSource, PathBuf, String)>,
 }
 
 impl EngineResolution {
-    /// The one-line boot statement. Named `dir` + `source` on success; on failure, the count
-    /// of places tried (the paths themselves go on their own lines — see `main.rs`).
+    /// The one-line boot statement: the resolved path, which candidate answered, and the
+    /// release — found and required — because a path alone no longer identifies what is about
+    /// to run. On failure, the count of places tried (the paths themselves go on their own
+    /// lines — see `main.rs`).
+    ///
+    /// The success shape still ends in `(via …)` with the parenthesis last, which is what
+    /// `gui-boot.test.sh`'s `engine directory` proof matches on.
     pub fn describe(&self) -> String {
         match (&self.dir, self.source) {
-            (Some(dir), Some(source)) => format!("{} (via {})", dir.display(), source.as_str()),
-            _ => format!("NOT FOUND — {} place(s) tried", self.tried.len()),
+            (Some(dir), Some(source)) => format!(
+                "{} (via {}, {})",
+                dir.display(),
+                source.as_str(),
+                self.release_note(dir)
+            ),
+            _ => match &self.needed {
+                Some(needed) => format!(
+                    "NOT FOUND — this build boots engine {needed}, and none of the {} place(s) \
+                     tried carries it",
+                    self.tried.len()
+                ),
+                None => format!("NOT FOUND — {} place(s) tried", self.tried.len()),
+            },
+        }
+    }
+
+    /// The release half of the boot line. A pinned build states the pin it just satisfied; an
+    /// unpinned one says it pinned nothing, rather than leaving the reader to infer which of
+    /// the two situations produced a silent line.
+    fn release_note(&self, dir: &Path) -> String {
+        let found = richos_core::setup::engine_version(dir);
+        match (&self.needed, found) {
+            (Some(needed), _) => format!("engine {needed} as this build pins"),
+            (None, Some(found)) => format!("engine {found}, pinned by nothing in this build"),
+            (None, None) => "no readable version, and this build pins none".to_string(),
         }
     }
 }
 
-/// Does this directory look like the RichOS engine?
+/// **Is this directory the RichOS engine THIS BUILD BOOTS?** — the one predicate every searched
+/// candidate is judged by, with the REASON when the answer is no.
 ///
-/// The predicate is `locate-engine.sh`'s `richos_engine_looks_valid`, verbatim in intent:
-/// `scripts/hooks/` and `VERSION`. Two files, cheap to test, and specific enough that no
-/// unrelated directory called `engine` passes.
+/// The shape half is `locate-engine.sh`'s `richos_engine_looks_valid`, verbatim in intent:
+/// `scripts/hooks/` and `VERSION`. The release half is spec point 22 — the `VERSION` is READ,
+/// not merely stat'd, and must equal the release compiled into this binary, so a rollback
+/// cannot boot the newer engine a later app installed.
 ///
-/// **It DELEGATES to `richos_core::setup::engine_looks_valid`, and that is the point.** As of
-/// 2026-09-01 something finally writes into candidate 7 (`setup.rs` installs a fetched engine
-/// there), so the same question is now asked by an installer and by this resolver. Two copies
+/// **It DELEGATES to `richos_core::setup`, and that is the point.** As of 2026-09-01 something
+/// finally writes into candidate 7 (`setup.rs` installs a fetched engine there), so the same
+/// question is asked by an installer, by first-run detection and by this resolver. Three copies
 /// of it is precisely the fault this file's own header warns about — *"a second,
 /// differently-shaped resolution order is a thing that can disagree with the first"* — and the
-/// disagreement it would produce is the worst-behaved kind: an install that succeeds and a
-/// boot that then cannot find what was installed.
-pub fn looks_like_engine(dir: &Path) -> bool {
-    richos_core::setup::engine_looks_valid(dir)
+/// disagreement it would produce is the worst-behaved kind: an install that succeeds and a boot
+/// that then cannot find what was installed.
+///
+/// It returns a `Result` rather than a `bool` because the two ways of failing need different
+/// sentences: "there is nothing here" and "there is an engine here from another release" send
+/// an operator looking for different things.
+fn accepts(dir: &Path, needed: Option<&str>) -> Result<(), richos_core::setup::EngineRejected> {
+    richos_core::setup::engine_accepted(dir, needed)
 }
 
-/// Climb from `start` looking for a child `engine/` that passes [`looks_like_engine`].
+/// Climb from `start` looking for a child `engine/` this build boots.
 ///
 /// Bounded by [`WALK_LIMIT`]. `start` itself is tested first, so a launch from a repo root
-/// finds `<root>/engine` without needing a parent.
-fn engine_above(start: &Path) -> Option<PathBuf> {
+/// finds `<root>/engine` without needing a parent. Returns the engine, plus every engine-shaped
+/// directory the walk passed over because it carries a different release — a developer's
+/// checkout that has moved ahead of the app's pin is the commonest case there is, and it is
+/// worth a named line rather than an unexplained "not found".
+fn engine_above(start: &Path, needed: Option<&str>) -> (Option<PathBuf>, Vec<(PathBuf, String)>) {
+    let mut rejected = Vec::new();
     let mut here = Some(start);
     for _ in 0..WALK_LIMIT {
-        let dir = here?;
+        let Some(dir) = here else { break };
         for relative in ["engine", "richos/engine"] {
             let candidate = dir.join(relative);
-            if looks_like_engine(&candidate) {
-                return Some(candidate);
+            match accepts(&candidate, needed) {
+                Ok(()) => return (Some(candidate), rejected),
+                Err(richos_core::setup::EngineRejected::NotEngineShaped) => {}
+                Err(reason) => rejected.push((candidate, reason.reason())),
             }
         }
         here = dir.parent();
     }
-    None
+    (None, rejected)
 }
 
 #[test]
@@ -198,7 +248,7 @@ fn grouped_checkout_resolves_from_root_docs_and_app() {
     std::fs::create_dir_all(engine.join("scripts/hooks")).unwrap();
     std::fs::write(engine.join("VERSION"), "1.0.0\n").unwrap();
     for start in [&root, &root.join("docs"), &root.join("richos/app/src-tauri")] {
-        assert_eq!(engine_above(start).as_deref(), Some(engine.as_path()));
+        assert_eq!(engine_above(start, None).0.as_deref(), Some(engine.as_path()));
     }
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -222,8 +272,8 @@ fn bundle_resources_engine(exe: &Path) -> Option<PathBuf> {
 /// and `EngineLeaseFactory::create` calls it before spawning `claude` — so an engine missing
 /// this file can never run a turn, whatever else is right about it. That makes the file a
 /// cheap NECESSARY condition, and it is used here only to ORDER preference between two
-/// candidates that both look like engines. It never promotes a directory
-/// [`looks_like_engine`] rejected, and it never claims a candidate is valid; the authoritative
+/// candidates that both look like engines. It never promotes a directory [`accepts`]
+/// rejected, and it never claims a candidate is valid; the authoritative
 /// answer is still `verify_engine`, downstream and unchanged.
 pub fn carries_delivered_runtime(engine: &Path) -> bool {
     engine.join("runtime/delivery.json").is_file()
@@ -238,6 +288,9 @@ struct Candidate {
     probe: PathBuf,
     /// The engine-shaped directory this candidate produced, if it produced one.
     engine: Option<PathBuf>,
+    /// Engine-shaped directories this candidate found and passed over because they carry a
+    /// release this build does not boot, each with the sentence naming both versions.
+    rejected: Vec<(PathBuf, String)>,
 }
 
 /// Resolve the engine directory for this launch. Pure with respect to `paths`: it reads the
@@ -265,11 +318,35 @@ struct Candidate {
 /// **Explicit overrides are untouched and still exclusive**, per `locate-engine.sh` rule 1:
 /// an operator who names a directory is making a statement, and neither pass gets to
 /// second-guess it.
+///
+/// # AND IT MUST BE THE RELEASE THIS BUILD PINS — spec point 22
+///
+/// The five SEARCHED candidates (3-7) are now also required to carry the engine release
+/// compiled into this binary (`setup::engine_accepted`, through [`accepts`]). The
+/// two EXPLICIT ones (1-2) are not, and that asymmetry is the same rule as everywhere else
+/// here: an operator's statement is honored, a guess is not.
+///
+/// Without it, a rollback is silent. The app the CEO reinstalls resolves
+/// `~/Library/Application Support/RichOS/engine` — the directory the NEWER app wrote — boots
+/// it, and lets it write into the corpus while every visible thing about the launch looks
+/// right. Rolling the app back has to roll back what runs with it, or it is not a rollback
+/// (`richos-hq docs/plans/nightly-channel-spec-2026-09-17.md` point 22; CEO 2026-09-17).
+///
+/// **A build with no pin demands no release**, so a plain `cargo run`, `cargo test` and every
+/// unit test below behave exactly as they did (`setup::required_engine_version`).
 pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
-    let mut tried: Vec<(EngineSource, PathBuf)> = Vec::new();
+    resolve_engine_dir_pinned(paths, richos_core::setup::required_engine_version().as_deref())
+}
 
-    // 1 + 2. EXPLICIT, and exclusive. Taken verbatim, with no `looks_like_engine` test: an
-    // operator who names a directory is making a statement about which working directory
+/// [`resolve_engine_dir`] with the pinned release supplied rather than compiled in — the seam
+/// that lets the refusal be tested, since `option_env!` is read at compile time and a test
+/// binary can never carry a pin.
+pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> EngineResolution {
+    let mut tried: Vec<(EngineSource, PathBuf)> = Vec::new();
+    let needed_owned = needed.map(|n| n.to_string());
+
+    // 1 + 2. EXPLICIT, and exclusive. Taken verbatim, with no shape test and no release test:
+    // an operator who names a directory is making a statement about which working directory
     // this install uses, and second-guessing it here would be how a deliberate fixture (or a
     // future engine layout) gets silently overruled. If the path is wrong, `native.rs`
     // preflight now says exactly which path is wrong — that is where a bad explicit value
@@ -281,7 +358,13 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
         if let Some(raw) = value {
             let dir = PathBuf::from(raw);
             tried.push((source, dir.clone()));
-            return EngineResolution { dir: Some(dir), source: Some(source), tried };
+            return EngineResolution {
+                dir: Some(dir),
+                source: Some(source),
+                tried,
+                needed: needed_owned,
+                rejected: Vec::new(),
+            };
         }
     }
 
@@ -290,15 +373,32 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
     // apart into two different orders.
     let mut candidates: Vec<Candidate> = Vec::new();
 
+    // One directly-named path, judged once: it is the engine this build boots, it is not an
+    // engine at all, or it is an engine of another release — and the third case is RECORDED
+    // rather than collapsed into the second.
+    let direct = |source: EngineSource, candidate: PathBuf| match accepts(&candidate, needed) {
+        Ok(()) => Candidate {
+            source,
+            probe: candidate.clone(),
+            engine: Some(candidate),
+            rejected: Vec::new(),
+        },
+        Err(richos_core::setup::EngineRejected::NotEngineShaped) => {
+            Candidate { source, probe: candidate, engine: None, rejected: Vec::new() }
+        }
+        Err(reason) => Candidate {
+            source,
+            probe: candidate.clone(),
+            engine: None,
+            rejected: vec![(candidate, reason.reason())],
+        },
+    };
+
     // 3. The app's own resources — the only candidate a sealed, relocated bundle carries
     // with it. Empty today, and skipped in the time it takes to stat two paths.
     if let Some(exe) = paths.exe.as_deref() {
         if let Some(candidate) = bundle_resources_engine(exe) {
-            candidates.push(Candidate {
-                source: EngineSource::BundleResources,
-                probe: candidate.clone(),
-                engine: looks_like_engine(&candidate).then_some(candidate),
-            });
+            candidates.push(direct(EngineSource::BundleResources, candidate));
         }
     }
 
@@ -306,10 +406,12 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
     // working directory but always knows where its own binary is.
     if let Some(exe) = paths.exe.as_deref() {
         let from = exe.parent().unwrap_or(exe);
+        let (engine, rejected) = engine_above(from, needed);
         candidates.push(Candidate {
             source: EngineSource::RepoFromExe,
             probe: from.to_path_buf(),
-            engine: engine_above(from),
+            engine,
+            rejected,
         });
     }
 
@@ -317,10 +419,12 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
     // hard-code as `cwd/../engine`, generalized to an ancestor walk so `cargo run` from any
     // depth inside the repo resolves the same directory.
     if let Some(cwd) = paths.cwd.as_deref() {
+        let (engine, rejected) = engine_above(cwd, needed);
         candidates.push(Candidate {
             source: EngineSource::RepoFromCwd,
             probe: cwd.to_path_buf(),
-            engine: engine_above(cwd),
+            engine,
+            rejected,
         });
     }
 
@@ -332,27 +436,29 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
         .clone()
         .or_else(|| paths.home.as_ref().map(|h| h.join(".claude")));
     if let Some(config_dir) = config_dir {
-        let candidate = config_dir.join("richos-engine");
-        candidates.push(Candidate {
-            source: EngineSource::InstallPointer,
-            probe: candidate.clone(),
-            engine: looks_like_engine(&candidate).then_some(candidate),
-        });
+        candidates.push(direct(EngineSource::InstallPointer, config_dir.join("richos-engine")));
     }
 
     // 7. The per-user application-support location — the directory `setup.rs` installs a
-    // fetched engine into, and the only one RichOS itself writes.
+    // fetched engine into, and the only one RichOS itself writes. **The one a rollback finds
+    // holding a newer engine**, which is the case point 22 exists for.
     #[cfg(target_os = "macos")]
     if let Some(home) = paths.home.as_deref() {
-        let candidate = home.join("Library/Application Support/RichOS/engine");
-        candidates.push(Candidate {
-            source: EngineSource::ApplicationSupport,
-            probe: candidate.clone(),
-            engine: looks_like_engine(&candidate).then_some(candidate),
-        });
+        candidates.push(direct(
+            EngineSource::ApplicationSupport,
+            home.join("Library/Application Support/RichOS/engine"),
+        ));
     }
 
     tried.extend(candidates.iter().map(|c| (c.source, c.probe.clone())));
+
+    // EVERY NEAR MISS, in candidate order, kept whichever way the choice goes. A machine that
+    // holds an engine this build does not boot is a fact an operator needs even on a launch
+    // that went on to find the right one somewhere else.
+    let rejected: Vec<(EngineSource, PathBuf, String)> = candidates
+        .iter()
+        .flat_map(|c| c.rejected.iter().map(move |(p, why)| (c.source, p.clone(), why.clone())))
+        .collect();
 
     // PASS 1 — an engine that could actually run a turn. PASS 2 — the first engine-shaped
     // one, which is what this function always returned. Same list, same order, both times.
@@ -366,8 +472,16 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
             dir: c.engine.clone(),
             source: Some(c.source),
             tried,
+            needed: needed_owned,
+            rejected,
         },
-        None => EngineResolution { dir: None, source: None, tried },
+        None => EngineResolution {
+            dir: None,
+            source: None,
+            tried,
+            needed: needed_owned,
+            rejected,
+        },
     }
 }
 
@@ -375,10 +489,19 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
 mod tests {
     use super::*;
 
-    /// A directory that passes `looks_like_engine`, built the way the real one is shaped.
+    /// A directory that passes `accepts`, built the way the real one is shaped. Its `VERSION`
+    /// is not any release's, which is exactly right for the tests that are about the WALK: they
+    /// run in an unpinned binary, where no release is demanded of it.
     fn make_engine(at: &Path) -> PathBuf {
         std::fs::create_dir_all(at.join("scripts/hooks")).unwrap();
         std::fs::write(at.join("VERSION"), b"0.0.0-test\n").unwrap();
+        at.to_path_buf()
+    }
+
+    /// The same, carrying a named release — for the tests that are about WHICH engine.
+    fn make_engine_release(at: &Path, version: &str) -> PathBuf {
+        std::fs::create_dir_all(at.join("scripts/hooks")).unwrap();
+        std::fs::write(at.join("VERSION"), format!("{version}\n")).unwrap();
         at.to_path_buf()
     }
 
@@ -682,5 +805,132 @@ mod tests {
         };
         let got = resolve_engine_dir(&paths);
         assert_eq!(got.dir.as_deref(), Some(cfg.join("richos-engine").as_path()), "{got:?}");
+    }
+
+    // =======================================================================================
+    // THE RELEASE THIS BUILD PINS — spec point 22
+    //
+    // The pin is supplied as a VALUE here (`resolve_engine_dir_pinned`), because `option_env!`
+    // is a compile-time read and a test binary can never carry one. Every refusal is paired
+    // with the positive control that gives it meaning.
+    // =======================================================================================
+
+    /// **THE ROLLBACK.** The CEO reinstalls the app version that worked. The engine at
+    /// `~/Library/Application Support/RichOS/engine` is the one the NEWER app installed, and it
+    /// is runnable, and it is the only engine on the machine — everything about this launch
+    /// looks healthy. Before point 22 the older app booted it and let it write into his corpus.
+    #[test]
+    fn a_rolled_back_app_refuses_the_engine_a_newer_app_installed_and_names_both_releases() {
+        let root = scratch("pin-rollback");
+        let home = root.join("home");
+        let newer = make_engine_release(
+            &home.join("Library/Application Support/RichOS/engine"),
+            "1.3.0",
+        );
+        deliver_runtime(&newer);
+        let exe = root.join("Applications/RichOS.app/Contents/MacOS/richos-tauri");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        let paths = LaunchPaths {
+            exe: Some(exe),
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+
+        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        assert_eq!(got.dir, None, "the newer engine was booted anyway: {got:?}");
+        assert_eq!(got.needed.as_deref(), Some("1.2.0"));
+        let (source, path, why) = got
+            .rejected
+            .first()
+            .unwrap_or_else(|| panic!("the engine on disk was not named at all: {got:?}"));
+        assert_eq!(*source, EngineSource::ApplicationSupport);
+        assert_eq!(path, &newer);
+        assert!(why.contains("1.3.0") && why.contains("1.2.0"), "{why}");
+        // THE BOOT LINE names the release this build needs, not just a count of paths.
+        let line = got.describe();
+        assert!(line.starts_with("NOT FOUND"), "{line}");
+        assert!(line.contains("1.2.0"), "the boot line does not say what it needs: {line}");
+
+        // THE POSITIVE CONTROL: the app that DOES pin 1.3.0 boots exactly this engine, from
+        // exactly this fixture.
+        let matching = resolve_engine_dir_pinned(&paths, Some("1.3.0"));
+        assert_eq!(matching.dir.as_deref(), Some(newer.as_path()), "{matching:?}");
+        assert_eq!(matching.source, Some(EngineSource::ApplicationSupport));
+        assert!(matching.rejected.is_empty(), "{matching:?}");
+        assert!(
+            matching.describe().contains("1.3.0"),
+            "the boot line does not name the pin it satisfied: {}",
+            matching.describe()
+        );
+    }
+
+    /// **THE DEVELOPER'S MACHINE.** A working tree that has moved ahead of the app's pin is the
+    /// commonest case there is, and it gets a named line rather than a silent "not found" — and
+    /// the escape hatch is the one that already exists: name the directory.
+    #[test]
+    fn a_working_tree_ahead_of_the_pin_is_named_and_the_operator_can_still_name_it() {
+        let repo = scratch("pin-dogfood");
+        let working_tree = make_engine_release(&repo.join("engine"), "1.4.0-dev");
+        std::fs::create_dir_all(repo.join("app/src-tauri")).unwrap();
+        let cwd = repo.join("app/src-tauri");
+
+        let searched = LaunchPaths { cwd: Some(cwd.clone()), ..Default::default() };
+        let got = resolve_engine_dir_pinned(&searched, Some("1.2.0"));
+        assert_eq!(got.dir, None, "{got:?}");
+        let named_in_report = got.rejected.iter().any(|(s, p, why)| {
+            *s == EngineSource::RepoFromCwd && p == &working_tree && why.contains("1.4.0-dev")
+        });
+        assert!(named_in_report, "the checkout's own engine was passed over silently: {got:?}");
+
+        // POSITIVE CONTROL 1 — the operator names it, and it is taken verbatim, release and
+        // all (`locate-engine.sh` rule 1).
+        let stated = LaunchPaths {
+            env_engine_dir: Some(working_tree.display().to_string()),
+            cwd: Some(cwd.clone()),
+            ..Default::default()
+        };
+        let got = resolve_engine_dir_pinned(&stated, Some("1.2.0"));
+        assert_eq!(got.dir.as_deref(), Some(working_tree.as_path()), "{got:?}");
+        assert_eq!(got.source, Some(EngineSource::EnvEngineDir));
+
+        // POSITIVE CONTROL 2 — an UNPINNED build (every `cargo run` and `cargo test` here)
+        // resolves the checkout exactly as it always did.
+        let got = resolve_engine_dir_pinned(&searched, None);
+        assert_eq!(got.dir.as_deref(), Some(working_tree.as_path()), "{got:?}");
+        assert!(got.rejected.is_empty(), "an unpinned build rejected something: {got:?}");
+        assert!(
+            got.describe().contains("pinned by nothing in this build"),
+            "an unpinned build must say so: {}",
+            got.describe()
+        );
+    }
+
+    /// A machine with BOTH: the engine this build boots, and one it does not. The right one is
+    /// used and the other is still reported — "there is no engine" and "there is an engine that
+    /// belongs to a different release of this app" are different problems.
+    #[test]
+    fn the_pinned_engine_is_chosen_and_the_other_one_is_still_named() {
+        let root = scratch("pin-two-engines");
+        let home = root.join("home");
+        let pointer = make_engine_release(&home.join(".claude/richos-engine"), "1.3.0");
+        let installed = make_engine_release(
+            &home.join("Library/Application Support/RichOS/engine"),
+            "1.2.0",
+        );
+
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        assert_eq!(got.dir.as_deref(), Some(installed.as_path()), "{got:?}");
+        assert_eq!(got.source, Some(EngineSource::ApplicationSupport));
+        assert_eq!(got.rejected.len(), 1, "{got:?}");
+        assert_eq!(got.rejected[0].1, pointer);
+        // The audit trail does not shrink: every candidate is still in `tried`.
+        let sources: Vec<EngineSource> = got.tried.iter().map(|(s, _)| *s).collect();
+        assert!(sources.contains(&EngineSource::InstallPointer), "{sources:?}");
     }
 }
