@@ -163,7 +163,13 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     let mut finished: Vec<&Assignment> = Vec::new();
     for item in &items {
         match item.state {
-            AssignmentState::Blocked => waiting.push(item),
+            // **`Unknown` is waiting for him, and it is not finished.** It was running when
+            // RichOS last looked and nothing has witnessed how it ended (spec §6.2), so the
+            // only thing that moves it is his word (§6.3). Sorting it under `finished`
+            // would be the completion claim row 9 exists to refuse, and sorting it under
+            // `running` would tell the front desk something is making progress when
+            // nothing is.
+            AssignmentState::Blocked | AssignmentState::Unknown => waiting.push(item),
             AssignmentState::Registered | AssignmentState::Preparing | AssignmentState::Running => {
                 running.push(item)
             }

@@ -1455,6 +1455,8 @@ mod tests {
             registered_at_ms: 0,
             updated_at_ms: 0,
             notices: Vec::new(),
+            work_session: None,
+            repository_pins: Vec::new(),
         };
         let brief = brief_for(&record, false);
         assert!(brief.contains("landing the three branches"));

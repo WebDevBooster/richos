@@ -59,13 +59,43 @@ pub enum AssignmentState {
     Failed,
     /// Stopped by him, or by quit. Files retained.
     Interrupted,
+    /// **It was running when RichOS was last looking, and nothing since has witnessed how
+    /// it ended.** Spec §6.2, in its own words: *"work that was running is reported as
+    /// unknown until re-witnessed … 'It was running when we last looked' is a receipt
+    /// state, not a status."*
+    ///
+    /// **It is not `Interrupted`, and the distinction is the whole of row 9.**
+    /// `Interrupted` is a stop somebody made — him, or a quit that announced itself — and
+    /// it carries the claim that the app saw the work stop. A crash, a power cut or a
+    /// force quit carries no such claim: the process that would have witnessed the ending
+    /// is the process that died. Calling that `Interrupted` would be an inference, and
+    /// calling it `Settled` would be the completion this system exists to refuse.
+    ///
+    /// **It is deliberately NOT [`Self::is_open`].** Nothing is running on it: the work
+    /// lease and its worker group are gone with the process that held them
+    /// (`richos/engine/scripts/provider-supervisor.py:28-37`). Counting it as open would
+    /// mean the update gate reads `busy` forever over work that stopped days ago, which is
+    /// §6.5's named trap — *"an app with near-permanent background work is an app that may
+    /// never install an update"*. It is unresolved instead, which is a thing he can act on
+    /// rather than a thing that blocks him ([`Self::awaits_his_word`]).
+    Unknown,
 }
 
 impl AssignmentState {
-    /// Is this assignment still the app's problem? Used by the settle check (spec §2.9)
-    /// and, in the next slice, by the update gate (§6.4) and the window-closed exit arm.
+    /// Is this assignment still the app's problem? Used by the settle check (spec §2.9),
+    /// by the update gate (§6.4) and by the window-closed exit arm (§2.4/§2.4a).
+    ///
+    /// **`Unknown` is not here on purpose** — see its own doc. Open means *something is
+    /// running or waiting inside this app*; an assignment nobody witnessed the end of is
+    /// neither.
     pub fn is_open(self) -> bool {
         matches!(self, Self::Registered | Self::Preparing | Self::Running | Self::Blocked)
+    }
+    /// Is this assignment waiting on a decision only he can make? `Blocked` is the step it
+    /// stopped at; `Unknown` is whether to pick it back up at all (spec §6.3: *"resuming is
+    /// a decision, and the decision is his"*).
+    pub fn awaits_his_word(self) -> bool {
+        matches!(self, Self::Blocked | Self::Unknown)
     }
     pub fn as_str(self) -> &'static str {
         match self {
@@ -76,6 +106,10 @@ impl AssignmentState {
             Self::Settled => "settled",
             Self::Failed => "failed",
             Self::Interrupted => "interrupted",
+            // The same word the engine's own receipts use for the same condition
+            // (`docs/architecture/desktop-work.md:28-29`), so the two records do not need a
+            // translation between them.
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -90,6 +124,11 @@ pub enum NoticeKind {
     Settled,
     Failed,
     Interrupted,
+    /// Spec §6.2's relaunch sentence: it was running when RichOS was last looking and
+    /// nothing has witnessed how it ended. A kind of its own because it is neither a
+    /// result nor a stop, and a surface that sorted it under either would be telling him
+    /// something that is not known.
+    Unknown,
 }
 
 /// One thing to say to him, held on disk until he has been told.
@@ -147,6 +186,39 @@ pub struct Assignment {
     pub updated_at_ms: u64,
     #[serde(default)]
     pub notices: Vec<Notice>,
+    /// **The back end's session id, written down when this assignment went on the lease.**
+    ///
+    /// Spec §6.1 reconciles receipts against the EVIDENCE FILE, and that file is keyed by
+    /// session (`app_workers.rs:38`). Until this field existed the work lease's session id
+    /// lived only in the running process (`work_host.rs`'s `Inner::lease_session`), so a
+    /// relaunch had nothing to re-witness against and *"reconciled against the evidence
+    /// file"* was a sentence with no path behind it. `None` means this assignment never
+    /// reached a lease — which is itself a positive fact about it, not a gap.
+    #[serde(default)]
+    pub work_session: Option<String>,
+    /// **Where his repositories stood when this assignment started**, so §6.1's *"reconciled
+    /// against Git"* is a comparison rather than a look.
+    ///
+    /// Written on the work lease after his turn has ended, never during it (§1.1: the turn
+    /// boundary is one file write). A pin is evidence in one direction only: an unmoved
+    /// branch is positive proof that nothing was landed — which is the assertion §7.8 asks
+    /// for in Git rather than on the screen — and a moved one proves only that the
+    /// repository changed, never that this assignment is what changed it.
+    #[serde(default)]
+    pub repository_pins: Vec<RepositoryPin>,
+}
+
+/// One repository, as it stood when an assignment started.
+///
+/// **`head` is what `git rev-parse HEAD` answered, verbatim, or `None` when it could not be
+/// read** — an unreadable repository is recorded as unreadable rather than as unchanged,
+/// because "I could not look" and "nothing moved" are the two answers this whole module
+/// exists to keep apart.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryPin {
+    pub path: String,
+    pub head: Option<String>,
 }
 
 /// What a caller must supply to register. Everything else is derived here, so a model
@@ -365,6 +437,10 @@ pub fn register(state: &Path, request: &Registration) -> Result<Receipt, Assignm
         registered_at_ms: at,
         updated_at_ms: at,
         notices: Vec::new(),
+        // Nothing has been on a lease and nothing has been looked at in Git. Both are
+        // written later, on the work lease, after this turn has ended (§7.1).
+        work_session: None,
+        repository_pins: Vec::new(),
     };
     let root = folder(state, &request.entity_id, &request.thread_id)?;
     write(&root.join(format!("{id}.json")), &record)?;
@@ -459,6 +535,32 @@ pub fn advance(
     update(state, entity, thread, id, |record| {
         record.state = to;
         record.detail = detail;
+    })
+}
+
+/// **Write down which back end took this assignment, and where his repositories stood.**
+///
+/// Called once, on the work lease, the moment the assignment is bound to it — after his
+/// turn has ended (§7.1), so neither the session lookup nor the Git reads are on the
+/// boundary his *"answer in seconds"* is measured at.
+///
+/// Both halves are what a relaunch reconciles against (§6.1). Failing to write them is not
+/// fatal to the work: the caller logs and carries on, and recovery then reports honestly
+/// that it has nothing to re-witness against — which is the truth in that case.
+pub fn note_start(
+    state: &Path,
+    entity: &str,
+    thread: &str,
+    id: &str,
+    session: &str,
+    pins: Vec<RepositoryPin>,
+) -> Result<Assignment, AssignmentError> {
+    if !usable_identity(session) {
+        return Err(AssignmentError("that work connection cannot be identified".into()));
+    }
+    update(state, entity, thread, id, move |record| {
+        record.work_session = Some(session.to_string());
+        record.repository_pins = pins;
     })
 }
 
@@ -610,6 +712,32 @@ pub mod says {
         format!(
             "{title} stopped at the step you declined. Nothing in your repository was changed, \
              and everything it produced is kept with your saved work."
+        )
+    }
+
+    /// **Spec §6.2, and every word of it is chosen against a claim it must not make.**
+    ///
+    /// It does not say finished, it does not say stopped, and it does not say it is still
+    /// going. It says what is actually known — RichOS closed while this was running, and
+    /// nothing has looked since — and it ends by naming the one thing that moves it
+    /// forward, which is him (§6.3: nothing restarts by itself).
+    ///
+    /// `checked` is what the reconciliation could establish, already a sentence, or empty
+    /// when it could establish nothing. Spoken-safe: no identifiers, no counts he cannot
+    /// act on, and it means the same read or said aloud.
+    pub fn unknown(title: &str, checked: &str) -> String {
+        let checked = checked.trim();
+        if checked.is_empty() {
+            return format!(
+                "{title} was running when RichOS closed, and I can't tell you how it ended. \
+                 Nothing is running now and nothing was finished. Say the word and I'll pick \
+                 it back up."
+            );
+        }
+        format!(
+            "{title} was running when RichOS closed, and I can't tell you how it ended. \
+             {checked} Nothing is running now and nothing was finished. Say the word and \
+             I'll pick it back up."
         )
     }
 }
@@ -871,5 +999,89 @@ mod tests {
         // Positive control: the same shape with all of them fixed does register.
         assert!(register(&state, &registration()).is_ok());
         std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **Spec §6.1: a relaunch reconciles against the evidence file and against Git, and
+    /// neither is reachable without something written down BEFORE the crash.**
+    ///
+    /// The session id and the repository heads are that something. This asserts they
+    /// survive a write/read round trip, and that a record written before they existed
+    /// still reads — an assignment already on his disk must not become unreadable because
+    /// recovery landed.
+    #[test]
+    fn what_a_relaunch_reconciles_against_is_written_down_before_the_crash() {
+        let state = root();
+        let receipt = register(&state, &registration()).unwrap();
+        let fresh = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        // Nothing has been on a lease yet, and that is a fact rather than a gap.
+        assert_eq!(fresh.work_session, None);
+        assert!(fresh.repository_pins.is_empty());
+
+        note_start(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            "work-session-abc",
+            vec![
+                RepositoryPin { path: "/fictional/project".into(), head: Some("a".repeat(40)) },
+                // An unreadable repository is recorded as unreadable, never as unchanged.
+                RepositoryPin { path: "/fictional/unreadable".into(), head: None },
+            ],
+        )
+        .unwrap();
+        let after = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(after.work_session.as_deref(), Some("work-session-abc"));
+        assert_eq!(after.repository_pins.len(), 2);
+        assert_eq!(after.repository_pins[1].head, None);
+
+        // A session id that could not be a path component is refused rather than written.
+        assert!(note_start(&state, "depot", "thread-one", &receipt.id, "../escape", Vec::new()).is_err());
+
+        // **The backward-compatibility control.** A record written by the build before
+        // this field existed has neither key; it must still read, with the same honest
+        // "nothing was written down" answer.
+        let mut older = serde_json::to_value(&fresh).unwrap();
+        let object = older.as_object_mut().unwrap();
+        object.remove("work_session");
+        object.remove("repository_pins");
+        let older: Assignment = serde_json::from_value(older).unwrap();
+        assert_eq!(older.work_session, None);
+        assert!(older.repository_pins.is_empty());
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **Row 9's one sentence: nothing invents a completion, and `unknown` is not a stop
+    /// either.** The three states a relaunch can reach are kept apart here, in the two
+    /// places a reader meets them — the state's own predicates, and the words he hears.
+    #[test]
+    fn unknown_is_neither_finished_nor_stopped_nor_running() {
+        // Not open: nothing is running on it, so it can never hold an update forever
+        // (§6.5's trap) and it can never keep a windowless app alive (§2.4a).
+        assert!(!AssignmentState::Unknown.is_open());
+        // And not a settlement of any kind: it is his to decide (§6.3).
+        assert!(AssignmentState::Unknown.awaits_his_word());
+        assert!(AssignmentState::Blocked.awaits_his_word());
+        // Positive controls, so this test fails if `awaits_his_word` ever degenerates into
+        // "everything" or `is_open` into "nothing".
+        assert!(!AssignmentState::Settled.awaits_his_word());
+        assert!(!AssignmentState::Interrupted.awaits_his_word());
+        assert!(AssignmentState::Running.is_open());
+        assert_eq!(AssignmentState::Unknown.as_str(), "unknown");
+
+        let said = says::unknown("landing the three branches", "Your repository is where it was.");
+        assert!(said.contains("landing the three branches"));
+        assert!(said.contains("Your repository is where it was."));
+        assert!(said.contains("nothing was finished"));
+        // The three words it must never say, and the interrupted sentence it must not
+        // borrow — a crash is not a stop somebody made.
+        for forbidden in ["finished,", "done", "was stopped", "landed"] {
+            assert!(!said.contains(forbidden), "the unknown sentence said {forbidden:?}: {said}");
+        }
+        // With nothing established, it says less rather than guessing more.
+        let bare = says::unknown("landing the three branches", "   ");
+        assert!(bare.contains("I can't tell you how it ended"));
+        assert!(bare.ends_with("Say the word and I'll pick it back up."));
+        std::fs::remove_dir_all(root()).unwrap();
     }
 }
