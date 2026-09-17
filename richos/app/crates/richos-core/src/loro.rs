@@ -29,7 +29,7 @@
 //! Writing is a different type reaching a different binary (`correction.rs`), and it only
 //! ever runs after the CEO has said yes.
 
-use crate::reprime::{LoroContextCompiler, LoroTier, SliceRequest};
+use crate::reprime::{CompiledTier, LoroContextCompiler, LoroTier, SliceCoverage, SliceRequest};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -1081,7 +1081,7 @@ impl CliContextCompiler {
         argv
     }
 
-    fn run(&self, req: &SliceRequest<'_>) -> LoroTier {
+    fn run(&self, req: &SliceRequest<'_>) -> CompiledTier {
         use std::io::Write;
         use std::process::Stdio;
 
@@ -1094,7 +1094,7 @@ impl CliContextCompiler {
             .spawn()
         {
             Ok(c) => c,
-            Err(e) => return LoroTier::Unavailable(format!("could not start the loro compiler: {e}")),
+            Err(e) => return unreadable(format!("could not start the loro compiler: {e}")),
         };
         if let Some(mut stdin) = child.stdin.take() {
             // A broken pipe here is not fatal on its own — the exit code below decides.
@@ -1102,29 +1102,45 @@ impl CliContextCompiler {
         }
         let out = match child.wait_with_output() {
             Ok(o) => o,
-            Err(e) => return LoroTier::Unavailable(format!("the loro compiler did not complete: {e}")),
+            Err(e) => return unreadable(format!("the loro compiler did not complete: {e}")),
         };
         if !out.status.success() {
             let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into());
             let why = String::from_utf8_lossy(&out.stderr);
             let why = why.lines().next().unwrap_or("").trim();
-            return LoroTier::Unavailable(format!("the loro compiler exited {code}: {why}"));
+            return unreadable(format!("the loro compiler exited {code}: {why}"));
         }
-        self.interpret(&String::from_utf8_lossy(&out.stdout), req)
+        self.interpret_tier(&String::from_utf8_lossy(&out.stdout), req)
     }
 
     /// Parse + judge one compiler stdout. Split out from [`Self::run`] so every branch is
     /// testable without a corpus, a child process or a byte of the CEO's memory.
+    ///
+    /// The tier only. [`Self::interpret_tier`] is the same verdict WITH the compiler's own
+    /// `coverage` label attached, which is what the evidence lookup hangs on.
     pub fn interpret(&self, stdout: &str, req: &SliceRequest<'_>) -> LoroTier {
+        self.interpret_tier(stdout, req).tier
+    }
+
+    /// Parse + judge one compiler stdout, keeping the `coverage` label.
+    ///
+    /// **Every refusal carries [`SliceCoverage::Unknown`], and that is deliberate rather than
+    /// lazy.** A slice that did not parse, whose schema is unsupported, that broke its own
+    /// budget guarantee or that was refused by the lane re-assertion is a slice whose SELF-
+    /// REPORT cannot be trusted either — including its report about whether it answered the
+    /// question. Passing a refused slice's `coverage: "none"` through would let a slice that
+    /// was thrown away still decide to open the CEO's files. `Unknown` never opens them.
+    pub fn interpret_tier(&self, stdout: &str, req: &SliceRequest<'_>) -> CompiledTier {
         let slice: Slice = match serde_json::from_str(stdout) {
             Ok(s) => s,
-            Err(e) => return LoroTier::Unavailable(format!("the loro slice did not parse: {e}")),
+            Err(e) => return unreadable(format!("the loro slice did not parse: {e}")),
         };
+        let coverage = SliceCoverage::parse(&slice.coverage);
         if slice.schema_version != SUPPORTED_SLICE_SCHEMA {
             // §2: assert the version and treat anything else as unsupported rather than
             // mis-parsing it. Mis-parsing a memory slice does not fail loudly — it injects
             // subtly wrong company memory under a header calling it authoritative.
-            return LoroTier::Unavailable(format!(
+            return unreadable(format!(
                 "slice schemaVersion {} is not supported (this build reads {SUPPORTED_SLICE_SCHEMA})",
                 slice.schema_version
             ));
@@ -1134,7 +1150,7 @@ impl CliContextCompiler {
         // depend on that being true tomorrow.
         let expected = self.lanes.lane_for(req.entity_id);
         if let Some(bad) = slice.foreign_lane(expected) {
-            return LoroTier::Unavailable(format!(
+            return unreadable(format!(
                 "the compiled slice carried company {:?} memory ({}) into entity {:?}{} — refused \
                  whole rather than filtered, because `items` only describes what is already in \
                  `text`",
@@ -1151,7 +1167,7 @@ impl CliContextCompiler {
         // than trusted: this string goes into a prompt the CEO is billed for on every
         // rotation, and the guarantee is cheap to check and expensive to assume.
         if slice.text.chars().count() > req.budget_chars {
-            return LoroTier::Unavailable(format!(
+            return unreadable(format!(
                 "the slice broke its own budget guarantee: {} chars against a {}-char cap",
                 slice.text.chars().count(),
                 req.budget_chars
@@ -1171,7 +1187,11 @@ impl CliContextCompiler {
             } else {
                 slice.text.clone()
             };
-            return LoroTier::NothingRecorded(text);
+            // THE COVERAGE LABEL IS THE COMPILER'S, KEPT UNCHANGED. A thin slice is
+            // `coverage: "none"` (`compile.js:287`), which is the evidence lookup's main
+            // door — memory genuinely holds nothing, so the CEO's own files are the next
+            // honest place to look.
+            return CompiledTier { tier: LoroTier::NothingRecorded(text), coverage };
         }
         // PROVENANCE, recorded LAST — after the schema check, after the lane re-assertion,
         // after the budget check. Everything above this line is a reason a slice must not be
@@ -1199,19 +1219,33 @@ impl CliContextCompiler {
         // the corpus is one company's own record and the reader is a different company,
         // and the alternative is an unmarked misattribution — a payload that is byte-honest
         // and reads as a lie.
-        match self.corpus_provenance_line(req.entity_id) {
+        let tier = match self.corpus_provenance_line(req.entity_id) {
             Some(line) => LoroTier::Slice(format!("{line}\n\n{}", slice.text)),
             None => LoroTier::Slice(slice.text),
-        }
+        };
+        // `adjacent` reaches the caller on an ACCEPTED slice, and that is the second of the
+        // two evidence doors: loro returned its nearest material and said, in its own
+        // heading, that nothing squarely covers the question (`compile.js:144-145`).
+        CompiledTier { tier, coverage }
     }
+}
+
+/// A slice that must not be trusted, with no coverage claim attached — see
+/// [`CliContextCompiler::interpret_tier`] for why every refusal is `Unknown`.
+fn unreadable(reason: String) -> CompiledTier {
+    CompiledTier { tier: LoroTier::Unavailable(reason), coverage: SliceCoverage::Unknown }
 }
 
 impl LoroContextCompiler for CliContextCompiler {
     fn compile_slice(&self, req: &SliceRequest<'_>) -> LoroTier {
+        self.compile_tier(req).tier
+    }
+
+    fn compile_tier(&self, req: &SliceRequest<'_>) -> CompiledTier {
         if req.topic.trim().is_empty() {
             // §1: "A slice is always TOPICAL — there is no compile all of loro." An empty
             // topic is a caller bug, and asking anyway would exit 2 on every rotation.
-            return LoroTier::Unavailable("no topic — the thread has nothing the CEO has said yet".into());
+            return unreadable("no topic — the thread has nothing the CEO has said yet".into());
         }
         self.run(req)
     }

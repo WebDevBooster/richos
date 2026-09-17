@@ -26,8 +26,8 @@ use crate::live::{
 };
 use crate::machinery::{ContextUsage, MachineryObserver, MachineryRecord};
 use crate::reprime::{
-    LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest, DEFAULT_LORO_BUDGET_CHARS,
-    DEFAULT_TAIL_TURNS,
+    EvidenceLookup, EvidenceRequest, EvidenceTier, LoroContextCompiler, LoroTier, RePrimePayload,
+    SliceRequest, DEFAULT_LORO_BUDGET_CHARS, DEFAULT_TAIL_TURNS,
 };
 use crate::correction::{ProposalObserver, SharedCorrectionDesk};
 use crate::loro::SharedSliceProvenance;
@@ -267,6 +267,15 @@ pub struct Spine {
     /// The optional Tier-C seam (continuity §2.3/§4) — a different engineer's parallel
     /// work on `loro/`. Absent by default; the re-prime payload degrades gracefully.
     loro_compiler: Option<Box<dyn LoroContextCompiler>>,
+    /// The optional Tier-E seam — the evidence lookup over the CEO's own files (the
+    /// 2026-09-17 evidence-retrieval ruling §1/§4). Absent by default, exactly like the
+    /// compiler above, and the payload degrades to `EvidenceTier::NotWired`.
+    ///
+    /// **It is gated on the compiler, not merely placed beside it.** The lookup runs only
+    /// when the compiled slice's own `coverage` says memory did not answer, so an install
+    /// with a lookup and no compiler never looks at anything — there is no coverage label,
+    /// and absence of the signal is not the signal.
+    evidence_lookup: Option<Box<dyn EvidenceLookup>>,
     /// Cumulative prompt+reply chars sent/received on the CURRENT lease since it was
     /// last (re)primed — the context-watermark measurement (see `CHARS_PER_TOKEN_ESTIMATE`).
     context_chars: usize,
@@ -445,6 +454,7 @@ impl Spine {
             observer: None,
             lease_factory: None,
             loro_compiler: None,
+            evidence_lookup: None,
             context_chars: 0,
             context_usage: None,
             context_pressure: None,
@@ -751,6 +761,10 @@ impl Spine {
 
     pub fn clear_memory_wiring(&mut self) {
         self.loro_compiler = None;
+        // THE LOOKUP GOES WITH THE COMPILER. It was resolved from the same corpus, and a
+        // lookup left attached to a corpus the app has stopped reading would be pointed at
+        // an evidence zone nothing else in the build still believes in.
+        self.evidence_lookup = None;
         self.correction_desk = None;
         self.lease_primed = false;
     }
@@ -918,6 +932,18 @@ impl Spine {
         self.loro_compiler.is_some()
     }
 
+    /// Attach the optional Tier-E seam — the evidence lookup over the CEO's own files
+    /// (the 2026-09-17 evidence-retrieval ruling §1/§4). See `EvidenceLookup`'s doc for the
+    /// degrade-gracefully contract when this is never called, and
+    /// `crate::evidence::CliEvidenceLookup` for the shipped implementation.
+    pub fn set_evidence_lookup(&mut self, lookup: Box<dyn EvidenceLookup>) {
+        self.evidence_lookup = Some(lookup);
+    }
+
+    pub fn has_evidence_lookup(&self) -> bool {
+        self.evidence_lookup.is_some()
+    }
+
     /// Record ONE completed, CEO-facing action that the app took outside a turn.
     ///
     /// The shell needs this because `ledger()` is deliberately `&Ledger`: the ledger is
@@ -957,6 +983,8 @@ impl Spine {
     /// rotation the CEO is not supposed to be able to see.
     fn fill_loro_tier(&self, payload: &mut RePrimePayload, binding: &ThreadBinding) {
         let Some(compiler) = self.loro_compiler.as_ref() else { return };
+        // A COMPILER AND NO LOOKUP IS THE ORDINARY STATE, and it leaves `EvidenceTier::NotWired`
+        // untouched below — never a claim that the CEO has no such files.
         // Acceptance is journaled before priming. Use the newest pending request only as
         // the read-only retrieval query; do not put it back in the model's context transcript
         // or current_intent, where it would be consumed before visible delivery.
@@ -980,7 +1008,38 @@ impl Spine {
             topic: &topic,
             budget_chars: DEFAULT_LORO_BUDGET_CHARS,
         };
-        payload.loro = compiler.compile_slice(&req);
+        // ONE COMPILE, TWO OUTPUTS: the injectable tier, and the compiler's own verdict on
+        // whether it answered. The verdict is not injected — it is what decides whether to
+        // look in the CEO's files, and it belongs to THIS compile and no other.
+        let compiled = compiler.compile_tier(&req);
+        payload.loro = compiled.tier;
+
+        // TIER E — the evidence lookup. Gated on the compiler's own coverage label, and on
+        // nothing else: not on the tier being thin, not on `items` being empty, not on how the
+        // text reads. `coverage` is the signal the compiler emits for exactly this purpose
+        // (the 2026-09-17 ruling §1, "When it runs: on demand, not on every re-prime").
+        //
+        // **The memory budget is not touched here and cannot be.** `req.budget_chars` was
+        // spent above and is not re-read; the block goes into a different field, rendered
+        // under a different heading, below the company-memory block. Asserted by a test that
+        // measures the rendered memory section with and without a block present.
+        let Some(lookup) = self.evidence_lookup.as_ref() else { return };
+        let ev = EvidenceRequest {
+            thread_id: binding.thread_id(),
+            entity_id: binding.entity_id().as_str(),
+            topic: &topic,
+            coverage: compiled.coverage,
+        };
+        payload.evidence = if compiled.coverage.should_consult_evidence() {
+            lookup.look_up(&ev)
+        } else {
+            // Not even asked. Spending a process to be told "covered" would be one child
+            // process per turn for an answer this side already has.
+            EvidenceTier::NotConsulted(match compiled.coverage.as_str() {
+                Some(label) => format!("the compiled slice reported coverage {label:?}"),
+                None => "the compiler did not report a coverage label".into(),
+            })
+        };
     }
 
     /// Override the context-window watermark budget (continuity §8 Q2). `window_tokens`

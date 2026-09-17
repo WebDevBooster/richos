@@ -229,6 +229,36 @@ node bin/richos-service.js dictation-asks                       # the inspectabl
 node bin/richos-service.js dictation-retention [--apply]        # what it costs, and what ages out
 ```
 
+### `bin/richos-evidence.mjs` — the evidence lookup, as a process
+
+A SECOND entry point, deliberately separate from `richos-service.js`: one read-only verb, one
+JSON object on stdout, and no shared state with the pipeline. It is the door the Rust app knocks
+on when a compiled memory slice says memory did not answer.
+
+```
+node bin/richos-evidence.mjs lookup --coverage none|adjacent|direct \
+    [--topic "<what he asked>" | --topic-stdin] (--zone <dir> | --corpus <dir>) \
+    [--audience rich] [--max-items n] [--now <iso8601>]
+```
+
+`lib/workspace/evidence-lookup.js` is the whole of the behavior — the ranking, the floor, the
+caps, the walls and the rendering all live there and none of them is re-implemented here. The
+consult gate is ASKED of the module rather than copied, so a second copy cannot drift from the
+compiler's labels.
+
+**The zone is never defaulted.** `config.js corpusRoot()` falls back to `~/RichOS/corpus`, which
+is right when a person is standing at a terminal and wrong for a child process launched with an
+empty environment — it would read whichever corpus happens to sit there and exit 0 either way.
+So `--zone` or `--corpus` is required (or `RICHOS_WORKSPACE_ZONE` / `LORO_CORPUS` in the
+environment), and neither is exit 2 with the reason on stderr, having read nothing.
+
+Exit codes, which a caller branches on: **0** a completed lookup, found or not; **2** usage or
+no zone; **3** the lookup itself threw. A throw is never an empty block — a caller that read
+"nothing in your files" out of a crash would be told a falsehood by a bug.
+
+Tests: `npm run test:evidence-lookup` (the module, 19) and `npm run test:evidence-bin` (this
+door, 13). The Rust half is `app/crates/richos-core/src/evidence.rs`.
+
 Env overrides: `RICHOS_DROP_ZONE`, `RICHOS_WHISPER_MODEL` / `RICHOS_MODEL_DIR`, `RICHOS_WHISPER_BIN`,
 `RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`, `RICHOS_ENTITIES_FILE`,
 `RICHOS_DIARIZE` (P5 diarization method, default `none`), `RICHOS_DICTATION_JOURNAL`,
