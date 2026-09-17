@@ -497,6 +497,32 @@ body.home-open {
   opacity: 0;
   transition: opacity 0.6s ease;
   font-style: italic;
+  /* NO ORPHANS — candidate-.2 defect #9, and this is the property that exists for exactly it.
+     The walk caught "Gantry learned from an email thread · Legal & Risk → 1 new memory"
+     breaking as a 395px line and a 52px one, with "memory" alone on the second, right-aligned
+     against the column: "Legible, just untidy." The line is `width: max-content` clamped to
+     460px, so any sentence past that wraps, and the default algorithm breaks at the last
+     opportunity that fits and leaves whatever is left.
+
+     MEASURED on the rendered frame, the same sentence, the three values:
+
+         wrap (default)    lines 395px / 52px     "memory" alone
+         pretty            lines 353px / 94px     "1 new memory"
+         balance           lines 237px / 209px    "· Legal & Risk → 1 new memory"
+
+     `pretty` and not `balance`: both clear the defect, and `balance` re-breaks every line the
+     engine writes rather than only the ones that break badly — it moves the separator to the
+     start of line two, which is a new typographic decision where this is a repair. `pretty`
+     is the one specified to avoid a short last line and it changes nothing about a sentence
+     that was already breaking well.
+
+     A HINT, AND IT DEGRADES TO WHAT IS THERE NOW. An engine that does not know the value
+     ignores the declaration and wraps as before, so this can only improve the line; it is
+     never load-bearing. Tauri renders through WKWebView, Safari has honored it since 17.5,
+     and `tests/ticker-wrap.js` measures the RESULT on the rendered frame rather than
+     asserting the declaration, so a webview that ignores it fails the suite instead of
+     passing on a property nobody applied. */
+  text-wrap: pretty;
 }
 #home-live .ticker.on {
   opacity: 1;

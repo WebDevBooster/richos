@@ -2162,6 +2162,20 @@ body.bp-narrow .first-run {
   border-radius: 12px;
   box-shadow: 0 18px 48px var(--shadow-soft);
   overflow: hidden;
+  /* A PANEL TALLER THAN THE WINDOW USED TO LOSE ITS BOTTOM, and its bottom is where the way
+     out lives. Found while measuring defect #5: with six companies in the registry the
+     first-run company sheet is 843px tall, `.overlay`'s `padding-top: 12vh` starts it at
+     108px in a 900px window, and its "Not now" button sat at y=901.8 — 1.8px below the
+     fold, with `overflow: hidden` above and nothing to scroll. Playwright refused to click
+     it ("element is outside of the viewport") 60 times over 30 seconds, which is a fair
+     model of a person who cannot reach it either.
+
+     `100vh - 12vh` is the space `.overlay` leaves under its own top padding; 24px keeps the
+     panel's shadow off the bottom edge. `overflow-y: auto` overrides the `overflow: hidden`
+     above it on this axis only, so the rounded corners still clip `.overlay-input`
+     horizontally and a scrollbar appears only when the content genuinely does not fit. */
+  max-height: calc(88vh - 24px);
+  overflow-y: auto;
   animation: overlay-in 0.16s ease-out;
 }
 
@@ -2301,6 +2315,23 @@ body.bp-narrow .first-run {
 .memory-setup-actions {
   display: flex;
   gap: 8px;
+}
+
+/* THE DEFERRAL, AS ONE GROUP — candidate-.2 defect #5.
+   `.overlay-note` carries `margin: -4px 0 12px`, which is right for a note that follows a
+   heading and wrong for one that follows a button row: it put the "Not now is fine…"
+   sentence 4px INTO the bottom edge of "Add this company" and 12px clear of the "Not now"
+   it actually explains. Measured on the running page before this rule existed: gapAbove
+   -4px, gapBelow 12px, so the sentence captioned the wrong control by 16px of evidence.
+   The sentence now lives inside the group and the numbers are 20px above, 10px below —
+   the explanation is nearer the thing it explains than to anything else, which is the whole
+   requirement. */
+.picker-defer {
+  margin-top: 20px;
+}
+
+.picker-defer-note {
+  margin: 0 0 10px;
 }
 
 /* FIRST-RUN SETUP (Option D) — what is about to be installed, one row each.

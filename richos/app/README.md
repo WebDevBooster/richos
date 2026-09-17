@@ -459,7 +459,7 @@ richos/app/
                               run since that job landed. Off macOS it is now
                               `ignored, NOT CHECKABLE ON THIS TARGET: …`, because the pin is
                               read by `/usr/bin/codesign`. The negative half needs nothing
-    tests/interruption_tests.rs 13 tests for WHY A TURN ENDED WITHOUT FINISHING
+    tests/interruption_tests.rs 14 tests for WHY A TURN ENDED WITHOUT FINISHING
                               (`src/interruption.rs`, the 2026-09-17 nightly's D2). The
                               published nightly held
                               `cognition protocol: "Not logged in · Please run /login"` in
@@ -946,7 +946,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1082 tests + 5 doc-tests (1078 direct, 4 ignored)
+cargo test -p richos-core                       # 1089 tests + 5 doc-tests (1085 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

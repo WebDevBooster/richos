@@ -2148,7 +2148,37 @@
       if (interruption.lossMessage) {
         card.appendChild(elem("p", "tl-intervention-note", interruption.lossMessage));
       }
-      if (interruption.offersRetry) {
+      // HIS WORDS COME BACK, AND THAT IS NOT THE SAME QUESTION AS `offersRetry`.
+      //
+      // The candidate-.2 walk, §4 defect #8: the not-signed-in card tells him to *"send this
+      // to me again"*, the composer is empty, and — unlike the `[Errno 2]` card beside it —
+      // the card offered no **Put it back in the box**. The one thing it asked for was the
+      // one thing it did not give him. He retypes, or he loses the sentence.
+      //
+      // `offersRetry` is `InterruptionCause::offers_retry`, and it answers *"is asking again
+      // a plan?"* — `false` for a missing sign-in, a rejected credential and a missing
+      // provider, correctly, because no number of presses clears any of those. D2 built this
+      // branch on it when the control was called **Pick it back up**, which really did
+      // promise a resume. D6 then renamed the control to what it actually does — it puts the
+      // text back in the composer and starts nothing — and NOBODY REVISITED THE GATE. That is
+      // the whole of this defect: a boolean that was right for the old label, left in front
+      // of the new one.
+      //
+      // So the gate is now the question the control's own words ask. There are words to put
+      // back, or there are not. It is `renderUnknownCard`'s rule verbatim, one screen down in
+      // this same file — *"NO BUTTON WHEN THERE IS NOTHING TO PUT BACK … a control that puts
+      // nothing back is worse than no control"* — and D2's rule is untouched by it: a control
+      // that CANNOT WORK is still worse than no control, and this one always works. It does
+      // not resend, does not spend his subscription, does not start a turn, and does not
+      // claim the failure has cleared. The sentence above it still says asking again will not
+      // help, where that is true.
+      //
+      // `stopped-by-ceo` is the one cause excluded, and by its TAG rather than by reading its
+      // prose: `interruption.rs` says of it *"his words go back in the box by the ordinary
+      // route rather than through a failure card's control"*, so the words are already there
+      // and a second control would put them back twice.
+      const wordsToPutBack = !!(turn.user && turn.user.text) && interruption.cause !== "stopped-by-ceo";
+      if (wordsToPutBack) {
         card.appendChild(retryControl(turn, opts));
       }
       return card;
