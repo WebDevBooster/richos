@@ -204,7 +204,9 @@ export async function connect(deps = {}) {
   if (loaded.exitCode) return { exitCode: loaded.exitCode };
   const config = loaded.config;
 
-  // Which scopes to request: the config's list, or exactly the sources named with --source.
+  // Which scopes to request: the config's list, or exactly the sources named with --source. Either
+  // way the VALUES come from the scope registry (config.js), never from a literal typed here or in
+  // the guide — so a scope the CEO re-rules (Drive's width, §40) moves in one place.
   let scopes = config.scopes;
   if (d.sources && d.sources.length) {
     const unknown = d.sources.filter((s) => !sourceEntry(s));
@@ -213,6 +215,13 @@ export async function connect(deps = {}) {
       return { exitCode: 1 };
     }
     scopes = scopesForSources(d.sources);
+    // Persist what he actually chose, so a re-consent a week later requests the same sources
+    // without him having to remember the flags. A config that disagrees with the live grant is a
+    // wrong number waiting for the next 7-day expiry.
+    if (scopes.join(' ') !== config.scopes.join(' ')) {
+      saveClientConfig({ ...config, scopes }, d.clientConfigFile);
+      config.scopes = scopes;
+    }
   }
 
   const backendResult = resolveBackend(d);

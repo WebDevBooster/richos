@@ -15,7 +15,9 @@
  *     this layer exists to avoid; "Drive: skipped, you did not grant drive.metadata.readonly" is a
  *     sentence he can act on.
  *   - A source declared in the scope table but not yet built is a SEAM, reported as pending rather
- *     than pretended into existence. Gmail (P3) is that today.
+ *     than pretended into existence. Nothing is in that state today — Calendar (P1), Drive (P2) and
+ *     Gmail (P3) are all registered — and the branch is kept because the second vendor (P4) will
+ *     arrive the same way: a declared scope before a built adapter.
  *
  * Every adapter is checked against the interface (`validateAdapter`) and the poll-only invariant
  * (`assertPollingOnly`) AT WIRING TIME — the adapter docblock says that check is for "wiring time +
@@ -27,6 +29,7 @@ import { validateAdapter } from './adapter.js';
 import { assertPollingOnly } from './privacy.js';
 import { GoogleCalendarAdapter } from './adapters/google-calendar.js';
 import { GoogleDriveAdapter } from './adapters/google-drive.js';
+import { GoogleGmailAdapter } from './adapters/google-gmail.js';
 
 /**
  * The sources RichOS knows about, in the CEO's own build order (§0: Calendar → Drive → Gmail).
@@ -53,16 +56,22 @@ export const GOOGLE_SOURCES = [
     create: (opts) => new GoogleDriveAdapter(opts),
   },
   {
-    // ---- THE GMAIL SEAM (P3) ----------------------------------------------------------------
-    // The scope is declared; the adapter is not on main yet. Import it and give this entry a
-    // `create` and Gmail is registered — nothing else in this file or its callers has to change.
+    // Gmail landed on main (49caef3f) while this registry was being written, so it is registered
+    // for real rather than left as the seam the brief expected. It took exactly the one line this
+    // file was shaped for: the scope, the label, the build order and the "not granted" reporting
+    // were already here and already tested.
+    //
+    // `contentMode` is deliberately NOT passed. The adapter defaults to metadata-first and REFUSES
+    // body mode without `gmail.readonly` — escalating the CEO's mailbox to message bodies is his
+    // consent decision (§6.2), and a registry that could switch it on from a config file would be
+    // taking that decision on his behalf. `scopes` is handed through so the adapter can see the
+    // actual grant rather than be told about it.
     source: 'mail',
     label: 'Gmail',
     scope: GOOGLE_SCOPES.mail,
     phase: 'P3',
     note: 'metadata-first (graduated privacy, §6.2)',
-    create: null,
-    pending: 'the Gmail adapter is not built yet (P3)',
+    create: (opts) => new GoogleGmailAdapter(opts),
   },
 ];
 
@@ -114,7 +123,14 @@ export function buildRegistry(opts) {
       continue;
     }
 
-    const adapter = entry.create({ client: opts.makeClient(), accountId: opts.accountId, now: opts.now });
+    const adapter = entry.create({
+      client: opts.makeClient(),
+      accountId: opts.accountId,
+      now: opts.now,
+      // The grant itself, not a claim about it: an adapter with a graduated-privacy escalation
+      // (Gmail) checks what was actually granted before it will read anything wider.
+      scopes: [...granted],
+    });
     const problems = [...validateAdapter(adapter), ...assertPollingOnly(adapter)];
     if (problems.length) {
       // Loud, at wiring time, before a single item is fetched.

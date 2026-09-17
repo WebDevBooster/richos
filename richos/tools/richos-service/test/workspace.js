@@ -2360,12 +2360,35 @@ test('a scope that is not granted is an adapter that does not run — PROBE: gra
   assert.deepEqual(both.enabled.map((e) => e.source), ['calendar', 'drive']);
 });
 
-test('the Gmail seam reports as PENDING rather than pretending to exist', () => {
+test('all three built sources register from one grant — Calendar, Drive and Gmail', () => {
   const r = buildRegistry({ accountId: 'ceo@acme.com', now, makeClient: () => ({}), grantedScopes: Object.values(GOOGLE_SCOPES) });
-  assert.ok(!r.enabled.some((e) => e.source === 'mail'), 'Gmail is not wired yet');
-  const mail = r.skipped.find((s) => s.source === 'mail');
-  assert.match(mail.reason, /not built yet/);
-  assert.equal(mail.scope, GOOGLE_SCOPES.mail, 'and its scope is already declared, so landing the adapter is one line');
+  assert.deepEqual(r.enabled.map((e) => e.source), ['calendar', 'drive', 'mail']);
+  assert.deepEqual(r.skipped, [], 'a full grant skips nothing');
+  const mail = r.enabled.find((e) => e.source === 'mail');
+  assert.equal(mail.adapter.constructor.name, 'GoogleGmailAdapter');
+  assert.equal(mail.adapter.contentMode, 'metadata', 'the registry never escalates the mailbox to bodies');
+  assert.deepEqual(mail.adapter.requiredScopes, [GOOGLE_SCOPES.mail]);
+});
+
+test('an ungranted Gmail scope skips the mailbox by name — PROBE: granting it turns the mailbox on', () => {
+  const args = { accountId: 'ceo@acme.com', now, makeClient: () => ({}) };
+  const without = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar] });
+  const mail = without.skipped.find((s) => s.source === 'mail');
+  assert.ok(mail.reason.includes(GOOGLE_SCOPES.mail), 'the skip names the scope it would need');
+  const withMail = buildRegistry({ ...args, grantedScopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.mail] });
+  assert.deepEqual(withMail.enabled.map((e) => e.source), ['calendar', 'mail']);
+});
+
+test('a source declared in the scope table but not yet BUILT is reported as pending, never pretended', () => {
+  // The P4 shape: a second vendor's scope arrives before its adapter. Proven on the branch the
+  // registry actually takes, using a synthetic entry rather than on a source that is now built.
+  const pending = { source: 'calendar', label: 'Someday', scope: 'https://www.googleapis.com/auth/someday', create: null, pending: 'not built yet (P4)' };
+  const saved = GOOGLE_SOURCES.splice(0, GOOGLE_SOURCES.length, pending);
+  try {
+    const r = buildRegistry({ accountId: 'ceo@acme.com', now, makeClient: () => ({}), grantedScopes: [pending.scope] });
+    assert.deepEqual(r.enabled, [], 'a granted scope with no adapter still runs nothing');
+    assert.match(r.skipped[0].reason, /not built yet/);
+  } finally { GOOGLE_SOURCES.splice(0, GOOGLE_SOURCES.length, ...saved); }
 });
 
 test('every registered adapter satisfies the interface AND the poll-only invariant at WIRING time', () => {
@@ -2431,6 +2454,12 @@ function googleHttpMock(opts = {}) {
     if (u.pathname.endsWith('/changes/startPageToken')) return httpResponse(200, JSON.stringify({ startPageToken: '1001' }));
     if (u.pathname.endsWith('/drive/v3/changes')) return httpResponse(200, JSON.stringify({ changes: opts.driveChanges || [], newStartPageToken: '1002' }));
     if (u.pathname.endsWith('/drive/v3/files')) return httpResponse(200, JSON.stringify({ files: opts.driveFiles || [FILE_ORG] }));
+    if (u.pathname.endsWith('/users/me/profile')) return httpResponse(200, JSON.stringify({ emailAddress: 'ceo@acme.com', historyId: '2001' }));
+    if (u.pathname.endsWith('/users/me/history')) return httpResponse(200, JSON.stringify({ history: opts.mailHistory || [], historyId: '2002' }));
+    if (/\/users\/me\/messages\/[^/]+$/.test(u.pathname)) return httpResponse(200, JSON.stringify(MAIL_INTERNAL));
+    if (u.pathname.endsWith('/users/me/messages')) {
+      return httpResponse(200, JSON.stringify({ messages: (opts.mailRefs || [MAIL_INTERNAL]).map((m) => ({ id: m.id, threadId: m.threadId })) }));
+    }
     return httpResponse(404, '{}');
   };
   return { http, calls };
@@ -2615,19 +2644,40 @@ await atest('sync REFUSES to poll when the grant needs re-consent — loud, and 
   } finally { f.cleanup(); }
 });
 
-await atest('sync --once runs ONE pass through BOTH adapters into the evidence zone', async () => {
-  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive] });
+/** The full grant, read off the scope registry rather than spelled out — §40 may re-rule Drive's width. */
+const FULL_GRANT = Object.values(GOOGLE_SCOPES).join(' ');
+
+await atest('sync --once runs ONE pass through ALL THREE adapters into the evidence zone', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
   try {
-    const grant = `${GOOGLE_SCOPES.calendar} ${GOOGLE_SCOPES.drive}`;
-    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: grant }))));
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
     f.lines.length = 0;
-    const r = await sync(f.deps({ http: googleHttpMock({ grantedScope: grant }).http }));
+    const r = await sync(f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }));
     assert.equal(r.exitCode, 0, f.text());
-    assert.deepEqual(r.results.map((x) => x.source), ['calendar', 'drive']);
+    assert.deepEqual(r.results.map((x) => x.source), ['calendar', 'drive', 'mail']);
     for (const res of r.results) assert.equal(res.summary.ingested, 1, `${res.source} ingested its one item`);
-    assert.ok(fs.existsSync(path.join(f.zone, 'google', 'calendar')), 'calendar evidence on disk');
-    assert.ok(fs.existsSync(path.join(f.zone, 'google', 'drive')), 'drive evidence on disk');
+    for (const dir of ['calendar', 'drive', 'mail']) {
+      assert.ok(fs.existsSync(path.join(f.zone, 'google', dir)), `${dir} evidence on disk`);
+    }
     assert.ok(fs.existsSync(path.join(f.zone, '_workspace_ingest.jsonl')), 'and the ingest ledger');
+    // Three sources, three independent cursors under one zone — no resync disturbs another.
+    const cursors = JSON.parse(fs.readFileSync(path.join(f.zone, '_sync_state.json'), 'utf8'));
+    assert.equal(Object.keys(cursors).length, 3);
+  } finally { f.cleanup(); }
+});
+
+await atest('the mailbox is polled METADATA-ONLY through the command path — no format=full, ever', async () => {
+  const f = wsFixture({ scopes: Object.values(GOOGLE_SCOPES) });
+  try {
+    await connect(f.deps(connectStubs(googleHttpMock({ grantedScope: FULL_GRANT }))));
+    const mock = googleHttpMock({ grantedScope: FULL_GRANT });
+    await sync(f.deps({ http: mock.http }));
+    const fetches = mock.calls.filter((c) => /\/users\/me\/messages\/[^/]+/.test(c.url));
+    assert.ok(fetches.length > 0, 'PROBE: the mailbox really was fetched');
+    for (const c of fetches) {
+      assert.match(c.url, /format=metadata/, 'metadata-first is what the registry wires');
+      assert.ok(!c.url.includes('format=full'), 'and nothing here can ask for a body');
+    }
   } finally { f.cleanup(); }
 });
 
@@ -2652,7 +2702,7 @@ await atest('sync SKIPS an ungranted source by name rather than quietly covering
     const r = await sync(f.deps({ http: googleHttpMock().http }));
     assert.deepEqual(r.results.map((x) => x.source), ['calendar']);
     assert.match(f.text(), /skipped:\s+Drive — the grant does not include/);
-    assert.match(f.text(), /skipped:\s+Gmail — the Gmail adapter is not built yet/);
+    assert.match(f.text(), /skipped:\s+Gmail — the grant does not include/);
   } finally { f.cleanup(); }
 });
 
@@ -2764,35 +2814,49 @@ await atest('doctor\'s workspace line reports state and never throws on an unset
 // leg and the network.
 // -------------------------------------------------------------------------------------------------
 await atest('END TO END: connect google -> sync --once -> status, exactly as the setup guide reads', async () => {
-  const f = wsFixture({ scopes: [GOOGLE_SCOPES.calendar, GOOGLE_SCOPES.drive] });
-  const grant = `${GOOGLE_SCOPES.calendar} ${GOOGLE_SCOPES.drive}`;
+  // The config has NOT been written yet: this starts where the CEO does, holding a Client ID from
+  // the Google Cloud console and nothing else.
+  const f = wsFixture({ config: false });
   try {
-    // 1. The guide's Step 6. The CEO runs: richos-service workspace connect google
-    const connected = await runWorkspace({ sub: 'connect', deps: f.deps(connectStubs(googleHttpMock({ grantedScope: grant }))) });
+    // 1. The guide's Step 5 + Step 6, in one command, with the sources he wants.
+    const connected = await runWorkspace({
+      sub: 'connect',
+      deps: f.deps({
+        ...connectStubs(googleHttpMock({ grantedScope: FULL_GRANT })),
+        clientId: FAKE_CLIENT_ID,
+        accountId: 'ceo@acme.com',
+        sources: ['calendar', 'drive', 'mail'],
+      }),
+    });
     assert.equal(connected.exitCode, 0, f.text());
+    assert.match(f.text(), new RegExp(`config:\\s+wrote ${f.clientConfigFile.replace(/[.]/g, '\\.')}`), 'and it told him where it went');
     assert.match(f.text(), /CONNECTED — ceo@acme\.com/);
-    assert.match(f.text(), /enabled:\s+Calendar/);
-    assert.match(f.text(), /enabled:\s+Drive/);
+    for (const label of ['Calendar', 'Drive', 'Gmail']) {
+      assert.match(f.text(), new RegExp(`enabled:\\s+${label}`));
+    }
+    // The config on disk now reproduces this consent without the flags.
+    assert.deepEqual(loadClientConfig(f.clientConfigFile).scopes, Object.values(GOOGLE_SCOPES));
 
     // 2. richos-service workspace sync google --once
     f.lines.length = 0;
-    const synced = await runWorkspace({ sub: 'sync', schedulerFlags: ['once'], deps: f.deps({ http: googleHttpMock({ grantedScope: grant }).http }) });
+    const synced = await runWorkspace({ sub: 'sync', schedulerFlags: ['once'], deps: f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }) });
     assert.equal(synced.exitCode, 0, f.text());
-    assert.match(f.text(), /calendar:\s+observed 1, ingested 1, deduped 0/);
-    assert.match(f.text(), /drive:\s+observed 1, ingested 1, deduped 0/);
+    for (const label of ['calendar', 'drive', 'mail']) {
+      assert.match(f.text(), new RegExp(`${label}:\\s+observed 1, ingested 1, deduped 0`));
+    }
 
     // 3. richos-service workspace status
     f.lines.length = 0;
-    const reported = await runWorkspace({ sub: 'status', deps: f.deps({ http: googleHttpMock({ grantedScope: grant }).http }) });
+    const reported = await runWorkspace({ sub: 'status', deps: f.deps({ http: googleHttpMock({ grantedScope: FULL_GRANT }).http }) });
     assert.equal(reported.exitCode, 0, f.text());
     assert.match(f.text(), /auth:\s+HEALTHY/);
-    assert.match(f.text(), /calendar:\s+ON — delta cursor stored/);
-    assert.match(f.text(), /drive:\s+ON — delta cursor stored/);
+    for (const label of ['calendar', 'drive', 'mail']) {
+      assert.match(f.text(), new RegExp(`${label}:\\s+ON — delta cursor stored`));
+    }
     assert.match(f.text(), /last sync: .*ingested 1/);
 
     // And the CEO's material is where it is supposed to be: his zone, not the product repo.
-    assert.ok(fs.existsSync(path.join(f.zone, 'google', 'calendar')));
-    assert.ok(fs.existsSync(path.join(f.zone, 'google', 'drive')));
+    for (const dir of ['calendar', 'drive', 'mail']) assert.ok(fs.existsSync(path.join(f.zone, 'google', dir)));
     assert.ok(!f.text().includes(FAKE_ACCESS) && !f.text().includes(FAKE_REFRESH), 'and no token was ever printed');
   } finally { f.cleanup(); }
 });
