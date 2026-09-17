@@ -794,6 +794,38 @@ pub enum TimelineItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
     },
+    /// **WHY an ordinary turn ended without finishing** — the nightly's D2, projected from
+    /// the ledger's `TurnInterruptionCause` event.
+    ///
+    /// The local sibling of [`TimelineItem::UpstreamOutage`], and CEO-visible for the same
+    /// reason: every sentence on it was AUTHORED in `interruption.rs` at the moment of the
+    /// failure and written to the ledger there. This projection composes nothing, edits
+    /// nothing and interpolates nothing.
+    ///
+    /// **`offers_retry` is the field that matters.** On 2026-09-17 the published nightly
+    /// drew a retry control on a turn that had failed because nobody was signed in — a
+    /// button no number of presses could make work. The renderer keys the control on this
+    /// boolean, not on the prose, so the sentence and the affordance are driven by one fact
+    /// and cannot disagree.
+    #[serde(rename_all = "camelCase")]
+    TurnInterruption {
+        #[serde(flatten)]
+        base: TimelineBase,
+        /// `InterruptionCause::tag` — a token for the renderer to key on, never shown.
+        cause: String,
+        /// What happened, authored by `InterruptionCause::ceo_message`.
+        ceo_message: String,
+        /// What is on disk and what is not. **`None` when nothing of Rich's had been
+        /// written**, which is a statement rather than an omission: the card then says
+        /// nothing at all about saved work, instead of reassuring about nothing.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        loss_message: Option<String>,
+        /// The screen that can fix this, in the CEO's words, when one exists.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        route: Option<String>,
+        /// Whether asking again is a plan. Drives whether a retry control is drawn at all.
+        offers_retry: bool,
+    },
 }
 
 impl TimelineItem {
@@ -811,7 +843,8 @@ impl TimelineItem {
             | TimelineItem::Artifact { base, .. }
             | TimelineItem::Recovery { base, .. }
             | TimelineItem::SystemError { base, .. }
-            | TimelineItem::UpstreamOutage { base, .. } => base,
+            | TimelineItem::UpstreamOutage { base, .. }
+            | TimelineItem::TurnInterruption { base, .. } => base,
         }
     }
 
@@ -1503,6 +1536,35 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
         });
     }
 
+    // --- why the turn was interrupted (D2) ---
+    //
+    // Beside the upstream row and never instead of it: a turn that died upstream has BOTH
+    // records and the two say different things (which vendor fault, and what class of
+    // ending). `finish_upstream_failure` does not classify locally, so in practice only one
+    // is present — but the projection does not depend on that and never has to.
+    //
+    // Same slot, same timestamp and same Ceo visibility as the upstream row, for the same
+    // reasons: it sorts with the failure rather than at the tail, and every sentence on it
+    // was authored for him.
+    if let Some(cause) = &turn.interruption {
+        out.push(TimelineItem::TurnInterruption {
+            base: base(
+                format!("{}:interruption", turn.id),
+                None,
+                TimelineSlot::Terminal,
+                turn.ended_at.unwrap_or(turn.created_at),
+                vis(Visibility::Ceo),
+            ),
+            cause: cause.cause.clone(),
+            ceo_message: cause.ceo_message.clone(),
+            loss_message: cause.loss_message.clone(),
+            route: cause.route.clone(),
+            // Read off the STORED value rather than re-derived from the tag, so a record
+            // written by an older or newer build renders the control it was written with.
+            offers_retry: cause.offers_retry,
+        });
+    }
+
     // --- recovery (continuity §5.3) ---
     // ALWAYS Internal, whatever the turn's own visibility: crash recovery and session
     // rotation are recorded as `ActionVisibility::Internal` by the spine, and the standing
@@ -2184,6 +2246,7 @@ mod tests {
             stop_requested_at: None,
             intake_id: None,
             upstream_failure: None,
+            interruption: None,
         }
     }
 

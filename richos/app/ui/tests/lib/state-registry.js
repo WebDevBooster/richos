@@ -88,7 +88,110 @@ module.exports = [
     c: "ACTIONABLE",
     control: ".tl-intervention button.tl-intervention-action",
     fixture: "failed-turn",
-    why: "§5.5 failure card. 'Say the word' is answered by the button directly beneath it.",
+    why:
+      "§5.5 failure card. 'Say the word' is answered by the button directly beneath it. " +
+      "STILL REACHABLE AFTER 2026-09-17, and deliberately: it is now the FALLBACK, shown " +
+      "only for a turn whose cause was never classified — every record written before that " +
+      "date, and any record whose classification could not be written. The five rows below " +
+      "are what a turn with a known cause gets instead.",
+  },
+
+  // -----------------------------------------------------------------------------------
+  // WHY A TURN ENDED WITHOUT FINISHING — richos-core `interruption.rs`, the nightly's D2
+  //
+  // `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D2: the
+  // published nightly held `Not logged in · Please run /login` in its own ledger and showed
+  // the generic card above it — a permanent condition called a snag, a promise about saved
+  // work that did not exist, and a retry that could not succeed.
+  //
+  // `fixture: null` on all five, for the reason the richos-voice rows above it give: these
+  // sentences are produced by a CLASSIFIED interruption, which the mock bridge does not
+  // reach — it has no lease and therefore no `CognitionError` to classify. They are driven
+  // directly, against the real renderer, by `ui/tests/interruption.js`, which asserts each
+  // one's control (or its deliberate absence) on the rendered card.
+  // -----------------------------------------------------------------------------------
+  {
+    s:
+      "I couldn't start that, because I'm not connected to your Anthropic account right " +
+      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. Connect " +
+      "the account in Settings and I'll pick this straight back up.",
+    c: "ACTIONABLE",
+    control: "#rail-settings",
+    fixture: null,
+    why:
+      "`InterruptionCause::NotSignedIn`. HIS to fix, which is why it is ACTIONABLE and not " +
+      "NEEDS-SOMEONE-ELSE: the account is his and the screen exists. The audit's third " +
+      "finding was that the app never mentioned the account at all 'even though the app " +
+      "offered to connect one on first run, knows it was declined, and has a working route " +
+      "to it'. The control is the rail's settings button, which is on screen in every view " +
+      "this card can appear in; the row below names the route in words.",
+  },
+  {
+    s: "You can connect it in Settings, under Account connection.",
+    c: "ACTIONABLE",
+    control: "#rail-settings",
+    fixture: null,
+    why:
+      "`InterruptionCause::route`. A WHOLE SENTENCE authored in Rust rather than a " +
+      "breadcrumb the renderer wraps — the first version returned 'Settings → Account " +
+      "connection' and timeline.js built \"You'll find it in …\" around it, which made the " +
+      "renderer the author of CEO copy and put an unclassifiable fragment into this " +
+      "registry. An arrow is also read aloud as nothing, and this product is voice-first.",
+  },
+  {
+    s:
+      "I couldn't start that. There is an account credential set up on this Mac and " +
+      "Anthropic turned it down, so the request never left the machine. This one needs " +
+      "whoever set RichOS up — it isn't something you can fix from here, and asking me " +
+      "again won't change it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: null,
+    why:
+      "`InterruptionCause::CredentialRejected`, and a DIFFERENT class from the sign-in row " +
+      "on purpose: the four vendor constants behind it (`Invalid API key`, `Invalid auth " +
+      "token`, `Invalid ANTHROPIC_CUSTOM_HEADERS`, `Invalid request header from the " +
+      "environment`, read verbatim out of the installed bundle) describe a credential in " +
+      "this machine's ENVIRONMENT. Sending him to the account screen would send him " +
+      "somewhere that cannot help. It names the party and offers no control, which is the " +
+      "honest shape for a state he does not own.",
+  },
+  {
+    s: "Stopped, as you asked. Nothing is running, and nothing of yours was lost.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "`InterruptionCause::StoppedByCeo`. Nothing failed, so there is nothing to retry and " +
+      "no control belongs on the card — a 'pick it back up' button here would dress his own " +
+      "deliberate stop as an error. It issues no instruction and asks for nothing.",
+  },
+  {
+    s:
+      "I lost my connection to the part of me that thinks, partway through. That kind of " +
+      "thing usually clears on its own, so asking again is worth a try.",
+    c: "ACTIONABLE",
+    control: ".tl-intervention button.tl-intervention-action",
+    fixture: null,
+    why:
+      "`InterruptionCause::Transient` — the ONE class where asking again is honest advice, " +
+      "and therefore the one that still draws the card's button. It is the positive control " +
+      "for the whole change: without a class that keeps the control, 'the sign-in case has " +
+      "no button' could just mean the card stopped drawing one.",
+  },
+  {
+    s:
+      "That stopped before I finished, and I can't tell you why — I don't recognize what " +
+      "came back. Asking again is reasonable; if it stops the same way, it needs whoever " +
+      "set RichOS up.",
+    c: "ACTIONABLE",
+    control: ".tl-intervention button.tl-intervention-action",
+    fixture: null,
+    why:
+      "`InterruptionCause::Unknown`, the arm a reworded vendor string falls to. ACTIONABLE " +
+      "rather than NEEDS-SOMEONE-ELSE because the first thing offered is his and is drawn " +
+      "on the card; the named party is the second sentence, for when the first does not " +
+      "work. It claims no cause it cannot support and points at no screen that might be " +
+      "wrong.",
   },
   {
     s: "Rich stopped before finishing.",

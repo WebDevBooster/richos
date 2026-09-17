@@ -441,7 +441,7 @@ richos/app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
-    tests/setup.rs           33 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
+    tests/setup.rs           38 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
                               two executables a customer's Mac does not have, fetched and
                               verified. Every failure path is a VALUE rather than a network
                               condition — no network, a 404, a truncated body, a tampered
@@ -456,6 +456,21 @@ richos/app/
                               run since that job landed. Off macOS it is now
                               `ignored, NOT CHECKABLE ON THIS TARGET: …`, because the pin is
                               read by `/usr/bin/codesign`. The negative half needs nothing
+    tests/interruption_tests.rs 13 tests for WHY A TURN ENDED WITHOUT FINISHING
+                              (`src/interruption.rs`, the 2026-09-17 nightly's D2). The
+                              published nightly held
+                              `cognition protocol: "Not logged in · Please run /login"` in
+                              its own ledger and told the CEO it had hit a snag, that his
+                              work was saved, and that a button would pick it back up — all
+                              three false. Each untruth is made unreachable here: a
+                              permanent condition is not called transient, no claim about a
+                              saved answer is made when nothing was written, and
+                              `offers_retry` is false for every class a retry cannot clear.
+                              The reason strings are the REAL ones, five of them read
+                              verbatim out of the installed Claude Code bundle, including
+                              the vendor's one string that carries both families' wording.
+                              The transient arm has its own positive control, without which
+                              a classifier answering `Unknown` to everything would pass
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -928,7 +943,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1061 tests + 5 doc-tests (1057 direct, 4 ignored)
+cargo test -p richos-core                       # 1079 tests + 5 doc-tests (1075 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

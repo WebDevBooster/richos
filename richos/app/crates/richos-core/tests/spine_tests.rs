@@ -358,11 +358,30 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     // A partial chunk streamed before the failure.
     assert!(events.iter().any(|e| matches!(e, StreamEvent::Chunk { .. })), "partial chunk streamed");
     // Terminal event is TurnError for this thread + turn.
+    //
+    // UNTIL 2026-09-17 THIS ASSERTED `reason.contains("adapter exited")` — the raw
+    // `CognitionError` Display, on the CEO-facing wire. That is the nightly's D2 in its
+    // original form: machinery reaching the surface, which then threw it away and
+    // substituted two fixed sentences that were wrong for most causes. The reason is now
+    // the statement `interruption.rs` authored for this class, and the machinery stays
+    // where machinery belongs — the ledger's `stop_reason`, rendered at Technical
+    // visibility and never shown to him.
     match events.last().unwrap() {
         StreamEvent::TurnError { thread_id, turn_id: t, reason, .. } => {
             assert_eq!(thread_id, &thread);
             assert_eq!(t, &turn_id);
-            assert!(reason.contains("adapter exited"), "carries the failure reason");
+            assert!(
+                !reason.contains("adapter exited"),
+                "machinery reached the CEO-facing wire: {reason}"
+            );
+            assert!(
+                reason.contains("asking again is worth a try"),
+                "a lost connection is the one class where a retry is honest: {reason}"
+            );
+            assert!(
+                reason.contains("29 characters of the answer"),
+                "the partial reply that IS on disk must be counted, not hand-waved: {reason}"
+            );
         }
         other => panic!("expected TurnError last, got {other:?}"),
     }
@@ -370,6 +389,17 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     let turn = spine.ledger().turn(&turn_id).unwrap();
     assert_eq!(turn.state, TurnState::Interrupted);
     assert_eq!(turn.assistant_text, "partial before the lease dies");
+    // THE MACHINERY IS NOT LOST, it is filed correctly.
+    assert!(
+        turn.stop_reason.as_deref().unwrap_or_default().contains("adapter exited"),
+        "{:?}",
+        turn.stop_reason
+    );
+    // And the classification is durable beside it, with the control it was shown with.
+    let cause = turn.interruption.as_ref().expect("the cause is recorded");
+    assert_eq!(cause.cause, "transient");
+    assert!(cause.offers_retry);
+    assert_eq!(cause.route, None);
     // The turn boundary is clear again (queue-not-interrupt invariant intact).
     assert!(!spine.is_turn_in_progress());
     let _ = std::fs::remove_file(&path);
