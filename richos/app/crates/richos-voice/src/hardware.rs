@@ -197,6 +197,15 @@ pub struct ModelCost {
     /// Seconds of compute per second of audio at 92 minutes. Only the batch models carry it.
     pub long_form_rate: Option<f64>,
     pub long_form_peak_rss: Option<u64>,
+    /// What this model costs to DOWNLOAD, in bytes on disk.
+    ///
+    /// Carried here so the sentence that asks the CEO for half a gigabyte of his disk gets its
+    /// number from the cost table rather than from a literal somebody typed into a UI string.
+    /// `model-costs.json` sources every one of these from `model-pins.json` in its own
+    /// `provenance` field, and `the_two_tables_agree_on_every_size` asserts they still do — so the
+    /// number a person is shown and the number the transfer is checked against are one number with
+    /// two readers, not two numbers that happen to match today.
+    pub disk_bytes: u64,
 }
 
 /// The parsed registry: costs, ladders and the two gates.
@@ -235,6 +244,7 @@ impl Costs {
                     reference_utterance_secs: m["referenceUtteranceSeconds"].as_f64().unwrap_or(0.0),
                     long_form_rate: m["longFormSecondsPerAudioSecond"].as_f64(),
                     long_form_peak_rss: m["longFormPeakRssBytes"].as_u64(),
+                    disk_bytes: m["diskBytes"].as_u64().unwrap_or(0),
                 },
             );
         }

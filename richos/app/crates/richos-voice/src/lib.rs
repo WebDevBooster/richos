@@ -60,6 +60,12 @@ pub mod event;
 // `app/crates` used to return nothing at all.
 pub mod hardware;
 pub mod noaudio;
+// Getting the pinned speech model ONTO this machine. Pure judgment plus local filesystem I/O —
+// no sockets, no async runtime, no new dependency — so every failure path (a captive portal, a
+// corrupted body, a truncated transfer, a full disk) is decided in a unit test without a network.
+// The transport lives in the Tauri shell and makes no judgments of its own, which is the same
+// split `engine/voice/provisioning/{model-integrity,model-fetch}.js` already uses.
+pub mod provision;
 pub mod state;
 // Which whisper binary, which ggml backends and which weights are about to hear the CEO. Pure
 // except for four I/O functions, and native-dependency-free — it hashes with `sha2` rather than
