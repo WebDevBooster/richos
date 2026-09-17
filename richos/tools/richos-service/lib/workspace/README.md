@@ -72,6 +72,17 @@ that makes the next **call transcript** more accurate — two flywheels, one sha
 The same output satisfies the future structured loro entity store behind the `{entities,
 entitiesVersion}` seam.
 
+**A sighting is a MEETING, never a revision of one (2026-09-17).** The evidence zone is immutable and
+cumulative, so an event edited twice at the source leaves three revisions of one meeting — and the
+candidate reader used to hand every one of them to the tally. On the CEO's own zone that had taught
+`Mateo Silva`, the fixture whose entire purpose is to prove that one sighting does not become
+somebody loro knows: one meeting, three confirmed revisions, three re-seeds. `Rich Tester` read 33
+sightings where the seed's own prediction said 11. Candidates are now deduped per item with the
+entity feed's own key, read across every revision so an attendee dropped from a meeting last week is
+still someone that meeting saw, and an item whose **current** revision is withdrawn contributes
+nobody at all — including through the revisions it had before it was called off, which is the only
+way a real user ever reaches that state.
+
 ## Status — mock-verified vs pending CEO OAuth
 
 **Mock-verified now (this Mac, no live account) — `test/workspace.js`, 360 tests**
@@ -585,6 +596,30 @@ calendars the account can see (an invite copied onto a shared calendar) lands **
 `iCalUID`+start time before it ever reaches the ledger — the calendar something came from is never
 part of its identity. `workspace status`/`sync` name which calendars were actually read, by label and
 count, on the same line the observed/ingested/deduped counts appear on.
+
+**And that merge no longer depends on the two copies arriving in the same poll (2026-09-17).** It
+used to: the `seen` set lived for one `listChanges` and nothing remembered it afterwards, so a
+meeting shared onto a second calendar a month after the original was ingested landed a SECOND time —
+two evidence items and two memory records for one meeting, neither superseding the other, which is
+the ordinary way a real calendar gains a second copy. The adapter now carries that same key on the
+item as `identityKey` (§4.1), the ingest ledger records it, and the core recognizes a copy of
+something already in the zone whenever it arrives. Three properties worth stating because each one is
+a way to get this wrong:
+
+* **The key is account-scoped** (`google:calendar:<sourceInstanceId>:<iCalUID>|<start>`). One zone
+  holds every account's evidence, and the same meeting on two of the CEO's accounts is two items by
+  the product's own rule — an unscoped key would let one account suppress the other.
+* **The start is part of the key**, so the eight instances of a weekly series — which share one
+  `iCalUID` — stay eight meetings.
+* **A twin that has been called off stops suppressing.** The ledger records whether an item is
+  withdrawn, so if the copy that landed is withdrawn at the source while the other copy lives on, the
+  survivor is ingested rather than suppressed by a meeting that no longer exists.
+
+A merged copy is reported on its own line (`merged: 1 copy of an event already in the zone under
+another calendar's id`), never folded into `deduped` — "the same item again" and "the same meeting
+under a second id" are two different things to have happened. Ledger rows written before this field
+existed carry no `identityKey`, so an existing zone loses nothing and gains the protection from its
+next new observation onward.
 
 Passing an explicit `calendarId` (a single calendar) keeps the exact pre-2026-09-17 behavior — its
 own `sourceInstanceId`, its own cursor, no discovery call — for a caller that wants one calendar on

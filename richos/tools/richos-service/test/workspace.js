@@ -1644,6 +1644,123 @@ await atest('multi-calendar: the same iCalUID on two calendars lands once, not t
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
 });
 
+await atest('multi-calendar: a copy that appears on a SECOND calendar in a LATER poll is the same meeting, not a second one', async () => {
+  // THE REAL USER'S CASE, and the one the seeded fixture can never reach: a meeting sits on the
+  // primary calendar for months, and is then shared onto a second calendar. The copy arrives in a
+  // LATER poll than the original, so the adapter's per-poll merge — which only ever remembered
+  // within one `listChanges` — could not see that it had already landed. Two evidence items and two
+  // memory records for one meeting, neither superseding the other.
+  //
+  // (The seed fixture `cross-calendar-dup` cannot exercise this: it supplies its own `iCalUID`, and
+  // Google derives the event id FROM that uid, so both copies come back under ONE id and are one
+  // item before any merge rule is consulted. A copy made by sharing or by accepting an invitation
+  // gets its OWN id and keeps the uid, which is this test.)
+  const zone = tmp();
+  let phase = 1;
+  const copy = (id, etag) => ({
+    id,
+    iCalUID: 'UID-SHARED',
+    etag,
+    start: { dateTime: '2025-08-12T15:00:00Z' },
+    end: { dateTime: '2025-08-12T16:00:00Z' },
+    summary: 'Quarterly review',
+    description: 'One meeting, later visible on a second calendar.',
+  });
+  const client = urlMock([
+    ['calendars/a/events', () => ({ items: phase === 1 ? [copy('evtA', '"a1"')] : [], nextSyncToken: `TOK-A${phase}` })],
+    ['calendars/b/events', () => ({
+      items: phase === 1 ? [] : phase === 2 ? [copy('evtB', '"b1"')] : [{
+        id: 'evtC',
+        iCalUID: 'UID-DIFFERENT',
+        etag: '"c1"',
+        start: { dateTime: '2025-08-12T15:00:00Z' },
+        end: { dateTime: '2025-08-12T16:00:00Z' },
+        summary: 'A different meeting at the same hour',
+        description: 'Same start, different event — it is not a duplicate of anything.',
+      }],
+      nextSyncToken: `TOK-B${phase}`,
+    })],
+  ]);
+  const adapter = () => new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now });
+  try {
+    const first = await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    assert.equal(first.ingested, 1, 'the original lands');
+
+    phase = 2;
+    const second = await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    assert.equal(second.observed, 1, 'the second calendar really did hand the copy over');
+    assert.equal(second.ingested, 0, 'and it is recognized as the meeting already in the zone');
+    assert.equal(second.mergedDuplicates, 1, 'reported by cause, never silently dropped');
+
+    // POSITIVE CONTROL, and it is the one that matters: the rule must only collapse copies that are
+    // genuinely the same event. A different `iCalUID` at the same start is a different meeting.
+    phase = 3;
+    const third = await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    assert.equal(third.ingested, 1, 'a genuinely different meeting still lands');
+    assert.equal(third.mergedDuplicates, 0);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+await atest('multi-calendar: the identity a copy is merged on is the ACCOUNT\'s — two accounts are never one meeting', async () => {
+  // The suite caught this before the CEO's calendar could: one evidence zone holds every account's
+  // items, so an identity key that was only `iCalUID|start` let one Google account of his suppress
+  // the identical fixture on another. `sourceItemId` is account-scoped for exactly this reason and
+  // the identity key has to be scoped the same way.
+  const ev = {
+    id: 'evt_shared', iCalUID: 'UID-SHARED', etag: '"e1"',
+    start: { dateTime: '2025-08-12T15:00:00Z' }, end: { dateTime: '2025-08-12T16:00:00Z' },
+    summary: 'The same meeting, two accounts',
+  };
+  const client = urlMock([['calendars/primary/events', { items: [ev], nextSyncToken: 'TOK' }]]);
+  const one = new GoogleCalendarAdapter({ accountId: 'account-one', calendarIds: ['primary'], client, now });
+  const two = new GoogleCalendarAdapter({ accountId: 'account-two', calendarIds: ['primary'], client, now });
+  const keyOne = one.toSourceItem(ev).identityKey;
+  const keyTwo = two.toSourceItem(ev).identityKey;
+  assert.ok(keyOne && keyTwo, 'a calendar event carries an identity key');
+  assert.notEqual(keyOne, keyTwo, 'and it is not the same key across two accounts');
+  assert.ok(keyOne.includes('UID-SHARED|2025-08-12T15:00:00Z'), keyOne);
+  // POSITIVE CONTROL: the same account really does produce one key for two copies of one meeting.
+  assert.equal(one.toSourceItem({ ...ev, id: 'evt_other_calendar_copy', etag: '"e2"' }).identityKey, keyOne);
+});
+
+await atest('multi-calendar: when the copy that landed is called off at the source, the surviving copy is allowed in', async () => {
+  // The other side of the same rule, and the reason the ledger records whether an item is withdrawn.
+  // Suppressing a copy forever because of a twin that no longer exists would leave the CEO's memory
+  // saying a meeting was called off while it is still on his other calendar.
+  const zone = tmp();
+  let phase = 1;
+  const shared = (id, etag, extra = {}) => ({
+    id,
+    iCalUID: 'UID-SHARED',
+    etag,
+    start: { dateTime: '2025-08-12T15:00:00Z' },
+    end: { dateTime: '2025-08-12T16:00:00Z' },
+    summary: 'Quarterly review',
+    description: 'One meeting on two calendars.',
+    ...extra,
+  });
+  const WITHDRAWN_AT_GOOGLE = 'cancelled'; // dialect-exempt: Google's own API status value, quoted verbatim
+  const client = urlMock([
+    ['calendars/a/events', () => ({
+      items: phase === 1 ? [shared('evtA', '"a1"')]
+        : phase === 2 ? [shared('evtA', '"a2"', { status: WITHDRAWN_AT_GOOGLE })] : [],
+      nextSyncToken: `TOK-A${phase}`,
+    })],
+    ['calendars/b/events', () => ({ items: phase === 3 ? [shared('evtB', '"b1"')] : [], nextSyncToken: `TOK-B${phase}` })],
+  ]);
+  const adapter = () => new GoogleCalendarAdapter({ accountId: 'fixture-account', calendarIds: ['a', 'b'], client, now });
+  try {
+    await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    phase = 2;
+    const withdrawn = await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    assert.equal(withdrawn.ingested, 1, 'the withdrawal is a new revision of the copy that landed');
+    phase = 3;
+    const survivor = await ingestOnce({ adapter: adapter(), identity: IDENTITY, zone, repoRoot: zone, now });
+    assert.equal(survivor.ingested, 1, 'the copy on the other calendar is not suppressed by a twin that is gone');
+    assert.equal(survivor.mergedDuplicates, 0);
+  } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
 await atest("multi-calendar: an old flat cursor (from before this change) is read as the calendar it belonged to, not discarded", async () => {
   let requestedToken = null;
   const client = {

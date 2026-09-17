@@ -27,6 +27,7 @@ import {
   promotedRecordFor, promotionDecision, promotionLedgerPath, readEvidenceZone, readPromotionLedger,
   readPromotionHistory, recordIdFor, renderEventBody, revisionKey, slug, tagsFor, vendorLabel,
 } from '../lib/workspace/promotion.js';
+import { tallyCorroboration, DEFAULT_MIN_CORROBORATION } from '../lib/workspace/entity-feed.js';
 
 let passed = 0;
 const failures = [];
@@ -592,6 +593,86 @@ test('a quarantined item contributes NO entity candidates — a clean one contri
   const names = entityCandidatesFromEvidence(clean).map((c) => c.canonical);
   assert.ok(names.includes('Alice Nguyen') && names.includes('Bob Ramirez'), names.join(','));
   fs.rmSync(clean, { recursive: true, force: true });
+});
+
+// -------------------------------------------------------------------------------------------------
+// CORROBORATION COUNTS MEETINGS, NEVER REVISIONS (the CEO's zone, 2026-09-17)
+// -------------------------------------------------------------------------------------------------
+
+/** An external invitee — the one-sighting case §4.5 exists to hold back. */
+const LUMEN = [
+  { name: 'The CEO', email: 'ceo@acme.com' },
+  { name: 'Mateo Silva', email: 'mateo.silva@lumen.example.com' },
+];
+
+test('an event edited three times is ONE sighting, not three — a one-off invitee stays below the threshold', () => {
+  const zone = tmp();
+  // The exact shape measured on the CEO's zone: one meeting, three confirmed revisions, because the
+  // seeding tool updated it on each of three runs. Before this, the tally saw three sightings and
+  // learned a name the fixture exists to keep unlearned.
+  for (const etag of ['"v1"', '"v2"', '"v3"']) {
+    seed(zone, event({ id: 'evt_intro', etag, attendees: LUMEN, title: 'Intro call with Lumen' }));
+  }
+  assert.equal(readEvidenceZone(zone).length, 3, 'three revisions really are in the zone');
+  const tally = tallyCorroboration(entityCandidatesFromEvidence(zone));
+  const mateo = tally.get('mateo.silva@lumen.example.com');
+  assert.equal(mateo.count, 1, 'one meeting, seen once, however many times it was edited');
+  assert.ok(mateo.count < DEFAULT_MIN_CORROBORATION, 'so he is held, not learned');
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('POSITIVE CONTROL: the same person on TWO different meetings is corroborated and learned', () => {
+  const zone = tmp();
+  seed(zone, event({ id: 'evt_intro', etag: '"v1"', attendees: LUMEN, title: 'Intro call with Lumen' }));
+  seed(zone, event({ id: 'evt_followup', etag: '"v1"', attendees: LUMEN, title: 'Follow-up with Lumen' }));
+  const mateo = tallyCorroboration(entityCandidatesFromEvidence(zone)).get('mateo.silva@lumen.example.com');
+  assert.equal(mateo.count, 2, 'two meetings are two sightings');
+  assert.ok(mateo.count >= DEFAULT_MIN_CORROBORATION, 'so the threshold is reached — the feed still works');
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('a meeting called off at the source teaches nobody — not even through the revisions before it', () => {
+  const zone = tmp();
+  // A real user can only reach this state the one way: the meeting existed, and then it did not.
+  seed(zone, event({ id: 'evt_standup', etag: '"v1"', attendees: LUMEN, title: 'Partner standup' }));
+  seed(zone, event({
+    id: 'evt_standup',
+    etag: '"v2"',
+    attendees: LUMEN,
+    title: 'Partner standup',
+    fetchedAt: FETCHED_AT + 60000,
+    structured: { status: 'cancelled', cancelled: true }, // dialect-exempt: Google's own API status value
+  }));
+  assert.equal(readEvidenceZone(zone).length, 2, 'the confirmed revision is still in the zone, as it must be');
+  assert.deepEqual(entityCandidatesFromEvidence(zone), [],
+    'a withdrawn item is a supersede signal, and its history is not a second source of sightings');
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('POSITIVE CONTROL: the same two revisions WITHOUT the withdrawal do contribute their people, once', () => {
+  const zone = tmp();
+  seed(zone, event({ id: 'evt_standup', etag: '"v1"', attendees: LUMEN, title: 'Partner standup' }));
+  seed(zone, event({
+    id: 'evt_standup', etag: '"v2"', attendees: LUMEN, title: 'Partner standup (moved)', fetchedAt: FETCHED_AT + 60000,
+  }));
+  const tally = tallyCorroboration(entityCandidatesFromEvidence(zone));
+  assert.equal(tally.get('mateo.silva@lumen.example.com').count, 1);
+  fs.rmSync(zone, { recursive: true, force: true });
+});
+
+test('an attendee dropped in a later revision is still someone the meeting saw — the item counts her once', () => {
+  const zone = tmp();
+  seed(zone, event({ id: 'evt_review', etag: '"v1"' })); // Alice and Bob
+  seed(zone, event({
+    id: 'evt_review',
+    etag: '"v2"',
+    fetchedAt: FETCHED_AT + 60000,
+    attendees: [{ name: 'The CEO', email: 'ceo@acme.com' }, { name: 'Alice Nguyen', email: 'alice@acme.com' }],
+  }));
+  const tally = tallyCorroboration(entityCandidatesFromEvidence(zone));
+  assert.equal(tally.get('bob@acme.com').count, 1, 'Bob was on the meeting before he was taken off it');
+  assert.equal(tally.get('alice@acme.com').count, 1, 'and Alice, on both revisions, is still ONE sighting');
+  fs.rmSync(zone, { recursive: true, force: true });
 });
 
 // =================================================================================================

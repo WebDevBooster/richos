@@ -1012,6 +1012,15 @@ export async function sync(deps = {}) {
         if (Array.isArray(summary.calendars) && summary.calendars.length) {
           d.out(`            calendars: ${summary.calendars.map((c) => `${c.label} ${c.count}`).join(', ')}`);
         }
+        // A copy of something already in the zone, recognized across polls. Said out loud rather than
+        // folded into `deduped`: "the same item again" and "the same meeting under a second id on
+        // another calendar" are two different things to have happened, and a reader who sees a lower
+        // `ingested` than the calendars line led him to expect deserves the reason.
+        if (summary.mergedDuplicates) {
+          d.out(`            merged: ${summary.mergedDuplicates} `
+            + `${summary.mergedDuplicates === 1 ? 'copy' : 'copies'} of an event already in the zone `
+            + 'under another calendar\'s id — one meeting, one memory');
+        }
         if (summary.degraded) d.out(`            LIMITED: ${summary.degraded}`);
         if (summary.events.length || summary.commitments.length || summary.entityCandidates.length) {
           d.out(`            candidates: ${summary.events.length} event, ${summary.commitments.length} commitment, ${summary.entityCandidates.length} entity`);
