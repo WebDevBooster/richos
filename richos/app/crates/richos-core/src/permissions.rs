@@ -260,6 +260,22 @@ impl ScopedPermissions {
         let allow=||PermissionDecision::Allow{updated_input:request.get("input").cloned().unwrap_or(json!({}))};
         let Some(binding)=grant(&self.scope) else {return deny("This app turn is stopped or is supplying context. New actions are unavailable.")};
         let tool=request["tool_name"].as_str().unwrap_or("");
+        // **THE FRONT DESK GETS NO ORCHESTRATION TOOLS** — the CEO's Two Riches spec
+        // (richos-hq `docs/plans/two-riches-spec-2026-09-17.md`), sense-check note 3: *"The
+        // front desk gets no orchestration tools, so it cannot drift into doing the work."*
+        // Its job is *"solely talking to the CEO and relaying info to and from the back-end
+        // Rich"*, and the work tools are the back end's whole job.
+        //
+        // **It is refused rather than merely absent, and the difference is the point.** What
+        // a lease is GIVEN lives in its MCP config (`native.rs`); this is the other half — a
+        // conversation that asks for a work tool anyway is refused here, by the audience on
+        // its own binding, so drifting into the work takes two independent mistakes rather
+        // than one. The one work-shaped tool the front desk keeps is the RELAY:
+        // `richos_assignments.record`, which writes down what he asked for and starts
+        // nothing (below).
+        if tool.starts_with("mcp__richos_work__") && !is_background(&binding) {
+            return deny("Work tools belong to the background worker, not to this conversation. Write the assignment down instead and it will be carried out there.");
+        }
         // These tools implement their own explicit host scope and write contracts.
         if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_work__complete"|"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
             "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding"|
@@ -542,6 +558,47 @@ impl ScopedPermissions {
         assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
         assert_eq!(desk.background_queue().len(),1,"integrate did not reach his queue");
         std::fs::remove_file(p).unwrap();
+    }
+
+    /// **THE FRONT DESK GETS NO ORCHESTRATION TOOLS** — the CEO's Two Riches spec, note 3.
+    ///
+    /// The same five tools, from the two audiences, at the same desk: the back end's binding
+    /// reaches them (four allowed outright, `integrate` queued for him), the conversation's
+    /// binding reaches none of them. The pair is the test — a check on the refusal alone
+    /// would pass on a desk that refused everybody, which would stop background work dead.
+    ///
+    /// **The one work-shaped thing the front desk keeps is the relay**, and it is asserted
+    /// here rather than left implied: `richos_assignments.record` writes down what he asked
+    /// for, which is the whole of what §51 leaves on that side.
+    #[test] fn the_front_desk_cannot_reach_the_orchestration_tools_and_the_back_end_can(){
+        let desk=Arc::new(PermissionDesk::default());
+        let (front,conversation)=joined(&desk,"ceo","turn-9");
+        let (back,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
+        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect",
+                     "mcp__richos_work__complete","mcp__richos_work__integrate"] {
+            let refused=conversation.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20));
+            assert_eq!(refused.behavior(),"deny","the front desk reached {tool}");
+            match refused { PermissionDecision::Deny{message}=>
+                assert!(message.contains("belong to the background worker"),"{message}"), _=>unreachable!() }
+        }
+        // And nothing of the front desk's reached HIS queue either: a refusal he never has to
+        // read is better than a question about work he did not ask to be asked about.
+        assert!(desk.background_queue().is_empty());
+        assert!(desk.current().is_none());
+        // POSITIVE CONTROL, same desk, same tools, the back end's binding.
+        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect","mcp__richos_work__complete"] {
+            assert_eq!(work_lease.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20)).behavior(),"allow","{tool}");
+        }
+        assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1,"integrate did not reach his queue from the back end");
+        // The RELAY stays on the front desk: writing an assignment down is talking to him
+        // about work, not doing it.
+        assert_eq!(
+            conversation.wait(&json!({"tool_name":"mcp__richos_assignments__record","input":{}}),Duration::from_millis(20)).behavior(),
+            "allow",
+            "the front desk cannot even write his assignment down"
+        );
+        std::fs::remove_file(front).unwrap();std::fs::remove_file(back).unwrap();
     }
 
     /// The conversation's own requests still die with their turn. §5.7's survival is for

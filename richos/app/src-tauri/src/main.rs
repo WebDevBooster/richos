@@ -2515,7 +2515,10 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
         &thread_id,
     )
     .map_err(|e| e.to_string())?;
-    let live = state.work.live().map(|live| live.id);
+    // THIS conversation's back end, never the host's idea of "the" one: the CEO's Two Riches
+    // spec puts one back-end Rich behind each thread, and another thread's live assignment is
+    // the one answer that is never useful on this thread's surface.
+    let live = state.work.live_on(&thread_id).map(|live| live.id);
     Ok(serde_json::json!({
         "assignments": rows.iter().map(|row| {
             // **What this assignment is waiting on HIM for** (spec §5.2, §5.5, §7.8). The

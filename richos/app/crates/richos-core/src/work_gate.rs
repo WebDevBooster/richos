@@ -273,15 +273,18 @@ impl BackgroundWork {
 
 /// Map background work onto a reading plus the sentence that names it.
 ///
-/// `lease` is the WORK lease's own worker view, or `None` when no work lease has ever been
-/// opened in this process — which is an honest clear with no gap rather than a
-/// [`Unattributed::NoSession`] shrug: with no second lease there is no second session, and
-/// the assignment register above is the authority on whether anything is outstanding.
+/// `leases` is **every open back end's own worker view — one per conversation thread**, and
+/// empty when none has been opened in this process. The CEO's Two Riches spec puts one
+/// back-end Rich behind each thread, so there is no single "the work lease" to read: an
+/// update that installed over the second thread's work would destroy it exactly as surely as
+/// one that installed over the first's. An empty slice is an honest clear with no gap rather
+/// than a [`Unattributed::NoSession`] shrug: with no back end there is no session, and the
+/// assignment register above is the authority on whether anything is outstanding.
 ///
 /// **Precedence inside this source: waiting for him speaks before running.** If he has a
 /// decision to make, that is the sentence he needs — it is the one he can act on, and it is
 /// the reason §6.5 refuses to call both of them busy in the same words.
-pub fn background(work: &BackgroundWork, lease: Option<&WorkerStatusView>) -> (Liveness, Option<String>) {
+pub fn background(work: &BackgroundWork, leases: &[WorkerStatusView]) -> (Liveness, Option<String>) {
     if !work.readable {
         return (
             Liveness::Unknown,
@@ -304,19 +307,23 @@ pub fn background(work: &BackgroundWork, lease: Option<&WorkerStatusView>) -> (L
         let noun = if n == 1 { "assignment is" } else { "assignments are" };
         return (Liveness::Busy, Some(format!("{n} {noun} still running in the background.")));
     }
-    // The register says nothing is open. The work lease's OWN workers are read anyway,
+    // The register says nothing is open. EVERY back end's own workers are read anyway,
     // because a worker outliving the assignment that started it is exactly the kind of
-    // ambiguity this module resolves toward waiting rather than toward installing.
-    match lease {
-        None => (Liveness::Clear, None),
-        Some(view) => match workers(view) {
-            (Liveness::Clear, _) => (Liveness::Clear, None),
-            (reading, said) => (
-                reading,
-                Some(said.unwrap_or_else(|| "Background work is still running.".into())),
-            ),
-        },
+    // ambiguity this module resolves toward waiting rather than toward installing — and one
+    // conversation's leftover worker is as real as another's. The first reading that is not
+    // clear decides, so a single busy back end among quiet ones still blocks.
+    for view in leases {
+        match workers(view) {
+            (Liveness::Clear, _) => continue,
+            (reading, said) => {
+                return (
+                    reading,
+                    Some(said.unwrap_or_else(|| "Background work is still running.".into())),
+                )
+            }
+        }
     }
+    (Liveness::Clear, None)
 }
 
 /// The whole decision, and the only place it is made.
@@ -663,10 +670,7 @@ mod tests {
     /// the conversation's own.
     #[test]
     fn background_work_blocks_an_update_even_with_the_conversation_idle() {
-        let (l, said) = background(
-            &BackgroundWork { running: 1, awaiting_you: 0, readable: true },
-            None,
-        );
+        let (l, said) = background(&BackgroundWork { running: 1, awaiting_you: 0, readable: true }, &[]);
         assert_eq!(l, Liveness::Busy);
         let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
         assert!(v.busy, "an update could have installed over live background work");
@@ -677,16 +681,10 @@ mod tests {
     /// only one of them is about him. Both block; the second names what he can do about it.
     #[test]
     fn an_assignment_waiting_for_him_says_so_rather_than_saying_it_is_running() {
-        let (l, said) = background(
-            &BackgroundWork { running: 2, awaiting_you: 1, readable: true },
-            None,
-        );
+        let (l, said) = background(&BackgroundWork { running: 2, awaiting_you: 1, readable: true }, &[]);
         assert_eq!(l, Liveness::Busy);
         assert_eq!(said.as_deref(), Some("An assignment is waiting for you to approve it."));
-        let (_, plural) = background(
-            &BackgroundWork { running: 0, awaiting_you: 3, readable: true },
-            None,
-        );
+        let (_, plural) = background(&BackgroundWork { running: 0, awaiting_you: 3, readable: true }, &[]);
         assert_eq!(plural.as_deref(), Some("3 assignments are waiting for you to approve them."));
     }
 
@@ -694,10 +692,7 @@ mod tests {
     /// the same rule every other source in this module follows.
     #[test]
     fn an_unreadable_assignment_register_waits_rather_than_installing() {
-        let (l, said) = background(
-            &BackgroundWork { running: 0, awaiting_you: 0, readable: false },
-            None,
-        );
+        let (l, said) = background(&BackgroundWork { running: 0, awaiting_you: 0, readable: false }, &[]);
         assert_eq!(l, Liveness::Unknown);
         let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
         assert!(v.busy);
@@ -713,7 +708,7 @@ mod tests {
     /// background work must update exactly as it did before §6.4.
     #[test]
     fn no_background_work_is_an_honest_clear_and_not_a_gap() {
-        let (l, said) = background(&BackgroundWork::nothing(), None);
+        let (l, said) = background(&BackgroundWork::nothing(), &[]);
         assert_eq!(l, Liveness::Clear);
         assert_eq!(said, None);
         let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
@@ -726,11 +721,26 @@ mod tests {
     /// a worker outliving its assignment is ambiguity, and ambiguity waits.
     #[test]
     fn a_worker_outliving_its_assignment_still_blocks() {
-        let (l, said) = background(&BackgroundWork::nothing(), Some(&view(1, 0)));
+        let (l, said) = background(&BackgroundWork::nothing(), &[view(1, 0)]);
         assert_eq!(l, Liveness::Busy);
         assert_eq!(said.as_deref(), Some("1 worker is still running."));
-        let unknown = background(&BackgroundWork::nothing(), Some(&view(0, 2)));
+        let unknown = background(&BackgroundWork::nothing(), &[view(0, 2)]);
         assert_eq!(unknown.0, Liveness::Unknown);
+    }
+
+    /// **TWO THREADS, TWO BACK ENDS** (the CEO's Two Riches spec). A quiet first back end
+    /// must not hide a busy second one — an update that installed over the second
+    /// conversation's work would destroy it exactly as surely as over the first's.
+    #[test]
+    fn a_quiet_back_end_never_hides_a_busy_one_on_another_conversation() {
+        let (l, said) = background(&BackgroundWork::nothing(), &[view(0, 0), view(2, 0)]);
+        assert_eq!(l, Liveness::Busy, "a second conversation's live workers were invisible");
+        assert_eq!(said.as_deref(), Some("2 workers are still running."));
+        // POSITIVE CONTROL: both quiet is still clear, so the reading above is about the
+        // second view rather than about a loop that always blocks.
+        let (quiet, nothing) = background(&BackgroundWork::nothing(), &[view(0, 0), view(0, 0)]);
+        assert_eq!(quiet, Liveness::Clear);
+        assert_eq!(nothing, None);
     }
 
     /// A turn, the conversation's workers AND background work: all three are named, in that
@@ -739,7 +749,7 @@ mod tests {
     fn the_conversation_and_the_background_are_both_named_conversation_first() {
         let (w, worker_said) = workers(&view(2, 0));
         let (b, background_said) =
-            background(&BackgroundWork { running: 1, awaiting_you: 0, readable: true }, None);
+            background(&BackgroundWork { running: 1, awaiting_you: 0, readable: true }, &[]);
         let v = decide(&WorkSources {
             turn: Liveness::Busy,
             workers: w,

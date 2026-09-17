@@ -679,11 +679,17 @@ fn work_verdict(app: &AppHandle) -> WorkVerdict {
     //    this function's own doc gives: a decision made in the shell is a decision the spine
     //    suite cannot reach. This function stays the part that touches handles.
     let background_work = state.work.background_work();
-    let work_lease_view = state
+    //    **EVERY back end, not "the" one.** The CEO's Two Riches spec puts one back-end Rich
+    //    behind each conversation thread, so there is no single work session to read: an
+    //    update that installed over the second thread's work would destroy it exactly as
+    //    surely as over the first's.
+    let work_lease_views: Vec<_> = state
         .work
-        .lease_session()
-        .map(|session| richos_core::app_workers::status(&engine_state, Some(&session)));
-    let (background, background_gap) = work_gate::background(&background_work, work_lease_view.as_ref());
+        .lease_sessions()
+        .iter()
+        .map(|session| richos_core::app_workers::status(&engine_state, Some(session)))
+        .collect();
+    let (background, background_gap) = work_gate::background(&background_work, &work_lease_views);
 
     work_gate::decide(&WorkSources { turn, spine, workers, worker_gap, background, background_gap })
 }

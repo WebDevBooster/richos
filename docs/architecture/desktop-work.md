@@ -105,11 +105,18 @@ would change his repository and stopped there, because local integration is not 
 of actions a worker may take without asking — so what he is told is that it is ready for him
 to approve, never that it is done.
 
-There is one front desk and one back end. The conversation talks to the CEO and relays; a
-single standing back-end lease starts and stops jobs, dispatches, lands and keeps the record,
-and it is never visible to him. It is opened once and every assignment afterwards runs on it.
-An assignment is a bookkeeping unit inside that back end — its own record, seat, stop and
-approval line — and not a second mind.
+Each conversation thread holds one front desk and one back end. The conversation talks to the
+CEO and relays; that thread's standing back-end lease starts and stops jobs, dispatches, lands
+and keeps the record, and it is never visible to him. It is opened on the thread's first
+assignment and every assignment on that thread afterwards runs on it, however many there are.
+A second conversation gets its own back end and the two run at the same time, so neither
+waits for the other. An assignment is a bookkeeping unit inside a back end — its own record,
+seat, stop and approval line — and not a second mind.
+
+The front desk gets no orchestration tools. It relays: it writes an assignment down and it
+reports what the record says. A work tool asked for on a conversation's own binding is
+refused at the permission desk as well as absent from what that lease was given, so drifting
+into doing the work takes two mistakes rather than one.
 
 A request for an action that is not on that list waits for him rather than being refused for
 want of a visible turn. The permission desk holds one ordered queue for both leases: the
