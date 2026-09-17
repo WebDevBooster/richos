@@ -2640,7 +2640,13 @@ fn main() {
             // (`tauri-runtime-wry-2.11.4/src/lib.rs:4391-4394`).
             if let tauri::RunEvent::Reopen { has_visible_windows, .. } = &event {
                 if !has_visible_windows {
-                    reopen_window(handle);
+                    // **OFF THE EVENT-LOOP CALLBACK, deliberately.** Building a window is a
+                    // runtime message, and issuing one from inside the callback the runtime
+                    // is currently dispatching is the shape that deadlocks; a spawned thread
+                    // is the path Tauri documents for window creation from anywhere. The
+                    // Dock click has already happened, so nothing is waiting on this return.
+                    let handle = handle.clone();
+                    std::thread::spawn(move || reopen_window(&handle));
                 }
             }
             if let tauri::RunEvent::Exit = event {
