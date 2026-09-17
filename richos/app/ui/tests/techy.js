@@ -646,6 +646,57 @@ async function main() {
     return lane.length + " rows, none of them naming a turn or a session";
   });
 
+  // ---- 22. N3 (dev-walk audit, 2026-09-17) -----------------------------------------------
+  //
+  // "The technical-view badge is cut off mid-word and runs underneath the settings gear:
+  // 'Technical view · this conversation'. No ellipsis; the gear simply sits on top of it."
+  // The gear (`#set-btn`) is `position: fixed` at the window's own top-right corner
+  // (`--chrome-lane`, style.css) and `#stage-header` never reserved that corner, so the
+  // badge's own flexbox happily grew right through it. Checked at the app's documented
+  // floor (`window_geometry.rs::PREFERRED_MIN_WIDTH` / `MIN_HEIGHT`, 1024x700) — the exact
+  // geometry the audit's own screenshot was taken at, and the one with the least room to
+  // give.
+  await run.check("22. the technical-view badge and the settings gear never overlap, at the app's minimum window", async () => {
+    const page = await openApp(browser, { width: 1024, height: 700 });
+    await openThread(page, "acme");
+    await pressToggle(page);
+    assertEqual(
+      await page.textContent("#techy-chip-label"),
+      "Technical view · this conversation",
+      "the longer of the chip's two sentences — the one the audit found running under the gear"
+    );
+    const boxes = await page.evaluate(() => {
+      const rect = (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      };
+      return { chip: rect(document.getElementById("techy-chip")), gear: rect(document.getElementById("set-btn")) };
+    });
+    const overlapsX = boxes.chip.left < boxes.gear.right && boxes.chip.right > boxes.gear.left;
+    const overlapsY = boxes.chip.top < boxes.gear.bottom && boxes.chip.bottom > boxes.gear.top;
+    assert(
+      !(overlapsX && overlapsY),
+      "badge " + JSON.stringify(boxes.chip) + " intersects gear " + JSON.stringify(boxes.gear)
+    );
+    // And where the label genuinely does not fit, it ellipsizes rather than running under
+    // anything — `scrollWidth` over `clientWidth` is the same clipped-label test 17b already
+    // uses for the settings menu's own rows.
+    const label = await page.evaluate(() => {
+      const el = document.getElementById("techy-chip-label");
+      return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+    });
+    assert(
+      label.scrollWidth <= label.clientWidth + 1,
+      "the label overflows its own box instead of eliding: scrollWidth " +
+        label.scrollWidth + " > clientWidth " + label.clientWidth
+    );
+    await page.close();
+    return (
+      "chip " + JSON.stringify(boxes.chip) + " vs gear " + JSON.stringify(boxes.gear) +
+      " — no intersection, label " + label.scrollWidth + "/" + label.clientWidth + " (fits or elides)"
+    );
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);
@@ -715,6 +766,10 @@ main().catch((e) => {
 //     `between_turn_thread_tests::a_lane_row_carries_no_session_id...` fails, and so does
 //     `examples/machinery_payload.rs` (which exits 1). The mock-side half — adding
 //     `sessionId` in `betweenTurnsFor` -> check 21 fails here too.
+// 22  style.css `#stage-header`: `padding-right: calc(20px + var(--chrome-lane))` ->
+//     `padding-right: 20px` (the shipped defect, dev-walk audit N3) -> check 22 fails:
+//     "badge {...,\"right\":1004} intersects gear {\"left\":966,...}" at 1024x700, which is
+//     the exact overlap the audit's screenshot showed.
 //
 // The whole sweep, with the run output and the two Rust-side mutations, is recorded at
 // `docs/verification/techy-mode-2026-08-30/mutation-runs.txt`.

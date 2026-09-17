@@ -369,14 +369,22 @@ window.RichSettings = (function () {
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
+    // N2 (dev-walk audit, 2026-09-17): these two carried the class "set-bug" — a typo with
+    // no rule anywhere in style.css, `grep -rn "\.set-bug" ui/` returns nothing — so they
+    // rendered as raw, unstyled native buttons (pure white `#FEFEFE` in the dark theme,
+    // breaking the panel's grid as well as its palette). `.bugbtn` is this same menu's own
+    // full-row action-button class (`buildBugButton` below, and `style.css`'s "Row 2 of the
+    // reference: a full-row tappable ACTION, not a toggle"), which is exactly what a
+    // menuitem button with no label/control split needs — so they take that class rather
+    // than a new one.
     if (repositories) {
-      var repositoryButton = elem("button", "set-bug", {type: "button", role: "menuitem", id: "set-repositories-open"});
+      var repositoryButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-repositories-open"});
       repositoryButton.textContent = "Connected repositories";
       repositoryButton.addEventListener("click", function () { close(); repositories.open(); });
       menu.appendChild(repositoryButton);
     }
     if (account) {
-      var accountButton = elem("button", "set-bug", {type: "button", role: "menuitem", id: "set-account-open"});
+      var accountButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-account-open"});
       accountButton.textContent = "Account connection";
       accountButton.addEventListener("click", function () { close(); account.open(); });
       menu.appendChild(accountButton);
