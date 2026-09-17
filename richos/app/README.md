@@ -405,6 +405,29 @@ richos/app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
+    tests/resident_front_desk_tests.rs 7 tests for the CEO's "any number of conversation
+                              threads, each holding one front desk": a thread's lease is
+                              PARKED alive rather than killed when another thread speaks, so
+                              coming back is the same provider session with no re-prime; a
+                              message to a conversation that is not the one on screen is
+                              answered rather than refused, mid-turn included; a returning
+                              desk brings its own context measurement; past the cap the least
+                              recently spoken desk is retired and only that one; and moving
+                              the central folder un-primes the PARKED desks too, which is the
+                              defect residency would otherwise have introduced. Its double
+                              reports `requires_thread_isolation()` true — `MockCognition`
+                              reports false and never comes down this path — and its `Drop`
+                              is the only honest witness that a parked desk was not quietly
+                              killed
+    tests/two_conversations_at_once_tests.rs 5 tests against the REAL delivered engine for
+                              his per-thread ECS cursor: two conversations hold turns open at
+                              once and BOTH check point, with the identical sequence on the
+                              legacy single cursor REQUIRED TO FAIL in the same test — two
+                              threads succeeding proves nothing on an engine that had stopped
+                              fencing. Also: a CEO-shaped seat naming another thread is
+                              refused, the delivered engine answers the capability AND its
+                              prefix, and an unreachable engine answers no rather than
+                              assuming support
     tests/onboarding_persistence_tests.rs regressions for verified tool persistence, per-company answers, resumption and MCP transport.
     tests/request_preparation_tests.rs regressions for cancellable connection, priming, rotation, bounded recovery and restart outcomes.
     tests/onboarding_declination_tests.rs 4 tests over the two spine methods the first-run
@@ -952,7 +975,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1171 tests + 5 doc-tests (1167 direct, 4 ignored)
+cargo test -p richos-core                       # 1194 tests + 5 doc-tests (1190 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

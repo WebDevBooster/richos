@@ -1731,17 +1731,15 @@ module.exports = [
       "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
       "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
   },
-  {
-    s: "the active thread changed between render and send",
-    c: "NOT-RENDERED",
-    why:
-      "The window sent against a thread id that is no longer active. The CEO gets the conversation-changed sentence. " +
-      "It is the `why` argument to `main.rs::refused_send`, which prints it with " +
-      "`eprintln!` and returns the CEO sentence UNCHANGED — the nightly's D4, where a " +
-      "typed message that never became a turn reached the window and said nothing to the " +
-      "log. This scrape sees it because it sits beside `Err(` in the command layer, " +
-      "which is the one shape `RUST_CEO_CONTEXT` cannot tell apart from CEO copy.",
-  },
+  // GONE, 2026-09-17, and the deletion is the point rather than the tidying: "the active
+  // thread changed between render and send" and its CEO sentence, "The conversation changed
+  // before your message was sent. Open the original conversation to try again.", were the
+  // refusal `send_message` gave when the named conversation was not the single active one.
+  // The CEO's Two Riches page is "any number of conversation threads" and "the CEO could
+  // open and run multiple things in parallel"; a message to any conversation is now
+  // answered on that conversation, so there is no state here to classify. Two states
+  // removed from the product is two rows removed from this file — the suite requires it in
+  // both directions, and it is what failed when the rows outlived the strings.
   {
     s: "entity not resolved from {}: {e}",
     c: "NOT-RENDERED",
@@ -3112,8 +3110,9 @@ module.exports = [
   { s: "Your saved answers are kept. We can pick up the remaining questions where we stopped. Press Resume the questions when you're ready.", c: "ACTIONABLE", control: "#first-run-start", fixture: "first-run-partial", why: "Explains that resuming keeps existing answers and names the control beside it." },
 
   { s: "Missing onboarding scope", c: "NOT-RENDERED", why: "The standalone onboarding MCP process reports this on stderr when launched without its required scope argument. It is not displayed in the app." },
+  { s: "Missing status scope", c: "NOT-RENDERED", why: "The same shape one file down: the standalone status MCP process (`--status-mcp`, the front desk's read) reports this on stderr when launched without its required scope argument. A child of the running app, so `activation.rs`'s parent-pid condition is false by construction and no alert is armed. It is not displayed in the app." },
+  { s: "status tool server: {error}", c: "NOT-RENDERED", why: "The operator's `reason` in `~/Library/Logs/RichOS/startup.log` for a status-server failure, alongside `assignment tool server:` and `onboarding tool server:` beside it. It is the machinery half of that call and never reaches the window. The CEO-facing half beside it — the sentence about the helper that looks at work already running — is not in this inventory either, and neither are its two siblings: the Rust scrape does not reach a `startup_alert::cannot_start` argument, which is a pre-existing blind spot of the scrape rather than something this row covers." },
   { s: "The company changed. Please use the offer for the company now open.", c: "INFORMATIONAL", why: "An obsolete company-specific action was refused. The onboarding context guard refreshes the current offer and retains its controls." },
-  { s: "The conversation changed before your message was sent. Open the original conversation to try again.", c: "ACTIONABLE", control: ".nav-thread", fixture: "rail-mark", why: "The rejected message stays with its original conversation. Its navigation row lets the CEO reopen that conversation and retry." },
   {
     s: "Open a conversation first.",
     c: "ACTIONABLE",
