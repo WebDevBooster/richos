@@ -506,6 +506,11 @@ richos/app/
     src/state.rs             the voice-mode state machine (mic state is never a guess)
     src/wav.rs               hand-rolled PCM16 WAV codec + rate conversion
     src/event.rs             rich://voice-state (incl. noAudio) | voice-transcript | voice-error
+    src/provision.rs         GETTING THE SPEECH MODEL — the pin table, body sniffing (a captive
+                              portal is named as one, not as a byte count), the part-file state
+                              machine, and rich://voice-model. Pure plus local filesystem: no
+                              sockets, no async runtime, no dependency. The transport is the
+                              shell's (src-tauri/src/voice_provision.rs) and decides nothing
     src/{capture,playout}.rs cpal in/out; playout is one continuous, interruptible stream
     src/{stt,tts}.rs         local whisper.cpp (small.en) / macOS `say` behind a trait
     src/controller.rs        four threads, CaptureBrain, the half-duplex taint rule
@@ -513,6 +518,11 @@ richos/app/
     tests/voiced_acceptance.rs REAL `say` speech, every installed voice, through the voiced
                               gate — the acceptance half, so the refusal half cannot pass by
                               refusing everything. Prints the margin and the gate's cost
+    tests/model_provisioning.rs  a captive portal, a portal padded to the pinned length, a
+                              right-size/right-magic/wrong-content body, an interrupted
+                              transfer, a resume that still verifies, a full disk. NO SOCKET
+                              IS OPENED: the bytes are supplied directly, which is the whole
+                              reason the transport and the judgment are separate files
     examples/voice_loop.rs   the reproducible end-to-end proof (audio -> Claude -> speakers)
     examples/device_probe.rs what the audio hardware on THIS machine actually reports
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
@@ -931,14 +941,14 @@ cargo test -p richos-core                       # 1031 tests + 5 doc-tests (1027
 #     Last run: PASS against 2.1.263 (docs/verification/inner-doctrine-live-2026-09-06/).
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 229 tests
-#     …of which 225 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
+cargo test -p richos-voice                      # 257 tests
+#     …of which 253 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 229 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 257 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from richos/app/src-tauri/):

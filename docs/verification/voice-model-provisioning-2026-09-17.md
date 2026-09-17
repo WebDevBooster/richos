@@ -89,9 +89,28 @@ already uses, and for the same reason: the failure paths have to be testable wit
 ## 1. Source checks — what they establish, and what they cannot
 
 ```
-cargo test --workspace          (app/)        55 suites, all ok, 0 failed, 4 ignored
-node ui/tests/run.js                          36 suites, all green
+cargo test --workspace          (app/)   55 suites, 0 failed, 4 ignored
+node ui/tests/run.js                     36 suites, 588 checks, 0 failed
 ```
+
+The four `ignored` are the device-opening tests: `RICHOS_VOICE_LIVE_AUDIO` is unset, which is the
+sound constraint above holding rather than a gap. `cargo test -p richos-voice` alone is 257.
+
+**THE FIRST TIME I REPORTED THIS I REPORTED IT WRONG**, and it is recorded rather than tidied
+away. An earlier full UI run reported exit 0 and I wrote "36 suites all green" into two commit
+messages on the strength of it. Re-running it at HEAD found four real failures, all in
+`docs-claims.js` and all mine:
+
+  - `app/README.md` named no `tests/model_provisioning.rs`
+  - `app/README.md` said `richos-voice` has 229 tests; the tree had 257
+  - `app/ui/tests/README.md`'s table did not describe `voice-model.js`
+  - `app/STREAMING.md` did not document `rich://voice-model`
+
+All four are fixed. The lesson is the one this repository already keeps about deploys: an exit
+code is a claim about a command, and the artifact is the evidence. I had also broken one of those
+runs myself by deleting the harness's `node_modules` while it was still going, which produced 26
+suites reporting "NO evidence" — a failure mode that looks nothing like a green run and everything
+like a catastrophe, and was neither.
 
 Within those:
 
@@ -103,8 +122,12 @@ Within those:
   through the same driver.
 - **`ui/tests/voice-model.js` — 10 checks** over the four rows, driven by the real
   `rich://voice-model` payload shape.
-- **`ui/tests/affordances.js`** classifies all 29 new user-visible strings and holds every
-  ACTIONABLE one to naming a control that is present, visible and enabled in the same view.
+- **`ui/tests/affordances.js` — 94 checks.** It classifies all 29 new user-visible strings and
+  holds every ACTIONABLE one to naming a control that is present, visible and enabled in the same
+  view. Three new fixtures drive the offer, refusal and finish rows for exactly that.
+- **`ui/tests/docs-claims.js`** joins this branch's code to `app/README.md`,
+  `app/STREAMING.md` and `app/ui/tests/README.md`, and refused it until all three described what
+  had been added.
 - **`ui/tests/contrast.js`** walks three new surfaces (`voice-model-offer`, `-progress`, `-failed`)
   in both themes: 98 of 460 / 462 / 464 nodes measured, 0 new failures, 0 worsened.
 
