@@ -526,6 +526,75 @@ pub struct SliceItem {
     /// "a legitimate permanent state, not an error".
     #[serde(default)]
     pub company: Option<String>,
+    /// WHERE THIS CAME FROM. Parsed since 2026-09-17; the compiler has always emitted it on
+    /// every item (`loro/lib/compile.js` copies `rec.provenance` into `items[]`) and this
+    /// consumer dropped the whole object on the floor.
+    ///
+    /// It stopped being optional the moment the Workspace source became real. An answer
+    /// built on the CEO's own calendar has to be able to say *"from your Google Calendar,
+    /// Tuesday"* and offer the deep link back to the item in his own cloud; with the
+    /// provenance discarded, the app could name neither, and the only thing left to cite
+    /// was a `rec:…` path. See [`SliceItemProvenance`] for which field answers which
+    /// question.
+    #[serde(default)]
+    pub provenance: SliceItemProvenance,
+}
+
+/// Where one slice item came from — the `items[].provenance` object of the slice contract.
+///
+/// Two of these fields are routinely confused and are deliberately named apart:
+/// [`Self::source`] is the loro FAMILY that read the record (`records` / `wiki` / `memory` /
+/// `entities`), and [`Self::origin`] is where the material came from OUTSIDE loro
+/// (`workspace:google:calendar`, `conversation`). A promoted Calendar entry has
+/// `source = "records"` and `origin = "workspace:google:calendar"`, and answering "where did
+/// this come from" with the first one would be true and useless.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceItemProvenance {
+    /// The loro source family that read this record.
+    #[serde(default)]
+    pub source: String,
+    /// The corpus-relative file the record lives in — the answer to "show me".
+    #[serde(default)]
+    pub path: Option<String>,
+    /// The section anchor within `path`, for a record compiled out of prose.
+    #[serde(default)]
+    pub anchor: Option<String>,
+    /// A link carried on the record itself. Always `None` for a record FILE today:
+    /// `loro/lib/sources.js recordFileRecords` does not read a `link:` field, so a deep link
+    /// into a vendor's cloud travels in the record's BODY, where Rich can read it out. Parsed
+    /// anyway rather than pretended away — the field is in the contract.
+    #[serde(default)]
+    pub link: Option<String>,
+    /// `rich_inferred` (Rich promoted this from an observation) or
+    /// `explicit_ceo_instruction` (the CEO said "remember this"). The difference decides how
+    /// hard a correction should be to make, so it is never flattened.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// The identity of the thing this was promoted FROM — for the Workspace source, the
+    /// vendor item id (`google:calendar:evt_…`), which is what resolves the evidence file.
+    #[serde(default, rename = "ref")]
+    pub source_ref: Option<String>,
+    /// The writer's `--source-label`: `workspace:google:calendar`, `conversation`.
+    #[serde(default)]
+    pub origin: Option<String>,
+}
+
+impl SliceItemProvenance {
+    /// Did this item come from the Workspace source (Calendar / Drive / Gmail), whichever
+    /// vendor? Answered from [`Self::origin`], which the WRITER stated, and never from the
+    /// shape of a ref: a prefix match on `google:` would also claim anything else a future
+    /// source happened to key that way.
+    pub fn is_workspace(&self) -> bool {
+        self.origin.as_deref().is_some_and(|o| o == "workspace" || o.starts_with("workspace:"))
+    }
+
+    /// The vendor and source behind a Workspace item — `("google", "calendar")` — or `None`
+    /// for anything else. The label is `workspace:<vendor>:<source>`.
+    pub fn workspace_source(&self) -> Option<(&str, &str)> {
+        let rest = self.origin.as_deref()?.strip_prefix("workspace:")?;
+        rest.split_once(':')
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -627,6 +696,11 @@ pub struct SliceRecord {
     pub title: String,
     pub scope: String,
     pub company: Option<String>,
+    /// Where the record came from, copied from the slice item. A correction filed against a
+    /// promoted Workspace record is a correction of what RICH inferred from the CEO's own
+    /// cloud, not of something the CEO asserted, and `provenance.method` is the only thing
+    /// that can tell those apart after the fact.
+    pub provenance: SliceItemProvenance,
     /// The item AS RENDERED into the prompt — `• [kind] Title — body… (ref: id)`.
     ///
     /// `None` when the ref could not be found in `text`, which is a real state rather than
@@ -701,8 +775,18 @@ impl Slice {
                 title: item.title.clone(),
                 scope: item.scope.clone(),
                 company: item.company.clone(),
+                provenance: item.provenance.clone(),
             })
             .collect()
+    }
+
+    /// The items that came from the Workspace source, in slice order.
+    ///
+    /// A convenience with a purpose: a surface that wants to show the CEO *"this came from
+    /// your calendar"* must not have to re-implement the origin test, and a caller that
+    /// filters on the wrong field silently shows him the wrong provenance.
+    pub fn workspace_items(&self) -> impl Iterator<Item = &SliceItem> {
+        self.items.iter().filter(|i| i.provenance.is_workspace())
     }
 }
 
@@ -1891,6 +1975,117 @@ mod tests {
         assert!(LaneMap::parse("").unwrap().is_empty());
     }
 
+    /// The `items[]` entry the compiler emits for a record promoted from the CEO's calendar.
+    ///
+    /// COPIED VERBATIM from a real `loro-context compile` run — every value here was produced by
+    /// the pipeline, not composed to make a test pass. The run is
+    /// `tools/richos-service/test/workspace-recall-e2e.mjs`, recorded at
+    /// `docs/verification/2026-09-17-workspace-recall-end-to-end.md`. The long segment inside
+    /// `provenance.ref` is the adapter's `sourceInstanceId`, which is what keeps two Google
+    /// accounts on one machine from colliding on an event id.
+    const WORKSPACE_ITEM: &str = r#"{
+      "ref": "rec:ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc",
+      "kind": "event",
+      "kindInferred": false,
+      "title": "Northwind partnership terms",
+      "scope": "ceo-private",
+      "company": null,
+      "score": 1.1432,
+      "truncated": true,
+      "provenance": {
+        "source": "records",
+        "path": "ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc.md",
+        "anchor": null,
+        "link": null,
+        "method": "rich_inferred",
+        "ref": "google:calendar:d60daeaa8472855e083ff3950b3a702ef1bd94d0b3c0c760817325eb24ac1bbd:evt_partner",
+        "origin": "workspace:google:calendar"
+      },
+      "confidence": 0.9
+    }"#;
+
+    #[test]
+    fn a_slice_item_carries_the_provenance_that_lets_an_answer_say_where_it_came_from() {
+        // The whole point of parsing this: an answer built on the CEO's own calendar must be
+        // able to name the calendar and resolve the evidence. Before 2026-09-17 the compiler
+        // sent all of this and the struct dropped it, so the best the app could cite was a
+        // `rec:` path that names a file and says nothing about where the material came from.
+        let slice: Slice = serde_json::from_str(&slice_json(WORKSPACE_ITEM, false, "COMPANY MEMORY (loro)")).unwrap();
+        let p = &slice.items[0].provenance;
+        assert_eq!(p.origin.as_deref(), Some("workspace:google:calendar"));
+        assert_eq!(p.source, "records", "the loro FAMILY that read it is a different fact from its origin");
+        assert_eq!(p.method.as_deref(), Some("rich_inferred"), "Rich inferred this; the CEO did not assert it");
+        assert!(p.source_ref.as_deref().is_some_and(|r| r.starts_with("google:calendar:") && r.ends_with(":evt_partner")));
+        assert_eq!(p.path.as_deref(),
+            Some("ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc.md"));
+        assert_eq!(slice.items[0].scope, "ceo-private", "a 1:1 with an outside party is the private perimeter");
+        assert!(p.is_workspace());
+        assert_eq!(p.workspace_source(), Some(("google", "calendar")));
+        assert_eq!(slice.workspace_items().count(), 1);
+    }
+
+    #[test]
+    fn an_ordinary_record_is_not_mistaken_for_a_workspace_one() {
+        // The positive control for the test above. A build that answered `is_workspace()`
+        // with `true` unconditionally would pass that one and be worse than useless: it
+        // would put "from your Google Calendar" under the CEO's own written decisions.
+        let wiki = r#"{"ref":"wiki:pricing.md#discounts","kind":"decision","kindInferred":true,
+            "title":"Pricing — Discounts","scope":"org-shared","company":null,
+            "provenance":{"source":"wiki","path":"wiki/pricing.md","anchor":"discounts","link":null,
+            "method":null,"ref":null,"origin":null}}"#;
+        let slice: Slice = serde_json::from_str(&slice_json(wiki, false, "COMPANY MEMORY (loro)")).unwrap();
+        assert!(!slice.items[0].provenance.is_workspace());
+        assert_eq!(slice.items[0].provenance.workspace_source(), None);
+        assert_eq!(slice.workspace_items().count(), 0);
+        assert_eq!(slice.items[0].provenance.anchor.as_deref(), Some("discounts"));
+    }
+
+    #[test]
+    fn a_slice_from_an_older_compiler_with_no_provenance_parses_rather_than_failing() {
+        // §2's forward-compat rule runs both ways: an item that predates the `origin` field
+        // must still parse, and must report "I do not know where this came from" rather than
+        // taking the build down or guessing.
+        let bare = r#"{"ref":"rec:ceo/records/x","kind":"decision","title":"X","scope":"org-shared"}"#;
+        let slice: Slice = serde_json::from_str(&slice_json(bare, false, "COMPANY MEMORY (loro)")).unwrap();
+        assert_eq!(slice.items[0].provenance, SliceItemProvenance::default());
+        assert!(!slice.items[0].provenance.is_workspace());
+        assert_eq!(slice.items[0].provenance.origin, None);
+    }
+
+    #[test]
+    fn provenance_reaches_the_record_a_correction_would_be_filed_against() {
+        // The rendered line, also from the recorded run.
+        let text = "COMPANY MEMORY (loro) — bearing on: \"what did I have on Tuesday\"\n\
+            • [event] Northwind partnership terms — Calendar entry for Tuesday, September 15, 2026 at \
+            3:00 PM (America/Los_Angeles). Source: your Google Calendar — \
+            https://calendar.google.com/event?eid=evt_partner. \
+            (ref: rec:ceo/unfiled/ws-google-calendar-2026-09-15-northwind-partnership-terms-81f6b3fc)";
+        let slice: Slice = serde_json::from_str(&slice_json(WORKSPACE_ITEM, false, text)).unwrap();
+        let records = slice.records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].provenance.origin.as_deref(), Some("workspace:google:calendar"));
+        assert_eq!(records[0].provenance.method.as_deref(), Some("rich_inferred"));
+        assert!(records[0].is_supersedable(), "a promoted record is a rec: ref, so it can be corrected");
+        assert!(records[0].line.is_some(), "the rendered line must be found by its own (ref: …) suffix");
+    }
+
+    #[test]
+    fn the_workspace_origin_test_reads_the_stated_label_and_not_the_shape_of_a_ref() {
+        // A prefix match on the REF would claim anything a future source happened to key
+        // with a vendor name. The label is what the writer stated, so that is what is read.
+        let mut p = SliceItemProvenance {
+            source_ref: Some("google:calendar:evt_x".into()),
+            origin: Some("conversation".into()),
+            ..Default::default()
+        };
+        assert!(!p.is_workspace(), "a vendor-shaped ref is not a claim about where the record came from");
+        p.origin = Some("workspace".into());
+        assert!(p.is_workspace(), "the bare label is the source with no vendor named");
+        assert_eq!(p.workspace_source(), None);
+        p.origin = Some("workspace:microsoft:mail".into());
+        assert_eq!(p.workspace_source(), Some(("microsoft", "mail")), "vendor-agnostic by construction");
+    }
+
     #[test]
     fn the_compilers_argv_names_the_read_entry_point_and_carries_no_write_verb() {
         // The module's structural claim, asserted rather than promised: this type cannot
@@ -2027,6 +2222,7 @@ mod tests {
             title: "t".into(),
             scope: "ceo-private".into(),
             company: None,
+            provenance: Default::default(),
             line: None,
         };
         assert!(r("rec:ceo/records/x").is_supersedable());

@@ -174,6 +174,16 @@ export function normalizeRecord(raw, ctx) {
 
       method: str(raw.promotionMethod) || null,
       ref: str(raw.promotionRef) || null,
+
+      // WHERE THE MATERIAL CAME FROM, outside loro — "workspace:google:calendar", "conversation".
+      // Distinct from `source` above, which names the loro family that READ it (records / wiki /
+      // memory / entities); both are facts and neither substitutes for the other. A record file
+      // has carried this in its front matter since the writer's first version
+      // (`writer/writer.js` `provenance.source`, from `--source-label`) and the reader dropped it,
+      // so a promoted Calendar entry reached a slice with no way for a consumer to say the words
+      // "from your Google Calendar". Added within slice schema v1: `CONTEXT-CONTRACT.md` §2 allows
+      // fields to be ADDED and requires unknown ones to be ignored.
+      origin: str(raw.promotionSource) || null,
     },
 
     supersedes: str(raw.supersedes) || null,

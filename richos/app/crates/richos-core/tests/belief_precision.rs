@@ -56,6 +56,10 @@ impl RecordSpec {
             title: self.title.clone(),
             scope: self.scope.clone(),
             company: self.company.clone(),
+            // These fixtures describe what Rich READ, and the belief detector matches on the
+            // rendered line alone — provenance is carried for a correction to file against, not
+            // for detection, so the default is the honest value here rather than a stand-in.
+            provenance: Default::default(),
             line: self.line.clone(),
         }
     }
