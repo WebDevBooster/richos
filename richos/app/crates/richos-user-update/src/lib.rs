@@ -1570,6 +1570,52 @@ mod tests {
         .is_err());
     }
 
+    /// `package-app.sh`'s undeclared-intent (development-build) default stamps
+    /// `{cargo-version}-dev.{shortsha}[.dirty]` — see its "THE VERSION THIS BUILD WILL
+    /// CARRY" section. This pins the property the updater needs from that shape: semver
+    /// precedence (the `semver` crate's `Ord`, which `Published::is_newer_than` above uses
+    /// directly via `this > other`) puts ANY pre-release identifier strictly below the
+    /// release it precedes, with no special-casing required here. A dev copy must always
+    /// be told the real release is an update, and the real release must never be told a
+    /// dev copy of itself is newer — the same property `nightly_versions_survive_install_
+    /// and_order_numerically` above already proves for `-nightly.` builds, pinned here for
+    /// `-dev.` ones because nothing had exercised that shape until now.
+    #[test]
+    fn dev_versions_are_older_than_the_release_they_precede() {
+        let t = home();
+        let h = canonical(&t);
+        let dev = "1.2.0-dev.0c00cd87";
+        let dev_dirty = "1.2.0-dev.0c00cd87.dirty";
+        let release = "1.2.0";
+
+        let published_dev = install_verified(&h, &archive(dev, |_| {}), dev).unwrap();
+        assert_eq!(published_dev.version, dev);
+        assert!(
+            !published_dev.is_newer_than(release).unwrap(),
+            "a dev build must never claim to be newer than the release it precedes"
+        );
+        let as_release = Published {
+            version: release.into(),
+            ..published_dev.clone()
+        };
+        assert!(
+            as_release.is_newer_than(dev).unwrap(),
+            "the release must always be offered as an update over a dev copy of itself"
+        );
+        // A dirtier stamp of the very same commit still never outranks the release.
+        assert!(as_release.is_newer_than(dev_dirty).unwrap());
+        assert!(!published_dev.is_newer_than(dev_dirty).unwrap());
+
+        // And the release genuinely installs OVER the dev copy, exactly like any other
+        // upgrade — this is the path `updates.rs::check` exercises on a customer's Mac.
+        let published_release = install_verified(&h, &archive(release, |_| {}), release).unwrap();
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            release
+        );
+        assert!(published_release.is_newer_than(dev).unwrap());
+    }
+
     #[test]
     fn installs_as_actual_owner_and_replays_exact_receipt() {
         let t = home();
