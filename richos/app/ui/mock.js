@@ -2456,7 +2456,7 @@
           if (preset.voice === "unavailable")
             return {
               available: false,
-              // VERBATIM from `SttError::ceo_message`, crates/richos-voice/src/stt.rs.
+              // VERBATIM from `SttError::BinaryNotFound`'s `ceo_message()`, crates/richos-voice/src/stt.rs.
               // The window does not render it (it hides the button instead); it is here so
               // the preview reports what the product reports.
               reason:
@@ -2485,8 +2485,11 @@
           if ((preset.voice === "model-missing" || mockVoiceModel.offer) && !mockVoiceModel.installed)
             return {
               available: false,
+              // VERBATIM from `SttError::ModelNotFound`'s `ceo_message()`, split from the
+              // toolchain-missing sentence above on 2026-09-17 (nightly audit §D2) — nobody
+              // but RichOS itself closes this gap now, so it names no party.
               reason:
-                "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+                "My speech model isn't on this machine yet. I can fetch it myself now, so I'll offer to download it the next time you turn voice on. I can still read what you type.",
               state: "model-missing",
               offer: mockVoiceModel.offer || {
                 modelId: "small.en",
