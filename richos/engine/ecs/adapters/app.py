@@ -5,12 +5,23 @@ import hashlib
 import json
 from pathlib import Path
 
-from ecs_core import EventStore, ScopeError, ValidationError, canonical_json
+from ecs_core import EventStore, PERSON_ID, ScopeError, ValidationError, canonical_json
 from ecs_checkpoint import checkpoint, checkpoint_receipt
 from ecs_inspect import inspect_records
 
 PROTOCOL_VERSION = 1
 BINDING_FIELDS = ("entity_id", "thread_id", "session_id", "turn_id", "audience", "revision")
+# THE WORK SEAT. ecs_active_context is a CURSOR keyed by person_id, not a store: it
+# answers "which entity, thread, session and turn is this principal in right now",
+# while the records themselves are keyed by entity and thread. The conversation
+# rewrites that one row at the start of every turn, so a background assignment
+# holding a binding frozen minutes ago is stale the moment the CEO speaks. It gets
+# its own row instead -- one per assignment, never one per lease, because the table
+# is person_id PRIMARY KEY and a second assignment on one seat upserts the first
+# one's cursor out from under it. The seat is explicit or absent; absent is the
+# CEO's own cursor and every call shape that predates seats is untouched.
+CONVERSATION_ONLY = ("checkpoint", "receipt", "brief")
+
 
 
 def required(document, key):
@@ -24,16 +35,28 @@ def binding_of(row):
     return {key: row[key] for key in BINDING_FIELDS}
 
 
-def fence(store, binding):
+def seat_of(request):
+    """The caller's explicit seat, or None for the CEO's own cursor."""
+    return None if request.get("seat") is None else required(request, "seat")
+
+
+def fence(store, binding, seat=PERSON_ID):
     if not isinstance(binding, dict) or set(binding) != set(BINDING_FIELDS):
         raise ScopeError("an explicit app entity/thread/session/turn/audience/revision binding is required")
-    current = store.current_context()
+    current = store.current_context(seat)
     if current is None or binding_of(current) != binding:
         raise ScopeError("stale app binding; reconcile in its original scope before retrying")
     return current
 
 
-def bind(store, request):
+def fenced(store, binding, seat):
+    # An absent seat calls fence with the arguments it has always been called with,
+    # so the conversation's path through this adapter is byte-identical to the one
+    # that shipped before seats existed.
+    return fence(store, binding) if seat is None else fence(store, binding, seat)
+
+
+def bind(store, request, seat=None):
     scope = request.get("scope", {})
     if set(scope) != set(BINDING_FIELDS) - {"revision"}:
         raise ScopeError("bind requires explicit entity, thread, session, turn and audience")
@@ -50,6 +73,13 @@ def bind(store, request):
     owner = f"app-entity:{entity}"
     common = dict(entity_id=entity, thread_id=thread, session_id=session,
                   actor_kind="app", actor_id="richos-app-v1", source_ref=source)
+    # THE BIND IS SPLIT, and it is a decision rather than a typo. entity.registered,
+    # thread.created and session.observed are statements about things that EXIST --
+    # this entity, this thread, this session -- and they are the same facts whoever
+    # is looking, so they stay on the registry person. Only thread.activated says who
+    # is where right now, which is what a seat is, so only it carries the seat.
+    # Carrying the seat on all four raises "entity ... is already registered
+    # differently" (ecs_core.py:726-737) before the second seat exists at all.
     for suffix, event, payload in (
         ("entity", "entity.registered", {"display_name": entity, "canonical_root": owner,
                                          "git_common_dir": owner, "status": "active"}),
@@ -58,9 +88,10 @@ def bind(store, request):
         ("active", "thread.activated", {"audience": scope["audience"], "turn_id": scope["turn_id"]}),
     ):
         store.append(event, **common, payload=payload,
+                     person_id=PERSON_ID if suffix != "active" or seat is None else seat,
                      expected_revision=expected if suffix == "active" else None,
                      idempotency_key=f"app-bind:{request_id}:{suffix}")
-    current = store.current_context()
+    current = store.current_context() if seat is None else store.current_context(seat)
     if any(current[k] != value for k, value in scope.items()):
         raise ScopeError("binding was superseded; an old bind receipt cannot reactivate it")
     return {"binding": binding_of(current)}
@@ -86,16 +117,26 @@ def execute(state_root, request):
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
     store = EventStore(root)
+    seat = seat_of(request)
     if command == "current":
-        current = store.current_context()
+        current = store.current_context() if seat is None else store.current_context(seat)
         return {"binding": binding_of(current) if current is not None else None}
     if command == "bind":
-        return bind(store, request)
+        return bind(store, request, seat)
     binding = request.get("binding")
-    context = fence(store, binding)
+    context = fenced(store, binding, seat)
+    # Checkpoints, their receipts and the executive brief are the CONVERSATION'S, and
+    # they read or write the CEO's cursor by construction (ecs_checkpoint.py:15, 79,
+    # 152 and the TurnScope person at :119-120; compile_checkpoint's caller below
+    # passes no person). A background lease has no business writing his continuity,
+    # and on a work seat these raise a revision conflict rather than refusing
+    # cleanly. The refusal is here, in the engine, as well as in the app's per-lease
+    # MCP config: an allow-list on tool NAMES cannot see whose seat is calling.
+    if command in CONVERSATION_ONLY and context["person_id"] != PERSON_ID:
+        raise ScopeError("checkpoint, receipt and brief belong to the conversation's own seat")
     if command == "sync-loro-receipts":
         from loro_receipts import synchronize
-        result = synchronize(store, binding)
+        result = synchronize(store, binding, context["person_id"])
     elif command == "import-apply":
         from import_records import apply
         return apply(root, request.get("envelope"), binding)
@@ -124,13 +165,14 @@ def execute(state_root, request):
         if type(budget) is not int or not 900 <= budget <= 24000:
             raise ValidationError("brief budget must be between 900 and 24000 characters")
         result = {"text": store.compile_checkpoint(context["entity_id"], context["thread_id"],
-                   expected_active_revision=context["revision"], session_id=context["session_id"], budget_chars=budget),
-                  "inspection": inspect_records(store)}
+                   expected_active_revision=context["revision"], session_id=context["session_id"],
+                   budget_chars=budget, person_id=context["person_id"]),
+                  "inspection": inspect_records(store, person_id=context["person_id"])}
     elif command == "inspect":
         query = request.get("query", {})
         if not isinstance(query, dict) or set(query) - {"section", "offset", "limit", "sequence", "item_id", "query", "include_closed"}:
             raise ValidationError("unsupported inspection fields")
-        result = inspect_records(store, **query)
+        result = inspect_records(store, person_id=context["person_id"], **query)
     elif command == "observation-receipt":
         event = store.existing_event(f"app-observe:{required(request, 'request_id')}")
         if event is None:
@@ -157,8 +199,16 @@ def execute(state_root, request):
                     or existing["expected_revision"] != receipt["expected_revision"]):
                 raise ScopeError("completion receipt does not match its original scope or evidence")
         else:
+            # continuity.item_closed is a CONVERSATIONAL_EVENT (ecs_core.py:38-43), so
+            # _reduce fences it through _fence_active (:607-608), which selects the row
+            # belonging to the EVENT'S OWN person (:562) and compares that row's revision
+            # against active_context_revision. EventStore.append defaults person_id to
+            # PERSON_ID (:391), so this append without a seat compared the WORK row's
+            # revision against the CEO's row and failed the moment he spoke. The fenced
+            # row's own person is the seat, so it can never drift from what was fenced.
             store.append("continuity.item_closed",entity_id=context["entity_id"],thread_id=context["thread_id"],
                 session_id=context["session_id"],active_context_revision=context["revision"],
+                person_id=context["person_id"],
                 actor_kind="authority_adapter",actor_id="richos-provider-v1",source_ref=receipt["source_ref"],
                 idempotency_key=key,expected_revision=receipt["expected_revision"],payload=payload)
         result={"obligation_closed":True,"obligation_id":receipt["obligation_id"],"evidence_ref":receipt["evidence_ref"]}
@@ -180,8 +230,15 @@ def execute(state_root, request):
                 raise ValidationError("completion does not match the verified Git receipt")
         elif payload.get("status") == "completed":
             raise ValidationError("provider completion is not verified assignment completion")
+        # observe appends work_unit.upserted, which IS conversational and fails exactly
+        # as complete-obligation does. verified-work appends
+        # work_unit.authority_completed, which is NOT (ecs_core.py:609-610) and is
+        # fenced on the session instead -- it carries the seat anyway, because the row
+        # it writes carries person_id (:1053) and background records are the work
+        # seat's. Between them these two are how a background assignment says anything
+        # at all.
         result = asdict(store.append("work_unit.authority_completed" if command=="verified-work" else "work_unit.upserted", entity_id=context["entity_id"],
-            thread_id=context["thread_id"], session_id=context["session_id"],
+            thread_id=context["thread_id"], session_id=context["session_id"], person_id=context["person_id"],
             active_context_revision=context["revision"], source_ref=required(request, "source_ref"),
             idempotency_key=f"app-observe:{required(request, 'request_id')}",
             expected_revision=request.get("expected_revision"),
@@ -190,5 +247,5 @@ def execute(state_root, request):
         raise ValidationError(f"unsupported ECS command: {command}")
     # A read racing a scope switch must not return the new scope's records to
     # the old caller. Mutations also carry the core's transactional fence.
-    fence(store, binding)
+    fenced(store, binding, seat)
     return result

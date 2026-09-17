@@ -2222,6 +2222,7 @@ class EventStore:
         corrections_window: int = 20,
         coverage_bar: float = 0.90,
         dead_letters_pending: int = 0,
+        person_id: str = PERSON_ID,
     ) -> dict[str, Any]:
         """The dogfood threshold, computed from the store; window explicit.
 
@@ -2277,7 +2278,7 @@ class EventStore:
             turn_set = set(turns)
             context = conn.execute(
                 "SELECT turn_id FROM ecs_active_context WHERE person_id=? AND entity_id=? AND thread_id=?",
-                (PERSON_ID, entity_id, thread_id),
+                (person_id, entity_id, thread_id),
             ).fetchone()
             open_turn = str(context["turn_id"]) if context and context["turn_id"] else None
             extraction_rows = {
@@ -2533,7 +2534,7 @@ class EventStore:
             result["on_disk_now"] = "unreadable now"
         return result
 
-    def health(self) -> dict[str, Any]:
+    def health(self, person_id: Optional[str] = None) -> dict[str, Any]:
         self.initialize()
         conn = self.connect()
         try:
@@ -2553,11 +2554,23 @@ class EventStore:
                     "ecs_turn_extractions",
                 )
             }
-            active = conn.execute(
-                "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
-                "FROM ecs_active_context WHERE person_id=?",
-                (PERSON_ID,),
-            ).fetchone()
+            # A diagnostic that reports ONE cursor while two exist is a diagnostic
+            # that lies exactly when it is being used to diagnose a second cursor. A
+            # named person reports that seat; the default reports every seat there is.
+            if person_id is None:
+                seats = [dict(row) for row in conn.execute(
+                    "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
+                    "FROM ecs_active_context ORDER BY person_id"
+                ).fetchall()]
+                active = next((row for row in seats if row["person_id"] == PERSON_ID), None)
+            else:
+                active = conn.execute(
+                    "SELECT person_id, entity_id, thread_id, session_id, turn_id, audience, revision "
+                    "FROM ecs_active_context WHERE person_id=?",
+                    (person_id,),
+                ).fetchone()
+                active = dict(active) if active else None
+                seats = [active] if active else []
         finally:
             conn.close()
         return {
@@ -2566,7 +2579,8 @@ class EventStore:
             "foreign_key_errors": len(foreign),
             "pragmas": pragmas,
             "counts": counts,
-            "active_context": dict(active) if active else None,
+            "active_context": active,
+            "active_contexts": seats,
             "db_path": str(self.db_path),
             "shadow_mode": True,
             "content_injection": self.injection_enabled(),
