@@ -319,6 +319,115 @@ gui_bundle() {
 }
 
 # ---------------------------------------------------------------------------------------
+# gui_display_counts
+#
+# HOW MANY DISPLAYS THE BOOT WILL BE TOLD ARE THERE — asked of the same list the product
+# asks, before the product is asked.
+#
+# `read_displays` (main.rs:5703) calls `app.available_monitors()`, and that reaches the
+# machine through
+#
+#     tauri-2.11.5/src/app.rs:888
+#       -> tauri-runtime-wry-2.11.4/src/lib.rs:2805
+#         -> tao-0.35.3/src/platform_impl/macos/monitor.rs:146
+#
+# where it is, in full, `CGDisplay::active_displays()` — that is, `CGGetActiveDisplayList`.
+#
+# ACTIVE IS NOT ONLINE, AND THAT DISTINCTION IS THE WHOLE REASON THIS FUNCTION EXISTS.
+# Apple's active display is one that is connected, AWAKE, and available for drawing. A Mac
+# whose screens have gone to sleep still has every display ONLINE and has NO ACTIVE DISPLAY
+# AT ALL — so the boot is told, truthfully, that there is no display to place a window on,
+# prints `window: the runtime reported no attached display`, and B2 goes red over the state
+# of the SCREEN rather than the state of the code.
+#
+# MEASURED ON THIS MACHINE, 2026-09-17, because this is not a story about what could happen:
+#
+#   pmset -g log        displays off 02:33:47 +0100 (01:33:47Z), on 03:16:29 +0100 (02:16:29Z)
+#   nightly 815e318a    ended 23:59:24Z      screens awake   ->  all 29 passed
+#   nightly 61831cdb    ended 00:42:10Z      screens awake   ->  all 29 passed
+#   nightly 84aa5e62    02:06:26-02:13:09Z   screens ASLEEP  ->  1 FAILED (B2), 28 passed
+#   re-run by hand      02:14Z               screens ASLEEP  ->  1 FAILED (B2), 28 passed
+#   re-run, 516975db    02:25:06-02:27:11Z   screens awake   ->  all 29 passed
+#
+# The last line is the one that settles it: the SAME source that "broke" B2 passes it, on
+# this machine, with nothing changed but the power state of the screen. A nightly release
+# and two hours went into hunting a commit for a defect the source never contained. That is
+# what an undeclared precondition costs, which is why this one is now declared, measured and
+# printed on every run.
+#
+# python3 + ctypes rather than a compiled probe: python3 is already required by six scripts
+# in this directory, and a precondition check that needs a C compiler is a check that cannot
+# run on the machine it is a claim about.
+#
+# Prints "<active> <online>". Prints "unknown unknown" and returns 1 when the question could
+# not be put to the machine at all — which is NOT a zero and is never read as one.
+# ---------------------------------------------------------------------------------------
+gui_display_counts() {
+  local out
+  if ! out="$(python3 - <<'PY' 2>/dev/null
+import ctypes
+import sys
+
+MAX = 64
+try:
+    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    ids = (ctypes.c_uint32 * MAX)()
+    active = ctypes.c_uint32(0)
+    if cg.CGGetActiveDisplayList(ctypes.c_uint32(MAX), ids, ctypes.byref(active)) != 0:
+        raise OSError("CGGetActiveDisplayList refused")
+    online = ctypes.c_uint32(0)
+    if cg.CGGetOnlineDisplayList(ctypes.c_uint32(MAX), ids, ctypes.byref(online)) != 0:
+        raise OSError("CGGetOnlineDisplayList refused")
+    print(active.value, online.value)
+except Exception:
+    sys.exit(1)
+PY
+  )"; then
+    printf 'unknown unknown\n'
+    return 1
+  fi
+  case "$out" in
+    ''|*[!0-9\ ]*) printf 'unknown unknown\n'; return 1 ;;
+  esac
+  printf '%s\n' "$out"
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_display_verdict <active-count>
+#
+# THE DECISION, HELD APART FROM THE MEASUREMENT, so the suite can prove the decision is
+# alive on numbers this run did not produce (D1-D3). It prints the sentence and answers with
+# its exit code:
+#
+#   0  at least one display is awake — a boot may be held to a display-backed placement
+#   1  none are awake — this host cannot answer the question B2 asks
+#   2  the count is not a number — nothing was measured, and an unmeasured premise is not a
+#      zero and not a pass
+#
+# The three are separated because the OPERATOR has a different thing to do in each: wake the
+# screen, or install a python3 that can reach CoreGraphics. A verdict that collapsed them
+# would send whoever reads it to the wrong repair.
+# ---------------------------------------------------------------------------------------
+gui_display_verdict() {
+  local active="${1:-}"
+  case "$active" in
+    ''|*[!0-9]*)
+      printf 'display state UNMEASURED — this host could not be asked how many displays are awake\n'
+      return 2
+      ;;
+    0)
+      printf 'NO DISPLAY IS AWAKE — CGGetActiveDisplayList reports 0, so the boot would be told there is none\n'
+      return 1
+      ;;
+    *)
+      printf '%s display(s) awake — the boot can be held to a placement backed by one of them\n' "$active"
+      return 0
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------------------
 # gui_boot <scratch-root> <output-file> [seconds]
 #
 # Boot it, capture stderr, and stop the moment the process says it has finished resolving.

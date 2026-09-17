@@ -1,0 +1,115 @@
+# Green with the precondition in place
+#
+# RICHOS_RUNTIME_DIR=$HOME/.richos-nightly/runtime bash app/scripts/gui-boot.test.sh  (1e68b7d3)
+#
+HEAD: 516975db9047f148d68c2cf5e99ea947fc21b224
+start UTC: 2026-09-17T02:32:04Z
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 32 lines declared unaccountable are still unaccounted
+  PASS  A7 display-sized, restored and re-derived window placements are accounted for
+  PASS  A8 a missing window placement fails its own proof
+  PASS  C1 the harness builds a real .app — Contents/MacOS and Contents/Info.plist
+  PASS  C2 the Info.plist carries every key bundle_version reads: CFBundleIdentifier CFBundleShortVersionString
+  PASS  C3 the Info.plist declares com.richos.app, found by the product's own reader
+  PASS  C4 the Info.plist is mode 644, 1 link, 598 bytes, and parses
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         {"verified": true, "versions": {"python3": "Python 3.13.15", "node": "v24.21.0", "git": "git version 2.55.0", "jq": "jq-1.8.2"}}
+         compiler source : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/FixtureDelivery/engine/loro
+         corpus          : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/RichOS/corpus
+         pointer         : Some("/private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/FixtureDelivery/engine/loro (already)
+         partitions      : 1
+         registry        : 1 compan(ies) in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/com.richos.app/entities.json
+         saved company   : northwind in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/com.richos.app/config.json
+         bundle identity : com.richos.app 1.2.0 (asked of the binary, not typed here)
+         binary          : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  C5 the machine's bundle declares 1.2.0, the version the binary says it is
+  PASS  D1 an active-display count of 0 is refused
+  PASS  D2 an active-display count of 3 is accepted
+  PASS  D3 a count that could not be measured is neither a zero nor a pass
+  PASS  D4 this host can answer: 3 display(s) awake — the boot can be held to a placement backed by one of them (3 online)
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+  PASS  B1a the boot took no Dock icon, no window and no focus, decided on its own facts
+  --- the boot log, as captured ---
+      [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 31905), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+      [richos] window: derived 1400x880 pt at (260,102), min 1024x700 — Monitor #30942 work area 1920x1005 pt at (0,25), scale 1 — the preferred size fits, so it caps the window
+      [richos] launch: fresh (start 1, 1 window(s))
+      [richos] company registry: 1 company from /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/com.richos.app/entities.json
+      [richos] company registry: 1 compan(ies), /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/com.richos.app/entities.json (file)
+      [richos] central folder: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/myrichos (present)
+      [richos] company: northwind (via the saved choice)
+      [richos] onboarding northwind: described — the company layer is in the priming turn
+      [richos] loro Tier C: compiling from /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/.claude/richos-engine/runtime/bin/node
+      [richos] loro correction desk: writing to /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/Library/Application Support/RichOS/corpus via /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/.claude/richos-engine/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] engine directory: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/.claude/richos-engine (via engine install pointer)
+      [richos] compute connection: starts with the first cancellable request over /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/machine/.local/bin/claude
+      [richos] first-run setup: nothing missing.
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---
+    DECLARED GAP  RICHOS_SERVICE_BIN
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away. 
+  PASS  B2 every line of a healthy Finder-condition boot is accounted for
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B3/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B3/Library/Application Support/RichOS/engine/loro (selected engine): loro tools not found: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B3/Library/Application Support/RichOS/engine/loro/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] engine directory: NOT FOUND — 5 place(s) tried
+           UNACCOUNTED  [richos]   looked in /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B3/Applications/RichOS.app/Contents/Resources/engine (app bundle resources)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B4/Library/Application Support/RichOS/corpus — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B4/Library/Application Support/RichOS/loro-root — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B4/RichOS/corpus — not present
+  PASS  B5 the delivered Loro component is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B5/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B5/.claude/richos-engine/loro (selected engine): loro tools not found: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B5/.claude/richos-engine/loro/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] first-run setup: the RichOS engine is NOT installed — looked in: 
+           UNACCOUNTED  [richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] first-run setup: Claude Code is NOT installed — looked in: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B6/.local/bin/claude; /usr/bin/claude; /bin/claude; /usr/sbin/claude; /sbin/claude
+           NOT RESOLVED  first-run setup — nothing in this boot proved it was found.
+  PASS  B6a missing Claude is rejected specifically by first-run setup
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+           UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
+           UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of northwind) still overrides, as does launching from that entity's repository root.
+           UNACCOUNTED  [richos] onboarding: no company resolved, so nothing to ask about yet — the question comes after he says which company this is
+  PASS  B8 the company registry is corrupt -> caught
+           UNACCOUNTED  [richos] company registry at /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B8/Library/Application Support/com.richos.app/entities.json is not valid: key must be a string at line 1 column 3. Nothing was loaded from it — no company is registered until it parses.
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.TtrF3JxD7m/broken-B8/Library/Application Support/com.richos.app/entities.json (unreadable)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it and asking again rather than filing work under a guess
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 7 app(s) and 0 are still running
+
+=== gui-boot.test.sh: all 33 passed ===
+end UTC: 2026-09-17T02:34:04Z
+gui-boot.test.sh exit: 0
