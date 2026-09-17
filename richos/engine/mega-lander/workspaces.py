@@ -2725,9 +2725,10 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
 _MAX_OPEN_CALLS = 64
 # What the last observation of this process FOUND about the protected refs (see
 # _restore_protected_refs): rows of (action, repo, branch, snapshot_tip, found,
-# why), action "RESTORED" (a deleted ref put back) or "MOVED" (seen, reported,
-# left exactly where it was). The CLI prints them after the CREATED rows so the
-# observe hook can announce them.
+# why), action "RESTORED" (a deleted ref put back), "MOVED" (seen, reported,
+# left exactly where it was) or "LANDED" (another conversation's land, named
+# from the land record and announced to the thread it moved under). The CLI
+# prints them after the CREATED rows so the observe hook can announce them.
 PROTECTED_REF_FINDINGS = []
 # What each action is called ON THE AGENT'S OWN RECORD. Three actions, three
 # sentences, and the third is not a variation of the second: "another
