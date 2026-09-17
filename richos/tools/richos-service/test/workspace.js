@@ -5078,6 +5078,29 @@ test('one account listed twice is REFUSED by name — PROBE: listed once, the sa
   assert.equal(once.ok, true, once.problems.join('; '));
 });
 
+test('the account validator is VENDOR-PARAMETERIZED — a Graph scope passes for microsoft and fails for google', () => {
+  // The seam is open rather than merely intended: `requestableScopes` reads the vendor's own tables
+  // through the registry, so P4's ceremony validates its accounts here instead of growing a second
+  // validator whose refusals would list Google's scopes at a Microsoft config.
+  const ms = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [MICROSOFT_SCOPES.calendar, MICROSOFT_SCOPES.mail] }],
+  }, { vendor: 'microsoft' });
+  assert.equal(ms.ok, true, ms.problems.join('; '));
+  assert.ok(requestableScopes('microsoft').includes(MICROSOFT_SCOPES.drive));
+  // PROBE: the identical config against Google's table is refused, and the refusal names Google's
+  // scope table rather than silently accepting a Graph permission no Google adapter can use.
+  const wrong = validateClientConfig({
+    clientId: FAKE_CLIENT_ID,
+    accounts: [{ accountId: ACCT_A, scopes: [MICROSOFT_SCOPES.calendar] }],
+  });
+  assert.equal(wrong.ok, false);
+  assert.ok(wrong.problems.some((p) => p.includes('GOOGLE_SCOPES')));
+  assert.ok(!requestableScopes('google').includes(MICROSOFT_SCOPES.calendar));
+  // And an unknown vendor is refused by name rather than quietly validated against Google's.
+  assert.throws(() => requestableScopes('dropbox'), /no scope table for vendor "dropbox"/);
+});
+
 test('a bad scope names the ACCOUNT it is on — with two in the file, the address is the fix', () => {
   const v = validateClientConfig({
     clientId: FAKE_CLIENT_ID,

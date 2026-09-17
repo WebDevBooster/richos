@@ -43,10 +43,10 @@
  */
 
 import fs from 'node:fs';
-import { GOOGLE_SCOPES, workspaceClientConfigPath } from '../config.js';
+import { GOOGLE_SCOPES, MICROSOFT_SCOPES, workspaceClientConfigPath } from '../config.js';
 import { writePrivateFile } from '../private-files.js';
 import { assertLoopbackRedirect } from './privacy.js';
-import { GOOGLE_SOURCES, grantsFor } from './registry.js';
+import { sourcesForVendor, grantsFor } from './registry.js';
 
 /**
  * The loopback redirect the setup guide's Step 5 pins. Pinned here too, rather than left to a caller,
@@ -57,9 +57,23 @@ export const DEFAULT_REDIRECT_URI = 'http://127.0.0.1:47121/callback';
 /** The placeholder the guide prints. Pasting the template unedited is a refusal, never a request. */
 export const CLIENT_ID_PLACEHOLDER = 'PASTE_YOUR_CLIENT_ID';
 
+/**
+ * The scope table for a vendor. `google` is the default so every existing caller keeps its behavior
+ * exactly — the Microsoft table (P4) is reached only by asking for it by name.
+ */
+const SCOPES_BY_VENDOR = { google: GOOGLE_SCOPES, microsoft: MICROSOFT_SCOPES };
+
+function scopeTable(vendor) {
+  const table = SCOPES_BY_VENDOR[vendor];
+  // Never default: silently validating a Microsoft config against Google's scope table would refuse
+  // every legitimate Graph scope and name Google's in the refusal.
+  if (!table) throw new Error(`no scope table for vendor "${vendor}" — known: ${Object.keys(SCOPES_BY_VENDOR).join(', ')}`);
+  return table;
+}
+
 /** Every scope RichOS is allowed to ask for, by source. Nothing outside this map is requestable. */
-export function declaredScopes() {
-  return { ...GOOGLE_SCOPES };
+export function declaredScopes(vendor = 'google') {
+  return { ...scopeTable(vendor) };
 }
 
 /**
@@ -68,16 +82,19 @@ export function declaredScopes() {
  * taken before the CEO widened Drive (§40) keeps working — the registry can run
  * `drive.metadata.readonly` in metadata mode, so a config that asks for it is not a mistake to refuse.
  * Anything else is: it would mean requesting a permission no adapter here knows what to do with.
+ *
+ * Both halves come from the VENDOR'S tables, never from Google's by name, so the P4 ceremony can
+ * validate a Microsoft config through this same function instead of needing its own.
  */
-export function requestableScopes() {
-  const out = new Set(Object.values(GOOGLE_SCOPES));
-  for (const entry of GOOGLE_SOURCES) for (const g of grantsFor(entry)) out.add(g.scope);
+export function requestableScopes(vendor = 'google') {
+  const out = new Set(Object.values(scopeTable(vendor)));
+  for (const entry of sourcesForVendor(vendor)) for (const g of grantsFor(entry)) out.add(g.scope);
   return [...out];
 }
 
 /** The source a declared scope belongs to, or null if nothing declares it. */
-export function sourceForScope(scope) {
-  for (const [source, value] of Object.entries(GOOGLE_SCOPES)) {
+export function sourceForScope(scope, vendor = 'google') {
+  for (const [source, value] of Object.entries(scopeTable(vendor))) {
     if (value === scope) return source;
   }
   return null;
@@ -180,10 +197,13 @@ const ACCOUNT_MISSING =
  * an account through `accountView()`.
  *
  * @param {object|null} raw
+ * @param {{vendor?:'google'|'microsoft'}} [opts]  the scope table to validate against; the config
+ *   file is Google's today, and the parameter is here so P4's ceremony reuses this function instead
+ *   of growing a second validator whose refusals would name the wrong vendor's scopes.
  * @returns {{ok:boolean, problems:string[], migrated:boolean, config:{clientId:string, redirectUri:string,
  *   accounts:Array<{accountId:string, scopes:string[], orgDomains:string[]}>}}}
  */
-export function validateClientConfig(raw) {
+export function validateClientConfig(raw, { vendor = 'google' } = {}) {
   const problems = [];
   const { config: shaped, migrated } = migrateClientConfig(raw);
 
@@ -201,7 +221,7 @@ export function validateClientConfig(raw) {
     problems.push(String(err.message));
   }
 
-  const requestable = requestableScopes();
+  const requestable = requestableScopes(vendor);
   const accounts = [];
   const seen = new Set();
 
@@ -221,12 +241,12 @@ export function validateClientConfig(raw) {
     }
     if (accountId) seen.add(accountId);
 
-    let scopes = entry.scopes.length ? entry.scopes : [GOOGLE_SCOPES.calendar]; // Step 3 enables Calendar and nothing else
+    let scopes = entry.scopes.length ? entry.scopes : [scopeTable(vendor).calendar]; // Step 3 enables Calendar and nothing else
     const who = accountId ? ` (account ${accountId})` : '';
     for (const s of scopes) {
       if (!requestable.includes(s)) {
         problems.push(
-          `scope "${s}"${who} is not one RichOS declares (config.js GOOGLE_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
+          `scope "${s}"${who} is not one RichOS declares (config.js ${vendor.toUpperCase()}_SCOPES). Requestable scopes are: ${requestable.join(', ')}. ` +
             'Widening what you consent to is a decision on the Google consent screen, not a config edit.',
         );
       }
@@ -251,7 +271,7 @@ export function accountsOf(config) {
  * holding another account's address.
  * @returns {{clientId:string, redirectUri:string, accountId:string, scopes:string[], orgDomains:string[]}|null}
  */
-export function accountView(config, accountId) {
+export function accountView(config, accountId, { vendor = 'google' } = {}) {
   const want = String(accountId || '').trim().toLowerCase();
   const entry = accountsOf(config).find((a) => a.accountId === want);
   if (!entry) return null;
@@ -259,7 +279,7 @@ export function accountView(config, accountId) {
     clientId: config.clientId,
     redirectUri: config.redirectUri || DEFAULT_REDIRECT_URI,
     accountId: entry.accountId,
-    scopes: entry.scopes && entry.scopes.length ? [...entry.scopes] : [GOOGLE_SCOPES.calendar],
+    scopes: entry.scopes && entry.scopes.length ? [...entry.scopes] : [scopeTable(vendor).calendar],
     orgDomains: entry.orgDomains ? [...entry.orgDomains] : [],
   };
 }
@@ -295,14 +315,14 @@ export function upsertAccount(config, account) {
  * @param {object} config
  * @param {string} [file]
  */
-export function saveClientConfig(config, file = workspaceClientConfigPath()) {
+export function saveClientConfig(config, file = workspaceClientConfigPath(), { vendor = 'google' } = {}) {
   const { config: shaped } = migrateClientConfig(config);
   const body = {
     clientId: shaped.clientId,
     redirectUri: shaped.redirectUri || DEFAULT_REDIRECT_URI,
     accounts: shaped.accounts.map((a) => ({
       accountId: a.accountId,
-      scopes: a.scopes && a.scopes.length ? a.scopes : [GOOGLE_SCOPES.calendar],
+      scopes: a.scopes && a.scopes.length ? a.scopes : [scopeTable(vendor).calendar],
       ...(a.orgDomains && a.orgDomains.length ? { orgDomains: a.orgDomains } : {}),
     })),
   };
@@ -317,13 +337,13 @@ export function saveClientConfig(config, file = workspaceClientConfigPath()) {
  * `--account`, never by editing this file by hand.
  * @returns {string}
  */
-export function clientConfigTemplate() {
+export function clientConfigTemplate(vendor = 'google') {
   return JSON.stringify(
     {
       clientId: `${CLIENT_ID_PLACEHOLDER}.apps.googleusercontent.com`,
       redirectUri: DEFAULT_REDIRECT_URI,
       accounts: [
-        { accountId: 'you@yourcompany.com', scopes: [GOOGLE_SCOPES.calendar] },
+        { accountId: 'you@yourcompany.com', scopes: [scopeTable(vendor).calendar] },
       ],
     },
     null,
