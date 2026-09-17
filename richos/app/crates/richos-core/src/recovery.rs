@@ -379,6 +379,194 @@ fn close_orphan_grants(state: &Path, unreconciled: &mut Vec<String>) -> usize {
     closed
 }
 
+/// One cursor in the engine's `ecs_active_context`, as the host enumerates them
+/// (`richos/engine/ecs/adapters/app.py:213-223`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seat {
+    pub person_id: String,
+    pub entity_id: String,
+    pub thread_id: String,
+    /// **The obligation, for a work seat** — the engine's own join key, because a work
+    /// seat's `turn_id` is the assignment's obligation (`mega-lander/app.py:704`).
+    pub turn_id: String,
+    pub audience: String,
+    pub revision: u64,
+}
+
+/// The host's half of the seat reconciliation. A trait so the rule below is testable
+/// without an engine, and so the one implementation that talks to one is small.
+pub trait SeatDesk {
+    /// The cursor this app is on right now, or `None` when it has never bound one. Needs
+    /// no binding of its own (`adapters/app.py:147-150`).
+    fn current(&self) -> Option<crate::ecs::Binding>;
+    /// Every cursor in the store. Host-only, and fenced against the CEO row it is given
+    /// (`adapters/app.py:39-41, 165-166`).
+    fn seats(&self, binding: &crate::ecs::Binding) -> Result<Vec<Seat>, String>;
+    /// Release one work seat, by name.
+    fn release(&self, binding: &crate::ecs::Binding, seat: &str, reason: &str) -> Result<(), String>;
+}
+
+/// What the seat sweep did. Retained is as important as released: a seat kept for a live
+/// assignment is the case this must not break.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SeatSweep {
+    pub released: Vec<String>,
+    pub retained: Vec<String>,
+    /// Seats that could not be released, with the reason. **Reported, never skipped** —
+    /// the engine's own reconciler states the rule and this keeps it: *"a reconciliation
+    /// that silently skips what it could not do is a clean bill of health signed by
+    /// nobody"* (`mega-lander/app.py:946-958`).
+    pub unreconciled: Vec<(String, String)>,
+    /// Why the sweep could not run at all, when it could not. Never silence.
+    pub unavailable: Option<String>,
+}
+
+impl SeatSweep {
+    pub fn log_message(&self) -> String {
+        if let Some(why) = &self.unavailable {
+            return format!("seats: not reconciled ({why})");
+        }
+        format!(
+            "seats: {} released, {} kept for live assignments, {} could NOT be released",
+            self.released.len(),
+            self.retained.len(),
+            self.unreconciled.len()
+        )
+    }
+}
+
+/// **Orphan seats (§6.3a), reconciled by the HOST — and the brief's premise for this did
+/// not survive re-derivation, so here is what is actually true.**
+///
+/// The engine does have a `reconcile_seats` (`richos/engine/mega-lander/app.py:946`), and
+/// **the app cannot reach it.** It runs inside the work adapter's `inspect` tool, and only
+/// from an UNSEATED scope: `if offset == 0 and scope.get("seat") is None` (`app.py:1069-1072`).
+/// Since the CEO's Two Riches page took `richos_work` away from the front desk, the only
+/// lease that has that tool is the back end (`native.rs:997`), whose scope is seated the
+/// moment it can use a work tool at all (`native.rs`'s `bind_work_assignment` writes
+/// `seat: Some(…)`, and the adapter refuses every work tool without the grant that comes
+/// with it, `app.py:41-42`). So the engine's reconciler is unreachable from this app as
+/// built, and *"the app calls it at boot"* names a call that cannot be made.
+///
+/// **What the app has instead is the pair of host-only commands the engine exposes for
+/// exactly this** — `seats` and `release-seat` (`ecs/adapters/app.py:39, 213, 225`), whose
+/// own comment says enumerating and releasing seats *"is the HOST's reconciliation, never a
+/// background lease's"*. This is that reconciliation.
+///
+/// **HIS OWN CURSOR IS NEVER TOUCHED, and it is excluded by construction rather than by
+/// elimination.** A row is acted on only if it positively identifies itself as a work seat:
+/// `audience == "worker"` **and** a `work-seat:` person id **and** the same company and
+/// conversation this cursor is in. *"Everything that is not his"* is precisely the
+/// reasoning that would delete his cursor after a crash (§6.3a), and it is not used here.
+/// The engine refuses his seat by name as well (`adapters/app.py:226-230`), so this is the
+/// second of two locks, not the only one.
+///
+/// **What it can see is bounded, and the bound is named rather than hidden.** `release-seat`
+/// refuses a work seat from another conversation (`adapters/app.py:238-241`), so this
+/// reconciles the conversation the app's cursor is currently in. A seat left on another
+/// thread is reconciled when that thread next takes a turn and this runs again.
+pub fn reconcile_seats(state: &Path, desk: &dyn SeatDesk) -> SeatSweep {
+    let mut sweep = SeatSweep::default();
+    let Some(binding) = desk.current() else {
+        sweep.unavailable = Some("this app has never bound a conversation cursor".into());
+        return sweep;
+    };
+    // His cursor is the only one a host sweep may run from, and the engine enforces it too
+    // (`adapters/app.py:165-166`). Asking from a worker row would be refused there; refusing
+    // here as well means the refusal is legible in this process's own log.
+    if binding.audience != "ceo" {
+        sweep.unavailable = Some("the app's cursor is not the conversation's".into());
+        return sweep;
+    }
+    let rows = match desk.seats(&binding) {
+        Ok(rows) => rows,
+        Err(error) => {
+            sweep.unavailable = Some(error);
+            return sweep;
+        }
+    };
+    // The register for this conversation, read once. An unreadable register means nothing
+    // is released: a seat is released on the strength of its assignment being finished, and
+    // "I could not read the assignment" is not that.
+    let register = match assignment::read_all(state, &binding.entity_id, &binding.thread_id) {
+        Ok(register) => register,
+        Err(error) => {
+            sweep.unavailable = Some(error.to_string());
+            return sweep;
+        }
+    };
+    for row in rows {
+        // POSITIVE identification, all three parts. Not "everything that is not his".
+        let is_work_seat = row.audience == "worker"
+            && row.person_id.starts_with("work-seat:")
+            && row.entity_id == binding.entity_id
+            && row.thread_id == binding.thread_id;
+        if !is_work_seat {
+            continue;
+        }
+        let behind_it = register.iter().find(|record| record.obligation_id == row.turn_id);
+        let reason = match behind_it {
+            // A live assignment keeps its seat. This is the case the sweep must not break.
+            Some(record) if record.state.is_open() => {
+                sweep.retained.push(row.person_id.clone());
+                continue;
+            }
+            Some(record) => record.state.as_str(),
+            // A seat with no assignment behind it at all is §6.3a's defect by name.
+            None => "absent",
+        };
+        match desk.release(&binding, &row.person_id, reason) {
+            Ok(()) => sweep.released.push(row.person_id.clone()),
+            Err(error) => sweep.unreconciled.push((row.person_id.clone(), error)),
+        }
+    }
+    sweep
+}
+
+impl SeatDesk for crate::ecs::EcsBridge {
+    fn current(&self) -> Option<crate::ecs::Binding> {
+        let result = self.request("current", serde_json::json!({})).ok()?;
+        serde_json::from_value(result.get("binding")?.clone()).ok()
+    }
+
+    fn seats(&self, binding: &crate::ecs::Binding) -> Result<Vec<Seat>, String> {
+        let result = self
+            .request("seats", serde_json::json!({ "binding": binding }))
+            .map_err(|error| error.to_string())?;
+        let rows = result.get("seats").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                Some(Seat {
+                    person_id: row.get("person_id")?.as_str()?.to_string(),
+                    entity_id: row.get("entity_id")?.as_str()?.to_string(),
+                    thread_id: row.get("thread_id")?.as_str()?.to_string(),
+                    turn_id: row.get("turn_id")?.as_str()?.to_string(),
+                    audience: row.get("audience")?.as_str()?.to_string(),
+                    revision: row.get("revision")?.as_u64()?,
+                })
+            })
+            .collect())
+    }
+
+    fn release(&self, binding: &crate::ecs::Binding, seat: &str, reason: &str) -> Result<(), String> {
+        // The idempotency key is the seat and the reason it was released under, so a sweep
+        // that runs twice over the same orphan is one event rather than two.
+        self.request(
+            "release-seat",
+            serde_json::json!({
+                "binding": binding,
+                "person_id": seat,
+                "reason": reason,
+                "request_id": format!("app-recovery:{seat}:{reason}"),
+                "source_ref": format!("app-recovery:{seat}"),
+            }),
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+    }
+}
+
 /// Read the repositories an assignment names, right now, for pinning at its start.
 /// Bounded by the register's own cap of 32 paths per assignment.
 pub fn pins_for(record: &Assignment, repositories: &dyn Repositories) -> Vec<RepositoryPin> {
@@ -608,6 +796,150 @@ mod tests {
             std::fs::read_to_string(&conversation).unwrap(),
             String::from_utf8(serde_json::to_vec(&granted).unwrap()).unwrap()
         );
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// A desk that answers from a script and records every release it was asked for.
+    struct FakeDesk {
+        binding: Option<crate::ecs::Binding>,
+        rows: Vec<Seat>,
+        refuse: Option<String>,
+        released: std::cell::RefCell<Vec<(String, String)>>,
+    }
+    fn ceo_binding() -> crate::ecs::Binding {
+        crate::ecs::Binding {
+            entity_id: "depot".into(),
+            thread_id: "thread-one".into(),
+            session_id: "conversation-session".into(),
+            turn_id: "turn-7".into(),
+            audience: "ceo".into(),
+            revision: 4,
+        }
+    }
+    fn work_seat(obligation: &str) -> Seat {
+        Seat {
+            person_id: format!("work-seat:{obligation}"),
+            entity_id: "depot".into(),
+            thread_id: "thread-one".into(),
+            turn_id: obligation.into(),
+            audience: "worker".into(),
+            revision: 2,
+        }
+    }
+    impl SeatDesk for FakeDesk {
+        fn current(&self) -> Option<crate::ecs::Binding> {
+            self.binding.clone()
+        }
+        fn seats(&self, _binding: &crate::ecs::Binding) -> Result<Vec<Seat>, String> {
+            Ok(self.rows.clone())
+        }
+        fn release(&self, _binding: &crate::ecs::Binding, seat: &str, reason: &str) -> Result<(), String> {
+            if let Some(refusal) = &self.refuse {
+                return Err(refusal.clone());
+            }
+            self.released.borrow_mut().push((seat.to_string(), reason.to_string()));
+            Ok(())
+        }
+    }
+
+    /// **§6.3a.** A seat whose assignment has finished, or has no assignment behind it at
+    /// all, is released; a seat whose assignment is live is kept; and HIS cursor is never
+    /// touched — by positive identification, never by elimination.
+    #[test]
+    fn an_orphan_seat_is_released_a_live_one_is_kept_and_his_cursor_is_never_touched() {
+        let state = root();
+        // One live assignment and one that has already settled.
+        let live = assignment::register(&state, &registration("obligation-live")).unwrap();
+        let done = assignment::register(&state, &registration("obligation-done")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &done.id, AssignmentState::Settled, "Closed.")
+            .unwrap();
+        assert!(assignment::read(&state, "depot", "thread-one", &live.id).unwrap().state.is_open());
+
+        let desk = FakeDesk {
+            binding: Some(ceo_binding()),
+            rows: vec![
+                work_seat("obligation-live"),
+                work_seat("obligation-done"),
+                // A work seat with nothing behind it at all.
+                work_seat("obligation-that-never-existed"),
+                // HIS cursor, in this very thread. It is a `ceo` audience and not a
+                // `work-seat:` person, so neither of the two positive tests matches it.
+                Seat {
+                    person_id: "ceo-thread:thread-one".into(),
+                    entity_id: "depot".into(),
+                    thread_id: "thread-one".into(),
+                    turn_id: "turn-7".into(),
+                    audience: "ceo".into(),
+                    revision: 4,
+                },
+                // A work seat in ANOTHER conversation: not this cursor's to release, and
+                // the engine would refuse it anyway (`adapters/app.py:238-241`).
+                Seat { thread_id: "thread-two".into(), ..work_seat("obligation-elsewhere") },
+            ],
+            refuse: None,
+            released: Default::default(),
+        };
+
+        let sweep = reconcile_seats(&state, &desk);
+
+        assert_eq!(sweep.retained, vec!["work-seat:obligation-live".to_string()]);
+        let released: Vec<String> = sweep.released.clone();
+        assert_eq!(
+            released,
+            vec![
+                "work-seat:obligation-done".to_string(),
+                "work-seat:obligation-that-never-existed".to_string()
+            ]
+        );
+        // The reasons are the assignment's own state, and "absent" for a seat with nothing
+        // behind it — the same vocabulary the engine's reconciler uses.
+        let asked = desk.released.borrow().clone();
+        assert_eq!(asked[0].1, "settled");
+        assert_eq!(asked[1].1, "absent");
+        // HIS cursor was never even asked about.
+        assert!(!asked.iter().any(|(seat, _)| seat.starts_with("ceo-")));
+        assert!(!asked.iter().any(|(seat, _)| seat == "work-seat:obligation-elsewhere"));
+        assert!(sweep.unreconciled.is_empty());
+        assert!(sweep.log_message().contains("2 released"), "{}", sweep.log_message());
+        assert!(sweep.log_message().contains("1 kept"), "{}", sweep.log_message());
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// A seat that could not be released is REPORTED, and a sweep that could not run says
+    /// why rather than reporting a clean zero.
+    #[test]
+    fn a_seat_that_cannot_be_released_is_reported_rather_than_counted_as_clean() {
+        let state = root();
+        let done = assignment::register(&state, &registration("obligation-done")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &done.id, AssignmentState::Settled, "Closed.")
+            .unwrap();
+        let desk = FakeDesk {
+            binding: Some(ceo_binding()),
+            rows: vec![work_seat("obligation-done")],
+            refuse: Some("that seat has moved since it was enumerated".into()),
+            released: Default::default(),
+        };
+
+        let sweep = reconcile_seats(&state, &desk);
+        assert!(sweep.released.is_empty());
+        assert_eq!(sweep.unreconciled.len(), 1);
+        assert!(sweep.log_message().contains("1 could NOT be released"), "{}", sweep.log_message());
+
+        // No cursor at all: unavailable, with the reason, and nothing invented.
+        let never_bound = FakeDesk { binding: None, rows: Vec::new(), refuse: None, released: Default::default() };
+        let sweep = reconcile_seats(&state, &never_bound);
+        assert!(sweep.unavailable.is_some());
+        assert!(sweep.log_message().contains("not reconciled"), "{}", sweep.log_message());
+
+        // A cursor that is not his refuses to sweep from — the host reconciliation is the
+        // conversation's, never a background lease's (`adapters/app.py:39-41`).
+        let seated = FakeDesk {
+            binding: Some(crate::ecs::Binding { audience: "worker".into(), ..ceo_binding() }),
+            rows: vec![work_seat("obligation-done")],
+            refuse: None,
+            released: Default::default(),
+        };
+        assert!(reconcile_seats(&state, &seated).unavailable.is_some());
         std::fs::remove_dir_all(state).unwrap();
     }
 
