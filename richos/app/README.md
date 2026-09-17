@@ -981,7 +981,7 @@ cargo test -p richos-voice                      # 270 tests
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 258 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 270 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from richos/app/src-tauri/):
