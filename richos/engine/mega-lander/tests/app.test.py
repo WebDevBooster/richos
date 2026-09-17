@@ -276,7 +276,19 @@ class DesktopWork(unittest.TestCase):
         self.assertTrue(result["work_integrated"]);self.assertFalse(result["obligation_closed"])
         self.assertEqual(result["cleanup_pending"],[])
         self.assertFalse(target.exists());self.assertFalse(review_target.exists())
-        self.assertEqual(self.call("integrate",args),result)
+        # THE SAME LAND, REPEATED, IS THE SAME ANSWER — except for this call's
+        # own observation of the lock, which is not a fact about the work: it is
+        # how long THIS call waited for the repository and where it waited. That
+        # was compared too until 2026-09-17 and made this assertion flaky within
+        # hours of the lock landing (`land_lock.landed.at` is a whole-second ISO
+        # stamp, so two calls either side of a second boundary differed; measured
+        # red on pristine f5157115). The land itself is now recorded in the
+        # append-only history beside the lock, which the repeat does not touch.
+        again=self.call("integrate",args)
+        self.assertEqual({k:v for k,v in again.items() if k!="land_lock"},
+                         {k:v for k,v in result.items() if k!="land_lock"})
+        self.assertEqual(again["land_lock"]["repository"],result["land_lock"]["repository"])
+        self.assertLess(again["land_lock"]["waited_seconds"],1.0)
         records=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect","binding":self.scope["binding"],"query":{"section":"work"}})["records"]
         # The persisted authority event is the proof even if brief projection omits terminal work.
         store=self.app.ECS.EventStore(self.root/"ecs")
@@ -653,25 +665,37 @@ class DesktopWork(unittest.TestCase):
         lock=self.app.land_lock_path(self.repo)
         holder=self.start_land_lock_holder(self.repo,"thread-b")
         self.assertFalse(self.land_lock_free(lock))      # POSITIVE CONTROL: it is genuinely held
-        original=self.app.git
+        # The holder lands while it holds — through the shipped writer, not a
+        # hand-made file, so what the waiter reads below is what a real land
+        # leaves behind.
+        self.app.W.append_land_record(self.repo,{"schema":1,"branch":"main","before":"a"*40,
+            "commit":"b"*40,"at":"2026-09-17T19:00:00Z","thread_id":"thread-b","entity_id":"depot",
+            "session_id":"holder-session","pid":holder.pid})
+        original=self.app.W.git
         release=[]
-        def release_once_waiting(repo,*argv):
+        def release_once_waiting(repo,*argv,**kw):
             # `land_lock` asks git for the repository's identity immediately
             # before it blocks, so this fires once, at the start of the wait —
             # which is what makes the measured wait below deterministic rather
-            # than a race with a timer.
-            result=original(repo,*argv)
+            # than a race with a timer. That question moved to workspaces.py
+            # with the lock's keying rule on 2026-09-17, so this watches W.git.
+            result=original(repo,*argv,**kw)
             if argv[:2]==("rev-parse","--path-format=absolute") and not release:
                 timer=threading.Timer(0.5,self.release_land_lock_holder,[holder])
                 release.append(timer);timer.start()
             return result
-        with patch.object(self.app,"git",side_effect=release_once_waiting):
+        with patch.object(self.app.W,"git",side_effect=release_once_waiting):
             landed=self.call("integrate",args)
         # IT WAITED AND THEN LANDED. It did not refuse, and a refusal here would
         # have sent finished, reviewed work back for a fresh implementation.
         self.assertTrue(landed["work_integrated"])
         self.assertGreater(landed["land_lock"]["waited_seconds"],0.05)
         self.assertIn("thread-b",landed["land_lock"]["waited_for"])
+        # AND IT CAN SAY WHAT THE HOLDER DID, read from the append-only history
+        # beside the lock rather than from a field on the lock that the next
+        # holder rewrites in place.
+        self.assertEqual(landed["land_lock"]["waited_for_land"]["thread_id"],"thread-b")
+        self.assertEqual(landed["land_lock"]["waited_for_land"]["commit"],"b"*40)
         self.assertEqual(holder.stdout.readline().strip(),"RELEASED")
 
     def test_a_holder_past_the_bound_is_refused_by_name_with_nothing_merged(self):
@@ -722,7 +746,56 @@ class DesktopWork(unittest.TestCase):
         home=self.root/"machine home"
         with patch.dict(os.environ,{"CLAUDE_CONFIG_DIR":str(home)}):
             del os.environ["RICHOS_LAND_LOCKS_DIR"]
-            self.assertEqual(self.app.land_locks_dir(),Path(os.path.realpath(home))/"state"/"land-locks")
+            # A string, not a Path: this derivation moved into workspaces.py on
+            # 2026-09-17 (one keying rule, in the layer the protected-ref check
+            # can reach), and that module is imported by a hook on every tool
+            # call of every agent — it uses os.path throughout and imports no
+            # pathlib.
+            self.assertEqual(self.app.land_locks_dir(),os.path.join(os.path.realpath(home),"state","land-locks"))
+
+    def test_the_land_record_is_appended_beside_the_lock_and_names_the_conversation(self):
+        """THE SECOND HALF OF THE LAND LOCK: two threads' lands take turns, and
+        the one that WAITED moved the branch under the other's running agents.
+        This is the record that lets those agents be told WHICH conversation
+        did it (mega-lander/workspaces.py, `land_by_another_conversation`),
+        rather than only that the branch moved.
+
+        APPEND-ONLY, AND THAT IS THE PROPERTY UNDER TEST. Until 2026-09-17 the
+        land was written as a `landed` field on the lock file — which the next
+        lander rewrites in place, so of two lands in a row only the second
+        survived, and an agent whose snapshot predated the first saw a move
+        nothing could name."""
+        record=self.app.W.land_record_path(self.repo)
+        self.assertFalse(os.path.exists(record))          # POSITIVE CONTROL: nothing has landed yet
+        # BESIDE THE LOCK, AND KEYED THE SAME WAY: one repository, one history.
+        self.assertEqual(record,self.app.land_lock_path(self.repo)[:-len(".lock")]+".lands")
+        second=self.root/"second project";second.mkdir()
+        subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
+        self.assertNotEqual(self.app.W.land_record_path(second),record)
+        first_args=self.reviewed_pair("rec1")
+        first=self.call("integrate",first_args)
+        rows=self.app.W.land_records(self.repo)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["thread_id"],"thread-a")            # the conversation that landed
+        self.assertEqual(rows[0]["entity_id"],"depot")
+        self.assertEqual(rows[0]["branch"],"main")
+        self.assertEqual(rows[0]["commit"],first["commit"])
+        self.assertEqual(rows[0]["commit"],self.app.git(self.repo,"rev-parse","main"))
+        # A REPEATED integrate merges nothing, so it records no land: the record
+        # is written where the ref actually moves, not where the call ends.
+        self.assertTrue(self.call("integrate",first_args)["work_integrated"])
+        self.assertEqual(self.app.W.land_records(self.repo),rows)
+        # A SECOND LAND APPENDS. The first row survives it byte for byte, and
+        # the two chain: the second's `before` is the first's commit.
+        second_result=self.call("integrate",self.reviewed_pair("rec2"))
+        after=self.app.W.land_records(self.repo)
+        self.assertEqual(len(after),2)
+        self.assertEqual(after[0],rows[0])
+        self.assertEqual(after[1]["before"],rows[0]["commit"])
+        self.assertEqual(after[1]["commit"],second_result["commit"])
+        # AND THE LOCK FILE ITSELF CARRIES NO LAND, which is what made the first
+        # of two lands unanswerable.
+        self.assertNotIn("landed",self.app._read_land_lock(self.app.land_lock_path(self.repo)) or {})
 
 
 

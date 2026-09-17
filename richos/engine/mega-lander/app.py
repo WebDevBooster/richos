@@ -606,75 +606,20 @@ def verification_evidence(scope, identity):
 LAND_LOCK_TIMEOUT = 600.0
 
 
-def land_locks_dir():
-    """The machine-wide home of the per-repository land locks.
-
-    Deliberately NOT `state()` and NOT `W.state_dir()`: those are the two
-    partitions this lock exists to sit outside of. It is derived instead from
-    `CLAUDE_CONFIG_DIR` (else `~/.claude`) — the same machine-wide home the
-    workspace registry falls back to and the worktree ledger lives in — because
-    the app neither sets nor removes that variable for the engine it launches:
-    `EngineProfile::configure` strips every inherited `RICHOS_`/`LORO_`/`ECS_`/
-    `GIT_` name and re-adds its own list, and `CLAUDE_CONFIG_DIR` is in neither
-    (engine_profile.rs:156-210; the app reads it only to FIND the engine,
-    setup.rs:146 and engine.rs:95). One value for every thread of one app, and
-    for a terminal beside it.
-
-    `RICHOS_LAND_LOCKS_DIR` overrides it for tests. That override cannot reach
-    an app-launched engine at all, because the strip above removes it — and so
-    that the property is CHECKED rather than argued from that, a home resolving
-    inside either partition is REFUSED rather than used. A lock inside a
-    partition is not a lock; it is the defect this function was written for,
-    wearing the new name."""
-    override = (os.environ.get("RICHOS_LAND_LOCKS_DIR") or "").strip()
-    if override:
-        base = Path(os.path.realpath(os.path.expanduser(override)))
-    else:
-        home = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(os.path.expanduser("~"), ".claude")
-        base = Path(os.path.realpath(os.path.expanduser(home))) / "state" / "land-locks"
-    if not base.is_absolute():
-        raise ValueError("the land lock home must be an absolute path")
-    for name in ("RICHOS_APP_STATE", "RICHOS_WORKSPACES_DIR"):
-        partition = (os.environ.get(name) or "").strip()
-        if not partition:
-            continue
-        partition = Path(os.path.realpath(os.path.expanduser(partition)))
-        if base == partition or base.is_relative_to(partition):
-            raise ValueError("the land lock cannot live inside a per-conversation partition (%s); "
-                             "a lock two conversations cannot share serializes nothing" % name)
-    base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if base.is_symlink():
-        raise ValueError("the land lock home cannot be redirected")
-    return base
-
-
-def canonical_repository(repo):
-    """The identity of the ref store a land mutates, not the string it was
-    reached by.
-
-    `--git-common-dir`, made absolute and then realpath'd: two symlinked paths
-    to one repository resolve to one value, and so do a repository and a linked
-    worktree of it — which share a ref store and would otherwise race on the
-    same branch through two different lock files. If git cannot answer (the
-    path is gone, it is not a repository) the realpath of the given path is the
-    key, so this never turns into a refusal `integrate` did not already make."""
-    try:
-        common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    except (ValueError, OSError, subprocess.SubprocessError):
-        common = ""
-    return os.path.realpath(os.path.expanduser(common or str(repo)))
-
-
-def land_lock_path(repo):
-    """One file per repository. The digest is the discriminator; the readable
-    prefix is there so that an operator listing the directory sees repositories
-    rather than hashes."""
-    canonical = canonical_repository(repo)
-    name = os.path.basename(canonical.rstrip("/"))
-    if name in (".git", ""):
-        name = os.path.basename(os.path.dirname(canonical.rstrip("/")))
-    label = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")[:48] or "repository"
-    return land_locks_dir() / ("%s-%s.lock" % (label, hashlib.sha256(canonical.encode()).hexdigest()[:16]))
+# THE LOCK'S PATH IS DERIVED IN workspaces.py, AND NOT BECAUSE IT FITS BETTER
+# THERE. `_restore_protected_refs` has to name the conversation whose land moved
+# a protected ref, the land record that answers it is written here, and
+# workspaces.py cannot import this file (this file imports IT, as `W`). The
+# choice was therefore one keying rule in two files or one keying rule in the
+# layer that already owns machine-wide state — and two copies of this particular
+# rule is the before-state itself: the copies agree until one is edited, and
+# then two conversations take two lock files while believing they share one.
+# These four names are re-exported so every existing caller, test and mutant
+# keeps one obvious place to reach them.
+land_locks_dir = W.land_locks_dir
+canonical_repository = W.canonical_repository
+land_lock_path = W.land_lock_path
+_read_land_lock = W.read_land_lock
 
 
 def land_lock_timeout():
@@ -709,15 +654,6 @@ def _write_land_lock(handle, record):
         os.fsync(handle.fileno())
     except OSError:
         pass
-
-
-def _read_land_lock(path):
-    try:
-        with open(path, encoding="utf-8") as handle:
-            value = json.loads(handle.read(8192))
-        return value if isinstance(value, dict) else None
-    except (OSError, ValueError):
-        return None
 
 
 def _land_holder_text(holder):
@@ -790,20 +726,24 @@ def land_lock(scope, repo):
                         "so %.0f seconds is far above any real one. Retry once that land has finished."
                         % (_land_holder_text(holder), timeout, timeout))
                 time.sleep(min(0.5, 0.01 + waited / 20.0))
-        status = {"repository": str(repo), "lock": str(path),
+        status = {"repository": str(repo), "lock": str(path), "record": W.land_record_path(repo),
                   "waited_seconds": round(time.monotonic() - started, 3)}
         if holder is not None:
             status["waited_for"] = _land_holder_text(holder)
-            if holder.get("landed"):
-                status["waited_for_land"] = holder["landed"]
+            # WHAT THE LAST LANDER DID IS READ FROM THE HISTORY, NOT FROM THE
+            # LOCK. It used to be a `landed` field on the holder's own record,
+            # which the next holder overwrites in place — so the second of two
+            # lands in a row erased the first, and an agent whose snapshot
+            # predated it saw a move nothing could name.
+            previous = W.land_records(repo)[-1:]
+            if previous and previous[0].get("thread_id") == holder.get("thread_id"):
+                status["waited_for_land"] = previous[0]
         _write_land_lock(handle, mine)
         try:
             yield status
         finally:
             mine["state"] = "released"
             mine["until"] = W.iso()
-            if status.get("landed"):
-                mine["landed"] = status["landed"]
             try:
                 _write_land_lock(handle, mine)
             except OSError:
@@ -876,6 +816,21 @@ def integrate(scope_path,scope,args):
                     if tip!=worker["integration"]["before"]:
                         raise ValueError("integration target moved after intent; reconcile before retrying")
                     git(repo,"merge","--ff-only",commit)
+                    # THE LAND RECORD, WRITTEN AT THE MOMENT THE REF ACTUALLY
+                    # MOVED and while this repository's land lock is still held.
+                    # APPENDED, never a field on the lock: two lands in a row
+                    # both survive, so a running agent in the OTHER conversation
+                    # can be told which thread moved the branch under it rather
+                    # than that it moved (workspaces.py,
+                    # `land_by_another_conversation`). Here and not at release
+                    # because a crash between the two would leave a ref that
+                    # moved with no record of who moved it -- and a REPEATED
+                    # integrate, which merges nothing, must not record a second
+                    # land it did not perform.
+                    land["landed"]={"schema":1,"branch":branch,"before":tip,"commit":commit,"at":W.iso(),
+                        "thread_id":scope["binding"].get("thread_id") or "","entity_id":scope["binding"].get("entity_id") or "",
+                        "session_id":scope["binding"].get("session_id") or "","pid":os.getpid()}
+                    W.append_land_record(repository,land["landed"])
                 git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)
                 worker["integration"]["verified"]=True
                 worker["status"]="integrated"
@@ -910,11 +865,6 @@ def integrate(scope_path,scope,args):
             save(path,worker); project(scope,path,worker)
             for reviewed in reviews:
                 project(scope,root/(reviewed["id"]+".json"),reviewed)
-            # Recorded in the lock file as it is released, so the NEXT lander in
-            # this repository can say what it waited for rather than only that
-            # it waited.
-            land["landed"]={"branch":worker["integration"]["branch"],"before":worker["integration"]["before"],
-                "commit":worker["integration"]["commit"],"at":W.iso()}
             return {"work_integrated":True,"commit":worker["integration"]["commit"],
                 "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
                 "obligation_closed":False,"published":False,"land_lock":dict(land)}

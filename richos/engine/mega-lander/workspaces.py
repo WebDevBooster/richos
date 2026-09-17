@@ -341,6 +341,259 @@ def classify(path, branch):
 
 
 # ---------------------------------------------------------------------------
+# THE LAND LOCK'S HOME, AND THE APPEND-ONLY LAND RECORD BESIDE IT
+# ---------------------------------------------------------------------------
+# MOVED HERE FROM app.py ON 2026-09-17, AND THE LAYERING IS THE WHOLE REASON.
+# `_restore_protected_refs` (far below) has to answer "whose land moved this
+# ref?", and the answer is written by app.py's `integrate` — which imports THIS
+# file as `W`. The import cannot go back the other way. So either the keying
+# rule for the lock's path exists in two files, or it exists in the layer that
+# already owns machine-wide state. Two copies of a keying rule is the defect
+# class this subsystem keeps meeting: the copies agree until one is edited, and
+# then two conversations take two locks while believing they share one — which
+# is the exact before-state the land lock was written for (app.py, "TWO
+# CONVERSATIONS, TWO LOCK FILES"). app.py now calls these four functions and
+# declares no keying of its own.
+#
+# THE ONE CHANGE MADE WHILE MOVING: pathlib is gone. This module is imported by
+# a PreToolUse and a PostToolUse hook on EVERY tool call of every agent, and it
+# uses os.path throughout; these functions return strings for the same reason
+# every other path in this file does.
+
+def land_locks_dir():
+    """The machine-wide home of the per-repository land locks and land records.
+
+    Deliberately NOT `state_dir()` and NOT app.py's `state()`: those are the two
+    partitions this lock exists to sit outside of. It is derived instead from
+    `CLAUDE_CONFIG_DIR` (else `~/.claude`) — the same machine-wide home the
+    workspace registry falls back to and the worktree ledger lives in — because
+    the app neither sets nor removes that variable for the engine it launches:
+    `EngineProfile::configure` strips every inherited `RICHOS_`/`LORO_`/`ECS_`/
+    `GIT_` name and re-adds its own list, and `CLAUDE_CONFIG_DIR` is in neither
+    (engine_profile.rs:156-210; the app reads it only to FIND the engine,
+    setup.rs:146 and engine.rs:95). One value for every thread of one app, and
+    for a terminal beside it.
+
+    `RICHOS_LAND_LOCKS_DIR` overrides it for tests. That override cannot reach
+    an app-launched engine at all, because the strip above removes it — and so
+    that the property is CHECKED rather than argued from that, a home resolving
+    inside either partition is REFUSED rather than used. A lock inside a
+    partition is not a lock; it is the defect this function was written for,
+    wearing the new name."""
+    override = (os.environ.get("RICHOS_LAND_LOCKS_DIR") or "").strip()
+    if override:
+        base = realpath(override)
+    else:
+        home = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() \
+            or os.path.join(os.path.expanduser("~"), ".claude")
+        base = os.path.join(realpath(home), "state", "land-locks")
+    if not os.path.isabs(base):
+        raise ValueError("the land lock home must be an absolute path")
+    for name in ("RICHOS_APP_STATE", "RICHOS_WORKSPACES_DIR"):
+        partition = realpath(os.environ.get(name) or "")
+        if not partition:
+            continue
+        if base == partition or base.startswith(partition.rstrip(os.sep) + os.sep):
+            raise ValueError("the land lock cannot live inside a per-conversation partition (%s); "
+                             "a lock two conversations cannot share serializes nothing" % name)
+    os.makedirs(base, mode=0o700, exist_ok=True)
+    if os.path.islink(base):
+        raise ValueError("the land lock home cannot be redirected")
+    return base
+
+
+def canonical_repository(repo):
+    """The identity of the ref store a land mutates, not the string it was
+    reached by.
+
+    `--git-common-dir`, made absolute and then realpath'd: two symlinked paths
+    to one repository resolve to one value, and so do a repository and a linked
+    worktree of it — which share a ref store and would otherwise race on the
+    same branch through two different lock files. If git cannot answer (the
+    path is gone, it is not a repository) the realpath of the given path is the
+    key, so this never turns into a refusal `integrate` did not already make."""
+    rc, out, _err = git(str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir")
+    common = out.strip() if rc == 0 else ""
+    return os.path.realpath(os.path.expanduser(common or str(repo)))
+
+
+def land_lock_path(repo):
+    """One file per repository. The digest is the discriminator; the readable
+    prefix is there so that an operator listing the directory sees repositories
+    rather than hashes."""
+    canonical = canonical_repository(repo)
+    name = os.path.basename(canonical.rstrip("/"))
+    if name in (".git", ""):
+        name = os.path.basename(os.path.dirname(canonical.rstrip("/")))
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")[:48] or "repository"
+    return os.path.join(land_locks_dir(),
+                        "%s-%s.lock" % (label, hashlib.sha256(canonical.encode()).hexdigest()[:16]))
+
+
+def read_land_lock(path):
+    """The holder's record out of a lock file, or None for anything that is not
+    a complete JSON object — `_write_land_lock` writes in place and a reader can
+    catch a partial line."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.loads(handle.read(8192))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+# A LAND RECORD IS APPENDED, NEVER OVERWRITTEN, and these are the bounds of the
+# file that results. 500 lands into ONE repository is far beyond any window an
+# agent's snapshot can still be open across (a snapshot belongs to a single tool
+# call, or at the widest a single agent run), so the trim can only ever drop
+# rows nothing will ask about. The line bound is the same 4000 the lock record
+# carries, for the same reason: a bounded write cannot be half-read.
+LAND_RECORD_KEEP = 500
+LAND_RECORD_LINE = 4000
+
+
+def land_record_path(repo):
+    """The append-only history of lands in this repository, BESIDE its lock.
+
+    A history and not a field on the lock, and that difference is the whole of
+    attribution working versus saying "unknown". The lock file holds ONE
+    record, rewritten in place by whoever takes the lock next
+    (`_write_land_lock`), so of two lands in a row only the second survives —
+    and an agent whose snapshot predates the FIRST one would see a move that
+    nothing could name. Appending keeps both, and the match below is by COMMIT,
+    so each land answers for exactly the move it made."""
+    lock = land_lock_path(repo)
+    return (lock[:-len(".lock")] if lock.endswith(".lock") else lock) + ".lands"
+
+
+def append_land_record(repo, record):
+    """Write one land into this repository's history. Append-only.
+
+    `O_APPEND` and one bounded JSON line: every write lands at the end of the
+    file, and the caller is holding this repository's land lock anyway, so the
+    order is the order the lands happened in.
+
+    A HISTORY IS NEVER WORTH FAILING A LAND FOR. Anything that goes wrong here
+    returns "" and the land carries on: the cost of a missing row is that one
+    later move is reported as unattributed, which is a worse message and never
+    a wrong one."""
+    try:
+        path = land_record_path(repo)
+        line = json.dumps(record, sort_keys=True)[:LAND_RECORD_LINE] + "\n"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, line.encode("utf-8"))
+        finally:
+            os.close(fd)
+        _trim_land_records(path)
+        return path
+    except (OSError, ValueError, TypeError):
+        return ""
+
+
+def _trim_land_records(path):
+    """Keep the newest LAND_RECORD_KEEP rows. Runs under the land lock, and
+    replaces the file rather than truncating it, so a reader that opened the
+    old inode still reads a whole file rather than a half of one."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        if len(lines) <= LAND_RECORD_KEEP * 2:
+            return
+        tmp = "%s.tmp.%d" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.writelines(lines[-LAND_RECORD_KEEP:])
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def land_records(repo):
+    """Every land recorded for this repository, oldest first.
+
+    An empty list is NOT "no land happened": the terminal path lands with a
+    hand-run `git merge` and writes nothing here. Telling those two apart is
+    exactly what `land_by_another_conversation` needs, so absence is reported
+    as absence and never as a land by nobody."""
+    try:
+        path = land_record_path(repo)
+        with open(path, encoding="utf-8") as handle:
+            raw = handle.readlines()[-(LAND_RECORD_KEEP * 2):]
+    except (OSError, ValueError):
+        return []
+    out = []
+    for line in raw:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue                    # a torn or foreign line names no land
+        if isinstance(value, dict):
+            out.append(value)
+    return out
+
+
+def this_conversation():
+    """The conversation thread this engine was launched for, or "" in a
+    terminal. Set by the app and stripped for anything else
+    (engine_profile.rs:168-170), so it is the app's word rather than a guess."""
+    return (os.environ.get("RICHOS_APP_THREAD") or "").strip()
+
+
+def land_by_another_conversation(repo, branch, before, found):
+    """WHOSE LAND MOVED THIS REF FORWARD? — the sentence to report, or None for
+    silence. Consulted only where the caller has already established that a
+    protected ref moved to a DESCENDANT: a fast-forward, nothing lost, the
+    shape of an ordinary land.
+
+    Until 2026-09-17 every one of those was silent. That is right for the
+    lead's own land and wrong for another conversation's: the CEO runs two
+    threads, their back ends share a repository, and the second one's land
+    moves `main` under the first one's agents. Their snapshots, their bases and
+    anything they recorded from the old tip are stale from that instant, with
+    nothing saying so. The lock makes the two lands take turns; this makes the
+    turn VISIBLE to the agent it happened under.
+
+    SILENT WHEN THE HISTORY IS ABSENT. No file means land records are not in
+    use for this repository at all, which is the terminal path — Rich's lands
+    there are a hand-run `git merge` that writes no record, and those teammates
+    are already told by guard-inflight-notify.sh at the push. Calling every one
+    of those "unattributed" would put an alarm on the single most common write
+    a recorded branch ever receives, which is how a report becomes wallpaper.
+
+    SILENT FOR THIS CONVERSATION'S OWN LAND. A record carrying this engine's
+    own `RICHOS_APP_THREAD` is this conversation landing its own work; its
+    agents are the one party that already knows.
+
+    IT NEVER CLAIMS MORE THAN THE RECORD CARRIES. A move no record names is
+    reported as exactly that — a land the records do not name — and never as
+    "another conversation", because a repository that keeps land records can
+    still be merged into by a hand at a terminal."""
+    try:
+        records = land_records(repo)
+        if not records:
+            return None                 # land records are not in use here
+        mine = this_conversation()
+        for record in reversed(records):
+            if record.get("branch") != branch or record.get("commit") != found:
+                continue
+            thread = str(record.get("thread_id") or "")
+            if thread == mine:
+                return None             # this conversation's own land
+            return "landed by conversation %s at %s, %s -> %s" % (
+                thread or "an unnamed thread", record.get("at") or "an unrecorded time",
+                (before or "")[:12], (found or "")[:12])
+        return ("moved forward by a land this repository's land records do not name, %s -> %s"
+                % ((before or "")[:12], (found or "")[:12]))
+    except (OSError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # point 12 — sessions record themselves; ended is read from the OS
 # ---------------------------------------------------------------------------
 
