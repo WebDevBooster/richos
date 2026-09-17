@@ -4527,6 +4527,39 @@ body.bp-narrow .tl-user-bubble {
   padding: 6px;
   box-shadow: 0 24px 60px -30px var(--shadow-strong);
   animation: setrise 0.2s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+  /* **IT CANNOT GROW PAST THE BOTTOM OF THE WINDOW** — candidate-.4 audit, defect 3.
+     Ray measured the panel at 738pt in a 700pt window, hanging 132pt below the edge and not
+     scrolling (`AXScrollToVisible` left the clipped text byte-identical). Below that edge were
+     the technical reason, the update-server address, and **"Bust a bug!"** — so from the window
+     the app restores itself to, a person could not reach the control for reporting a problem.
+     CEO ruling §15 puts that button on every screen; a button below the fold is not on the
+     screen.
+
+     THE HEIGHT IS NOT FIXED AND CANNOT BE PLANNED FOR. 9 rows measure 523px, and Ray's 738px is
+     the same panel with the Updates block opened on an error — its sentence, its technical
+     reason and the server address. Any future row moves it again. So this is a bound, not a
+     number chosen to fit today's content.
+
+     84px, DERIVED AND THEN MEASURED. `.settings` is `position: fixed; top: 18px`, `.setbtn` is
+     40px tall and this menu hangs 8px below it: 18 + 40 + 8 = 66px. The panel's own
+     `getBoundingClientRect().top` reads **66** at 1024x700 and at 1400x950 alike, so the anchor
+     is viewport-fixed and the same arithmetic holds at every window size. The remaining 18px is
+     a bottom gutter mirroring the wrapper's own 18px top inset, so the panel stops where every
+     other floating surface stops rather than touching the edge. 66 + 18 = 84.
+
+     IT COSTS NOTHING WHEN THE PANEL FITS, which is the common case: `overflow-y: auto` shows no
+     scrollbar and changes no geometry until the content is taller than the box. At 1024x700 the
+     9-row panel is 523px against a 616px bound and renders exactly as before.
+
+     `.settings.in-bar` — the 32px constraint-fit form kept from the reference — is
+     `position: relative`, so its menu is not anchored at 18px and this bound would be wrong for
+     it. Nothing in the shipped UI adds that class (grepped: zero uses in `ui/*.js` and
+     `ui/*.html`), so there is no second case to get right today; whoever revives it owns this
+     line with it. */
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
+  /* A flick that reaches the end of this panel must not then scroll the thread behind it. */
+  overscroll-behavior: contain;
 }
 .setmenu[hidden] {
   display: none !important;
