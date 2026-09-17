@@ -1116,6 +1116,175 @@ class Point11_Finished(Base):
         self.assertTrue(ws.finished_state(self.rec("zach-opus-ts"))[0])
 
 
+class Point03_MissedRegistration(Base):
+    """3. "Two events, nothing else: the agent is spawned and its workspace
+    registered ... If registration fails, the spawn does not happen." — read
+    together with point 11's "automatically and never by Rich noticing".
+
+    THE REGISTRATION IS WRITTEN BY A HOOK, AND THE PLATFORM MAY KILL A HOOK.
+    Measured 2026-09-17: `guard-worktree-isolation.sh` was killed at 10.027s
+    against its 10s budget (`hook_cancelled … timedOut: true` for tool_use_id
+    toolu_01C3dCBDwFksv5tBHramMDch) and the platform LAUNCHED THE AGENT ANYWAY.
+    The registry was left with a named record holding a cc/ workspace and no
+    agent id, beside a provisional record holding the platform's own start and
+    end for the same run, and `land` refused the finished work — "its run has
+    not ended" — with no automatic way left to retire the workspace.
+
+    These tests are the two halves of the repair and the two halves of its
+    floor: the facts the platform recorded are ADOPTED, and nothing else is."""
+
+    def missed_spawn(self, name, agent_id=None, agent_type="sage"):
+        """A spawn whose PreToolUse registration never ran: no register_spawn,
+        and the platform starts the agent regardless (SubagentStart)."""
+        aid = agent_id or ("a" + name.replace("-", "")[:12] + "0000")
+        npath = os.path.join(self.entity, ".claude", "worktrees", "agent-" + aid)
+        run("git", "-C", self.entity, "worktree", "add", "-q", npath, "-b", "worktree-agent-" + aid)
+        ws.record_start(self.sid, aid, npath, agent_type)
+        return aid, npath
+
+    def platform_record(self, agent_id, name, tool_use_id="", agent_type="sage"):
+        """The per-agent record the platform writes beside the agent's
+        transcript. It carries the NAME the spawn used and the TOOL CALL it came
+        from; this suite writes it exactly as the platform does and never reads
+        the registry to build it."""
+        d = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects", "-entity", self.sid, "subagents")
+        os.makedirs(d, exist_ok=True)
+        rec = {"agentType": agent_type, "description": "d", "name": name, "spawnDepth": 1,
+               "requestShape": "background"}
+        if tool_use_id:
+            rec["toolUseId"] = tool_use_id
+        with open(os.path.join(d, "agent-%s.meta.json" % agent_id), "w") as f:
+            json.dump(rec, f)
+
+    def events_for(self, key, what=""):
+        out = []
+        path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "state", "workspaces", "events.jsonl")
+        if not os.path.exists(path):
+            return out
+        with open(path) as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("key") == key and (not what or e.get("event") == what):
+                    out.append(e)
+        return out
+
+    def test_point_03_a_spawn_whose_registration_was_killed_is_bound_at_its_post(self):
+        """The Post is the first moment the gap exists, so it is where it is
+        closed: the platform delivers it for a tool that actually ran, and it
+        carries both the name the spawn used and the id it became."""
+        cc = self.make_cc("sage-opus-killed1")
+        aid, npath = self.missed_spawn("sage-opus-killed1")
+        self.assertIsNone(self.rec("sage-opus-killed1").get("agent_id") or None)
+        ws.lifecycle({"hook_event_name": "PostToolUse", "session_id": self.sid, "tool_name": "Agent",
+                      "tool_use_id": "tu-killed1",
+                      "tool_input": {"name": "sage-opus-killed1", "isolation": "worktree"},
+                      "tool_response": {"agentId": aid, "status": "async_launched"}}, self.entity)
+        r = self.rec("sage-opus-killed1")
+        self.assertEqual(r["agent_id"], aid)
+        self.assertEqual(r["tool_use_id"], "tu-killed1")
+        self.assertEqual(r["registration_reconciled"]["source"], "PostToolUse[Agent]")
+        # the provisional record's facts came with it, and it is gone
+        self.assertTrue(r.get("started_at"))
+        self.assertFalse(os.path.exists(ws.agent_path(ws._provisional_key(self.sid, aid))))
+        self.assertEqual([e["event"] for e in self.events_for(r["key"], "bound")], ["bound"])
+        self.assertEqual(self.events_for(r["key"], "bound")[0]["reconciled"], "PostToolUse[Agent]")
+        # and from here it is an ordinary agent: it ends, its work lands, both
+        # workspaces and both branches go (points 4, 10)
+        self.commit(cc)
+        self.finish(aid)
+        self.merge(self.other, "cc/sage-opus-killed1")
+        self.assertEqual(self.names(), [])
+        self.assertFalse(os.path.exists(cc))
+        self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("cc/sage-opus-killed1", branches(self.other))
+
+    def test_point_03_a_spawn_the_registry_never_saw_is_reconciled_from_the_platforms_own_record(self):
+        """Both hooks missed — the case that actually stranded a workspace. The
+        registration has no id and no ending; the provisional record has the
+        platform's own start AND end; the platform's per-agent record says they
+        are one agent. `land` adopts that and succeeds, and the event log says
+        how."""
+        cc = self.make_cc("sage-opus-missed1")
+        aid, npath = self.missed_spawn("sage-opus-missed1")
+        ws.record_end(self.sid, aid, "SubagentStop")          # recorded on the PROVISIONAL
+        self.platform_record(aid, "sage-opus-missed1", tool_use_id="tu-missed1")
+        key = ws.named_key(self.sid, "sage-opus-missed1")
+        self.assertFalse(ws.finished_state(ws.load_agent(key))[0])   # before: not finished
+        self.commit(cc)
+        self.merge(self.other, "cc/sage-opus-missed1")
+        ws.land("sage-opus-missed1", self.sid)
+        r = ws.load_agent(key)
+        self.assertEqual(r["agent_id"], aid)
+        self.assertEqual(r["registration_reconciled"]["source"], "platform-record")
+        self.assertEqual(r["tool_use_id"], "tu-missed1")
+        self.assertEqual(r["disposition"]["kind"], "landed")
+        # the events say how it was reconciled, and from which record
+        rec_events = self.events_for(key, "reconciled")
+        self.assertEqual(len(rec_events), 1)
+        self.assertEqual(rec_events[0]["source"], "platform-record")
+        self.assertEqual(rec_events[0]["agent_id"], aid)
+        self.assertEqual(rec_events[0]["adopted"], ws._provisional_key(self.sid, aid))
+        # both workspaces and both branches are gone (points 4, 10)
+        self.assertFalse(os.path.exists(cc))
+        self.assertFalse(os.path.exists(npath))
+        self.assertNotIn("cc/sage-opus-missed1", branches(self.other))
+        self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+
+    def test_point_03_a_registration_with_no_platform_record_is_never_reconciled(self):
+        """THE FLOOR. A registration whose spawn never happened has no id, no
+        provisional twin and no per-agent record — and stays exactly that.
+        Adopting anything here would be inventing an agent, and `withdraw-cc`
+        (not a reconciliation) is what retires a spawn that never happened."""
+        cc = self.make_cc("sage-opus-never1")
+        key = ws.named_key(self.sid, "sage-opus-never1")
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("sage-opus-never1", self.sid)
+        self.assertIn("its run has not ended", str(e.exception))
+        r = ws.load_agent(key)
+        self.assertEqual(r["agent_id"], "")
+        self.assertIsNone(r.get("registration_reconciled"))
+        self.assertEqual(self.events_for(key, "reconciled"), [])
+        self.assertTrue(os.path.exists(cc))
+
+    def test_point_03_a_reconciled_binding_never_invents_an_ending(self):
+        """A per-agent record proves WHICH agent the call became; it does not
+        prove the run ended. The id is adopted, the agent stays unfinished, and
+        the automatic land leaves its workspace alone until an ending is
+        recorded — then the same path takes it."""
+        cc = self.make_cc("sage-opus-running1")
+        aid, _n = self.missed_spawn("sage-opus-running1")
+        self.platform_record(aid, "sage-opus-running1", tool_use_id="tu-running1")
+        key = ws.named_key(self.sid, "sage-opus-running1")
+        self.assertEqual(self.names(), [])                    # nothing pending: it is still working
+        r = ws.load_agent(key)
+        self.assertEqual(r["agent_id"], aid)                  # ...but bound now
+        self.assertIsNone(r.get("end"))
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("sage-opus-running1", self.sid)
+        self.assertIn("its run has not ended", str(e.exception))
+        self.assertTrue(os.path.exists(cc))
+        ws.record_end(self.sid, aid, "SubagentStop")          # now it ends, on the record itself
+        self.assertTrue(ws.finished_state(ws.load_agent(key))[0])
+
+    def test_point_03_an_ambiguous_platform_record_is_never_guessed_at(self):
+        """Two of the platform's records answering to one name is not a
+        reconciliation to choose between; nothing is adopted and the refusal
+        stands."""
+        self.make_cc("sage-opus-twin1")
+        aid, _n = self.missed_spawn("sage-opus-twin1")
+        self.platform_record(aid, "sage-opus-twin1")
+        self.platform_record("a" + "f" * 16, "sage-opus-twin1")
+        key = ws.named_key(self.sid, "sage-opus-twin1")
+        ws.record_end(self.sid, aid, "SubagentStop")
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("sage-opus-twin1", self.sid)
+        self.assertIn("its run has not ended", str(e.exception))
+        self.assertEqual(ws.load_agent(key)["agent_id"], "")
+
+
 class Point12_Sessions(Base):
     """12. An agent cannot outlive its session."""
 

@@ -1413,32 +1413,89 @@ def _find_by_tool_use(session_id, tuid):
     return None
 
 
-def bind_agent(session_id, tuid, agent_id, entity):
+def _provisional_key(session_id, agent_id):
+    return "%s--agent-%s" % (_key_segment(session_id), _key_segment(agent_id))
+
+
+def _absorb_provisional(rec, prov_key):
+    """The platform's own start and end for this agent — recorded against a
+    PROVISIONAL record because nothing had bound its id to a registration yet —
+    join the registration they belong to. Returns the provisional, or None.
+
+    A provisional record that is still live has no facts of its own left after
+    this and is removed, exactly as it always was. One that has already been
+    DISPOSED OF (its native workspace landed on its own, which is what happens
+    when the binding is missing for a whole run) is KEPT and stamped: it is the
+    record of what the platform did, and deleting it to tidy up would delete the
+    evidence that this reconciliation was needed."""
+    prov = load_agent(prov_key)
+    if not prov or prov.get("key") == rec.get("key"):
+        return None
+    for w in live_workspaces(prov):
+        _add_workspace(rec, w["kind"], w["repo"], w["path"], w["branch"], w.get("source", ""))
+    for f in ("started_at", "end", "handed_in"):
+        if prov.get(f) and not rec.get(f):
+            rec[f] = prov[f]
+    if os.path.exists(agent_path(prov_key)):
+        os.unlink(agent_path(prov_key))
+    else:
+        prov["absorbed_by"] = rec["key"]
+        write_json(done_path(prov_key), prov)
+    return prov
+
+
+def bind_agent(session_id, tuid, agent_id, entity, name="", isolation=""):
     """PostToolUse[Agent]: the platform's agent id joins the registration, and
-    the native workspace it created is registered (point 6)."""
+    the native workspace it created is registered (point 6).
+
+    THE SPAWN WHOSE REGISTRATION WAS KILLED (2026-09-17). Point 3 says "if
+    registration fails, the spawn does not happen", and the registration is
+    written by the PreToolUse[Agent] guard — which the PLATFORM MAY KILL. On
+    2026-09-17 at 10:57:48Z it did: `guard-worktree-isolation.sh` ran 10.027s
+    against a 10s budget and the orchestrator's transcript records it as
+    `hook_cancelled … timedOut: true`; two seconds later the same transcript
+    records `Async agent launched successfully … agentId: a794a61d062e6d302`.
+    A killed hook is not a refusal, so the spawn happened with no registration,
+    and `sage-opus-nightly1`'s cc/ workspace could not be retired for hours —
+    the ending point 11 requires "automatically and never by Rich noticing".
+    The hook's budget is now larger than the longest wait inside it, but the
+    platform decides when to kill a hook and no budget makes that impossible.
+
+    So THIS call — the Post, which the platform delivers for a tool that
+    actually ran, and which carries both the name the spawn used and the id it
+    became — repairs the gap at the first moment it exists, seconds after the
+    spawn rather than at the next land. It records what happened; it never
+    certifies a spawn that was never checked, which is why the record says so."""
     if not AGENT_ID_RE.match(agent_id or ""):
         raise SpecError("not an agent id: %r" % agent_id)
+    reconciled = ""
     with Lock():
         rec = _find_by_tool_use(session_id, tuid)
+        if not rec and name and NAME_RE.match(name):
+            cand = load_agent(named_key(session_id, name))
+            if (cand and not cand.get("agent_id") and not cand.get("provisional")
+                    and not cand.get("disposition") and not cand.get("orphan")):
+                rec = cand
+                reconciled = "PostToolUse[Agent]"
+                rec["tool_use_id"] = rec.get("tool_use_id") or tuid
+                rec["isolation"] = rec.get("isolation") or isolation
+                rec["registration_reconciled"] = {
+                    "at": now(), "agent_id": agent_id, "source": reconciled,
+                    "why": "no registration carried this tool call, so the spawn's own "
+                           "PreToolUse registration never ran; the platform's Post for the same "
+                           "call names this session's registration for %r (point 3)" % name}
         if not rec:
             return None
-        prov_key = "%s--agent-%s" % (_key_segment(session_id), _key_segment(agent_id))
-        prov = read_json(agent_path(prov_key))
+        prov_key = _provisional_key(session_id, agent_id)
         rec["agent_id"] = agent_id
         if rec.get("isolation") == "worktree" and entity:
             main = main_checkout(entity) or realpath(entity)
             npath = os.path.join(main, ".claude", "worktrees", "agent-" + agent_id)
             _add_workspace(rec, "native", main, npath, NATIVE_BRANCH_PREFIX + agent_id, "PostToolUse[Agent]")
             _drop_orphans_for(realpath(npath))
-        if prov:
-            for w in live_workspaces(prov):
-                _add_workspace(rec, w["kind"], w["repo"], w["path"], w["branch"], w.get("source", ""))
-            for f in ("started_at", "end", "handed_in"):
-                if prov.get(f) and not rec.get(f):
-                    rec[f] = prov[f]
-            os.unlink(agent_path(prov_key))
+        _absorb_provisional(rec, prov_key)
         save_agent(rec)
-    event("bound", key=rec["key"], agent_id=agent_id)
+    event("bound", key=rec["key"], agent_id=agent_id, **({"reconciled": reconciled} if reconciled else {}))
     _on_start(rec)
     return rec
 
@@ -1565,6 +1622,29 @@ def platform_agent_record(rec):
     return None
 
 
+def platform_agent_records(session_id):
+    """Every per-agent record the platform wrote for THIS session, as
+    (agent_id, record). Read, never written. The platform writes one for each
+    agent it actually launched, and it carries the NAME the spawn used and the
+    TOOL CALL it came from — which is the binding the registry would otherwise
+    have to guess at."""
+    sid = (session_id or "").strip()
+    if not sid or "/" in sid:
+        return []
+    out = []
+    seen = set()
+    for p in sorted(glob.glob(os.path.join(_platform_projects_dir(), "*", sid,
+                                           "subagents", "agent-*.meta.json"))):
+        aid = os.path.basename(p)[len("agent-"):-len(".meta.json")]
+        if aid in seen or not AGENT_ID_RE.match(aid):
+            continue
+        d = read_json(p)
+        if isinstance(d, dict):
+            seen.add(aid)
+            out.append((aid, d))
+    return out
+
+
 # POINT 11's UNTIDY ENDINGS. "That covers every ending: it handed in its work,
 # crashed, was cut off by a limit, OR WAS STOPPED." The tidy ending arrives as
 # a hook: the LAST SubagentStop of a run carries the agent's own bound id, and
@@ -1614,6 +1694,77 @@ def observe_platform_end(rec):
     return rec
 
 
+# POINT 3'S REGISTRATION, WHEN THE HOOK THAT WRITES IT WAS KILLED. The spawn is
+# registered at PreToolUse[Agent] and bound at PostToolUse[Agent]; both are
+# hooks, and a hook the platform kills still lets the tool run. Measured
+# 2026-09-17 on this machine: `guard-worktree-isolation.sh` was killed at
+# 10.027s against its 10s budget (orchestrator transcript, `hook_cancelled …
+# timedOut: true`, tool_use_id toolu_01C3dCBDwFksv5tBHramMDch) and the agent
+# launched anyway. The registry was then left with a NAMED record holding a cc/
+# workspace and no agent id — `started_at` None, `end` None — beside a
+# PROVISIONAL record holding the platform's own SubagentStart (10:57:50Z) and
+# SubagentStop (11:13:58Z) for the very same run. `land` refused the finished
+# work with "its run has not ended", and the only ways left to retire it were
+# the ones point 11 forbids ("automatically and never by Rich noticing").
+#
+# The facts were never missing — only the JOIN between them was, and the
+# platform records that join itself, in the same per-agent file
+# `observe_platform_end` already reads: `{"name": "sage-opus-nightly1",
+# "toolUseId": "toolu_01C3…", "agentType": "sage"}`. So the registry adopts it,
+# at the next moment anything asks, exactly as it adopts `stoppedByUser`.
+#
+# WHAT THIS IS NOT. It does not certify a spawn: the guard's checks never ran
+# for that call and cannot be run after the fact, so the adoption is recorded on
+# the record (`registration_reconciled`) and in the event log, where a reader
+# sees that this registration was repaired rather than made. It never invents an
+# ending either — a registration with no provisional twin adopts an id and stays
+# unfinished, because nothing has recorded that its run ended.
+def observe_platform_binding(rec):
+    """Point 3 + point 11: the agent a registration became, taken from the
+    platform's own record of the spawn when nothing bound it at the time."""
+    if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):
+        return rec
+    if rec.get("disposition"):
+        return rec
+    sid = str(rec.get("session_id") or "")
+    name = str(rec.get("name") or "")
+    if not sid or not NAME_RE.match(name):
+        return rec
+    tuid = str(rec.get("tool_use_id") or "")
+    hits = [(aid, d) for aid, d in platform_agent_records(sid)
+            if (str(d.get("toolUseId") or "") == tuid if tuid
+                else str(d.get("name") or "") == name)]
+    # Nothing recorded, or more than one record answering to it: a reconciliation
+    # is an adoption of a recorded fact, never a choice between candidates.
+    if len(hits) != 1:
+        return rec
+    aid, meta = hits[0]
+    if not tuid and str(meta.get("name") or "") != name:
+        return rec
+    prov_key = _provisional_key(sid, aid)
+    bound_to = key_for_id(aid)
+    if bound_to and bound_to not in (rec["key"], prov_key):
+        return rec              # that id already belongs to another registration
+    with Lock():
+        fresh = load_agent(rec["key"]) or rec
+        if fresh.get("agent_id") or fresh.get("disposition"):
+            return fresh
+        fresh["agent_id"] = aid
+        fresh["tool_use_id"] = fresh.get("tool_use_id") or str(meta.get("toolUseId") or "")
+        fresh["subagent_type"] = fresh.get("subagent_type") or str(meta.get("agentType") or "")
+        prov = _absorb_provisional(fresh, prov_key)
+        fresh["registration_reconciled"] = {
+            "at": now(), "agent_id": aid, "source": "platform-record",
+            "adopted": prov_key if prov else "",
+            "why": "the spawn was never bound to an agent id; the platform's own record of this "
+                   "session names %s as the agent spawned for %r (point 3)" % (aid, name)}
+        save_agent(fresh)
+    event("reconciled", key=fresh["key"], agent_id=aid, source="platform-record",
+          adopted=prov_key if prov else "", tool_use_id=fresh.get("tool_use_id") or "")
+    _on_start(fresh)
+    return fresh
+
+
 def record_handed_in(session_id, agent_id="", name=""):
     with Lock():
         rec = _record_for_agent(session_id, agent_id, name)
@@ -1627,9 +1778,9 @@ def record_handed_in(session_id, agent_id="", name=""):
 
 def _resolve(ref, session_id=""):
     """A record by key, by agent id, or by name (this session first, then any
-    pending item this session may handle), with any ending the platform has
-    recorded for it since taken (point 11)."""
-    return observe_platform_end(_resolve_record(ref, session_id))
+    pending item this session may handle), with any binding and any ending the
+    platform has recorded for it since taken (points 3, 11)."""
+    return observe_platform_end(observe_platform_binding(_resolve_record(ref, session_id)))
 
 
 def _resolve_record(ref, session_id=""):
@@ -1858,7 +2009,12 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None):
             continue
         # Point 11: an ending the platform recorded itself and gave no hook for
         # (a stopped agent) becomes finished HERE, before anything asks whether
-        # it is, so the list below is the list the page describes.
+        # it is, so the list below is the list the page describes. Point 3's
+        # half of the same sentence comes first: a registration whose spawn was
+        # never bound to an agent — because the hook that binds it was killed —
+        # takes the platform's own binding here too, or the ending below would
+        # be looked for on a record that can never have one.
+        rec = observe_platform_binding(rec)
         rec = observe_platform_end(rec)
         fin, paused_, why = finished_state(rec, cache)
         if not fin:
@@ -4050,7 +4206,11 @@ def lifecycle(payload, entity):
         if tool == "Agent":
             aid = _agent_id_from_response(payload.get("tool_response"))
             if aid:
-                bind_agent(sid, str(payload.get("tool_use_id") or ""), aid, entity)
+                # The name and isolation of the call the platform actually ran:
+                # the repair path in bind_agent needs them when no registration
+                # carries this tool call (its PreToolUse was killed).
+                bind_agent(sid, str(payload.get("tool_use_id") or ""), aid, entity,
+                           name=str(ti.get("name") or ""), isolation=str(ti.get("isolation") or ""))
         elif tool == "TaskStop":
             aid = _taskstop_id(payload.get("tool_response"))
             if aid:
