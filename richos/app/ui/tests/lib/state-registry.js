@@ -529,6 +529,32 @@ module.exports = [
       "once and never becomes a drip.",
   },
   {
+    s:
+      "You started talking while I was still speaking, and I couldn't separate your voice " +
+      "from mine — so that didn't reach me and I haven't sent anything. I'm listening now.",
+    c: "INFORMATIONAL",
+    why:
+      "`VoiceNotice::TalkedOverRich`, added 2026-09-17 for audit-3 §4 #1 — the defect the " +
+      "CEO hit himself, mid-walk, with his own voice. An utterance whose onset lands inside " +
+      "Rich's playout is marked `tainted` once, at `Started`, and stays tainted unless " +
+      "barge-in fires during it; with the echo canceller not yet confident that needs 313 × " +
+      "256 ÷ 16000 = 5.008 s of continuous talking over him, so an ordinary interruption is " +
+      "discarded whole. Rich's playout then ends, a NEW utterance starts from whatever he is " +
+      "still saying, and THAT gets submitted as if it were a whole message: his prompt " +
+      "arrived at 13:34:02Z carrying only the tail \"using talk to…\", and Rich answered the " +
+      "tail and had to ask what he meant. The discard is not the defect — the silence around " +
+      "it was. " +
+      "INFORMATIONAL, and it deliberately makes NO capability claim. \"I can't hear you " +
+      "while I'm speaking\" would be false twice: talking over him for 5.008 s cuts him off " +
+      "today, and once the canceller proves itself the threshold is 25 × 256 ÷ 16000 = " +
+      "0.400 s — a notice that overstates the limit teaches him not to try the thing that " +
+      "works. So it reports what happened to those particular words and stops. It ends with " +
+      "a status rather than \"wait until I finish\", which would be an instruction to use " +
+      "the product more carefully to work around a limitation. Latched per run and cleared " +
+      "by an utterance that gets through (`TalkedOverLatch`), because interrupting is " +
+      "exactly what he will keep doing and a line every time would be worse than silence.",
+  },
+  {
     s: "I didn't catch that, so I haven't sent anything. I'm still listening.",
     c: "INFORMATIONAL",
     why:
