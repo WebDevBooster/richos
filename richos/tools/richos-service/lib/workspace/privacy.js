@@ -169,6 +169,58 @@ export function assertEvidenceOutsideProductRepo(target, repoRoot = PRODUCT_REPO
 }
 
 /**
+ * The loopback hosts the OAuth consent redirect may come back on. Nothing else — a redirect to any
+ * routable host would send the CEO's authorization code somewhere other than his own machine.
+ * `new URL()` keeps IPv6 literals bracketed, so both spellings of ::1 are listed rather than parsed.
+ */
+export const ALLOWED_REDIRECT_HOSTS = ['127.0.0.1', '::1', '[::1]'];
+
+/**
+ * Throw unless `uri` is a LOOPBACK redirect for the consent ceremony (§6.1, the native-app PKCE
+ * pattern the setup guide's Step 5 pins: `http://127.0.0.1:<port>/callback`).
+ *
+ * THIS IS NOT THE LISTENER §4.3 FORBIDS, and the difference is the whole reason this control exists
+ * rather than a comment. The forbidden thing is a webhook: a PUBLIC HTTPS endpoint a vendor pushes to,
+ * which cannot exist without a RichOS server. What this permits is a socket bound to the loopback
+ * interface — unreachable from any other machine — which exists for the seconds between opening the
+ * consent screen and the CEO clicking Continue, receives one redirect from HIS OWN browser, and is
+ * closed before the command returns. Ingestion remains polling-only: `assertPollingOnly` still refuses
+ * an adapter that grows a push method, and nothing here gives one a way in.
+ *
+ * `http:` is correct and deliberate here: loopback redirects are exempt from the HTTPS rule by
+ * construction (a certificate for 127.0.0.1 would have to be self-signed and trusted machine-wide,
+ * which is worse), and the code never leaves the machine. Every OUTBOUND call still goes through
+ * `assertDirectGoogleEndpoint`, which refuses anything that is not HTTPS to a Google host.
+ *
+ * @param {string} uri
+ * @returns {URL}
+ */
+export function assertLoopbackRedirect(uri) {
+  let u;
+  try {
+    u = new URL(String(uri));
+  } catch {
+    throw new Error(`privacy invariant: not a valid redirect URI: ${uri}`);
+  }
+  if (u.protocol !== 'http:') {
+    throw new Error(
+      `privacy invariant: the consent redirect must be plain http on loopback, not "${u.protocol}" (${uri}). ` +
+        'A desktop PKCE client redirects to 127.0.0.1; the code never leaves the machine.',
+    );
+  }
+  if (!ALLOWED_REDIRECT_HOSTS.includes(u.hostname)) {
+    throw new Error(
+      `privacy invariant: refusing a consent redirect to non-loopback host "${u.hostname}". ` +
+        'The authorization code must come back to the CEO\'s own machine — no public URL, no RichOS server.',
+    );
+  }
+  if (!u.port) {
+    throw new Error(`privacy invariant: the consent redirect needs an explicit port so the listener binds one deliberately: ${uri}`);
+  }
+  return u;
+}
+
+/**
  * Structural check used by tests + at wiring time: an adapter must be poll-only (§4.3). It must expose
  * `listChanges` and must NOT expose any push/webhook method, so no code path can create a public
  * listener (which would require a RichOS server).
