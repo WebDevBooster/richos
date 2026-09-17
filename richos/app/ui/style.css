@@ -1944,7 +1944,13 @@ body.bp-narrow .first-run {
 .entity-facts dd {
   margin: 0;
   color: var(--ink-soft);
-  word-break: break-all;
+  /* `overflow-wrap: anywhere` is the FALLBACK, not the plan: `wrapPathText` (main.js)
+     inserts `<wbr>` after every `/`, `.`, `-` and `_` in the value first, so "Source root"
+     (a filesystem path) wraps at its own joints and this property only fires on a run with
+     no separator at all long enough to overflow the box (audit D7, 2026-09-17). Was
+     `word-break: break-all`, which broke at ANY character and produced exactly the
+     mid-word splits the audit named. */
+  overflow-wrap: anywhere;
 }
 
 .entity-block {
@@ -2205,7 +2211,11 @@ body.bp-narrow .first-run {
   font-size: 1rem;
   line-height: 1.4;
   color: var(--ink);
-  word-break: break-all;
+  /* `overflow-wrap: anywhere` is the fallback, not the plan: `wrapPathText` (main.js)
+     inserts `<wbr>` after every `/`, `.`, `-` and `_` first, so this corpus path wraps at
+     its own joints. Was `word-break: break-all`, which is what put "…Ric" on one line and
+     "hOS/corpus" on the next in the 2026-09-17 nightly audit (D7). */
+  overflow-wrap: anywhere;
 }
 
 .memory-setup-actions {
@@ -4950,7 +4960,12 @@ body.bp-narrow .tl-user-bubble {
   font-size: 0.875rem;
   line-height: 1.45;
   color: var(--ink-faint);
-  word-break: break-all;
+  /* `overflow-wrap: anywhere` is the fallback, not the plan: `wrapPathText` (main.js, called
+     from `updates.js` as `window.RichWrapPath`) inserts `<wbr>` after every `/`, `.`, `-`
+     and `_` in the endpoint URL first. Was `word-break: break-all`, which is what put
+     "…/githubus" on one line and "ercontent.com" on the next in the 2026-09-17 nightly
+     audit (D7). */
+  overflow-wrap: anywhere;
 }
 
 /* THE MARK ON THE SETTINGS BUTTON — the only part of this surface visible without opening
