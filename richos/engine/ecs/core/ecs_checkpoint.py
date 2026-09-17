@@ -10,9 +10,15 @@ from ecs_core import EventStore, PERSON_ID, SECRET_VALUE_PATTERNS, ScopeError, V
 from ecs_extract import MAX_STATEMENTS_PER_TURN, Statement, TurnScope, apply_statements
 
 
-def checkpoint_template(store: EventStore, *, session: str) -> dict:
-    """Read a write fence only for the caller-named session. Never auto-save."""
-    context = store.current_context()
+def checkpoint_template(store: EventStore, *, session: str, person_id: str = PERSON_ID) -> dict:
+    """Read a write fence only for the caller-named session. Never auto-save.
+
+    ``person_id`` is WHOSE cursor the fence is read from -- the conversation
+    thread's own seat, or the legacy single cursor when no seat is named. It
+    defaults to the literal this file used to hard-code, so every caller that
+    predates seats reads exactly the row it always read.
+    """
+    context = store.current_context(person_id)
     if not context or context["session_id"] != session or not context["turn_id"]:
         raise ScopeError("no active turn for the requested session; do not borrow another session's context")
     return {"context": {"session": session, "turn": context["turn_id"],
@@ -75,8 +81,8 @@ def checkpoint_health(store: EventStore, entity: str, thread: str, turn: str) ->
 
 
 def checkpoint(store: EventStore, request: dict, *, session: str, turn: str,
-               revision: int, request_id: str) -> dict:
-    context = store.current_context()
+               revision: int, request_id: str, person_id: str = PERSON_ID) -> dict:
+    context = store.current_context(person_id)
     if (not context or context["session_id"] != session or context["turn_id"] != turn
             or context["revision"] != revision):
         raise ScopeError("checkpoint context changed; use the current session, turn and revision")
@@ -108,7 +114,8 @@ def checkpoint(store: EventStore, request: dict, *, session: str, turn: str,
         payload = json.loads(prior["payload_json"])
         if payload["request_sha256"] != digest:
             raise ValidationError("checkpoint request ID reused with different content")
-        return checkpoint_receipt(store, session=session, turn=turn, request_id=request_id)
+        return checkpoint_receipt(store, session=session, turn=turn,
+                                  request_id=request_id, person_id=person_id)
 
     payload = dict(turn_id=turn, request_id=request_id, request_sha256=digest,
                    statements=len(statements), applied=0, rejected=0,
@@ -116,8 +123,15 @@ def checkpoint(store: EventStore, request: dict, *, session: str, turn: str,
     from ecs_core import _required, _validate_payload_text
     _required(payload, "request_id")
     _validate_payload_text(payload)
+    # The statements this turn applies are CONVERSATIONAL_EVENTS, and _reduce
+    # fences each one against the row belonging to the EVENT'S OWN person. On a
+    # per-thread seat the hard-coded literal compared this thread's revision
+    # against a row belonging to another thread -- or to no row at all -- which is
+    # the work seat's bug (ecs_core.py:391 defaulting person_id) with the CEO on
+    # both sides of it.
     scope = TurnScope(context["entity_id"], context["thread_id"], session, turn,
-                      f"structured-checkpoint:{session}:{turn}:{request_id}", PERSON_ID)
+                      f"structured-checkpoint:{session}:{turn}:{request_id}",
+                      context["person_id"])
     outcomes = apply_statements(store, statements, scope, active_revision=revision)
     payload["rejected"] = sum(o.status == "rejected" for o in outcomes)
     payload["applied"] = len(outcomes) - payload["rejected"]
@@ -146,10 +160,11 @@ def receipt_result(payload: dict, *, duplicate: bool) -> dict:
                 if outcomes is not None else None)
 
 
-def checkpoint_receipt(store: EventStore, *, session: str, turn: str, request_id: str) -> dict:
+def checkpoint_receipt(store: EventStore, *, session: str, turn: str, request_id: str,
+                       person_id: str = PERSON_ID) -> dict:
     """Read a receipt without replaying statements or borrowing its old write fence."""
     prior = store.existing_event(f"checkpoint:{session}:{turn}:{request_id}")
-    context = store.current_context()
+    context = store.current_context(person_id)
     if (prior is None or not context or prior["entity_id"] != context["entity_id"]
             or prior["thread_id"] != context["thread_id"]):
         raise ScopeError("receipt is absent or outside the active scope")
@@ -157,9 +172,16 @@ def checkpoint_receipt(store: EventStore, *, session: str, turn: str, request_id
 
     conn = store.connect()
     try:
+        # The activation this receipt was written under is THIS seat's, in this
+        # thread. Unscoped, the newest activation before the receipt could belong
+        # to another conversation thread entirely -- with one cursor that could
+        # only ever be his own previous turn, and with a seat per thread it is
+        # whichever front desk happened to speak in between.
         activation = conn.execute(
             "SELECT payload_json FROM ecs_events WHERE event_type='thread.activated' "
-            "AND sequence < ? ORDER BY sequence DESC LIMIT 1", (prior["sequence"],)
+            "AND person_id=? AND entity_id=? AND thread_id=? "
+            "AND sequence < ? ORDER BY sequence DESC LIMIT 1",
+            (context["person_id"], prior["entity_id"], prior["thread_id"], prior["sequence"])
         ).fetchone()
     finally:
         conn.close()
