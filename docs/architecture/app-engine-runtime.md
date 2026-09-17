@@ -51,7 +51,13 @@ explicitly, and every caller that is not the one legacy cursor also supplies its
 own seat: the active context is one cursor per seat, each front desk rewrites its
 own row every turn, and both a background lease's binding and a parallel
 conversation thread's have to outlive the turn beside them. His seat is one per
-conversation thread (`ceo-thread:<thread_id>`), a lease's is one per assignment. There is no
+conversation thread (`ceo-thread:<thread_id>`), a lease's is one per assignment. A seat
+outlives the turn that made it, so both kinds are reconciled: a lease's against its
+assignment's state, one of his against whether that conversation thread still exists —
+which is the app's own knowledge and is read from the app's conversation ledger, never
+inferred from the store. An unreadable ledger reports the seat as unreconciled and
+releases nothing, and the release of one of his carries the revision it was enumerated at,
+so the store refuses a seat whose thread has bound a turn since. There is no
 terminal-cwd inference at this boundary. Each invocation
 has a bounded request and response. SQLite transactions and idempotency receipts
 protect local changes. Operations spanning ECS, Loro and Git use intent and

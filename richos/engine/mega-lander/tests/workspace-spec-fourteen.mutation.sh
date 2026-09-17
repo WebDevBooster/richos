@@ -402,12 +402,12 @@ mutant S-p14-a-move-is-written-back-again "C14.13" "$W" \
     '                if False:{AND}    return git(repo, "update-ref", "--no-deref", "refs/heads/" + branch, tip)' \
     "RECORDED [docs/verification/ref-write-forensics-2026-09-14.md: on 2026-09-13/14 this line moved refs/heads/main in /Users/alex/ab/richos three times, twice within twelve seconds in opposite directions while Rich was landing, each with an EMPTY reflog message because it passed no -m; reproduced from nothing at docs/verification/protected-ref-oscillation-2026-09-14-logs/repro.py]: a MOVED protected ref would be written back instead of reported, unconditionally and unattributed, to whichever tip one agent's oldest open window happened to hold."
 mutant S-p14-the-leads-move-reported-too "C14.15" "$W" \
-    '                    else:{NL}                        continue                        # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land' \
+    '                    else:{NL}                        landed = land_by_another_conversation(repo, b, old, cur){NL}                        if not landed:{NL}                            continue                    # a descendant carrying none of the agent'"'"'s work: the lead'"'"'s land{NL}                        action, why = "LANDED", landed  # except when the land record names another conversation' \
     '                    else:{NL}                        why = "moved"' \
     "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it' — landing is his): the lead's own land onto the recorded branch during an agent's call would be reported as an agent's move. It is no longer UNDONE — nothing here writes over a move — but a check that fires on every ordinary land is alarm fatigue, and being rare is the whole of its remaining value."
 mutant S-p14-end-of-run-reports-the-leads-land "C14.15b" "$W" \
-    '                elif b not in windowed:{NL}                    continue' \
-    '                elif False:{NL}                    continue' \
+    '                elif b not in windowed:' \
+    '                elif False:' \
     "SPEC-DERIVED (point 14 negated, 'Rich merges each finished agent's work onto it'; RECORDED shape: certification-sage-runner-round case R8 went RED under this round's first restore rule on 2026-09-13 — the lead's fast-forward of the agent's own branch, made after its last call and before its end signal, was undone at the end signal and the land refused): the own-work rule would apply with no call open, so his land would be reported as the agent's doing at its end signal."
 mutant S-p14-checkout-doorway-open "C14.16" "$G" \
     '                for t in positional[:1]:        # the branch being checked out' \

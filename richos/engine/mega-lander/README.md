@@ -108,7 +108,27 @@ holding thread and confirms nothing was merged. Order among waiters is the
 kernel's rather than a first-come queue, because a ticket file is not
 kernel-released and a queue would have to decide whether a waiter is still
 alive. `RICHOS_LAND_LOCKS_DIR` overrides the home for tests and is refused if
-it resolves inside either per-conversation partition.
+it resolves inside either per-conversation partition. The path is derived in
+`workspaces.py` rather than `app.py`, because the protected-ref check below has
+to read it and `workspaces.py` cannot import `app.py`; one keying rule, in the
+layer both halves can reach.
+
+Beside each lock is that repository's **land record**, `<label>-<digest>.lands`
+— one appended JSON line per land, naming the conversation thread, the branch,
+the before tip and the commit. Appended and never overwritten, because the lock
+file itself holds one holder record that the next lander rewrites in place, so
+of two lands in a row only the second would survive. It is written at the moment
+the fast-forward happens, under the lock, so a repeated `integrate` records
+nothing.
+
+That record is what lets a thread be TOLD its base moved. `_restore_protected_refs`
+reports a fast-forward of a recorded branch when the land record attributes it to
+a **different** conversation (`<branch> MOVED UNDER YOU`, through
+`observe-created-refs.sh`), stays silent for this conversation's own land, and
+reports a move no record names **only** where that repository keeps land records
+at all — a repository with none is the terminal path, where Rich lands by hand
+and `guard-inflight-notify.sh` tells the teammates at the push. Nothing is
+written to any repository: a fast-forward is announced, not judged.
 
 ## Verification and installation
 

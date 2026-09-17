@@ -1792,6 +1792,144 @@ class Point14_IntegrationBranch(Base):
                           if str(h.get("fact", "")).startswith("protected ref")],
                          ["protected ref moved (reported, not restored)", "protected ref restored"])
 
+    def test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not(self):
+        """THE SECOND HALF OF THE LAND LOCK (2026-09-17). The lock makes two
+        conversations' lands take turns; this is how the thread that WAITED
+        finds out. Its land moved the recorded branch under the other thread's
+        running agents, and until now that was the silent case — a descendant
+        carrying none of the agent's work, indistinguishable by shape from the
+        lead's own land.
+
+        It is not inferred from the shape here either. `integrate` appends a
+        land record naming the conversation that landed, and the check reads
+        it, so each case below is decided by the RECORD and never by what the
+        move looks like:
+
+          A  no land records for this repository  -> silent. The terminal path:
+             Rich's hand-run `git merge` writes no record, and reporting every
+             one of those would put an alarm on the most ordinary write the
+             branch ever receives. THE CONTROL FOR EVERY CASE BELOW.
+          B  a record naming ANOTHER thread       -> reported, with the thread,
+             the time and both tips.
+          C  a record naming THIS thread          -> silent. Its own agents
+             already know, and this is the positive control that B is not
+             simply "any record fires".
+          D  records in use, this move in none    -> reported as exactly that,
+             and never as "another conversation": a repository that keeps land
+             records can still be merged into by a hand at a terminal.
+          E  two lands in a row                   -> both are answered, which is
+             the whole reason the record is APPENDED rather than kept as a
+             field on the lock that the next lander overwrites.
+        """
+        run("git", "-C", self.entity, "branch", "dev/rec")
+        ws.record_integration(self.entity, "dev/rec", "body of work on a dev branch", self.sid)
+        aid, npath = self.spawn("zach-opus-land")
+        self.commit(npath, "land.txt")
+
+        def tip_now():
+            return run("git", "-C", self.entity, "rev-parse", "dev/rec").stdout.strip()
+
+        def a_land(message):
+            """A descendant of dev/rec carrying none of the agent's work: the
+            exact shape of a land, made without one."""
+            parent = tip_now()
+            child = run("git", "-C", self.entity, "commit-tree", parent + "^{tree}",
+                        "-p", parent, "-m", message).stdout.strip()
+            return parent, child
+
+        def move(call, child):
+            run("git", "-C", self.entity, "branch", "-f", "dev/rec", child)
+            self.post(aid, call=call)
+
+        def told():
+            return [(h["tip"], h["found"], h["why"]) for h in self.rec("zach-opus-land").get("history") or []
+                    if h.get("fact") == "another conversation landed on this branch"]
+
+        def record(branch, before, commit, thread, at):
+            ws.append_land_record(self.entity, {"schema": 1, "branch": branch, "before": before,
+                                                "commit": commit, "at": at, "thread_id": thread,
+                                                "entity_id": "depot", "session_id": "sess-" + thread})
+
+        # --- A. NO LAND RECORDS: SILENT, AND THE FILE REALLY IS ABSENT ------
+        self.assertFalse(os.path.exists(ws.land_record_path(self.entity)))
+        self.pre(aid, "tu-a")
+        before_a, child_a = a_land("the lead lands, by hand, at a terminal")
+        move("tu-a", child_a)
+        self.assertEqual(tip_now(), child_a)
+        self.assertEqual(told(), [])
+
+        # --- B. ANOTHER CONVERSATION'S LAND: REPORTED, AND IT NAMES IT ------
+        self.pre(aid, "tu-b")
+        before_b, child_b = a_land("thread-b lands its own reviewed work")
+        record("dev/rec", before_b, child_b, "thread-b", "2026-09-17T19:00:00Z")
+        with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
+            move("tu-b", child_b)
+        self.assertEqual([(t, f) for t, f, _w in told()], [(before_b, child_b)])
+        why = told()[0][2]
+        self.assertIn("thread-b", why)
+        self.assertIn("2026-09-17T19:00:00Z", why)
+        self.assertIn(before_b[:12], why)
+        self.assertIn(child_b[:12], why)
+        # AND NOTHING WAS PUT BACK. A report is not a write; the branch is where
+        # the other conversation left it.
+        self.assertEqual(tip_now(), child_b)
+
+        # --- C. THIS CONVERSATION'S OWN LAND: SILENT ------------------------
+        self.pre(aid, "tu-c")
+        before_c, child_c = a_land("thread-a lands its own reviewed work")
+        record("dev/rec", before_c, child_c, "thread-a", "2026-09-17T19:05:00Z")
+        with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
+            move("tu-c", child_c)
+        self.assertEqual(len(told()), 1)                  # still only B's
+
+        # --- D. RECORDS IN USE, AND THIS MOVE IN NONE -----------------------
+        self.pre(aid, "tu-d")
+        before_d, child_d = a_land("a hand at a terminal, in a repository that keeps records")
+        with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
+            move("tu-d", child_d)
+        self.assertEqual(len(told()), 2)
+        unnamed = told()[1][2]
+        self.assertIn("land records do not name", unnamed)
+        self.assertNotIn("conversation thread", unnamed)  # it claims no more than the record carries
+
+        # --- E. TWO LANDS IN A ROW, BOTH STILL ANSWERABLE -------------------
+        # The record is append-only, so the FIRST of the two is not erased by
+        # the second. One window spans both: the agent's snapshot predates them
+        # both and it is told about the tip it actually found.
+        before_e1, child_e1 = a_land("thread-b lands again")
+        record("dev/rec", before_e1, child_e1, "thread-b", "2026-09-17T19:10:00Z")
+        run("git", "-C", self.entity, "branch", "-f", "dev/rec", child_e1)
+        self.pre(aid, "tu-e")
+        before_e2, child_e2 = a_land("thread-c lands straight after")
+        record("dev/rec", before_e2, child_e2, "thread-c", "2026-09-17T19:11:00Z")
+        with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
+            move("tu-e", child_e2)
+        self.assertEqual(len(told()), 3)
+        self.assertIn("thread-c", told()[2][2])
+        # BOTH LANDS ARE STILL ON THE RECORD — the earlier one was not
+        # overwritten, and it still answers for the move it made.
+        kept = [(r["thread_id"], r["commit"]) for r in ws.land_records(self.entity)]
+        self.assertIn(("thread-b", child_e1), kept)
+        self.assertIn(("thread-c", child_e2), kept)
+        self.assertEqual(ws.land_by_another_conversation(self.entity, "dev/rec", before_e1, child_e1),
+                         "landed by conversation thread-b at 2026-09-17T19:10:00Z, %s -> %s"
+                         % (before_e1[:12], child_e1[:12]))
+
+        # --- F. AFTER THE AGENT'S LAST CALL, WITH NO WINDOW OPEN ------------
+        # The end-of-run comparison is made against the last snapshot, which can
+        # be minutes old, and every descendant there is silent for the same
+        # reason case A is: it is the shape of the lead's land. A RECORD is not
+        # a shape, so this one is answered too — on the agent's durable record,
+        # which outlives the run that could no longer be told anything.
+        before_f, child_f = a_land("thread-b lands after the agent's last call")
+        record("dev/rec", before_f, child_f, "thread-b", "2026-09-17T19:20:00Z")
+        run("git", "-C", self.entity, "branch", "-f", "dev/rec", child_f)
+        with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
+            self.finish(aid)
+        self.assertEqual(len(told()), 4)
+        self.assertIn("thread-b", told()[3][2])
+        self.assertIn("2026-09-17T19:20:00Z", told()[3][2])
+
     def test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run(self):
         """THE 2026-09-14 INCIDENT, as a test. Events 3, 4 and 5 of
         docs/verification/ref-write-forensics-2026-09-14.md: the engine moved
