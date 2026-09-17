@@ -728,3 +728,33 @@ Three rules for whoever renders it:
 **Missing this event costs a moment, never a message.** The notice is on disk before the emit
 is attempted, and the surface reads the durable store when the conversation opens and again at
 every turn boundary.
+
+## Quitting while work runs: `rich://quit-question`
+
+The ninth family, added 2026-09-17 with the window-closed process model (the background-work
+spec, revision 5, §2.5 and §2.5a; acceptance §7.4a). Source of truth:
+`richos/app/src-tauri/src/main.rs` — the constant `EVENT_QUIT_QUESTION` — with the decision
+and both sentences in `richos/app/src-tauri/src/lifecycle.rs`.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://quit-question` | He chose Quit while an assignment is running or waiting for him. The exit has ALREADY been prevented; this asks him what to do about it. | `{ say, quit, stay }` — the question and the two control labels, all three in his own terms |
+
+**The order is the whole of it, and it is not a preference.** The runtime reads the answer to
+`ExitRequested` synchronously — `let recv = rx.try_recv();`
+(`tauri-runtime-wry-2.11.4/src/lib.rs:4318`, `:4361`) — so an empty channel is not `Prevent`.
+A handler that waited for this question to be answered would have quit before it was asked.
+So the shell prevents first, returns, and emits this afterwards, from its own thread.
+
+Two rules for whoever renders it:
+
+1. **The safe answer is the default.** "Keep working" takes focus and Escape answers it. The
+   destructive control is never the one under the return key.
+2. **Answer it; never dismiss it.** The exit is already prevented, so a sheet closed without
+   an answer would leave him pressing Quit against an app that will not go away and says
+   nothing about why. Both answers are commands: `cancel_quit` and `confirm_quit_and_stop`.
+
+**Closing the WINDOW raises nothing here, which is the point of the whole change.** With work
+registered, the last window closing keeps the process alive with no window and no question —
+the CEO's decision, 2026-09-17: *"OK, window-closed only."* The Dock icon brings the window
+back. With nothing registered, closing the last window still quits exactly as it always has.

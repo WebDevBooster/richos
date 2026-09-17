@@ -140,7 +140,7 @@ struct QueuedProactiveEmit {
 /// have been calibrated out: 2.3× on the lightest run, 40.6× on the heaviest, same code,
 /// same adapter, same day. It is unbounded in that direction, which is why it may never
 /// again be the primary trigger.
-const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+pub(crate) const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
 /// Fallback context-window budget, used ONLY while no `usage_update` has arrived for the
 /// current lease. Overridable via `set_context_budget`.
@@ -152,10 +152,10 @@ const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 /// has told us nothing, and guessing HIGH there is the dangerous direction (it delays
 /// rotation on the one path that has no real signal). Guessing low costs a rotation;
 /// guessing high risks the hard wall.
-const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 200_000;
+pub(crate) const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 200_000;
 /// continuity design §8 Q2's recommended starting point: "~70% as the starting point,
 /// tuned in dogfood." Overridable via `set_context_budget`.
-const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
+pub(crate) const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
 /// The fraction of the MEASURED window past which a lease is treated as in danger of
 /// hitting the hard context wall **inside the turn that is currently running** — the one
 /// place continuity §3.1 forbids rotating.

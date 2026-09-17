@@ -330,6 +330,26 @@ const SURFACES = [
       await overlaySettled(p, "#permission-sheet");
     },
   },
+  {
+    name: "quit-question",
+    what: "the question he is asked before a quit stops running background work",
+    // **Raised through the sheet's own entry point, not a copy of it.** The shell emits
+    // `rich://quit-question` from its exit arm, which needs a real Tauri event and a real
+    // menu press; `RichQuitQuestion.show` is the same function that listener calls, with the
+    // same payload shape, so what is measured here is the sheet the app renders.
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.RichQuitQuestion.show({
+          say:
+            "You have 1 assignment still running in the background. Quitting stops the work. " +
+            "Everything it has done so far is kept, and nothing is landed in your repository.",
+          quit: "Quit and stop the work",
+          stay: "Keep working",
+        })
+      );
+      await overlaySettled(p, "#quit-question");
+    },
+  },
   ...[false, true].map(showPanel => ({
     name: showPanel ? "saved-work" : "saved-work-chip",
     what: showPanel ? "saved work receipts in the work summary" : "the visible saved-work disclosure control",

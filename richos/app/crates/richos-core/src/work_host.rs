@@ -42,11 +42,22 @@
 //! standing grant and the permission queue's hold are still one each, created and released
 //! with the assignment.
 //!
-//! **What is deliberately NOT here, because it is the next slice.** Rows 5 and 9 of the
-//! spec's §0 table: the window-closed process model (§2.4/§2.4a/§2.5) and recovery (§6).
-//! [`WorkHost::open_assignments`] and [`WorkHost::settlement`] are the two seams those need
-//! and are built here; nothing calls them from an exit arm yet, and nothing in this file
-//! reconciles a receipt after a crash.
+//! **4. The back end renews itself, and only ever between assignments.** Sage's finding 11
+//!    on the CEO's page: a STANDING back end per thread is a provider session that
+//!    accumulates context for as long as the thread lives — *"forever"* is his own word for
+//!    what a thread does — and the annex never had this problem, because its work lease was
+//!    short-lived. [`WorkHost::rotate_if_needed`] is the seam, at the one moment
+//!    continuity §3.1 allows: a completed assignment, with nothing live. The successor is
+//!    primed from the durable register rather than from a transcript, which is what makes
+//!    the renewal crash-safe and cheap.
+//!
+//! **Where rows 5 and 9 live.** This file holds their two seams — [`WorkHost::settlement`]
+//! and [`WorkHost::open_assignments`] — plus the three things the process model needs from
+//! a host: [`WorkNotifier::nothing_left_to_do`] (§2.4a's trigger, decided by the shell
+//! because only the shell knows whether a window is open), [`WorkHost::remember_binding`]
+//! (so his approval can resume an assignment after a relaunch) and the start-of-assignment
+//! pin that recovery reconciles against ([`crate::assignment::note_start`]). The
+//! reconciliation itself is [`crate::recovery`]; the exit arms are `src-tauri/src/main.rs`.
 
 use crate::assignment::{self, Assignment, AssignmentState, NoticeKind, PendingNotice, Registration};
 use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem, WorkAssignment};
@@ -69,6 +80,25 @@ use std::sync::{Arc, Condvar, Mutex};
 /// `richos-core` is UI-agnostic (`lib.rs`), and the Tauri shell supplies the emitter.
 pub trait WorkNotifier: Send + Sync {
     fn raised(&self, thread_id: &str, notice: &PendingNotice);
+
+    /// **An assignment has just finished and the register has nothing open left** — spec
+    /// §2.4a's trigger, and nothing more than the trigger.
+    ///
+    /// The decision it feeds is the shell's, because it turns on a question this crate
+    /// must not be able to ask: *is a window open?* §2.4a is *"when the last registered
+    /// assignment settles AND no window is open, the app quits itself"*, and `richos-core`
+    /// is UI-agnostic (`lib.rs`). So the host reports the half it can witness and the shell
+    /// owns the half it can.
+    ///
+    /// **It is not "settled".** It fires for any ending — settled, failed, interrupted —
+    /// because the question §2.4a asks is whether anything is still registered, not how the
+    /// last thing ended. An assignment blocked on his approval is still registered
+    /// (`AssignmentState::is_open`), so this does not fire for §7.8's case, which is
+    /// exactly the distinction §7.8 spends a paragraph on.
+    ///
+    /// The default is a no-op: a host whose notifier has nothing to do with windows says
+    /// nothing, which is the truthful answer for it.
+    fn nothing_left_to_do(&self) {}
 }
 
 /// The default: say nothing to anybody. Used by tests that are asserting on the durable
@@ -126,6 +156,21 @@ struct Inner {
     /// Bumped whenever this back end finishes one assignment, so a test can wait on progress
     /// without sleeping on a guess.
     completed: u64,
+    /// **What this back end has consumed since it was last (re)primed** — the estimate
+    /// half of the watermark, the same chars÷4 proxy the spine keeps
+    /// (`spine.rs:143`, `CHARS_PER_TOKEN_ESTIMATE`), and the fallback rather than the
+    /// primary trigger for the reason that constant's own doc gives: it was measured
+    /// wrong by 2.3× to 40.6×.
+    context_chars: usize,
+    /// The MEASURED `{used, size}` this back end's lease last reported, read off the
+    /// machinery stream as it goes past (`spine.rs:2034-2041` does the same for the
+    /// conversation). `None` until the first `usage_update` arrives.
+    context_usage: Option<crate::machinery::ContextUsage>,
+    /// How many times this back end has been rotated, and why the last one happened. Kept
+    /// so a test — and a boot log — can say that a rotation happened rather than infer it
+    /// from a session id changing.
+    rotations: u64,
+    last_rotation_reason: Option<String>,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -162,6 +207,10 @@ impl Backend {
                 binding: None,
                 closing: false,
                 completed: 0,
+                context_chars: 0,
+                context_usage: None,
+                rotations: 0,
+                last_rotation_reason: None,
             }),
             wake: Condvar::new(),
         })
@@ -191,7 +240,50 @@ pub struct WorkHost {
     /// Every assignment this host has ever taken on, so a boundary sweep cannot adopt one
     /// twice. Its own lock, because `enqueue` consults it while holding `inner`.
     seen: Mutex<std::collections::HashSet<String>>,
+    /// **The rotation budget — Sage's finding 11 on the CEO's page, and the only problem
+    /// the Two Riches shape creates that the engineering annex never had.**
+    ///
+    /// The annex's work lease was short-lived: prepare, dispatch, return. A STANDING
+    /// back-end Rich per thread is a provider session that accumulates context for as long
+    /// as the thread lives, which is forever — and *"forever"* is the CEO's own word for
+    /// what a thread does. Re-derived at `eef1580b` before building on it: the grep in the
+    /// finding — `context_chars|usage_update|watermark|rotate` against this file — still
+    /// returned **no matches**, so the gap was real and unchanged.
+    budget: Mutex<(usize, f64)>,
+    /// Where his repositories stand, for the pin taken when an assignment starts
+    /// (spec §6.1's Git half). Injected so this crate keeps no opinion about how a
+    /// repository is read, and so a build with no verified runtime says it could not look
+    /// rather than implying it did.
+    repositories: Mutex<Box<dyn crate::recovery::Repositories>>,
 }
+
+/// The context window this build assumes while a back end has reported nothing, and the
+/// fraction of it that schedules a rotation.
+///
+/// **Both numbers are the spine's, and they are re-exported rather than re-chosen.** The
+/// conversation lease's watermark has been tuned against measured traffic
+/// (`spine.rs:144-176`: the fallback window is deliberately NOT raised to the measured
+/// 1_000_000, and 0.70 is the continuity design's §8 Q2 starting point). A back end that
+/// rotated on a second, quietly different pair of numbers would be a second opinion about
+/// the same question, and the one that drifted would be the one nobody was watching.
+pub const DEFAULT_WORK_CONTEXT_WINDOW_TOKENS: usize = crate::spine::DEFAULT_CONTEXT_WINDOW_TOKENS;
+pub const DEFAULT_WORK_WATERMARK_RATIO: f64 = crate::spine::DEFAULT_WATERMARK_RATIO;
+
+/// What the outgoing back end is asked for at a rotation — **the compaction half**.
+///
+/// It asks for what the register cannot hold: what was in the middle of being worked out.
+/// It does not ask for a summary of the assignments, because those are read off disk and a
+/// model's recollection of them would be a second, softer copy of a record that already
+/// exists.
+const HANDOFF_ASK: &str = "You are about to hand this conversation's background work to a \
+    fresh connection. In at most five sentences, say what you were in the middle of that is \
+    not already written down in the assignment record: what you had worked out, what you \
+    were about to do next, and anything you had decided not to do and why. No preamble, and \
+    nothing you are only guessing at.";
+
+/// The bound on that answer, so one back end's verbosity cannot become the next one's
+/// priming. Roughly five sentences of prose.
+const HANDOFF_BUDGET_CHARS: usize = 1500;
 
 impl WorkHost {
     pub fn new(
@@ -208,7 +300,42 @@ impl WorkHost {
             notifier,
             desk,
             seen: Mutex::new(std::collections::HashSet::new()),
+            budget: Mutex::new((DEFAULT_WORK_CONTEXT_WINDOW_TOKENS, DEFAULT_WORK_WATERMARK_RATIO)),
+            // Nothing can be read until the shell says what to read with. Honest by
+            // construction: with no reader, an assignment is pinned with `head: None` and
+            // recovery says it could not look (`recovery.rs`).
+            repositories: Mutex::new(Box::new(crate::recovery::UnreadableRepositories)),
         })
+    }
+
+    /// The window and the watermark, same meaning as [`crate::spine::Spine::set_context_budget`].
+    /// Used by tests to make a rotation happen without a million tokens of traffic.
+    pub fn set_context_budget(&self, window_tokens: usize, watermark_ratio: f64) {
+        *self.budget.lock().unwrap() = (window_tokens.max(1), watermark_ratio.clamp(0.0, 1.0));
+    }
+
+    /// How his repositories are read for the start-of-assignment pin (spec §6.1).
+    pub fn set_repositories(&self, repositories: Box<dyn crate::recovery::Repositories>) {
+        *self.repositories.lock().unwrap() = repositories;
+    }
+
+    /// **Remember which company a conversation belongs to, without starting anything.**
+    ///
+    /// After a relaunch, an assignment that was waiting for him is still waiting for him
+    /// (§7.8, `recovery.rs`), and his approval has to be able to put it back on a lease.
+    /// [`Self::resume`] needs the ledger's thread binding to do that and must never rebuild
+    /// one — only the ledger can say which company a thread belongs to (`entity.rs`) — so
+    /// the boot sweep hands it over here.
+    ///
+    /// **It enqueues nothing.** §6.3 forbids anything that restarts work by itself, and
+    /// this is the seam that makes his decision POSSIBLE rather than a seam that takes it
+    /// for him. It does open that conversation's back-end desk (a parked thread on a
+    /// condition variable, no provider connection — [`Self::ensure_lease`] is still lazy),
+    /// which is the cost of being able to answer him at all.
+    pub fn remember_binding(self: &Arc<Self>, binding: &ThreadBinding) {
+        if let Some(backend) = self.backend_for(binding.thread_id()) {
+            backend.inner.lock().unwrap().binding = Some(binding.clone());
+        }
     }
 
     /// **The turn boundary, and the whole of it.** Spec §1.1: the assignment is recorded,
@@ -352,15 +479,41 @@ impl WorkHost {
                 }
             };
             let Some(Scheduled { binding, record, resumed }) = next else { return };
-            if backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id) {
+            // **A stop that landed between the dequeue and the start.** The ordinary
+            // queued-stop path never reaches here — `stop_assignment` takes that assignment
+            // off the queue itself — so this is the race: the stop was recorded a moment
+            // after this runner had already picked the assignment up. It still ENDS, so it
+            // takes the same boundary as every other ending below rather than an early
+            // `continue` that skips §2.4a's report; a windowless app whose last assignment
+            // ended down this path would otherwise sit there waiting for something that was
+            // never coming.
+            let ran = !backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id);
+            if ran {
+                self.run_one(&backend, &binding, &record, resumed);
+                let mut inner = backend.inner.lock().unwrap();
+                inner.completed += 1;
+                inner.live = None;
+                backend.wake.notify_all();
+            } else {
                 self.settle_stopped(&backend, &record);
-                continue;
             }
-            self.run_one(&backend, &binding, &record, resumed);
-            let mut inner = backend.inner.lock().unwrap();
-            inner.completed += 1;
-            inner.live = None;
-            backend.wake.notify_all();
+            // **THE ASSIGNMENT BOUNDARY, AND IT IS THE ONLY PLACE EITHER OF THESE HAPPENS.**
+            //
+            // Rotation first: a back end that has crossed its watermark is retired here,
+            // between two assignments, never inside one. The continuity design's §3.1 rule
+            // — rotation never happens inside a turn — is structural on this path rather
+            // than checked: this line cannot be reached while a work turn is in flight,
+            // because `run_one` has returned and `live` is `None`.
+            // A back end that never ran anything has consumed nothing, so this is a no-op
+            // on the stopped-while-queued path rather than a special case.
+            self.rotate_if_needed(&backend, &binding);
+            // Then §2.4a's report. It asks the REGISTER rather than this back end, because
+            // the question is whether anything at all is still registered anywhere — a
+            // second conversation's running assignment must keep the app alive just as
+            // this one's would.
+            if self.open_assignments().map(|open| open.is_empty()).unwrap_or(false) {
+                self.notifier.nothing_left_to_do();
+            }
         }
     }
 
@@ -405,6 +558,7 @@ impl WorkHost {
                 );
                 return;
             }
+            let session = lease.session_id().to_string();
             let mut inner = backend.inner.lock().unwrap();
             inner.cancel = lease.cancel_handle();
             inner.live = Some(LiveAssignment {
@@ -413,6 +567,24 @@ impl WorkHost {
                 thread_id: record.thread_id.clone(),
                 seat: record.seat.clone(),
             });
+            drop(inner);
+            // **WHAT A RELAUNCH WILL RECONCILE AGAINST, WRITTEN BEFORE THE WORK STARTS.**
+            //
+            // Spec §6.1 reconciles against the evidence file and against Git, and neither is
+            // reachable after a crash unless the session and the repository heads were
+            // written down first. This is the only moment both are known and the work has
+            // not yet begun. It is on the WORK lease, after his turn ended (§7.1), so the
+            // Git reads are not on the boundary his "answer in seconds" is measured at.
+            //
+            // A failure here is logged and never fatal: the work is more important than the
+            // pin, and recovery already says honestly that it has nothing to compare
+            // against when the pin is missing.
+            let pins = crate::recovery::pins_for(record, self.repositories.lock().unwrap().as_ref());
+            if let Err(error) =
+                assignment::note_start(&self.state, &record.entity_id, &record.thread_id, &record.id, &session, pins)
+            {
+                eprintln!("[richos] work: this assignment's starting point was not recorded: {error}");
+            }
         }
 
         // 3. The work turn. This is the long one, and nothing about it is on his turn.
@@ -424,13 +596,43 @@ impl WorkHost {
                 "Preparing the workspace and starting the work."
             },
         );
+        // **THE WATERMARK'S TWO INPUTS, READ AS THE TURN GOES PAST.** Same shape as the
+        // conversation's (`spine.rs:1980, 2034-2041`) and for the same reason: a
+        // `usage_update` lands in the evictable Tier B of the journal, so the stream is the
+        // only place it can be consumed. They are accumulated locally and written to the
+        // back end once, after the turn — a lock per streamed item would be the one cost
+        // this file has spent a module doc avoiding.
+        let prompt = brief_for(record, resumed);
+        // The SAME measure the spine takes, deliberately: the prompt sent plus the reply
+        // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
+        // 40.6×, measured (`spine.rs:138-143`) — which is exactly why it is the FALLBACK
+        // and the adapter's own `usage_update` is what actually decides below.
+        let mut chars = prompt.len();
+        let mut measured: Option<crate::machinery::ContextUsage> = None;
         let outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => lease.prompt(&brief_for(record, resumed), &mut |_item: TurnItem| {}),
+                Some(lease) => lease.prompt(&prompt, &mut |item: TurnItem| match item {
+                    TurnItem::Text { text, .. } => chars += text.len(),
+                    TurnItem::Machinery(record) => {
+                        // **The one machinery record that is READ rather than retained**,
+                        // same as `spine.rs:2034`. The back end's own machinery is not
+                        // otherwise journalled: its turns are never rendered.
+                        if let Some(usage) = record.context_usage() {
+                            measured = Some(usage);
+                        }
+                    }
+                }),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
+        {
+            let mut inner = backend.inner.lock().unwrap();
+            inner.context_chars += chars;
+            if let Some(usage) = measured {
+                inner.context_usage = Some(usage);
+            }
+        }
 
         // 4. The grant goes away with the assignment, whatever happened (spec §5.4).
         if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
@@ -602,6 +804,190 @@ impl WorkHost {
         self.forget_at_the_desk(record);
         self.raise(record, NoticeKind::Interrupted, &assignment::says::declined(&record.title));
         Ok(())
+    }
+
+    /// **Has this back end crossed its watermark?** Measured first, estimated only as a
+    /// fallback — the same rule and the same two branches as the conversation's
+    /// (`spine.rs:1288-1298`), so the two leases cannot come to disagree about what "full"
+    /// means.
+    fn watermark_reached(&self, inner: &Inner) -> bool {
+        let (window, ratio) = *self.budget.lock().unwrap();
+        match inner.context_usage {
+            // The adapter's own arithmetic, whenever it has spoken.
+            Some(usage) if usage.size > 0 => usage.fraction() >= ratio,
+            // Nothing measured yet: the chars÷4 proxy over the configured window. An
+            // undercount, which delays rotation rather than causing a spurious one.
+            _ => {
+                let threshold = (window as f64 * ratio) as usize;
+                inner.context_chars / crate::spine::CHARS_PER_TOKEN_ESTIMATE >= threshold
+            }
+        }
+    }
+
+    /// **ROTATION, AT AN ASSIGNMENT BOUNDARY AND NOWHERE ELSE** — Sage's finding 11, and
+    /// the shape the conversation spine already proved (`spine.rs:2953`, `rotate_lease`).
+    ///
+    /// *"A standing back-end Rich per thread is a provider session that accumulates context
+    /// for as long as the thread lives, which is forever … So the back end fills its
+    /// context window and there is no seam that notices or acts."* This is that seam.
+    ///
+    /// **Four properties, each of which is a test in this file.**
+    ///
+    /// 1. **Never inside a work turn.** It is called from the runner between two
+    ///    assignments, with `live` already `None`. Continuity §3.1 forbids mid-turn
+    ///    rotation, and the boundary makes it free: the host already serializes one
+    ///    assignment at a time onto this lease, so there is a safe moment between every
+    ///    pair and no mid-turn rotation is ever needed.
+    /// 2. **The successor is opened BEFORE the incumbent is dropped.** Same ordering and
+    ///    same reason as the spine's step 4: a spawn failure must leave the work on a
+    ///    still-working lease rather than strand the conversation lease-less.
+    /// 3. **Nothing of an assignment's is lost across it**, because nothing of an
+    ///    assignment's is held by the lease between assignments. The seat and the standing
+    ///    grant are per assignment and are bound and revoked inside `run_one`; an
+    ///    assignment that is still OPEN when a rotation happens — one blocked on his
+    ///    approval — re-binds both on the successor when he approves, through the same
+    ///    `bind_work_assignment` its first run used.
+    /// 4. **The payload is COMPACTION, not a transcript.** The successor is primed from
+    ///    the assignment register — the durable record — and from one short self-authored
+    ///    handoff the outgoing back end is asked for. The register is the crash-safe floor:
+    ///    it is on disk and it is the same thing recovery reads, so a rotation whose
+    ///    handoff ask fails still produces a successor that knows what it is carrying.
+    fn rotate_if_needed(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) {
+        {
+            let inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.live.is_some() || !self.watermark_reached(&inner) {
+                return;
+            }
+        }
+        // The reason is recorded before the attempt, so a FAILED rotation is still legible
+        // — the spine's rule that a failed rotation is durable rather than invisible.
+        let reason = {
+            let inner = backend.inner.lock().unwrap();
+            match inner.context_usage {
+                Some(_) => "context-watermark-measured",
+                None => "context-watermark-estimated",
+            }
+        };
+        if let Err(why) = self.rotate(backend, binding, reason) {
+            // Never fatal, and never silent. The incumbent is still in the chair and still
+            // works; the next boundary tries again.
+            eprintln!("[richos] back end: this conversation's work connection was not renewed ({why})");
+        }
+    }
+
+    fn rotate(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, reason: &str) -> Result<(), String> {
+        // Step 1 — the handoff, asked of the OUTGOING back end. One cheap internal turn,
+        // never rendered, and BEST EFFORT: a failure here is not fatal, because the
+        // register below is the floor. `prompt_context_only` is the no-tools path
+        // (`cognition.rs`), so this ask cannot take an action; its standing grant is closed
+        // at this point anyway, since grants live and die with an assignment (§5.4).
+        let mut handoff = String::new();
+        {
+            let mut lease = backend.lease.lock().unwrap();
+            if let Some(lease) = lease.as_mut() {
+                let said = lease.prompt_context_only(HANDOFF_ASK, &mut |item: TurnItem| {
+                    if let TurnItem::Text { text, .. } = item {
+                        // Bounded on the way in: a back end that answered with an essay
+                        // must not turn the successor's priming into one.
+                        if handoff.len() < HANDOFF_BUDGET_CHARS {
+                            handoff.push_str(text);
+                        }
+                    }
+                });
+                if said.is_err() {
+                    // Best effort, and the register below is the floor.
+                    handoff.clear();
+                }
+            }
+        }
+        handoff.truncate(handoff.char_indices().nth(HANDOFF_BUDGET_CHARS).map(|(i, _)| i).unwrap_or(handoff.len()));
+        // Step 2 — the successor, opened first.
+        let mut fresh = self
+            .factory
+            .lock()
+            .unwrap()
+            .spawn_work(binding)
+            .map_err(|e| e.to_string())?;
+        // Step 3 — the payload: the durable register, compacted, plus the handoff if the
+        // outgoing back end managed one.
+        let payload = self.handover_payload(binding, &handoff);
+        if let Err(why) = fresh.reprime(&payload, &mut |_item: TurnItem| {}) {
+            // The successor is dropped unused; the incumbent keeps working. A back end
+            // that could not be primed must never take an assignment, because an unprimed
+            // one would carry on without knowing what it is carrying.
+            return Err(why.to_string());
+        }
+        // Step 4 — the swap, and the accounting reset. The usage belongs to the session
+        // that consumed it; a successor that inherited the count would rotate itself on its
+        // first assignment (`spine.rs:249-256` makes the same point about a parked desk).
+        let session = fresh.session_id().to_string();
+        let mut lease = backend.lease.lock().unwrap();
+        *lease = Some(fresh);
+        let mut inner = backend.inner.lock().unwrap();
+        inner.lease_session = Some(session);
+        inner.context_chars = 0;
+        inner.context_usage = None;
+        inner.rotations += 1;
+        inner.last_rotation_reason = Some(reason.to_string());
+        Ok(())
+    }
+
+    /// **What the successor is told, and it is a digest rather than a transcript.**
+    ///
+    /// Everything here comes off the durable register (`assignment::read_all`) — the same
+    /// record recovery reads — so it is crash-safe, bounded, and true whether or not the
+    /// outgoing back end managed to say anything. No identifiers travel: the back end is
+    /// given the CEO's own words for each open assignment and its state, which is what it
+    /// needs to carry on, and ids are the app's (`desktop-work.md:42-43`).
+    fn handover_payload(&self, binding: &ThreadBinding, handoff: &str) -> String {
+        let mut payload = String::from(
+            "You are the standing background worker for one of the CEO's conversations, and \
+             this connection is taking over from the previous one. Nothing is running on you \
+             yet.\n",
+        );
+        match assignment::read_all(&self.state, &binding.entity_id().to_string(), binding.thread_id()) {
+            Ok(rows) => {
+                let open: Vec<&Assignment> = rows.iter().filter(|row| row.state.is_open()).collect();
+                if open.is_empty() {
+                    payload.push_str("\nNo assignment on this conversation is open right now.\n");
+                } else {
+                    payload.push_str("\nWhat is still open on this conversation:\n");
+                    for row in open.iter().take(20) {
+                        payload.push_str(&format!("- {} — {}\n", row.title, row.state.as_str()));
+                    }
+                }
+                let settled = rows.len() - open.len();
+                if settled > 0 {
+                    payload.push_str(&format!("\nAnd {settled} earlier assignment(s) here have already ended.\n"));
+                }
+            }
+            // Honest, and it changes nothing about what the successor may do: it takes its
+            // assignment from the host, not from this text.
+            Err(_) => payload.push_str("\nThe assignment record could not be read for this handover.\n"),
+        }
+        if !handoff.trim().is_empty() {
+            payload.push_str("\nWhat the previous connection said it was in the middle of:\n");
+            payload.push_str(handoff.trim());
+            payload.push('\n');
+        }
+        payload.push_str(
+            "\nWait for the assignment you are given. Stop at any step that would change his \
+             repository and wait for him to approve it.\n",
+        );
+        payload
+    }
+
+    /// How many times this conversation's back end has been renewed, and why the last one
+    /// was. For tests and for the boot log — never for him: he is never told about session
+    /// rotation.
+    pub fn rotations(&self, thread: &str) -> (u64, Option<String>) {
+        match self.backend(thread) {
+            None => (0, None),
+            Some(backend) => {
+                let inner = backend.inner.lock().unwrap();
+                (inner.rotations, inner.last_rotation_reason.clone())
+            }
+        }
     }
 
     /// **This conversation's back end opens once and stands** (the Two Riches spec). The
@@ -1037,16 +1423,43 @@ mod tests {
         /// What the OBLIGATION says. `None` means it cannot be read at all, which must
         /// never settle anything.
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        /// What this lease reports about its own context consumption, if anything — the
+        /// MEASURED half of the watermark, emitted the way the real client emits it
+        /// (`MachineryRecord::from_context_usage`, the only constructor for it).
+        usage: Arc<Mutex<Option<crate::machinery::ContextUsage>>>,
+        /// Every priming payload this lease was handed, so a rotation test can read what
+        /// the successor was actually told rather than assume it.
+        reprimes: Arc<Mutex<Vec<String>>>,
+        /// Every handoff ask the OUTGOING lease was given, and what it answered.
+        handoffs: Arc<Mutex<Vec<String>>>,
+        handoff_reply: String,
     }
 
     impl Cognition for WorkLease {
         fn session_id(&self) -> &str {
             &self.session
         }
-        fn reprime(&mut self, _t: &str, _o: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        fn reprime(&mut self, priming: &str, _o: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+            self.reprimes.lock().unwrap().push(priming.to_string());
             Ok(())
         }
+        fn prompt_context_only(
+            &mut self, text: &str, on: &mut dyn FnMut(TurnItem),
+        ) -> Result<String, CognitionError> {
+            self.handoffs.lock().unwrap().push(text.to_string());
+            on(TurnItem::Text { seq: 0, text: &self.handoff_reply });
+            Ok("end_turn".to_string())
+        }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+            if let Some(usage) = *self.usage.lock().unwrap() {
+                _on(TurnItem::Machinery(crate::machinery::MachineryRecord::from_context_usage(
+                    usage.used,
+                    usage.size,
+                    &serde_json::json!({"input_tokens": usage.used}),
+                    &self.session,
+                    0,
+                )));
+            }
             let deadline = std::time::Instant::now() + self.step;
             while std::time::Instant::now() < deadline {
                 if self.cancel.stop_seen.load(Ordering::SeqCst) {
@@ -1084,6 +1497,13 @@ mod tests {
         fence: Arc<Fence>,
         step: std::time::Duration,
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
+        usage: Arc<Mutex<Option<crate::machinery::ContextUsage>>>,
+        reprimes: Arc<Mutex<Vec<String>>>,
+        handoffs: Arc<Mutex<Vec<String>>>,
+        handoff_reply: Arc<Mutex<String>>,
+        /// The next `spawn_work` fails once, so the "a successor that cannot be opened
+        /// leaves the incumbent working" branch has a way to happen.
+        refuse_next: Arc<AtomicBool>,
         /// How many back-end leases this host has asked for. The CEO's §51 shape is ONE,
         /// standing, for every assignment — so this is an observable rather than a counter
         /// nobody reads.
@@ -1095,14 +1515,24 @@ mod tests {
             Err(CognitionError::Protocol("a conversation lease is not what this factory is for".into()))
         }
         fn spawn_work(&self, _binding: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
-            self.spawns.fetch_add(1, Ordering::SeqCst);
+            if self.refuse_next.swap(false, Ordering::SeqCst) {
+                return Err(CognitionError::Protocol("no second connection could be opened".into()));
+            }
+            let n = self.spawns.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(WorkLease {
-                session: "work-session-one".into(),
+                // The FIRST back end keeps the name every other test in this file already
+                // uses; a rotated successor is visibly a different session, which is what
+                // makes a rotation observable rather than inferred.
+                session: if n == 0 { "work-session-one".to_string() } else { format!("work-session-rotated-{n}") },
                 bound: self.bound.clone(),
                 revoked: self.revoked.clone(),
                 cancel: self.fence.clone(),
                 step: self.step,
                 obligation: self.obligation.clone(),
+                usage: self.usage.clone(),
+                reprimes: self.reprimes.clone(),
+                handoffs: self.handoffs.clone(),
+                handoff_reply: self.handoff_reply.lock().unwrap().clone(),
             }))
         }
     }
@@ -1126,6 +1556,11 @@ mod tests {
         obligation: Arc<Mutex<Option<crate::cognition::ObligationState>>>,
         desk: Arc<crate::permissions::PermissionDesk>,
         spawns: Arc<AtomicUsize>,
+        usage: Arc<Mutex<Option<crate::machinery::ContextUsage>>>,
+        reprimes: Arc<Mutex<Vec<String>>>,
+        handoffs: Arc<Mutex<Vec<String>>>,
+        handoff_reply: Arc<Mutex<String>>,
+        refuse_next: Arc<AtomicBool>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -1140,6 +1575,11 @@ mod tests {
         let notices = Arc::new(Recorder(Mutex::new(Vec::new())));
         let obligation = Arc::new(Mutex::new(None));
         let spawns = Arc::new(AtomicUsize::new(0));
+        let usage = Arc::new(Mutex::new(None));
+        let reprimes = Arc::new(Mutex::new(Vec::new()));
+        let handoffs = Arc::new(Mutex::new(Vec::new()));
+        let handoff_reply = Arc::new(Mutex::new(String::new()));
+        let refuse_next = Arc::new(AtomicBool::new(false));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -1147,10 +1587,16 @@ mod tests {
             step: std::time::Duration::from_millis(step_ms),
             obligation: obligation.clone(),
             spawns: spawns.clone(),
+            usage: usage.clone(),
+            reprimes: reprimes.clone(),
+            handoffs: handoffs.clone(),
+            handoff_reply: handoff_reply.clone(),
+            refuse_next: refuse_next.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
-        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns }
+        Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
+            usage, reprimes, handoffs, handoff_reply, refuse_next }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -1163,6 +1609,16 @@ mod tests {
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
         }
+    }
+
+    /// Give one back-end session a readable, empty evidence file: every worker it started
+    /// was observed ending. Without this the settle check answers "still running", which is
+    /// the correct honest answer and not the one these tests are about.
+    fn witnessed(state: &Path, session: &str) {
+        let folder = state.join("evidence").join(session);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
     }
 
     fn until_live(host: &Arc<WorkHost>) {
@@ -1455,6 +1911,8 @@ mod tests {
             registered_at_ms: 0,
             updated_at_ms: 0,
             notices: Vec::new(),
+            work_session: None,
+            repository_pins: Vec::new(),
         };
         let brief = brief_for(&record, false);
         assert!(brief.contains("landing the three branches"));
@@ -1879,6 +2337,210 @@ mod tests {
         // per-assignment stop follows, one level up.
         h.host.stop_assignment("depot", "thread-two", &two.id).unwrap();
         assert!(h.host.live_on("thread-one").is_some(), "stopping one conversation stopped the other");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **Sage's finding 11, walked: the back end that runs for weeks renews itself, and an
+    /// assignment that is still open lives across the renewal without losing its binding,
+    /// its seat or its grant.**
+    ///
+    /// The first assignment crosses the watermark and stops at a step of his (`blocked`).
+    /// The rotation happens at the boundary AFTER it — never inside its turn. Then he
+    /// approves, and the SAME assignment is bound again, on the NEW back end, with the same
+    /// seat and a fresh grant. That is the whole of "without losing an assignment's
+    /// binding, seat or grant across a rotation".
+    #[test]
+    fn the_back_end_renews_itself_at_a_boundary_and_an_open_assignment_survives_it() {
+        let h = harness(5);
+        h.host.start();
+        // The MEASURED branch: the adapter reports a window it has nearly filled, which is
+        // the primary trigger (`spine.rs:1288-1298`), estimate only as fallback.
+        *h.usage.lock().unwrap() = Some(crate::machinery::ContextUsage { used: 800_000, size: 1_000_000 });
+        *h.handoff_reply.lock().unwrap() =
+            "I had read the three branches and was about to ask him about the second one.".into();
+        // It runs, its workers end, and its obligation is still open: ready for him.
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        // Both back ends' workers are witnessed ending — the incumbent's and the
+        // successor's — so the only thing deciding an outcome here is the obligation.
+        witnessed(&h.state, "work-session-one");
+        witnessed(&h.state, "work-session-rotated-1");
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        // Its state was written before the rotation and is untouched by it.
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap().state,
+            AssignmentState::Blocked
+        );
+
+        // THE ROTATION happened at the boundary, once, and it is observable rather than
+        // inferred: the back end's session id moved.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.rotations("thread-one").0 == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let (rotations, reason) = h.host.rotations("thread-one");
+        assert_eq!(rotations, 1, "the back end never renewed itself");
+        assert_eq!(reason.as_deref(), Some("context-watermark-measured"));
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-rotated-1".to_string()]);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "a second back end was opened, and only one");
+
+        // THE COMPACTION: the successor was primed from the durable register — his own
+        // words for what is open — plus the outgoing back end's five sentences. No
+        // identifiers travel.
+        let priming = h.reprimes.lock().unwrap().clone();
+        assert_eq!(priming.len(), 1, "the successor was not primed");
+        let priming = &priming[0];
+        assert!(priming.contains("landing the three branches"), "{priming}");
+        assert!(priming.contains("blocked"), "{priming}");
+        assert!(priming.contains("about to ask him about the second one"), "{priming}");
+        assert!(!priming.contains(&receipt.id), "an identifier reached the back end: {priming}");
+        assert!(!priming.contains("work-seat:"), "a seat reached the back end: {priming}");
+        assert_eq!(h.handoffs.lock().unwrap().len(), 1, "the outgoing back end was not asked for a handoff");
+
+        // HIS APPROVAL, AFTER THE ROTATION. The same assignment goes back on the NEW back
+        // end and binds the same seat again — the grant and the seat are per assignment and
+        // are rebuilt by the same call its first run used.
+        let bound_before = h.bound.lock().unwrap().len();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        h.host.apply_decision(
+            &crate::ecs::Binding {
+                entity_id: "depot".into(),
+                thread_id: "thread-one".into(),
+                session_id: "work-session-rotated-1".into(),
+                turn_id: record.obligation_id.clone(),
+                audience: "worker".into(),
+                revision: 1,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let bound = h.bound.lock().unwrap().clone();
+        assert_eq!(bound.len(), bound_before + 1, "the approved assignment never reached the new back end");
+        let last = bound.last().unwrap();
+        assert_eq!(last.assignment_id, receipt.id);
+        assert_eq!(last.seat, format!("work-seat:{}", record.obligation_id), "the seat changed across a rotation");
+        assert_eq!(last.entity_id, "depot");
+        // And it finished on the successor.
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap().state,
+            AssignmentState::Settled
+        );
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **The three refusals that keep a renewal from becoming a new failure mode.**
+    ///
+    /// 1. A back end under its watermark is never rotated — the positive control for the
+    ///    test above, and the state every back end is in almost always.
+    /// 2. A successor that cannot be opened leaves the incumbent working, rather than
+    ///    stranding the conversation lease-less (the spine's own ordering rule).
+    /// 3. Rotation happens only between assignments: it is asked for once per completed
+    ///    assignment and never while one is live.
+    #[test]
+    fn a_back_end_under_its_watermark_is_left_alone_and_a_failed_renewal_keeps_the_one_that_works() {
+        let h = harness(5);
+        h.host.start();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        // Nothing reported, and the estimate nowhere near a 200_000-token window.
+        h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(h.host.rotations("thread-one").0, 0, "a quiet back end was rotated");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-one".to_string()]);
+
+        // Now make the watermark reachable on the ESTIMATE alone — no measurement at all —
+        // and refuse the successor. The incumbent must still be in the chair.
+        h.host.set_context_budget(1, 0.0);
+        h.refuse_next.store(true, Ordering::SeqCst);
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        // The rotation was attempted and failed; nothing was swapped and nothing is lost.
+        assert_eq!(h.host.rotations("thread-one").0, 0, "a failed renewal was counted as one");
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-one".to_string()]);
+
+        // And the next boundary tries again, successfully — so a refusal delays a renewal
+        // rather than ending them.
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.rotations("thread-one").0 == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(h.host.rotations("thread-one").0, 1);
+        assert_eq!(h.host.rotations("thread-one").1.as_deref(), Some("context-watermark-estimated"));
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **§2.4a's trigger, and the distinction §7.8 spends a paragraph on.**
+    ///
+    /// The host reports "nothing is registered any more" when an assignment ends and the
+    /// register is empty — and does NOT report it when the assignment ended by stopping at
+    /// a step of his, because that assignment is still registered and he is coming back to
+    /// it. The shell turns the first into a quit and never sees the second.
+    #[test]
+    fn nothing_left_to_do_fires_on_an_empty_register_and_never_on_one_waiting_for_him() {
+        struct Counter {
+            idle: AtomicUsize,
+        }
+        impl WorkNotifier for Counter {
+            fn raised(&self, _thread: &str, _notice: &PendingNotice) {}
+            fn nothing_left_to_do(&self) {
+                self.idle.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let h = harness(5);
+        let counter = Arc::new(Counter { idle: AtomicUsize::new(0) });
+        // A second host over the same state, with a notifier that counts.
+        let host = WorkHost::new(
+            &h.state,
+            Box::new(WorkFactory {
+                bound: h.bound.clone(),
+                revoked: h.revoked.clone(),
+                fence: h.fence.clone(),
+                step: std::time::Duration::from_millis(5),
+                obligation: h.obligation.clone(),
+                spawns: h.spawns.clone(),
+                usage: h.usage.clone(),
+                reprimes: h.reprimes.clone(),
+                handoffs: h.handoffs.clone(),
+                handoff_reply: h.handoff_reply.clone(),
+                refuse_next: h.refuse_next.clone(),
+            }),
+            counter.clone(),
+            Arc::clone(&h.desk),
+        );
+        host.start();
+
+        // 1. It stops at a step of his: still registered, so the app must stay up.
+        witnessed(&h.state, "work-session-one");
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(counter.idle.load(Ordering::SeqCst), 0, "the app would have quit on work waiting for him");
+
+        // 2. It settles, and nothing is left open anywhere.
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let record = assignment::read_all(&h.state, "depot", "thread-one").unwrap().pop().unwrap();
+        host.stop_assignment("depot", "thread-one", &record.id).unwrap();
+        host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while counter.idle.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(counter.idle.load(Ordering::SeqCst) >= 1, "the last assignment settled and nothing said so");
+        assert!(host.open_assignments().unwrap().is_empty());
+        host.shutdown();
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }

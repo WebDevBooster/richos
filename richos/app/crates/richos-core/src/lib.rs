@@ -86,6 +86,7 @@ pub mod onboarding;
 pub mod onboarding_tools;
 pub mod provision;
 pub mod reachability;
+pub mod recovery;
 pub mod reprime;
 pub mod runtime;
 pub mod setup;
