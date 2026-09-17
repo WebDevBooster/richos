@@ -62,17 +62,47 @@ def notary_environment(path):
     return result
 
 
+CREDENTIAL_PREFIXES = ("RICHOS_NOTARY_", "TAURI_SIGNING_", "APPLE_")
+CREDENTIAL_NAMES = ("RICHOS_NOTARIZE", "RICHOS_SIGNING_IDENTITY")
+
+
+def is_credential(name):
+    return name.startswith(CREDENTIAL_PREFIXES) or name in CREDENTIAL_NAMES
+
+
+def split_credentials(env):
+    """Remove the signing and notarization variables from `env` and return them.
+
+    Only the steps that actually sign or notarize are given them back. The gates --
+    cargo test, the twelve script suites, the privacy sweep -- run without them, and
+    that is a correctness rule before it is a secrecy one. On 2026-09-16 the first
+    nightly attempt died on four package-app.test.sh cases that refuse when notary
+    credentials are absent or half-supplied: the credentials were not absent, because
+    this function's predecessor put the operator's real App Store Connect key into
+    every subprocess. A suite that can see a credential can also print it into a log
+    under ~/.richos-nightly/logs, which is the second reason and the smaller one.
+    """
+    return {name: env.pop(name) for name in list(env) if is_credential(name)}
+
+
 def local_environment():
+    """Return (environment, credentials). Nothing merges them but the signing steps."""
     env = os.environ.copy()
     # Explicit PATH also works from a fresh terminal, without an interactive shell.
     env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     for key in ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG", "CARGO_TARGET_DIR",
-                "TAURI_SIGNING_PRIVATE_KEY", "RUN_TESTS_DECLARED_GAPS"):
+                "RUN_TESTS_DECLARED_GAPS"):
         env.pop(key, None)
-    env.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
-    env["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
-        env.get("TAURI_SIGNING_PRIVATE_KEY_PATH", Path.home() / ".richos-signing/richos-updater.key")))
-    env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = env.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    # Whatever the operator's shell exported leaves the gate environment here, not
+    # only what notary.env supplies below.
+    credentials = split_credentials(env)
+    credentials.pop("TAURI_SIGNING_PRIVATE_KEY", None)  # The key's literal bytes: the path form is used.
+    credentials.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
+    credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
+        credentials.get("TAURI_SIGNING_PRIVATE_KEY_PATH", Path.home() / ".richos-signing/richos-updater.key")))
+    credentials["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = credentials.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    # Not a credential: the privacy deny-list that engine/scripts/lib/named-persons.py
+    # reads (line 297) for the `named-persons.sh --tree` gate. It stays with the gates.
     env["RICHOS_NAMED_PERSONS_FILE"] = str(private_file(
         env.get("RICHOS_NAMED_PERSONS_FILE", Path.home() / ".richos-privacy/named-persons")))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -81,7 +111,7 @@ def local_environment():
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=15"
     env["RICHOS_NIGHTLY_RUN_ID"] = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
-    return env
+    return env, credentials
 
 
 @contextmanager
@@ -99,14 +129,17 @@ def exclusive(state):
 
 
 class Runner:
-    def __init__(self, repo, state, env, log):
+    def __init__(self, repo, state, env, log, credentials=None):
         self.repo, self.state, self.env, self.log = repo, state, env, log
+        # Merged in only where `credentials=True` says a step signs or notarizes.
+        self.credentials = dict(credentials or {})
         self.source = state / "source"
 
-    def command(self, *args, cwd=None, capture=False, timeout=None):
+    def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False):
+        env = {**self.env, **self.credentials} if credentials else self.env
         try:
             result = subprocess.run([str(a) for a in args], cwd=cwd or self.source,
-                                    env=self.env, stdin=subprocess.DEVNULL, text=True,
+                                    env=env, stdin=subprocess.DEVNULL, text=True,
                                     stdout=subprocess.PIPE if capture else self.log,
                                     stderr=self.log, timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -140,16 +173,18 @@ class Runner:
         if any(r["type"] in {"creation", "update"} for r in rules):
             raise ValueError("repository rules block nightly-channel; configure its narrow exception first")
         self.command("cargo", "tauri", "--version", timeout=30)
-        if self.env.get("RICHOS_NOTARY_PROFILE") and not self.env.get("RICHOS_NOTARY_KEY"):
-            auth = ["--keychain-profile", self.env["RICHOS_NOTARY_PROFILE"]]
+        if self.credentials.get("RICHOS_NOTARY_PROFILE") and not self.credentials.get("RICHOS_NOTARY_KEY"):
+            auth = ["--keychain-profile", self.credentials["RICHOS_NOTARY_PROFILE"]]
         else:
-            auth = ["--key", self.env["RICHOS_NOTARY_KEY"], "--key-id", self.env["RICHOS_NOTARY_KEY_ID"],
-                    "--issuer", self.env["RICHOS_NOTARY_ISSUER"]]
-        self.command("xcrun", "notarytool", "history", *auth, "--output-format", "json", capture=True, timeout=90)
+            auth = ["--key", self.credentials["RICHOS_NOTARY_KEY"],
+                    "--key-id", self.credentials["RICHOS_NOTARY_KEY_ID"],
+                    "--issuer", self.credentials["RICHOS_NOTARY_ISSUER"]]
+        self.command("xcrun", "notarytool", "history", *auth, "--output-format", "json",
+                     capture=True, timeout=90, credentials=True)
         identities = self.command("security", "find-identity", "-v", "-p", "codesigning", capture=True)
         import re
         found = re.findall(r'\b([0-9A-F]{40}) "Developer ID Application:[^"]+"', identities)
-        wanted = self.env.get("RICHOS_SIGNING_IDENTITY")
+        wanted = self.credentials.get("RICHOS_SIGNING_IDENTITY")
         if wanted:
             if wanted not in identities:
                 raise ValueError("configured Developer ID identity is unavailable")
@@ -162,13 +197,16 @@ class Runner:
             # Do not copy protected system-file flags or extended attributes.
             shutil.copyfile("/usr/bin/true", probe)
             probe.chmod(0o755)
-            self.command("codesign", "--force", "--sign", wanted, "--timestamp", "--options", "runtime", probe, timeout=90)
+            self.command("codesign", "--force", "--sign", wanted, "--timestamp", "--options", "runtime",
+                         probe, timeout=90, credentials=True)
             self.command("codesign", "--verify", "--strict", probe, timeout=30)
-            self.command("cargo", "tauri", "signer", "sign", "-f", self.env["TAURI_SIGNING_PRIVATE_KEY_PATH"],
-                         "-p", self.env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], probe, timeout=30)
+            self.command("cargo", "tauri", "signer", "sign",
+                         "-f", self.credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"],
+                         "-p", self.credentials["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"],
+                         probe, timeout=30, credentials=True)
             # Public key configuration must match the existing local key pair. The
             # release pipeline also verifies the actual artifact signature before publishing.
-            public = Path(self.env["TAURI_SIGNING_PRIVATE_KEY_PATH"] + ".pub").read_text().strip()
+            public = Path(self.credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] + ".pub").read_text().strip()
             conf = json.loads((self.source / "richos/app/src-tauri/tauri.conf.json").read_text())
             expected = conf["plugins"]["updater"]["pubkey"].strip()
             if public not in (expected, base64.b64decode(expected).decode().strip()):
@@ -193,6 +231,9 @@ class Runner:
         self.env["RICHOS_RUNTIME_DIR"] = str(path)
 
     def gates(self):
+        # Deliberately without `credentials=True`: a gate that can see the operator's
+        # notary key answers questions the suites ask precisely because the answer
+        # should be absent. See split_credentials() and package-app.test.sh section E.
         print("Running core, updater and packaging checks...", flush=True)
         self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/Cargo.toml", "-p", "richos-core")
         self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/crates/richos-user-update/Cargo.toml")
@@ -223,8 +264,11 @@ class Runner:
             return
         out = self.state / "releases" / info["tag"]
         print(f"Building and publishing {info['tag']}...", flush=True)
+        # The publisher builds, signs, notarizes and signs the updater manifest; it is
+        # the one step that reads these variables out of its environment
+        # (make-release.sh:359 and its notarize_env at :410).
         self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
-                     "--plan", plan_path, "--out", out)
+                     "--plan", plan_path, "--out", out, credentials=True)
         print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}", flush=True)
 
 
@@ -240,14 +284,14 @@ def main():
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
     state = args.state_dir.expanduser().absolute()
-    env = local_environment()
+    env, credentials = local_environment()
     with exclusive(state):
         logs = state / "logs"
         logs.mkdir(exist_ok=True)
         log_path = logs / (env["RICHOS_NIGHTLY_RUN_ID"] + ".log")
         print(f"Run log: {log_path}", flush=True)
         with log_path.open("w") as log:
-            Runner(args.repo.resolve(), state, env, log).perform(
+            Runner(args.repo.resolve(), state, env, log, credentials).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None)
 
 
