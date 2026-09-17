@@ -20,7 +20,8 @@ import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCH
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
 import { detectInjection, classifyTrust, promotionGuard, INJECTION_PATTERNS } from '../lib/workspace/immune.js';
 import { assertDirectGoogleEndpoint, assertEvidenceOutsideProductRepo, assertLocalTokenLocation, assertLoopbackRedirect, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
-import { workspaceLedgerPath as auditLedgerPath, REPO_ROOT, corpusRoot, dropZone, workspaceZone } from '../lib/config.js';
+import { workspaceLedgerPath as auditLedgerPath, REPO_ROOT, corpusRoot, dropZone, workspaceZone, legacyUnfiledEvidenceRoot } from '../lib/config.js';
+import { corpusPaths } from '../../../engine/loro/lib/layout.js';
 import { entitiesFilePath } from '../lib/entities.js';
 import { pkcePair, buildAuthUrl, exchangeCode, refreshAccessToken, revokeToken } from '../lib/workspace/oauth.js';
 import { TokenManager, TESTING_REFRESH_TOKEN_TTL_MS, REFRESH_EXPIRY_WARN_MS } from '../lib/workspace/token-manager.js';
@@ -515,12 +516,29 @@ test('privacy: evidence follows the CEO corpus and its ACTIVE COMPANY partition'
   const saved = { ...process.env };
   try {
     delete process.env.RICHOS_DROP_ZONE;
+    delete process.env.RICHOS_WORKSPACE_ZONE;
     process.env.LORO_CORPUS = path.join(os.tmpdir(), 'ceo-corpus');
     process.env.RICHOS_ACTIVE_COMPANY = 'northwind';
     assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'companies', 'northwind', 'evidence', 'meetings'));
     delete process.env.RICHOS_ACTIVE_COMPANY;
     // Filing may never BLOCK a write: with no company bound, evidence still lands, unfiled.
-    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'ceo', 'unfiled', 'evidence', 'meetings'));
+    // And it lands at ceo/EVIDENCE/unfiled, not ceo/unfiled/EVIDENCE — the second spelling is inside
+    // the `ceo/unfiled` record directory, which the compiler walks recursively.
+    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'ceo', 'evidence', 'unfiled', 'meetings'));
+    assert.equal(workspaceZone(), path.join(os.tmpdir(), 'ceo-corpus', 'ceo', 'evidence', 'unfiled', 'workspace'));
+    // The zone is outside every directory `layout.js` enumerates as a page or record directory.
+    // Asserted against the path builders themselves, never against a remembered list.
+    const corpus = path.join(os.tmpdir(), 'ceo-corpus');
+    const dirs = corpusPaths(corpus);
+    const compiled = [...dirs.pageDirs, ...dirs.recordDirs].map((s) => s.dir);
+    const inside = compiled.filter((d) => (dropZone() + path.sep).startsWith(d + path.sep));
+    assert.deepEqual(inside, [], `the unfiled evidence zone must not sit inside a compiled directory`);
+    // POSITIVE CONTROL: the same check DOES catch the path this moved away from.
+    const legacy = legacyUnfiledEvidenceRoot(corpus);
+    assert.ok(
+      compiled.some((d) => (legacy + path.sep).startsWith(d + path.sep)),
+      'the pre-move path must still be detected as inside a compiled directory, or this check proves nothing',
+    );
   } finally {
     Object.assign(process.env, saved);
   }

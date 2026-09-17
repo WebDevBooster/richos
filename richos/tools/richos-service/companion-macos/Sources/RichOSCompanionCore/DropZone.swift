@@ -92,9 +92,12 @@ public enum DropZone {
         } else {
             let corpus = absolute(nonEmpty(env["LORO_CORPUS"]) ?? defaultCorpusRoot, home: home)
             let company = nonEmpty(env["RICHOS_ACTIVE_COMPANY"])
-            // `config.js#evidenceRoot`: companies/<c>/evidence, else ceo/unfiled/evidence.
+            // `config.js#evidenceRoot`: companies/<c>/evidence, else ceo/evidence/unfiled.
+            // The unfiled branch is ceo/EVIDENCE/unfiled and not ceo/unfiled/EVIDENCE: `ceo/unfiled`
+            // is a compiled record directory that loro walks recursively, so the old spelling put
+            // raw transcripts inside company memory. Moved 2026-09-17 — keep in step with config.js.
             let evidence = company.map { (corpus as NSString).appendingPathComponent("companies/\($0)/evidence") }
-                ?? (corpus as NSString).appendingPathComponent("ceo/unfiled/evidence")
+                ?? (corpus as NSString).appendingPathComponent("ceo/evidence/unfiled")
             resolution = Resolution(
                 path: (evidence as NSString).appendingPathComponent("meetings"),
                 source: .corpus,

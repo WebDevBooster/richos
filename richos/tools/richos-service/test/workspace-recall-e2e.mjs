@@ -382,7 +382,7 @@ check('the promoted record names its origin, its vendor item id and how it was p
   assert.match(text, /provenance: \{ method: rich_inferred, source: "workspace:google:calendar", ref: "google:calendar:/);
   assert.match(text, /^tags: \[workspace, google, calendar, event, tuesday, september\]$/m);
   assert.match(text, /^observedAt: "2026-09-1[56]T/m, 'dated by the event, not by the sync');
-  assert.match(text, /Evidence: ceo\/unfiled\/evidence\/workspace\/google\/calendar\/.*\/item\.json/,
+  assert.match(text, /Evidence: ceo\/evidence\/unfiled\/workspace\/google\/calendar\/.*\/item\.json/,
     'the record points at the exact evidence revision it was promoted from');
 });
 

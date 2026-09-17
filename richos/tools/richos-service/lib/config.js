@@ -78,13 +78,37 @@ export function activeCompany() {
  * block a write** (mechanism 5), and a call that arrives before the CEO has named a company still has
  * to land somewhere he can find. Recorded as a deviation in
  * the loro-corpus defects brief, 2026-08-26.
+ *
+ * The unfiled branch is `ceo/evidence/unfiled/` and NOT `ceo/unfiled/evidence/`, and the ORDER of
+ * those two segments is the whole point. `ceo/unfiled` is an enumerated RECORD directory in both
+ * path builders (`layout.js` `corpusPaths`, `repoPaths`), walked recursively with only a `.md`
+ * filter — so the old spelling put every meeting transcript and every Workspace evidence revision
+ * INSIDE compiled memory, held out by nothing but the fact that the files happen to be named
+ * `item.json` and `content.txt`. `pipeline.js` declares `transcript: 'transcript.md'` into that
+ * tree, so the first call transcribed with no company bound would have turned raw call text into
+ * quotable company memory, silently. `ceo/evidence` is in neither builder's `pageDirs` nor its
+ * `recordDirs`, so the new spelling is outside compiled memory by construction while keeping
+ * "filing may never block a write" exactly as it was. `neverWalk()` now also refuses any directory
+ * named `evidence`, as a second and independent barrier.
+ *
+ * Moved 2026-09-17, executing §4 of the evidence-retrieval ruling. `bin/richos-service.js
+ * migrate-evidence-zone` relocates a corpus written under the old spelling.
  * @returns {string}
  */
 export function evidenceRoot() {
   const company = activeCompany();
   return company
     ? path.join(corpusRoot(), 'companies', company, 'evidence')
-    : path.join(corpusRoot(), 'ceo', 'unfiled', 'evidence');
+    : path.join(corpusRoot(), 'ceo', 'evidence', 'unfiled');
+}
+
+/**
+ * The pre-2026-09-17 unfiled evidence root — retained ONLY so the migration and its tests can name
+ * the place they are moving away from. Nothing may write here.
+ * @returns {string}
+ */
+export function legacyUnfiledEvidenceRoot(root = corpusRoot()) {
+  return path.join(root, 'ceo', 'unfiled', 'evidence');
 }
 
 /**
