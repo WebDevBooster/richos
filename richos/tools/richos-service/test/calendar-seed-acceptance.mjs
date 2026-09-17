@@ -118,8 +118,18 @@ export function checkZone(opts) {
   const rows = [];
   for (const row of derived.rows) {
     if (done.has(row.sourceItemId)) continue;
-    const members = row.groupMembers && row.groupMembers.length > 1 ? row.groupMembers : [row.sourceItemId];
-    for (const id of members) done.add(id);
+    const copies = row.groupMembers && row.groupMembers.length > 1 ? row.groupMembers : [row.sourceItemId];
+    for (const id of copies) done.add(id);
+    // A GROUP'S COPIES ARE NOT ALWAYS DISTINCT SOURCE ITEMS, AND ASKING THE ZONE ABOUT ONE OF THEM
+    // TWICE IS NOT TWO LANDINGS. `cross-calendar-dup` writes two copies under ONE `iCalUID`, and
+    // Google derives an event id FROM that uid (`idFromICalUID`, reproduced against the CEO's own
+    // manifest), so both copies come back with the same id and therefore the same `sourceItemId`.
+    // The first version of this loop observed the group member-by-member: one evidence entry, found
+    // twice, was reported as `2 copies landed` and the row FAILED on a live zone where the pipeline
+    // had done exactly the right thing — one item, one promoted record, its later revision
+    // superseding the earlier. The copies are still counted for the row's LABEL, because "1 of 2"
+    // is what the seed wrote; the zone is asked once per distinct item.
+    const members = [...new Set(copies)];
 
     const observations = members.map((id) => ({ id, ...observeOne(id) }));
     const present = observations.filter((o) => o.state !== 'absent');
@@ -137,8 +147,9 @@ export function checkZone(opts) {
     const pass = observed === expected && (observed !== 'held' || reason === row.reason);
     rows.push({
       fixture: row.fixture,
-      target: members.length > 1 ? `1 of ${members.length}` : row.target,
+      target: copies.length > 1 ? `1 of ${copies.length}` : row.target,
       sourceItemId: row.sourceItemId,
+      copies,
       members,
       expected,
       expectedReason: row.reason,
@@ -315,6 +326,33 @@ const PARTICIPANT_NEITHER_ORGANIZER_NOR_ATTENDEE = JSON.stringify({
   },
 });
 
+/**
+ * Google's own event id for a write that supplied an `iCalUID`: `_` + the uid in base32hex.
+ *
+ * Not a guess and not a hash chosen for convenience — it reproduces, character for character, the id
+ * Google returned for `cross-calendar-dup` on the CEO's account on 2026-09-17 (the manifest holds
+ * both, and they are equal). It is the reason two copies of one meeting on two calendars are ONE
+ * source item in his evidence zone, which is the fact the acceptance check has to be able to see.
+ * @param {string} uid
+ */
+export function idFromICalUID(uid) {
+  const alphabet = '0123456789abcdefghijklmnopqrstuv'; // base32hex (RFC 4648 §7), Google's choice
+  const bytes = Buffer.from(String(uid), 'utf8');
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return `_${out}`;
+}
+
 function httpResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -394,7 +432,16 @@ export function mockGoogleCalendar(opts = {}) {
   }
 
   function storeEvent(calendar, body, { imported = false } = {}) {
-    const id = body.id || `gen${calendars.size}${calendar.events.size}${etagCounter}`;
+    // A WRITE THAT SUPPLIES AN `iCalUID` DOES NOT GET TO CHOOSE ITS `id` — GOOGLE DERIVES ONE FROM
+    // THE UID, AND THE SAME UID THEREFORE PRODUCES THE SAME ID ON EVERY CALENDAR. Verified against
+    // the CEO's own account rather than assumed: his seed manifest records `cross-calendar-dup`'s
+    // two copies, written to two different calendars by two separate `events.insert` calls, both
+    // coming back as `_e9pjcdr2c4qj…`, which is exactly `_` + base32hex of the fixture's iCalUID.
+    // Before this line the mock invented a per-calendar `gen…` id, so the mocked loop modeled two
+    // copies the pipeline had to merge while the real account only ever had ONE item — and the
+    // acceptance check's own double-count (one landing observed once per group member) could not
+    // reproduce here at all.
+    const id = body.id || (body.iCalUID ? idFromICalUID(body.iCalUID) : `gen${calendars.size}${calendar.events.size}${etagCounter}`);
     const existingByUid = imported && body.iCalUID
       ? [...calendar.events.values()].find((e) => e.iCalUID === body.iCalUID)
       : null;
