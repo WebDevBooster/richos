@@ -87,13 +87,23 @@ const VENDOR_CREDENTIAL_REJECTED: [&str; 4] = [
 /// arm). Ours, not the vendor's, so matching it is matching our own structure.
 const OUR_STOPPED_AT_YOUR_REQUEST: &str = "stopped at your request";
 
+/// `provider-supervisor.py`'s own words when `execvp` cannot start the binary it was handed —
+/// measured verbatim on the 2026-09-17 candidate walk: `Provider could not start: [Errno 2]
+/// No such file or directory`. It fires from inside a FORKED CHILD, after `Command::spawn`
+/// has already succeeded spawning the supervisor itself, so `native.rs`'s own
+/// `NativeError::BinaryMissing` mapping — which depends on `Command::spawn` seeing `ENOENT`
+/// — never fires for it; the failure only surfaces here, two layers downstream, as this
+/// process's own stderr. First-party and ours to keep matching (not a vendor string that can
+/// be renamed underneath this file), so it is checked ahead of the generic IO prefix below.
+const OUR_PROVIDER_COULD_NOT_START: &str = "Provider could not start";
+
 /// `CognitionError::Io`'s `Display` prefix. A broken pipe, a closed child, a read that
 /// failed — the class where asking again is a real plan.
 const OUR_IO_PREFIX: &str = "cognition io:";
 
 /// Which kind of ending this was.
 ///
-/// Five arms, and the fifth is the honest one. Compare [`crate::upstream::UpstreamFault`],
+/// Six arms, and the last is the honest one. Compare [`crate::upstream::UpstreamFault`],
 /// which is shaped the same way and for the same reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterruptionCause {
@@ -103,6 +113,12 @@ pub enum InterruptionCause {
     /// A credential IS configured on this machine and was rejected. Also permanent until
     /// changed, and the person who can change it is whoever set RichOS up — not the CEO.
     CredentialRejected,
+    /// The `claude` binary itself could not be started — missing, or not runnable — on this
+    /// Mac. Permanent until whoever set RichOS up installs it or points RichOS at it; the
+    /// CEO cannot fix it from the chat surface. The 2026-09-17 candidate-walk defect: this
+    /// used to fall through to [`InterruptionCause::Transient`], promising a retry that could
+    /// never succeed.
+    ProviderMissing,
     /// The CEO stopped it. Not a failure at all, and must never be dressed as one.
     StoppedByCeo,
     /// A pipe, a child that went away, a read that failed. **The one arm where asking
@@ -120,6 +136,7 @@ impl InterruptionCause {
         match self {
             InterruptionCause::NotSignedIn => "not-signed-in",
             InterruptionCause::CredentialRejected => "credential-rejected",
+            InterruptionCause::ProviderMissing => "provider-missing",
             InterruptionCause::StoppedByCeo => "stopped-by-ceo",
             InterruptionCause::Transient => "transient",
             InterruptionCause::Unknown => "unknown",
@@ -130,6 +147,7 @@ impl InterruptionCause {
         match tag {
             "not-signed-in" => InterruptionCause::NotSignedIn,
             "credential-rejected" => InterruptionCause::CredentialRejected,
+            "provider-missing" => InterruptionCause::ProviderMissing,
             "stopped-by-ceo" => InterruptionCause::StoppedByCeo,
             "transient" => InterruptionCause::Transient,
             _ => InterruptionCause::Unknown,
@@ -181,6 +199,12 @@ impl InterruptionCause {
                  needs whoever set RichOS up — it isn't something you can fix from here, and \
                  asking me again won't change it."
             }
+            InterruptionCause::ProviderMissing => {
+                "I couldn't start that. The copy of Claude Code RichOS tried to run isn't on \
+                 this Mac where I expected it, so there was nothing here to think with. This \
+                 one needs whoever set RichOS up — it isn't something you can fix from here, \
+                 and asking me again won't change it."
+            }
             InterruptionCause::StoppedByCeo => {
                 "Stopped, as you asked. Nothing is running, and nothing of yours was lost."
             }
@@ -203,7 +227,9 @@ impl InterruptionCause {
     /// and watching nothing happen is how somebody stops believing what the app tells them.
     pub fn offers_retry(self) -> bool {
         match self {
-            InterruptionCause::NotSignedIn | InterruptionCause::CredentialRejected => false,
+            InterruptionCause::NotSignedIn
+            | InterruptionCause::CredentialRejected
+            | InterruptionCause::ProviderMissing => false,
             // Nothing failed. There is nothing to retry, and his words go back in the box
             // by the ordinary route rather than through a failure card's control.
             InterruptionCause::StoppedByCeo => false,
@@ -232,6 +258,13 @@ pub fn classify(reason: &str) -> InterruptionCause {
     }
     if reason.contains(VENDOR_NOT_SIGNED_IN) {
         return InterruptionCause::NotSignedIn;
+    }
+    // Checked BEFORE the generic IO prefix: `provider-supervisor.py`'s own failure text
+    // arrives wrapped as `NativeError::Startup` -> `CognitionError::Io`, whose `Display`
+    // also carries `OUR_IO_PREFIX` — so a permanent, un-retryable cause would otherwise be
+    // caught by the generic Transient arm below, exactly as it was on 2026-09-17.
+    if reason.contains(OUR_PROVIDER_COULD_NOT_START) {
+        return InterruptionCause::ProviderMissing;
     }
     if reason.contains(OUR_IO_PREFIX) {
         return InterruptionCause::Transient;
