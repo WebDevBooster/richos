@@ -48,6 +48,22 @@
 //! construction: a 200µs `threads()` call costs one extra poll of waiting, and waiting is
 //! never the defect.
 //!
+//! **4. BACKGROUND WORK — the second lease, and the hole this module had until 2026-09-17.**
+//! The background-work spec §6.4 names it and refuses to call it a follow-up: *"its worker
+//! reading is scoped to the conversation lease … a second lease's session is not that one, so
+//! background workers would be INVISIBLE to the update gate, and an update could install over
+//! live work — precisely the destroyed-work failure that gate exists to prevent. The update
+//! gate must read both leases."* [`background`] is that reading, and it is deliberately wider
+//! than the spec's sentence: the work lease's own worker view is one half, and the ASSIGNMENT
+//! REGISTER is the other, because an assignment between its registration and its first worker
+//! has no workers to see and is still work this app must not be replaced in the middle of.
+//!
+//! **And it distinguishes two things the spec insists are different sentences** (§6.5): work
+//! that is RUNNING, and work that is WAITING FOR HIM. *"'An assignment is running' and 'an
+//! assignment is waiting for you' are different sentences, and only one of them is about
+//! him."* Both block; they say different things, and the second one names something he can
+//! act on in this same app.
+//!
 //! **3. Workers.** [`crate::worker_status::WorkerStatusView`], whose own arithmetic is
 //! liveness-reconciled open runs — a `created`/`started` with no later `run_ended` whose
 //! recorded `host_pid` is witnessed alive by a real syscall. [`workers`] below maps that
@@ -121,6 +137,11 @@ pub struct WorkSources {
     /// everything. Carried separately from the reading because a CLEAR worker answer can
     /// still have a gap in it — [`Unattributed::NoSession`] is exactly that case.
     pub worker_gap: Option<String>,
+    /// **The second lease** (spec §6.4), from [`background`]. `workers` above reads the
+    /// CONVERSATION lease's session and is structurally blind to this one.
+    pub background: Liveness,
+    /// The sentence naming what background work is doing — running, or waiting for him.
+    pub background_gap: Option<String>,
 }
 
 impl WorkSources {
@@ -132,6 +153,8 @@ impl WorkSources {
             spine: Liveness::Clear,
             workers: Liveness::Clear,
             worker_gap: None,
+            background: Liveness::Clear,
+            background_gap: None,
         }
     }
 }
@@ -222,6 +245,80 @@ pub fn workers(view: &WorkerStatusView) -> (Liveness, Option<String>) {
     }
 }
 
+/// What the work host's own records say about background work — counted by the shell,
+/// decided here, like every other reading in this module.
+///
+/// **Two numbers and a flag, because the three answers they produce are different.** A
+/// register this build cannot read is an "I cannot tell" and blocks (the same rule as every
+/// other source); an assignment holding a question for him is a different sentence from one
+/// that is merely running (spec §6.5); and zero of both, from a register that WAS read, is an
+/// honest clear.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackgroundWork {
+    /// Open assignments that are not waiting on a decision of his.
+    pub running: usize,
+    /// Assignments stopped at a step only he can approve (spec §7.8). Still open, not
+    /// running, and the thing he can act on.
+    pub awaiting_you: usize,
+    /// Whether the assignment register could be read at all. `false` is never a zero.
+    pub readable: bool,
+}
+
+impl BackgroundWork {
+    /// A register that was read and had nothing open in it.
+    pub fn nothing() -> Self {
+        BackgroundWork { running: 0, awaiting_you: 0, readable: true }
+    }
+}
+
+/// Map background work onto a reading plus the sentence that names it.
+///
+/// `lease` is the WORK lease's own worker view, or `None` when no work lease has ever been
+/// opened in this process — which is an honest clear with no gap rather than a
+/// [`Unattributed::NoSession`] shrug: with no second lease there is no second session, and
+/// the assignment register above is the authority on whether anything is outstanding.
+///
+/// **Precedence inside this source: waiting for him speaks before running.** If he has a
+/// decision to make, that is the sentence he needs — it is the one he can act on, and it is
+/// the reason §6.5 refuses to call both of them busy in the same words.
+pub fn background(work: &BackgroundWork, lease: Option<&WorkerStatusView>) -> (Liveness, Option<String>) {
+    if !work.readable {
+        return (
+            Liveness::Unknown,
+            Some("RichOS could not tell whether the work you asked for had finished.".into()),
+        );
+    }
+    if work.awaiting_you > 0 {
+        let n = work.awaiting_you;
+        return (
+            Liveness::Busy,
+            Some(if n == 1 {
+                "An assignment is waiting for you to approve it.".into()
+            } else {
+                format!("{n} assignments are waiting for you to approve them.")
+            }),
+        );
+    }
+    if work.running > 0 {
+        let n = work.running;
+        let noun = if n == 1 { "assignment is" } else { "assignments are" };
+        return (Liveness::Busy, Some(format!("{n} {noun} still running in the background.")));
+    }
+    // The register says nothing is open. The work lease's OWN workers are read anyway,
+    // because a worker outliving the assignment that started it is exactly the kind of
+    // ambiguity this module resolves toward waiting rather than toward installing.
+    match lease {
+        None => (Liveness::Clear, None),
+        Some(view) => match workers(view) {
+            (Liveness::Clear, _) => (Liveness::Clear, None),
+            (reading, said) => (
+                reading,
+                Some(said.unwrap_or_else(|| "Background work is still running.".into())),
+            ),
+        },
+    }
+}
+
 /// The whole decision, and the only place it is made.
 ///
 /// **Precedence is by what the CEO can act on, not by source order.** A running turn is the
@@ -279,6 +376,23 @@ pub fn decide(sources: &WorkSources) -> WorkVerdict {
         Liveness::Clear => {}
     }
 
+    // **The second lease** (spec §6.4). It speaks after the conversation's own workers and
+    // before the spine's lock, because it is work he can act on — and, when it is waiting for
+    // him, work only he can move.
+    match sources.background {
+        Liveness::Busy | Liveness::Unknown => {
+            let said = sources
+                .background_gap
+                .clone()
+                .unwrap_or_else(|| "Background work is still running.".into());
+            reason = Some(match reason {
+                Some(first) => format!("{first} {said}"),
+                None => said,
+            });
+        }
+        Liveness::Clear => {}
+    }
+
     // Last, and only when nothing above already named something. "RichOS is in the middle of
     // something" beside "Rich is working on your last message" is one fact wearing two hats.
     if sources.spine != Liveness::Clear && reason.is_none() {
@@ -287,7 +401,8 @@ pub fn decide(sources: &WorkSources) -> WorkVerdict {
 
     let busy = !sources.turn.permits_action()
         || !sources.spine.permits_action()
-        || !sources.workers.permits_action();
+        || !sources.workers.permits_action()
+        || !sources.background.permits_action();
 
     WorkVerdict {
         busy,
@@ -515,18 +630,129 @@ mod tests {
         for turn in all {
             for spine in all {
                 for w in all {
-                    let s = WorkSources { turn, spine, workers: w, worker_gap: None };
-                    let v = decide(&s);
-                    if v.busy {
-                        blocking += 1;
-                        assert!(v.reason.is_some(), "silent block: {s:?}");
-                    } else {
-                        assert_eq!(v.reason, None, "an idle verdict must say nothing: {s:?}");
+                    for background in all {
+                        let s = WorkSources {
+                            turn,
+                            spine,
+                            workers: w,
+                            worker_gap: None,
+                            background,
+                            background_gap: None,
+                        };
+                        let v = decide(&s);
+                        if v.busy {
+                            blocking += 1;
+                            assert!(v.reason.is_some(), "silent block: {s:?}");
+                        } else {
+                            assert_eq!(v.reason, None, "an idle verdict must say nothing: {s:?}");
+                        }
                     }
                 }
             }
         }
-        // 27 combinations, and exactly one of them (Clear, Clear, Clear) is idle.
-        assert_eq!(blocking, 26, "only all-clear may act");
+        // 81 combinations with the second lease in the walk, and exactly one of them — all
+        // four clear — is idle. It was 27 before §6.4; a fourth source that nothing walked
+        // would be the same blind spot one level along.
+        assert_eq!(blocking, 80, "only all-clear may act");
+    }
+
+    // ---- §6.4: the second lease, which this gate could not see ---------------------------
+
+    /// **The hole §6.4 names, closed.** A quiet conversation with a background assignment
+    /// running is BUSY — and the sentence says it is background work rather than repeating
+    /// the conversation's own.
+    #[test]
+    fn background_work_blocks_an_update_even_with_the_conversation_idle() {
+        let (l, said) = background(
+            &BackgroundWork { running: 1, awaiting_you: 0, readable: true },
+            None,
+        );
+        assert_eq!(l, Liveness::Busy);
+        let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
+        assert!(v.busy, "an update could have installed over live background work");
+        assert_eq!(v.reason.as_deref(), Some("1 assignment is still running in the background."));
+    }
+
+    /// **§6.5's two sentences.** "Running" and "waiting for you" are different states, and
+    /// only one of them is about him. Both block; the second names what he can do about it.
+    #[test]
+    fn an_assignment_waiting_for_him_says_so_rather_than_saying_it_is_running() {
+        let (l, said) = background(
+            &BackgroundWork { running: 2, awaiting_you: 1, readable: true },
+            None,
+        );
+        assert_eq!(l, Liveness::Busy);
+        assert_eq!(said.as_deref(), Some("An assignment is waiting for you to approve it."));
+        let (_, plural) = background(
+            &BackgroundWork { running: 0, awaiting_you: 3, readable: true },
+            None,
+        );
+        assert_eq!(plural.as_deref(), Some("3 assignments are waiting for you to approve them."));
+    }
+
+    /// An assignment register this build cannot read is an "I cannot tell", never a zero —
+    /// the same rule every other source in this module follows.
+    #[test]
+    fn an_unreadable_assignment_register_waits_rather_than_installing() {
+        let (l, said) = background(
+            &BackgroundWork { running: 0, awaiting_you: 0, readable: false },
+            None,
+        );
+        assert_eq!(l, Liveness::Unknown);
+        let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
+        assert!(v.busy);
+        assert_eq!(
+            v.reason.as_deref(),
+            Some("RichOS could not tell whether the work you asked for had finished.")
+        );
+    }
+
+    /// **The half that stops this being a gate that blocks forever** (§6.5's named trap: *"a
+    /// test that passes because everything now defers"*). Nothing registered and no work
+    /// lease is CLEAR, with nothing unchecked to declare — an app that has never done any
+    /// background work must update exactly as it did before §6.4.
+    #[test]
+    fn no_background_work_is_an_honest_clear_and_not_a_gap() {
+        let (l, said) = background(&BackgroundWork::nothing(), None);
+        assert_eq!(l, Liveness::Clear);
+        assert_eq!(said, None);
+        let v = decide(&WorkSources { background: l, background_gap: said, ..WorkSources::all_clear() });
+        assert!(!v.busy, "an app with no background work could never update");
+        assert!(v.unchecked.is_empty());
+        assert_eq!(v.reason, None);
+    }
+
+    /// With the register saying nothing is open, the WORK LEASE's own workers are still read:
+    /// a worker outliving its assignment is ambiguity, and ambiguity waits.
+    #[test]
+    fn a_worker_outliving_its_assignment_still_blocks() {
+        let (l, said) = background(&BackgroundWork::nothing(), Some(&view(1, 0)));
+        assert_eq!(l, Liveness::Busy);
+        assert_eq!(said.as_deref(), Some("1 worker is still running."));
+        let unknown = background(&BackgroundWork::nothing(), Some(&view(0, 2)));
+        assert_eq!(unknown.0, Liveness::Unknown);
+    }
+
+    /// A turn, the conversation's workers AND background work: all three are named, in that
+    /// order, in one sentence. He gets the whole reason rather than its first clause.
+    #[test]
+    fn the_conversation_and_the_background_are_both_named_conversation_first() {
+        let (w, worker_said) = workers(&view(2, 0));
+        let (b, background_said) =
+            background(&BackgroundWork { running: 1, awaiting_you: 0, readable: true }, None);
+        let v = decide(&WorkSources {
+            turn: Liveness::Busy,
+            workers: w,
+            worker_gap: worker_said,
+            background: b,
+            background_gap: background_said,
+            ..WorkSources::all_clear()
+        });
+        assert_eq!(
+            v.reason.as_deref(),
+            Some(
+                "Rich is working on your last message. 2 workers are still running. 1 assignment is still running in the background."
+            )
+        );
     }
 }

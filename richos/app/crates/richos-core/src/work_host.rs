@@ -683,6 +683,32 @@ impl WorkHost {
         assignment::open(&self.state).map_err(|e| e.to_string())
     }
 
+    /// **What the update gate must see** — background-work spec §6.4, which calls reading it
+    /// *"not optional and not a follow-up"*.
+    ///
+    /// **The derivation lives here rather than in the shell for the reason the gate's own
+    /// module doc gives about every other reading:** `app/src-tauri` carries the whole webview
+    /// dependency tree and is deliberately detached from the workspace, so a count made there
+    /// would be a count this suite could not test. The shell calls this and passes the answer
+    /// to [`crate::work_gate::background`].
+    ///
+    /// An assignment holding a question for him is counted apart from one that is running,
+    /// because §6.5 insists they are different sentences and only one of them is about him.
+    /// A register that cannot be read is `readable: false` — never a zero.
+    pub fn background_work(&self) -> crate::work_gate::BackgroundWork {
+        match self.open_assignments() {
+            Ok(open) => {
+                let awaiting_you = open.iter().filter(|row| self.pending_decision(row).is_some()).count();
+                crate::work_gate::BackgroundWork {
+                    running: open.len() - awaiting_you,
+                    awaiting_you,
+                    readable: true,
+                }
+            }
+            Err(_) => crate::work_gate::BackgroundWork { running: 0, awaiting_you: 0, readable: false },
+        }
+    }
+
     /// Which assignment is on the lease right now, if any. Read WITHOUT the spine lock, so
     /// the surface can show running work between turns — spec §7's observability note.
     pub fn live(&self) -> Option<LiveAssignment> {
@@ -1506,6 +1532,88 @@ mod tests {
         );
         assert!(!row.detail.contains("mcp__"), "the receipt shows a wire tool name: {}", row.detail);
         waiter.join().unwrap();
+        h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    // ---- §6.4: what the update gate sees -------------------------------------------------
+
+    /// **The hole §6.4 names, closed end to end** — the same reading the shell makes, made
+    /// against a real work host with a real assignment on its lease and the CONVERSATION
+    /// IDLE, which is the exact state the old gate called clear.
+    ///
+    /// It is one function rather than a re-implementation of the shell's counting: the shell
+    /// calls `background_work()` and passes the answer to `work_gate::background`, and so
+    /// does this test. A test that counted the rows itself would prove that two copies of the
+    /// arithmetic agree.
+    #[test]
+    fn a_running_assignment_blocks_an_update_with_the_conversation_idle() {
+        use crate::work_gate::{self, Liveness, WorkSources};
+        let h = harness(3000);
+        let _runner = h.host.start();
+
+        // POSITIVE CONTROL FIRST, and it is the half that matters most: with nothing
+        // registered the gate is CLEAR and the app updates exactly as it did before §6.4.
+        // Without it, "everything now blocks" would pass this test.
+        let quiet = work_gate::background(&h.host.background_work(), None);
+        assert_eq!(quiet.0, Liveness::Clear);
+        let idle = work_gate::decide(&WorkSources {
+            background: quiet.0,
+            background_gap: quiet.1,
+            ..WorkSources::all_clear()
+        });
+        assert!(!idle.busy, "an app with no background work could never update");
+
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        let reading = work_gate::background(&h.host.background_work(), None);
+        assert_eq!(reading.0, Liveness::Busy, "a live background assignment was invisible to the gate");
+        let verdict = work_gate::decide(&WorkSources {
+            // Every conversation source clear: no turn, the spine free, no workers of its
+            // own. This is the state §6.4 says an update would have installed in.
+            background: reading.0,
+            background_gap: reading.1,
+            ..WorkSources::all_clear()
+        });
+        assert!(verdict.busy, "an update could have installed over live background work");
+        assert_eq!(verdict.reason.as_deref(), Some("1 assignment is still running in the background."));
+
+        // And an assignment holding a question for him is a DIFFERENT sentence (§6.5), on the
+        // same records, with the same conversation idle.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        lease.decide_within(
+            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            std::time::Duration::from_millis(20),
+        );
+        let waiting = work_gate::background(&h.host.background_work(), None);
+        assert_eq!(waiting.0, Liveness::Busy);
+        assert_eq!(
+            work_gate::decide(&WorkSources {
+                background: waiting.0,
+                background_gap: waiting.1,
+                ..WorkSources::all_clear()
+            })
+            .reason
+            .as_deref(),
+            Some("An assignment is waiting for you to approve it."),
+            "an assignment waiting for him was reported as running"
+        );
+        assert_eq!(h.host.background_work().awaiting_you, 1);
+        assert_eq!(h.host.background_work().running, 0);
+
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.background_work().running + h.host.background_work().awaiting_you > 0
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(
+            work_gate::background(&h.host.background_work(), None).0,
+            Liveness::Clear,
+            "the gate never clears once an assignment has been registered"
+        );
         h.host.shutdown();
         std::fs::remove_file(grant).unwrap();
         std::fs::remove_dir_all(h.root).unwrap();
