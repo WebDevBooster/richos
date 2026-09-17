@@ -290,6 +290,9 @@ export function recordFileRecords(opts) {
             company: fm.company || spec.company || null,
             promotionMethod: prov.method,
             promotionRef: prov.ref,
+            // The writer's own `--source-label`, carried through rather than dropped: it is what
+            // lets a consumer say "from your Google Calendar" instead of only "a record".
+            promotionSource: prov.source,
             path: rel,
           },
           { now, source: 'records' },

@@ -1159,6 +1159,48 @@ test('writer: PROBE — the same corpus before any write holds no records at all
   withWritableCorpus((ctx) => assert.equal(ctx.corpus().counts.total, 0));
 });
 
+test('provenance: a record carries the ORIGIN it was written with all the way into a slice item', () => {
+  // The writer has always written `--source-label` into front matter as `provenance.source`, and
+  // the reader dropped it — so a record promoted from the CEO's Calendar arrived in a slice with
+  // no way for a consumer to say where it came from. `origin` is that label; `source` stays the
+  // loro family that read the record. Both are facts and neither substitutes for the other.
+  withWritableCorpus((ctx) => {
+    appendRecord({
+      corpusRoot: ctx.corpusRoot, id: 'ws-google-calendar-pricing', kind: 'event', scope: 'org-shared',
+      title: 'Q3 pricing review',
+      body: 'Calendar entry for Tuesday, September 15, 2026 at 9:00 AM. The fictional studio walks its price ladder.',
+      sourceLabel: 'workspace:google:calendar', method: 'rich_inferred', ref: 'google:calendar:evt_pricing',
+      now: NOW,
+    });
+    const rec = ctx.corpus().byId.get('rec:ceo/records/ws-google-calendar-pricing');
+    assert.ok(rec, 'the compiler must see what the writer wrote');
+    assert.equal(rec.provenance.origin, 'workspace:google:calendar');
+    assert.equal(rec.provenance.source, 'records', 'the loro family that read it is a different fact');
+    assert.equal(rec.provenance.ref, 'google:calendar:evt_pricing');
+
+    const slice = compileContext({ corpus: ctx.corpus(), now: NOW, topic: 'price ladder pricing review' });
+    const item = slice.items.find((i) => i.ref === 'rec:ceo/records/ws-google-calendar-pricing');
+    assert.ok(item, `the record must clear the floor for its own topic: ${JSON.stringify(slice.items)}`);
+    assert.equal(item.provenance.origin, 'workspace:google:calendar');
+  });
+});
+
+test('provenance: PROBE — origin is read, not invented: the writer default and a bare file differ', () => {
+  withWritableCorpus((ctx) => {
+    // The writer's own default for `--source-label` is "conversation" (writer/writer.js), so a
+    // record the CEO dictated says so rather than saying nothing.
+    appendRecord({
+      corpusRoot: ctx.corpusRoot, id: 'no-origin', kind: 'decision', scope: 'org-shared',
+      title: 'Written in conversation', body: 'The fictional studio decided this in a conversation, not from a source.',
+      now: NOW,
+    });
+    assert.equal(ctx.corpus().byId.get('rec:ceo/records/no-origin').provenance.origin, 'conversation');
+    // A hand-written file with no provenance block at all has no origin, and gets none invented.
+    ctx.write('ceo/records/bare.md', '---\nid: bare\nkind: fact\nscope: org-shared\n---\n\nA fictional fact with no provenance block.\n');
+    assert.equal(ctx.corpus().byId.get('rec:ceo/records/bare').provenance.origin, null);
+  });
+});
+
 test('layout: the CEO layer is the directory `ceo/` — recognized, written to, and read back as `rec:ceo/`', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loro-ceo-layer-'));
   try {
