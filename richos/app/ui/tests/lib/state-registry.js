@@ -3145,6 +3145,34 @@ module.exports = [
     "c": "FRAGMENT",
     "why": "Composite HTML for the native permission dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
   },
+  // ---------------------------------------------------------------------------------------
+  // THE QUIT QUESTION — the background-work spec §2.5/§2.5a, and the CEO's row 5.
+  //
+  // Closing the window no longer quits, so this sheet is what he meets when he chooses Quit
+  // with work running. By the time any of it renders the exit has ALREADY been prevented,
+  // which is why "Keep working" changes nothing at all and is the focused answer.
+  // ---------------------------------------------------------------------------------------
+  {
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"quit-question-title\" class=\"overlay-title\">Quit while work is running?</h2> <p id=\"quit-question-say\" class=\"overlay-note\"></p> <div class=\"desk-card-actions\"> <button id=\"quit-question-stay\" class=\"desk-btn\" type=\"button\">Keep working</button> <button id=\"quit-question-quit\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Quit and stop the work</button> </div> </div>",
+    "c": "FRAGMENT",
+    "why": "Composite HTML for the quit question. Its interactive controls and visible wording are exercised by the dedicated browser suite (ui/tests/quit-question.js), in both themes; this literal is parsed as markup rather than rendered as one sentence."
+  },
+  {
+    "s": "Quit and stop the work",
+    "c": "CONTROL",
+    "why": "The destructive answer on the quit question, named for what it does rather than OK - it is the one control in this app that ends running background work on purpose. Its words are the shell's (lifecycle.rs's QUIT_AND_STOP), so what the button says and what the process does cannot drift apart. It is never the focused control."
+  },
+  {
+    "s": "Something is still running in the background.",
+    "c": "ACTIONABLE",
+    "why": "The quit question's fallback sentence, used only if the shell's own wording did not arrive with the event. He is being asked to choose, and both answers are on the same sheet: Keep working (the focused, safe one) and Quit and stop the work.",
+    "control": "#quit-question-stay"
+  },
+  {
+    "s": "That could not be done:",
+    "c": "FRAGMENT",
+    "why": "The prefix of a refusal on the quit question, with the backend's own reason appended. It never renders alone, and it is said rather than swallowed: he pressed something, and a sheet that silently did nothing would be worse than a refusal he can read."
+  },
   {
     "s": "Account connection could not be verified. Try again.",
     "c": "ACTIONABLE",

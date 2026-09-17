@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod activation;
+mod lifecycle;
 mod events;
 // WHAT THE PERSON SEES WHEN THIS PROCESS DIES BEFORE THE WINDOW EXISTS. Declared next to
 // `activation` because it is armed by activation's own three-fact rule and by nothing else.
@@ -194,6 +195,30 @@ impl richos_core::work_host::WorkNotifier for WorkNotice {
             EVENT_WORK_NOTICE,
             serde_json::json!({"threadId": thread_id, "notice": notice}),
         );
+    }
+
+    /// **§2.4a — the settle-while-closed end state.** The last registered assignment has
+    /// ended and no window is open, so the app quits itself.
+    ///
+    /// **Why anything has to act at all:** `ExitRequested` is raised only when the last
+    /// window is destroyed (`tauri-runtime-wry-2.11.4/src/lib.rs:4310-4316`), and nothing
+    /// re-raises it when work finishes. Without this the app would sit there indefinitely —
+    /// *"a background process the user did not ask for"*, which §2.4's own rule refuses.
+    ///
+    /// **The window half is decided HERE and not in the host**, because only the shell can
+    /// see a window. With one open, this does nothing: an app he is looking at does not
+    /// close itself because a background job finished.
+    ///
+    /// It exits through `app.exit(0)`, the preventable path, so the same arm that decided
+    /// "work is registered, prevent" decides "nothing is registered, allow" — one decision,
+    /// one place. The notice he finds on his next launch is the durable one already written
+    /// on the assignment (§3.4), which is what makes this safe to do while he is away.
+    fn nothing_left_to_do(&self) {
+        if !self.app.webview_windows().is_empty() {
+            return;
+        }
+        eprintln!("[richos] the last assignment ended with no window open: RichOS is closing itself.");
+        self.app.exit(0);
     }
 }
 
@@ -392,6 +417,19 @@ struct AppState {
     /// the whole of a turn (`:561`, still held at `:582`), which is the whole of §0 row 3.
     /// Read WITHOUT that lock everywhere it is read, like `control`.
     work: Arc<richos_core::work_host::WorkHost>,
+    /// **He has been asked about the running work and said quit** (background-work spec
+    /// §2.5a). The `ExitRequested` arm reads it on the second pass; without it the same arm
+    /// would prevent the same quit for ever.
+    ///
+    /// An `AtomicBool` rather than a `Mutex` because it is read INSIDE the exit callback,
+    /// whose answer the runtime takes with `try_recv` the instant that callback returns
+    /// (`tauri-runtime-wry-2.11.4/src/lib.rs:4318`): a lock that happened to be held by the
+    /// thread asking the question would make the read block and the app quit.
+    quit_confirmed: std::sync::atomic::AtomicBool,
+    /// Whether this launch has a Dock icon to come back through — `Regular`, not
+    /// `Accessory` (`activation.rs:1-18, 304-314`). Fixed for the life of the process,
+    /// like the decision itself.
+    can_come_back: bool,
     provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
     spine: Mutex<Spine>,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
@@ -1214,6 +1252,75 @@ fn main() {
         return;
     }
     tauri::Builder::default()
+        // =================================================================================
+        // THE MENU, AND THE ONE ITEM IN IT THIS APP HAS TO OWN — background-work spec §2.5
+        // =================================================================================
+        //
+        // **Why a menu at all, when this app has never built one.** §2.5 needs Quit to be
+        // preventable, and today's Quit is not: with no menu set, Tauri installs
+        // `Menu::default` (`tauri-2.11.5/src/app.rs:2244-2249`), whose app submenu ends in
+        // `PredefinedMenuItem::quit` (`menu/menu.rs:194`), which muda maps to
+        // `sel!(terminate:)` (`muda-0.19.3/src/platform_impl/macos/mod.rs:994`). That
+        // selector goes to `applicationWillTerminate`, which cannot cancel — so a Cmd-Q
+        // arrives already committed and the work dies without a word.
+        //
+        // **So exactly one item changes and everything else is the platform's.** The About,
+        // Services, Hide, Edit, View, Window and Help items are the same predefined ones
+        // `Menu::default` builds, in the same order — copying them is not decoration: an app
+        // that sets a menu REPLACES the default entirely, and a webview without the Edit
+        // submenu loses Cmd-C and Cmd-V, which would be a far worse regression than the one
+        // being fixed. Only Quit becomes ours, keeping its name and its Cmd-Q accelerator.
+        .menu(|handle| {
+            use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+            let name = handle.package_info().name.clone();
+            let about = AboutMetadata {
+                name: Some(name.clone()),
+                version: Some(handle.package_info().version.to_string()),
+                ..Default::default()
+            };
+            // OURS. The id is what `on_menu_event` matches, and the label and accelerator
+            // are what AppKit's own Quit had, so nothing about it looks different to him.
+            let quit = MenuItemBuilder::with_id(MENU_QUIT, format!("Quit {name}"))
+                .accelerator("CmdOrCtrl+Q")
+                .build(handle)?;
+            let app_menu = SubmenuBuilder::new(handle, &name)
+                .item(&PredefinedMenuItem::about(handle, None, Some(about))?)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .separator()
+                .item(&quit)
+                .build()?;
+            let edit = SubmenuBuilder::new(handle, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let view = SubmenuBuilder::new(handle, "View").fullscreen().build()?;
+            let window = SubmenuBuilder::new(handle, "Window")
+                .minimize()
+                .maximize()
+                .separator()
+                .close_window()
+                .build()?;
+            MenuBuilder::new(handle)
+                .items(&[&app_menu, &edit, &view, &window])
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == MENU_QUIT {
+                // **STEP ONE OF TWO (§2.5a).** Nothing exits here. This asks the register,
+                // and either raises the app's own exit — which re-enters the `ExitRequested`
+                // arm below, the preventable path — or puts the question on his screen.
+                request_quit(app);
+            }
+        })
         .setup(|app| {
             // Durable ledger lives in the app data dir (survives restart + rotation).
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
@@ -1902,6 +2009,62 @@ fn main() {
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
             // ==============================================================================
+            // ROW 9 — WHAT A RELAUNCH MAY SAY ABOUT WORK IT DID NOT SEE END
+            //
+            // The CEO's row 9: "If the app crashes or restarts mid-run, nothing invents a
+            // completion." The background-work spec §6.1-§6.3 is the mechanism and
+            // `richos_core::recovery` is the whole of it; this is its one call site.
+            //
+            // IT IS HERE — after the host exists, before it can be given anything new, and
+            // before the first turn — because it is a BOUNDARY and not a timer (§6.3). It
+            // runs once per launch and never again.
+            //
+            // It reads his repositories through the DELIVERED Git, when this launch has a
+            // verified runtime (`repositories.rs`'s rule, not `PATH`). When it has not — a
+            // development build with no `engine/runtime/delivery.json` — recovery is told
+            // so, and says it could not look rather than implying it did.
+            {
+                let verified =
+                    boot_engine.as_deref().and_then(|dir| richos_core::runtime::verify_engine(dir).ok());
+                if verified.is_none() {
+                    eprintln!(
+                        "[richos] recovery: this launch has no verified Git runtime, so an \
+                         assignment's repository is recorded as unread rather than as unchanged."
+                    );
+                }
+                let reader = || -> Box<dyn richos_core::recovery::Repositories> {
+                    match &verified {
+                        Some(runtime) => Box::new(richos_core::recovery::GitRepositories::new(runtime)),
+                        None => Box::new(richos_core::recovery::UnreadableRepositories),
+                    }
+                };
+                // The same reader the host pins an assignment's starting point with, so the
+                // "before" and the "after" of a comparison are taken by one thing.
+                work.set_repositories(reader());
+                let report =
+                    richos_core::recovery::reconcile(&data_dir.join("engine-state"), reader().as_ref());
+                eprintln!("[richos] {}", report.log_message());
+
+                // **His approval has to work after a relaunch.** An assignment that stopped
+                // at a step of his is still waiting for him (§7.8), and putting it back on a
+                // lease needs the ledger's thread binding — which only the ledger can mint
+                // (`entity.rs`). This hands it over and starts NOTHING (§6.3).
+                let mut remembered = 0;
+                for record in report.untouched.iter().chain(report.unknown.iter()) {
+                    if let Ok(binding) = spine.ledger().thread_binding(&record.thread_id) {
+                        work.remember_binding(&binding);
+                        remembered += 1;
+                    }
+                }
+                if remembered > 0 {
+                    eprintln!(
+                        "[richos] recovery: {remembered} conversation(s) with unresolved work can be \
+                         picked back up when he says so. Nothing was restarted."
+                    );
+                }
+            }
+
+            // ==============================================================================
             // FIRST-RUN SETUP — what this machine is missing, named at boot
             //
             // §19: "Today RichOS runs on his Mac and would not run on anyone else's." The
@@ -2167,6 +2330,11 @@ fn main() {
             app.manage(AppState {
                 permissions,
                 work,
+                quit_confirmed: std::sync::atomic::AtomicBool::new(false),
+                // The SAME decision the window was built from, carried rather than
+                // re-derived: two readings of "may this launch take the screen" is two
+                // answers waiting to disagree.
+                can_come_back: activation.presentation == activation::Presentation::Regular,
                 provider_auth: Mutex::new(Default::default()),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
@@ -2410,7 +2578,11 @@ fn main() {
             // --- the first-run notice: the VISIBLE half of the onboarding offer
             //     (2026-09-06) — appended, never reordered ---
             onboarding_view,
-            decline_onboarding
+            decline_onboarding,
+            // --- row 5: the window closes and the work keeps going (2026-09-17) —
+            //     appended, never reordered ---
+            confirm_quit_and_stop,
+            cancel_quit
         ])
         .build(context)
         .expect("error while building RichOS")
@@ -2427,6 +2599,50 @@ fn main() {
         // launch is read as a crash-restart — an undercount by one, no splash once — which
         // is not worth refusing to close the app over.
         .run(|handle, event| {
+            // =========================================================================
+            // ROW 5 — "You close the window. The work keeps going. Quit ends it."
+            // =========================================================================
+            //
+            // **The answer is read the instant this returns** (§2.5a): the runtime does
+            // `let recv = rx.try_recv();` immediately after the callback
+            // (`tauri-runtime-wry-2.11.4/src/lib.rs:4318` for a window closing, `:4361`
+            // for `app.exit`), and an empty channel is NOT `Prevent`. So this arm decides
+            // and returns; nothing here waits for him, and the question — when there is
+            // one — is asked afterwards, from `ask_before_quitting`.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+                if let Some(state) = handle.try_state::<AppState>() {
+                    let request = lifecycle::ExitRequest {
+                        programmatic: code.is_some(),
+                        confirmed: state.quit_confirmed.load(std::sync::atomic::Ordering::SeqCst),
+                        registered: registered_work(&state),
+                        can_come_back: state.can_come_back,
+                    };
+                    match lifecycle::decide(&request) {
+                        lifecycle::ExitDecision::Allow => {}
+                        lifecycle::ExitDecision::StayResident => {
+                            api.prevent_exit();
+                            eprintln!(
+                                "[richos] window closed with work registered: RichOS stays \
+                                 running with no window. The Dock icon brings it back."
+                            );
+                        }
+                        lifecycle::ExitDecision::AskBeforeQuitting => {
+                            // PREVENT FIRST, UNCONDITIONALLY, THEN ASK. The other order is
+                            // a quit (§2.5a).
+                            api.prevent_exit();
+                            ask_before_quitting(handle.clone());
+                        }
+                    }
+                }
+            }
+            // The Dock icon, the way back in (§2.4). `Reopen` is emitted from
+            // `applicationShouldHandleReopen` through tao and wry
+            // (`tauri-runtime-wry-2.11.4/src/lib.rs:4391-4394`).
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = &event {
+                if !has_visible_windows {
+                    reopen_window(handle);
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = handle.try_state::<AppState>() {
                     let _ = state.control.request_stop();
@@ -6567,6 +6783,163 @@ fn home_field_data(state: State<AppState>) -> serde_json::Value {
         topics.len(),
     );
     serde_json::json!({ "available": true, "field": field })
+}
+
+
+// ---------------------------------------------------------------------------------------
+// ROW 5 AND ROW 9 — the window closes and the work keeps going; a crash invents nothing
+// (the background-work spec §2.4/§2.4a/§2.5/§2.5a and §6; `lifecycle.rs` holds the decision)
+// ---------------------------------------------------------------------------------------
+
+/// The id of the one menu item this app owns. Matched in `on_menu_event`.
+const MENU_QUIT: &str = "richos-quit";
+
+/// **The question, on his screen.** Pushed rather than polled, like every other out-of-turn
+/// line (`rich://work-notice`'s own reasoning): there is no turn open when he presses Quit.
+pub const EVENT_QUIT_QUESTION: &str = "rich://quit-question";
+
+/// What the assignment register says, for the exit decision — **the same derivation the
+/// update gate uses**, so "is there work" cannot have two answers in one process
+/// (`WorkHost::background_work`, `work_gate.rs`).
+fn registered_work(state: &AppState) -> lifecycle::Registered {
+    let work = state.work.background_work();
+    lifecycle::Registered {
+        running: work.running,
+        awaiting_you: work.awaiting_you,
+        readable: work.readable,
+    }
+}
+
+/// **STEP ONE of the two-step quit (§2.5a).** Called from the Quit menu item.
+///
+/// It never exits by itself when work is registered. With nothing registered it raises the
+/// app's own exit, which enters the `ExitRequested` arm with `code: Some(0)` — the
+/// preventable path — and is allowed straight through.
+fn request_quit(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        app.exit(0);
+        return;
+    };
+    if !registered_work(&state).anything() {
+        app.exit(0);
+        return;
+    }
+    ask_before_quitting(app.clone());
+}
+
+/// **STEP TWO: ask him, outside the callback.**
+///
+/// It runs on its own thread for one reason: `ExitRequested`'s answer is read with
+/// `try_recv` the instant the callback returns (§2.5a), so anything that waits must happen
+/// after it. Nothing here waits for a reply either — the reply arrives as a command
+/// ([`confirm_quit_and_stop`] or [`cancel_quit`]).
+///
+/// **If there is no window, the window comes back first.** A quit while the app is resident
+/// and windowless is exactly the state §2.4 creates, and a question nobody can see is not a
+/// question.
+fn ask_before_quitting(app: AppHandle) {
+    std::thread::spawn(move || {
+        let Some(state) = app.try_state::<AppState>() else { return };
+        let question = lifecycle::quit_question(&registered_work(&state));
+        reopen_window(&app);
+        if let Err(error) = app.emit(
+            EVENT_QUIT_QUESTION,
+            serde_json::json!({
+                "say": question,
+                "quit": lifecycle::QUIT_AND_STOP,
+                "stay": lifecycle::KEEP_WORKING,
+            }),
+        ) {
+            // **A question he cannot be shown must not become a silent refusal to quit.**
+            // The honest fallback is the behavior this app had before today: quit, and stop
+            // the work, rather than leaving him pressing Quit against a process that will
+            // not go away and says nothing about why.
+            eprintln!("[richos] the quit question could not be shown ({error}); quitting as this app used to");
+            state.quit_confirmed.store(true, std::sync::atomic::Ordering::SeqCst);
+            app.exit(0);
+        }
+    });
+}
+
+/// **The way back into a window** — the Dock icon (§2.4), and the quit question's own
+/// precondition.
+///
+/// A window that is merely hidden is shown; otherwise one is built from the same config the
+/// boot path builds from, with the geometry he left it at. It is a `SecondWindow` launch:
+/// nothing begins, no opening screen, no count (`launch.rs:149-151`) — this is a window
+/// coming back on a run that never stopped, which is exactly what that kind is for.
+fn reopen_window(app: &AppHandle) {
+    if let Some(window) = app.webview_windows().values().next() {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+    let Some(config) = app.config().app.windows.first().cloned() else {
+        eprintln!("[richos] no window could be reopened: this build declares none");
+        return;
+    };
+    let data_dir = app
+        .try_state::<AppState>()
+        .map(|state| state.data_dir.clone())
+        .unwrap_or_else(std::env::temp_dir);
+    let displays = read_displays(app);
+    let geometry_path = data_dir.join("window.json");
+    let saved = window_geometry::GeometryStore::new(&geometry_path).load();
+    let preference = window_geometry::Preference {
+        width: config.width,
+        height: config.height,
+        min_width: config.min_width.unwrap_or(window_geometry::PREFERRED_MIN_WIDTH),
+        min_height: config.min_height.unwrap_or(window_geometry::PREFERRED_MIN_HEIGHT),
+    };
+    let placement = window_geometry::decide_with(&displays, saved.as_ref(), preference);
+    let mut builder = match tauri::WebviewWindowBuilder::from_config(app, &config) {
+        Ok(builder) => builder,
+        Err(error) => {
+            eprintln!("[richos] the window could not be rebuilt: {error}");
+            return;
+        }
+    };
+    builder = builder
+        .inner_size(placement.width, placement.height)
+        .min_inner_size(placement.min_width, placement.min_height)
+        .initialization_script(launch_init_script(
+            richos_core::launch::LaunchKind::SecondWindow,
+            None,
+        ))
+        // He asked for it by clicking the Dock icon, so it is visible and focused — the
+        // unattended-boot reasoning at the setup site is about a launch nobody asked for.
+        .visible(true)
+        .focused(true);
+    if let Some((x, y)) = placement.position {
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
+        Ok(window) => {
+            remember_window_geometry(&window, geometry_path);
+            let _ = window.set_focus();
+        }
+        Err(error) => eprintln!("[richos] the window could not be rebuilt: {error}"),
+    }
+}
+
+/// **He chose to quit** (§7.4a). The work is stopped and said to be stopped, and only then
+/// does the process end.
+///
+/// The flag is what the `ExitRequested` arm reads on the second pass; without it the same
+/// arm would prevent the exit again and the app could never be quit at all.
+#[tauri::command(async)]
+fn confirm_quit_and_stop(app: AppHandle, state: State<'_, AppState>) {
+    state.quit_confirmed.store(true, std::sync::atomic::Ordering::SeqCst);
+    app.exit(0);
+}
+
+/// **He chose to keep working.** Nothing happens to the work, which is the point: the
+/// prevent came first and the question second, so it was never touched.
+#[tauri::command(async)]
+fn cancel_quit(state: State<'_, AppState>) -> bool {
+    state.quit_confirmed.store(false, std::sync::atomic::Ordering::SeqCst);
+    true
 }
 
 #[cfg(test)]

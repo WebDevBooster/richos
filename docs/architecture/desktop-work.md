@@ -110,7 +110,11 @@ CEO and relays; that thread's standing back-end lease starts and stops jobs, dis
 and keeps the record, and it is never visible to him. It is opened on the thread's first
 assignment and every assignment on that thread afterwards runs on it, however many there are.
 A second conversation gets its own back end and the two run at the same time, so neither
-waits for the other. An assignment is a bookkeeping unit inside a back end — its own record,
+waits for the other. A back end is renewed when it has consumed enough of its context window
+to be near its limit, and only between assignments, never inside one: a fresh connection is
+opened first, told what is still open from the record and what the outgoing one says it was
+in the middle of, and only then takes over. An assignment open across a renewal keeps its
+record, its seat and its approval line. An assignment is a bookkeeping unit inside a back end — its own record,
 seat, stop and approval line — and not a second mind.
 
 The front desk gets no orchestration tools. It relays: it writes an assignment down and it
@@ -173,7 +177,18 @@ because he pressed approve.
 The queue lives in the running process. An assignment that stopped at a decision of his
 before a restart is still recorded as waiting, and the surface says so and points at the
 conversation rather than at a control that is not there; carrying the question itself across
-a restart is part of background-work recovery, which is a later slice.
+a restart is not built.
+
+At launch, every assignment still open is reconciled — against the work connection's own
+evidence and against Git, never against a clock. Work that was running is reported as
+unknown until something witnesses it again: not finished, not stopped, and never silently
+resumed. What was established is said plainly, including that his repository is where it
+was, or that it has moved and nothing can be attributed to this assignment. An assignment
+that had already stopped at a decision of his is left as it stands, because that was
+recorded while the app was watching. Nothing restarts by itself: picking work back up is his
+decision. Standing action grants left open by a crash are closed in the same sweep, and work
+seats with no assignment behind them are released — his own seat is identified positively
+and never touched, and a seat that cannot be released is reported rather than skipped.
 
 The update gate reads both leases. An update is declined while an assignment is running, while
 an assignment is waiting for his approval, and while the assignment register cannot be read at
@@ -181,9 +196,18 @@ all; the offer stays available, and the reason says which of those it is. Nothin
 and no work lease is a clear answer rather than a refusal, so an app that has done no
 background work updates exactly as it did before.
 
-Closing the last window still ends the process, which stops the work — the Lifecycle
-sentence below is unchanged and still true. The window-closed process model and
-background-work recovery are a later slice, and nothing above promises either.
+Closing the last window no longer ends the process while work is registered. The work keeps
+running, the app stays in the Dock with no window, and clicking the Dock icon brings the
+window back. With nothing registered, closing the last window quits exactly as it always
+has. When the last registered assignment ends with no window open, the app closes itself: an
+assignment waiting for his approval has not ended, so that one keeps it up — it is holding
+his answer, and the alternatives are to throw the work away or to land it without asking.
+
+Quit still stops the work, and says so first. Choosing Quit with something running names
+what is running and offers two answers: quit and stop it, or keep working. Stopped that way,
+an assignment's receipt reads interrupted and everything it produced is kept. A force quit,
+a logout and a power cut have no such seam; what he is told about those is on the next
+launch, below.
 
 ## Lifecycle
 
@@ -194,7 +218,9 @@ process identity until teardown. The supervisor does not restart work.
 
 Workers must settle before the reasoning turn ends. If a provider returns while
 workers remain open, the host stops its owned processes and retains workspaces
-and receipts for reconciliation. No background-while-closed promise is made.
+and receipts for reconciliation. Work registered with the CEO continues while the
+window is closed, on the process that started it; nothing survives quit, a force
+quit or a logout, and no persistent job is created for it.
 Recovery never converts interrupted execution into verified completion.
 
 A lease working outside the visible turn names its own ECS seat on every request,
