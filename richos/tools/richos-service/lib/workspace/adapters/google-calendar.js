@@ -47,13 +47,21 @@
  * "the same event," not "the same calendar."
  *
  * SCOPE (checked, not assumed): `calendarList.list` needs `calendar.readonly`, `calendar`,
- * `calendar.calendarlist` or `calendar.calendarlist.readonly` (Google's own method reference). The
- * scope this adapter is pinned to, `calendar.events.readonly` (`config.js:GOOGLE_SCOPES.calendar`,
- * unchanged by this file), is none of those — it grants `events.*` only. So discovery under the
- * CURRENT grant fails with 403, every time, for every account. That is reported as `degraded`, not
- * silently masked: the adapter falls back to `primary` only and says so, rather than either widening
- * the scope (a consent decision, not this file's to make — CEO decision §40 fixes the scope set) or
- * pretending the account has one calendar.
+ * `calendar.calendarlist` or `calendar.calendarlist.readonly` (Google's own method reference). Asked
+ * to widen from "read events" to "read calendars, so every calendar syncs", the CEO answered **yes**
+ * on 2026-09-17 (`richos-hq/wiki/ceo-decisions.md` §44), so `config.js:GOOGLE_SCOPES.calendar` now
+ * pins `calendar.readonly` (`CALENDAR_LIST_SCOPE` below) — one of the four scopes above, so discovery
+ * succeeds for an account that has been through the re-consent §44 requires (a code change is not a
+ * consent: widening what this file REQUESTS was always the CEO's decision, never this adapter's, and
+ * a stored grant only ever reflects a screen he actually approved).
+ *
+ * An installation still holding the OLD grant, `calendar.events.readonly` (`CALENDAR_EVENTS_ONLY_SCOPE`
+ * below; `events.*` only, none of the four), still fails discovery with 403 — exactly as it did before
+ * this file's scope pin changed — and that is reported as `degraded`, not silently masked: the adapter
+ * falls back to `primary` only and says so. The code path below is IDENTICAL regardless of which grant
+ * is live; only Google's own 403 decides which branch runs. That is the positive control that the
+ * widening is CONSENT-gated, not code-gated: nothing here special-cases the old scope to force it into
+ * degraded mode, so a re-consent is the only way discovery starts working, not a flag flip.
  */
 
 import { createHash } from 'node:crypto';
@@ -65,7 +73,13 @@ const API_BASE = 'https://www.googleapis.com/calendar/v3';
 /** A bounded first-sync window: the CEO's recent + near-future calendar, not all history (§4.3). */
 export const DEFAULT_FULL_SYNC_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** Why `calendarList.list` cannot run under the scope this adapter is pinned to (see module docblock). */
+/** The scope this adapter is pinned to since §44 — permits `calendarList.list` (see module docblock). */
+export const CALENDAR_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+
+/** The pre-§44 scope: events only, no calendar discovery — the registry's fallback grant. */
+export const CALENDAR_EVENTS_ONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+
+/** Why `calendarList.list` cannot run under `CALENDAR_EVENTS_ONLY_SCOPE` (see module docblock). */
 export const CALENDAR_LIST_DEGRADED_REASON =
   'calendar list requires a broader Google scope than calendar.events.readonly grants '
   + '(calendarList.list needs calendar.readonly, calendar, calendar.calendarlist or '

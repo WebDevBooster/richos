@@ -11,9 +11,11 @@
  *
  *   - A source whose scope is in the grant gets an adapter.
  *   - A source that can run under MORE THAN ONE grant (Drive: document text under `drive.readonly`
- *     since §40, metadata only under the older `drive.metadata.readonly`) takes the widest grant the
- *     token actually carries, and a narrower one is reported as DEGRADED — named, with the sentence
- *     that fixes it. Neither "fine" nor "broken" would be true of that state.
+ *     since §40, metadata only under the older `drive.metadata.readonly`; Calendar: every calendar
+ *     under `calendar.readonly` since §44, primary calendar only under the older
+ *     `calendar.events.readonly`) takes the widest grant the token actually carries, and a narrower
+ *     one is reported as DEGRADED — named, with the sentence that fixes it. Neither "fine" nor
+ *     "broken" would be true of that state.
  *   - A source whose scope is NOT in the grant is SKIPPED AND NAMED, with the scope it would need.
  *     Silently running fewer sources than the CEO believes are running is the never-silent failure
  *     this layer exists to avoid; "Drive: skipped, you did not grant drive.metadata.readonly" is a
@@ -31,7 +33,7 @@
 import { GOOGLE_SCOPES, MICROSOFT_SCOPES } from '../config.js';
 import { validateAdapter } from './adapter.js';
 import { assertPollingOnly } from './privacy.js';
-import { GoogleCalendarAdapter } from './adapters/google-calendar.js';
+import { GoogleCalendarAdapter, CALENDAR_EVENTS_ONLY_SCOPE } from './adapters/google-calendar.js';
 import { GoogleDriveAdapter, DRIVE_METADATA_SCOPE } from './adapters/google-drive.js';
 import { GoogleGmailAdapter } from './adapters/google-gmail.js';
 import { MicrosoftCalendarAdapter } from './adapters/microsoft-calendar.js';
@@ -54,6 +56,26 @@ export const GOOGLE_SOURCES = [
     scope: GOOGLE_SCOPES.calendar,
     phase: 'P1',
     create: (opts) => new GoogleCalendarAdapter(opts),
+    // THE RE-CONSENT SEAM §44 DEPENDS ON — same shape as Drive's below. The CEO widened Calendar to
+    // `calendar.readonly` on 2026-09-17 ("read calendars, so every calendar syncs: yes"), and a token
+    // minted before that morning holds only `calendar.events.readonly`. Gating on the widened scope
+    // alone would switch a working Calendar source OFF until he re-consented; gating on the narrow
+    // one would forever hide every calendar but the primary from an account that already re-consented.
+    //
+    // So both scopes are wired, widest first, and which one the token carries decides the report —
+    // never the code path. The adapter itself is UNCHANGED by which grant matched: it always attempts
+    // `calendarList.list`, and Google's own 403 is what actually confines an old grant to `primary`
+    // (`adapters/google-calendar.js:CALENDAR_LIST_DEGRADED_REASON`) — this entry's `degraded` string
+    // is the same fact, said before the first poll runs so `status`/`connect` can say it too.
+    grants: [
+      { scope: GOOGLE_SCOPES.calendar },
+      {
+        scope: CALENDAR_EVENTS_ONLY_SCOPE,
+        degraded: 'primary calendar only — this authorization predates the widened Calendar scope '
+          + '(§44). Run `workspace connect google` for this account to re-consent, and RichOS will '
+          + 'sync every calendar you can see.',
+      },
+    ],
   },
   {
     source: 'drive',

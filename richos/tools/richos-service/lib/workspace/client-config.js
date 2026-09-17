@@ -17,7 +17,7 @@
  *                     the registry does not declare is REFUSED, not requested: widening what the CEO
  *                     consents to is his decision on the Google screen (§6.2), never a config typo.
  *   - `accountId`     the address a grant is bound to. It is NOT derivable from the tokens we hold:
- *                     the least-privilege grant is `calendar.events.readonly`, which carries no identity
+ *                     the least-privilege grant is `calendar.readonly` (§44), which carries no identity
  *                     scope, so there is no `id_token` and no People API call available. Asking for
  *                     `openid`/`email` to learn it would change the consent screen — a CEO decision, not
  *                     an implementation detail. So the CEO names his own address once, and it does two
