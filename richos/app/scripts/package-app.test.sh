@@ -57,6 +57,12 @@
 #   D5  a missing NSMicrophoneUsageDescription fails
 #   D6  a bundle whose signature was removed fails
 #   D7  --expect-notarized fires the stapled-ticket check
+#   D8  a bundle with no CFBundleShortVersionString fails — it cannot say which version
+#       it is, and the settings menu would render "RichOS " with nothing after it
+#   D9  a bundle whose version is not the one this build intended fails
+#   D10 a version with no release behind it SAYS SO, at the build rather than on his Mac
+#   D11 ...and the one caller that overrides the version on purpose is not refused
+#   D12 ...and the other branch: a version that IS a release says so, and names the commit
 #   E1  an exported API key does not satisfy the no-credentials case       [shim]
 #   E2  exported halves do not complete a half-supplied key                [shim]
 #   E3  an exported key does not outrank the case's own profile            [shim]
@@ -222,6 +228,12 @@ echo "=== D. verify_bundle, against a real signed bundle ==="
 SB="$TMP/sandbox"; mkdir -p "$SB/scripts" "$SB/src-tauri/icons"
 ln -s "$SCRIPT" "$SB/scripts/package-app.sh"
 head -c 4096 /dev/urandom > "$SB/src-tauri/icons/icon.icns"
+# THE VERSION THE SANDBOX INTENDS. `verify_bundle` compares the bundle's
+# CFBundleShortVersionString against this, which is what stops a manifest announcing one
+# version over a bundle that is another. 9.9.9 is deliberately a version no release of
+# RichOS has ever had, so D10's "no release exists" line is a fact about the fixture and
+# not about whatever this repository happens to be tagged at today.
+printf '[package]\nname = "richos-tauri"\nversion = "9.9.9"\n' > "$SB/src-tauri/Cargo.toml"
 SBS="$SB/scripts/package-app.sh"
 
 make_bundle() {   # make_bundle <dir>
@@ -238,6 +250,7 @@ make_bundle() {   # make_bundle <dir>
 <key>CFBundleName</key><string>RichOS</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>NSMicrophoneUsageDescription</key><string>Rich listens when you tap the talk button.</string>
+<key>CFBundleShortVersionString</key><string>9.9.9</string>
 </dict></plist>
 PLIST
   codesign --force --sign - --timestamp=none "$b" >/dev/null 2>&1
@@ -290,6 +303,65 @@ expect "D6 a bundle whose signature was removed fails" 1 "codesign --verify --de
 make_bundle "$BUNDLE"
 run bash "$SBS" --verify-only "$BUNDLE" --sign developer-id --expect-notarized
 expect "D7 --expect-notarized runs the stapled-ticket check" 1 "no valid stapled notarization ticket"
+
+# ---- THE VERSION THE BUNDLE WILL CALL ITSELF (CEO, 2026-09-17, item 4) -----
+#
+# He was handed a bundle stamped 1.0.3 — a version that has never been released and
+# never will be under that number — and the window told him "RichOS 1.0.3 is up to
+# date" because that IS what the bundle is. These four cases are the moment that fact
+# becomes visible: at the build, not on his Mac.
+
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Delete :CFBundleShortVersionString' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "D8 a bundle with no CFBundleShortVersionString fails" 1 "cannot tell anyone which version it is"
+
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "D9 a bundle whose version is not the one this build intended fails" 1 "the bundle says it is 1.0.3 and this build intended 9.9.9"
+
+make_bundle "$BUNDLE"
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "D10 a version with no release says so, in the run that makes the bundle" 0 "NO v9.9.9 RELEASE EXISTS"
+
+# AND THE ONE CALLER THAT OVERRIDES THE VERSION ON PURPOSE STILL WORKS. `updater-e2e.sh`
+# builds 0.1.0 and 0.1.1 out of one tree through RICHOS_EXTRA_TAURI_CONFIG; both of those
+# bundles are correct and neither may be refused by the check above.
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.1.1' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+RICHOS_EXTRA_TAURI_CONFIG='{"version": "0.1.1"}' run bash "$SBS" --verify-only "$BUNDLE"
+expect "D11 an explicit version overlay is the intended version, not a mismatch" 0 "version 0.1.1"
+
+# AND THE OTHER BRANCH OF THAT LINE, which is the half a reporting check usually ships
+# untested: when a release of this version DOES exist, it says so and names the commit.
+# A second sandbox, because the first one is deliberately not a repository at all.
+SBG="$TMP/sandbox-tagged"; mkdir -p "$SBG/scripts" "$SBG/src-tauri/icons"
+ln -s "$SCRIPT" "$SBG/scripts/package-app.sh"
+cp "$SB/src-tauri/icons/icon.icns" "$SBG/src-tauri/icons/icon.icns"
+printf '[package]\nname = "richos-tauri"\nversion = "9.9.9"\n' > "$SBG/src-tauri/Cargo.toml"
+# HOOKS OFF FOR THE FIXTURE, and not as a convenience. This machine sets
+# `core.hooksPath` globally to an identity guard, which refuses a commit in a repository
+# it does not recognize — so a fixture that inherited it was red on the operator's Mac and
+# green everywhere else, which is precisely the environment-dependent verdict section C's
+# own note was written about. The fixture states its own git environment instead.
+FIXTURE_GIT=(git -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+             -c user.email=fixture@localhost -c user.name=fixture)
+"${FIXTURE_GIT[@]}" -C "$SBG" init -q . >/dev/null 2>&1
+"${FIXTURE_GIT[@]}" -C "$SBG" commit -q --allow-empty -m fixture >/dev/null 2>&1
+"${FIXTURE_GIT[@]}" -C "$SBG" tag v9.9.9 >/dev/null 2>&1
+SBG_SHA="$("${FIXTURE_GIT[@]}" -C "$SBG" rev-parse -q --verify HEAD 2>/dev/null || true)"
+if [ -z "$SBG_SHA" ]; then
+  bad "D12 a version that IS a release says so, and names the commit" \
+      "the fixture repository could not be created, so this branch was never exercised"
+else
+  make_bundle "$BUNDLE"
+  run bash "$SBG/scripts/package-app.sh" --verify-only "$BUNDLE"
+  expect "D12 a version that IS a release says so, and names the commit" 0 "v9.9.9 is a release in this repository ($SBG_SHA)"
+fi
 
 echo ""
 echo "=== E. the operator's environment cannot reach a case ==="
