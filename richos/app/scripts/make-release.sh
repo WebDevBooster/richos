@@ -161,9 +161,18 @@ IS_NIGHTLY=0
 case "$VERSION" in
   *-nightly.*)
     IS_NIGHTLY=1
-    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from nightly import nightly_key; nightly_key(sys.argv[2])' "$here" "$VERSION" \
+    # The nightly channel is a ROLLING RELEASE TAG, not a branch: the public repository
+    # shows `main` and release tags and nothing else (CEO 2026-09-13). The URL is pinned
+    # to the `nightly` tag, so unlike the stable endpoint above it does not depend on
+    # which release GitHub considers `latest`.
+    #
+    # It is READ FROM nightly.py rather than spelled again here. `nightly.py` publishes
+    # to `nightly.ENDPOINT` and this script compiles `$ENDPOINT` into the app; a second
+    # spelling is a second thing to forget, and the check below would then be comparing
+    # this file against itself instead of against the publisher.
+    ENDPOINT="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import nightly; nightly.nightly_key(sys.argv[2]); print(nightly.ENDPOINT)' "$here" "$VERSION")" \
       || die "invalid nightly version (Python 3.11+ is required)"
-    ENDPOINT="https://raw.githubusercontent.com/$REPO/nightly-channel/$MANIFEST_ASSET"
+    [ -n "$ENDPOINT" ] || die "could not read the nightly endpoint from nightly.py"
     [ "$TAG" = "v$VERSION" ] || die "nightly tag must be v$VERSION"
     ;;
 esac
@@ -622,8 +631,14 @@ cmd_verify_release() {
           -H 'Accept: application/json' --max-time 120 "$ENDPOINT" 2>/dev/null)"
   if [ "$code" != "200" ]; then
     warn "  HTTP $code — every installed copy would report a manifest failure."
-    warn "  If this release is not the newest one GitHub knows about, \`latest\` points"
-    warn "  elsewhere. An engine-only or draft release ahead of this one does exactly that."
+    if [ "$IS_NIGHTLY" = 1 ]; then
+      warn "  This URL is pinned to the rolling \`nightly\` tag, so \`latest\` is not involved:"
+      warn "  either that release does not exist yet, or its $MANIFEST_ASSET asset was not"
+      warn "  replaced. \`nightly.py finish\` creates and replaces both; re-run it."
+    else
+      warn "  If this release is not the newest one GitHub knows about, \`latest\` points"
+      warn "  elsewhere. An engine-only or draft release ahead of this one does exactly that."
+    fi
     fail=1
   else
     say "  HTTP 200, $(/usr/bin/stat -f %z "$tmp/endpoint.json") bytes"

@@ -231,9 +231,16 @@ class Runner:
         print("Checking GitHub access, local signing and notarization credentials...", flush=True)
         if self.command("gh", "api", f"repos/{REPO}", "--jq", ".permissions.push", capture=True, timeout=60) != "true":
             raise ValueError("GitHub credentials cannot publish to this repository")
-        rules = json.loads(self.command("gh", "api", f"repos/{REPO}/rules/branches/nightly-channel", capture=True, timeout=60))
-        if any(r["type"] in {"creation", "update"} for r in rules):
-            raise ValueError("repository rules block nightly-channel; configure its narrow exception first")
+        # Until 2026-09-17 this asserted the OPPOSITE: that the `main-only` ruleset had
+        # been given an exception for `refs/heads/nightly-channel`, and it refused to
+        # run without one. That is how a publisher came to require a hole in the rule
+        # that keeps every branch but `main` off the public repository. The channel is
+        # a release tag now and needs no exception, so the check is inverted: the run
+        # is refused while any branch but `main` is exempt. `nightly.py` owns the rule
+        # and re-checks it immediately before the channel moves; this is the fail-fast
+        # copy, ahead of forty minutes of gates.
+        self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "check-rules",
+                     timeout=120)
         self.command("cargo", "tauri", "--version", timeout=30)
         if self.credentials.get("RICHOS_NOTARY_PROFILE") and not self.credentials.get("RICHOS_NOTARY_KEY"):
             auth = ["--keychain-profile", self.credentials["RICHOS_NOTARY_PROFILE"]]
@@ -344,7 +351,7 @@ class Runner:
         print("", flush=True)
         print("Nothing here is installed, published, or reachable by an existing install's", flush=True)
         print("auto-updater: the release exists on GitHub only as a prerelease carrying the", flush=True)
-        print("engine asset build compiled its pin against; nightly-channel has not moved.", flush=True)
+        print("engine asset build compiled its pin against; the update channel has not moved.", flush=True)
         print("", flush=True)
         print(f"Publish only on a READY verdict:  nightly-local.py publish --run {info['run_id']}", flush=True)
 

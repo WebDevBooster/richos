@@ -136,6 +136,31 @@ class LocalTests(unittest.TestCase):
             r.preflight()
         r.command.assert_not_called()
 
+    def test_preflight_asks_the_publisher_whether_branches_are_still_banned(self):
+        """The check that used to REQUIRE a hole in the branch rule now forbids one.
+
+        Until 2026-09-17 this preflight called
+        `gh api repos/<repo>/rules/branches/nightly-channel` and refused to run if any
+        `creation`/`update` rule applied -- "configure its narrow exception first". A
+        publisher that demands an exemption is how `refs/heads/nightly-channel` came to
+        be added to the `main-only` ruleset on 2026-09-16 and how the public repository
+        page came to read "2 Branches" the next morning. The channel is a release tag
+        now, so no exemption is wanted and the absence of one is the precondition.
+        """
+        r = self.identity_runner()
+        r.command = Mock(return_value="true")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.suppress(Exception):
+            r.preflight()
+        commands = [call.args for call in r.command.call_args_list]
+        checks = [c for c in commands if "check-rules" in c]
+        self.assertEqual(len(checks), 1, commands)
+        self.assertEqual(Path(checks[0][1]).name, "nightly.py")
+        # The old shape must not come back under any spelling.
+        for command in commands:
+            joined = " ".join(str(part) for part in command)
+            self.assertNotIn("rules/branches", joined)
+            self.assertNotIn("nightly-channel", joined)
+
     def test_lock_rejects_concurrent_manual_commands_and_releases_after_failure(self):
         state = self.root / "state"
         with self.assertRaises(RuntimeError):
@@ -216,7 +241,7 @@ class LocalTests(unittest.TestCase):
         self.assertTrue((recorded_out / "candidate.json").exists())
         self.assertIn("publish --run fixture-run-id", buf.getvalue())
         self.assertIn("RICHOS_ACTIVATION=regular", buf.getvalue())
-        self.assertIn("nightly-channel has not moved", buf.getvalue())
+        self.assertIn("the update channel has not moved", buf.getvalue())
 
     def test_publish_calls_finish_without_signing_credentials(self):
         r = self.runner()

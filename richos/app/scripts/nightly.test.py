@@ -62,6 +62,18 @@ class GitTests(unittest.TestCase):
         self.patcher = patch.object(n, "ROOT", self.repo)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
+        # Three things in `promote` now reach GitHub rather than this fixture's local
+        # remote: the ruleset read-back, the "does the rolling release exist yet" probe,
+        # and the asset upload. Defaulted to no-ops here so every test below still
+        # describes Git behavior alone -- a test that wants to inspect them patches
+        # again locally, and `patch.object` nests. Before the channel moved to a release
+        # tag, `promote` ran no external command at all, which is why these defaults did
+        # not exist and why six tests reached for the operator's real `gh` when it did.
+        for name, result in (("verify_repository_rules", None), ("succeeds", True),
+                             ("execute", None)):
+            patcher = patch.object(n, name, return_value=result)
+            setattr(self, f"stub_{name}", patcher.start())
+            self.addCleanup(patcher.stop)
         n.git("config", "user.name", "Fixture")
         n.git("config", "user.email", "fixture@example.invalid")
         n.git("config", "core.hooksPath", "/dev/null")
@@ -281,11 +293,23 @@ class GitTests(unittest.TestCase):
         self.assertEqual(stages, ["engine", "verify-engine", "app", "verify-assets"])
         self.assertIn("--prerelease", calls[1])
         self.assertIn("--latest=false", calls[1])
-        self.assertTrue(calls[-2][-1].endswith("/latest.json"))
-        self.assertEqual(calls[-1][2], "verify-assets")
+        # The immutable release gets its manifest last of its own assets, and only then
+        # is anything verified. The channel comes after that, and last of everything:
+        # `verify-assets` is what earns the right to move it.
+        manifest_upload = calls[-3]
+        self.assertEqual(manifest_upload[:5], ("gh", "release", "upload", info["tag"], "--repo"))
+        self.assertTrue(manifest_upload[-1].endswith("/latest.json"))
+        self.assertEqual(calls[-2][2], "verify-assets")
+        # Last call of the whole publish: the rolling channel release's asset, replaced.
+        self.assertEqual(calls[-1][:6], ("gh", "release", "upload", n.CHANNEL_TAG,
+                                         "--repo", n.REPO))
+        self.assertIn("--clobber", calls[-1])
+        self.assertTrue(calls[-1][-1].endswith("/latest.json"))
         oid, current = n.channel()
         self.assertEqual(current, info)
         self.assertEqual(json.loads(n.git("show", f"{oid}:latest.json")), self.manifest(info))
+        # The branch ruleset is read back on the way through, not merely documented.
+        self.stub_verify_repository_rules.assert_called_once_with()
 
     def fake_execute(self, out, calls=None):
         calls = calls if calls is not None else []
@@ -366,6 +390,69 @@ class GitTests(unittest.TestCase):
             promote.assert_not_called()
         self.assertEqual(n.channel(), (None, None))
 
+    def test_the_rolling_channel_release_is_created_once_then_only_replaced(self):
+        """`--verify-tag` is why the create can only run after the tag has moved."""
+        self.stub_succeeds.return_value = False       # no `nightly` release yet
+        first = self.reserve()
+        calls = []
+        with patch.object(n, "execute", side_effect=lambda *a, **k: calls.append(a)):
+            n.promote(first, self.manifest(first))
+        create = [c for c in calls if c[:3] == ("gh", "release", "create")]
+        self.assertEqual(len(create), 1)
+        self.assertEqual(create[0][3], n.CHANNEL_TAG)
+        for flag in ("--verify-tag", "--prerelease", "--latest=false"):
+            self.assertIn(flag, create[0])
+        # The tag it verifies must already be on the remote by the time create runs.
+        self.assertEqual(n.git("ls-remote", "origin", n.CHANNEL_REF).split()[1], n.CHANNEL_REF)
+
+        self.stub_succeeds.return_value = True        # it exists from here on
+        n.git("checkout", "-q", "main")
+        # The source has not moved, so plan() reports "already published" for it.
+        second = n.prepare(self.plan(force=True))
+        calls.clear()
+        with patch.object(n, "execute", side_effect=lambda *a, **k: calls.append(a)):
+            n.promote(second, self.manifest(second))
+        self.assertEqual([c for c in calls if c[:3] == ("gh", "release", "create")], [])
+        self.assertIn("--clobber", [c for c in calls if c[:3] == ("gh", "release", "upload")][0])
+
+    def test_finish_repairs_an_asset_the_channel_already_names(self):
+        """A crash between the lease and the upload must be re-runnable, not a rollback.
+
+        Moving the channel tag and replacing the release asset are two acts, not one.
+        Lease first means a crash in between leaves the tag naming a version whose asset
+        was never replaced -- users stay on the older one. Re-running `finish` has to
+        repair that, and `promote`'s ordering checks would otherwise call it a move
+        backwards and refuse. Without the repair arm this state is unrecoverable by
+        re-running the documented command.
+        """
+        info = self.reserve()
+        with patch.object(n, "execute", side_effect=subprocess.CalledProcessError(1, "gh")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.promote(info, self.manifest(info))
+        # The lease was taken and the tag DID move; only the asset is missing.
+        leased, current = n.channel()
+        self.assertEqual(current, info)
+
+        calls = []
+        with patch.object(n, "execute", side_effect=lambda *a, **k: calls.append(a)):
+            repaired = n.promote(info, self.manifest(info))
+        self.assertEqual(repaired, leased, "the repair must not move the channel again")
+        self.assertEqual(n.channel()[0], leased)
+        uploads = [c for c in calls if c[:3] == ("gh", "release", "upload")]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(uploads[0][3], n.CHANNEL_TAG)
+        self.assertIn("--clobber", uploads[0])
+
+    def test_the_repair_arm_does_not_excuse_a_genuine_rollback(self):
+        """Positive control for the test above: only the SAME candidate is repairable."""
+        old = self.reserve()
+        n.git("checkout", "-q", "main")
+        new = self.reserve()
+        with patch.object(n, "execute"):
+            n.promote(new, self.manifest(new))
+            with self.assertRaisesRegex(ValueError, "newer"):
+                n.promote(old, self.manifest(old))
+
     def test_release_equals_build_then_finish(self):
         """`release` (== `publish`) and an explicit `build` + `finish` reach the same state."""
         fused_info = self.reserve()
@@ -399,6 +486,92 @@ class GitTests(unittest.TestCase):
                          self.manifest(split_info))
 
 
+class RepositoryRuleTests(unittest.TestCase):
+    """The publisher reads the branch ruleset back before it publishes anything.
+
+    On 2026-09-16 at 21:57Z a Codex run authenticated as the repository owner added
+    `refs/heads/nightly-channel` to the `main-only` ruleset's exclusion list so this
+    publisher could push a channel branch; at 02:53Z the first nightly created it and
+    the public repository page read "2 Branches" (CEO 2026-09-13, ceo-decisions 38:
+    *"what is anything other than the `main` doing on GitHub?"*). The ruleset refused
+    nothing because nothing asked it. These tests are about the asking.
+    """
+    GOOD = {"id": 23194738, "name": "main-only", "target": "branch",
+            "enforcement": "active", "bypass_actors": [],
+            "conditions": {"ref_name": {"include": ["~ALL"], "exclude": ["refs/heads/main"]}},
+            "rules": [{"type": "creation"}, {"type": "update"}]}
+
+    def check(self, ruleset=None, listing=None):
+        """Run the real read-back against a ruleset the fake `gh` serves."""
+        ruleset = self.GOOD if ruleset is None else ruleset
+        def fake_run(*args, **kwargs):
+            self.assertEqual(args[:2], ("gh", "api"))
+            if args[2].endswith("/rulesets"):
+                return json.dumps(self.GOOD if listing is None else listing)
+            self.assertEqual(args[2], f"repos/{n.REPO}/rulesets/{ruleset['id']}")
+            return json.dumps(ruleset)
+        with patch.object(n, "run", side_effect=fake_run):
+            n.verify_repository_rules()
+
+    def test_the_rule_as_the_ceo_set_it_passes(self):
+        """Negative control: without this, every assertion below could pass vacuously."""
+        self.check(listing=[self.GOOD])
+
+    def test_a_widened_exclusion_list_refuses_the_publish(self):
+        """THE positive control, and the exact shape of what happened on 2026-09-16."""
+        widened = json.loads(json.dumps(self.GOOD))
+        widened["conditions"]["ref_name"]["exclude"].append("refs/heads/nightly-channel")
+        with self.assertRaisesRegex(ValueError, "exempt branches"):
+            self.check(widened, listing=[widened])
+
+    def test_every_other_way_to_make_the_ban_a_no_op_also_refuses(self):
+        """An exclusion list that reads correctly is not on its own the rule."""
+        cases = {
+            "enforcement": ({"enforcement": "evaluate"}, "not 'active'"),
+            "bypass": ({"bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole"}]},
+                       "bypass actor"),
+            "narrowed": ({"conditions": {"ref_name": {"include": ["refs/heads/release/*"],
+                                                      "exclude": ["refs/heads/main"]}}},
+                         r"not \['~ALL'\]"),
+            "creation": ({"rules": [{"type": "update"}]}, "does not restrict creation"),
+            "update": ({"rules": [{"type": "creation"}]}, "does not restrict update"),
+        }
+        for name, (override, expected) in cases.items():
+            with self.subTest(case=name):
+                broken = {**json.loads(json.dumps(self.GOOD)), **override}
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.check(broken, listing=[broken])
+
+    def test_a_missing_or_duplicated_ruleset_refuses(self):
+        for listing in ([], [self.GOOD, {**self.GOOD, "id": 99}]):
+            with self.subTest(count=len(listing)):
+                with self.assertRaisesRegex(ValueError, "exactly one branch ruleset"):
+                    self.check(listing=listing)
+
+    def test_a_ruleset_of_another_name_or_target_is_not_this_rule(self):
+        for other in ({"name": "something-else"}, {"target": "tag"}):
+            with self.subTest(**other):
+                with self.assertRaisesRegex(ValueError, "exactly one branch ruleset"):
+                    self.check(listing=[{**self.GOOD, **other}])
+
+
+class ChannelShapeTests(unittest.TestCase):
+    def test_the_channel_is_a_release_tag_and_its_endpoint_is_a_release_asset(self):
+        """The CEO's rule, asserted rather than left to a comment.
+
+        `main` and release tags, nothing else. A regression here does not break a test
+        somewhere downstream -- it silently puts a branch back on the public repository,
+        which is the thing that has now happened once.
+        """
+        self.assertTrue(n.CHANNEL_REF.startswith("refs/tags/"), n.CHANNEL_REF)
+        self.assertNotIn("refs/heads/", n.CHANNEL_REF)
+        self.assertEqual(n.CHANNEL_REF, f"refs/tags/{n.CHANNEL_TAG}")
+        self.assertEqual(
+            n.ENDPOINT,
+            f"https://github.com/{n.REPO}/releases/download/{n.CHANNEL_TAG}/latest.json")
+        self.assertNotIn("raw.githubusercontent.com", n.ENDPOINT)
+
+
 class ReleaseScriptTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -428,8 +601,17 @@ from pathlib import Path
 args = sys.argv[1:]
 dest = Path(args[args.index('-o') + 1])
 url = args[-1]
-# verify-assets must not fetch or require the live channel yet.
-if '/releases/download/' not in url:
+# verify-assets must not fetch or require the live channel yet. Since 2026-09-17 the
+# channel endpoint is ITSELF a `/releases/download/` URL ending in `latest.json`, so
+# the old substring test would have passed it and then served the immutable release's
+# manifest in its place. The channel is named exactly and refused by name.
+if url == os.environ['FAKE_CHANNEL_ENDPOINT'] or '/releases/download/' not in url:
+    # make-release.sh discards curl's stderr, so a refusal is recorded where a test
+    # can see it rather than only inferred from the command failing.
+    # No backslash escape here: this script is written from a triple-quoted literal,
+    # so an escape would be expanded by the test rather than by this file.
+    with open(os.environ['FAKE_REFUSALS'], 'a') as log:
+        print(url, file=log)
     raise SystemExit('unexpected channel fetch before promotion')
 source = Path(os.environ['FAKE_REMOTE']) / url.rsplit('/', 1)[-1]
 if source.exists():
@@ -443,7 +625,9 @@ else:
         cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_CARGO_ARGS"\nexit "${FAKE_CARGO_EXIT:-0}"\n')
         cargo.chmod(0o755)
         self.env = {**os.environ, 'PATH': str(self.bin) + ':' + os.environ['PATH'],
-                    'FAKE_REMOTE': str(self.remote), 'FAKE_CARGO_ARGS': str(root / 'cargo-args')}
+                    'FAKE_REMOTE': str(self.remote), 'FAKE_CARGO_ARGS': str(root / 'cargo-args'),
+                    'FAKE_CHANNEL_ENDPOINT': n.ENDPOINT,
+                    'FAKE_REFUSALS': str(root / 'refused-urls')}
         self.assets()
 
     def assets(self, manifest_version=None):
@@ -476,6 +660,37 @@ else:
         self.assertIn('verify_update_manifest', args)
         self.assertIn('--locked', args)
         self.assertIn('published bytes, version and updater signature verified', result.stdout)
+
+    def test_the_channel_endpoint_is_a_different_url_from_the_releases_own_manifest(self):
+        """Positive control for the test above, and it stopped being free on 2026-09-17.
+
+        Both URLs are now `https://github.com/<repo>/releases/download/<tag>/latest.json`
+        and differ only in the tag, where before one was a `raw.githubusercontent.com`
+        branch URL. `verify-assets` passing above therefore no longer proves on its own
+        that it left the channel alone -- so this proves the fixture still tells them
+        apart, by running the one command that DOES fetch the channel and watching it
+        be refused by name.
+        """
+        refusals = Path(self.env['FAKE_REFUSALS'])
+        self.assertEqual(self.call('verify-assets').returncode, 0)
+        self.assertFalse(refusals.exists(), 'verify-assets must not fetch the channel')
+        result = self.call('verify-release')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(refusals.read_text().split(), [n.ENDPOINT],
+                         'the channel endpoint, and only it, must be refused by name')
+
+    def test_the_compiled_endpoint_is_read_from_the_publisher_not_respelled(self):
+        """make-release.sh compiles the endpoint in; nightly.py publishes to it.
+
+        Two spellings of one URL is a silent mismatch waiting to happen, and the
+        endpoint check inside make-release.sh would then be comparing the script
+        against itself. `plan` printing exactly `nightly.ENDPOINT` is the evidence
+        that the script asks the publisher.
+        """
+        result = self.call('plan')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'releases/download/{n.CHANNEL_TAG}/latest.json', result.stdout)
+        self.assertNotIn('raw.githubusercontent.com', result.stdout)
 
     def test_changed_bytes_and_missing_assets_refuse(self):
         (self.remote / 'RichOS.app.tar.gz').write_text('corrupt')
