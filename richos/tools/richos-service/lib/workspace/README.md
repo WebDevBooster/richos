@@ -66,9 +66,10 @@ entitiesVersion}` seam.
 
 ## Status — mock-verified vs pending CEO OAuth
 
-**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 354 tests**
-(`npm run -s test:workspace` → `354 passed, 0 failed`, measured 2026-09-17, after Calendar widened
-to `calendar.readonly` §44)**:**
+**Mock-verified now (this Mac, no live account) — `test/workspace.js`, 360 tests**
+(`npm run -s test:workspace` → `360 passed, 0 failed`, measured 2026-09-17, after a plain re-consent
+was fixed to request the CURRENT registry scope for an account's sources rather than replaying the
+scope URL frozen in the config file at first consent)**:**
 the `SourceItem` contract, evidence zone + ingest ledger, the whole governance layer (scope, authority,
 metadata), the immune system (untrusted/stale/injection-quarantine), the OAuth PKCE flow + token
 exchange/refresh (mocked HTTP), the TokenManager lifecycle incl. the 7-day expiry health states, the
@@ -206,7 +207,7 @@ closed-port check afterwards.
 
 **Where the client config lives:** `<zone>/_oauth_client.json` (`workspaceClientConfigPath`, override
 `RICHOS_WORKSPACE_CLIENT_CONFIG`) — client id, loopback redirect, and an `accounts` list, each entry
-an address with its own requested scopes and org domains. **No secret in that file**: a Google
+an address with its own `sources` and org domains. **No secret in that file**: a Google
 "Desktop app" client does have one, and Google's token endpoint refuses both the code exchange and
 the refresh without it (`client-secret.js` carries the live probe), so it lives in the **OS keychain**
 beside the tokens, in the same service, keyed by client id — never in a file the CEO is invited to
@@ -215,6 +216,20 @@ that same service. The account is asked for rather than derived: the least-privi
 identity scope, so there is no `id_token` and no People call, and requesting one would change what
 the CEO consents to. Each address then serves as both the adapters' stable `accountId` and that
 account's governance identity (§5.1).
+
+**The persisted fact is WHICH SOURCES he enabled, not which scope URLs (2026-09-17).** An account
+entry holds `sources: ["calendar", "drive", "mail"]` — never a scope literal — and every read resolves
+those names to the CURRENT registry scope through `scopesForSources` (`registry.js`). Before this, an
+entry held the scope URL itself, frozen at the moment of whatever consent wrote it: a plain re-consent
+(`workspace connect google`, no `--source`) replayed that literal forever, so an account connected
+before the CEO widened a scope (Drive §40, Calendar §44) kept requesting the OLD, narrow one on every
+re-consent — clicking through it re-authorized exactly what he already had, and `status`'s own
+"re-consent to fix this" instruction discharged nothing. An existing file still holding scope URLs is
+migrated the first time anything reads it: each URL is mapped back to the source it names, at ANY
+width this registry has ever declared (current or historical — the same `grants` table the registry
+uses to run an old grant in degraded mode), and rewritten once. A URL that names no source at all
+(an invented or since-retired scope) is kept under `legacyScopes` and reported by the validator, never
+silently dropped.
 
 ## Drive (P2) — document text, under `drive.readonly`, since the CEO said yes (§40)
 
@@ -450,9 +465,8 @@ npm run test:workspace     # this layer (mocked Google + Microsoft APIs)
 npm test                   # transcription + workspace suites
 ```
 
-`npm run -s test:workspace` → **354 passed, 0 failed** (2026-09-17, after the multi-calendar sync
-change and the Calendar scope widening to `calendar.readonly` (§44) added above; 62 of them Microsoft,
-including the ten that drive `connect/status/sync/
+`npm run -s test:workspace` → **360 passed, 0 failed** (2026-09-17, after the source-name re-consent
+fix above; 62 of the 360 are Microsoft, including the ten that drive `connect/status/sync/
 disconnect microsoft` end to end against a mocked Entra token endpoint). No live Microsoft call is
 made by the suite and no real credential exists in it. Every refusal in the Microsoft block has
 been mutation-probed — neutered in turn, with the suite confirmed red each time and green after
