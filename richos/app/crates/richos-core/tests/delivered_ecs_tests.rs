@@ -27,10 +27,10 @@ fn restart_recovers_scoped_obligations_and_receipts_without_auto_memory() {
     assert_eq!(bridge.request("checkpoint", checkpoint).unwrap()["duplicate"], true);
     let restarted = bridge.clone();
     let second = restarted.bind("depot", "thread-a", "session-b", "turn-b", None, "ceo").unwrap();
-    assert!(restarted.brief(&second).unwrap().contains("Review the depot manual"));
-    assert!(bridge.brief(&first).is_err());
+    assert!(restarted.brief(&second, None).unwrap().contains("Review the depot manual"));
+    assert!(bridge.brief(&first, None).is_err());
     let other = bridge.bind("studio", "thread-b", "session-c", "turn-c", None, "ceo").unwrap();
-    assert!(!bridge.brief(&other).unwrap().contains("depot manual"));
+    assert!(!bridge.brief(&other, None).unwrap().contains("depot manual"));
 }
 
 #[test]

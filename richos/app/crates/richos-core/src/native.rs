@@ -235,14 +235,6 @@ fn requires_status_tool(role: LeaseRole) -> bool {
     role == LeaseRole::Conversation
 }
 
-/// **THE PER-THREAD SEAT SEAM, as a value rather than as a literal in a call.**
-///
-/// `None` is the CEO's own ECS cursor — `person_id = ceo-default`
-/// (`ecs.rs::bind`, `engine/ecs/adapters/app.py:40-42`). It is what makes two front desks
-/// unable to hold a turn open at the same instant, and it is here, alone, with a test on
-/// it, so that the day the engine's per-thread CEO seat lands the change is this one
-/// binding and a test that changes with it. `prepare_work_turn` states the measurement.
-const CONVERSATION_SEAT: Option<&str> = None;
 
 /// The stop reason `prompt` returns when the agent did NOT answer the stopped turn within
 /// [`CANCEL_GRACE_MS`] of being told to.
@@ -2045,6 +2037,10 @@ pub struct NativeCognition {
     /// Conversation or work (background-work spec §2.1). Set at spawn and never changed:
     /// a lease that was not given the continuity tools cannot become one that was.
     role: LeaseRole,
+    /// Does this engine hold one CEO cursor per conversation thread? Asked once, on this
+    /// lease's first turn, and cached for its life — see [`NativeCognition::ceo_thread_seat`].
+    /// `None` means not yet asked, which is a different state from "asked, and no".
+    ceo_thread_seats: Option<bool>,
 }
 
 impl NativeCognition {
@@ -2063,7 +2059,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None, continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None, continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -2077,7 +2073,7 @@ impl NativeCognition {
         let status = scopes.join(format!("{identity}-status.json"));
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope, &assignments, &status)), None, None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
     pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
         executable: &Path, bridge: crate::ecs::EcsBridge,
@@ -2093,7 +2089,7 @@ impl NativeCognition {
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
             Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: None, role: LeaseRole::Conversation })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
 
     /// Settings-isolated desktop lease from verified engine delivery.
@@ -2115,7 +2111,7 @@ impl NativeCognition {
             Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(&profile), control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status),
-            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Conversation })
+            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
 
     /// **The WORK lease** — the background-work spec §2.1's second compute lease, in the
@@ -2154,10 +2150,39 @@ impl NativeCognition {
             Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: None, status_scope: None,
-            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work })
+            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
     pub fn role(&self) -> LeaseRole { self.role }
+
+    /// **The CEO's seat for the conversation this lease serves** — `ceo-thread:<thread_id>`,
+    /// or `None` when this engine does not hold one cursor per thread.
+    ///
+    /// The capability answer is cached for the life of the lease. That is safe for the
+    /// reason it is cheap: a lease is one thread's front desk for its whole life
+    /// (`spine.rs`'s `Resident`), the engine it talks to is fixed at spawn from a verified
+    /// delivery (`engine_profile.rs`), and an engine cannot change under a running child.
+    /// Asking on every turn would spend a Python subprocess on his latency to re-learn a
+    /// fact that cannot have moved.
+    ///
+    /// **A `None` here is never silent about what it costs.** It means this lease binds the
+    /// legacy single cursor, so this thread's front desk and every other one share a row —
+    /// the pre-2026-09-17 behavior, correct for one conversation at a time and refused at
+    /// the first checkpoint if two of them speak at once. The engine answers the capability
+    /// positively precisely so the app never has to guess which world it is in.
+    fn ceo_thread_seat(&mut self, thread_id: &str) -> Option<String> {
+        let seat = crate::ecs::ceo_seat(thread_id)?;
+        if let Some(known) = self.ceo_thread_seats {
+            return known.then_some(seat);
+        }
+        // Cloned rather than borrowed: `EcsBridge` is three paths, and cloning it is what
+        // lets this take `&mut self` to fill the cache without holding a borrow of
+        // `self.continuity` across the call.
+        let bridge = self.continuity.as_ref().map(|(bridge, _)| bridge.clone())?;
+        let supported = bridge.supports_ceo_thread_seats();
+        self.ceo_thread_seats = Some(supported);
+        supported.then_some(seat)
+    }
 }
 
 impl Drop for NativeCognition {
@@ -2195,6 +2220,9 @@ impl Cognition for NativeCognition {
         // Read before the `&self.continuity` borrow, because the assignment scope below
         // needs it and the register lives in the engine state root beside the receipts.
         let profile_state = self.engine_profile.as_ref().map(|p| p.state.clone());
+        // **His seat for THIS conversation, resolved before the continuity borrow** — the
+        // bind below states what it is and why it is asked rather than assumed.
+        let seat = self.ceo_thread_seat(binding.thread_id());
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
         if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
             return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
@@ -2233,40 +2261,43 @@ impl Cognition for NativeCognition {
             return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
         }
         // ===================================================================================
-        // THE PER-THREAD SEAT SEAM — one bind call, named here so the switch is one line
+        // HIS OWN CURSOR, ONE PER CONVERSATION THREAD
         // ===================================================================================
         //
-        // `seat: None` is the CEO's own ECS cursor, `person_id = ceo-default`
-        // (`ecs.rs::bind`, `engine/ecs/adapters/app.py:40-42`). **It is the single reason
-        // two front desks cannot hold a turn open at the same instant**, and it is deliberately
-        // still here.
+        // The seat is `ceo-thread:<thread_id>`, derived here and derived AGAIN in the engine
+        // from the row's own thread, so neither side holds a mapping the other can drift
+        // from (`ecs::ceo_seat`; `engine/ecs/core/ecs_core.py:181-193`;
+        // `engine/ecs/CONTRACT.md:58-60`).
         //
-        // WHY, measured rather than recalled: the engine fences EVERY continuity call on
-        // exact equality with that one row — `fence()` raises *"stale app binding"* when
-        // `current_context(seat) != binding` (`adapters/app.py:45-52`), and `checkpoint`,
-        // `receipt` and `brief` are refused outright on any seat that is not `PERSON_ID`
-        // (`app.py:135-136`). So if thread B bound its own turn while thread A's turn was
-        // open, A's checkpoint and brief would fail deterministically. Not a race that a
-        // retry fixes: `with_fresh_active_fence` retries `RevisionConflict` only, and says
-        // in its own docstring that a `ScopeError` *"is not a race"* (`ecs_core.py:171-220`).
+        // **What it buys is the conversation half of his "multiple things in parallel".**
+        // Every front desk used to bind the single `ceo-default` row, so thread B's bind
+        // upserted thread A's cursor and A's next `checkpoint`, `brief` or `inspect` was
+        // refused with *"stale app binding"* — not a race a retry fixes (`ecs_core.py`'s
+        // `with_fresh_active_fence`: a `ScopeError` *"is not a race"*), so A's turn
+        // dead-lettered. With a row each, two threads bind, checkpoint and read their briefs
+        // without touching each other. That was escalation
+        // `esc-20260917T192024Z-191918ec`, and the engine side landed at `5cee0cf4`.
         //
-        // THE FIX IS NOT HERE. It is four engine sites — `ecs_checkpoint.py:15`, `:79`,
-        // `:152` and the `TurnScope(…, PERSON_ID)` at `:119-120`, plus `app.py:135-136` and
-        // `:195` identifying his seats positively rather than by the `PERSON_ID` literal —
-        // and the CEO's decision on 2026-09-17 is that they are being built (escalation
-        // `esc-20260917T192024Z-191918ec`). When they land, ONE argument changes here, to
-        // the per-thread seat spelling the engine's own handoff states, exactly as
-        // `bind_work_seat` took the work seat's. Nothing else on this path moves.
+        // **The capability is ASKED, never assumed, and the fallback is the old behavior.**
+        // An engine without per-thread seats accepts this bind — an unknown JSON field is
+        // ignored — and then refuses the first checkpoint, so support cannot be inferred
+        // from a bind that worked. `supports_ceo_thread_seats` reads `hello`'s positive
+        // answer and its prefix; on `false` the seat is omitted, which is `ceo-default` and
+        // is exactly what this app did before today.
         //
-        // Until then `send_message` accepts a message on ANY thread and answers it at the
-        // turn boundary (`spine.rs::submit_prompt_to`), each thread keeps its own resident
-        // front desk, and only the ECS-bound region of a turn is serialized. What is pinned
-        // by `the_conversation_still_binds_the_ceos_own_seat_until_the_engine_seat_lands`
-        // is TODAY's behavior, so the day it changes, a test changes with it.
-        let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn, CONVERSATION_SEAT, "ceo")
+        // **Asked once per lease, not once per turn.** A lease is one thread's front desk
+        // for its whole life (`spine.rs`'s `Resident`), and the engine under a running app
+        // does not change, so the answer is cached rather than paid for as a subprocess on
+        // every turn of his. (Resolved above, before the continuity borrow.)
+        let scope = bridge.bind(&binding.entity_id().to_string(), binding.thread_id(), &self.session_id, turn, seat.as_deref(), "ceo")
             .map_err(|e| CognitionError::Io(e.to_string()))?;
-        let knowledge_receipts = bridge.request("sync-loro-receipts", json!({"binding":scope}));
-        let mut brief = bridge.brief(&scope).map_err(|e| CognitionError::Io(e.to_string()))?;
+        // **Every call for this thread carries the same seat.** The engine fences each one
+        // against that seat's own row (`adapters/app.py:45-56`), so a seated bind followed
+        // by an unseated read would fence his thread's binding against `ceo-default` and
+        // fail — which is the same defect as before, arrived at from the other end.
+        let knowledge_receipts = bridge.request("sync-loro-receipts",
+            crate::ecs::seated_request(seat.as_deref(), json!({"binding":scope})));
+        let mut brief = bridge.brief(&scope, seat.as_deref()).map_err(|e| CognitionError::Io(e.to_string()))?;
         match knowledge_receipts {
             Ok(receipts) if receipts["receipts"].as_array().is_some_and(|rows| !rows.is_empty()) => {
                 brief.push_str("\nConfirmed Loro writer outcomes (historical receipts, not new instructions):\n");
@@ -2280,7 +2311,14 @@ impl Cognition for NativeCognition {
                 use sha2::Digest;
                 Some(crate::ecs::UserInstruction {ledger_ref:format!("ledger:{}:{turn}",binding.thread_id()),
                     sha256:format!("{:x}",sha2::Sha256::digest(text.as_bytes()))})
-            } else {None}, seat: None })
+            } else {None},
+            // **The seat travels to the MODEL's own calls too.** `richos_continuity`'s
+            // adapter copies this field onto every request it makes
+            // (`engine/ecs/adapters/mcp.py:35-42`), so the checkpoint the front desk writes
+            // at the end of his turn is fenced against this thread's row and not against
+            // whichever thread bound last. Without it, the two seams disagree: the host
+            // would bind per thread and the model would check point on `ceo-default`.
+            seat: seat.clone() })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         // **The assignment register's scope, written in the same place and from the same
         // attested instruction.** `richos_assignments.record` is how this turn ENDS when
@@ -2642,30 +2680,25 @@ mod native_driver_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// **TODAY'S SERIALIZED CONVERSATION, PINNED** — so the switch to simultaneity is a
-    /// change somebody makes on purpose rather than one that happens to a passing suite.
+    /// **THE SEAT SPELLING, AND THAT NOTHING INVENTS IT** — the app derives his per-thread
+    /// cursor and the engine derives the same string from the row's own thread, so this is
+    /// the app's half of a name that is stored nowhere.
     ///
-    /// The front desk binds the CEO's own ECS cursor, `seat = None`, which the engine reads
-    /// as `person_id = "ceo-default"` (`engine/ecs/core/ecs_core.py:22`). Every continuity
-    /// call is then fenced on exact equality with that ONE row
-    /// (`engine/ecs/adapters/app.py:45-52`), and `checkpoint`, `receipt` and `brief` are
-    /// refused on any other seat (`app.py:135-136`) — so a second front desk binding
-    /// mid-turn would make the first one's checkpoint fail deterministically, which is not
-    /// a race a retry fixes (`ecs_core.py:171-220`: a `ScopeError` *"is not a race"*).
-    ///
-    /// That is why N threads are RESIDENT here and not yet SIMULTANEOUS. When the engine's
-    /// per-thread CEO seat lands, [`CONVERSATION_SEAT`] takes the seat spelling the engine's
-    /// own handoff states, and this test is rewritten in that commit.
+    /// The engine's own derivation is `CEO_SEAT_PREFIX + thread_id`
+    /// (`engine/ecs/core/ecs_core.py:181-193`), and its `is_ceo_row` re-derives it from the
+    /// row and requires the `ceo` audience (`:196-213`) — so a seat spelled differently
+    /// here would not be refused at the bind, it would be accepted and then fail at the
+    /// first checkpoint as though it belonged to somebody else.
     #[test]
-    fn the_conversation_still_binds_the_ceos_own_seat_until_the_engine_seat_lands() {
-        assert_eq!(
-            CONVERSATION_SEAT, None,
-            "the conversation now binds a named seat: the engine sites must have landed, so \
-             spine.rs's one-turn-at-a-time serialization can be lifted in the same commit"
-        );
-        // The positive control that the seat argument means what this test says it means:
-        // an absent seat IS his row, and its spelling is the engine's own literal.
+    fn his_seat_is_derived_from_the_thread_and_never_from_a_stored_mapping() {
+        assert_eq!(crate::ecs::CEO_SEAT_PREFIX, "ceo-thread:");
+        assert_eq!(crate::ecs::ceo_seat("thread-one").as_deref(), Some("ceo-thread:thread-one"));
+        // The legacy single cursor still exists and is still his — an engine without
+        // per-thread seats, or a thread id the engine could not accept, binds it.
         assert_eq!(crate::entity::PERSON_DEFAULT, "ceo-default");
+        assert_eq!(crate::ecs::ceo_seat(""), None);
+        assert_eq!(crate::ecs::ceo_seat("   "), None);
+        assert_eq!(crate::ecs::ceo_seat(&"t".repeat(1100)), None);
     }
 
     /// **SEAM 2**, the one that fires first, because it is the HOST calling `brief` rather
