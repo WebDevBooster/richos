@@ -3194,6 +3194,26 @@ function provisionNeedLabel(offer) {
   return provisionHuman(offer.needFreeBytes);
 }
 
+/// **THE TALK CONTROL'S STATE, IN ONE PLACE** — the nightly's D8.
+///
+/// `aria-pressed` alone made VoiceOver announce the primary affordance of a voice-first
+/// product as a bare "checkbox": `title` is a tooltip and is not an accessible name, and
+/// there was no `aria-label` at all (audit §D8, read off the accessibility tree).
+///
+/// The name and the pressed state are set together, by this function and nowhere else, for
+/// the reason `renderVoiceModelState` gives about the panel's rows: two attributes
+/// maintained at three call sites is two attributes that will eventually disagree, and the
+/// half that drifts is the half only a screen-reader user hears.
+///
+/// **The label says what pressing it will DO**, which is the rule for a toggle whose
+/// `aria-pressed` already reports what it IS. "Stop talking" is the action; the state is
+/// carried by `aria-pressed="true"` beside it, so nothing is said twice.
+function setTalkPressed(pressed) {
+  talkToggleBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
+  talkToggleBtn.setAttribute("aria-label", pressed ? "Stop talking" : "Talk to Rich");
+  talkToggleBtn.title = pressed ? "Stop talking" : "Talk to Rich";
+}
+
 async function enterVoiceMode() {
   // THE OFFER PATH OPENS NO DEVICE. `start_voice_capture` is not called at all here, so there
   // is no permission dialog, no orange recording indicator and no "listening…" row on a machine
@@ -3201,7 +3221,7 @@ async function enterVoiceMode() {
   // kept rather than relaxed by the feature that makes the machine able to transcribe later.
   if (!voiceAvailable && voiceModelOffer) {
     voiceMode = true;
-    talkToggleBtn.setAttribute("aria-pressed", "true");
+    setTalkPressed(true);
     composerEl.hidden = true;
     voicePanelEl.hidden = false;
     voiceModelOfferLabel.textContent = voiceOfferSentence(voiceModelOffer);
@@ -3221,7 +3241,7 @@ async function enterVoiceMode() {
     return;
   }
   voiceMode = true;
-  talkToggleBtn.setAttribute("aria-pressed", "true");
+  setTalkPressed(true);
   composerEl.hidden = true;
   voicePanelEl.hidden = false;
   renderVoiceModelState(null);
@@ -3231,7 +3251,7 @@ async function enterVoiceMode() {
 
 async function exitVoiceMode() {
   voiceMode = false;
-  talkToggleBtn.setAttribute("aria-pressed", "false");
+  setTalkPressed(false);
   voicePanelEl.hidden = true;
   composerEl.hidden = false;
   inputEl.focus();

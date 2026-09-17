@@ -502,7 +502,19 @@
           <div id="composer-row">
             <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
                  footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
-            <button id="talk-toggle" type="button" title="Talk to Rich" aria-pressed="false">
+            <!-- IT HAS A NAME, AND THE NAME CHANGES WITH THE STATE (nightly D8).
+                 `title` is a tooltip, not an accessible name: with only `title` and
+                 `aria-pressed` here, VoiceOver announced the primary affordance of a
+                 voice-first product as a bare "checkbox" — measured off the accessibility
+                 tree in
+                 docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md §D8,
+                 which found the rest of this tree unusually well named and exactly two
+                 controls unnamed.
+
+                 The label is maintained by `setTalkPressed` in main.js beside
+                 `aria-pressed`, so the two can never say different things; this attribute is
+                 the off-state value the first paint needs before any script runs. -->
+            <button id="talk-toggle" type="button" title="Talk to Rich" aria-label="Talk to Rich" aria-pressed="false">
               <span class="talk-dot"></span>
             </button>
 

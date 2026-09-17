@@ -311,6 +311,73 @@ async function main() {
     return "state survives a closed panel; 292,568,520 / 487,614,201 renders as 60%";
   });
 
+  // =========================================================================================
+  // D8 — THE CONTROL HAS AN ACCESSIBLE NAME, AND IT TRACKS THE STATE
+  //
+  // Audit §D8: VoiceOver announced the primary affordance of a voice-first product as a bare
+  // "checkbox". `title` is a tooltip and is not an accessible name.
+  // =========================================================================================
+
+  await run.check("the talk control is NAMED, and the name follows what pressing it does", async () => {
+    // `model-missing` rather than the ready preset, for cause: `enterVoiceMode`'s ready path
+    // calls `start_voice_capture`, which the preview refuses, so `voiceMode` never turns on
+    // and the pressed state never changes. The OFFER path enters voice mode while opening no
+    // device at all — the hot-mic invariant the suite above pins — which is the one route
+    // that reaches the pressed state in a browser.
+    const page = await open(browser, { voice: "model-missing" });
+    const read = () => page.evaluate(() => {
+      const b = document.getElementById("talk-toggle");
+      return { name: b.getAttribute("aria-label"), pressed: b.getAttribute("aria-pressed") };
+    });
+
+    const off = await read();
+    assertEqual(off.name, "Talk to Rich", "no accessible name at rest — this IS D8");
+    assertEqual(off.pressed, "false", "and the state is still reported beside it");
+
+    await page.click("#talk-toggle");
+    await page.waitForFunction(
+      () => document.getElementById("talk-toggle").getAttribute("aria-pressed") === "true"
+    );
+    const on = await read();
+    assertEqual(on.name, "Stop talking", "the name must say what pressing it will DO now");
+    assertEqual(on.pressed, "true", "the state is carried by aria-pressed, never said twice");
+
+    await page.close();
+    return "off: Talk to Rich/false — on: Stop talking/true";
+  });
+
+  await run.check("a nameless talk control fails: its ONLY naming source is aria-label", async () => {
+    // WHY THIS IS NOT JUST "aria-label IS SET". The audit read the accessibility TREE and got
+    // a bare `checkbox 1`. Playwright 1.61 exposes no `page.accessibility` API to read that
+    // tree back, so the check is made structurally instead, and it is the stronger claim of
+    // the two: the control has NO text content, NO element naming it and NO wrapping
+    // label, so `aria-label` is the only thing between it and the bare role the audit heard.
+    // Remove the attribute and this check fails — which is exactly the regression it exists
+    // to catch.
+    const page = await open(browser, {});
+    const shape = await page.evaluate(() => {
+      const b = document.getElementById("talk-toggle");
+      return {
+        label: b.getAttribute("aria-label"),
+        text: (b.textContent || "").trim(),
+        labelledBy: b.getAttribute("aria-labelledby"),
+        inLabel: !!b.closest("label"),
+        role: b.getAttribute("role") || b.tagName.toLowerCase(),
+      };
+    });
+    assertEqual(shape.text, "", "the control is a glyph — it has no text to be named by");
+    assertEqual(shape.labelledBy, null, "and nothing else names it");
+    assertEqual(shape.inLabel, false, "and it is not wrapped in a label");
+    assert(
+      typeof shape.label === "string" && shape.label.trim().length > 0,
+      "so with no aria-label a screen reader gets the bare role — this IS D8: " +
+        JSON.stringify(shape)
+    );
+    assertEqual(shape.label, "Talk to Rich", "the name must be the one we set");
+    await page.close();
+    return `<${shape.role}> text="" -> name from aria-label only: ${JSON.stringify(shape.label)}`;
+  });
+
   await browser.close();
   process.exit(run.report() ? 1 : 0);
 }
