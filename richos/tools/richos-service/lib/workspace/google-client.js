@@ -63,7 +63,13 @@ export class GoogleClient {
       const retriable = res.status === 429 || (res.status >= 500 && res.status <= 599);
       if (!retriable || attempt >= this.maxRetries) {
         const body = await safeText(res);
-        throw new Error(`google GET ${url} failed: ${res.status} ${body}`);
+        const err = new Error(`google GET ${url} failed: ${res.status} ${body}`);
+        // The HTTP status travels WITH the error, so an adapter can map its own vendor's token-loss
+        // signal (Gmail expires a historyId as 404 where Calendar expires a syncToken as 410) without
+        // string-matching a message. The transport still decides nothing about what a status means.
+        err.status = res.status;
+        err.url = url;
+        throw err;
       }
       await this.sleep(this.backoffMs(attempt, res));
       attempt += 1;
