@@ -1691,10 +1691,34 @@ async function main() {
     // above and so cannot move that number by design. Waiting for "zero" there would wait
     // forever and turn every run into a timeout; waiting for `!on` is the actual precondition
     // this check needs and the actual thing that was racing.
+    //
+    // `!on` ALONE WAS NOT ENOUGH, measured the hard way: the very first full-suite run of the
+    // `!on`-only wait passed the "before" gate clean and then failed on "after" with "the line is
+    // still up, so 'after' is not after anything" — a SECOND, auto-fired line landing during this
+    // check's own drive. `ingest()` called from outside (as this check calls it) does not reset
+    // the field's own clock (`lastIngest`/`nextIngestGap` — only the scheduler's own firing does,
+    // `field-engine.js:838`), so that clock keeps counting down in the background regardless of
+    // what this check does, and a line already scheduled to land in a few hundred ms will land
+    // ON TOP of the one this check drives. So this also waits for enough headroom on that clock
+    // before starting, via the read-only `autoIngestDueInMs` accessor added for exactly this
+    // (`home/field-engine.js`, next to `ingest`) — nothing about the clock's own behavior changes.
+    //
+    // THE HEADROOM THRESHOLD IS DERIVED, NOT GUESSED. This check's own driven cycle, summed from
+    // the constants above rather than assumed: 1,250ms for the spark to land (`:730`) + 2,600ms
+    // the line stays up (`:743`) + 900ms this file waits after it goes (below) = 4,750ms
+    // deterministic, plus whatever a dozen or so `page.evaluate`/`waitForFunction` round trips
+    // cost on top of that — not separately measured here, but bounded by construction: 6,000ms
+    // clears the 4,750ms deterministic floor with 1,250ms of margin for that overhead, and stays
+    // BELOW the auto clock's guaranteed minimum gap (7,000ms — `rnd()` is `[0,1)` so
+    // `7000 + rnd()*5000` never goes under 7,000). That second property is what makes the wait
+    // actually terminate rather than block forever: every time the auto clock resets, due-in
+    // jumps to 7,000-12,000ms, which is always > 6,000ms, so there is always a real window to be
+    // caught. The five-consecutive-green run below is the check on the 1,250ms margin actually
+    // holding in practice, not just on paper.
     await waitForFact(
       page,
-      "no temporary line is up yet, so this check can drive its own",
-      "!document.getElementById('home-ticker').classList.contains('on')",
+      "no temporary line is up, and the field's own auto-ingest clock has at least 6000ms of headroom before this check's own drive would race it",
+      "!document.getElementById('home-ticker').classList.contains('on') && window.__loro.autoIngestDueInMs > 6000",
       20000
     );
     const before = await page.evaluate(AREA);

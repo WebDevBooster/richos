@@ -1192,7 +1192,14 @@ function resume() {
 
 $('#home-loading').classList.add('gone');
 rafId = requestAnimationFrame(frame);
-window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
+// READ-ONLY, FOR `tests/home.js` ONLY. Calling `ingest()` from outside (the line above) does
+// NOT reset this field's own idle-learning clock (`lastIngest`/`nextIngestGap`, line 593/838) —
+// only the scheduler's own auto-fire does that — so a driven line and an auto-fired one can
+// land on top of each other, and there was no way for a caller to know how much headroom the
+// auto clock had left before that could happen. Exposed as the raw countdown so a test can wait
+// for a safe window rather than guess one: `esc-20260917T113423Z-bdc63632`.
+function autoIngestDueInMs() { return Math.max(0, (lastIngest + nextIngestGap) - performance.now()); }
+window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get autoIngestDueInMs() { return autoIngestDueInMs(); }, get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
 })().catch((e) => {
   // THE HONEST FAILURE NEEDS SOMEWHERE TO LAND. Every throw above is inside this async
   // IIFE — `WebGL unavailable` at the context, a shader that will not compile, a program
