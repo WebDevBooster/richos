@@ -85,6 +85,24 @@ def split_credentials(env):
     return {name: env.pop(name) for name in list(env) if is_credential(name)}
 
 
+IDENTITY_OVERRIDES = ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                      "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE",
+                      "EMAIL")
+
+
+def strip_identity_overrides(env):
+    """Remove a shell-exported commit identity from `env` and return it.
+
+    The release commit is authored with this Mac's CONFIGURED git identity. These
+    variables override every level of git config, so leaving them in place would let
+    a stray `export GIT_AUTHOR_EMAIL=...` author the release as someone else with
+    neither the configuration nor this file saying so -- and `git config user.email`
+    would still report the configured address. richos-core does the same thing to the
+    engine's environment (crates/richos-core/src/engine_profile.rs:198-200).
+    """
+    return {name: env.pop(name) for name in IDENTITY_OVERRIDES if name in env}
+
+
 def local_environment():
     """Return (environment, credentials). Nothing merges them but the signing steps."""
     env = os.environ.copy()
@@ -93,6 +111,7 @@ def local_environment():
     for key in ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG", "CARGO_TARGET_DIR",
                 "RUN_TESTS_DECLARED_GAPS"):
         env.pop(key, None)
+    strip_identity_overrides(env)
     # Whatever the operator's shell exported leaves the gate environment here, not
     # only what notary.env supplies below.
     credentials = split_credentials(env)
@@ -165,7 +184,38 @@ class Runner:
             self.command("git", "worktree", "add", "--detach", self.source, sha, cwd=self.repo)
         return sha
 
+    def identity(self):
+        """The identity the release commit will carry, resolved the way git resolves it.
+
+        Not read from `git config`: GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL in the
+        environment beat every config level and config cannot see them, so only
+        `git var` answers what the commit will record. `user.useConfigOnly=true`
+        removes git's hostname fallback, which is otherwise silent -- git 2.52.0
+        happily builds a commit authored `user@host.home` and the machine's push
+        guard then refuses the whole release.
+        """
+        idents = {}
+        for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+            result = subprocess.run(["git", "-c", "user.useConfigOnly=true", "var", var],
+                                    cwd=self.source, env=self.env, stdin=subprocess.DEVNULL,
+                                    text=True, capture_output=True, timeout=30)
+            if result.returncode or "<" not in result.stdout:
+                raise ValueError(
+                    "this Mac has no configured git identity, so the release commit could "
+                    "not be attributed to you: set user.name and user.email (git config "
+                    "--global user.name '<your name>', git config --global user.email "
+                    "'<your email>') and run check again")
+            idents[var] = result.stdout.strip().rsplit(" ", 2)[0]
+        if idents["GIT_AUTHOR_IDENT"] != idents["GIT_COMMITTER_IDENT"]:
+            raise ValueError(f"author {idents['GIT_AUTHOR_IDENT']} and committer "
+                             f"{idents['GIT_COMMITTER_IDENT']} identities differ; the "
+                             "release commit must carry one identity")
+        return idents["GIT_AUTHOR_IDENT"]
+
     def preflight(self):
+        # First, and before any network call: it costs milliseconds and it is what the
+        # 2026-09-17 attempt discovered after passing every gate.
+        print(f"Release commits will be authored as {self.identity()}.", flush=True)
         print("Checking GitHub access, local signing and notarization credentials...", flush=True)
         if self.command("gh", "api", f"repos/{REPO}", "--jq", ".permissions.push", capture=True, timeout=60) != "true":
             raise ValueError("GitHub credentials cannot publish to this repository")

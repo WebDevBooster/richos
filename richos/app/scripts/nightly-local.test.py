@@ -94,6 +94,47 @@ class LocalTests(unittest.TestCase):
             r.command("codesign", credentials=True)
         self.assertEqual({name: seen[-1][name] for name in self.CREDENTIALS}, self.CREDENTIALS)
 
+    def test_an_exported_commit_identity_leaves_the_release_environment(self):
+        # These override every level of git config, so a stray export in the operator's
+        # shell would author the release as someone else while `git config user.email`
+        # still reported the configured address.
+        env = dict.fromkeys(m.IDENTITY_OVERRIDES, "someone-else@example.invalid")
+        env.update(PATH="/usr/bin", RICHOS_NAMED_PERSONS_FILE="/fixture/list")
+        removed = m.strip_identity_overrides(env)
+        self.assertEqual(sorted(removed), sorted(m.IDENTITY_OVERRIDES))
+        self.assertEqual(sorted(env), ["PATH", "RICHOS_NAMED_PERSONS_FILE"])
+        for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                     "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            self.assertIn(name, m.IDENTITY_OVERRIDES)
+
+    def identity_runner(self, configured=True):
+        state = self.root / "state"
+        source = state / "source"
+        source.mkdir(parents=True)
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        m.strip_identity_overrides(env)
+        subprocess.run(["git", "init", "-q", str(source)], check=True, env=env)
+        if configured:
+            for name, value in (("user.name", "Fixture Operator"),
+                                ("user.email", "fixture@example.invalid")):
+                subprocess.run(["git", "config", name, value], cwd=source, check=True, env=env)
+        return m.Runner(self.root, state, env, io.StringIO())
+
+    def test_release_is_authored_with_the_checkouts_own_identity(self):
+        self.assertEqual(self.identity_runner().identity(),
+                         "Fixture Operator <fixture@example.invalid>")
+
+    def test_unset_identity_is_refused_before_any_other_preflight_check(self):
+        # The 2026-09-17 attempt found its wrong identity at the tag push, after every
+        # gate had passed. This is the same class of defect found in milliseconds.
+        r = self.identity_runner(configured=False)
+        r.command = Mock()
+        with self.assertRaisesRegex(ValueError, "no configured git identity"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.preflight()
+        r.command.assert_not_called()
+
     def test_lock_rejects_concurrent_manual_commands_and_releases_after_failure(self):
         state = self.root / "state"
         with self.assertRaises(RuntimeError):
