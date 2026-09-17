@@ -65,7 +65,14 @@ import { tokenAccount, LEGACY_TOKEN_ACCOUNT } from '../lib/workspace/token-manag
 import { buildRegistry, parseGrantedScopes, scopesForSources, grantsFor, GOOGLE_SOURCES } from '../lib/workspace/registry.js';
 import { awaitAuthorizationCode, renderConsentPage, consentState } from '../lib/workspace/consent.js';
 import { getRunState, recordRun, describeRun } from '../lib/workspace/run-state.js';
-import { connect, status, sync, disconnect, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import { connect, status, sync, disconnect, seedCalendar, runWorkspace, doctorLine } from '../lib/workspace/commands.js';
+import {
+  planFixtures, expectationsFor, SEED_PROPERTY, SEED_KEY_PROPERTY, GOOGLE_STATUS_WITHDRAWN,
+} from '../lib/workspace/calendar-fixtures.js';
+import { seedManifestPath, SEED_KEYCHAIN_SERVICE } from '../lib/workspace/calendar-seed.js';
+import {
+  mockGoogleCalendar, runMockedAcceptance, cleanupMockedAcceptance, describeAcceptance,
+} from './calendar-seed-acceptance.mjs';
 import { resolveGrantedIdentity, sameAddress, canonicalAddress, GOOGLE_IDENTITY_PROBES } from '../lib/workspace/identity.js';
 
 // ---- MICROSOFT 365 (P4) — the second vendor's imports, kept together ---------------------------
@@ -7044,6 +7051,229 @@ await atest('repair is VENDOR-FREE and reaches no other store: one zone holds ev
     assert.equal(r.plan.zone, zone);
     assert.equal(fs.readFileSync(auditLedgerPath(zone), 'utf8'), before);
   } finally { fs.rmSync(zone, { recursive: true, force: true }); }
+});
+
+
+// =================================================================================================
+group('`workspace seed-calendar` — a DESIGNED test calendar, with its own write consent');
+// =================================================================================================
+
+const SEED_ACCOUNT = 'ceo@acme.com';
+const SEED_CALENDAR_ID = 'c_seedtest@group.calendar.google.com';
+const seedCalendarIds = { primary: SEED_ACCOUNT, seed: SEED_CALENDAR_ID };
+
+/** The seeding tool driven against a Google that remembers what was written to it. */
+function seedStubs(google, extra = {}) {
+  return {
+    http: google.http,
+    awaitCode: async () => ({ code: 'seed-auth-code' }),
+    openBrowser: async () => true,
+    ...extra,
+  };
+}
+
+test('the fixture set is a function of (account, set id, clock) — nothing about it is random', () => {
+  const args = { accountId: SEED_ACCOUNT, setId: 'unit', now: NOW };
+  assert.equal(JSON.stringify(planFixtures(args)), JSON.stringify(planFixtures(args)),
+    'two plans from the same inputs are byte-identical — which is what makes a re-run an update');
+  const other = planFixtures({ ...args, setId: 'other' });
+  const a = planFixtures(args).fixtures.map((f) => f.writes[0].eventId);
+  const b = other.fixtures.map((f) => f.writes[0].eventId);
+  assert.equal(a.filter((id) => b.includes(id)).length, 0, 'a different set id is a different set of events');
+
+  // Google's event-id grammar is base32hex, 5–1024 characters. A key like `weekly-sync` is not.
+  for (const fixture of planFixtures(args).fixtures) {
+    for (const write of fixture.writes) {
+      assert.match(write.eventId, /^[0-9a-v]{5,1024}$/, `${fixture.key} has a legal Google event id`);
+    }
+  }
+});
+
+test('every seeded event carries the set marker AND its fixture key — teardown is exact, re-runs update', () => {
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  for (const fixture of plan.fixtures) {
+    for (const write of fixture.writes) {
+      const priv = write.body.extendedProperties.private;
+      assert.equal(priv[SEED_PROPERTY], 'unit');
+      assert.equal(priv[SEED_KEY_PROPERTY], fixture.key);
+    }
+  }
+});
+
+test('THE SET COVERS EVERY PROMOTION RULE — and the coverage is DERIVED, not claimed', () => {
+  // Each assertion asks the pipeline's own decision function what it would do, so this test fails
+  // the day a rule changes rather than the day somebody notices the fixtures stopped exercising it.
+  const plan = planFixtures({ accountId: SEED_ACCOUNT, setId: 'unit', now: NOW });
+  const ex = expectationsFor(plan, { calendarIds: seedCalendarIds, now: NOW });
+  const reasons = new Set(ex.rows.map((r) => r.reason));
+
+  assert.ok(ex.rows.some((r) => r.promote), 'at least one fixture promotes — the case the CEO\'s own entries could not produce');
+  assert.ok(reasons.has('solo block, no attendees or description — noise, stays evidence'),
+    'the hold his five hand-typed meetings hit is in the set as a POSITIVE CONTROL');
+  assert.ok(reasons.has('withdrawn at the source — a supersede signal, not a new memory'),
+    'a withdrawn meeting is held, and held for that reason rather than for a generic one');
+  assert.ok(reasons.has('single untrusted item — needs corroboration from a trusted source'),
+    'an externally-authored meeting is held by the immune system');
+
+  const weekly = ex.rows.filter((r) => r.fixture === 'weekly-sync');
+  assert.equal(weekly.length, 8, 'the recurring series expands into its occurrences');
+  assert.equal(new Set(weekly.map((r) => r.dedupKey)).size, 8,
+    'ONE iCalUID across the occurrences must not collapse them — the start is part of the dedup key');
+
+  const merged = ex.groups.filter((g) => g.members.length > 1);
+  assert.equal(merged.length, 1, 'exactly one cross-calendar duplicate');
+  assert.equal(merged[0].members.length, 2);
+  assert.ok(!merged[0].members[0].groupAmbiguous, 'both copies are judged the same, so WHICH one lands does not matter');
+
+  assert.ok(ex.entities.learned.length >= 1, 'somebody crosses the corroboration threshold');
+  assert.ok(ex.entities.held.length >= 1, 'and somebody seen once does not');
+  assert.equal(ex.entities.threshold, DEFAULT_MIN_CORROBORATION, 'at the product\'s own threshold');
+
+  // The Meet link is text, never a person: the only names that come out of that fixture are attendees.
+  const meet = ex.rows.find((r) => r.fixture === 'meet-link');
+  assert.ok(meet.title.includes('Meet'));
+  assert.ok(meet.people.every((p) => p.email.includes('@')), 'a URL never becomes an entity candidate');
+});
+
+await atest('seed-calendar --dry-run prints the expectation table and touches NOTHING', async () => {
+  const f = wsFixture();
+  try {
+    const r = await seedCalendar(f.deps({
+      dryRun: true,
+      // Any network call or any consent attempt in a dry run is a failure, so both throw.
+      http: () => { throw new Error('a dry run reached the network'); },
+      awaitCode: () => { throw new Error('a dry run asked for consent'); },
+      openBrowser: () => { throw new Error('a dry run opened a browser'); },
+    }));
+    assert.equal(r.exitCode, 0, f.text());
+    assert.match(f.text(), /DRY RUN/);
+    assert.match(f.text(), /https:\/\/www\.googleapis\.com\/auth\/calendar/, 'it says which scope it would ask for');
+    assert.match(f.text(), /EXPECTED PROMOTION OUTCOME/);
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'no manifest was written');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'no grant was stored');
+  } finally { f.cleanup(); }
+});
+
+await atest('THE SEEDING GRANT IS ITS OWN KEYCHAIN ITEM — status cannot see it, disconnect cannot remove it', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    const seeded = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(seeded.exitCode, 0, f.text());
+    const seedGrant = f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`);
+    assert.ok(seedGrant, 'the write grant is stored under the seed service');
+    assert.equal(f.record(), null, 'and the product service holds nothing — a seed run is not a connect');
+
+    // `status` reports the PRODUCT's grant. A write grant sitting beside it must not show up as one.
+    f.lines.length = 0;
+    await status(f.deps({ http: google.http }));
+    assert.match(f.text(), /NOT CONNECTED/, 'the product is still not connected, which is the truth');
+    assert.ok(!f.text().includes(SEED_KEYCHAIN_SERVICE), 'and the seeding grant is not reported as a connection');
+
+    // Connect the product for real, then disconnect it: the seed grant is untouched by both.
+    f.lines.length = 0;
+    await connect(f.deps(connectStubs(googleHttpMock())));
+    assert.ok(f.record(), 'the product grant exists now');
+    await disconnect(f.deps({ http: googleHttpMock().http }));
+    assert.equal(f.record(), null, 'the product grant is gone');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), seedGrant,
+      'and the seeding grant is exactly as it was — disconnect deletes the item it owns, and no other');
+  } finally { f.cleanup(); }
+});
+
+await atest('seed-calendar REFUSES a consent that belongs to a different account, and writes nothing', async () => {
+  const f = wsFixture();
+  try {
+    // The browser was signed in as somebody else — the 2026-09-17 crossed-grant failure, on a tool
+    // that WRITES. Here an unverifiable or mismatched identity is a refusal, never a warning.
+    const google = mockGoogleCalendar({ accountId: 'someone.else@acme.com' });
+    const r = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(r.exitCode, 1, f.text());
+    assert.match(f.text(), /NOT SEEDED — that consent belongs to someone\.else@acme\.com, not ceo@acme\.com\./);
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'nothing was stored');
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'and nothing was written');
+    const writes = google.calls.filter((c) => c.method !== 'GET' && !c.url.includes('oauth2.googleapis.com'));
+    assert.deepEqual(writes, [], 'not one calendar write was attempted');
+  } finally { f.cleanup(); }
+});
+
+await atest('a SECOND seed run of the same set updates in place — no second copy of anything', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    const first = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(first.exitCode, 0, f.text());
+    const countEvents = () => [...google.calendars.values()].reduce((n, c) => n + c.events.size, 0);
+    const after = countEvents();
+    const calendars = google.calendars.size;
+
+    f.lines.length = 0;
+    const second = await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(second.exitCode, 0, f.text());
+    assert.equal(countEvents(), after, 'the same events, not a second set of them');
+    assert.equal(google.calendars.size, calendars, 'and one test calendar, not two');
+    assert.deepEqual(
+      second.manifest.events.map((e) => e.eventId).sort(),
+      first.manifest.events.map((e) => e.eventId).sort(),
+      'the ids are a function of the set, so the second run addressed the first run\'s events',
+    );
+    assert.ok(second.manifest.events.some((e) => e.action.startsWith('updated')),
+      'and it said so: a re-run UPDATES rather than creating');
+  } finally { f.cleanup(); }
+});
+
+await atest('--teardown removes every event it made, the calendar it created, and the grant itself', async () => {
+  const f = wsFixture();
+  try {
+    const google = mockGoogleCalendar({ accountId: SEED_ACCOUNT });
+    await seedCalendar(f.deps(seedStubs(google)));
+    assert.equal(google.calendars.size, 2, 'the second calendar exists');
+
+    f.lines.length = 0;
+    const gone = await seedCalendar(f.deps({ ...seedStubs(google), teardown: true }));
+    assert.equal(gone.exitCode, 0, f.text());
+    assert.equal(google.calendars.size, 1, 'the calendar this tool created is gone');
+    const primary = google.calendars.get(SEED_ACCOUNT);
+    const alive = [...primary.events.values()].filter((e) => e.status !== GOOGLE_STATUS_WITHDRAWN);
+    assert.deepEqual(alive, [], 'and nothing it seeded on the primary calendar is still standing');
+    assert.equal(f.backend.get(SEED_KEYCHAIN_SERVICE, `oauth-tokens ${SEED_ACCOUNT}`), null, 'the grant is deleted');
+    assert.ok(google.calls.some((c) => c.url.startsWith('https://oauth2.googleapis.com/revoke')),
+      'and revoked at Google first — "torn down" is not a local-only claim');
+    assert.equal(fs.existsSync(seedManifestPath(f.zone)), false, 'the manifest is gone with it');
+  } finally { f.cleanup(); }
+});
+
+await atest('seed-calendar is a GOOGLE tool and says so rather than seeding the wrong vendor', async () => {
+  const f = wsFixture();
+  try {
+    const r = await seedCalendar(f.deps({ vendor: 'microsoft', http: () => { throw new Error('reached the network'); } }));
+    assert.equal(r.exitCode, 1);
+    assert.match(f.text(), /seed-calendar is a Google Calendar tool/);
+  } finally { f.cleanup(); }
+});
+
+await atest('THE WHOLE LOOP, MOCKED: seed → sync → promote → acceptance, with every row as predicted', async () => {
+  // The acceptance script's own mocked mode, run as a test. It writes fixtures into a Google that
+  // remembers them, pulls them back through the ORDINARY product path, and diffs what the pipeline
+  // did against what the pipeline's own decision function said it would do.
+  const lines = [];
+  const result = await runMockedAcceptance({ out: (l) => lines.push(l) });
+  try {
+    for (const line of describeAcceptance(result)) lines.push(line);
+    assert.equal(result.ok, true, lines.join('\n'));
+    assert.ok(result.rows.length >= 11, 'every fixture is checked');
+    assert.ok(result.rows.every((r) => r.pass));
+    assert.ok(result.entities.every((e) => e.pass));
+    assert.deepEqual(result.problems, [], 'the stored expectation and a fresh derivation agree');
+
+    // The separation, asserted where it can actually be violated: the product's grant is read-only,
+    // and the mocked Google refuses a write that carries it.
+    assert.ok(result.mock.seedGrant && result.mock.productGrant);
+    assert.notEqual(result.mock.seedGrant, result.mock.productGrant);
+    const readOnlyWrites = result.mock.google.calls.filter((c) => c.method !== 'GET'
+      && c.token === 'mock-access-readonly' && !c.url.includes('oauth2.googleapis.com'));
+    assert.deepEqual(readOnlyWrites, [], 'the sync path never attempted a write');
+  } finally { cleanupMockedAcceptance(result); }
 });
 
 // =================================================================================================
