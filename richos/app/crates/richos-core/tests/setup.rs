@@ -31,6 +31,28 @@ fn make_engine(at: &Path, version: &str) {
     std::fs::write(at.join("VERSION"), format!("{version}\n")).unwrap();
 }
 
+/// **THE USABILITY SEAM, held open.** `engine_is_usable` in the product is
+/// `runtime::verify_engine` — component contracts plus a hashed 322 MB runtime inventory,
+/// which no unit test can or should construct. Detection's job is to pick a candidate and
+/// report honestly about the ones it passed over; WHICH predicate says "usable" is the
+/// caller's, so these tests supply their own and exercise the choosing.
+fn every_engine_is_usable(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+/// A predicate that rejects the named paths, with the reason the real one would give for a
+/// directory carrying no delivered runtime. This is the shape of the nightly's D1: a
+/// plugin-installed engine at `~/.claude/richos-engine` is engine-SHAPED and unusable.
+fn usable_except(rejected: Vec<PathBuf>) -> impl Fn(&Path) -> Result<(), String> {
+    move |dir: &Path| {
+        if rejected.iter().any(|r| r == dir) {
+            Err("the selected engine has no delivered runtimes".to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn siblings_of(dir: &Path) -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect())
@@ -153,7 +175,7 @@ fn a_customers_mac_is_missing_both_and_says_where_it_looked() {
         path_var: Some("/usr/bin:/bin".into()),
         ..Default::default()
     };
-    let status = detect(&paths, &[]);
+    let status = detect(&paths, &[], &every_engine_is_usable);
 
     assert!(!status.claude.present, "{:?}", status.claude);
     assert!(!status.engine.present, "{:?}", status.engine);
@@ -184,7 +206,7 @@ fn a_machine_that_already_has_both_is_asked_nothing() {
     std::fs::write(home.join(".local/bin/claude"), b"#!/bin/sh\n").unwrap();
 
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    let status = detect(&paths, &[]);
+    let status = detect(&paths, &[], &every_engine_is_usable);
     assert!(status.complete(), "{status:?}");
     assert!(status.needs().is_empty());
     assert!(!status.blocked());
@@ -199,7 +221,7 @@ fn an_engine_installed_into_application_support_is_the_one_detection_finds() {
     make_engine(&engine_install_dir(&home), "1.0.0");
 
     let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
-    let found = find_engine(&paths, &[]);
+    let found = find_engine(&paths, &[], &every_engine_is_usable);
     assert!(found.present, "{found:?}");
     assert_eq!(found.at.as_deref(), Some(engine_install_dir(&home).display().to_string().as_str()));
     assert_eq!(found.detail.as_deref(), Some("version 1.0.0"));
@@ -213,7 +235,7 @@ fn a_directory_that_is_not_an_engine_is_not_detected_as_one() {
     let home = root.join("home");
     std::fs::create_dir_all(engine_install_dir(&home).join("scripts")).unwrap(); // no hooks/, no VERSION
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    assert!(!find_engine(&paths, &[]).present);
+    assert!(!find_engine(&paths, &[], &every_engine_is_usable).present);
 }
 
 /// An explicit override is EXCLUSIVE in both directions, matching `engine.rs`: a wrong one is
@@ -232,7 +254,7 @@ fn an_explicit_override_never_falls_through_to_something_nobody_named() {
         claude_bin_override: Some(root.join("also-nope")),
         ..Default::default()
     };
-    let status = detect(&paths, &[]);
+    let status = detect(&paths, &[], &every_engine_is_usable);
     assert!(!status.engine.present, "a bad override fell through: {:?}", status.engine);
     assert!(!status.claude.present, "a bad override fell through: {:?}", status.claude);
     assert!(status.engine.looked_in[0].contains("RICHOS_ENGINE_DIR"), "{:?}", status.engine.looked_in);
@@ -250,8 +272,136 @@ fn a_repo_engine_passed_in_as_a_candidate_answers_before_the_install_location() 
     make_engine(&engine_install_dir(&home), "9.9.9");
 
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    let found = find_engine(&paths, &[repo_engine.clone()]);
+    let found = find_engine(&paths, &[repo_engine.clone()], &every_engine_is_usable);
     assert_eq!(found.at.as_deref(), Some(repo_engine.display().to_string().as_str()), "{found:?}");
+}
+
+// ===========================================================================================
+// D1 — SETUP COMPLETES, AND THE NEXT LAUNCH ASKS AGAIN
+//
+// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D1, reproduced
+// on four consecutive launches of the published nightly. The three tests below are the three
+// halves of it (the defect had three): the wrong candidate won, the right one was never
+// reached, and the failure named nowhere.
+// ===========================================================================================
+
+/// **THE NIGHTLY'S D1, AS A VALUE.**
+///
+/// The audit's machine, exactly: an engine installed as a Claude Code plugin at
+/// `~/.claude/richos-engine` — engine-SHAPED, carrying no delivered runtime, and therefore
+/// unusable — sitting in front of the engine RichOS itself installed at
+/// `~/Library/Application Support/RichOS/engine`.
+///
+/// Before 2026-09-17 the plugin pointer answered first, the caller then vetoed it, and the
+/// app reported the engine "NOT installed" while 38 entries of working engine sat on disk
+/// where setup had written them. Setup done once was not done.
+///
+/// The usable one wins, and the one that was passed over is NAMED WITH ITS REASON rather
+/// than silently skipped — an operator reading the boot log has to be able to tell "there is
+/// no engine" from "there are two and one of them is broken".
+#[test]
+fn an_unusable_plugin_engine_no_longer_hides_the_one_setup_installed() {
+    let root = scratch("d1-plugin-shadows-install");
+    let home = root.join("home");
+    let plugin = home.join(".claude/richos-engine");
+    let installed = engine_install_dir(&home);
+    make_engine(&plugin, "1.2.0");
+    make_engine(&installed, "1.2.0");
+
+    let paths = SetupPaths { home: Some(home), ..Default::default() };
+    let found = find_engine(&paths, &[], &usable_except(vec![plugin.clone()]));
+
+    assert!(found.present, "the engine setup installed was not found: {found:?}");
+    assert_eq!(
+        found.at.as_deref(),
+        Some(installed.display().to_string().as_str()),
+        "detection picked something other than what setup wrote: {found:?}"
+    );
+    assert_eq!(found.detail.as_deref(), Some("version 1.2.0"), "{found:?}");
+}
+
+/// The same machine with nothing usable on it at all: the plugin engine is still the only
+/// engine-shaped directory, and the report must say it is THERE AND BROKEN — not absent.
+///
+/// This is the line the nightly printed as `looked in: ` with nothing after the colon.
+#[test]
+fn an_engine_that_is_present_but_unusable_is_reported_as_present_and_unusable() {
+    let root = scratch("d1-present-but-broken");
+    let home = root.join("home");
+    let plugin = home.join(".claude/richos-engine");
+    make_engine(&plugin, "1.2.0");
+
+    let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
+    let found = find_engine(&paths, &[], &usable_except(vec![plugin.clone()]));
+
+    assert!(!found.present, "an unusable engine was reported as usable: {found:?}");
+    let places = found.looked_in.join(" | ");
+    assert!(
+        places.contains(&plugin.display().to_string()),
+        "the engine on disk was not named at all: {places}"
+    );
+    assert!(
+        places.contains("cannot be used"),
+        "the reason it was rejected is missing: {places}"
+    );
+    assert!(
+        places.contains("no delivered runtimes"),
+        "the underlying reason was swallowed: {places}"
+    );
+    // The place setup WOULD write to is named too, so "install it" is an offer about a path
+    // the operator can see rather than an unexplained button.
+    assert!(
+        places.contains(&engine_install_dir(&home).display().to_string()),
+        "the install destination was never mentioned: {places}"
+    );
+}
+
+/// **A MISSING COMPONENT NEVER NAMES NOWHERE.** The invariant `main.rs`'s boot line depends
+/// on, asserted for both components and for the most impoverished launch there is — no
+/// `$HOME`, no executable, no `$PATH`, no candidates of any kind. The old code produced an
+/// empty `Vec` here and the app printed a sentence that stopped after "looked in:".
+#[test]
+fn a_component_reported_missing_always_names_at_least_one_place() {
+    let paths = SetupPaths::default();
+    let status = detect(&paths, &[], &every_engine_is_usable);
+
+    for component in [&status.claude, &status.engine] {
+        assert!(!component.present, "{component:?}");
+        assert!(
+            !component.looked_in.is_empty(),
+            "a missing component named nowhere — this is the nightly's D1 boot line: {component:?}"
+        );
+        assert!(
+            !component.looked_in.join("").trim().is_empty(),
+            "a missing component named only blanks: {component:?}"
+        );
+    }
+}
+
+/// An explicit override that points at an engine which cannot be used stays EXCLUSIVE — it
+/// does not fall through to one nobody named (`locate-engine.sh` rule 1) — but the refusal
+/// now carries the reason instead of an empty list.
+#[test]
+fn an_explicit_override_that_cannot_be_used_says_why_and_still_does_not_fall_through() {
+    let root = scratch("d1-explicit-unusable");
+    let home = root.join("home");
+    let named = root.join("named-engine");
+    make_engine(&named, "1.2.0");
+    make_engine(&engine_install_dir(&home), "1.2.0");
+
+    let paths = SetupPaths {
+        home: Some(home.clone()),
+        engine_override: Some(named.clone()),
+        ..Default::default()
+    };
+    let found = find_engine(&paths, &[], &usable_except(vec![named.clone()]));
+
+    assert!(!found.present, "a bad override fell through: {found:?}");
+    assert_eq!(found.looked_in.len(), 1, "the override was not exclusive: {found:?}");
+    let line = &found.looked_in[0];
+    assert!(line.contains("RICHOS_ENGINE_DIR"), "{line}");
+    assert!(line.contains("cannot be used"), "{line}");
+    assert!(line.contains("no delivered runtimes"), "{line}");
 }
 
 // ===========================================================================================
@@ -288,7 +438,7 @@ fn an_unpinned_build_reports_it_and_is_blocked_rather_than_guessing() {
     let root = scratch("unpinned");
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let status = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[]);
+    let status = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &every_engine_is_usable);
     // The test build carries no `RICHOS_ENGINE_*` at compile time.
     assert!(!status.engine_installable, "the test build must carry no pin");
     assert!(status.blocked(), "an engine that is missing and unpinnable is blocked");
@@ -327,7 +477,63 @@ fn a_pinned_engine_lands_where_the_resolver_looks_and_stamps_itself() {
 
     // And detection now finds it, which is the whole point.
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    assert!(find_engine(&paths, &[]).present);
+    assert!(find_engine(&paths, &[], &every_engine_is_usable).present);
+}
+
+/// **SETUP DONE ONCE IS DONE — the relaunch, end to end.**
+///
+/// The nightly's D1 in the form the CEO met it: run setup to completion, quit, open RichOS
+/// again, and be asked to set it up again — on four consecutive launches, with 38 entries of
+/// working engine on disk the whole time.
+///
+/// This drives the REAL installer (`install_engine`, through its fetch/extract seams) onto a
+/// scratch HOME that also carries the thing that broke it: an engine-shaped
+/// `~/.claude/richos-engine` with no delivered runtime, which is what any machine with the
+/// engine installed as a Claude Code plugin has. Then it asks the question the next launch
+/// asks — `detect`, exactly as `setup_view::detect` calls it — and requires the answer to be
+/// "nothing missing".
+///
+/// The two assertions that matter are `needs()` being empty and `complete()` being true:
+/// those are the only inputs to whether the window puts the sheet up
+/// (`main.rs`'s boot block and the `setup_status` command both branch on nothing else).
+#[test]
+fn setup_completes_and_the_next_launch_does_not_ask_again() {
+    let root = scratch("d1-relaunch-after-setup");
+    let home = root.join("home");
+    let dest = engine_install_dir(&home);
+    let body = b"the pinned asset";
+    let digest = body_and_digest(&root, body);
+
+    // The machine the audit ran on: an engine-shaped plugin pointer that cannot be used.
+    let plugin = home.join(".claude/richos-engine");
+    make_engine(&plugin, "1.2.0");
+    // ...and Claude Code present, so the engine is the only thing that could be missing.
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    std::fs::write(home.join(".local/bin/claude"), b"#!/bin/sh\n").unwrap();
+
+    // ---- THE FIRST LAUNCH: setup is genuinely needed, and says so naming both places.
+    let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
+    let usable = usable_except(vec![plugin.clone()]);
+    let before = detect(&paths, &[], &usable);
+    assert_eq!(before.needs(), vec![Component::Engine], "{before:?}");
+    let places = before.engine.looked_in.join(" | ");
+    assert!(places.contains(&plugin.display().to_string()), "{places}");
+    assert!(places.contains(&dest.display().to_string()), "{places}");
+
+    // ---- SETUP RUNS, for real.
+    install_engine(&FakeFetcher::new(body), &good_engine_plan("1.0.0"), &a_pin(&digest), &dest)
+        .unwrap();
+
+    // ---- THE NEXT LAUNCH: the same question, asked the same way, on a fresh read of disk.
+    let relaunch = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &usable);
+    assert!(
+        relaunch.engine.present,
+        "the engine setup had just written was not found on the next launch: {:?}",
+        relaunch.engine
+    );
+    assert_eq!(relaunch.engine.at.as_deref(), Some(dest.display().to_string().as_str()));
+    assert_eq!(relaunch.needs(), Vec::<Component>::new(), "the sheet would come back up: {relaunch:?}");
+    assert!(relaunch.complete(), "{relaunch:?}");
 }
 
 /// NO RESIDUE. After a success the only thing beside the engine is the engine — no

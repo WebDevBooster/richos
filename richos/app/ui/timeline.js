@@ -1273,15 +1273,21 @@
           // rather than in the stream — the card is where a reader already looks when a
           // turn ends badly, and a second place to look is a second thing to miss.
           outage: items.find((i) => i.kind === "upstream_outage") || null,
+          // WHY an ordinary turn ended without finishing (richos-core `interruption.rs`,
+          // the 2026-09-17 nightly's D2). Its own slot for the same reason `outage` has
+          // one: it is drawn inside the failure card, not in the stream.
+          interruption: items.find((i) => i.kind === "turn_interruption") || null,
           // NOT DROPPED SILENTLY — see RENDERED_STREAM_KINDS. `user_message`,
-          // `work_duration` and `upstream_outage` are excluded because they have their OWN
-          // render slots above; what lands here is genuinely undrawn.
+          // `work_duration`, `upstream_outage` and `turn_interruption` are excluded
+          // because they have their OWN render slots above; what lands here is genuinely
+          // undrawn.
           unrendered: items.filter(
             (i) =>
               RENDERED_STREAM_KINDS.indexOf(i.kind) < 0 &&
               i.kind !== "user_message" &&
               i.kind !== "work_duration" &&
-              i.kind !== "upstream_outage"
+              i.kind !== "upstream_outage" &&
+              i.kind !== "turn_interruption"
           ),
         };
       });
@@ -2063,6 +2069,19 @@
     return { node: wrap, row, hasActivity };
   }
 
+  /// **THE ONE LABEL FOR THE ONE ACTION** — the nightly's D6.
+  ///
+  /// It read "Pick it back up", and the audit measured what pressing it did: his text went
+  /// back in the composer. No new turn, no log line, nothing picked back up. The words
+  /// promised that Rich would resume and he does not — deliberately, because resending
+  /// spends his subscription and starts work, and that is his to trigger.
+  ///
+  /// So the label is what the control actually does, and the phrasing is lifted from the
+  /// one sentence in this file that was already accurate about it — the unknown card's
+  /// *"Your message is safe — I'll put it back in the box for you."* Declared once, used by
+  /// both cards, because the CEO's job is identical in each.
+  const RETRY_LABEL = "Put it back in the box";
+
   /// §5.5 — a system intervention. Exactly ONE is reachable in this build.
   ///
   /// §5.5 lists six: waiting for a CEO answer, action approval, permission, connection
@@ -2098,9 +2117,42 @@
   /// **The button stays, and its label does not change.** Asking again is still the one
   /// thing the CEO can do, whichever way the turn died; a second verb for one action is a
   /// second thing to learn.
+  /// ## THE LOCAL CASE, AND WHY IT IS THE SAME SHAPE AS THE UPSTREAM ONE (nightly D2)
+  ///
+  /// `turn.interruption` carries a `turn_interruption` item whose sentences REPLACE the two
+  /// generic ones, exactly as the outage item's do, and for exactly the same reason: every
+  /// one of them was authored in `crates/richos-core/src/interruption.rs` and written to the
+  /// ledger at the moment of the failure. This renderer composes nothing.
+  ///
+  /// **And it is the one place the RETRY CONTROL can be absent.** The published nightly of
+  /// 2026-09-17 failed a turn because nobody was signed in, said "I hit a snag mid-thought",
+  /// promised that work was saved when nothing had been written, and offered "Pick it back
+  /// up" — a control that could not succeed however many times it was pressed. So the button
+  /// is drawn from `offersRetry`, a boolean the backend decided, never from the prose. A
+  /// control that cannot work is worse than no control: pressing it and watching nothing
+  /// happen is how somebody stops believing what the app tells them.
+  ///
+  /// **The route is a sentence, not a link.** `Settings → Account connection` names a screen
+  /// that exists; it is rendered as a note because RichOS is voice-first and a route that
+  /// only works as a click is a route that fails when it is read aloud.
   function renderFailureCard(turn, opts) {
     const card = elem("aside", "tl-intervention");
     card.setAttribute("role", "note");
+    const interruption = turn.interruption;
+    if (interruption && interruption.ceoMessage) {
+      // What happened. Authored by `InterruptionCause::ceo_message`.
+      card.appendChild(elem("p", "tl-intervention-body", interruption.ceoMessage));
+      // What is on disk and what is not. Authored by `InterruptionRecord::new`, and ABSENT
+      // when nothing of Rich's had been written — which is the sentence D2 got wrong. No
+      // element at all, rather than an empty one.
+      if (interruption.lossMessage) {
+        card.appendChild(elem("p", "tl-intervention-note", interruption.lossMessage));
+      }
+      if (interruption.offersRetry) {
+        card.appendChild(retryControl(turn, opts));
+      }
+      return card;
+    }
     const outage = turn.outage;
     if (outage && outage.ceoMessage) {
       // What happened. Authored by `UpstreamFault::ceo_message`.
@@ -2113,16 +2165,41 @@
       if (outage.retryMessage) card.appendChild(elem("p", "tl-intervention-note", outage.retryMessage));
     } else {
       card.appendChild(elem("p", "tl-intervention-body",
-        "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up."));
+        "I hit a snag mid-thought and had to stop before I finished."));
       card.appendChild(elem("p", "tl-intervention-note",
         "Everything I'd already written above is saved."));
     }
-    const retry = elem("button", "tl-intervention-action", "Pick it back up");
+    card.appendChild(retryControl(turn, opts));
+    return card;
+  }
+
+  /// **THE CONTROL SAYS WHAT IT DOES** — the nightly's D6.
+  ///
+  /// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D6:
+  /// *"The message says 'say the word and I'll pick it back up'; the button says 'Pick it
+  /// back up'. Pressing it PUTS HIS TEXT BACK IN THE COMPOSER — no new turn, no log line.
+  /// Returning the text is useful behavior; the words promise that Rich will resume, and he
+  /// does not."*
+  ///
+  /// **The behavior is right and it is the words that changed.** Resending has side effects
+  /// — it spends his subscription and starts work — so it is his to trigger, which is the
+  /// rule `renderUnknownCard` below already states. A control that silently resent would be
+  /// a worse product, not a more honest one.
+  ///
+  /// So the label is now what actually happens, and it borrows the metaphor from the one
+  /// sentence in this file that was already accurate about it: *"Your message is safe — I'll
+  /// put it back in the box for you."* One verb across both cards, because the CEO's job is
+  /// identical in each and two phrasings for one action is two things to learn.
+  ///
+  /// The generic body above lost *"say the word and I'll pick it back up"* in the same pass,
+  /// for the same reason: it was the sentence that made the promise the button could not
+  /// keep.
+  function retryControl(turn, opts) {
+    const retry = elem("button", "tl-intervention-action", RETRY_LABEL);
     retry.type = "button";
     retry.id = "retry:" + turn.turnId;
     retry.addEventListener("click", () => opts.retry(turn));
-    card.appendChild(retry);
-    return card;
+    return retry;
   }
 
   /// §14's other card: a turn that was still in flight when the app last closed, whose
@@ -2142,8 +2219,8 @@
   /// effects and it is his to take (main.js `retryTurn`).
   ///
   /// NO BUTTON WHEN THERE IS NOTHING TO PUT BACK. A turn first witnessed mid-flight has no
-  /// `turn.user.text`, and a control labelled "Pick it back up" that picks up nothing is
-  /// worse than no control — so the note says what is true instead and claims nothing.
+  /// `turn.user.text`, and a control that puts nothing back is worse than no control — so
+  /// the note says what is true instead and claims nothing.
   function renderUnknownCard(turn, opts) {
     const card = elem("aside", "tl-intervention tl-intervention--quiet");
     card.setAttribute("role", "note");
@@ -2155,7 +2232,7 @@
         ? "Anything I'd written is above. Your message is safe — I'll put it back in the box for you."
         : "Anything I'd written is above. Nothing of yours was lost."));
     if (canRetry) {
-      const retry = elem("button", "tl-intervention-action", "Pick it back up");
+      const retry = elem("button", "tl-intervention-action", RETRY_LABEL);
       retry.type = "button";
       retry.id = "resume:" + turn.turnId;
       retry.addEventListener("click", () => opts.retry(turn));
@@ -2329,6 +2406,13 @@
     // would keep the cached node when the outage item arrives, and the authored sentences
     // would never appear — the same class of bug the raw-pane term below exists for.
     parts.push(turn.outage ? "o" + tokenOf(model.items.get(turn.outage.id)) : "o0");
+    // The interruption row is drawn inside the same card and is likewise absent from
+    // `turn.stream`, so it needs its own term for the same reason — and it decides whether
+    // the retry button is drawn at all, so a stale cached node here is a control that
+    // should have disappeared and did not.
+    parts.push(
+      turn.interruption ? "i" + tokenOf(model.items.get(turn.interruption.id)) : "i0"
+    );
     for (const item of turn.stream) {
       // The open/closed state of a raw pane is NOT a property of the item object, so it
       // cannot ride in on `tokenOf`. Without this the CEO clicks a chevron, the turn's

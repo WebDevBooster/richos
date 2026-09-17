@@ -311,6 +311,183 @@ async function main() {
     return "state survives a closed panel; 292,568,520 / 487,614,201 renders as 60%";
   });
 
+  // =========================================================================================
+  // D3 — A FAILED INTEGRITY CHECK MUST NOT REMOVE THE CONTROL WITHOUT A WORD
+  //
+  // `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D3. With a
+  // corrupted model in place — 17 bytes changed at an identical file size, so a size check
+  // would have waved it through — the backend refused, correctly, with the best-written line
+  // in the product. On screen the talk control was simply GONE: the audit's own accessibility
+  // sweep for `checkbox|speech|listening|download|hearing` returned nothing, against a
+  // positive control of 111 readable nodes in the same tree.
+  // =========================================================================================
+
+  await run.check("a refused model keeps the control on screen instead of deleting it", async () => {
+    const page = await open(browser, { voice: "refused" });
+    assert(await shown(page, "talk-toggle"), "the control vanished again — this IS D3");
+    const state = await page.evaluate(() => {
+      const b = document.getElementById("talk-toggle");
+      return {
+        disabled: b.disabled,
+        ariaDisabled: b.getAttribute("aria-disabled"),
+        name: b.getAttribute("aria-label"),
+      };
+    });
+    assertEqual(state.disabled, true, "present but inert, not present and lying");
+    assertEqual(state.ariaDisabled, "true", "and announced as unavailable rather than skipped");
+    assertEqual(state.name, "Talk to Rich", "it keeps its name while it is disabled");
+    assertEqual(await rows(page), [], "no model row: there is nothing to download here");
+    await page.close();
+    return "talk control: present, disabled, named, aria-disabled";
+  });
+
+  await run.check("the reason is on screen, in the backend's own words", async () => {
+    const page = await open(browser, { voice: "refused" });
+    const note = await page.evaluate(() => {
+      const e = document.getElementById("voice-unavailable");
+      return { hidden: e.hidden, text: e.textContent, role: e.getAttribute("role") };
+    });
+    assertEqual(note.hidden, false, "the explanation must be visible, not merely present");
+    assertEqual(note.role, "status", "it appears without him doing anything, so it is announced");
+    // The sentence is `SttError::ToolchainRefused::ceo_message()`, relayed. It names the
+    // party who can fix it and says what still works — both are the point of showing it.
+    assert(
+      note.text.includes("Something about my hearing changed on this machine"),
+      "not the backend's sentence: " + note.text
+    );
+    assert(note.text.includes("Whoever set RichOS up"), "the fix is not offered: " + note.text);
+    assert(note.text.includes("read what you type"), "what still works is not said: " + note.text);
+    await page.close();
+    return "the refusal sentence, verbatim, in a status region";
+  });
+
+  await run.check("the refused state meets WCAG AA in BOTH themes, computed", async () => {
+    // THE CONTRAST FLOOR IS CLEARED BEFORE THIS IS HANDED OVER, not raised afterwards. Two
+    // things on this screen are new and neither had been measured until here: the
+    // explanation line (`.composer-voice-note`, `--ink` at 1rem — the 4.5:1 tier) and the
+    // DISABLED talk control, whose dot and border are a non-text indicator at the 3:1 tier.
+    //
+    // The disabled state is styled as a SHAPE change (dashed border) rather than the usual
+    // fade for exactly this reason: dimming is what takes an indicator under its floor, and
+    // the rule does not exempt a control because it is inactive.
+    const C = require("./lib/contrast");
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await open(browser, { voice: "refused" });
+      await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+      await page.waitForSelector("#voice-unavailable:not([hidden])");
+      await page.evaluate(C.pageScript());
+      const r = await page.evaluate((o) => window.__contrastProbe(o), {
+        surface: "voice-refused",
+        theme,
+      });
+      const measured = r.measuredPaths || [];
+      const failures = Object.values(r.failures);
+      const unresolvable = Object.values(r.unresolvable);
+      // The note must be among what was measured, or "the page is clean" would be a claim
+      // about a screen the new line was not on.
+      assert(
+        measured.some((m) => m.indexOf("#voice-unavailable") >= 0),
+        `${theme}: the explanation line was not measured at all — ${measured.length} node(s) seen`
+      );
+      assertEqual(
+        unresolvable.length,
+        0,
+        `${theme}: a color the probe could not resolve is a failure to prove: ${JSON.stringify(unresolvable)}`
+      );
+      assertEqual(failures.length, 0, `${theme}: WCAG AA failures ${JSON.stringify(failures)}`);
+      out.push(`${theme}: ${measured.length} node(s), 0 failures`);
+      await page.close();
+    }
+    return out.join(" · ");
+  });
+
+  await run.check("NEGATIVE CONTROL: no other state grows that line or a dead control", async () => {
+    for (const preset of [{}, { voice: "model-missing" }, { voice: "unavailable" }]) {
+      const page = await open(browser, preset);
+      const seen = await page.evaluate(() => {
+        const n = document.getElementById("voice-unavailable");
+        const b = document.getElementById("talk-toggle");
+        return { note: !n.hidden, disabled: b.disabled, hidden: b.hidden };
+      });
+      const label = JSON.stringify(preset);
+      assertEqual(seen.note, false, `${label} must not show the refusal line`);
+      assertEqual(seen.disabled, false, `${label} must not render an inert control`);
+      // `unavailable` is still NOT-OFFERED, unchanged: a machine with no decoder at all
+      // cannot be helped by anyone here, and a disabled button beside that fact is clutter.
+      assertEqual(seen.hidden, preset.voice === "unavailable", `${label}: offered-ness changed`);
+      await page.close();
+    }
+    return "ready / model-missing / unavailable: no note, no inert control, offering unchanged";
+  });
+
+  // =========================================================================================
+  // D8 — THE CONTROL HAS AN ACCESSIBLE NAME, AND IT TRACKS THE STATE
+  //
+  // Audit §D8: VoiceOver announced the primary affordance of a voice-first product as a bare
+  // "checkbox". `title` is a tooltip and is not an accessible name.
+  // =========================================================================================
+
+  await run.check("the talk control is NAMED, and the name follows what pressing it does", async () => {
+    // `model-missing` rather than the ready preset, for cause: `enterVoiceMode`'s ready path
+    // calls `start_voice_capture`, which the preview refuses, so `voiceMode` never turns on
+    // and the pressed state never changes. The OFFER path enters voice mode while opening no
+    // device at all — the hot-mic invariant the suite above pins — which is the one route
+    // that reaches the pressed state in a browser.
+    const page = await open(browser, { voice: "model-missing" });
+    const read = () => page.evaluate(() => {
+      const b = document.getElementById("talk-toggle");
+      return { name: b.getAttribute("aria-label"), pressed: b.getAttribute("aria-pressed") };
+    });
+
+    const off = await read();
+    assertEqual(off.name, "Talk to Rich", "no accessible name at rest — this IS D8");
+    assertEqual(off.pressed, "false", "and the state is still reported beside it");
+
+    await page.click("#talk-toggle");
+    await page.waitForFunction(
+      () => document.getElementById("talk-toggle").getAttribute("aria-pressed") === "true"
+    );
+    const on = await read();
+    assertEqual(on.name, "Stop talking", "the name must say what pressing it will DO now");
+    assertEqual(on.pressed, "true", "the state is carried by aria-pressed, never said twice");
+
+    await page.close();
+    return "off: Talk to Rich/false — on: Stop talking/true";
+  });
+
+  await run.check("a nameless talk control fails: its ONLY naming source is aria-label", async () => {
+    // WHY THIS IS NOT JUST "aria-label IS SET". The audit read the accessibility TREE and got
+    // a bare `checkbox 1`. Playwright 1.61 exposes no `page.accessibility` API to read that
+    // tree back, so the check is made structurally instead, and it is the stronger claim of
+    // the two: the control has NO text content, NO element naming it and NO wrapping
+    // label, so `aria-label` is the only thing between it and the bare role the audit heard.
+    // Remove the attribute and this check fails — which is exactly the regression it exists
+    // to catch.
+    const page = await open(browser, {});
+    const shape = await page.evaluate(() => {
+      const b = document.getElementById("talk-toggle");
+      return {
+        label: b.getAttribute("aria-label"),
+        text: (b.textContent || "").trim(),
+        labelledBy: b.getAttribute("aria-labelledby"),
+        inLabel: !!b.closest("label"),
+        role: b.getAttribute("role") || b.tagName.toLowerCase(),
+      };
+    });
+    assertEqual(shape.text, "", "the control is a glyph — it has no text to be named by");
+    assertEqual(shape.labelledBy, null, "and nothing else names it");
+    assertEqual(shape.inLabel, false, "and it is not wrapped in a label");
+    assert(
+      typeof shape.label === "string" && shape.label.trim().length > 0,
+      "so with no aria-label a screen reader gets the bare role — this IS D8: " +
+        JSON.stringify(shape)
+    );
+    assertEqual(shape.label, "Talk to Rich", "the name must be the one we set");
+    await page.close();
+    return `<${shape.role}> text="" -> name from aria-label only: ${JSON.stringify(shape.label)}`;
+  });
+
   await browser.close();
   process.exit(run.report() ? 1 : 0);
 }

@@ -2028,17 +2028,53 @@ impl Spine {
             Err(e) => {
                 // Deltas up to the failure are already persisted + emitted; mark interrupted.
                 self.ledger.interrupt_turn(turn_id, &e.to_string())?;
+                // WHY it ended, classified here and made durable beside it (D2). Before
+                // 2026-09-17 the raw `CognitionError` Display went out on the wire as the
+                // CEO-facing `reason` and the surface replaced it with two fixed sentences
+                // that were wrong for this case — a permanent condition called a snag, a
+                // promise about saved work that did not exist, and a retry that could not
+                // succeed. The statement below is authored in `interruption.rs` from the
+                // classification and from counts read off the ledger.
+                let (cause, statement) = self.record_interruption(turn_id, &e.to_string());
                 self.emit(StreamEvent::TurnError {
                     thread_id: thread_id.to_string(),
                     turn_id: turn_id.to_string(),
-                    reason: e.to_string(),
+                    reason: statement,
                     at: now_millis(),
                 });
                 // Mid-turn-crash recovery (continuity §5.3): a positive termination
                 // signal (this `Err`) just fired — attempt ONE automatic respawn +
                 // replay if a factory is attached. A genuinely dead recovery path (no
                 // factory, or the fresh spawn ALSO fails) surfaces the error honestly.
-                let will_recover = allow_recovery && self.lease_factory.is_some();
+                // **AND ONLY WHEN A REPLAY COULD ACTUALLY HELP** — the dev walk's N4
+                // (`docs/verification/2026-09-17-main-aa0165cc-dev-walk-audit.md`). Its
+                // evidence is the app's own ledger, from ONE press of Enter:
+                //
+                //     PromptReceived   turn_7ba34774…  "What is 17 times 3? …"   at …297651
+                //     TurnInterrupted  turn_7ba34774…  "cognition io: …"         at …297664
+                //     ActionRecorded   act_fa1397b0…   crash_recovery
+                //     PromptReceived   turn_0cc5570d…  "What is 17 times 3? …"   at …297673
+                //
+                // **One keystroke, two prompts, 22 ms apart**, and the audit names the
+                // principle exactly: *"An immediate automatic replay is the right instinct
+                // for a crash and the wrong one for a refusal the app has already read."*
+                //
+                // On that walk both attempts were refused locally so nothing was charged.
+                // On a build that reaches the model it is two requests for one question —
+                // and against a permanent condition, an expired subscription say, the replay
+                // can never succeed and he pays for it anyway.
+                //
+                // The discriminator is the classification written one line above, and that
+                // is the point of having classified at all: `offers_retry` is already the
+                // answer to "can asking again help?", and it is the same fact that decides
+                // whether a retry CONTROL is drawn for him. The app cannot coherently tell
+                // him a retry is pointless and then perform one itself, 22 ms later, without
+                // asking. One fact, both decisions.
+                //
+                // `Transient` and `Unknown` still recover, which is the whole of what this
+                // seam was built for (continuity §5.3) — a crashed child is exactly the case
+                // a silent respawn should cover, and it still does.
+                let will_recover = allow_recovery && cause.offers_retry() && self.lease_factory.is_some();
                 // ADDITIVE (§13). THE TWO CASES ARE DIFFERENT STATEMENTS, and emitting the
                 // wrong one is how the wire and a reload stop agreeing:
                 //   - no recovery ahead  -> `failed`, and the turn stays visible as failed;
@@ -2555,6 +2591,82 @@ impl Spine {
         crate::upstream::UpstreamFailure::classify_lines(&last.text)
     }
 
+    /// **WHAT SURVIVED THIS TURN, read off the ledger rather than narrated.**
+    ///
+    /// Extracted from `finish_upstream_failure` on 2026-09-17, behavior unchanged, so the
+    /// ordinary interruption path (D2) states what is on disk using the SAME counts the
+    /// upstream path does. Two implementations of "what survived" is how the sentence and
+    /// the screen come to disagree, and the half that drifted would be the half that tells
+    /// a customer his work is safe.
+    ///
+    /// `lease_context_lost` is `true` unconditionally: whatever the session had worked out
+    /// and had not yet said is gone with the lease, on every one of these endings.
+    fn turn_loss(&self, turn_id: &str) -> crate::upstream::TurnLoss {
+        let turn = self.ledger.turn(turn_id);
+        crate::upstream::TurnLoss {
+            prompt_is_durable: turn.map(|t| !t.user_text.is_empty()).unwrap_or(false),
+            // The vendor's diagnostic is NOT part of what survived, so it is cut out of
+            // the count by the SAME function the timeline projects with
+            // (`upstream::split_at_vendor_diagnostic`). Telling him "169 characters of the
+            // answer are saved" when all 169 are the error message would be a true number
+            // about the wrong thing — and having two implementations of "which half is the
+            // answer" would be worse: the sentence and the screen would eventually
+            // disagree, and neither would be wrong on its own terms.
+            partial_reply_chars: turn
+                .map(|t| {
+                    t.text_runs
+                        .iter()
+                        .map(|r| {
+                            crate::upstream::split_at_vendor_diagnostic(&r.text).0.chars().count()
+                        })
+                        .sum()
+                })
+                .unwrap_or(0),
+            actions_recorded: self
+                .ledger
+                .actions()
+                .iter()
+                .filter(|a| a.turn_id.as_deref() == Some(turn_id))
+                .count(),
+            lease_context_lost: true,
+        }
+    }
+
+    /// **CLASSIFY AN ORDINARY INTERRUPTION AND MAKE THE ANSWER DURABLE — the nightly's D2.**
+    ///
+    /// Called immediately after `interrupt_turn`, never before it, per
+    /// `Ledger::record_interruption_cause`'s stated contract.
+    ///
+    /// It is handed the SAME string that was written as the turn's `reason`, so the record
+    /// and the reason cannot describe two different events. The returned statement is what
+    /// the CEO is shown — assembled here from the authored sentences so the live event and a
+    /// reload months later say the same thing.
+    ///
+    /// **A failure to write the record is NOT a failure of the turn.** The turn is already
+    /// terminal and durable at this point; losing the explanation degrades the surface to
+    /// its generic card, which is exactly the fallback a pre-2026-09-17 record gets. Raising
+    /// here would convert a cosmetic loss into a lost error path.
+    fn record_interruption(
+        &mut self,
+        turn_id: &str,
+        reason: &str,
+    ) -> (crate::interruption::InterruptionCause, String) {
+        let cause = crate::interruption::classify(reason);
+        let loss = self.turn_loss(turn_id);
+        let record = crate::interruption::InterruptionRecord::new(cause, &loss);
+        let statement = match &record.loss_message {
+            Some(loss) => format!("{} {loss}", record.ceo_message),
+            None => record.ceo_message.clone(),
+        };
+        // The operator's line keeps the machinery the CEO never sees, beside the tag, so a
+        // misclassification is visible in a log without reading the ledger.
+        eprintln!("[richos] turn interrupted [{}]: {reason}", cause.tag());
+        if let Err(e) = self.ledger.record_interruption_cause(turn_id, &record) {
+            eprintln!("[richos] the reason for that interruption could not be written down: {e}");
+        }
+        (cause, statement)
+    }
+
     /// **Everything that happens when a turn dies to the upstream API, in the order the
     /// durability rules require.**
     ///
@@ -2583,39 +2695,7 @@ impl Spine {
         let thread_id = binding.thread_id().to_string();
         eprintln!("[richos] {}", failure.summary());
 
-        let loss = {
-            let turn = self.ledger.turn(turn_id);
-            crate::upstream::TurnLoss {
-                prompt_is_durable: turn.map(|t| !t.user_text.is_empty()).unwrap_or(false),
-                // The vendor's diagnostic is NOT part of what survived, so it is cut out
-                // of the count by the SAME function the timeline projects with
-                // (`upstream::split_at_vendor_diagnostic`). Telling him "169 characters of
-                // the answer are saved" when all 169 are the error message would be a true
-                // number about the wrong thing — and having two implementations of "which
-                // half is the answer" would be worse: the sentence and the screen would
-                // eventually disagree, and neither would be wrong on its own terms.
-                partial_reply_chars: turn
-                    .map(|t| {
-                        t.text_runs
-                            .iter()
-                            .map(|r| {
-                                crate::upstream::split_at_vendor_diagnostic(&r.text)
-                                    .0
-                                    .chars()
-                                    .count()
-                            })
-                            .sum()
-                    })
-                    .unwrap_or(0),
-                actions_recorded: self
-                    .ledger
-                    .actions()
-                    .iter()
-                    .filter(|a| a.turn_id.as_deref() == Some(turn_id))
-                    .count(),
-                lease_context_lost: true,
-            }
-        };
+        let loss = self.turn_loss(turn_id);
 
         // CHARGED BEFORE ANYTHING IS EMITTED, so the sentence the CEO reads carries the
         // attempt that just failed rather than the one before it.

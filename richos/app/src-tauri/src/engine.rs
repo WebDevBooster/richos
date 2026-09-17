@@ -210,8 +210,61 @@ fn bundle_resources_engine(exe: &Path) -> Option<PathBuf> {
     Some(contents.join("Resources/engine"))
 }
 
+/// Does this engine carry a DELIVERED RUNTIME — the interpreters a lease needs to start?
+///
+/// One `stat`. It is deliberately NOT the full verification
+/// (`richos_core::runtime::verify_engine`), which canonicalizes and SHA-256s every file of a
+/// 322 MB payload: 1.70 s cold / 0.81 s warm, measured 2026-09-17 on the engine `run_setup`
+/// installed during the first nightly walk. That belongs on the setup/lease path, which
+/// already pays it once, and not on a resolver that runs before the window opens.
+///
+/// **What it is for.** `EngineRuntime::load` cannot succeed without `runtime/delivery.json`,
+/// and `EngineLeaseFactory::create` calls it before spawning `claude` — so an engine missing
+/// this file can never run a turn, whatever else is right about it. That makes the file a
+/// cheap NECESSARY condition, and it is used here only to ORDER preference between two
+/// candidates that both look like engines. It never promotes a directory
+/// [`looks_like_engine`] rejected, and it never claims a candidate is valid; the authoritative
+/// answer is still `verify_engine`, downstream and unchanged.
+pub fn carries_delivered_runtime(engine: &Path) -> bool {
+    engine.join("runtime/delivery.json").is_file()
+}
+
+/// One candidate: where we looked, and the engine we found there, if any.
+struct Candidate {
+    source: EngineSource,
+    /// The path recorded in [`EngineResolution::tried`]. For the two ancestor walks this is
+    /// the directory the walk STARTED from, not the engine — which is what the failure line
+    /// has always reported and what `a_failed_resolution_carries_every_place_it_looked` pins.
+    probe: PathBuf,
+    /// The engine-shaped directory this candidate produced, if it produced one.
+    engine: Option<PathBuf>,
+}
+
 /// Resolve the engine directory for this launch. Pure with respect to `paths`: it reads the
 /// filesystem, never the environment.
+///
+/// # A USABLE ENGINE OUTRANKS AN ENGINE-SHAPED ONE — the nightly's D1, boot half
+///
+/// The candidate ORDER below is unchanged and is still the order this file's header argues
+/// for. What changed on 2026-09-17 is that the walk no longer stops at the first directory
+/// that merely LOOKS like an engine when a later candidate is one that can actually run.
+///
+/// The case is not hypothetical and it is not rare. Anyone who has the engine installed as a
+/// Claude Code plugin has a `~/.claude/richos-engine` (candidate 6) that carries no delivered
+/// runtime. It answered ahead of `~/Library/Application Support/RichOS/engine` (candidate 7),
+/// which is the ONLY directory RichOS itself writes — so RichOS installed an engine, then
+/// booted against a different one that no lease could ever start, and told the CEO to run
+/// setup again. Four consecutive launches of the published nightly, on the CEO's own Mac:
+/// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D1.
+///
+/// So selection is two passes over the same ordered candidates: a runnable engine first
+/// ([`carries_delivered_runtime`], one `stat` each), and failing that the first engine-shaped
+/// one — which is exactly the previous behavior, kept so the dogfood checkout (no delivered
+/// runtime anywhere) resolves as it always did rather than becoming unresolvable.
+///
+/// **Explicit overrides are untouched and still exclusive**, per `locate-engine.sh` rule 1:
+/// an operator who names a directory is making a statement, and neither pass gets to
+/// second-guess it.
 pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
     let mut tried: Vec<(EngineSource, PathBuf)> = Vec::new();
 
@@ -232,18 +285,20 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
         }
     }
 
+    // The searched candidates, in the order the header argues for. Every one is PROBED here
+    // and none is chosen here — choosing happens once, below, so the two passes cannot drift
+    // apart into two different orders.
+    let mut candidates: Vec<Candidate> = Vec::new();
+
     // 3. The app's own resources — the only candidate a sealed, relocated bundle carries
     // with it. Empty today, and skipped in the time it takes to stat two paths.
     if let Some(exe) = paths.exe.as_deref() {
         if let Some(candidate) = bundle_resources_engine(exe) {
-            tried.push((EngineSource::BundleResources, candidate.clone()));
-            if looks_like_engine(&candidate) {
-                return EngineResolution {
-                    dir: Some(candidate),
-                    source: Some(EngineSource::BundleResources),
-                    tried,
-                };
-            }
+            candidates.push(Candidate {
+                source: EngineSource::BundleResources,
+                probe: candidate.clone(),
+                engine: looks_like_engine(&candidate).then_some(candidate),
+            });
         }
     }
 
@@ -251,20 +306,22 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
     // working directory but always knows where its own binary is.
     if let Some(exe) = paths.exe.as_deref() {
         let from = exe.parent().unwrap_or(exe);
-        tried.push((EngineSource::RepoFromExe, from.to_path_buf()));
-        if let Some(found) = engine_above(from) {
-            return EngineResolution { dir: Some(found), source: Some(EngineSource::RepoFromExe), tried };
-        }
+        candidates.push(Candidate {
+            source: EngineSource::RepoFromExe,
+            probe: from.to_path_buf(),
+            engine: engine_above(from),
+        });
     }
 
     // 5. The repo, found from the WORKING DIRECTORY — the dogfood path this file used to
     // hard-code as `cwd/../engine`, generalized to an ancestor walk so `cargo run` from any
     // depth inside the repo resolves the same directory.
     if let Some(cwd) = paths.cwd.as_deref() {
-        tried.push((EngineSource::RepoFromCwd, cwd.to_path_buf()));
-        if let Some(found) = engine_above(cwd) {
-            return EngineResolution { dir: Some(found), source: Some(EngineSource::RepoFromCwd), tried };
-        }
+        candidates.push(Candidate {
+            source: EngineSource::RepoFromCwd,
+            probe: cwd.to_path_buf(),
+            engine: engine_above(cwd),
+        });
     }
 
     // 6. The engine's own install pointer. LAST of the real candidates, for `locate-engine.sh`'s
@@ -276,32 +333,42 @@ pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
         .or_else(|| paths.home.as_ref().map(|h| h.join(".claude")));
     if let Some(config_dir) = config_dir {
         let candidate = config_dir.join("richos-engine");
-        tried.push((EngineSource::InstallPointer, candidate.clone()));
-        if looks_like_engine(&candidate) {
-            return EngineResolution {
-                dir: Some(candidate),
-                source: Some(EngineSource::InstallPointer),
-                tried,
-            };
-        }
+        candidates.push(Candidate {
+            source: EngineSource::InstallPointer,
+            probe: candidate.clone(),
+            engine: looks_like_engine(&candidate).then_some(candidate),
+        });
     }
 
-    // 7. The per-user application-support location. Nothing writes here yet; it is the second
-    // slot a payload decision can fill without reopening this file.
+    // 7. The per-user application-support location — the directory `setup.rs` installs a
+    // fetched engine into, and the only one RichOS itself writes.
     #[cfg(target_os = "macos")]
     if let Some(home) = paths.home.as_deref() {
         let candidate = home.join("Library/Application Support/RichOS/engine");
-        tried.push((EngineSource::ApplicationSupport, candidate.clone()));
-        if looks_like_engine(&candidate) {
-            return EngineResolution {
-                dir: Some(candidate),
-                source: Some(EngineSource::ApplicationSupport),
-                tried,
-            };
-        }
+        candidates.push(Candidate {
+            source: EngineSource::ApplicationSupport,
+            probe: candidate.clone(),
+            engine: looks_like_engine(&candidate).then_some(candidate),
+        });
     }
 
-    EngineResolution { dir: None, source: None, tried }
+    tried.extend(candidates.iter().map(|c| (c.source, c.probe.clone())));
+
+    // PASS 1 — an engine that could actually run a turn. PASS 2 — the first engine-shaped
+    // one, which is what this function always returned. Same list, same order, both times.
+    let chosen = candidates
+        .iter()
+        .find(|c| c.engine.as_deref().is_some_and(carries_delivered_runtime))
+        .or_else(|| candidates.iter().find(|c| c.engine.is_some()));
+
+    match chosen {
+        Some(c) => EngineResolution {
+            dir: c.engine.clone(),
+            source: Some(c.source),
+            tried,
+        },
+        None => EngineResolution { dir: None, source: None, tried },
+    }
 }
 
 #[cfg(test)]
@@ -501,6 +568,104 @@ mod tests {
         std::fs::create_dir_all(&deep).unwrap();
         let paths = LaunchPaths { cwd: Some(deep), ..Default::default() };
         assert_eq!(resolve_engine_dir(&paths).dir, None, "the walk climbed past its limit");
+    }
+
+    /// Give an engine the one file a lease cannot start without.
+    fn deliver_runtime(at: &Path) {
+        std::fs::create_dir_all(at.join("runtime")).unwrap();
+        std::fs::write(at.join("runtime/delivery.json"), b"{}").unwrap();
+    }
+
+    /// **THE NIGHTLY'S D1, BOOT HALF.** A machine with the engine installed as a Claude Code
+    /// plugin (candidate 6, no delivered runtime) AND the engine RichOS installed for itself
+    /// (candidate 7, runnable). The plugin pointer used to win on order alone, so the boot
+    /// handed the lease factory a directory that could never start `claude` — and first-run
+    /// setup, asking the same question, told the CEO to install an engine he already had.
+    ///
+    /// Candidate 7 is LAST in the order and still wins, because being runnable outranks being
+    /// engine-shaped.
+    #[test]
+    fn a_runnable_engine_outranks_an_engine_shaped_one_that_sits_earlier_in_the_order() {
+        let root = scratch("d1-runnable-wins");
+        let home = root.join("home");
+        make_engine(&home.join(".claude/richos-engine")); // plugin: shaped, not runnable
+        let installed = make_engine(&home.join("Library/Application Support/RichOS/engine"));
+        deliver_runtime(&installed);
+        let exe = root.join("Applications/RichOS.app/Contents/MacOS/richos-tauri");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+
+        let paths = LaunchPaths {
+            exe: Some(exe),
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home.clone()),
+            ..Default::default()
+        };
+        let got = resolve_engine_dir(&paths);
+        assert_eq!(got.dir.as_deref(), Some(installed.as_path()), "{got:?}");
+        assert_eq!(got.source, Some(EngineSource::ApplicationSupport), "{got:?}");
+        // The pointer was still LOOKED AT — the audit trail does not shrink because the
+        // answer changed.
+        let sources: Vec<EngineSource> = got.tried.iter().map(|(s, _)| *s).collect();
+        assert!(sources.contains(&EngineSource::InstallPointer), "{sources:?}");
+    }
+
+    /// **PASS 2, WHICH IS THE OLD BEHAVIOR, KEPT.** No delivered runtime anywhere — the
+    /// dogfood checkout, and the CEO's own Mac today. The order decides, exactly as before,
+    /// and the resolver does not start reporting "not found" for a repo it has always found.
+    #[test]
+    fn with_no_runnable_engine_anywhere_the_original_order_still_decides() {
+        let root = scratch("d1-no-runtime-anywhere");
+        let home = root.join("home");
+        let pointer = make_engine(&home.join(".claude/richos-engine"));
+        make_engine(&home.join("Library/Application Support/RichOS/engine"));
+
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+        let got = resolve_engine_dir(&paths);
+        assert_eq!(got.dir.as_deref(), Some(pointer.as_path()), "{got:?}");
+        assert_eq!(got.source, Some(EngineSource::InstallPointer), "{got:?}");
+    }
+
+    /// A runnable engine never promotes a directory the shape test rejected: `runtime/` is a
+    /// tie-breaker between engines, not a second way to BE one.
+    #[test]
+    fn a_delivered_runtime_does_not_rescue_a_directory_that_is_not_an_engine() {
+        let root = scratch("d1-runtime-is-not-a-shape");
+        let home = root.join("home");
+        let decoy = home.join("Library/Application Support/RichOS/engine");
+        std::fs::create_dir_all(decoy.join("scripts")).unwrap(); // no hooks/, no VERSION
+        deliver_runtime(&decoy);
+
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+        assert_eq!(resolve_engine_dir(&paths).dir, None, "a decoy with a runtime was accepted");
+    }
+
+    /// An explicit override outranks BOTH passes. Naming a directory is a statement, and a
+    /// runnable engine elsewhere is not a reason to overrule it (`locate-engine.sh` rule 1).
+    #[test]
+    fn an_explicit_override_still_wins_over_a_runnable_engine_nobody_named() {
+        let root = scratch("d1-explicit-beats-runnable");
+        let home = root.join("home");
+        let runnable = make_engine(&home.join("Library/Application Support/RichOS/engine"));
+        deliver_runtime(&runnable);
+        let named = root.join("named");
+
+        let paths = LaunchPaths {
+            env_engine_dir: Some(named.display().to_string()),
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+        let got = resolve_engine_dir(&paths);
+        assert_eq!(got.dir.as_deref(), Some(named.as_path()), "{got:?}");
+        assert_eq!(got.source, Some(EngineSource::EnvEngineDir));
     }
 
     /// `CLAUDE_CONFIG_DIR` moves the pointer, the way it does for every other engine caller.

@@ -358,11 +358,30 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     // A partial chunk streamed before the failure.
     assert!(events.iter().any(|e| matches!(e, StreamEvent::Chunk { .. })), "partial chunk streamed");
     // Terminal event is TurnError for this thread + turn.
+    //
+    // UNTIL 2026-09-17 THIS ASSERTED `reason.contains("adapter exited")` — the raw
+    // `CognitionError` Display, on the CEO-facing wire. That is the nightly's D2 in its
+    // original form: machinery reaching the surface, which then threw it away and
+    // substituted two fixed sentences that were wrong for most causes. The reason is now
+    // the statement `interruption.rs` authored for this class, and the machinery stays
+    // where machinery belongs — the ledger's `stop_reason`, rendered at Technical
+    // visibility and never shown to him.
     match events.last().unwrap() {
         StreamEvent::TurnError { thread_id, turn_id: t, reason, .. } => {
             assert_eq!(thread_id, &thread);
             assert_eq!(t, &turn_id);
-            assert!(reason.contains("adapter exited"), "carries the failure reason");
+            assert!(
+                !reason.contains("adapter exited"),
+                "machinery reached the CEO-facing wire: {reason}"
+            );
+            assert!(
+                reason.contains("asking again is worth a try"),
+                "a lost connection is the one class where a retry is honest: {reason}"
+            );
+            assert!(
+                reason.contains("29 characters of the answer"),
+                "the partial reply that IS on disk must be counted, not hand-waved: {reason}"
+            );
         }
         other => panic!("expected TurnError last, got {other:?}"),
     }
@@ -370,9 +389,66 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     let turn = spine.ledger().turn(&turn_id).unwrap();
     assert_eq!(turn.state, TurnState::Interrupted);
     assert_eq!(turn.assistant_text, "partial before the lease dies");
+    // THE MACHINERY IS NOT LOST, it is filed correctly.
+    assert!(
+        turn.stop_reason.as_deref().unwrap_or_default().contains("adapter exited"),
+        "{:?}",
+        turn.stop_reason
+    );
+    // And the classification is durable beside it, with the control it was shown with.
+    let cause = turn.interruption.as_ref().expect("the cause is recorded");
+    assert_eq!(cause.cause, "transient");
+    assert!(cause.offers_retry);
+    assert!(!cause.ceo_message.contains("Settings"), "a lost pipe is not fixed in Settings");
     // The turn boundary is clear again (queue-not-interrupt invariant intact).
     assert!(!spine.is_turn_in_progress());
     let _ = std::fs::remove_file(&path);
+}
+
+/// **A FAILED TURN IS ACCOUNTED FOR WHICHEVER SURFACE IT CAME FROM** — the nightly's D4.
+///
+/// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D4: a failed
+/// VOICE turn wrote `[richos] voice turn failed: …` to the boot log and a failed TEXT turn
+/// wrote nothing at all, *"and the `gui-boot` log is the one artifact meant to hold every
+/// line of a launch to account"*.
+///
+/// The asymmetry was in the SURFACE: `main.rs`'s voice submit wrapper logged its own
+/// failures and `send_message` did not. The fix is not another surface-specific line — it is
+/// that the failure is classified once, on the path both surfaces share, and the operator
+/// line is printed from THAT (`spine.rs::record_interruption`).
+///
+/// This test is the durable half of that claim. It cannot read stderr, so it asserts the
+/// thing the log line is printed from: both sources produce an identical interruption
+/// record. A regression that made either surface skip classification shows up here, and a
+/// log line that only one surface reaches becomes impossible to write.
+#[test]
+fn a_failed_turn_is_classified_identically_whether_it_was_typed_or_spoken() {
+    let mut records = Vec::new();
+    for (tag, source) in [("d4-text", Source::Text), ("d4-jam", Source::Jam)] {
+        let (path, ledger) = tmp_ledger(tag);
+        let mut spine = support::spine(ledger);
+        spine.create_thread("General", &femcboost()).unwrap();
+        spine.attach_lease(Box::new(FailingCognition { session_id: "sess-x".into() }));
+
+        let turn_id = spine.submit_prompt("cause a failure", source).unwrap_err_turn(&spine);
+        let turn = spine.ledger().turn(&turn_id).unwrap();
+        assert_eq!(turn.source, source, "{tag}");
+        let cause = turn
+            .interruption
+            .as_ref()
+            .unwrap_or_else(|| panic!("{tag}: the failure was not classified, so nothing is logged"));
+        records.push((tag, cause.clone()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    let (text_tag, text) = &records[0];
+    let (jam_tag, jam) = &records[1];
+    assert_eq!(text.cause, jam.cause, "{text_tag} and {jam_tag} disagree on the class");
+    assert_eq!(text.ceo_message, jam.ceo_message, "two surfaces, two sentences");
+    assert_eq!(text.offers_retry, jam.offers_retry);
+    // POSITIVE CONTROL: the shared record is a real classification and not a default that
+    // both surfaces happen to share by doing nothing.
+    assert_eq!(text.cause, "transient", "{text:?}");
 }
 
 /// Small helper: submit_prompt returns the turn id even when delivery fails (the prompt
@@ -384,13 +460,19 @@ impl UnwrapErrTurn for Result<String, richos_core::spine::SpineError> {
     fn unwrap_err_turn(self, spine: &Spine) -> String {
         match self {
             Ok(id) => id,
+            // THE LAST TURN THE CEO CAUSED, whatever surface he used. This matched
+            // `Source::Text` exactly until 2026-09-17, which made it unusable for the one
+            // question the nightly's D4 asks — whether a SPOKEN failure is accounted for the
+            // same way a typed one is. `!= Internal` is the honest predicate: it excludes
+            // the re-prime turn, which is the only thing this must not pick, and names no
+            // surface.
             Err(_) => spine
                 .ledger()
                 .turns()
                 .iter()
                 .rev()
-                .find(|t| t.source == Source::Text)
-                .expect("a text turn was journaled")
+                .find(|t| t.source != Source::Internal)
+                .expect("a turn the CEO caused was journaled")
                 .id
                 .clone(),
         }

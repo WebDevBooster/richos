@@ -734,6 +734,143 @@ fn mid_turn_crash_recovery_is_bounded_to_one_attempt() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// A lease that refuses the way a NOT-SIGNED-IN machine does, counting every prompt it is
+/// handed. The string is the vendor's own constant, read verbatim out of the installed
+/// Claude Code bundle and wrapped in the `CognitionError` `Display` `native.rs` produces.
+struct RefusingCognition {
+    session_id: String,
+    prompts: Arc<Mutex<Vec<String>>>,
+}
+impl Cognition for RefusingCognition {
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    fn reprime(&mut self, _priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.prompts.lock().unwrap().push(text.to_string());
+        Err(CognitionError::Protocol("\"Not logged in · Please run /login\"".into()))
+    }
+}
+
+/// A factory whose leases all refuse the same way, sharing one prompt counter with the
+/// lease that was already attached — so "how many requests did one Enter produce?" is a
+/// single number rather than a sum somebody has to assemble.
+struct RefusingLeaseFactory {
+    prompts: Arc<Mutex<Vec<String>>>,
+    spawns: Arc<Mutex<u64>>,
+}
+impl LeaseFactory for RefusingLeaseFactory {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+        let mut n = self.spawns.lock().unwrap();
+        *n += 1;
+        Ok(Box::new(RefusingCognition {
+            session_id: format!("sess-refusing-{n}"),
+            prompts: self.prompts.clone(),
+        }))
+    }
+}
+
+/// **ONE PRESS OF ENTER IS ONE REQUEST** — the dev walk's N4
+/// (`docs/verification/2026-09-17-main-aa0165cc-dev-walk-audit.md`).
+///
+/// Its evidence is the app's own ledger, from a single keystroke:
+///
+/// ```text
+/// PromptReceived   turn_7ba34774…  "What is 17 times 3? …"   at …297651
+/// TurnInterrupted  turn_7ba34774…  "cognition io: …"         at …297664
+/// ActionRecorded   act_fa1397b0…   crash_recovery
+/// PromptReceived   turn_0cc5570d…  "What is 17 times 3? …"   at …297673
+/// ```
+///
+/// Two prompts, 22 ms apart, with identical text. On that walk both were refused locally so
+/// nothing was charged; on a build that reaches the model it is two requests for one
+/// question, and against a permanent condition the replay can never succeed and he pays for
+/// it anyway. The audit's own sentence is the rule: *"An immediate automatic replay is the
+/// right instinct for a crash and the wrong one for a refusal the app has already read."*
+///
+/// The discriminator is the interruption classification, which the spine now writes at the
+/// failure boundary — `offers_retry` is already the answer to "can asking again help?", and
+/// it is the same fact that decides whether a retry control is offered to HIM. The app
+/// cannot coherently call a retry pointless and then perform one itself without asking.
+#[test]
+fn a_refusal_the_app_has_already_read_is_never_replayed_automatically() {
+    let (path, ledger) = tmp_ledger("n4-no-double-submit");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let spawns = Arc::new(Mutex::new(0u64));
+    spine.attach_lease(Box::new(RefusingCognition {
+        session_id: "sess-refusing-0".into(),
+        prompts: prompts.clone(),
+    }));
+    spine.set_lease_factory(Box::new(RefusingLeaseFactory {
+        prompts: prompts.clone(),
+        spawns: spawns.clone(),
+    }));
+
+    let result = spine.submit_prompt("What is 17 times 3?", Source::Text);
+    assert!(result.is_err(), "the turn failed, and that must surface");
+
+    // THE WHOLE OF N4, IN ONE NUMBER.
+    let sent = prompts.lock().unwrap().clone();
+    assert_eq!(
+        sent,
+        vec!["What is 17 times 3?".to_string()],
+        "one press of Enter produced {} request(s) — N4 is back",
+        sent.len()
+    );
+    assert_eq!(*spawns.lock().unwrap(), 0, "no lease was respawned for a refusal");
+    assert_eq!(spine.rotation_count(), 0, "and no recovery was recorded");
+
+    // ONE TURN ON DISK, not a turn plus its superseding replay.
+    let ceo_turns: Vec<_> =
+        spine.ledger().turns().iter().filter(|t| t.source != Source::Internal).collect();
+    assert_eq!(ceo_turns.len(), 1, "a second turn was journaled: {ceo_turns:?}");
+    assert_eq!(ceo_turns[0].superseded_by, None, "the turn was superseded by a replay");
+    // And the reason it was not replayed is recorded, not merely acted on.
+    let cause = ceo_turns[0].interruption.as_ref().expect("the cause is recorded");
+    assert_eq!(cause.cause, "not-signed-in");
+    assert!(!cause.offers_retry, "this class must offer no retry, to him or to itself");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// **THE POSITIVE CONTROL FOR N4, and the suite is worthless without it.**
+///
+/// `a_refusal_…_is_never_replayed_automatically` would pass identically if crash recovery
+/// had simply been switched off, which would delete continuity §5.3 rather than fix N4. This
+/// asserts the other half on the same day: a CRASHED child — the case the seam exists for —
+/// still gets its one silent respawn and replay, and the CEO's question is asked again
+/// exactly once.
+#[test]
+fn a_crashed_lease_is_still_replayed_exactly_once() {
+    let (path, ledger) = tmp_ledger("n4-crash-still-recovers");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed-1".into() }));
+    let spawn_count = Arc::new(Mutex::new(0u64));
+    spine.set_lease_factory(Box::new(AlwaysFailingLeaseFactory { spawn_count: spawn_count.clone() }));
+
+    let result = spine.submit_prompt("What is 17 times 3?", Source::Text);
+    assert!(result.is_err(), "the replay also failed, so this must surface");
+    assert_eq!(
+        *spawn_count.lock().unwrap(),
+        1,
+        "a crashed child must still be recovered — N4's fix must not have deleted §5.3"
+    );
+    assert_eq!(spine.rotation_count(), 1, "and the recovery is recorded");
+    let first = spine
+        .ledger()
+        .turns()
+        .iter()
+        .find(|t| t.source != Source::Internal)
+        .expect("a CEO turn")
+        .clone();
+    assert_eq!(first.interruption.as_ref().map(|c| c.cause.clone()), Some("transient".into()));
+    let _ = std::fs::remove_file(&path);
+}
+
 // ============================================================================
 // The proactive-attention seam (persistence + UI event; judgment is a LATER leg)
 // ============================================================================

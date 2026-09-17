@@ -258,7 +258,20 @@ impl ComponentStatus {
             looked_in: Vec::new(),
         }
     }
-    fn missing(component: Component, looked_in: Vec<String>) -> Self {
+    /// **A MISSING COMPONENT ALWAYS NAMES SOMEWHERE.** The invariant is enforced here, in
+    /// the one constructor, rather than asked of every caller — because the caller that
+    /// forgot is exactly how the nightly's D1 reached a screen: `main.rs` prints
+    /// `looked in: {}` with this list joined, and an empty list rendered as a boot line
+    /// that trailed off after the colon. There is no honest state in which RichOS reports
+    /// something missing and can name no place it looked, so if a launch really is that
+    /// impoverished — no `$HOME`, no executable path — it says THAT instead of nothing.
+    fn missing(component: Component, mut looked_in: Vec<String>) -> Self {
+        if looked_in.is_empty() {
+            looked_in.push(format!(
+                "nowhere — this launch could not name a single place to check for {}",
+                component.display_name()
+            ));
+        }
         ComponentStatus { component, present: false, at: None, detail: None, looked_in }
     }
 }
@@ -368,6 +381,27 @@ fn claude_detail(bin: &Path) -> Option<String> {
     Some(format!("installed at {name}"))
 }
 
+/// Is this engine directory not merely engine-SHAPED, but actually usable?
+///
+/// `Ok(())`, or the operator-facing reason it cannot be used. The production implementation
+/// is [`engine_is_usable`]; tests inject their own so the decision can be exercised without
+/// a 322 MB delivered runtime on disk.
+pub type EngineUsable<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
+
+/// The production usability test: the component contracts and the delivered runtime
+/// inventory, which is exactly what a lease needs before it can start
+/// (`EngineLeaseFactory::create` verifies the same thing before spawning `claude`).
+///
+/// **Cheap in the case that matters.** Its first act is to canonicalize
+/// `<engine>/runtime`, so a directory with no delivered runtime — a plugin checkout, a
+/// source tree — is rejected in microseconds and never pays for hashing. Only a candidate
+/// that really carries a runtime is hashed, and there is at most one of those on a machine
+/// (measured 2026-09-17: 1.70 s cold / 0.81 s warm over 322 MB in 6,530 files, release
+/// build, on the engine `run_setup` installed during the first nightly walk).
+pub fn engine_is_usable(dir: &Path) -> Result<(), String> {
+    crate::runtime::verify_engine(dir).map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Find the engine directory, or report every place that was looked.
 ///
 /// **Deliberately a subset of `engine.rs::resolve_engine_dir`, in the same order**, covering
@@ -376,14 +410,58 @@ fn claude_detail(bin: &Path) -> Option<String> {
 /// module writes. The repo-ancestor walks (candidates 4 and 5) are the dogfood layout; setup
 /// includes them through `extra` so a developer running from the repo is never asked to
 /// install something already three directories away.
-pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf]) -> ComponentStatus {
+///
+/// # USABILITY IS PART OF SELECTION, NOT A VETO APPLIED AFTERWARDS
+///
+/// Until 2026-09-17 this function stopped at the first candidate that merely LOOKED like an
+/// engine (`scripts/hooks/` + `VERSION`), and its caller then ran the real verification and,
+/// on failure, flipped `present` to `false`. Two things were wrong with that, and together
+/// they are the nightly's D1:
+///
+///   1. **The rejected candidate reported NOWHERE looked.** [`ComponentStatus::found`]
+///      clears `looked_in`, so flipping `present` afterwards produced a "NOT installed"
+///      whose list of places tried was EMPTY — printed verbatim at `main.rs`'s boot line as
+///      `looked in: ` with nothing after the colon. A detector that names no candidates
+///      reads as one that cannot find anything, ever.
+///   2. **The walk stopped at the unusable one.** On any machine that also has the engine
+///      installed as a Claude Code plugin, `~/.claude/richos-engine` answers first, carries
+///      no delivered runtime, and therefore hid the engine RichOS had itself installed at
+///      `~/Library/Application Support/RichOS/engine`. Setup completed, and the next launch
+///      asked for setup again — on four consecutive launches
+///      (`docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D1).
+///
+/// So a candidate that looks like an engine but is not usable is now RECORDED WITH ITS
+/// REASON and the walk CONTINUES. The first candidate that is actually usable wins, which
+/// is the question the caller was really asking all along.
+///
+/// **The explicit override stays exclusive**, per `locate-engine.sh` rule 1 and
+/// `engine.rs`'s header: an operator who named a directory is making a statement, and
+/// falling through to one nobody named would silently overrule it. What changes is that
+/// being wrong is now REPORTED — with the reason — instead of reported as an empty list.
+pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf], usable: EngineUsable<'_>) -> ComponentStatus {
     let mut looked = Vec::new();
 
+    // Test one candidate, appending exactly one line to `looked` whichever way it goes.
+    // `Some(status)` means stop here; `None` means keep walking.
+    let consider = |looked: &mut Vec<String>, candidate: &Path, label: &str| {
+        if !engine_looks_valid(candidate) {
+            looked.push(format!("{}{label} — nothing that looks like the engine is there", candidate.display()));
+            return None;
+        }
+        if let Err(why) = usable(candidate) {
+            // FOUND, AND REJECTED, AND SAID SO. This is the line that was missing: the
+            // engine is on disk at a path we can name, and the reason it cannot be used is
+            // the reason the lease factory would give at the first send.
+            looked.push(format!("{}{label} — the engine is there but cannot be used: {why}", candidate.display()));
+            return None;
+        }
+        let v = engine_version(candidate).map(|v| format!("version {v}"));
+        Some(ComponentStatus::found(Component::Engine, candidate.to_path_buf(), v))
+    };
+
     if let Some(explicit) = paths.engine_override.as_deref() {
-        looked.push(format!("{} ($RICHOS_ENGINE_DIR)", explicit.display()));
-        if engine_looks_valid(explicit) {
-            let v = engine_version(explicit).map(|v| format!("version {v}"));
-            return ComponentStatus::found(Component::Engine, explicit.to_path_buf(), v);
+        if let Some(found) = consider(&mut looked, explicit, " ($RICHOS_ENGINE_DIR)") {
+            return found;
         }
         return ComponentStatus::missing(Component::Engine, looked);
     }
@@ -404,11 +482,19 @@ pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf]) -> ComponentStatus {
         candidates.push(engine_install_dir(home));
     }
 
+    // ONE LINE PER PLACE, not one per candidate SLOT. The boot engine arrives in `extra` and
+    // is very often the same directory as the install pointer — on the machine the nightly
+    // ran on they are the same path — so without this the operator's log reported the same
+    // directory twice with the same rejection reason. Order is preserved; only repeats are
+    // dropped.
+    let mut seen: Vec<PathBuf> = Vec::new();
     for candidate in candidates {
-        looked.push(candidate.display().to_string());
-        if engine_looks_valid(&candidate) {
-            let v = engine_version(&candidate).map(|v| format!("version {v}"));
-            return ComponentStatus::found(Component::Engine, candidate, v);
+        if seen.contains(&candidate) {
+            continue;
+        }
+        seen.push(candidate.clone());
+        if let Some(found) = consider(&mut looked, &candidate, "") {
+            return found;
         }
     }
 
@@ -416,11 +502,21 @@ pub fn find_engine(paths: &SetupPaths, extra: &[PathBuf]) -> ComponentStatus {
 }
 
 /// The whole first-run question, answered from disk.
-pub fn detect(paths: &SetupPaths, extra_engine_candidates: &[PathBuf]) -> SetupStatus {
+///
+/// `usable` is how "is this engine real?" is decided — [`engine_is_usable`] in the product,
+/// an injected stub in tests. It is a parameter rather than a hard-wired call so that the
+/// decision and its reporting can be exercised without a delivered runtime, and so that
+/// there is exactly one place the answer comes from (the caller no longer re-checks it
+/// afterwards; see [`find_engine`]).
+pub fn detect(
+    paths: &SetupPaths,
+    extra_engine_candidates: &[PathBuf],
+    usable: EngineUsable<'_>,
+) -> SetupStatus {
     let pin = engine_pin();
     SetupStatus {
         claude: find_claude(paths),
-        engine: find_engine(paths, extra_engine_candidates),
+        engine: find_engine(paths, extra_engine_candidates, usable),
         engine_installable: pin.is_some(),
         engine_pin_version: pin.map(|p| p.version),
         installed_now: false,

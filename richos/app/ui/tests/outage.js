@@ -55,6 +55,8 @@ const NOT_ON_DISK = rustSentence("Not on disk: everything the session had worked
 
 // The two generic sentences, which must NOT appear when an outage is explained.
 const GENERIC_BODY = "I hit a snag mid-thought and had to stop";
+// The one label for the one action, after the 2026-09-17 nightly's D6.
+const RETRY_LABEL = "Put it back in the box";
 const GENERIC_NOTE = "Everything I'd already written above is saved.";
 
 // ---------------------------------------------------------------------------------------
@@ -282,9 +284,9 @@ async function main() {
 
   await run.check("the control is still there, and it is still the one verb", async () => {
     const c = await cardText(page);
-    assertEqual(c.action, "Pick it back up", "same label as every other failure");
+    assertEqual(c.action, RETRY_LABEL, "same label as every other failure");
     assert(c.actionUsable, "the button is present, enabled and visible");
-    return "Pick it back up — present, enabled, visible";
+    return RETRY_LABEL + " — present, enabled, visible";
   });
 
   await run.check("the attempts spent render when there are any, and not before", async () => {
@@ -332,7 +334,7 @@ async function main() {
     assert(c, "the generic failure card must still render");
     assert(c.body[0].includes(GENERIC_BODY), "the generic body: " + JSON.stringify(c.body));
     assert(c.notes.some((n) => n.includes(GENERIC_NOTE)), "the generic note: " + JSON.stringify(c.notes));
-    assertEqual(c.action, "Pick it back up");
+    assertEqual(c.action, RETRY_LABEL);
     return "unchanged for every failure that is not the model API";
   });
 

@@ -171,23 +171,30 @@ fn emit(app: &AppHandle, p: SetupProgress) {
 /// and 5) are a dogfood layout that `setup.rs` deliberately does not reimplement, and a
 /// developer running from the checkout must never be asked to install something already three
 /// directories away.
+///
+/// # TWO THINGS THIS FUNCTION USED TO DO, AND WHY IT STOPPED — the nightly's D1
+///
+/// **It promoted the boot's engine to `engine_override`.** That field is documented as
+/// "`$RICHOS_ENGINE_DIR` / `$RICHOS_ENGINE_ROOT` — either explicit engine statement", and
+/// `find_engine` treats an explicit statement as EXCLUSIVE: first candidate, no fall-through.
+/// So a boot that resolved a broken engine made the walk stop on it, and the candidate list
+/// reported one entry tagged `($RICHOS_ENGINE_DIR)` for a variable the operator had never
+/// set. The boot engine is a PREFERENCE, not a statement, and `extra` — which already carried
+/// it, two lines above — is exactly the right strength: first among the searched candidates,
+/// still able to be passed over when it cannot be used.
+///
+/// **It re-verified afterwards and flipped `present` to `false` on failure.** That is a veto
+/// applied after selection, and it produced the audit's boot line: `ComponentStatus::found`
+/// clears `looked_in`, so a component vetoed here reported NOWHERE looked. Verification is now
+/// part of selection inside `setup::find_engine` — one decision, one place, and a candidate
+/// that is rejected is recorded with the reason it was rejected.
 pub fn detect(boot_engine: Option<&std::path::Path>) -> SetupStatus {
     let extra: Vec<PathBuf> = boot_engine
         .filter(|d| setup::engine_looks_valid(d))
         .map(|d| vec![d.to_path_buf()])
         .unwrap_or_default();
-    let mut paths = SetupPaths::from_process();
-    if let Some(selected) = boot_engine.filter(|path| setup::engine_looks_valid(path)) {
-        paths.engine_override = Some(selected.to_path_buf());
-    }
-    let mut status = setup::detect(&paths, &extra);
-    if let Some(selected) = status.engine.at.as_deref() {
-        if let Err(error) = richos_core::runtime::verify_engine(std::path::Path::new(selected)) {
-            status.engine.present = false;
-            status.engine.detail = Some(error.to_string());
-        }
-    }
-    status
+    let paths = SetupPaths::from_process();
+    setup::detect(&paths, &extra, &setup::engine_is_usable)
 }
 
 /// What the consent sheet says, assembled from the status. Returned to the window so the copy

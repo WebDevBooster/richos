@@ -499,10 +499,39 @@
               Choose the company
             </button>
           </div>
+          <!-- WHY THE TALK CONTROL IS THERE AND WILL NOT RESPOND (nightly D3).
+               `role="status"`, like `#composer-blocked` above it, because it appears in
+               response to something the app discovered rather than to something he did.
+
+               It exists because the alternative was measured and it was silence: when the
+               speech model fails its integrity check the app refuses to listen — correctly,
+               and with the best-written refusal in the product — and the talk control simply
+               VANISHED from the accessibility tree. No message, no explanation, no way back.
+               The sentence rendered here is `SttError::ToolchainRefused::ceo_message()`,
+               relayed verbatim from `voice_readiness`'s `reason`; it is the same sentence the
+               boot log carries and it names who can put it right. Nothing is composed here.
+
+               It does NOT use `#composer-blocked`, and that is the point of a second element:
+               that line means "you cannot send", and he can still type and send perfectly
+               well. Saying so in the wrong place would be a second untruth on top of the
+               silence. -->
+          <p id="voice-unavailable" class="composer-voice-note" hidden role="status"></p>
           <div id="composer-row">
             <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
                  footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
-            <button id="talk-toggle" type="button" title="Talk to Rich" aria-pressed="false">
+            <!-- IT HAS A NAME, AND THE NAME CHANGES WITH THE STATE (nightly D8).
+                 `title` is a tooltip, not an accessible name: with only `title` and
+                 `aria-pressed` here, VoiceOver announced the primary affordance of a
+                 voice-first product as a bare "checkbox" — measured off the accessibility
+                 tree in
+                 docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md §D8,
+                 which found the rest of this tree unusually well named and exactly two
+                 controls unnamed.
+
+                 The label is maintained by `setTalkPressed` in main.js beside
+                 `aria-pressed`, so the two can never say different things; this attribute is
+                 the off-state value the first paint needs before any script runs. -->
+            <button id="talk-toggle" type="button" title="Talk to Rich" aria-label="Talk to Rich" aria-pressed="false">
               <span class="talk-dot"></span>
             </button>
 
@@ -731,6 +760,34 @@
             <div class="memory-setup-actions">
               <button id="entity-add-go" class="desk-btn desk-btn--confirm" type="button">Add this company</button>
             </div>
+          </div>
+
+          <!-- THE WAY OUT OF THE THIRD SHEET (nightly D5).
+
+               First run stacked three sheets, and this was the one with no "Not now" on it.
+               The audit: *"Sheets 2 and 3 offer 'Not now'; sheet 4 does not, which is at
+               least inconsistent and at most a wall."* A person who does not yet know the
+               answer — and on a first launch that is the likely person — had nothing to
+               press.
+
+               IT IS ONLY ON THE FIRST-RUN QUESTION. Asked which company ONE thread is for,
+               the picker is a choice among companies he has, and dismissing it by backdrop
+               is enough. Asked which company this COPY of Rich is for, deferring is a real
+               answer with a real cost, and a cost is a thing to state rather than leave him
+               to discover.
+
+               AND IT LEAVES NOTHING ARMED. `showCompanyBlock()` has already blocked the
+               composer and drawn "Choose the company" beside it, so dismissing this lands
+               on a surface that says what is missing and carries the control that fixes it
+               — which is why this is a deferral and not the §21 leak the modal was guarding
+               against. The line below says exactly that, in his words, the way the
+               interview offer says what ITS "Not now" costs. -->
+          <p id="entity-picker-defer-note" class="overlay-note" hidden>
+            Not now is fine. I'll leave the message box switched off until you pick one, and
+            the button to do it stays right there.
+          </p>
+          <div id="entity-picker-defer" class="memory-setup-actions" hidden>
+            <button id="entity-picker-later" class="desk-btn" type="button">Not now</button>
           </div>
         </div>
       </div>

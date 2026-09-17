@@ -74,6 +74,8 @@ pub mod feedback;
 pub mod home_field;
 pub mod journal;
 pub mod heard;
+/// Why a turn ended without finishing — the sibling of [`upstream`] for the local half.
+pub mod interruption;
 pub mod launch;
 pub mod ledger;
 pub mod loro;
