@@ -70,3 +70,9 @@ path = "examples/setup_demo.rs"
 [[example]]
 name = "setup_failures"
 path = "examples/setup_failures.rs"
+
+# How long the CEO's turn is held open by writing an assignment down — the measurement the
+# background-work spec's §0 row 2 turns on, and the one §7.1 left as an obligation.
+[[example]]
+name = "assignment_receipt_timing"
+path = "examples/assignment_receipt_timing.rs"

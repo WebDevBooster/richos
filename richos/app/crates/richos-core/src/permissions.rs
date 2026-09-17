@@ -56,7 +56,16 @@ impl ScopedPermissions {
         let tool=request["tool_name"].as_str().unwrap_or("");
         // These tools implement their own explicit host scope and write contracts.
         if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_work__complete"|"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
-            "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding") {
+            "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding"|
+            // The assignment register (`assignment_tools.rs`). App-owned, with its own host
+            // scope and write contract, exactly like the two onboarding tools beside it: the
+            // model supplies what the assignment IS, and the company, conversation, state
+            // root and attested instruction all come from a scope the app wrote. It records
+            // an intent and changes nothing else — what it cannot do is the thing worth
+            // saying out loud, which is finish the work. The step that would change his
+            // repository is `mcp__richos_work__integrate`, which is NOT on this list and is
+            // not meant to be (background-work spec §0 row 7, §5.4, §7.8).
+            "mcp__richos_assignments__record") {
             return PermissionDecision::Allow{updated_input:request.get("input").cloned().unwrap_or(json!({}))};
         }
         if tool.is_empty() || request.to_string().len()>65536 {return deny("The requested action could not be safely displayed.");}

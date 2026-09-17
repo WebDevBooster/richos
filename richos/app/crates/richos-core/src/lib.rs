@@ -161,3 +161,17 @@ pub mod repositories;
 pub mod app_workers;
 pub mod work_status;
 pub mod permissions;
+
+/// The BACKGROUND-WORK leg (the background-work spec, richos-hq
+/// `docs/plans/background-work-spec-2026-09-17.md` revision 5, `9255e71a`):
+///   - `assignment` — the durable register of what he asked for. The turn ends at the
+///                    receipt this writes (§1), and the notice it holds is what he is told
+///                    when he is next listening (§3.4).
+///   - `work_host`  — the second compute lease and the actor that owns it (§2.1). It is not
+///                    the spine, it never takes the spine's lock, and it is never attached
+///                    to the conversation's `TurnControl` (§4.2).
+///   - `assignment_tools` — the app-owned MCP endpoint the CONVERSATION calls to write an
+///                    assignment down and end its turn with the receipt (§1.1, §7.1).
+pub mod assignment;
+pub mod assignment_tools;
+pub mod work_host;

@@ -1531,6 +1531,42 @@ body.bp-narrow .first-run {
   cursor: pointer;
 }
 
+/* THE BACKGROUND-WORK BLOCK (the background-work spec §1, §4.2, §0 row 7).
+
+   NO NEW COLOR IS INTRODUCED HERE. Every rule below reuses `--ink`, `--ink-soft` and
+   `--line`, so the ratios are the palette's own and were recomputed rather than inherited
+   on trust — composited, both themes:
+
+     .assignment-heading  --ink       on --card   12.06:1 dark   18.07:1 light  (needs 4.5:1)
+     .assignment-title    --ink       on --card   12.06:1 dark   18.07:1 light  (needs 4.5:1)
+     assignment detail    --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
+     .assignment-stop     --ink-soft  on --card    5.78:1 dark    6.36:1 light  (needs 4.5:1)
+
+   `--ink-soft` is an alpha color — rgba(223,228,238,0.64) over #182440, and
+   rgba(12,19,34,0.68) over #fdfcf8 — so it was composited to #979FAF and #595E66 before
+   the ratio was taken. Nothing in this block is declared exempt: an assignment's title,
+   its state and the control that stops it are all text he is expected to read.
+
+   16px, NOT the 14px skippable tier (`wiki/ceo-decisions.md` §15). `.slideover-close` sits
+   at 0.875rem because dismissing a pane is a chore; deciding whether to stop a piece of
+   running work is not, so `.assignment-stop` overrides it back to the readable floor. */
+.assignment-heading {
+  margin: 18px 0 2px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.assignment-title {
+  display: block;
+  color: var(--ink);
+}
+
+.assignment-stop {
+  font-size: 1rem;
+  margin-top: 8px;
+}
+
 .slideover-close:hover {
   border-color: var(--accent);
   color: var(--accent-text);

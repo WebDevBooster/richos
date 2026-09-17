@@ -3495,6 +3495,103 @@ module.exports = [
     "c": "CONTROL",
     "why": "The failed row's button, shown only when the backend says asking again could help.",
   },
+  // -------------------------------------------------------------------------------------
+  // BACKGROUND WORK — the assignment surface (the background-work spec, revision 5, in the
+  // private richos-hq record; §1, §4.2 and §0 row 7).
+  //
+  // ONE ROW HERE CARRIES A REAL GAP AND SAYS SO RATHER THAN ROUNDING IT OFF. "Ready for you
+  // to approve" is §7.8's mandated wording and it is ACTIONABLE — the whole point of the
+  // state is that the last step is his. But the desk that would hold his approval while he
+  // is away is §5.2/§5.7 and IS NOT BUILT: a request raised with no visible turn is still
+  // denied outright (`permissions.rs:55`). So the control this row names is the composer,
+  // not an approve button, and the sentence says so — the same answer the saved-record limit
+  // gives one screen over. When the queue lands, the sentence and this row change together.
+  // -------------------------------------------------------------------------------------
+  {
+    "s": "What you have asked for",
+    "c": "INFORMATIONAL",
+    "why":
+      "The assignments block's heading in the saved-work pane. It labels the list below it " +
+      "and asks nothing of him.",
+  },
+  {
+    "s": "Written down. Nothing has been prepared yet.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The registered state. The assignment is on disk and the work lease picks it up at the " +
+      "turn boundary without him doing anything, so there is nothing here for him to act on.",
+  },
+  {
+    "s": "Getting a workspace ready.",
+    "c": "INFORMATIONAL",
+    "why": "The preparing state: the work lease is inside the spawn preparer. Nothing is asked of him.",
+  },
+  {
+    "s": "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    "c": "ACTIONABLE",
+    "why":
+      "The work ran to the step that would change his repository and stopped there, because " +
+      "local integration is not on the permission desk's allow-list. The last step is his. " +
+      "The approval desk that would hold it for him is not built, so the control is the " +
+      "composer and the sentence names that path rather than implying a button that is not " +
+      "on this surface.",
+    "control": "#input",
+  },
+  {
+    "s": "Stopped before it finished. Ask Rich what it needs.",
+    "c": "ACTIONABLE",
+    "why":
+      "A failed assignment. Its own recorded reason is appended beside this sentence, and " +
+      "continuing or abandoning it is a decision he makes through the composer.",
+    "control": "#input",
+  },
+  {
+    "s": "Its state could not be read.",
+    "c": "INFORMATIONAL",
+    "why":
+      "A record written by a newer RichOS, or a state this build does not know. It is the " +
+      "honest 'I cannot tell' — it never reads as finished, and there is nothing he can do " +
+      "about a record this build cannot parse.",
+  },
+  {
+    "s": "Your assignments are unavailable:",
+    "c": "FRAGMENT",
+    "why":
+      "Prefix joined to the backend's own reason, exactly as 'Saved work is unavailable:' " +
+      "above it. The sentence he reads is the join.",
+  },
+  {
+    "s": "Another conversation is working. Your assignments will refresh when it settles.",
+    "c": "INFORMATIONAL",
+    "why":
+      "A turn is live on a different thread, so this thread's company binding cannot be read " +
+      "without waiting on it. It resolves itself and says so; nothing is asked of him.",
+  },
+  {
+    "s": "Your assignments are changing. They will refresh in a moment.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The spine's lock is held for the length of a turn, so this read is deferred. The " +
+      "surface re-reads every three seconds, which is why this does NOT tell him to try " +
+      "again: an instruction over a state that resolves itself is the thing this rule exists " +
+      "to catch.",
+  },
+  {
+    "s": "Missing assignment scope",
+    "c": "NOT-RENDERED",
+    "why":
+      "The diagnostic first argument to `startup_alert::cannot_start` in the " +
+      "`--assignments-mcp` child, which reaches stderr and the startup log. The sentence a " +
+      "person reads for the same failure is the second argument beside it.",
+  },
+  {
+    "s": "assignment tool server: {error}",
+    "c": "NOT-RENDERED",
+    "why":
+      "The same diagnostic argument, with the child's own error interpolated. A child of the " +
+      "running app can never arm the alert — `activation.rs`'s parent-pid condition is false " +
+      "by construction — so this is operator log text and nothing else.",
+  },
   {
     "s": "stopped on request",
     "c": "NOT-RENDERED",

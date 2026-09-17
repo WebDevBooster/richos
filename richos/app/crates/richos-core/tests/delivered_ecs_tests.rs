@@ -19,17 +19,17 @@ fn fixture() -> (Fixture, EcsBridge) {
 #[test]
 fn restart_recovers_scoped_obligations_and_receipts_without_auto_memory() {
     let (_fixture, bridge) = fixture();
-    let first = bridge.bind("depot", "thread-a", "session-a", "turn-a").unwrap();
-    assert_eq!(first, bridge.bind("depot", "thread-a", "session-a", "turn-a").unwrap());
+    let first = bridge.bind("depot", "thread-a", "session-a", "turn-a", None, "ceo").unwrap();
+    assert_eq!(first, bridge.bind("depot", "thread-a", "session-a", "turn-a", None, "ceo").unwrap());
     let checkpoint = json!({"binding":first,"request_id":"manual",
         "checkpoint":{"statements":[{"verb":"commitment","fields":{"id":"manual","title":"Review the depot manual"}}]}});
     assert_eq!(bridge.request("checkpoint", checkpoint.clone()).unwrap()["accepted"], true);
     assert_eq!(bridge.request("checkpoint", checkpoint).unwrap()["duplicate"], true);
     let restarted = bridge.clone();
-    let second = restarted.bind("depot", "thread-a", "session-b", "turn-b").unwrap();
+    let second = restarted.bind("depot", "thread-a", "session-b", "turn-b", None, "ceo").unwrap();
     assert!(restarted.brief(&second).unwrap().contains("Review the depot manual"));
     assert!(bridge.brief(&first).is_err());
-    let other = bridge.bind("studio", "thread-b", "session-c", "turn-c").unwrap();
+    let other = bridge.bind("studio", "thread-b", "session-c", "turn-c", None, "ceo").unwrap();
     assert!(!bridge.brief(&other).unwrap().contains("depot manual"));
 }
 
