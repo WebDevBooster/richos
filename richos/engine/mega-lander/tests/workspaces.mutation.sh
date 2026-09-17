@@ -307,4 +307,31 @@ mutant p14-second-body-of-work-moves-the-first "test_point_14_a_second_body_of_w
     '    for r in []:{NL}        wid = (r.get("integration_work") or {}).get(main_key)' \
     "the integration branch would go back to one slot per REPOSITORY, read live. Point 5 permits a second body of work to start in a repository while the first one's agents are still running, so recording the second body's branch -- which point 14 requires -- would move the first body's running agents onto it retroactively: their work is merged onto the branch they were spawned for, their land is measured against a branch they never heard of, it refuses forever, and their workspaces are stranded (points 5, 14)."
 
+# POINT 3, WHEN THE HOOK THAT REGISTERS A SPAWN IS KILLED (2026-09-17). The
+# registration is a write performed by a PreToolUse hook, and the platform runs
+# the tool anyway when it kills one — so the registry can be left holding a
+# named record with no agent id beside a provisional record carrying the
+# platform's own start and end for the same run, and the finished work cannot
+# be retired at all. These four prove the repair is load-bearing, and that it
+# adopts recorded facts rather than supplying missing ones.
+mutant p03-killed-registration-not-bound-at-its-post "test_point_03_a_spawn_whose_registration_was_killed_is_bound_at_its_post" "$W" \
+    '        if not rec and name and NAME_RE.match(name):' \
+    '        if False:' \
+    "a spawn whose PreToolUse registration was killed would stay unbound at its Post, although the platform delivers the name and the agent id together there — the first moment the gap exists (point 3)."
+
+mutant p03-missed-spawn-never-reconciled "test_point_03_a_spawn_the_registry_never_saw_is_reconciled_from_the_platforms_own_record" "$W" \
+    '    if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):{NL}        return rec' \
+    '    if True:{NL}        return rec' \
+    "a registration the registry never bound to an agent would never adopt the platform's own record of which agent it became, so its finished work could be retired only by hand — which is what point 11 forbids (\"automatically and never by Rich noticing\")."
+
+mutant p03-reconciliation-picks-a-candidate "test_point_03_an_ambiguous_platform_record_is_never_guessed_at" "$W" \
+    '    if len(hits) != 1:{NL}        return rec' \
+    '    if not hits:{NL}        return rec' \
+    "two of the platform's records answering to one name would be resolved by taking the first, which makes a reconciliation a guess between candidates instead of the adoption of a fact (point 3)."
+
+mutant p03-reconciliation-invents-an-ending "test_point_03_a_reconciled_binding_never_invents_an_ending" "$W" \
+    '        prov = _absorb_provisional(fresh, prov_key)' \
+    '        prov = _absorb_provisional(fresh, prov_key){NL}        fresh["end"] = fresh.get("end") or {"at": now(), "signal": "SubagentStop", "detail": ""}' \
+    "adopting the binding would also declare the run over, so an agent still working would be landed out from under itself. The platform's per-agent record proves WHICH agent the call became and says nothing about whether it has ended (points 3, 11)."
+
 mutation_end

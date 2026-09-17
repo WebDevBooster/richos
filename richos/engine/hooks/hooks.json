@@ -123,7 +123,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-worktree-isolation.sh",
-            "timeout": 10
+            "timeout": 60
           },
           {
             "type": "command",
