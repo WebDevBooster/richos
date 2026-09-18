@@ -1156,6 +1156,7 @@ snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
 session-start-escalations.sh|SessionStart
 session-start-ci-surface.sh|SessionStart
+notice-disk-alert.sh|SessionStart
 session-start-scratch.sh|SessionStart
 left-off-report.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
@@ -1209,6 +1210,7 @@ workspace-lifecycle.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
+notice-disk-alert.sh|Stop
 notice-unlanded-branches.sh|Stop
 guard-workspace-gate.sh|Stop
 guard-ci-turn-gate.sh|Stop
