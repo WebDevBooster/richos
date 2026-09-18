@@ -76,3 +76,7 @@ path = "examples/aec_probe.rs"
 [[example]]
 name = "aec_capture"
 path = "examples/aec_capture.rs"
+
+[[example]]
+name = "bargein_score"
+path = "examples/bargein_score.rs"
