@@ -467,7 +467,7 @@ richos/app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
-    tests/setup.rs           43 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
+    tests/setup.rs           52 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
                               two executables a customer's Mac does not have, fetched and
                               verified. Every failure path is a VALUE rather than a network
                               condition — no network, a 404, a truncated body, a tampered
