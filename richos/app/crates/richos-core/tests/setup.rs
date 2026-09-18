@@ -896,6 +896,82 @@ fn a_pinned_build_refuses_the_unstamped_developer_pointer_and_names_it() {
     assert!(honored.engine.present, "$RICHOS_ENGINE_DIR was overruled: {honored:?}");
 }
 
+/// **THE GATE, RUN OVER A REAL INSTALLED ENGINE ON THIS MACHINE.**
+///
+/// Everything above builds its own fixtures, which proves the RULE and cannot prove that
+/// `installed_from` parses the file `install_engine` actually wrote onto a real Mac. Point this at
+/// an engine directory and it reports the verdict against a digest you supply:
+///
+/// ```bash
+/// RICHOS_ENGINE_DIR_FIXTURE="$HOME/Library/Application Support/RichOS/engine" \
+/// RICHOS_ENGINE_PIN_FIXTURE=ea7f79043e7dc8f51b5f4207964ec5fa3e15ca11b44e5342a5fb4d38580db194 \
+///   cargo test -p richos-core --test setup a_real_installed_engine -- --nocapture
+/// ```
+///
+/// It is env-var-gated and skips with a printed reason when unset, the same shape
+/// `richos-voice` uses for the CEO's private echo-path recording: evidence that depends on
+/// something not in the repository must be reproducible AND must not fail a clean checkout.
+///
+/// **It only ever READS.** No install, no swap, no write of any kind — so it is safe to aim at a
+/// real installation, which is the only reason aiming it there is worth doing.
+#[test]
+fn a_real_installed_engine_is_judged_against_a_supplied_pin() {
+    let (Some(dir), Some(sha)) = (
+        std::env::var_os("RICHOS_ENGINE_DIR_FIXTURE").map(PathBuf::from),
+        std::env::var("RICHOS_ENGINE_PIN_FIXTURE").ok(),
+    ) else {
+        println!(
+            "SKIPPED: set RICHOS_ENGINE_DIR_FIXTURE and RICHOS_ENGINE_PIN_FIXTURE to judge a real \
+             engine directory on this machine. Nothing is assumed in their absence."
+        );
+        return;
+    };
+
+    println!("directory : {}", dir.display());
+    println!("shape     : {}", if engine_looks_valid(&dir) { "engine" } else { "NOT an engine" });
+    println!("VERSION   : {:?}", engine_version(&dir));
+    match installed_from(&dir) {
+        None => println!("INSTALLED-FROM: absent — contents unknown"),
+        Some(s) => {
+            println!("INSTALLED-FROM: {:?}", s.sha256);
+            println!("  bytes  : {:?}", s.bytes);
+            println!("  from   : {:?}", s.url);
+        }
+    }
+
+    let version = engine_version(&dir).unwrap_or_default();
+    let pin = pin_from_parts(&version, "https://example.invalid/asset.tar.gz", &sha)
+        .expect("RICHOS_ENGINE_PIN_FIXTURE must be 64 lowercase hex characters");
+
+    // THE OLD RULE — version equality alone. Printed, not asserted, because what it answers here
+    // depends on the machine this runs on; it is the "before" half of the comparison.
+    println!(
+        "version-only gate : {:?}",
+        engine_accepted(&dir, Some(version.as_str())).map_err(|e| e.reason())
+    );
+    // THE RULE AS IT SHIPS NOW.
+    println!(
+        "identity gate     : {:?}",
+        engine_accepted_demand(&dir, EngineDemand::pinned(Some(&pin))).map_err(|e| e.reason())
+    );
+
+    // The one thing that IS asserted, because it is true of any real installation whatever digest
+    // it carries: a directory whose recorded digest equals the pin is accepted, and one whose
+    // recorded digest differs is refused. No claim is made here about which of those this machine
+    // happens to be in.
+    let recorded = installed_from(&dir).and_then(|s| s.sha256);
+    let verdict = engine_accepted_demand(&dir, EngineDemand::pinned(Some(&pin)));
+    match recorded {
+        Some(r) if r.eq_ignore_ascii_case(&sha) => {
+            assert_eq!(verdict, Ok(()), "a matching digest was refused")
+        }
+        _ if engine_looks_valid(&dir) => {
+            assert!(verdict.is_err(), "a non-matching or absent digest was accepted")
+        }
+        _ => println!("(not engine-shaped, so the identity half is not this gate's question)"),
+    }
+}
+
 /// **THE CEO'S OWN DATA IS NOT THE ENGINE, AND NOTHING HERE TOUCHES IT.** `install_engine`
 /// replaces `Application Support/RichOS/engine`; his conversation, ledger and corpus live in
 /// `Application Support/com.richos.app`, a sibling. This is the positive control the brief asks
