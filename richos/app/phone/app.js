@@ -354,8 +354,13 @@ function render(forceBottom) {
 	const wasAtBottom = forceBottom || atBottom();
 	const rows = thread.view(queue ? queue.all() : []);
 
+	// "Delivered." belongs on the LAST thing he sent and nowhere else. Repeating it under every
+	// message he has ever written turns the one state he might actually look for into wallpaper.
+	let lastDelivered = -1;
+	rows.forEach((row, i) => { if (!row.pending && row.role === 'ceo') lastDelivered = i; });
+
 	list.textContent = '';
-	rows.forEach((row) => list.appendChild(renderRow(row)));
+	rows.forEach((row, i) => list.appendChild(renderRow(row, i === lastDelivered)));
 
 	const older = $('older');
 	if (thread.atTheBeginning() && rows.length) {
@@ -383,7 +388,7 @@ function render(forceBottom) {
 	if (wasAtBottom) $('thread').scrollTop = $('thread').scrollHeight;
 }
 
-function renderRow(row) {
+function renderRow(row, isLastDelivered) {
 	const li = document.createElement('li');
 	const mine = row.role === 'ceo' || row.pending;
 	li.className = `msg ${mine ? 'msg-mine' : 'msg-rich'}`;
@@ -435,7 +440,7 @@ function renderRow(row) {
 			state.textContent = 'Waiting to send — your Mac isn’t reachable from here.';
 		}
 		meta.appendChild(state);
-	} else if (mine) {
+	} else if (mine && isLastDelivered) {
 		const state = document.createElement('span');
 		state.className = 'msg-state';
 		state.textContent = 'Delivered.';
@@ -626,9 +631,12 @@ function updateQueueBanner() {
 			: `${blocked} messages could not be sent. Your Mac did not accept them.`;
 		$('queue-retry').textContent = 'Try again';
 	} else {
+		// The REASON lives on the message itself and in the line under the title; the banner is the
+		// count and the control. Saying the whole sentence in all three places at once is how a
+		// screen stops being read.
 		$('queue-text').textContent = waiting === 1
-			? 'One message is waiting to send — your Mac isn’t reachable from here.'
-			: `${waiting} messages are waiting to send — your Mac isn’t reachable from here.`;
+			? 'One message is waiting to send.'
+			: `${waiting} messages are waiting to send.`;
 		$('queue-retry').textContent = 'Try now';
 	}
 }
@@ -963,7 +971,7 @@ async function refreshPushOffer() {
 		// There is no control this app can offer that will change this — iOS only allows it from
 		// Settings — so the sentence says where the control is instead of pretending to be one.
 		offer.hidden = false;
-		$('push-offer-text').textContent = 'Notifications are switched off for this app in iOS Settings, so Rich cannot reach you when it is closed.';
+		$('push-offer-text').textContent = 'Notifications are switched off for this app in your phone\u2019s settings, so Rich cannot reach you when it is closed.';
 		$('push-on').hidden = true;
 		return;
 	}

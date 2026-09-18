@@ -1,0 +1,562 @@
+#!/usr/bin/env node
+'use strict';
+
+// THE APP, IN A REAL BROWSER, AGAINST A REAL TLS ORIGIN.
+//
+//   node test/desktop-verify.js              both engines
+//   node test/desktop-verify.js --chromium   one of them
+//   node test/desktop-verify.js --webkit
+//
+// The unit suites prove the arithmetic — the queue's state machine, the thread's ordering, the
+// recorder's filter, the signature's bytes. This proves the WIRING: that getUserMedia, the
+// AudioWorklet, IndexedDB, the service worker, `EventSource`, WebCrypto and the layout actually
+// connect to each other in a browser. That is the class of defect a unit test cannot see and the
+// class he would find on his phone.
+//
+// WHY BOTH ENGINES. His phone is WebKit, so WebKit is the one whose LAYOUT and COLORS matter — and
+// it is also the engine that cannot fake a microphone. Chromium can, and Chromium can be made to
+// trust exactly one certificate by pinning its public key, which is what keeps `isSecureContext`
+// true. So the run is split honestly: each engine is asked what it can actually answer, every skip
+// is printed as a skip, and nothing is claimed for an engine that did not do it.
+//
+// HOW THE CERTIFICATE IS TRUSTED, and what is deliberately NOT done: Chromium gets
+// `--ignore-certificate-errors-spki-list=<pin>`, which accepts exactly one certificate — the one
+// this run minted — and keeps rejecting every other bad certificate in the world. That matters
+// because it leaves the origin a SECURE CONTEXT, which is what service workers and getUserMedia are
+// gated on. `--ignore-certificate-errors` and Playwright's `ignoreHTTPSErrors` do not: they mark
+// the page insecure, which can stop a service worker registering — the very thing to be proved.
+// WebKit has no equivalent pin, so it runs with `ignoreHTTPSErrors` and REPORTS whether the context
+// came out secure rather than assuming it. NOTHING is added to any keychain, here or anywhere.
+//
+// NO SOUND IS PLAYED IN THE ROOM. Chromium runs with `--mute-audio` and a synthesized microphone
+// input inside the browser process; the "hear it" control is exercised in Chromium only, muted, and
+// what is asserted is the fetch and the element's state. This Mac's speakers are never a party to a
+// test here (the standing rule about audio on this machine).
+//
+// Playwright is NOT a dependency of this app. It is resolved from wherever it already exists
+// (`PHONE_PLAYWRIGHT` overrides); if it is not there, this says so and exits 0 rather than
+// pretending to have verified something.
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { createStubMac } = require('./stub-mac.js');
+const fingerprint = require('../lib/fingerprint.js');
+const contrastLib = require('../../ui/tests/lib/contrast.js');
+
+// The app's own browser harness already installs Playwright WITH WebKit (`app/ui/tests` pins it and
+// its postinstall runs `playwright install webkit`), so that one is preferred: a Playwright whose
+// WebKit was never downloaded can only run half of this. The order is worth stating because
+// resolving the wrong one presents as "WebKit is not in this Playwright build", which is true and
+// unhelpful.
+const PLAYWRIGHT_CANDIDATES = [
+	process.env.PHONE_PLAYWRIGHT,
+	path.join(__dirname, '..', '..', 'ui', 'tests', 'node_modules', 'playwright'),
+	'/Users/alex/ab/richos/richos/app/ui/tests/node_modules/playwright',
+	'playwright',
+	'/Users/alex/ab/femcboost/avelor/node_modules/playwright'
+].filter(Boolean);
+
+function loadPlaywright() {
+	for (const candidate of PLAYWRIGHT_CANDIDATES) {
+		try { return require(candidate); } catch { /* try the next */ }
+	}
+	return null;
+}
+
+const WANT = process.argv.includes('--webkit') ? ['webkit']
+	: process.argv.includes('--chromium') ? ['chromium']
+		: ['chromium', 'webkit'];
+
+const SHOTS_DIR = process.env.PHONE_SHOTS_DIR
+	|| path.join(__dirname, '..', '..', '..', '..', 'docs', 'verification', 'phone-app-2026-09-18');
+
+// iPhone widths that matter: the smallest phone still on iOS 16 (SE, 320), his iPhone X (375), the
+// modern base (390) and the Max (430).
+const WIDTHS = [320, 375, 390, 430];
+const HIS_PHONE = { width: 375, height: 812 };
+
+let failures = 0;
+let skips = 0;
+
+function check(label, ok, detail) {
+	process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `\n        ${detail}` : ''}\n`);
+	if (!ok) failures++;
+}
+
+function skip(label, why) {
+	process.stdout.write(`SKIP  ${label}\n        ${why}\n`);
+	skips++;
+}
+
+function section(title) {
+	process.stdout.write(`\n=== ${title} ===\n`);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ------------------------------------------------------------------------------------------------
+
+async function run() {
+	const playwright = loadPlaywright();
+	if (!playwright) {
+		process.stdout.write('SKIPPED: Playwright is not installed on this machine, so the browser half did not run.\n'
+			+ 'Set PHONE_PLAYWRIGHT to a playwright module path to run it. This is reported, not hidden.\n');
+		return 0;
+	}
+
+	fs.mkdirSync(SHOTS_DIR, { recursive: true });
+
+	for (const engine of WANT) {
+		if (!playwright[engine]) { skip(`${engine} is not in this Playwright build`, 'nothing to run'); continue; }
+		await runEngine(playwright, engine);
+	}
+
+	process.stdout.write(`\n=== ${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}${skips ? `, ${skips} skipped` : ''} ===\n`);
+	return failures ? 1 : 0;
+}
+
+async function runEngine(playwright, engine) {
+	section(`${engine}`);
+
+	const mac = createStubMac({ host: 'localhost', pairCode: 'harness-pair-code' });
+	// One message with a long unbroken run of characters, because that is the shape that produced
+	// his horizontal scroll bar on the probe and the shape the layout has to survive.
+	mac.state.ledger.push({
+		id: 'seed-long', thread_id: mac.threadId, cursor: mac.state.nextCursor++, role: 'rich', kind: 'text',
+		text: 'The file is at https://example.invalid/a-very-long-unbroken-address-that-nothing-can-wrap-at-all-because-it-has-no-spaces-anywhere-in-it/and-it-keeps-going',
+		created_at: new Date().toISOString(), complete: true, has_audio: false
+	});
+
+	const port = await mac.listen(0);
+	const origin = `https://localhost:${port}`;
+
+	const profile = fs.mkdtempSync(path.join(os.tmpdir(), `richos-phone-${engine}-`));
+	let browser = null;
+
+	// However this ends — a thrown assertion, a browser that will not start, a Ctrl-C — nothing may
+	// be left behind: no server on a port, no temp directory, no browser process.
+	const cleanup = async () => {
+		try { if (browser) await browser.close(); } catch { /* already gone */ }
+		try { await mac.close(); } catch { /* already gone */ }
+		try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* nothing else to do */ }
+	};
+	const onSignal = () => { cleanup().finally(() => process.exit(1)); };
+	process.on('SIGINT', onSignal);
+	process.on('SIGTERM', onSignal);
+
+	try {
+		const launch = engine === 'chromium'
+			? {
+				args: [
+					'--use-fake-ui-for-media-stream',
+					'--use-fake-device-for-media-stream',
+					'--mute-audio',
+					`--ignore-certificate-errors-spki-list=${mac.spkiPin}`
+				]
+			}
+			: {};
+		browser = await playwright[engine].launch(launch);
+
+		const context = await browser.newContext(Object.assign({
+			viewport: HIS_PHONE,
+			deviceScaleFactor: 2,
+			isMobile: engine === 'chromium',
+			hasTouch: true,
+			colorScheme: 'dark',
+			locale: 'en-US'
+		}, engine === 'webkit' ? { ignoreHTTPSErrors: true } : {}));
+
+		if (engine === 'chromium') await context.grantPermissions(['microphone', 'notifications'], { origin });
+
+		const page = await context.newPage();
+		// TWO BUCKETS, AND THE DIFFERENCE IS THE POINT. A `pageerror` is this app throwing, and there
+		// may be none. A console error that says a request failed is the BROWSER reporting the
+		// outage this run deliberately caused — the destroyed sockets that make the Mac unreachable,
+		// and the 403 that makes it forget the phone. Collapsing the two would either hide a real
+		// exception among expected noise or, worse, teach the next person to ignore the whole check.
+		const errors = [];
+		const networkNoise = [];
+		page.on('pageerror', (e) => errors.push(String(e)));
+		page.on('console', (m) => {
+			if (m.type() !== 'error') return;
+			if (/Failed to load resource|net::ERR_|status of 40[0-9]|status of 5[0-9][0-9]/.test(m.text())) networkNoise.push(m.text());
+			else errors.push(`console: ${m.text()}`);
+		});
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: the origin itself`);
+		// ---------------------------------------------------------------------------------------
+
+		await page.goto(`${origin}/#pair=harness-pair-code`);
+		await page.waitForSelector('#pairing:not([hidden])', { timeout: 15000 });
+
+		const originFacts = await page.evaluate(() => ({
+			secure: window.isSecureContext,
+			protocol: location.protocol,
+			host: location.host,
+			serviceWorker: 'serviceWorker' in navigator,
+			indexedDB: typeof indexedDB !== 'undefined',
+			subtle: Boolean(window.crypto && window.crypto.subtle)
+		}));
+		if (engine === 'chromium') {
+			check('the pinned certificate makes this a SECURE CONTEXT — what service workers and the microphone are gated on',
+				originFacts.secure === true && originFacts.protocol === 'https:', JSON.stringify(originFacts));
+		} else {
+			// Reported rather than asserted: WebKit has no public-key pin, so this run says what it
+			// actually got instead of claiming what would be convenient.
+			process.stdout.write(`        WebKit reports isSecureContext=${originFacts.secure} (no public-key pin exists for this engine)\n`);
+			check('WebKit has WebCrypto, IndexedDB and a service worker container on this origin',
+				originFacts.subtle && originFacts.indexedDB && originFacts.serviceWorker, JSON.stringify(originFacts));
+		}
+		check('it is the origin the phone will use, port included', originFacts.host === `localhost:${port}`, originFacts.host);
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: pairing — six words, and not one identifier`);
+		// ---------------------------------------------------------------------------------------
+
+		await page.waitForSelector('#fingerprint-box:not([hidden])', { timeout: 15000 });
+		const shown = (await page.textContent('#fingerprint-words')).trim();
+		const expected = fingerprint.phraseFromHex(mac.caFingerprintHex);
+		check('the phone shows the six words derived from the certificate the Mac is actually serving',
+			shown === expected, `shown "${shown}", derived "${expected}"`);
+		check('six words, not five and not a hash', shown.split(/\s+/).length === 6, shown);
+
+		// HIS FINDING, TURNED INTO A GATE. Nothing on this screen may be a long run of hexadecimal.
+		const hexOnScreen = await page.evaluate(() => {
+			const text = document.body.innerText;
+			const m = /\b[0-9a-fA-F]{16,}\b/.exec(text);
+			return m ? m[0] : null;
+		});
+		check('no raw hash or identifier is anywhere on the pairing screen', hexOnScreen === null, hexOnScreen || '');
+
+		await noHorizontalScroll(page, `${engine}: pairing`);
+		await shoot(page, `${engine}-pairing`);
+
+		check('pairing offers both answers, because "they do not match" is a real outcome',
+			await page.isVisible('#pair-confirm') && await page.isVisible('#pair-reject'));
+
+		await page.click('#pair-confirm');
+		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
+		check('pairing hands over to the conversation', await page.isVisible('#messages'));
+		check('the pairing code is spent and gone from the address, so a relaunch does not re-pair',
+			!(await page.evaluate(() => location.hash)).includes('pair='),
+			await page.evaluate(() => location.hash));
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: the conversation`);
+		// ---------------------------------------------------------------------------------------
+
+		await page.waitForFunction(() => document.querySelectorAll('#messages li').length > 3, null, { timeout: 15000 });
+		const connected = await page.textContent('#link-state');
+		check('the stream connected and the phone says so in a sentence', /Connected to your Mac/.test(connected), connected.trim());
+
+		const order = await page.evaluate(() => Array.from(document.querySelectorAll('#messages li .msg-text')).map((el) => el.textContent));
+		check('newest at the bottom, in the Mac\'s order', order.length > 3 && order[order.length - 1].length > 0,
+			`${order.length} messages, last: ${JSON.stringify(order[order.length - 1].slice(0, 60))}`);
+
+		// --- the composer's states ---
+		check('the send control is off while there is nothing to send', await page.isDisabled('#send'));
+		await page.fill('#composer', 'where are we on the proposal?');
+		check('and on the moment there is', !(await page.isDisabled('#send')));
+
+		await page.click('#send');
+		// The optimistic bubble, immediately — §4.2 (v): a phone that shows nothing reads as broken.
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
+			.some((el) => el.textContent === 'where are we on the proposal?'), null, { timeout: 5000 });
+		check('his message appears the instant he sends it, before the Mac has answered', true);
+
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-state'))
+			.some((el) => /Delivered/.test(el.textContent)), null, { timeout: 10000 });
+		check('and turns to delivered when the Mac has it', true);
+
+		const mineCount = await page.evaluate((text) => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
+			.filter((el) => el.textContent === text).length, 'where are we on the proposal?');
+		check('his message is on screen exactly once — the optimistic bubble is replaced, not added to',
+			mineCount === 1, `${mineCount} copies`);
+
+		// --- Rich answers, and it streams ---
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-rich .msg-text'))
+			.some((el) => /On it!/.test(el.textContent)), null, { timeout: 10000 });
+		const firstToken = await page.evaluate(() => {
+			const el = Array.from(document.querySelectorAll('.msg-rich .msg-text')).filter((e) => /On it!/.test(e.textContent)).pop();
+			return el.textContent;
+		});
+		await sleep(400);
+		const grown = await page.evaluate(() => {
+			const el = Array.from(document.querySelectorAll('.msg-rich .msg-text')).filter((e) => /On it!/.test(e.textContent)).pop();
+			return el.textContent;
+		});
+		check('his reply STREAMS in rather than arriving whole', grown.length > firstToken.length,
+			`${firstToken.length} characters, then ${grown.length}`);
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: away from his Mac — the queue, and whether it survives a relaunch`);
+		// ---------------------------------------------------------------------------------------
+
+		mac.setMode('unreachable');
+		await page.fill('#composer', 'typed on a train');
+		await page.click('#send');
+
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-state.waiting'))
+			.some((el) => /isn.t reachable from here/.test(el.textContent)), null, { timeout: 15000 });
+		const waitingText = await page.textContent('.msg-state.waiting');
+		check('the waiting state says the true thing, in his words', /waiting to send/i.test(waitingText), waitingText.trim());
+		check('the banner is up, with the control that acts on it beside it',
+			await page.isVisible('#queue-banner') && await page.isVisible('#queue-retry'));
+
+		await noHorizontalScroll(page, `${engine}: with a message waiting`);
+		await shoot(page, `${engine}-waiting`);
+
+		// THE RELAUNCH. Not a re-render — a real reload, so what is being tested is what IndexedDB
+		// actually kept.
+		await page.reload();
+		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
+			.some((el) => el.textContent === 'typed on a train'), null, { timeout: 15000 });
+		check('the message he wrote on the train is still there after the app was closed and reopened', true);
+
+		// --- home again ---
+		//
+		// TWO PATHS, AND BOTH ARE THE PRODUCT. The app flushes when the stream reconnects and when he
+		// taps "Try now", and which one wins is a race between his thumb and the reconnect. The
+		// first run of this harness clicked the button after the stream had already drained the
+		// queue, and Playwright timed out on a control that had correctly disappeared. So the check
+		// below waits for either and says which happened, rather than requiring the slower one.
+		//
+		// AND IT WAITS FOR DELIVERY, NOT FOR THE WAITING LABEL TO GO. The first version of this
+		// check waited for `.msg-state.waiting` to disappear — which happens the moment the send
+		// STARTS, because the bubble turns to "Sending…" — and then asserted the Mac had it. The Mac
+		// had nothing yet, and the harness reported a defect in working code. The queue being empty
+		// is what delivery means.
+		mac.setMode('normal');
+		let drainedBy = 'the stream reconnecting on its own';
+		const waitForDelivery = () => page.waitForFunction(
+			() => window.__richosPhone.queue.count() === 0
+				&& Array.from(document.querySelectorAll('.msg-mine'))
+					.some((el) => el.innerText.includes('typed on a train') && /Delivered/.test(el.innerText)),
+			null, { timeout: 6000 });
+		try {
+			await waitForDelivery();
+		} catch {
+			drainedBy = 'his tap on "Try now"';
+			await page.click('#queue-retry');
+			await page.waitForFunction(
+				() => window.__richosPhone.queue.count() === 0
+					&& Array.from(document.querySelectorAll('.msg-mine'))
+						.some((el) => el.innerText.includes('typed on a train') && /Delivered/.test(el.innerText)),
+				null, { timeout: 20000 });
+		}
+		check('it goes the moment his Mac can hear him again', true, `drained by ${drainedBy}`);
+
+		const delivered = mac.received().filter((row) => row.text === 'typed on a train');
+		check('and it reached the Mac exactly once, across a reload and a retry',
+			delivered.length === 1, `${delivered.length} copies at the Mac`);
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: older messages, behind a scroll`);
+		// ---------------------------------------------------------------------------------------
+
+		const before = await page.evaluate(() => document.querySelectorAll('#messages li').length);
+		await page.evaluate(() => { document.getElementById('thread').scrollTop = 0; });
+		await page.waitForFunction((n) => document.querySelectorAll('#messages li').length > n, before, { timeout: 15000 });
+		const after = await page.evaluate(() => document.querySelectorAll('#messages li').length);
+		check('scrolling to the top loads earlier messages', after > before, `${before} then ${after}`);
+
+		const pagination = await page.evaluate(() => {
+			const text = document.body.innerText;
+			return /\bpage \d|\bnext page\b|\bprevious page\b|\bpage \d+ of \d+/i.test(text);
+		});
+		check('NO PAGINATION — no page number, no pagination control, anywhere', pagination === false);
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: the microphone, and the bytes the Mac receives`);
+		// ---------------------------------------------------------------------------------------
+
+		if (engine !== 'chromium') {
+			skip('hold-to-record end to end', 'WebKit cannot be given a fake microphone, so this engine cannot answer it. Chromium does, above, and his own phone answered it on 2026-09-18.');
+		} else {
+			const box = await page.locator('#hold').boundingBox();
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+			await page.mouse.down();
+			await sleep(1400);
+			await page.mouse.up();
+
+			await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine'))
+				.some((el) => /Voice note|spoken/i.test(el.textContent)), null, { timeout: 20000 });
+
+			const voice = mac.received().filter((row) => row.kind === 'voice');
+			check('a voice note reached the Mac', voice.length === 1, `${voice.length} received`);
+			if (voice.length) {
+				const audio = voice[0].audio;
+				check('it was sent as bytes with the codec named — never base64, never a container negotiation',
+					audio.codec === 'wav16k' && audio.bytes > 20000, JSON.stringify(audio));
+				check('the duration matches the hold, and the size is the plan\'s ~32 KB per second',
+					Math.abs(audio.bytes - audio.seconds * 32000) < audio.seconds * 32000 * 0.1,
+					`${audio.seconds} s, ${audio.bytes} bytes`);
+			}
+
+			// The header, asserted on the bytes that actually arrived rather than on the bytes the
+			// page said it made.
+			const header = mac.state.wavHeader;
+			check('the WAV header the Mac received declares 16 kHz mono 16-bit PCM',
+				header && header.riff === 'RIFF' && header.wave === 'WAVE' && header.format === 1
+				&& header.channels === 1 && header.rate === 16000 && header.bits === 16,
+				JSON.stringify(header));
+
+			// --- hear it ---
+			const hear = page.locator('.msg-rich .hear').last();
+			if (await hear.count()) {
+				await hear.click();
+				await page.waitForFunction(() => document.querySelectorAll('.msg-rich .hear.playing').length > 0
+					|| Array.from(document.querySelectorAll('.msg-rich .hear')).some((b) => /Stop/.test(b.textContent)),
+				null, { timeout: 15000 }).catch(() => {});
+				const label = await hear.textContent();
+				check('"hear it" fetches the audio on demand and turns into the control that stops it',
+					/Stop|Hear it/.test(label), `the control reads "${label.trim()}" (muted browser, no sound was played in the room)`);
+			} else {
+				skip('"hear it"', 'no reply on screen declared audio');
+			}
+		}
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: a state he can change is rendered with the control that changes it`);
+		// ---------------------------------------------------------------------------------------
+
+		const affordances = await page.evaluate(() => {
+			const visible = (el) => {
+				if (!el || el.hidden) return false;
+				const style = getComputedStyle(el);
+				if (style.display === 'none' || style.visibility === 'hidden') return false;
+				const rect = el.getBoundingClientRect();
+				return rect.width > 0 && rect.height > 0;
+			};
+			const out = [];
+			// Every container that carries a sentence about a state, and whether a control lives
+			// with it. A sentence that names where the control IS (on his Mac, in iOS Settings)
+			// counts, because the honest answer to "there is no control here" is to say where it is.
+			const containers = [
+				{ name: 'the notification offer', el: document.getElementById('push-offer') },
+				{ name: 'the waiting banner', el: document.getElementById('queue-banner') },
+				{ name: 'the pairing screen', el: document.getElementById('pairing') },
+				{ name: 'the removed-phone screen', el: document.getElementById('revoked') },
+				{ name: 'the composer', el: document.getElementById('composer-bar') }
+			];
+			for (const c of containers) {
+				if (!visible(c.el)) continue;
+				const text = c.el.innerText.trim();
+				const hasControl = c.el.querySelector('button, select, textarea, a[href]') !== null;
+				const namesWhere = /on your Mac|in iOS Settings|in Settings/i.test(text);
+				out.push({ name: c.name, hasControl, namesWhere, text: text.slice(0, 120) });
+			}
+			return out;
+		});
+		for (const a of affordances) {
+			check(`${a.name} carries its own control, or says where the control is`,
+				a.hasControl || a.namesWhere, a.text);
+		}
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: contrast, every text node, both themes`);
+		// ---------------------------------------------------------------------------------------
+
+		await page.addScriptTag({ content: contrastLib.pageScript() });
+		for (const theme of ['dark', 'light']) {
+			await page.emulateMedia({ colorScheme: theme });
+			await sleep(120);
+			const walk = await page.evaluate((t) => window.__contrastProbe({ surface: 'phone', theme: t }), theme);
+			const failed = Object.keys(walk.failures || {});
+			const unresolvable = Object.keys(walk.unresolvable || {});
+			const exempt = Object.keys(walk.exempt || {});
+			process.stdout.write(`        ${theme}: ${walk.nodesChecked} text nodes measured, ${walk.indicators.checked} indicators, ${walk.ancestorResolved} resolved by ancestor\n`);
+			check(`${theme}: every measured text node and indicator clears WCAG AA`,
+				failed.length === 0, failed.map((k) => `${k}: ${JSON.stringify(walk.failures[k][0] || walk.failures[k])}`).join('\n        '));
+			check(`${theme}: nothing on this screen has a color that cannot be proved`,
+				unresolvable.length === 0, unresolvable.join(', '));
+			check(`${theme}: no exemption is claimed — every string here is meant to be read`,
+				exempt.length === 0, exempt.join(', '));
+			check(`${theme}: the walk actually looked at something`, walk.nodesChecked > 10, `${walk.nodesChecked} nodes`);
+			await shoot(page, `${engine}-thread-${theme}`);
+		}
+		await page.emulateMedia({ colorScheme: 'dark' });
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: no horizontal scroll, at four phone widths, in both themes`);
+		// ---------------------------------------------------------------------------------------
+
+		for (const theme of ['dark', 'light']) {
+			await page.emulateMedia({ colorScheme: theme });
+			for (const width of WIDTHS) {
+				await page.setViewportSize({ width, height: 812 });
+				await sleep(80);
+				await noHorizontalScroll(page, `${engine}: ${width}px, ${theme}`);
+			}
+		}
+		await page.setViewportSize(HIS_PHONE);
+		await page.emulateMedia({ colorScheme: 'dark' });
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: his Mac forgets this phone`);
+		// ---------------------------------------------------------------------------------------
+
+		mac.setMode('revoked');
+		await page.fill('#composer', 'anyone there?');
+		await page.click('#send');
+		await page.waitForSelector('#revoked:not([hidden])', { timeout: 20000 });
+		const revokedText = await page.textContent('#revoked');
+		check('the app says so and stops, rather than retrying a Mac that has forgotten it',
+			/removed from your Mac/i.test(revokedText), revokedText.replace(/\s+/g, ' ').trim().slice(0, 140));
+		check('and the conversation is not left behind it',
+			!(await page.isVisible('#messages')));
+		await shoot(page, `${engine}-removed`);
+
+		check('no JavaScript error in the whole run', errors.length === 0, errors.join('\n        '));
+		// Printed rather than asserted away: these are the requests this run BROKE on purpose, and
+		// seeing them is how you know the outage was real rather than simulated in the page.
+		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage this run caused deliberately:\n        ${
+			networkNoise.slice(0, 6).map((t) => t.replace(/\s+/g, ' ')).join('\n        ') || '(none)'}\n`);
+		check('the outage was a REAL network failure, not something the page pretended',
+			networkNoise.length > 0, 'if this is zero, the unreachable and revoked passes above proved nothing');
+
+		await context.close();
+	} catch (err) {
+		check(`${engine}: the harness ran to completion`, false, String((err && err.stack) || err));
+	} finally {
+		process.removeListener('SIGINT', onSignal);
+		process.removeListener('SIGTERM', onSignal);
+		await cleanup();
+	}
+}
+
+async function noHorizontalScroll(page, where) {
+	const overflow = await page.evaluate(() => {
+		const doc = document.documentElement;
+		const widest = Array.from(document.querySelectorAll('body *')).reduce((worst, el) => {
+			const rect = el.getBoundingClientRect();
+			return rect.right > worst.right ? { right: rect.right, tag: el.tagName, cls: el.className } : worst;
+		}, { right: 0, tag: null, cls: null });
+		return {
+			scrollWidth: doc.scrollWidth,
+			clientWidth: doc.clientWidth,
+			innerWidth: window.innerWidth,
+			widest
+		};
+	});
+	// One pixel of slack for sub-pixel rounding, and not a pixel more: his complaint was a scroll
+	// bar, and a scroll bar is what this measures.
+	check(`no horizontal scroll — ${where}`,
+		overflow.scrollWidth <= overflow.clientWidth + 1,
+		`document ${overflow.scrollWidth}px against a viewport of ${overflow.clientWidth}px; widest element ${overflow.widest.tag}.${overflow.widest.cls} ends at ${Math.round(overflow.widest.right)}px`);
+}
+
+async function shoot(page, name) {
+	const file = path.join(SHOTS_DIR, `${name}.png`);
+	await page.screenshot({ path: file, fullPage: false });
+	process.stdout.write(`        shot: ${path.relative(process.cwd(), file)}\n`);
+}
+
+run().then((code) => process.exit(code)).catch((err) => {
+	process.stderr.write(String((err && err.stack) || err) + '\n');
+	process.exit(1);
+});

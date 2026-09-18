@@ -184,6 +184,11 @@
 			// base64 would make it 850 KB to say the same thing. `codec` is explicit and always
 			// sent, so native can send `opus` later against this same contract.
 			async sendVoice(item) {
+				// The queue stores audio as a plain array, because that is what survives being
+				// written to storage and read back in a later launch. It becomes bytes again HERE,
+				// at the last moment, so both the body and the hash that is signed are the same
+				// bytes — a `fetch` handed a plain array would quietly send the JSON text of it.
+				const bytes = item.bytes instanceof Uint8Array ? item.bytes : new Uint8Array(item.bytes || []);
 				const path = '/api/messages' + query({
 					client_id: item.clientId,
 					thread_id: item.threadId,
@@ -193,7 +198,7 @@
 					seconds: item.seconds,
 					sent_at: item.sentAt
 				});
-				return json('POST', path, item.bytes, 'audio/wav');
+				return json('POST', path, bytes, 'audio/wav');
 			},
 
 			// ---- (b) the stream, and the backfill behind infinite scroll ------------------------
@@ -210,7 +215,12 @@
 				if (!EventSourceImpl) throw new ApiError(FAULT, 'this browser has no event stream');
 				const path = '/api/events' + query({ thread_id: threadId, since: sinceCursor });
 				const auth = await authorization('GET', path, '');
-				const url = joinBase(state.apiBase, path) + (auth ? `&auth=${encodeURIComponent(auth)}` : '');
+				// The signature covers the path WITHOUT this parameter, because the parameter is the
+				// signature. The separator is derived rather than assumed: a path that ever loses
+				// its query string would otherwise produce `…/api/events&auth=`, which is a URL the
+				// Mac would refuse for a reason nobody would find quickly.
+				const base = joinBase(state.apiBase, path);
+				const url = auth ? `${base}${base.includes('?') ? '&' : '?'}auth=${encodeURIComponent(auth)}` : base;
 				const source = new EventSourceImpl(url, { withCredentials: false });
 
 				const wire = (name) => {
