@@ -183,6 +183,8 @@ pub const STOP_REASON_CANCELLED: &str = "cancelled";
 /// | `richos_continuity` in its MCP config | yes | **no** — spec §5.8a-ii seam 1 |
 /// | continuity tools required to start a turn | yes (`:1960-1962`) | no, because it was not given them |
 /// | its preparation calls `bridge.brief` | yes (`:1972`) | **no** — seam 2 |
+/// | `richos_onboarding` in its MCP config | yes | **no** — since 2026-09-18; Ray's candidate-.8 row 1 |
+/// | an action grant over a company scope | yes | **no** — nothing writes a work lease one |
 /// | ECS seat | the CEO's | its own, one per assignment (§5.8c) |
 /// | audience | `ceo` | `worker` |
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1033,7 +1035,11 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
 /// config — is exactly the kind of assertion the spec's own checker had to be rebuilt to
 /// be able to make.
 ///
-/// - `richos_onboarding` is served by the app's own executable and is on both leases.
+/// - `richos_onboarding` is served by the app's own executable and is on the **conversation**
+///   lease only. **It was on both until 2026-09-18, and that sentence is where Ray's
+///   candidate-.8 row 1 was written down as a design fact.** Its scope is written only by
+///   `spine.rs` (`:3093`, `:3278`), so the work lease's copy named a file nothing could ever
+///   create, and opening the grant over it was the first act of the work lease's first turn.
 /// - `richos_continuity` is on the **conversation** lease only (seam 1). The work lease
 ///   never calls `checkpoint`, `receipt` or `brief`; leaving the server registered would
 ///   have given it un-prompted access, because `permissions.rs:58-59` auto-allows both of
@@ -1057,10 +1063,25 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
 fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Path, status_scope: &Path,
     continuity: Option<(&crate::ecs::EcsBridge, &Path)>,
     profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole) -> Value {
-    let mut config = json!({"mcpServers": {"richos_onboarding": {
-        "type": "stdio", "command": executable,
-        "args": ["--onboarding-mcp", onboarding_scope]
-    }}});
+    let mut config = json!({"mcpServers": {}});
+    // **The company-notes tools, on the CONVERSATION lease only** (`onboarding_tools.rs`).
+    //
+    // **This was on both leases until 2026-09-18, and it is Ray's candidate-.8 row 1.** The
+    // scope these tools read is written by `Cognition::set_onboarding_scope`, which is called
+    // from two places and both are the conversation's (`spine.rs:3093`, `spine.rs:3278`). So
+    // a work lease held two tools over a file nothing could ever write, and the first thing
+    // its turn did was open a grant over it — see the grant list in `spawn_with_tools`.
+    //
+    // It belongs here for the same reason the register does, one paragraph down: saving the
+    // CEO's answers about his own company is something he says in a visible turn, and a back
+    // end that could rewrite them with a standing grant and no turn at all is the drift his
+    // page closes. The back end needs them for nothing: its job is named in the assignment.
+    if role == LeaseRole::Conversation {
+        config["mcpServers"]["richos_onboarding"] = json!({
+            "type": "stdio", "command": executable,
+            "args": ["--onboarding-mcp", onboarding_scope]
+        });
+    }
     // **The turn-ending tool, on the CONVERSATION lease only** (`assignment_tools.rs`).
     // A work lease that could register more assignments would be a model giving itself
     // work, which is nobody's decision to make — and §1.1's boundary is about HIS turn, so
@@ -1255,7 +1276,28 @@ impl NativeClient {
             // writes nothing, and its own module comment says why gating a read on a rule
             // written for writes would only produce a front desk that goes blind between
             // his turns.
-            action_grants: onboarding.map(|(_, path, _, _)| ActionGrant::Onboarding(path.into())).into_iter()
+            //
+            // **THE ONBOARDING GRANT IS CONVERSATION-ONLY, AND THIS LINE IS RAY'S
+            // CANDIDATE-.8 ROW 1.** Until 2026-09-18 only `Assignments` carried the role
+            // filter, so a WORK lease took a grant over `{identity}-onboarding.json` —
+            // a path `start_work_lease` computes and nothing on earth writes
+            // (`Cognition::set_onboarding_scope` is called from `spine.rs:3093` and
+            // `spine.rs:3278`, both the conversation's). `prompt`'s first act is to open
+            // every grant in this list, so the work lease's first turn opened a grant over
+            // a file that was not there, `read_scope` mapped the missing file to
+            // *"Choose a company before saving interview answers."*
+            // (`onboarding_tools.rs:137`), and `prompt` returned that as
+            // `CognitionError::Io` before sending the turn. Measured on his walk: **6.317 s**
+            // after registration, no model token spent, `notes.txt` unchanged.
+            //
+            // **Deliberately a role filter and not an `exists()` guard like
+            // `Assignments`'s.** On a conversation lease a missing onboarding scope means no
+            // company is bound yet, and failing hard there is the check that stops a model
+            // writing company notes with no company chosen — that sentence is *right* in
+            // that seat. The defect was never the sentence; it was a work lease standing in
+            // the seat that says it.
+            action_grants: onboarding.filter(|_| role == LeaseRole::Conversation)
+                .map(|(_, path, _, _)| ActionGrant::Onboarding(path.into())).into_iter()
                 .chain(onboarding.filter(|_| role == LeaseRole::Conversation)
                     .map(|(_, _, path, _)| ActionGrant::Assignments(path.into())))
                 .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into()))).collect(),
@@ -2211,9 +2253,14 @@ impl NativeCognition {
     /// **The WORK lease** — the background-work spec §2.1's second compute lease, in the
     /// same process, owned by the work host rather than by the spine.
     ///
-    /// It is `start_with_engine`'s sibling and differs from it in exactly three places,
+    /// It is `start_with_engine`'s sibling and differs from it in exactly four places,
     /// each of which is the spec's, not a convenience:
     ///
+    /// 0. **It carries no company-notes scope at all** (`onboarding_scope: None`), because
+    ///    `mcp_config` does not put that server on a work lease and `spawn_with_tools` takes
+    ///    no grant over its path. This was the fourth difference the code did not make until
+    ///    2026-09-18, and Ray's candidate-.8 row 1 is what it cost: see the comment on
+    ///    `status` below.
     /// 1. `LeaseRole::Work`, so its MCP config omits `richos_continuity` (§5.8a-ii seam 1).
     /// 2. It takes **no** `TurnControl`. §4.2: *"The work lease is never attached to the
     ///    conversation's `TurnControl`."* `start_with_engine` itself is safe to call with
@@ -2234,16 +2281,25 @@ impl NativeCognition {
         let continuity_scope = scopes.join(format!("{identity}-work.json"));
         std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
         let assignments = scopes.join(format!("{identity}-assignments.json"));
-        // **Written for the argument and never registered.** `mcp_config` puts neither the
-        // register nor the status server on a work lease (`role == Work`), so these two
-        // paths exist only to satisfy the one call shape both leases share. A back end that
-        // could register more work for itself, or read the front desk's record, would be
-        // the second half of the drift the CEO's page closes.
+        // **THREE PATHS WRITTEN FOR THE ARGUMENT AND NEVER REGISTERED — and until
+        // 2026-09-18 this comment said TWO, which is exactly where Ray's candidate-.8 row 1
+        // hid.** `mcp_config` puts none of the register, the status server or the
+        // company-notes server on a work lease (`role == Work`), so all three paths exist
+        // only to satisfy the one call shape both leases share.
+        //
+        // The onboarding one was the third all along and was not counted: the server WAS
+        // registered, and worse, `spawn_with_tools` took an action grant over the path. Since
+        // nothing but `spine.rs` ever writes that file, the grant was over a file that never
+        // existed, and opening it was the first thing the work lease's first turn did. So
+        // `onboarding_scope` is `None` on this struct — a work lease has no company-notes
+        // scope, which is a fact about it and not an omission. A back end that could register
+        // more work for itself, read the front desk's record, or rewrite the CEO's answers
+        // about his own company would be the second half of the drift the CEO's page closes.
         let status = scopes.join(format!("{identity}-status.json"));
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
             Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: None, status_scope: None,
+        Ok(Self { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None,
             continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
@@ -2754,7 +2810,12 @@ mod native_driver_tests {
         let servers = &work["mcpServers"];
         assert!(servers.get("richos_continuity").is_none(), "the work lease was given the continuity server");
         assert!(servers.get("richos_work").is_some(), "the work lease was not given the work server");
-        assert!(servers.get("richos_onboarding").is_some());
+        // **This assertion was `is_some()` until 2026-09-18 and it was asserting the defect.**
+        // Ray's candidate-.8 row 1: the work lease's onboarding scope is written by nothing,
+        // so the server named a file that never existed and the grant over it failed the job
+        // 6.317 s in. See `a_work_lease_never_holds_a_grant_over_a_company_scope_nothing_writes`.
+        assert!(servers.get("richos_onboarding").is_none(),
+            "the work lease was given the company-notes server over a scope only spine.rs writes");
         // And it cannot register more assignments for itself (`assignment_tools.rs`).
         assert!(servers.get(crate::assignment_tools::SERVER_NAME).is_none(),
             "the work lease was given the assignment register");
@@ -2831,12 +2892,223 @@ mod native_driver_tests {
             Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
         assert_eq!(
             names(&work),
-            vec!["richos_onboarding", "richos_work"],
+            vec!["richos_work"],
             "the back end's tool list moved"
         );
+        // **The back end holds the work and NOTHING ELSE, and that is the third absence.**
+        // The list above read `["richos_onboarding", "richos_work"]` until 2026-09-18. Named
+        // on its own for the same reason `richos_work`'s absence is named above the
+        // conversation list: the set is the WHAT and this is the WHY. Saving his answers about
+        // his own company is something he says in a visible turn; a back end holding those
+        // two tools under §5.4's standing grant could rewrite them with no turn at all.
+        assert!(work["mcpServers"].get("richos_onboarding").is_none(),
+            "the back end can still rewrite the CEO's company notes");
         // Nothing here wrote to the root — `mcp_config` builds a value and touches no disk,
         // which is the property that lets this assert the inventory without a child process.
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A lease built through the REAL [`NativeClient::spawn_with_tools`], so the grant list
+    /// under test is the production one rather than a hand-assembled `Vec`.
+    ///
+    /// **No engine profile, deliberately.** The readiness gates and the worker-settlement read
+    /// are about a delivered engine and are covered by `hand_built_work_lease`; this is about
+    /// the grants, and a profile here would demand a real Python supervisor. Everything the
+    /// grant loop reads is present: the four app-owned paths, the continuity scope, the role.
+    ///
+    /// The onboarding path is **never written**, which is exactly the state `start_work_lease`
+    /// leaves it in on every machine.
+    fn lease_with_production_grants(tag: &str, role: LeaseRole, script_body: &str)
+        -> (NativeCognition, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("richos-grant-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        let scopes = root.join("scopes");
+        std::fs::create_dir_all(&scopes).unwrap();
+        let identity = uuid::Uuid::new_v4();
+        let onboarding = scopes.join(format!("{identity}-onboarding.json"));
+        let assignments = scopes.join(format!("{identity}-assignments.json"));
+        let status = scopes.join(format!("{identity}-status.json"));
+        let continuity = scopes.join(format!("{identity}-work.json"));
+        let bridge = fixture_bridge(&root);
+        // **The one grant on a work lease that DOES have a file under it**, written here
+        // because `start_work_lease` writes it (`{"version":1,"actions_allowed":false}`).
+        // Written in full rather than as that two-field stub because `ecs::ToolScope` requires
+        // `bridge` and `binding` and denies unknown fields, so the stub is only readable after
+        // `bind_work_assignment` has replaced it — which in production it always has, since
+        // `work_host.rs`'s `run_one` binds before it prompts.
+        crate::ecs::write_scope(&continuity, &crate::ecs::ToolScope {
+            version: 1,
+            actions_allowed: false,
+            bridge: bridge.clone(),
+            binding: crate::ecs::Binding {
+                entity_id: "qa-test-co".into(),
+                thread_id: "thr_one".into(),
+                session_id: "sess_one".into(),
+                turn_id: "ob-1".into(),
+                audience: "worker".into(),
+                revision: 1,
+            },
+            user_instruction: None,
+            seat: Some("work-seat:ob-1".into()),
+        })
+        .unwrap();
+        let (doctrine, skills) = (doctrine_fixture(), skills_fixture());
+        let script = write_script(&format!("grant-{tag}"), script_body);
+        let client = NativeClient::spawn_with_tools(
+            &script,
+            Path::new("/tmp"),
+            Some((&doctrine, &skills)),
+            Some((&root.join("RichOS"), &onboarding, &assignments, &status)),
+            Some((&bridge, &continuity)),
+            None,
+            None,
+            role,
+        )
+        .expect("the handshake should succeed");
+        let session_id = client.session_id().to_string();
+        // Mirrors its constructor exactly: `start_with_engine` holds the path, and since
+        // 2026-09-18 `start_work_lease` holds `None`.
+        let onboarding_scope = match role {
+            LeaseRole::Conversation => Some(onboarding),
+            LeaseRole::Work => None,
+        };
+        let lease = NativeCognition {
+            client,
+            session_id,
+            onboarding_scope,
+            assignments_scope: None,
+            status_scope: None,
+            continuity: Some((bridge, continuity)),
+            work_binding: None,
+            engine_profile: None,
+            role,
+            ceo_thread_seats: None,
+        };
+        (lease, root)
+    }
+
+    fn grant_names(client: &NativeClient) -> Vec<&'static str> {
+        client
+            .action_grants
+            .iter()
+            .map(|grant| match grant {
+                ActionGrant::Onboarding(_) => "onboarding",
+                ActionGrant::Assignments(_) => "assignments",
+                ActionGrant::Continuity(_) => "continuity",
+            })
+            .collect()
+    }
+
+    /// **RAY'S CANDIDATE-.8 ROW 1, AS A TEST — the third way a background job died in one
+    /// morning, and the only one of the three that was never about the engine.**
+    ///
+    /// Measured on his walk (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md`
+    /// §1 row 1, try 3, on the instance whose engine had just been replaced so the readiness
+    /// gate passed): the job failed **6.317 s** after registration — re-derived from his own
+    /// two timestamps, `10:45:54.192Z − 10:45:47.875Z` — with *"cognition io: Choose a company
+    /// before saving interview answers."*, for a company that WAS selected and an interview
+    /// nobody had started. `notes.txt` never changed.
+    ///
+    /// **The chain, re-derived at this commit, every link cited:**
+    ///
+    /// 1. `start_work_lease` computes `scopes/{identity}-onboarding.json`. Nothing writes it
+    ///    and nothing can: `Cognition::set_onboarding_scope` is called from exactly two places,
+    ///    `spine.rs:3093` and `spine.rs:3278`, and both are the conversation's lease.
+    /// 2. `spawn_with_tools` put `ActionGrant::Onboarding` on the grant list for EVERY role —
+    ///    only `ActionGrant::Assignments` carried the `LeaseRole::Conversation` filter.
+    /// 3. `work_host.rs`'s `run_one` calls `lease.prompt(…)`, and `prompt`'s first act is to
+    ///    open every grant in that list, all-or-nothing.
+    /// 4. `ActionGrant::Onboarding::set(true)` → `onboarding_tools::set_actions_allowed` →
+    ///    `read_scope` → `File::open` on a path that is not there → the sentence at
+    ///    `onboarding_tools.rs:137`, returned as `CognitionError::Io`, which `cognition.rs:21`
+    ///    renders with the `cognition io:` prefix he read on the card.
+    ///
+    /// So it fired **before the turn was ever sent** — which is why 6.317 s is a spawn and a
+    /// handshake and nothing like a run, why no model token was spent, and why the assignment's
+    /// record never left `Preparing`.
+    ///
+    /// **Four arms, and the two positive controls are the point.** The sentence must still be
+    /// raised by a grant over a missing scope (A) and must still fail a CONVERSATION lease with
+    /// no company bound (D). Without those, the two negatives would be a check that moved
+    /// rather than a defect that went away.
+    #[test]
+    fn a_work_lease_never_holds_a_grant_over_a_company_scope_nothing_writes() {
+        const INTERVIEW: &str = "Choose a company before saving interview answers.";
+
+        // ---- A. POSITIVE CONTROL: the sentence is still live, and still says this ----------
+        // Unchanged, and it must stay unchanged: `read_scope` mapping a missing file to this
+        // sentence is correct for the seat that asks the question.
+        let absent = std::env::temp_dir()
+            .join(format!("richos-no-scope-{}", uuid::Uuid::new_v4().simple()))
+            .join("never-written.json");
+        assert_eq!(
+            ActionGrant::Onboarding(absent.clone()).set(true),
+            Err(INTERVIEW.to_string()),
+            "the sentence this test is about is no longer raised, so its negatives prove nothing"
+        );
+        // And deliberately NOT given the `!path.exists() => Ok(())` guard `Assignments` has:
+        // on a conversation lease a missing scope means no company is bound, and failing there
+        // is what stops a model writing company notes with no company chosen.
+        assert_eq!(
+            ActionGrant::Assignments(absent).set(true),
+            Ok(()),
+            "the two app-owned grants no longer differ, which is the distinction arm D rests on"
+        );
+
+        // ---- B. THE FIX, STRUCTURALLY: the grant list, from the real constructor ----------
+        let (work, work_root) =
+            lease_with_production_grants("work-list", LeaseRole::Work, SILENT_AFTER_HANDSHAKE);
+        assert_eq!(
+            grant_names(&work.client),
+            vec!["continuity"],
+            "a work lease's grant list is not just its own continuity scope"
+        );
+        assert!(
+            work.onboarding_scope.is_none(),
+            "a work lease is carrying a company scope nothing writes"
+        );
+        drop(work);
+        let _ = std::fs::remove_dir_all(&work_root);
+
+        let (chat, chat_root) =
+            lease_with_production_grants("chat-list", LeaseRole::Conversation, SILENT_AFTER_HANDSHAKE);
+        assert_eq!(
+            grant_names(&chat.client),
+            vec!["onboarding", "assignments", "continuity"],
+            "the front desk lost a grant it needs — the fix has moved, not landed"
+        );
+        drop(chat);
+        let _ = std::fs::remove_dir_all(&chat_root);
+
+        // ---- C. THE FIX, BEHAVIORALLY: the same call that failed his job now takes a turn --
+        let frame = work_init_frame(true, true, true);
+        let (mut lease, root) =
+            lease_with_production_grants("work-turn", LeaseRole::Work, &one_turn_reporting(&frame));
+        let mut items = 0usize;
+        let stop = crate::cognition::Cognition::prompt(&mut lease, "do the job", &mut |_| items += 1)
+            .expect("a work lease's first turn must not be refused over a company scope");
+        assert_eq!(stop, "end_turn");
+        assert!(items > 0, "the child's stream never reached the caller, so nothing was proved");
+        drop(lease);
+        let _ = std::fs::remove_dir_all(&root);
+
+        // ---- D. POSITIVE CONTROL: the front desk with no company bound still refuses -------
+        // `spine.rs`'s `None => Ok(())` means an unbound conversation writes no scope either,
+        // and that lease must still hit exactly the sentence — the fix is a role gate, not a
+        // relaxation of the check.
+        let (mut chat, chat_root) = lease_with_production_grants(
+            "chat-unbound",
+            LeaseRole::Conversation,
+            &one_turn_reporting(&frame),
+        );
+        let refusal = crate::cognition::Cognition::prompt(&mut chat, "hello", &mut |_| {})
+            .expect_err("a conversation with no company bound must still refuse")
+            .to_string();
+        assert!(
+            refusal.contains(INTERVIEW),
+            "the front desk's own check was relaxed along with the work lease's: {refusal}"
+        );
+        drop(chat);
+        let _ = std::fs::remove_dir_all(&chat_root);
     }
 
     /// **THE SEAT SPELLING, AND THAT NOTHING INVENTS IT** — the app derives his per-thread
