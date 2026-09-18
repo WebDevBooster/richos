@@ -43,6 +43,18 @@ pub const SERVER_NAME: &str = "richos_assignments";
 pub const RECORD_TOOL_NAME: &str = "record";
 pub const QUALIFIED_RECORD_TOOL: &str = "mcp__richos_assignments__record";
 
+/// **The two fields of the register's answer that the APP now reads back off the wire**, named
+/// once so the host and this server cannot drift about them.
+///
+/// The register runs in its own short-lived process (see the module doc), so its answer reaches
+/// the app the only way anything reaches it: as the `tool_result` frame the child emits on the
+/// conversation's stdio. Since 2026-09-18 the app reads that frame and says the sentence itself
+/// — `first_reply::receipt_sentence` is the reader, and it is the same two field names or it is
+/// nothing. A literal in two files is a rename away from a silent stop.
+pub const RECEIPT_RECORDED_FIELD: &str = "recorded";
+/// The sentence itself. See [`RECEIPT_RECORDED_FIELD`].
+pub const RECEIPT_SAY_FIELD: &str = "say";
+
 const MAX_FRAME_BYTES: usize = 256 * 1024;
 const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 
@@ -221,8 +233,8 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     // something to say. Under the CEO's ruling §55 the words are three of them, so there is
     // nothing left in this payload that could name the assignment even by accident.
     Ok(json!({
-        "recorded": true,
-        "say": if after_questions { receipt.sentence_after_questions() } else { receipt.sentence() },
+        RECEIPT_RECORDED_FIELD: true,
+        RECEIPT_SAY_FIELD: if after_questions { receipt.sentence_after_questions() } else { receipt.sentence() },
         // Said in the payload the model actually reads, not only in the tool description it
         // may have summarized: §55's reply is the whole turn.
         "say_nothing_else": true,

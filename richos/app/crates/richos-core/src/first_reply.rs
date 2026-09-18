@@ -145,6 +145,64 @@ pub fn first_reply_faults(
     faults
 }
 
+/// **The words the register handed back, read off the register's own answer — so the APP says
+/// them and he does not wait for the model to say them back.**
+///
+/// The CEO's §55 measure is his FIRST WORDS, and until 2026-09-18 those words cost two model
+/// round trips: one for the model to call the register, and a second for the model to repeat the
+/// sentence the register had just handed it. The second one is measured at **1.094 s** (the warm
+/// question turn) and **1.427 s** (the cold task turn) of
+/// `docs/verification/first-reply-2026-09-18.md`'s run 3, and none of it carries information the
+/// app does not already have: the sentence is the app's own
+/// ([`crate::assignment::Receipt::sentence`]), handed out by the app's own MCP server.
+///
+/// So the host reads the register's `tool_result` as it goes past and speaks the sentence itself
+/// ([`crate::native`]'s reader). This is that read, as a pure function of one content block.
+///
+/// # What it refuses, and why every refusal is the safe direction
+///
+/// | The block says | This returns | Why |
+/// |---|---|---|
+/// | `{"recorded":true,"say":"On it!"}` | `Some("On it!")` | the work is written down AND the words are its receipt |
+/// | `is_error: true` | `None` | the register refused; the app must not announce a hand-over that did not happen |
+/// | a refusal sentence, not JSON | `None` | the same fact in the shape `assignment_tools` returns it on an error |
+/// | `{"recorded":false,…}` | `None` | there is no record, so there is no receipt to read out |
+/// | `say` missing, empty, or not a string | `None` | a receipt with no words is not a receipt |
+///
+/// **Every `None` degrades to exactly the behavior that shipped this morning**: the app says
+/// nothing, the model says the words it was handed a round trip later, and he is answered. That
+/// is the whole reason this is a read of the register's ANSWER rather than a sentence the host
+/// composes from the tool NAME — a host that spoke on the strength of the call having been *made*
+/// would tell him "On it!" for a registration that was refused.
+pub fn receipt_sentence(block: &serde_json::Value) -> Option<String> {
+    if block.get("is_error").and_then(serde_json::Value::as_bool) == Some(true) {
+        return None;
+    }
+    // The wire carries a tool result's content EITHER as a plain string OR as an array of
+    // `{type:"text",text}` blocks; both were observed on this wire (`machinery::block_text`
+    // records the same thing, and a reader that handled one of them would work on half the runs).
+    let text = match block.get("content") {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => return None,
+    };
+    let payload: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    if payload.get(crate::assignment_tools::RECEIPT_RECORDED_FIELD).and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return None;
+    }
+    let say = payload.get(crate::assignment_tools::RECEIPT_SAY_FIELD)?.as_str()?.trim();
+    if say.is_empty() {
+        return None;
+    }
+    Some(say.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +287,60 @@ mod tests {
         let faults = first_reply_faults(&[], None, FIRST_WORDS_BUDGET);
         assert_eq!(faults.len(), 1);
         assert!(faults[0].contains("never measured"));
+    }
+
+    #[test]
+    fn the_app_reads_the_register_s_own_answer_and_refuses_everything_that_is_not_one() {
+        use serde_json::json;
+        // **THE PAYLOAD IS NOT TYPED HERE, IT IS PRODUCED.** `assignment_tools::call` is the
+        // only thing that writes this shape, so the happy case is taken from it rather than
+        // transcribed — a rename of either field fails this test instead of silently stopping
+        // the app from speaking.
+        let produced = json!({
+            crate::assignment_tools::RECEIPT_RECORDED_FIELD: true,
+            crate::assignment_tools::RECEIPT_SAY_FIELD: "On it!",
+            "say_nothing_else": true,
+        })
+        .to_string();
+        let as_array = json!({"tool_use_id":"toolu_A","type":"tool_result",
+                              "content":[{"type":"text","text":produced.clone()}]});
+        assert_eq!(receipt_sentence(&as_array).as_deref(), Some("On it!"));
+        // The same fact carried as a bare string, which this wire also does.
+        let as_string = json!({"tool_use_id":"toolu_A","type":"tool_result","content":produced});
+        assert_eq!(receipt_sentence(&as_string).as_deref(), Some("On it!"));
+        // All four of §55/§58's sentences, so the reader is proven on the whole vocabulary and
+        // not only on the one that happened to be measured.
+        for words in ["On it!", "Got it. On it!", "I'll check.", "I'll investigate."] {
+            let block = json!({"type":"tool_result","content":
+                json!({"recorded":true,"say":words}).to_string()});
+            assert_eq!(receipt_sentence(&block).as_deref(), Some(words));
+        }
+
+        // **AND THE REFUSALS, WHICH ARE THE HALF THAT MATTERS.** Each of these is a turn where
+        // the app says nothing and the model's own copy still answers him — the behavior that
+        // shipped this morning, reached by degrading rather than by lying.
+        let refused = json!({"type":"tool_result","is_error":true,"content":
+            "This conversation is not open for new assignments right now. Nothing was recorded."});
+        assert_eq!(receipt_sentence(&refused), None, "a refused registration must not be announced");
+        // The same refusal WITHOUT the error flag: it is not JSON, so there is no receipt in it.
+        let prose = json!({"type":"tool_result","content":
+            "This conversation is not open for new assignments right now. Nothing was recorded."});
+        assert_eq!(receipt_sentence(&prose), None);
+        for payload in [
+            json!({"recorded":false,"say":"On it!"}),
+            json!({"say":"On it!"}),
+            json!({"recorded":true}),
+            json!({"recorded":true,"say":""}),
+            json!({"recorded":true,"say":"   "}),
+            json!({"recorded":true,"say":42}),
+            json!({"recorded":"true","say":"On it!"}),
+        ] {
+            let block = json!({"type":"tool_result","content":payload.to_string()});
+            assert_eq!(receipt_sentence(&block), None, "{payload}");
+        }
+        // No content at all, and a content shape nobody has seen.
+        assert_eq!(receipt_sentence(&json!({"type":"tool_result"})), None);
+        assert_eq!(receipt_sentence(&json!({"type":"tool_result","content":7})), None);
     }
 
     #[test]
