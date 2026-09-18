@@ -16,6 +16,16 @@
 //     that could not go. Continuing past a stuck message would deliver his third sentence before his
 //     first, and a conversation reordered by a network is worse than a conversation delayed by one.
 //
+//     ITS ONE LIMIT, AND IT IS NOT AN EXCEPTION TO THE RULE: the flush stops at a message that COULD
+//     NOT GO, never at one that will NEVER go. A `BLOCKED` item leaves this queue in exactly two ways
+//     — he discards it, or the phone is unpaired — so nothing is queued BEHIND it in any sense that
+//     means anything; there is no turn for it to be taking. `flush` already knew that on every pass
+//     after the first (line ~123, `if (item.state === BLOCKED) continue`) and forgot it on the pass
+//     that did the blocking, which is the pass he is looking at. One voice note this build cannot
+//     take would otherwise strand every text he typed afterwards (plan §2 A).
+
+
+//
 //  3. A RETRY IS SAFE BECAUSE THE SEND IS IDEMPOTENT. Every item carries its own `clientId`, which
 //     is the de-duplication key the Mac keys on (CONTRACT-STUB.md §2(a), plan §4.2 (i)). An item
 //     that was `sending` when the app died is re-sent on the next launch: the Mac either has it
@@ -148,7 +158,18 @@
 								return result;
 							}
 							result.blocked++;
-							result.reason = item.lastReason;
+							// Whoever is actually holding the queue up gets to name the reason, so a
+							// message that is merely FIRST does not get to describe a queue it is no
+							// longer part of. A retryable stop below overwrites this on its way out.
+							if (!result.reason) result.reason = item.lastReason;
+							// Rule 2's limit. `aboutThisMessage` is set only where the Mac gave a
+							// final answer about THIS item (`api.js`, a refusal carrying
+							// `"retry": false`). Every other final answer — a forgotten phone, a flat
+							// 404 — is about the PHONE, applies identically to everything behind it,
+							// and retrying the rest is rule 4's "hammering a Mac that has forgotten
+							// it". So one continues and the other stops, and the difference is which
+							// of the two the failure was about.
+							if (err && err.aboutThisMessage) continue;
 							return result;
 						}
 					}

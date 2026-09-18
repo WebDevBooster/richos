@@ -17,7 +17,22 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { createQueue, WAITING, BLOCKED } = require('../lib/queue.js');
-const { ApiError, UNREACHABLE, REVOKED, FAULT } = require('../lib/api.js');
+const { createApi, ApiError, UNREACHABLE, REVOKED, REFUSED, FAULT } = require('../lib/api.js');
+
+/// A `fetch` response in the shape `api.js` reads, so the last test below can drive the queue over
+/// the real route module rather than over a hand-written stand-in for it.
+function jsonResponse(status, body) {
+	const text = JSON.stringify(body);
+	const make = () => ({
+		status,
+		ok: status >= 200 && status < 300,
+		headers: { get: () => null },
+		text: async () => text,
+		json: async () => JSON.parse(text),
+		clone: () => make()
+	});
+	return make();
+}
 
 function memoryStorage(seed) {
 	const map = new Map((seed || []).map((i) => [i.clientId, i]));
@@ -227,4 +242,145 @@ test('the change callback fires on every transition, so the screen can never be 
 	await queue.enqueue({ clientId: 'c-1', threadId: 't', kind: 'text', text: 'x' });
 	await queue.flush(macThatIsUnreachable());
 	assert.deepStrictEqual(seen, [['waiting'], ['sending'], ['waiting']]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// RULE 2 HAS A LIMIT, AND THIS IS IT (plan §2 A)
+// ---------------------------------------------------------------------------------------------
+//
+// The flush stops at the first message that COULD NOT GO, because his third sentence must never
+// overtake his first. It does NOT stop at a message that will NEVER go. A blocked item leaves this
+// queue in exactly two ways — he discards it, or the phone is unpaired — so nothing behind it is
+// waiting its turn; it is waiting for a turn that does not exist. `flush` already knew that on
+// every pass after the first (`if (item.state === BLOCKED) continue`) and forgot it on the pass
+// that did the blocking, which is the pass he is looking at.
+//
+// The story: he records a voice note in his first minute with the app. This build cannot take one.
+// Then he types. If the refusal held the queue, his typing would sit behind a recording that is
+// never going anywhere, under "Waiting to send — your Mac isn't reachable from here", while the Mac
+// two rooms away is answering every request it is given.
+
+test('a refusal that is FINAL does not hold the queue: the text he typed after the voice note still goes', async () => {
+	const storage = memoryStorage();
+	const queue = createQueue({ storage, now: (() => { let n = 0; return () => `2026-09-19T09:00:0${n++}Z`; })() });
+	await queue.enqueue({ clientId: 'c-voice', threadId: 't', kind: 'voice', bytes: [1, 2, 3], seconds: 2 });
+	await queue.enqueue({ clientId: 'c-text', threadId: 't', kind: 'text', text: 'and here is the thing I actually wanted to say' });
+
+	const attempted = [];
+	const macWithoutVoice = {
+		async sendText(item) { attempted.push(item.clientId); return { message_id: 'm', cursor: 7 }; },
+		async sendVoice(item) {
+			attempted.push(item.clientId);
+			// The fourth argument is `aboutThisMessage`, and it is exactly what `api.js` sets when
+			// the Mac answers `"retry": false` — see the end-to-end test below, which asserts the
+			// same behavior with nothing hand-built between the queue and the bytes.
+			throw new ApiError(REFUSED, 'Voice notes are not switched on yet. Your recording is still on your phone.', 503, true);
+		}
+	};
+
+	const result = await queue.flush(macWithoutVoice);
+	assert.deepStrictEqual(attempted, ['c-voice', 'c-text'], 'the text behind a message that can never go was never even tried');
+	assert.strictEqual(result.sent, 1, 'his text did not reach the Mac');
+	assert.strictEqual(result.blocked, 1);
+	assert.strictEqual(result.waiting, 0, 'something was left waiting that nothing is waiting for');
+	assert.deepStrictEqual(queue.all().map((i) => i.clientId), ['c-voice'], 'the text is still on the phone');
+	assert.strictEqual(queue.all()[0].state, BLOCKED);
+	// The banner counts, and the sentence he reads, are computed from these two.
+	assert.strictEqual(queue.blocked().length, 1);
+	assert.strictEqual(queue.waitingCount(), 0);
+	// The Mac's own words are kept, because they are the only explanation of a refusal that exists.
+	assert.match(storage.map.get('c-voice').lastMessage, /Voice notes are not switched on yet/);
+});
+
+test('a message that CAN still go is still held behind: a final refusal did not loosen the ordering rule', async () => {
+	const storage = memoryStorage();
+	const queue = createQueue({ storage, now: (() => { let n = 0; return () => `2026-09-19T09:00:0${n++}Z`; })() });
+	await queue.enqueue({ clientId: 'c-voice', threadId: 't', kind: 'voice', bytes: [1], seconds: 1 });
+	await queue.enqueue({ clientId: 'c-1', threadId: 't', kind: 'text', text: 'first' });
+	await queue.enqueue({ clientId: 'c-2', threadId: 't', kind: 'text', text: 'second' });
+
+	const attempted = [];
+	const macWithoutVoiceAndOffline = {
+		async sendText(item) { attempted.push(item.clientId); throw new ApiError(UNREACHABLE, 'Load failed'); },
+		async sendVoice(item) { attempted.push(item.clientId); throw new ApiError(REFUSED, 'not switched on yet', 503, true); }
+	};
+
+	const result = await queue.flush(macWithoutVoiceAndOffline);
+	assert.deepStrictEqual(attempted, ['c-voice', 'c-1'], 'his second sentence was allowed to overtake his first');
+	assert.strictEqual(result.blocked, 1);
+	assert.strictEqual(result.waiting, 2);
+	// The reason the SCREEN shows is the one that is actually holding things up, not the one that
+	// was merely first. "Waiting to send" is true of two messages here; "not sent" is true of one.
+	assert.strictEqual(result.reason, UNREACHABLE);
+});
+
+test('a refusal about the PHONE still stops everything — rule 4 survived rule 2 gaining a limit', async () => {
+	// The counterweight to the two tests above, and the reason the flush cannot simply carry on
+	// past everything non-retryable. A Mac that has forgotten this phone will refuse the second
+	// message for the same reason it refused the first, and walking the queue to find that out
+	// three more times is rule 4's "a phone hammering a Mac that has forgotten it".
+	for (const [reason, note] of [[REVOKED, 'a forgotten phone'], [REFUSED, 'a flat 404 for a phone this Mac does not know']]) {
+		const storage = memoryStorage();
+		const queue = createQueue({ storage, now: (() => { let n = 0; return () => `2026-09-19T09:00:0${n++}Z`; })() });
+		await queue.enqueue({ clientId: 'c-1', threadId: 't', kind: 'text', text: 'one' });
+		await queue.enqueue({ clientId: 'c-2', threadId: 't', kind: 'text', text: 'two' });
+		await queue.enqueue({ clientId: 'c-3', threadId: 't', kind: 'text', text: 'three' });
+
+		let attempts = 0;
+		// No fourth argument: this refusal is about the phone, not about the message.
+		const forgetful = {
+			async sendText() { attempts++; throw new ApiError(reason, note, 404); },
+			async sendVoice() { throw new Error('not used'); }
+		};
+
+		const result = await queue.flush(forgetful);
+		assert.strictEqual(attempts, 1, `${note}: the queue was walked against a Mac that had already answered`);
+		assert.strictEqual(result.blocked, 1);
+		assert.strictEqual(result.reason, reason);
+		assert.strictEqual(queue.count(), 3, `${note}: a message was dropped rather than kept for him`);
+	}
+});
+
+test('the whole chain, from the Mac\'s bytes: a 503 marked final blocks that item and nothing else', async () => {
+	// Nothing is stubbed between the queue and the wire except `fetch` itself, because the defect
+	// this pair of tests is about lived in the JOIN of the two modules and in neither of them.
+	const storage = memoryStorage();
+	const queue = createQueue({ storage, now: (() => { let n = 0; return () => `2026-09-19T09:00:0${n++}Z`; })() });
+	await queue.enqueue({ clientId: 'c-voice', threadId: 't', kind: 'voice', bytes: [0x52, 0x49, 0x46, 0x46], seconds: 1 });
+	await queue.enqueue({ clientId: 'c-text', threadId: 't', kind: 'text', text: 'morning' });
+
+	const urls = [];
+	const api = createApi({
+		state: { apiBase: 'https://mm1.local:8443', challenge: 'ch', deviceId: 'd' },
+		signer: {
+			deviceId: 'd',
+			async sign() { return 'signature'; },
+			async sha256Hex() { return '0'.repeat(64); }
+		},
+		fetchImpl: async (url) => {
+			urls.push(url);
+			// Exactly what `routes.rs` answers a voice note in this build, byte for byte.
+			if (url.includes('kind=voice')) {
+				return jsonResponse(503, {
+					accepted: false,
+					retry: false,
+					reason: 'Voice notes are not switched on yet. Your recording is still on your phone.'
+				});
+			}
+			return jsonResponse(200, { message_id: 'm-1', cursor: 12 });
+		},
+		eventSourceImpl: null
+	});
+
+	const result = await queue.flush(api);
+	assert.strictEqual(urls.length, 2, 'the text was never put on the wire');
+	assert.strictEqual(result.sent, 1);
+	assert.strictEqual(result.blocked, 1);
+	assert.strictEqual(queue.all().map((i) => i.clientId).join(','), 'c-voice');
+	assert.strictEqual(queue.all()[0].lastReason, REFUSED);
+
+	// And it stays blocked: a second flush does not put the recording back on the wire.
+	const again = await queue.flush(api);
+	assert.strictEqual(urls.length, 2, 'a refusal that will never change was sent again');
+	assert.strictEqual(again.blocked, 1);
 });
