@@ -145,6 +145,43 @@ pub enum IntakeRecord {
         /// cannot read.
         channel: String,
     },
+    /// **The desktop composer's own words, written here because the front desk was being
+    /// primed when he pressed Send** — the CEO's §55.
+    ///
+    /// # Why this is not a `Channel` with a new mouth, and not a `Steer`
+    ///
+    /// `Channel` means *the CEO spoke through something that is not the desktop window*,
+    /// and `Spine::drain_intake` treats it accordingly: it files the turn and nothing else.
+    /// `Steer` means *words he added while Rich was working* and needs a running turn to
+    /// name. This is neither. It is an ORDINARY DESKTOP PROMPT that could not be handed to
+    /// the spine at the instant he sent it, because `ready_the_front_desk` holds the spine's
+    /// mutex for the whole of a priming turn (`src-tauri/src/main.rs`) — so it takes the one
+    /// road into the spine that does not need that mutex, and is delivered down the ORDINARY
+    /// prompt path the moment the prime lets go.
+    ///
+    /// The distinction is load-bearing rather than tidy. `submit_prompt_inner` is *"the ONE
+    /// function every CEO utterance passes through"* and it stages three correction families
+    /// off it; `drain_intake`'s `Steer` and `Channel` arms do not. Filing a typed message as
+    /// a `Channel` would therefore have dropped every correction he typed during a prime,
+    /// silently. This variant exists so that a deferred desktop send is INDISTINGUISHABLE
+    /// from a direct one once it lands — same acceptance, same emits, same staging, same
+    /// `Source::Text`.
+    ///
+    /// **What it buys, stated exactly, because it is not what it looks like.** It does NOT
+    /// make his first words arrive sooner: the priming turn is a model turn and the lease is
+    /// serial (continuity §3.1), so his prompt queues behind it whether it waits on a mutex
+    /// or on this log. What it buys is that his sentence is `fsync`'d BEFORE the call
+    /// returns — today it lives only in the webview until the prime lets go, and quitting in
+    /// that window loses it — and that the Send is accepted immediately instead of blocking.
+    Desk {
+        id: u64,
+        /// The thread he typed it into, captured at write time. Never re-derived at drain
+        /// time, for the reason `Steer::thread_id` gives.
+        thread_id: String,
+        entity_id: Option<EntityId>,
+        text: String,
+        at: u64,
+    },
     /// §9.3 step 1: "Persist a stop request."
     Stop { id: u64, turn_id: String, at: u64 },
     /// Everything with `id <= through` has reached the ledger or been refused. Written
@@ -158,6 +195,7 @@ impl IntakeRecord {
         match self {
             IntakeRecord::Steer { id, .. }
             | IntakeRecord::Channel { id, .. }
+            | IntakeRecord::Desk { id, .. }
             | IntakeRecord::Stop { id, .. } => *id,
             IntakeRecord::Drained { through } => *through,
         }
@@ -170,7 +208,7 @@ impl IntakeRecord {
 /// damaged one, so it has to stay exactly in step with [`IntakeRecord`]. That is not left
 /// to care: `intake_forward_compat_tests.rs` maps every variant through an EXHAUSTIVE
 /// match, so adding a variant here without adding its name does not compile.
-pub const KNOWN_INTAKE_TAGS: &[&str] = &["steer", "channel", "stop", "drained"];
+pub const KNOWN_INTAKE_TAGS: &[&str] = &["steer", "channel", "desk", "stop", "drained"];
 
 /// How the intake log's records are told apart from a newer build's and from damage.
 /// The judgment itself is [`crate::skip::classify_line`] — the same one the ledger uses,
@@ -592,6 +630,31 @@ impl IntakeLog {
         Ok(rec)
     }
 
+    /// Durably record one DESKTOP prompt that could not reach the spine at the moment he
+    /// sent it, because the front desk was being primed ([`IntakeRecord::Desk`]).
+    ///
+    /// `fsync` before the caller can answer, exactly as [`Self::channel_message`] is and for
+    /// the same reason: the spine's mutex is held for the whole of a turn, and the CEO's
+    /// words must be on disk before the window is told anything at all.
+    pub fn desk_message(
+        &mut self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+    ) -> Result<IntakeRecord, SteeringError> {
+        let rec = IntakeRecord::Desk {
+            id: self.next_id,
+            thread_id: thread_id.to_string(),
+            entity_id,
+            text: text.to_string(),
+            at: now_millis(),
+        };
+        self.write(&rec)?;
+        self.next_id += 1;
+        self.pending.push(rec.clone());
+        Ok(rec)
+    }
+
     /// Durably record one stop request. Returns it, carrying the timestamp that
     /// `Ledger::stop_turn` will quote.
     pub fn stop(&mut self, turn_id: &str) -> Result<IntakeRecord, SteeringError> {
@@ -730,6 +793,26 @@ struct Inner {
     ///
     /// A MIRROR, not a second opinion: it is only ever written next to `self.lease`.
     lease_session: Mutex<Option<String>>,
+    /// **The thread whose front desk is being primed RIGHT NOW, or `None`** — the one fact
+    /// `send_message` needs in order to not block, and the one place it can be read from.
+    ///
+    /// It cannot live on the `Spine` for the same reason `active` and `cancel` do not: the
+    /// priming holds the spine's mutex for the whole of a model turn, so anything stored
+    /// behind that mutex is unreadable during exactly the window it describes.
+    ///
+    /// **It is also the mutex that makes the handover race-free**, which is why it is a
+    /// `Mutex<Option<String>>` and not an `AtomicBool`.
+    /// [`TurnControl::defer_send`] holds this guard across BOTH the check and the intake
+    /// write, and [`TurnControl::end_front_desk_prime`] takes it to clear the marker while
+    /// the priming thread still holds the spine — so a send can be accepted for deferral
+    /// only while a drain is guaranteed to follow it, and once the marker is clear the next
+    /// send takes the ordinary path. There is no window in which a record is written that
+    /// nobody drains.
+    ///
+    /// Lock order, stated because there are now three: the priming thread takes SPINE then
+    /// this; `defer_send` takes this then INTAKE; nothing ever takes the spine while holding
+    /// this, and nothing holds INTAKE while waiting for this. No cycle exists.
+    priming: Mutex<Option<String>>,
 }
 
 /// The shared, lock-free-with-respect-to-the-spine control surface for §9.2 and §9.3.
@@ -758,6 +841,7 @@ impl TurnControl {
                 stop: Mutex::new(None),
                 cancel: Mutex::new(None),
                 lease_session: Mutex::new(None),
+                priming: Mutex::new(None),
             }),
         })
     }
@@ -774,6 +858,7 @@ impl TurnControl {
                 stop: Mutex::new(None),
                 cancel: Mutex::new(None),
                 lease_session: Mutex::new(None),
+                priming: Mutex::new(None),
             }),
         }
     }
@@ -918,6 +1003,76 @@ impl TurnControl {
         let mut guard = self.inner.intake.lock().unwrap();
         let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
         log.channel_message(thread_id, entity_id, text, channel)
+    }
+
+    // --- the pre-prime window (CEO §55) -------------------------------------------------
+
+    /// **A priming turn has started for `thread_id`, and the spine's mutex is about to be
+    /// unavailable for the length of it.** Called by [`crate::spine::Spine::prime_front_desk`]
+    /// from underneath that mutex, so by the time anyone can observe this marker the spine is
+    /// genuinely shut.
+    pub fn begin_front_desk_prime(&self, thread_id: &str) {
+        *self.inner.priming.lock().unwrap() = Some(thread_id.to_string());
+    }
+
+    /// **The priming turn is over.** Called from underneath the spine's mutex, BEFORE the
+    /// deferred sends are drained and long before the mutex is released — so the last send
+    /// this marker accepted is always drained by the same call that clears it, and the first
+    /// send it refuses takes the ordinary blocking path into a spine that is about to be free.
+    ///
+    /// Returns the marker it cleared, so a caller can say what it was priming without
+    /// consulting a second source.
+    pub fn end_front_desk_prime(&self) -> Option<String> {
+        self.inner.priming.lock().unwrap().take()
+    }
+
+    /// The thread being primed right now, if any. For reporting and for tests — never as the
+    /// check `defer_send` makes, which has to be atomic with its own write.
+    pub fn front_desk_priming(&self) -> Option<String> {
+        self.inner.priming.lock().unwrap().clone()
+    }
+
+    /// **Accept the CEO's typed message WITHOUT the spine, if and only if the spine is shut
+    /// for this thread's priming turn** — the CEO's §55.
+    ///
+    /// Returns `Ok(Some(record))` when the message was taken and made durable here, and
+    /// `Ok(None)` when it was not, which means exactly one thing: the caller must take the
+    /// ordinary path into the spine. `None` is never a failure and never a loss.
+    ///
+    /// # Why the check and the write are one operation
+    ///
+    /// Both happen under the `priming` guard, and [`Self::end_front_desk_prime`] needs that
+    /// same guard to clear the marker. So the two orderings are the only two there are, and
+    /// both are safe:
+    ///
+    /// - this call wins the guard — the record is written while the priming thread waits to
+    ///   clear the marker, and that thread's drain, which comes after the clear, finds it;
+    /// - the priming thread wins — the marker is already `None`, this returns `Ok(None)`, and
+    ///   the caller blocks on a spine that is microseconds from being free.
+    ///
+    /// A plain "is it priming?" read followed by a separate write would have a third
+    /// ordering — write after the drain — and that message would sit in the log until some
+    /// later turn boundary happened to drain it. That is the bug this shape does not have.
+    ///
+    /// # What it refuses
+    ///
+    /// A control with no durable intake log ([`Self::detached`], every headless test) refuses
+    /// with [`SteeringError::NoDurableIntake`] rather than accepting a message it cannot
+    /// write down — the same refusal `steer` and `request_stop` make, for the same reason.
+    /// The caller falls back to blocking, which is what it did before this existed.
+    pub fn defer_send(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+    ) -> Result<Option<IntakeRecord>, SteeringError> {
+        let priming = self.inner.priming.lock().unwrap();
+        if priming.as_deref() != Some(thread_id) {
+            return Ok(None);
+        }
+        let mut guard = self.inner.intake.lock().unwrap();
+        let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
+        log.desk_message(thread_id, entity_id, text).map(Some)
     }
 
     // --- read by the spine, at the turn boundary ----------------------------------------

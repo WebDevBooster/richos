@@ -1667,39 +1667,7 @@ impl Spine {
         rich_audible: Option<bool>,
     ) -> Result<String, SpineError> {
         let binding = self.ensure_active_thread()?;
-        // (1) persist-before-send, under a verified scope — the message is durable before
-        //     any risk, and it is never durable without an entity.
-        let turn_id = match rich_audible {
-            Some(audible) => {
-                self.ledger.record_prompt_received_spoken(&binding, text, source, audible)?
-            }
-            None => self.ledger.record_prompt_received(&binding, text, source)?,
-        };
-
-        // ADDITIVE (§13): the turn is durably `received`, so its first authoritative state
-        // transition is emittable — §11's `queued`, the state whose timeline treatment is
-        // "CEO bubble plus scaffold". Emitted for BOTH branches below, so a prompt that is
-        // delivered immediately still shows queued -> working rather than appearing
-        // mid-flight. Nothing on `stream.rs` changes here.
-        self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
-        self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
-
-        // (1b) THE FLYWHEEL'S AUTOMATIC TRIGGER. Here, and not in the shell, because this
-        //      is the ONE function every CEO utterance passes through — voice mode calls
-        //      it with `Source::Jam` (`src-tauri/src/main.rs`) and the composer calls it
-        //      with `Source::Text`, so a correction is caught by SPEAKING it with no
-        //      command typed. Placed before the queue/deliver branch so a correction
-        //      spoken while Rich is working is recorded the moment he says it rather than
-        //      whenever the turn ahead of it finishes.
-        self.stage_spoken_correction(&binding, &turn_id, text, source);
-        // (1c) THE SAME SEAM, for the OTHER correction family. Both live here rather than
-        //      one here and one in the shell, because this is the one function every CEO
-        //      utterance passes through, and a correction family reached by a different
-        //      route would be a correction family with different rules about when it runs.
-        self.stage_belief_correction(&binding, text, source);
-        // (1d) AND THE THIRD, which is the only one that watches rather than listens: what
-        //      he DICTATED against what he actually sent. Same seam, same reason.
-        self.stage_heard_correction(&binding, &turn_id, text, source);
+        let turn_id = self.accept_prompt(&binding, text, source, rich_audible, None)?;
 
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
@@ -1719,6 +1687,89 @@ impl Spine {
         delivered?;
         boundary?;
         queued?;
+        Ok(turn_id)
+    }
+
+    /// **ACCEPTING one CEO utterance: everything that happens between his sentence arriving
+    /// and the decision to queue or deliver it.** Persist, announce, and look at it for the
+    /// three correction families — in that order, and never in any other.
+    ///
+    /// # Why this is a function now, and what it stops from happening
+    ///
+    /// It was the body of [`Self::submit_prompt_inner`], whose own comment calls that
+    /// function *"the ONE function every CEO utterance passes through"*. That was true, and
+    /// then it stopped being true in one place: `drain_intake` files an intake-borne message
+    /// straight into the ledger and pushes it on the queue, so it emits the `queued` pair and
+    /// stages NOTHING. Today that only costs the phone. The moment a typed message can be
+    /// deferred through the same log (`IntakeRecord::Desk`, the CEO's §55), a correction he
+    /// typed during a front-desk prime would be dropped on the floor with no trace — the
+    /// flywheel's trigger silently not firing because of WHICH ROAD his words took.
+    ///
+    /// So the claim is restored as a function rather than as a sentence: every path that
+    /// accepts a CEO utterance calls this, and a path that does not, does not compile into
+    /// the same shape.
+    ///
+    /// `intake_id` is `Some` when the utterance came off the intake log. It rides into the
+    /// ledger so the de-duplication key survives a crash between the ledger write and
+    /// `mark_drained` — that window is the whole reason `record_prompt_received_from_intake`
+    /// exists, and it is at-least-once into a ledger that can spot the replay.
+    fn accept_prompt(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        rich_audible: Option<bool>,
+        intake_id: Option<u64>,
+    ) -> Result<String, SpineError> {
+        // (1) persist-before-send, under a verified scope — the message is durable before
+        //     any risk, and it is never durable without an entity.
+        let turn_id = match (rich_audible, intake_id) {
+            (Some(audible), None) => {
+                self.ledger.record_prompt_received_spoken(binding, text, source, audible)?
+            }
+            (None, Some(id)) => {
+                self.ledger.record_prompt_received_from_intake(binding, text, source, id)?
+            }
+            (None, None) => self.ledger.record_prompt_received(binding, text, source)?,
+            // A SPOKEN prompt off the intake log. Nothing constructs one today — the intake
+            // log's three utterance records are all typed — and rather than invent a ledger
+            // call for a combination no caller has, the durable write keeps the intake id,
+            // because that is the half a crash can duplicate. Named here so the day it has a
+            // caller it is a decision and not a discovery.
+            (Some(audible), Some(id)) => {
+                let turn = self.ledger.record_prompt_received_from_intake(binding, text, source, id)?;
+                eprintln!(
+                    "[richos] a spoken prompt arrived off the intake log (turn {turn}, audible \
+                     {audible}); its audibility is not recorded — no caller builds this today"
+                );
+                turn
+            }
+        };
+
+        // ADDITIVE (§13): the turn is durably `received`, so its first authoritative state
+        // transition is emittable — §11's `queued`, the state whose timeline treatment is
+        // "CEO bubble plus scaffold". Emitted for BOTH branches below, so a prompt that is
+        // delivered immediately still shows queued -> working rather than appearing
+        // mid-flight. Nothing on `stream.rs` changes here.
+        self.emit_live(self.turn_status_event(binding, &turn_id, TurnStatus::Queued, None));
+        self.emit_live(self.thread_summary_event(binding, &turn_id, ThreadStatus::Queued));
+
+        // (1b) THE FLYWHEEL'S AUTOMATIC TRIGGER. Here, and not in the shell, because this
+        //      is the ONE function every CEO utterance passes through — voice mode calls
+        //      it with `Source::Jam` (`src-tauri/src/main.rs`) and the composer calls it
+        //      with `Source::Text`, so a correction is caught by SPEAKING it with no
+        //      command typed. Placed before the queue/deliver branch so a correction
+        //      spoken while Rich is working is recorded the moment he says it rather than
+        //      whenever the turn ahead of it finishes.
+        self.stage_spoken_correction(binding, &turn_id, text, source);
+        // (1c) THE SAME SEAM, for the OTHER correction family. Both live here rather than
+        //      one here and one in the shell, because this is the one function every CEO
+        //      utterance passes through, and a correction family reached by a different
+        //      route would be a correction family with different rules about when it runs.
+        self.stage_belief_correction(binding, text, source);
+        // (1d) AND THE THIRD, which is the only one that watches rather than listens: what
+        //      he DICTATED against what he actually sent. Same seam, same reason.
+        self.stage_heard_correction(binding, &turn_id, text, source);
         Ok(turn_id)
     }
 
@@ -2607,6 +2658,22 @@ impl Spine {
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                 }
+                IntakeRecord::Desk { id, thread_id, text, .. } => {
+                    // **HIS OWN COMPOSER, DEFERRED — so it lands exactly as if it had never
+                    // been deferred** (CEO §55). The two arms above file the turn and stop;
+                    // this one goes through `accept_prompt`, which is the whole of the
+                    // acceptance `submit_prompt_inner` performs. A correction he typed while
+                    // the front desk was priming is therefore staged, and the only difference
+                    // between this road and the direct one is WHEN the spine could be reached.
+                    if self.ledger.turn_for_intake(id).is_some() {
+                        self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                        continue;
+                    }
+                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let turn_id = self.accept_prompt(&binding, &text, Source::Text, None, Some(id))?;
+                    self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
+                    self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                }
                 IntakeRecord::Stop { id, turn_id, at } => {
                     // Reached only when a stop outlived the process (see
                     // `reconcile_intake`) or named a turn that had already ended. A turn
@@ -3375,7 +3442,43 @@ impl Spine {
         }
         let spawned = self.lease.is_none();
         let started = std::time::Instant::now();
-        match self.prepare_request(&binding) {
+        // ===================================================================================
+        // FROM HERE THE SPINE IS SHUT FOR A MODEL TURN, AND HIS SEND MUST NOT WAIT ON IT
+        // ===================================================================================
+        //
+        // The caller holds the spine's mutex for the whole of `prepare_request` below, which
+        // is a real model turn (~2.9 s in the probe, 4412 ms in candidate .10's own `app.log`).
+        // Until this marker existed, a Send issued inside that window blocked at
+        // `state.spine.lock()` in `send_message` for the remainder of it, with the CEO looking
+        // at "Sending your message / Waiting for Rich to accept it" the entire time and his
+        // sentence living nowhere but the webview — a quit in that window lost it.
+        //
+        // The marker opens the intake log's road for THIS thread only, and the four lines
+        // after the prime close it again and deliver whatever came down it, in order, before
+        // this function returns and the mutex is released.
+        //
+        // **WHAT THIS DOES NOT DO, stated here because the shape invites the opposite
+        // reading.** It does not make his first words arrive sooner. The lease is serial —
+        // one turn at a time, continuity §3.1 — so his prompt queues behind the priming turn
+        // whether it waits on a mutex or on this log; the contended cost is
+        // `prime_remainder + turn` either way, and re-priming is not paid twice
+        // (`prime_lease_if_needed` returns early on an already-primed thread). What it does
+        // is make his sentence DURABLE at the instant he sends it and the Send itself
+        // instant. The seconds themselves are the pre-prime's own turn, and the only thing
+        // that removes them is a desk that was already primed when the thread opened.
+        self.control.begin_front_desk_prime(thread_id);
+        let prepared = self.prepare_request(&binding);
+        // Shut the road BEFORE draining it, from under the same spine mutex. Every ordering
+        // is covered by `TurnControl::defer_send`'s own guard: a send accepted before this
+        // line is drained by the next one, and a send that arrives after it blocks on a spine
+        // that is about to be free.
+        self.control.end_front_desk_prime();
+        if let Err(e) = self.poll_intake() {
+            // His message is already durable and still pending; it is delivered at the next
+            // boundary. Machinery channel only — the CEO is told by the turn itself.
+            eprintln!("[richos] a message sent during the front desk's priming could not be delivered yet ({e})");
+        }
+        match prepared {
             Ok(()) => FrontDeskReady::Ready { millis: started.elapsed().as_millis() as u64, spawned },
             // **A FAILURE HERE IS NOT HIS PROBLEM AND MUST NOT BECOME ONE.** Priming only decides
             // WHEN the waiting happens; if it cannot be done now, his first message takes the path
