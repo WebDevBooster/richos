@@ -1,0 +1,90 @@
+# Row index of the work lease's own callback journal, run of 2026-09-18 23:03-23:07.
+# Session 85ae9556-9f4b-41e5-8a9d-27ff65223427. One line per row: number, hook event, and the tool or agent it names.
+# The prompts are quoted to their first 120 characters; nothing is summarized.
+
+  1  SessionStart     
+  2  UserPromptSubmit "This is a background assignment from the CEO. Carry it out with the desktop work tools.\nRepositories: /var/folders/mx/
+  3  PreToolUse       ToolSearch
+  4  PostToolUse      ToolSearch
+  5  PreToolUse       mcp__richos_work__repositories
+  6  PostToolUse      mcp__richos_work__repositories
+  7  PreToolUse       mcp__richos_work__inspect
+  8  PostToolUse      mcp__richos_work__inspect
+  9  PreToolUse       Bash
+ 10  PostToolUse      Bash
+ 11  PreToolUse       Bash
+ 12  PostToolUse      Bash
+ 13  PreToolUse       Read
+ 14  PostToolUse      Read
+ 15  PreToolUse       mcp__richos_work__prepare
+ 16  PostToolUse      mcp__richos_work__prepare
+ 17  PreToolUse       Agent
+ 18  PostToolUse      Agent
+ 19  SubagentStart    a8a9d3bce1d1292b8
+ 20  Stop             
+ 21  PreToolUse       Bash a8a9d3bce1d1292b8
+ 22  PostToolUse      Bash a8a9d3bce1d1292b8
+ 23  PreToolUse       Bash a8a9d3bce1d1292b8
+ 24  PostToolUse      Bash a8a9d3bce1d1292b8
+ 25  PreToolUse       Bash a8a9d3bce1d1292b8
+ 26  PostToolUse      Bash a8a9d3bce1d1292b8
+ 27  PreToolUse       Read a8a9d3bce1d1292b8
+ 28  PostToolUse      Read a8a9d3bce1d1292b8
+ 29  PreToolUse       Edit a8a9d3bce1d1292b8
+ 30  PostToolUse      Edit a8a9d3bce1d1292b8
+ 31  PreToolUse       Bash a8a9d3bce1d1292b8
+ 32  PostToolUse      Bash a8a9d3bce1d1292b8
+ 33  PreToolUse       Bash a8a9d3bce1d1292b8
+ 34  PostToolUse      Bash a8a9d3bce1d1292b8
+ 35  PreToolUse       Bash a8a9d3bce1d1292b8
+ 36  PostToolUse      Bash a8a9d3bce1d1292b8
+ 37  PreToolUse       Bash a8a9d3bce1d1292b8
+ 38  PostToolUse      Bash a8a9d3bce1d1292b8
+ 39  PreToolUse       Bash a8a9d3bce1d1292b8
+ 40  PostToolUse      Bash a8a9d3bce1d1292b8
+ 41  PreToolUse       Bash a8a9d3bce1d1292b8
+ 42  PostToolUse      Bash a8a9d3bce1d1292b8
+ 43  PreToolUse       Bash a8a9d3bce1d1292b8
+ 44  PostToolUse      Bash a8a9d3bce1d1292b8
+ 45  PreToolUse       SubagentHandback a8a9d3bce1d1292b8
+ 46  UserPromptSubmit '<agent-message from="worker-sonnet-36bd35690a8d">\n[Subagent hand-back] The text below is the final report of a subagen
+ 47  PostToolUse      SubagentHandback a8a9d3bce1d1292b8
+ 48  SubagentStop     a8a9d3bce1d1292b8
+ 49  PreToolUse       Bash
+ 50  PostToolUse      Bash
+ 51  UserPromptSubmit '<task-notification>\n<task-id>a8a9d3bce1d1292b8</task-id>\n<tool-use-id>toolu_01LPPXscc7UQkXpVYvaP31B7</tool-use-id>\n<
+ 52  UserPromptSubmit "The helper you started has ended — that is this app telling you, from its own record of the run, not a guess. Read its 
+ 53  PreToolUse       mcp__richos_work__inspect
+ 54  PostToolUse      mcp__richos_work__inspect
+ 55  PreToolUse       mcp__richos_work__prepare
+ 56  PostToolUse      mcp__richos_work__prepare
+ 57  PreToolUse       Agent
+ 58  SubagentStart    aa9e87685c47a1b6f
+ 59  PostToolUse      Agent
+ 60  Stop             
+ 61  PreToolUse       Bash aa9e87685c47a1b6f
+ 62  PostToolUse      Bash aa9e87685c47a1b6f
+ 63  PreToolUse       Bash aa9e87685c47a1b6f
+ 64  PostToolUse      Bash aa9e87685c47a1b6f
+ 65  PreToolUse       Bash aa9e87685c47a1b6f
+ 66  PostToolUse      Bash aa9e87685c47a1b6f
+ 67  PreToolUse       Bash aa9e87685c47a1b6f
+ 68  PostToolUse      Bash aa9e87685c47a1b6f
+ 69  PreToolUse       Bash aa9e87685c47a1b6f
+ 70  PostToolUse      Bash aa9e87685c47a1b6f
+ 71  PreToolUse       Bash aa9e87685c47a1b6f
+ 72  PostToolUse      Bash aa9e87685c47a1b6f
+ 73  PreToolUse       SubagentHandback aa9e87685c47a1b6f
+ 74  PostToolUse      SubagentHandback aa9e87685c47a1b6f
+ 75  UserPromptSubmit '<agent-message from="reviewer-sonnet-d7829fb7401a">\n[Subagent hand-back] The text below is the final report of a subag
+ 76  SubagentStop     aa9e87685c47a1b6f
+ 77  PreToolUse       mcp__richos_work__integrate
+ 78  PostToolUse      mcp__richos_work__integrate
+ 79  UserPromptSubmit "The helper you started has ended — that is this app telling you, from its own record of the run, not a guess. A reviewe
+ 80  UserPromptSubmit '<task-notification>\n<task-id>aa9e87685c47a1b6f</task-id>\n<tool-use-id>toolu_01JE8bFUMakm9cFJDDzeMtmv</tool-use-id>\n<
+ 81  PreToolUse       mcp__richos_work__complete
+ 82  PostToolUse      mcp__richos_work__complete
+ 83  PreToolUse       Bash
+ 84  PostToolUse      Bash
+ 85  Stop             
+ 86  Stop             
