@@ -50,6 +50,7 @@ const {
   awaitSettled,
   flushFrames,
   bootSettled,
+  openThread,
   settleOnThread,
   HOLD_CURTAIN,
   assertCurtainHeld,
@@ -232,6 +233,15 @@ async function openApp(browser, opts) {
   // left `start()`'s internal ceiling armed — so every walk below silently had four seconds
   // from `goto` to its last assertion, and a `macos-latest` runner does not have four seconds
   // spare. `lib/harness.js`'s `HOLD_CURTAIN` carries the diagnosis and the measurement.
+  // A PRE-BOOT MOCK PRESET, for the one state a setter cannot reach: "no conversation is
+  // open" is decided before `init()` branches on whether a thread is active, so it has to be
+  // in place before any of the page's own scripts run. `mock.js` says the same thing from the
+  // other side where it defines `__RICHOS_MOCK_PRESET__`.
+  if (opts.preset) {
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, opts.preset);
+  }
   if (opts.holdSplash) await page.addInitScript(HOLD_CURTAIN);
   // The bridge ledger every wait below is built on, installed before any of the page's own
   // scripts run so no call can be missed. It carries the lag knob too, at the seam where lag
@@ -282,6 +292,44 @@ async function openMenu(page) {
     if (m) await Promise.all(m.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
   });
   await flushFrames(page);
+}
+
+/// The three-way scope sheet §7.1 puts in front of EVERY techy switch, answered with the
+/// option it opens on.
+///
+/// The CEO's sentence is the acceptance criterion: "when the user toggles the techy mode on
+/// while being inside a conversation thread, then there should be something like a radio
+/// button choice between 3 choices ... And the first choice should be preselected". So the
+/// whole act from the settings menu is: click the row, the sheet opens, confirm what it
+/// already offers — which is "For all conversations in all companies", the tier the row used
+/// to write directly through `set_techy_default`.
+///
+/// It waits on `set_techy_scope` COMPLETING and then on the technical rows being in the
+/// document, because those are two different facts: the write is the store's, the rows are
+/// `loadTimeline`'s, and a check that read the page between them would be reading the calm
+/// view and calling it the technical one.
+async function confirmTechyScope(page) {
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  const before = await invokeCount(page, "set_techy_scope");
+  const preselected = await page.evaluate(() => {
+    const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+    return on ? on.value : null;
+  });
+  await page.click("#techy-scope-confirm");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+  await afterInvoke(page, "set_techy_scope", before);
+  return preselected;
+}
+
+/// Turn the technical view on everywhere, through the settings menu — the one piece of chrome
+/// on every screen, and the door the CEO's own words name ("from settings").
+async function techyOnEverywhere(page) {
+  await openMenu(page);
+  await page.click("#set-techy");
+  const picked = await confirmTechyScope(page);
+  assertEqual(picked, "all-companies", "the sheet's preselected option is not the all-companies tier");
+  await page.waitForFunction(() => document.querySelectorAll(".tl-tech").length > 0, { timeout: 15000 });
+  await settledPage(page);
 }
 
 async function main() {
@@ -768,20 +816,40 @@ async function main() {
     return "row 100->110 by click, 110->100 by ⌘-, and the row's reading tracked both";
   });
 
-  await run.check("11  Techy Mode: the menu row and the rail preference are ONE state", async () => {
+  await run.check("11  Techy Mode: the menu row and the rail preference are ONE state, through the choice §7.1 asks for", async () => {
+    // THIS CHECK WAS RED ON MAIN, AND IT WAS THE CHECK THAT WAS WRONG. It asserted that
+    // clicking `#set-techy` calls `set_techy_default` — the behavior this row had until
+    // `68a91f0e`. Since 2026-09-18 every scope-ambiguous switch goes through
+    // `requestTechyToggle` (main.js), and inside a conversation that opens the CEO's
+    // three-way sheet instead: "when the user toggles the techy mode on while being inside a
+    // conversation thread, then there should be something like a radio button choice between
+    // 3 choices ... And the first choice should be preselected". The behavior IS the ruling,
+    // so the assertion moved to it. `set_techy_default` is still what the row writes with no
+    // conversation open, and the second half below is that branch, measured rather than
+    // assumed.
+    //
+    // WHAT THIS CHECK OWNS, and why it is not a duplicate of `techy.js` 23-29: those drive
+    // the RAIL switch, the chip and ⌘⇧T, and they own the sheet's contents. This owns the
+    // SETTINGS MENU door — the one piece of chrome on every screen — and the claim that the
+    // menu row and the rail preference are ONE state rather than two that agree.
     const page = track(await openApp(browser));
+    await openThread(page, "acme");
     await openMenu(page);
-    // THE WRITE IS THREE ROUND TRIPS, NOT ONE, and the rail's own checkbox is painted by the
-    // SECOND. `setTechyDefault` is `await set_techy_default` -> `await refreshTechy` (a
-    // `techy_mode` read, which is what runs `renderTechySettings` and sets
-    // `#techy-default.checked`) -> `await loadTimeline`. Waiting only for the write leaves the
-    // rail one round trip behind, and at 300 ms of latency this check read `false` off a
-    // checkbox that was about to be `true`.
-    const viaMenu = await invokeCount(page, "set_techy_default");
-    const menuRead = await invokeCount(page, "techy_mode");
+
+    // ---- the menu door asks, and the answer reaches the rail ----------------------------
+    const directWrite = await invokeCount(page, "set_techy_default");
     await page.click("#set-techy");
-    await afterInvoke(page, "set_techy_default", viaMenu);
-    await afterInvoke(page, "techy_mode", menuRead);
+    assertEqual(
+      await confirmTechyScope(page),
+      "all-companies",
+      "his FIRST option is the one the sheet opens on — the whole act is a click and a confirm"
+    );
+    assertEqual(
+      await invokeCount(page, "set_techy_default"),
+      directWrite,
+      "the menu row wrote the global default DIRECTLY from inside a conversation, which is " +
+        "the path §7.1 replaced: with one open, every switch asks where it applies"
+    );
     await page.click("#rail-settings");
     await overlayOpen(page, "#assertiveness-popover");
     assertEqual(
@@ -789,12 +857,14 @@ async function main() {
       true,
       "the rail's own preference followed the menu"
     );
-    // ...and back the other way, which is the direction a one-way binding still passes.
-    const viaRail = await invokeCount(page, "set_techy_default");
-    const railRead = await invokeCount(page, "techy_mode");
+
+    // ---- and back the other way, which is the direction a one-way binding still passes ---
+    // THE RAIL SWITCH IS SCOPE-AMBIGUOUS TOO, so this half asks as well. The popover is
+    // deliberately left open behind the sheet: the sheet is an `.overlay` (z-index 60) and
+    // the popover a `.popover` (20), so tidying the popover away first would be clicking the
+    // gear through a modal — `techy.js`'s own helper carries the same measurement.
     await page.click("#techy-default");
-    await afterInvoke(page, "set_techy_default", viaRail);
-    await afterInvoke(page, "techy_mode", railRead);
+    assertEqual(await confirmTechyScope(page), "all-companies", "the same first option, in the off direction");
     await page.click("#rail-settings");
     await openMenu(page);
     assertEqual(
@@ -803,7 +873,27 @@ async function main() {
       "and the menu followed the rail — a binding that only works one way is two states with a lag"
     );
     await page.close();
-    return "menu -> rail, and rail -> menu, both observed";
+
+    // ---- with NO conversation open, the row writes the only tier that has a referent -----
+    // `{ chosenEntity: null }` is the one boot with nothing active. Two of the three options
+    // would have no referent there, so `requestTechyToggle` applies the global default
+    // directly — asserted here because "it asks, except when it cannot" is exactly the kind
+    // of exception that rots into "it asks sometimes".
+    const bare = track(await openApp(browser, { preset: { chosenEntity: null } }));
+    await openMenu(bare);
+    const before = await invokeCount(bare, "set_techy_default");
+    const reread = await invokeCount(bare, "techy_mode");
+    await bare.click("#set-techy");
+    await afterInvoke(bare, "set_techy_default", before);
+    await afterInvoke(bare, "techy_mode", reread);
+    assert(await bare.locator("#techy-scope").isHidden(), "nothing to scope, so nothing is asked");
+    assertEqual(
+      await bare.evaluate(() => document.getElementById("set-techy").checked),
+      true,
+      "and the row shows what was taken"
+    );
+    await bare.close();
+    return "in a conversation: menu -> sheet (first option preselected) -> rail, and rail -> sheet -> menu; with none open: straight to set_techy_default, no sheet";
   });
 
   await run.check("11b  the splash off switch survived the rebuild, and is ONE state behind two doors", async () => {
@@ -1297,6 +1387,21 @@ main().catch((e) => {
 //      notifies, and this file is a subscriber, so that call was dead code that LOOKED
 //      load-bearing. It is now deleted from `stepFont`, `resetFont` and `applyTheme`, and
 //      the subscription is the single path, which is what makes check 10 able to fail.
+//  11  main.js `requestTechyToggle`: drop the `if (!activeThreadId)` guard so every switch
+//      writes `set_techy_default` directly -> checks 11 AND 12. This is the behavior check 11
+//      used to ASSERT, before §7.1; the sheet never opens and the check waits 30s for it and
+//      says so. It reds 12 as well, deliberately not hidden: 12's glyph half reaches the
+//      technical view through the same door, because that door is the CEO's own path to it
+//      and a second private entrance would be a check measuring a state he cannot reach.
+//  11b NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED, and the CHECK was the thing that
+//      was wrong. Check 11 was red on main from `68a91f0e` to 2026-09-18 asserting the
+//      pre-§7.1 behavior (`page.waitForFunction: Timeout 10000ms exceeded` on a
+//      `set_techy_default` that no longer happens inside a conversation). A red check whose
+//      assertion has been overtaken by a ruling is not evidence of a defect; it is a check
+//      that has stopped reading the product. The ruling is the specification, so the
+//      assertion moved to it — and the branch that DOES still write the default (no
+//      conversation open) is now asserted too, so the exception cannot rot into "it asks
+//      sometimes".
 //  12  style.css `.rail-company`: `1rem` -> `13px` -> check 12.
 //  12b style.css `html`: `calc(16px * var(--app-font-scale, 1))` -> `16px` -> checks 9, 12,
 //      13. Every size is still rem and NONE of them moves — the failure that looks most
