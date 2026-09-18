@@ -1955,6 +1955,80 @@ case "$OUT" in
     *)  ok "S26d CONTROL: an UNDECLARED image is never nominated, however old" ;;
 esac
 
+# ===========================================================================
+# S27 — AN UNREADABLE OPEN-FILE TABLE IS ONE LINE, NOT FORTY THOUSAND
+# ===========================================================================
+# THE MEASUREMENT THAT FORCED THIS, read off the operator's own launchd log on
+# 2026-09-18 while this pass was being written:
+#
+#   $ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log  -> 1
+#   $ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log  -> 4
+#
+# and the undecided one's reason is exactly this — "the open-file table could not be
+# read". THAT ESTABLISHES THAT IT HAPPENS UNDER LAUNCHD, NOT HOW OFTEN: five verdicts
+# is not a frequency and no rate is claimed from it.
+#
+# Happening at all is enough, because of what it would now cost. It cost ONE entry in
+# that run, since the old $TMPDIR arm had almost no candidates; the deny-by-default
+# arm has tens of thousands, so the same lsof timeout would produce ~40,000 identical
+# INDETERMINATE entries, an enormous undecidable pile in the garbage alarm, and exit 3.
+#
+# The safety is unchanged either way — nothing under that root is deleted. What
+# changes is whether the report is readable, and thousands of copies of one fact is
+# the noise that makes a real signal get skipped.
+deny_world blindlsof
+start_claude; PID_D18="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D18" "$SID_LIVE"
+for i in 1 2 3 4 5 6; do
+    stale "$W_TMP/zzz-blind-$i"
+done
+# An `lsof` that cannot answer. A STUB rather than a real failure, because making
+# the real one time out would mean a two-minute case.
+BLINDDIR="$W_ROOT/blindbin"
+mkdir -p "$BLINDDIR"
+printf '#!/bin/sh\nexit 9\n' >"$BLINDDIR/lsof"
+chmod +x "$BLINDDIR/lsof"
+OUT="$(PATH="$BLINDDIR:$PATH" run --dry-run)"
+N_UNDEC="$(printf '%s\n' "$OUT" | grep -c 'OPEN-FILE TABLE COULD NOT BE READ' || true)"
+if [ "$N_UNDEC" = "1" ]; then
+    ok "S27  an unreadable open-file table is reported ONCE for the whole root"
+else
+    bad "S27  it was reported $N_UNDEC times — one fact per entry is the noise"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+if [ -d "$W_TMP/zzz-blind-1" ]; then
+    ok "S27b and NOTHING under that root was deleted — the safety is unchanged"
+else
+    bad "S27b a tree was deleted with no open-file answer at all"
+fi
+case "$OUT" in
+    *"6 undeclared entr"*)
+        ok "S27c and the one line carries the COUNT, so the scale is not lost" ;;
+    *) bad "S27c reported once, but without saying how many it covers"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+# AND THE UNDECIDABLE COUNT ITSELF MUST BE 1, which is the assertion that actually
+# measures the aggregation. S27 above counts one BANNER, and mutant M46 showed that
+# is not enough: with the per-entry path restored the banner is still printed once
+# and six MORE undecidable entries appear beside it, so the case stayed green
+# against exactly the defect it was written for. The number in the verdict line is
+# the thing that cannot be fooled.
+if printf '%s' "$OUT" | grep -q 'undecidable=1 '; then
+    ok "S27e the verdict line says undecidable=1, not one per entry"
+else
+    bad "S27e the undecidable count is per-entry: $(printf '%s' "$OUT" | grep -o 'undecidable=[0-9]*' | head -1)"
+    printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /'
+fi
+# THE CONTROL: with lsof working again, the same six are decided individually and
+# deleted. Without it, S27 passes against an arm that has stopped working.
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-blind-1" ] && [ ! -d "$W_TMP/zzz-blind-6" ]; then
+    ok "S27d CONTROL: with lsof answering, the same six are decided and deleted"
+else
+    bad "S27d CONTROL FAILED: the arm decides nothing either way"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and
 # eight harnesses in this engine were once run by nothing at all. It matters

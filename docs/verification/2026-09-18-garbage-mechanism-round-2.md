@@ -853,3 +853,212 @@ $ scripts/scratch-reaper.mutation.sh      all 45 properties proven load-bearing
 gives: a stub that only echoed a total could not tell a correct implementation from one that deletes
 every volume on the machine. **No real volume was removed by this pass** — the volume stage only runs
 under `--apply`, and `--apply` was never run against the real daemon from this worktree.
+
+---
+
+## 9. One more defect, found in the operator's own launchd log
+
+While checking that this pass had written nothing to the real state files, the shipped job's log
+answered a question I had not asked:
+
+```
+$ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log   -> 1
+$ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log   -> 4
+
+# and the undecided one, with the line above it:
+why: the open-file table could not be read, and a temp workspace is only dead when its creator is
+verdict: undecided deletable=0 reclaimable=0 B kept=3946 undecidable=1
+```
+
+**What that establishes, exactly:** the log holds five scheduled verdicts, one of them is undecided,
+and that one's reason is the unreadable open-file table. **It does not establish a failure RATE** —
+five samples is not a frequency, and I am not claiming one. What matters here is that it happens **at
+all**, under launchd, on this machine, unprompted.
+
+That cost exactly one entry before,
+because the old `$TMPDIR` arm had almost no candidates. **The deny-by-default arm has tens of
+thousands.** The same timeout would have produced ~40,000 identical INDETERMINATE entries, a vast
+undecidable pile in the garbage alarm, and exit 3 — on every run where it happens. That is the
+unclearable-noise failure arriving through the door my own change opened.
+
+An unreadable table is now reported **once per root, with the count**. The safety is identical —
+nothing under that root is deleted either way — and what changes is whether a person can read the
+report. S27/S27b/S27c/S27e, control S27d.
+
+**And S27 was not enough, which M46 proved.** Aimed at S27, the mutant reported *"the suite still
+PASSED"*: S27 counts one BANNER, and with the per-entry path restored the banner is still printed once
+while six more undecidable entries appear beside it. **A case that counts the headline cannot see the
+pile underneath it.** S27e asserts `undecidable=1` in the verdict line, which cannot be fooled. That
+is the fourth time in this file the same lesson has been paid for (M22, M25, M33, M46), and it is
+always the same shape: *assert the number, not the sentence.*
+
+---
+
+## 10. The test-instance label at allocation — the design, and it is Rich's call site
+
+`zach-opus-testinst1` left one gap and named it precisely: **an app instance under the LIVE session's
+scratchpad, belonging to an agent that has LANDED, is collected by neither arm.** The sweep arm keeps
+a running session's scratchpad (correct — the session is running), and the land-time arm knows only
+the agent's workspace paths. The scratch ledger row is `path / label / pid / ppid / session / created /
+ttl_minutes / event` and **never an agent name**, so `workspaces.sh land <agent>` cannot ask "what did
+this agent allocate".
+
+**It cannot be closed by matching, and that is the whole point.** A fuzzy match of an agent name
+against a path is a guess, and the ledger exists so attribution is recorded rather than inferred. So
+the label goes in at ALLOCATION time:
+
+1. **One new environment variable, `RICHOS_SCRATCH_AGENT`**, carrying the agent's
+   `<role>-<model>-<identifier>`. The launcher exports it into the environment of everything it
+   starts — that is the one line Rich's launcher call adopts, and it is the only change outside the
+   engine's own files.
+2. **One new field in the ledger row**, written by `_scratch_record` in `scripts/lib/scratch.sh`:
+   `"agent":"<slug>"`. It sits beside `label`, is machine-generated from a declared variable, and
+   therefore needs exactly the escaping `label` already has — the row's hand-rolled `printf` gains one
+   `%s` and nothing else. An absent variable writes `""`, which is what every allocation outside a
+   walk already is.
+3. **`read_ledger` in `scratch-reaper.py` carries `agent` through** alongside `label`, one line.
+4. **`RootSet` gains an `agent=` selector** (`scripts/lib/appinstances.py`): the paths of every ledger
+   row whose `agent` matches. `workspaces.sh land <name>` passes it, so the land collects instances
+   rooted in anything that agent allocated, **wherever it allocated it** — including under a live
+   session's scratchpad, which is the gap.
+
+**Why the land and not the sweep.** §54 addendum 4's trigger is *the test is over*, and the land is
+the moment the engine knows that. The sweep must go on keeping a live session's scratchpad, because a
+session that is running may still own everything in it.
+
+**Nothing of this is implemented here.** Steps 2 and 4 are `scratch.sh`, `appinstances.py` and
+`workspaces.sh`, which are outside the footprint this brief drew, and step 1 is Rich's launcher. A
+half-built version — the reaper carrying a field nothing writes — would be dead code that reads like
+a finished feature, which is a worse outcome than a design somebody can pick up in one sitting.
+
+---
+
+## 11. The probe, and what `install.sh` must re-arm at the land
+
+```
+$ scripts/hooks/contract-integrity-probe.sh
+Integrity probe FAILED — 25 layer(s) broken.
+```
+
+**All 25 are the same known condition and none is mine:** `grep -c '✗'` is 25 and
+`grep -c 'manifest missing or unreadable\|unhashed'` is 25. The sidecars are gitignored by
+construction —
+
+```
+$ git check-ignore -v richos/engine/scripts/hooks/guard-dialect.sh.sha256
+richos/engine/.gitignore:13:scripts/hooks/*.sha256
+$ git ls-files richos/engine/scripts/hooks/ | grep -c sha256      -> 0
+$ ls /Users/alex/ab/richos/richos/engine/scripts/hooks/guard-dialect.sh.sha256   -> present
+```
+
+— so a worktree never has them and this probe **cannot** be green from one. Every layer that does not
+need a sidecar IS green: D (the write guard refuses a main-checkout write), E, F, G, H, I, J, L, M, N,
+Q6 (10/10 arms), Q7, EP.
+
+**What the re-run must re-arm, precisely — and it is less than it looks:**
+
+- **The `.sha256` sidecars** for the managed hook set. Required for the probe to be green; unrelated
+  to anything in this branch.
+- **Nothing for the new behavior.** Neither hook I changed (`session-start-scratch.sh`,
+  `notice-disk-alert.sh`) is in `install.sh`'s `HOOK_FILES` sidecar list, and both are already wired
+  in `hooks/hooks.json` (SessionStart ×2, Stop ×1) and in `.claude/settings.local.json`. No wiring
+  changes.
+- **The two launchd plists do NOT need re-installing for the new arms to take effect.** The plist
+  bakes in a PATH and the script's absolute path in the main checkout; the job `exec`s the script
+  fresh on every firing and the script sources `orchestration.config` at that moment. So the next
+  scheduled run after the merge picks up every new arm and every new declaration with no
+  `--install`. `install.sh` re-runs `--install` for both jobs anyway, which is harmless.
+- **`docker` is reachable from the plist's PATH** — checked: the plists declare
+  `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin` and `shutil.which('docker')` resolves
+  `/usr/local/bin/docker`. The container arm and the volume stage therefore work under launchd and not
+  only in a shell.
+
+---
+
+## 12. Open items — measured, not fixed, and each says why
+
+1. **`richos-alex`, 7.55 GB, 14 days untouched, in no ledger.** Bigger than Frank's second-largest
+   pile and NOT declared a campaign root, because its name suggests a personal checkout and nothing
+   establishes it is finished with. **One question for the CEO: is it?** Declaring it is a one-word
+   edit to `SCRATCH_CAMPAIGN_ROOTS`.
+2. **The two stale `codex-*` worktrees under `~/ab/richos-wt`** (0.20 GB, 0.18 GB) are REGISTERED git
+   worktrees; removing the directories without `git worktree remove` leaves stale administrative
+   entries. Worktree-reaper jurisdiction, and the class of mistake that retired
+   `com.richos.worktree-reconciler`.
+3. **D13's other half is still open.** `richos_garbage_bytes()` counts only the allocator root and the
+   claude roots, so the "RichOS garbage (DEFECT)" vs "other" classification still sees a fraction of
+   our own garbage — Frank measured 8.9 GB counted against ~27 GiB of RichOS-named garbage. Fixing it
+   properly means the sweeper publishing an "ours" figure the watchdog can read; half-fixing a
+   classifier is worse than leaving it measured. `/private/tmp` IS now in
+   `DISK_CONSUMER_CANDIDATES`, so the alert can at least name the pile.
+4. **D4, the app's 61 runtime `temp_dir()` sites, is untouched and is Echo's.** This pass did add a
+   measurement to it: `work-host-*` (85 direct children of `$TMPDIR`) comes from
+   `richos-core/src/work_host.rs`, and the only reason it is not garbage today is that it is younger
+   than the age floor. `TempDir` removes on `Drop` and `Drop` does not run on `SIGKILL`.
+5. **D15, `/Volumes/E1TB`,** is watched for free space (124 GB scaled floor) and swept by nothing,
+   including its own `tmp/`. Not in this brief; the floor means months of silence.
+6. **D17, the recursion guard's one copy path of seven,** is untouched — `ceo-todos.mutation.sh`
+   copies with its own `cp -R` outside `mutation_copy_engine`'s refusals. Frank ranks it low and it is
+   a mutation-harness concern rather than a garbage one.
+
+---
+
+## 13. The garbage I made, and it is gone
+
+Everything was built under this session's own scratchpad
+(`/private/tmp/claude-501/.../scratchpad/zach-g2`) with a sandbox `TMPDIR`, a sandbox
+`CLAUDE_CONFIG_DIR` and a sandbox config file. Verified after the final pass:
+
+```
+$ ls -1d $TMPDIR/scratch-reaper-test.*  $TMPDIR/disk-watchdog-test.* \
+         $TMPDIR/disk-alert-test.* $TMPDIR/zzz-* $TMPDIR/zforeign.*   -> 0 each
+$ ls -1 $TMPDIR/richos-scratch                                        -> 0
+$ ls -1d ~/ab/zcampaign-* ~/ab/zzz-a-real-project                     -> 0
+$ ls ~/.claude/state/scratch-failures.json                            -> No such file
+$ ls ~/.claude/state/app-instance-failures.json                       -> No such file
+$ git status --short                                                  -> clean
+```
+
+The ratchet-defeat fixture (`scripts/zzz-ratchet-proof.sh`) was removed and `git status` confirms it.
+The two `sleep infinity` containers, the 21 dangling volumes, the campaign roots under `~/ab` and the
+real `$TMPDIR` are all **exactly as they were** — `--apply` was never run against the real config from
+this worktree, and the real `scratch-reaper-state.json` still carries the pre-change schema written by
+the operator's own launchd job at `2026-09-18T11:32:00Z`, which is how I know.
+
+**Read-mostly discipline:** the real disk was read with `--json`, `--notice` and the plain plan, none
+of which deletes or writes state. Every `--apply` in this pass ran inside a sandbox with `TMPDIR`,
+`CLAUDE_CONFIG_DIR` and the config file redirected. No macOS notification was ever posted: the
+watchdog suite stubs `osascript` and records what it was asked to post.
+
+---
+
+## 14. Tests, in one place
+
+| suite | result |
+|---|---|
+| `scripts/scratch-reaper.test.sh` | **109 passed, 0 failed** |
+| `scripts/scratch-reaper.mutation.sh` | **all 46 properties proven load-bearing** |
+| `scripts/disk-watchdog.test.sh` | **40 passed, 0 failed** |
+| `scripts/scratch-allocation-lint.test.sh` | **17 passed, 0 failed** |
+| `scripts/lib/scratch.test.sh` | **14 passed, 0 failed** |
+| `scripts/lib/appinstances.test.sh` | **17 passed, 0 failed** |
+| `scripts/hooks/session-start-scratch.test.sh` | **9 passed, 0 failed** |
+| `scripts/hooks/notice-disk-alert.test.sh` | **14 passed, 0 failed** |
+
+220 cases and 46 mutants. **Every fix in this pass has a control**, because every one of them is a
+thing that must NOT happen, and every such case passes against a program that does nothing at all.
+
+### The five defects this pass found in its own work, and what caught each
+
+| defect | caught by |
+|---|---|
+| config keys declared and never exported — the whole arm silently off | a full-disk pass finishing in 1.3 s |
+| `lstart_epoch` one hour early in DST, in the primitive two arms rest on | S21o, a case asserting WHICH REASON a KEEP carried |
+| the banner re-deriving the expensive arm, printing a line that is always true | reading the banner's own output |
+| a sub-second gap making any fall read as 496,862 GB/hour | W4b's control failing |
+| two resolvers for "where is docker" disagreeing | S26 failing against a stub one arm ignored |
+| a reused LEDGER pid immortal, with a comment claiming TTL covered it | mutant M37 scoring green |
+| one lsof timeout becoming ~40,000 undecidable entries | the operator's own launchd log |
+
+**Not one of those was found by re-reading the code.** Six of the seven were found by a test or a
+mutant disagreeing with me, and the seventh by a log file answering a question I had not asked.

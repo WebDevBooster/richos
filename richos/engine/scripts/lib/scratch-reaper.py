@@ -1576,19 +1576,59 @@ class Reaper(object):
         if self.skip_unknown_arm:
             self.unknown_not_scanned = len(self._unknown)
             return
+        # THE OPEN-FILE TABLE DOES FAIL UNDER LAUNCHD ON THIS MACHINE, AND THAT
+        # CHANGES WHAT AN UNREADABLE TABLE MAY COST.
+        #
+        # Read off the operator's own launchd log on 2026-09-18:
+        #   $ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log  -> 1
+        #   $ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log  -> 4
+        # and the undecided one's reason is exactly this: "the open-file table could
+        # not be read, and a temp workspace is only dead when its creator is".
+        #
+        # WHAT THAT ESTABLISHES IS THAT IT HAPPENS, NOT HOW OFTEN. Five verdicts is
+        # not a frequency and no rate is claimed from it. Happening at all is enough,
+        # because of what it would now cost: it cost ONE entry in that run, since the
+        # old $TMPDIR arm had almost no candidates.
+        #
+        # THIS ARM HAS TENS OF THOUSANDS. Deciding each one individually would turn
+        # a single lsof timeout into ~40,000 identical INDETERMINATE entries, an
+        # enormous undecidable pile in the garbage alarm, and exit 3 — on every run
+        # where it happens. Thousands of copies of one fact is the noise that makes a
+        # real signal get skipped, which is the failure this mechanism exists to
+        # prevent.
+        #
+        # So an unreadable table is reported ONCE PER ROOT, with the count. The
+        # safety is identical — nothing under that root is deleted — and the report
+        # is one line a person can read instead of a wall they will learn to page
+        # past.
         held = {}
         done = 0
+        blind = {}
+        for path, root in self._unknown:
+            if root not in held:
+                tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+                held[root] = (self.open_under_tmp() if root == tmp
+                              else self.open_under_shared(root))
+            if held[root] is None:
+                blind[root] = blind.get(root, 0) + 1
+        for root, n in sorted(blind.items()):
+            self.add(root, "tmp-unknown", 0, INDETERMINATE,
+                     "THE OPEN-FILE TABLE COULD NOT BE READ, so the %d undeclared "
+                     "entr(ies) directly under this root were not decided. A tree "
+                     "something is reading must never be deleted from under it. "
+                     "Reported once rather than %d times: one fact repeated %d "
+                     "times is noise, and noise is what makes a real signal get "
+                     "skipped." % (n, n, n))
         try:
             for path, root in self._unknown:
                 check_deadline()
+                if held.get(root) is None:
+                    done += 1
+                    continue        # already reported once, for this whole root
                 if path in self._standing or \
                         os.path.realpath(path) in self._standing:
                     done += 1
                     continue        # scan_standing_failures already decided it
-                if root not in held:
-                    tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
-                    held[root] = (self.open_under_tmp() if root == tmp
-                                  else self.open_under_shared(root))
                 self.scan_unknown(path, walls, root, held[root])
                 done += 1
         except Deadline:

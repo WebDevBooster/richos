@@ -470,4 +470,22 @@ mutant M45.running-container-stopped "S26d" "$LIB" \
      machine. Nomination here is only a report, and it would still be a report
      telling a person to \`docker rm -f\` a live service."
 
+# ASSERTED AGAINST S27e AND NOT S27, and finding that out is what the harness is
+# for. Aimed at S27 it reported "the suite still PASSED": S27 counts one BANNER, and
+# under this mutation the banner is still printed once while six MORE per-entry
+# undecidable entries appear beside it. A case that counts the headline cannot see
+# the pile underneath it. S27e asserts the number in the verdict line, which is the
+# thing that cannot be fooled. Third time this lesson has been paid for in this
+# file (M22, M25, M33).
+mutant M46.blind-lsof-per-entry "S27e" "$LIB" \
+    "                if held.get(root) is None:{NL}                    done += 1{NL}                    continue        # already reported once, for this whole root" \
+    "                if False:{NL}                    done += 1{NL}                    continue        # already reported once, for this whole root" \
+    "An unreadable open-file table is reported once PER ENTRY again, so one lsof
+     timeout becomes tens of thousands of identical INDETERMINATE lines, an
+     enormous undecidable pile in the garbage alarm, and exit 3. The operator's own
+     launchd log shows that failure happening — one of its five scheduled verdicts,
+     which establishes that it happens and not how often. The safety is identical
+     either way; what is destroyed is the readability of the report, which is the
+     whole of the second half of §54."
+
 mutation_end
