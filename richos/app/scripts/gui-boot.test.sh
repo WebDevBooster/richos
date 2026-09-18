@@ -407,6 +407,15 @@ declare_rules() {
     'how many companies are on disk and where; the trusting of the file is the proof above'
   routine '^\[richos\] boot complete' \
     'the terminator, printed by setup as its last act'
+
+  # THE BOOT SWEEP (annex §6.1-6.3, landed 7c37fea6 on 2026-09-17): one line per boot from
+  # `recovery.rs:187` `log_message`. ONLY the all-zero form is routine — it says the sweep ran
+  # and found nothing that was running when the last process ended. A non-zero count of
+  # assignments unknown until re-witnessed, an orphan grant closed, a grant that could NOT be
+  # closed, or an unreadable register are each a boot after something went wrong, and they
+  # stay unaccounted so that boot is SEEN rather than filed as routine.
+  routine '^\[richos\] recovery: 0 assignment\(s\) unknown until re-witnessed, 0 left as recorded$' \
+    'the boot sweep ran and had nothing to re-witness; every other shape of this line stays unaccounted'
   routine '^\[richos\] loro lane: no lane narrowing in force' \
     'an unpartitioned corpus, which is a shape rather than a missing setting'
   routine '^\[richos\] loro corpus: in-repo layout at .+ - this is .+ own' \
