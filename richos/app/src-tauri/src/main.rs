@@ -101,6 +101,17 @@ mod setup_view;
 /// pure enough to be tested without a network and is.
 mod voice_provision;
 
+/// **THE PHONE CHANNEL — this app's first inbound network listener** (CEO decision §57; plan
+/// `richos-hq/docs/plans/richos-phone-client-2026-09-18.md`; wire contract
+/// `docs/architecture/phone-channel.md`).
+///
+/// A module rather than more of `main.rs`, and a deliberately wide one: a certificate
+/// authority, a TLS listener, four routes and a push sender is an organ, not a feature flag.
+/// Everything it is allowed to reach is handed to it — it holds no path to the ledger, the raw
+/// event stream or a `Timeline`, which is what makes plan §4.2 (iii) structural rather than a
+/// rule somebody has to remember.
+mod phone;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.

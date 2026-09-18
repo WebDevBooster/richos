@@ -178,10 +178,14 @@ Response `200`:
 }
 ```
 
-The six words are the CA fingerprint rendered from a fixed word list; **the Mac's screen shows the same
-six words at the same moment** and the CEO confirms they match before he taps Pair (plan §4.1). They are
-derived from the SHA-256 of the root certificate's DER, six groups of eleven bits, so the comparison is
-66 bits of the fingerprint rather than a friendly-looking hash of nothing.
+The six words are the CA fingerprint rendered from a fixed 256-word list; **the Mac's screen shows the
+same six words at the same moment** and the CEO confirms they match before he taps Pair (plan §4.1).
+They are the first six bytes of the SHA-256 of the root certificate's DER, one word per byte, so the
+comparison is **48 bits** of the fingerprint rather than a friendly-looking hash of nothing. That is
+ample for what it defends: not a brute-force search, but somebody getting the CEO to nod at a different
+Mac inside a sixty-second window. The word list lives on the Mac only — a PWA cannot read the TLS chain,
+so the phone displays the words the Mac sent and never re-derives them, and both the profile's own
+description and the Mac's screen carry them too.
 
 `vapidPublicKey` is what the phone passes to `pushManager.subscribe({applicationServerKey})`.
 
