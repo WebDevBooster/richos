@@ -4389,6 +4389,69 @@ body.bp-narrow .tl-user-bubble {
   text-overflow: ellipsis;
 }
 
+/* THE THREE-WAY SCOPE SHEET (§7.1, the CEO's answer of 2026-09-18).
+
+   BUILT ALMOST ENTIRELY OUT OF TREATMENTS THIS APP HAS ALREADY PROVEN, on purpose: the
+   panel is `.overlay-panel--compact`, the two controls are `.desk-btn` and
+   `.desk-btn--confirm` (the correction desk's own pair), and the radios are the SAME
+   unstyled native inputs the retention choice in the rail's popover ships. Every one of
+   those is walked by `tests/contrast.js` on a surface that already exists, so the only new
+   arithmetic below is the option text and the title.
+
+   THE RATIOS, COMPUTED RATHER THAN EYEBALLED (WCAG AA, both themes, floor 4.5:1 for this
+   text — all of it is normal-weight and under 24px, so none of it claims the 3:1 large-text
+   allowance):
+
+     .techy-scope-option span, .techy-scope-title   `--ink` on `--card`
+       dark    #dfe4ee on #182440                   12.08:1
+       light   #0c1322 on #fdfcf8                   18.07:1
+
+   Derived by hand from the token values in this file (`--ink`/`--card` at both `:root`
+   blocks) using the WCAG relative-luminance formula, and then measured independently by
+   `tests/contrast.js` check 9.techy-scope, which reads what is actually painted. The hand
+   figure exists so a future restyle of `--ink` or `--card` has a number to be checked
+   against rather than a memory of it having been fine.
+
+   THE HAND ARITHMETIC WAS CHECKED AGAINST A KNOWN ANSWER BEFORE IT WAS TRUSTED: the same
+   method applied to `--ink-soft` on `--card` gives 5.78:1 dark and 6.38:1 light, and
+   `contrast.js` check 11b independently reports 5.78:1 for #979faf on #182440 on the
+   settings tooltip. Two routes, one number.
+
+   NOTHING HERE IS EXEMPT. Every string in this sheet is a choice the CEO is being asked to
+   make, which is the opposite of the narrow "not meant to be read closely" carve-out. */
+.techy-scope-title {
+  margin: 0 0 12px;
+  font-size: 1.0625rem;
+  color: var(--ink);
+}
+
+.techy-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The whole row is the hit target, not just the 13px dot — the same reason `.popover-option`
+   is a `<label>` with the input inside it. `align-items: center` rather than `baseline`
+   because an option that wraps to two lines on a narrow window should keep its dot beside
+   the first line, which is where the eye is. */
+.techy-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.techy-scope-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* The Settings line (§3.3: "v1 access = a keyboard shortcut, plus one line in Settings").
    Whether a customer-facing affordance ever appears in the conversation is §7.3 — the
    CEO's, unanswered — and adding one later is a `hidden` attribute on #techy-chip's

@@ -228,14 +228,42 @@
           <label class="popover-option"><input type="radio" name="assertiveness" value="urgent-only" /> Only when it's urgent</label>
 
           <!-- §3.3: "v1 access = a keyboard shortcut, plus one line in Settings." This is
-               the line. The switch is the GLOBAL default (§3.1 — the CEO said "some or ALL
-               of their conversations", and "all" has to be one switch); a single
-               conversation is the keyboard shortcut, which pins that thread and leaves this
-               where it was. §7.1 is his open question and both halves are reachable. -->
+               the line. It USED TO BE the global default and nothing else, with the keyboard
+               shortcut as the per-conversation half, because §7.1 — "global default, or
+               per-thread only?" — was the CEO's open question and both halves had to stay
+               reachable while it was.
+
+               HE ANSWERED IT ON 2026-09-18 and the answer was a tier neither half had: this
+               switch now asks WHERE, in three choices, whenever a conversation is open. The
+               keyboard shortcut keeps its old job unchanged and is the one control that does
+               not ask, because it names its own scope. -->
           <div class="popover-divider" role="presentation"></div>
-          <p class="popover-title">Show the technical view</p>
+          <!-- THE LABEL CHANGED ON 2026-09-18 AND HAD TO. It read "In every conversation"
+               while this switch WAS the global default and nothing else. Since the CEO's
+               §7.1 answer it reads and writes the RESOLVED state of the conversation he is
+               looking at, through the three-way scope sheet, so "in every conversation"
+               would be a claim about reach that the switch no longer makes — it is true of
+               exactly one of his three choices. The scope now lives where he chooses it and
+               is reported back in `#techy-hint`, which says which of the three is holding
+               this conversation on.
+
+               THE HEADING AND THE LABEL SPLIT THE WAY THE OPENING-SCREEN GROUP BELOW
+               ALREADY SPLITS THEM: the title names the SUBJECT ("Opening screen") and the
+               label names the ACT ("Show it when RichOS starts"). This group's old title
+               WAS its act, which is why the first draft of this change deleted the title
+               and then had to put a different one back.
+
+               WHY THIS SWITCH READS THE RESOLVED STATE AND NOT `techy.default`. There is
+               one technical view and there must be one answer to "is it on?" — and the
+               answer a person means is the one they can see. A switch showing the global
+               default over a conversation pinned off would sit ON above a calm screen,
+               which is the two-controls-that-disagree defect in its worst form: not two
+               controls disagreeing with each other, but one control disagreeing with the
+               window. The settings menu's own Techy Mode row (§15) reads through the same
+               accessor, so the two doors cannot drift. -->
+          <p class="popover-title">Technical view</p>
           <label class="popover-option">
-            <input type="checkbox" id="techy-default" /> In every conversation
+            <input type="checkbox" id="techy-default" /> Show it
           </label>
           <p class="popover-hint" id="techy-hint"></p>
 
@@ -1105,6 +1133,71 @@
               </p>
               <div id="feedback-history-list" class="desk-list"></div>
             </section>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- THE CEO'S THREE-WAY SCOPE CHOICE (§7.1, his answer of 2026-09-18).
+           `richos-hq/wiki/ceo-decisions.md` §9.1, verbatim:
+
+             "when the user toggles the techy mode on while being inside a conversation
+              thread, then there should be something like a radio button choice between 3
+              choices. And those choices could be something like 1) 'For all threads in all
+              companies' 2) 'For all threads in this company' 3) 'For this thread only'. And
+              the first choice should be preselected after the user switches the techy mode
+              on. That also means that later the user should be able to switch off the techy
+              mode for a given company or a given thread."
+
+           HIS THREE OPTIONS, IN HIS ORDER, WITH HIS "For ..." SHAPE. The one word changed is
+           his "threads" -> "conversations", which is the word this product says to him on
+           every other surface (`#techy-chip-label` "... this conversation", the rail's own
+           switch, `#scope-thread`). Shipping his word here would put a second name for the
+           same thing in the one place he is being asked to choose between them. He also
+           wrote "could be something like", which is the license to do exactly that and
+           nothing more.
+
+           THEY ARE WRITTEN TO SURVIVE BEING SPOKEN, because this app is voice-first: each
+           option is a complete answer to the title on its own, so "For all conversations in
+           this company" means the same thing read off the screen or read aloud with no
+           other option audible for contrast. The parallel openings are what make them
+           scannable by eye AND distinguishable by ear.
+
+           NO COUNTS, NO COMPANY NAME INTERPOLATED. "This company" is what the crumb
+           immediately above the conversation already names (`#scope-entity`), and printing
+           it twice invites the two to disagree on the frame where a thread switch is mid-
+           flight.
+
+           THE COMPANY OPTION CAN BE ABSENT. A thread written before entity scoping has no
+           company (`thread::ThreadSummary::entity_id`), and `ConfigStore::apply_techy_scope`
+           REFUSES a company scope without one. So `main.js` hides this row for such a
+           thread rather than offering a choice the store will reject — the only case in
+           which the sheet shows two options instead of three.
+
+           `data-dismiss="escape"` per the CEO's 2026-09-17 rule that Escape closes every
+           popup; the closer is registered in `main.js`'s POPUP_CLOSERS and cancels, which
+           for this sheet means the switch that opened it is repainted from the store rather
+           than left showing a choice nothing took. -->
+      <div id="techy-scope" class="overlay" data-dismiss="escape" hidden role="dialog" aria-modal="true" aria-labelledby="techy-scope-title">
+        <div class="overlay-panel overlay-panel--compact">
+          <p id="techy-scope-title" class="techy-scope-title">Turn on the technical view</p>
+          <div id="techy-scope-options" class="techy-scope-options" role="radiogroup" aria-labelledby="techy-scope-title">
+            <label class="techy-scope-option">
+              <input type="radio" name="techy-scope" value="all-companies" checked />
+              <span>For all conversations in all companies</span>
+            </label>
+            <label class="techy-scope-option" id="techy-scope-company">
+              <input type="radio" name="techy-scope" value="company" />
+              <span>For all conversations in this company</span>
+            </label>
+            <label class="techy-scope-option">
+              <input type="radio" name="techy-scope" value="thread" />
+              <span>For this conversation only</span>
+            </label>
+          </div>
+          <div class="techy-scope-actions">
+            <button id="techy-scope-cancel" class="desk-btn" type="button">Cancel</button>
+            <button id="techy-scope-confirm" class="desk-btn desk-btn--confirm" type="button">Turn it on</button>
           </div>
         </div>
       </div>

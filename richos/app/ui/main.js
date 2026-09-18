@@ -6578,6 +6578,17 @@ const techyChipLabelEl = el("techy-chip-label");
 const techyStateEl = el("techy-state");
 const techyDefaultInput = el("techy-default");
 const techyHintEl = el("techy-hint");
+const techyScopeEl = el("techy-scope");
+const techyScopeTitleEl = el("techy-scope-title");
+const techyScopeCompanyEl = el("techy-scope-company");
+const techyScopeConfirmEl = el("techy-scope-confirm");
+const techyScopeCancelEl = el("techy-scope-cancel");
+
+/// HIS FIRST CHOICE, and the one name for it on this surface. `config.rs` declares the
+/// same constant (`TechyScope::PRESELECTED`) for the same reason: *"the first choice
+/// should be preselected"* is a rule about a specific option, and two files that each
+/// remember which one it was would eventually remember differently.
+const TECHY_SCOPE_PRESELECTED = "all-companies";
 
 /// The ACTIVE thread's resolved answer, from `techy_mode`. `null` before the first read and
 /// on an unwired bridge — treated as OFF, which is the only safe default: a wrong "on"
@@ -6602,16 +6613,28 @@ function renderTechyChip() {
   const on = techyOn();
   techyChipEl.hidden = !on;
   if (!on) return;
-  // Which of the CEO's two switches is holding this thread on — so turning it off from
-  // here is a predictable act rather than a guess. §7.1 is open; this sentence is what
-  // makes both halves legible while it is.
+  // WHICH OF THE CEO'S THREE SWITCHES IS HOLDING THIS CONVERSATION ON — so turning it off
+  // from here is a predictable act rather than a guess. §7.1 was open when this said "two";
+  // his 2026-09-18 answer made it three, and a chip that still named two would tell him the
+  // global switch was holding a conversation that a COMPANY pin was actually holding —
+  // which is the one fact he needs before deciding where to turn it off.
+  //
+  // "this company" is not interpolated with the company's name: `#scope-entity` in the
+  // crumb a few pixels to the left already names it, and two places printing one name is
+  // two places that can disagree on the frame a thread switch is mid-flight.
   techyChipLabelEl.textContent =
-    techy.source === "thread" ? "Technical view · this conversation" : "Technical view · everywhere";
+    techy.source === "thread"
+      ? "Technical view · this conversation"
+      : techy.source === "entity"
+        ? "Technical view · this company"
+        : "Technical view · everywhere";
   techyChipEl.setAttribute(
     "aria-label",
     techy.source === "thread"
       ? "Technical view is on for this conversation. Turn it off."
-      : "Technical view is on for every conversation. Turn it off here."
+      : techy.source === "entity"
+        ? "Technical view is on for every conversation in this company. Turn it off here."
+        : "Technical view is on for every conversation. Turn it off here."
   );
 }
 
@@ -6624,13 +6647,25 @@ function renderTechySettings() {
   // running this.
   window.RichSettings.paint();
   if (!techyDefaultInput) return;
-  techyDefaultInput.checked = !!(techy && techy.default);
+  // THE RESOLVED STATE, NOT THE GLOBAL DEFAULT — changed 2026-09-18 with the third tier.
+  // There is one technical view, so there is one answer to "is it on?", and the answer a
+  // person means is the one they can SEE. While this read `techy.default` the switch could
+  // sit ON above a conversation pinned off: not two controls disagreeing with each other,
+  // but one control disagreeing with the window it is drawn on.
+  techyDefaultInput.checked = techyOn();
   if (!techyHintEl) return;
   const key = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318\u21e7T" : "Ctrl+Shift+T";
-  techyHintEl.textContent =
-    techy && techy.source === "thread"
-      ? `This conversation is set on its own. ${key} changes just this one.`
-      : `${key} shows it for one conversation only.`;
+  // WHICH TIER IS HOLDING IT, in a sentence, because the switch above can no longer carry
+  // that in its label. With it off there is no tier to name, so the hint is the shortcut —
+  // which is still exactly what it says it is: the per-conversation control, and the one
+  // entrance that does NOT ask for a scope, because pressing it has already named one.
+  techyHintEl.textContent = !techyOn()
+    ? `${key} shows it for one conversation only.`
+    : techy.source === "thread"
+      ? `On for this conversation. ${key} changes just this one.`
+      : techy.source === "entity"
+        ? `On for all conversations in this company. ${key} changes just this one.`
+        : `On for all conversations in all companies. ${key} changes just this one.`;
 }
 
 /// The four states from `get_machinery`, rendered as the three sentences Rust wrote
@@ -6884,9 +6919,10 @@ async function toggleTechyThread() {
   conversationEl.scrollTop = top;
 }
 
-/// The global switch (§3.1: "all" must be one switch, not N toggles). Threads the CEO
-/// pinned individually keep their own answer — that is what makes a pin mean anything, and
-/// it is the half of §7.1 a global-only build would lose.
+/// The global switch (§3.1: "all" must be one switch, not N toggles). Reached now only
+/// when there is NO conversation on screen — see `requestTechyToggle` — because with one
+/// open the CEO gets his three-way choice instead, and "all companies" is that choice's
+/// first option applied through `set_techy_scope`.
 async function setTechyDefault(on) {
   await invokeQuiet("set_techy_default", { enabled: on });
   await refreshTechy(activeThreadId);
@@ -6895,18 +6931,150 @@ async function setTechyDefault(on) {
   conversationEl.scrollTop = top;
 }
 
-if (techyChipEl) techyChipEl.addEventListener("click", toggleTechyThread);
-if (techyDefaultInput) {
-  techyDefaultInput.addEventListener("change", () => setTechyDefault(techyDefaultInput.checked));
+// ---------------------------------------------------------------------------------------
+// §7.1'S THREE-WAY SCOPE CHOICE (the CEO's answer, 2026-09-18)
+//
+// His sentence, which is the acceptance criterion and not the preamble:
+//
+//   "By default (on first app start) the techy mode is off. But when the user toggles the
+//    techy mode on while being inside a conversation thread, then there should be something
+//    like a radio button choice between 3 choices. ... And the first choice should be
+//    preselected after the user switches the techy mode on. That also means that later the
+//    user should be able to switch off the techy mode for a given company or a given
+//    thread."
+//
+// WHICH CONTROLS ASK, AND THE ONE THAT DOES NOT. The choice appears from every control
+// whose own name does not already say where it applies:
+//
+//   the settings menu's Techy Mode row  -> asks
+//   the rail's "Show the technical view" switch -> asks
+//   the chip in the conversation header -> asks (this is the switch-OFF path his last
+//                                          sentence is about)
+//
+// and NOT from the keyboard shortcut. ⌘⇧T is documented, in the hint under that very
+// switch, as the control that "shows it for one conversation only" — pressing it IS
+// choosing option 3. Routing it through a sheet whose first option is preselected would
+// have made ⌘⇧T + Enter turn the technical view on EVERYWHERE, inverting the meaning of
+// the only shortcut this feature has. His "toggles the techy mode on" is read here as the
+// scope-ambiguous switches, which is every control that does not name a scope itself. This
+// is the one judgment call in this slice and it is recorded rather than buried.
+//
+// AND ON THE OPENING SCREEN THERE IS NO CHOICE TO MAKE. With no conversation open, "this
+// company" and "this conversation" have no referent, so two of the three options are dead;
+// the switch writes the global default directly. A radio group with one live option is a
+// question pretending to be a choice.
+//
+// THE PRESELECTION IS THE SAME IN BOTH DIRECTIONS. He specified it for switch-on. Nothing
+// in the store argues for a different one on switch-off, and one preselection a person can
+// learn once beats two that have to be checked every time. What stops an accidental
+// app-wide flip is the explicit confirm button, not a defensive preselection.
+// ---------------------------------------------------------------------------------------
+
+/// What the sheet is currently asking about: `{ on }`, or `null` when it is closed.
+let techyScopeAsk = null;
+
+/// This conversation's company, or `null`. Read from `activeContext` — the AUTHORITATIVE
+/// binding — and never from the renderer's own idea of what is selected, which is the same
+/// rule the scope crumb follows. `null` hides the middle option, because
+/// `ConfigStore::apply_techy_scope` refuses a company scope without one and offering a
+/// choice the store will reject is worse than offering two.
+function techyCompanyOfActive() {
+  return activeContext && activeContext.entity_id ? activeContext.entity_id : null;
 }
+
+function techyScopeInputs() {
+  return techyScopeEl ? Array.from(techyScopeEl.querySelectorAll('input[name="techy-scope"]')) : [];
+}
+
+/// Open the choice. `on` is the direction the CEO just asked for, which is what the title
+/// and the confirm button say out loud — he is never left to infer which way a confirm
+/// goes from which switch he touched.
+function openTechyScope(on) {
+  if (!techyScopeEl) return;
+  techyScopeAsk = { on };
+  techyScopeTitleEl.textContent = on ? "Turn on the technical view" : "Turn off the technical view";
+  techyScopeConfirmEl.textContent = on ? "Turn it on" : "Turn it off";
+  const company = techyCompanyOfActive();
+  if (techyScopeCompanyEl) techyScopeCompanyEl.hidden = !company;
+  // HIS FIRST CHOICE, EVERY TIME THE SHEET OPENS. Deliberately reset rather than left where
+  // he put it last: "preselected" is a property of the question, not a memory of the
+  // previous answer, and a sheet that reopened on "this conversation only" would quietly
+  // stop matching the sentence it was built from.
+  for (const input of techyScopeInputs()) input.checked = input.value === TECHY_SCOPE_PRESELECTED;
+  techyScopeEl.hidden = false;
+  const first = techyScopeInputs()[0];
+  if (first) first.focus();
+}
+
+/// Close WITHOUT applying anything.
+///
+/// The repaint is the load-bearing half. Both entrances are checkboxes, and a checkbox
+/// flips ITSELF on the click that opens this sheet — so a cancel that only hid the sheet
+/// would leave a switch showing a state the store never took, which is precisely the
+/// disagreement this slice exists to remove. Repainting from the model is what makes Cancel
+/// and Escape truthful.
+function closeTechyScope() {
+  if (!techyScopeEl) return;
+  techyScopeAsk = null;
+  techyScopeEl.hidden = true;
+  renderTechyChip();
+  renderTechySettings();
+}
+
+/// Apply the tier he picked, and render what the STORE took rather than what was asked.
+async function confirmTechyScope() {
+  if (!techyScopeAsk || !activeThreadId) return closeTechyScope();
+  const on = techyScopeAsk.on;
+  const picked = techyScopeInputs().find((i) => i.checked);
+  const scope = picked ? picked.value : TECHY_SCOPE_PRESELECTED;
+  const mode = await invokeQuiet("set_techy_scope", { threadId: activeThreadId, scope, enabled: on });
+  techyScopeAsk = null;
+  techyScopeEl.hidden = true;
+  // A refusal (an unknown scope, a write failure, an unwired bridge) must not leave the
+  // surface claiming a state nothing accepted. `invokeQuiet` returns null on rejection, and
+  // the repaint below puts every switch back to what the store still says.
+  if (!mode) {
+    renderTechyChip();
+    renderTechySettings();
+    return;
+  }
+  techy = mode;
+  renderTechyChip();
+  renderTechySettings();
+  // §3.4: "Toggling re-renders the thread in place, from the journal. No reload, no
+  // navigation." The scroll position is the CEO's and is preserved across the swap.
+  const top = conversationEl.scrollTop;
+  await loadTimeline();
+  conversationEl.scrollTop = top;
+}
+
+/// THE ONE ENTRANCE every scope-ambiguous switch goes through.
+///
+/// `on` is the direction asked for. Inside a conversation it becomes the question; on the
+/// opening screen, where two of the three options have no referent, it is applied at the
+/// only tier that means anything.
+function requestTechyToggle(on) {
+  if (!activeThreadId) return setTechyDefault(on);
+  openTechyScope(on);
+}
+
+if (techyChipEl) techyChipEl.addEventListener("click", () => requestTechyToggle(false));
+if (techyDefaultInput) {
+  techyDefaultInput.addEventListener("change", () => requestTechyToggle(techyDefaultInput.checked));
+}
+if (techyScopeCancelEl) techyScopeCancelEl.addEventListener("click", closeTechyScope);
+if (techyScopeConfirmEl) techyScopeConfirmEl.addEventListener("click", confirmTechyScope);
 
 // The settings menu's Techy row, registered with the SAME read and the SAME write the rail
 // preference uses. Registering the capability is also what makes the row appear at all —
 // settings-button.js omits it until a host provides one, so the component still works on a
 // page with no shell behind it and carries no dead toggle there.
 window.RichSettings.registerTechy({
-  read: () => !!(techy && techy.default),
-  write: (on) => setTechyDefault(on),
+  // The SAME resolved read and the SAME scope-asking write the rail switch uses, which is
+  // what makes "one state, two doors" a structural fact here rather than a promise: there
+  // is no path that updates one door without running the function that repaints the other.
+  read: () => techyOn(),
+  write: (on) => requestTechyToggle(on),
 });
 for (const input of assertivenessPopover.querySelectorAll('input[name="raw-retention"]')) {
   input.addEventListener("change", () => setRetentionChoice(input.value));
@@ -6949,6 +7117,13 @@ document.addEventListener("keydown", (e) => {
   // §3.3: "v1 access = a keyboard shortcut, plus one line in Settings." This is the
   // shortcut, and it flips ONE conversation — the CEO's daily path. Shift is what keeps it
   // clear of the new-thread binding above, which is deliberately `mod` WITHOUT shift.
+  //
+  // AND IT IS THE ONE TECHY CONTROL THAT DOES NOT ASK FOR A SCOPE (§7.1, 2026-09-18). It
+  // names one: the hint under the rail's switch calls it the control that "shows it for one
+  // conversation only", so pressing it is already choosing his third option. Sending it
+  // through the sheet — whose first option is preselected, by his instruction — would make
+  // ⌘⇧T + Enter turn the technical view on everywhere, which is the opposite of what
+  // this key has meant since §3.3.
   if (mod && e.shiftKey && (e.key === "t" || e.key === "T")) {
     e.preventDefault();
     toggleTechyThread();
@@ -7068,6 +7243,11 @@ const POPUP_CLOSERS = {
   slideover: closeSlideOver,
   inspector: closeWorkerInspector,
   "assertiveness-popover": closeAssertivenessPopover,
+  // Escape CANCELS the scope choice — it does not apply the preselected option. Escape is
+  // the way out of a question, never a silent answer to it, and this closer repaints the
+  // switch that opened the sheet so backing out leaves nothing claiming a state the store
+  // never took.
+  "techy-scope": closeTechyScope,
   "set-menu": () => window.RichSettings && window.RichSettings.close(true),
 };
 

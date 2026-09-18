@@ -1427,7 +1427,11 @@
     "— whoever set RichOS up needs to look.";
 
   let techyDefault = false;
-  const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the default")
+  const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the tier above")
+  // §7.1's middle tier (the CEO's answer, 2026-09-18). ABSENT means "follows the global
+  // default", exactly as an absent thread does — the two maps are the same shape because
+  // `config.rs` makes them the same shape.
+  const techyEntities = new Map(); // entityId -> bool
 
   // ---- §7.2: the raw-retention window, modelled rather than stubbed ---------------------
   //
@@ -1549,13 +1553,28 @@
     return rows.map((r) => ({ ...r, entityId: t ? t.entity_id : null, threadId }));
   }
 
+  /// THREAD PIN, ELSE COMPANY PIN, ELSE THE GLOBAL DEFAULT — `ConfigStore::techy_mode`'s
+  /// order, and the mock resolves it rather than stubbing an answer, because the whole
+  /// point of the three tiers is which one wins.
+  ///
+  /// The company comes from the thread's own `entity_id`, the same field the real command
+  /// gets from `Ledger::thread_binding`. A thread this mock does not know, or one with no
+  /// company, skips the middle tier instead of guessing — again matching the real path,
+  /// where an unreadable binding falls through to the global default.
+  function techyCompanyOf(threadId) {
+    const t = threads.find((x) => x.id === threadId);
+    return t && t.entity_id ? t.entity_id : null;
+  }
+
   function techyModeOf(threadId) {
-    const pinned = techyThreads.has(threadId);
-    return {
-      enabled: pinned ? techyThreads.get(threadId) : techyDefault,
-      source: pinned ? "thread" : "default",
-      default: techyDefault,
-    };
+    if (techyThreads.has(threadId)) {
+      return { enabled: techyThreads.get(threadId), source: "thread", default: techyDefault };
+    }
+    const company = techyCompanyOf(threadId);
+    if (company && techyEntities.has(company)) {
+      return { enabled: techyEntities.get(company), source: "entity", default: techyDefault };
+    }
+    return { enabled: techyDefault, source: "default", default: techyDefault };
   }
 
   /// The FOUR states of `get_machinery`, kept apart exactly as `ThreadMachinery` keeps them.
@@ -1763,6 +1782,31 @@
         case "set_techy_default":
           techyDefault = !!args.enabled;
           return techyDefault;
+        /// §7.1's three-way scope choice, applied the way `ConfigStore::apply_techy_scope`
+        /// applies it — INCLUDING the part that is a decision rather than a transcription:
+        /// a scope also clears the pins below it ON THE PATH TO THIS THREAD and on no
+        /// other path. A mock that only set the chosen tier would let the renderer pass a
+        /// test the product fails, which is the one thing a mock must never do.
+        case "set_techy_scope": {
+          const id = args.threadId ?? args.thread_id;
+          const company = techyCompanyOf(id);
+          const on = !!args.enabled;
+          if (args.scope === "all-companies") {
+            techyDefault = on;
+            if (company) techyEntities.delete(company);
+            techyThreads.delete(id);
+          } else if (args.scope === "company") {
+            // Refused rather than promoted a tier, exactly as the store refuses it.
+            if (!company) throw new Error("this conversation is in no company, so there is no company to set");
+            techyEntities.set(company, on);
+            techyThreads.delete(id);
+          } else if (args.scope === "thread") {
+            techyThreads.set(id, on);
+          } else {
+            throw new Error("unknown techy scope: " + args.scope);
+          }
+          return techyModeOf(id);
+        }
 
         // ---- §15: appearance, and the person at the foot of the rail ----------------
         // The real store is `config.rs`; this harness stands in for it with the same
@@ -3300,7 +3344,16 @@
     /// Evict one row's Tier-B payload, the way `evict_raw` does — an unlink of the sibling.
     /// The normalized record is untouched, so the row still renders.
     evictRaw(machineryId) { machineryRaw.delete(machineryId); },
-    techyState() { return { default: techyDefault, threads: Object.fromEntries(techyThreads) }; },
+    techyState() {
+      return {
+        default: techyDefault,
+        companies: Object.fromEntries(techyEntities),
+        threads: Object.fromEntries(techyThreads),
+      };
+    },
+    /// Pin a company directly, for a check that needs the middle tier already set before
+    /// the CEO's hand arrives — the "he pinned this company last week" starting state.
+    setTechyCompany(entityId, enabled) { techyEntities.set(entityId, !!enabled); },
     TECHY_NOTHING_RECORDED,
     TECHY_NOT_RETAINED,
     TECHY_UNREADABLE,
