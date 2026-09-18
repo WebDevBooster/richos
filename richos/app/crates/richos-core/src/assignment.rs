@@ -984,8 +984,16 @@ mod tests {
     /// still produces the collision, so the property assertions underneath are a defect that went
     /// away rather than a check that moved.
     ///
-    /// The property is asserted over ALL SEVEN sentences, not just the one he saw, because the
-    /// next sentence somebody adds is the one no targeted test would cover.
+    /// The property is asserted over all seven sentences rather than the one he saw, because six
+    /// of them were equally capable of it and none had been checked.
+    ///
+    /// **What this does NOT do, said plainly rather than left implied:** it enumerates the seven by
+    /// hand, so an EIGHTH sentence added to [`says`] is not covered until somebody adds it to the
+    /// list here, and a title-bearing sentence written in another module is not covered at all.
+    /// (Checked against the screen-wait slice landed the same day: `screen::says`'s three sentences
+    /// are `&'static str` and embed no title, so nothing there needs this.) The structural guard is
+    /// that [`says::continues`] is the only join in this module; the enumeration is the evidence
+    /// that it is applied, not a promise about code that does not exist yet.
     #[test]
     fn a_truncated_title_never_collides_with_the_verdict_that_continues_from_it() {
         let instruction = "Add a line to the notes file in the QA fixture repository saying the \
