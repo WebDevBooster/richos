@@ -324,10 +324,15 @@ impl LeaseFactory for EngineLeaseFactory {
         let skills = richos_core::skills::ensure_rendered(&self.data_dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         let executable = std::env::current_exe().map_err(|e| CognitionError::Io(e.to_string()))?;
-        if let Some(why) = richos_core::setup::engine_boot_refusal(
+        // **AND THE CONTENT, not just the release** (2026-09-18). `EngineDemand::pinned` carries
+        // the digest of the asset this build was built against, so the directory a stale nightly
+        // left behind is refused HERE as well as at resolution — resolution refusing is not the
+        // same as nothing running, since `resolve_engine` hands this factory the last place it
+        // looked. An operator's explicit statement still outranks both halves.
+        if let Some(why) = richos_core::setup::engine_boot_refusal_demand(
             &dir,
             self.explicit_engine,
-            richos_core::setup::required_engine_version().as_deref(),
+            richos_core::setup::EngineDemand::pinned(richos_core::setup::engine_pin().as_ref()),
         ) {
             return Err(CognitionError::Io(why));
         }
@@ -385,10 +390,15 @@ impl EngineLeaseFactory {
         // below this line would then succeed, and the engine the CEO rolled away from would be
         // the one writing into his corpus. An operator who NAMED the directory is honored, as
         // everywhere else (`setup::engine_boot_refusal`).
-        if let Some(why) = richos_core::setup::engine_boot_refusal(
+        // **AND THE CONTENT, not just the release** (2026-09-18). `EngineDemand::pinned` carries
+        // the digest of the asset this build was built against, so the directory a stale nightly
+        // left behind is refused HERE as well as at resolution — resolution refusing is not the
+        // same as nothing running, since `resolve_engine` hands this factory the last place it
+        // looked. An operator's explicit statement still outranks both halves.
+        if let Some(why) = richos_core::setup::engine_boot_refusal_demand(
             &dir,
             self.explicit_engine,
-            richos_core::setup::required_engine_version().as_deref(),
+            richos_core::setup::EngineDemand::pinned(richos_core::setup::engine_pin().as_ref()),
         ) {
             return Err(CognitionError::Io(why));
         }

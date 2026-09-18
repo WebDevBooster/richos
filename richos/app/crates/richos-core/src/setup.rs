@@ -856,7 +856,6 @@ pub fn find_engine_demanded(
     usable: EngineUsable<'_>,
     demand: EngineDemand<'_>,
 ) -> ComponentStatus {
-    let needed = demand.version;
     let mut looked = Vec::new();
 
     // Test one candidate, appending exactly one line to `looked` whichever way it goes.

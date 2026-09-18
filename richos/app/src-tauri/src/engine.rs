@@ -146,6 +146,10 @@ pub struct EngineResolution {
     /// because "which engine is this app running" has two halves and only one of them is a
     /// path.
     pub needed: Option<String>,
+    /// **The digest of the asset this build pins**, `None` when it pins none — the third half of
+    /// the same question, and the one that was missing. A release string cannot distinguish two
+    /// nightly cuts of engine `1.2.0`; this can, and the boot line below says so either way.
+    pub pinned_identity: Option<String>,
     /// **Engine-shaped directories this build does NOT boot**, with the release each carries.
     /// Only near misses go here — a candidate that held no engine at all is already a line in
     /// `tried`, and a twelve-level ancestor walk that reported every place it did not find an
@@ -192,7 +196,7 @@ impl EngineResolution {
         let found = richos_core::setup::engine_version(dir);
         match (&self.needed, found) {
             (Some(needed), Some(found)) if &found == needed => {
-                format!("engine {found} as this build pins")
+                format!("engine {found} {}", self.identity_note(dir))
             }
             (Some(needed), Some(found)) => {
                 format!("engine {found}, NOT the {needed} this build pins — taken as named")
@@ -202,6 +206,44 @@ impl EngineResolution {
             }
             (None, Some(found)) => format!("engine {found}, pinned by nothing in this build"),
             (None, None) => "no readable version, and this build pins none".to_string(),
+        }
+    }
+
+    /// **WHICH CUT OF THAT RELEASE IS ACTUALLY THERE** — the half of the boot line that did not
+    /// exist before 2026-09-18, and the half candidate .8 needed.
+    ///
+    /// Its whole job is that `engine 1.2.0 as this build pins` must stop being sayable about a
+    /// directory installed from a different asset. It is read off the directory's own
+    /// `INSTALLED-FROM`, never off the pin — the same rule [`Self::release_note`] states for the
+    /// version, and for the same reason: the explicit override may carry anything at all.
+    ///
+    /// The digests are shown twelve characters wide because this is a log line a person reads;
+    /// the COMPARISON behind the verdict is always over the full 64
+    /// (`setup::EngineIdentity::judge`).
+    fn identity_note(&self, dir: &Path) -> String {
+        let installed = richos_core::setup::installed_from(dir).and_then(|s| s.sha256);
+        match (&self.pinned_identity, installed) {
+            (Some(pinned), Some(installed)) if installed.eq_ignore_ascii_case(pinned) => {
+                format!("from {} as this build pins", richos_core::setup::short_digest(&installed))
+            }
+            // Reached only through an explicit override, since a searched candidate carrying
+            // another asset is refused before it can be chosen. It is still printed, because an
+            // operator who named a directory is owed the fact that it is not this build's engine.
+            (Some(pinned), Some(installed)) => format!(
+                "from {}, NOT the {} this build pins — taken as named",
+                richos_core::setup::short_digest(&installed),
+                richos_core::setup::short_digest(pinned),
+            ),
+            (Some(pinned), None) => format!(
+                "with no record of what installed it, and this build pins {} — taken as named",
+                richos_core::setup::short_digest(pinned),
+            ),
+            // A build with no pin. It says so rather than leaving a silence to be read as a match.
+            (None, Some(installed)) => format!(
+                "installed from {}, pinned by nothing in this build",
+                richos_core::setup::short_digest(&installed),
+            ),
+            (None, None) => "as this build pins".to_string(),
         }
     }
 }
@@ -225,8 +267,16 @@ impl EngineResolution {
 /// It returns a `Result` rather than a `bool` because the two ways of failing need different
 /// sentences: "there is nothing here" and "there is an engine here from another release" send
 /// an operator looking for different things.
-fn accepts(dir: &Path, needed: Option<&str>) -> Result<(), richos_core::setup::EngineRejected> {
-    richos_core::setup::engine_accepted(dir, needed)
+/// **And the CONTENT, not just the label** (2026-09-18). `demand` carries the release AND the
+/// digest of the asset this build was built against, because two nightly cuts of engine `1.2.0`
+/// are two different directories of code answering the version question identically —
+/// `setup::EngineIdentity` has the measurement. A build with no pin demands neither, so every
+/// test below and every `cargo run` behaves exactly as it did.
+fn accepts(
+    dir: &Path,
+    demand: richos_core::setup::EngineDemand<'_>,
+) -> Result<(), richos_core::setup::EngineRejected> {
+    richos_core::setup::engine_accepted_demand(dir, demand)
 }
 
 /// Climb from `start` looking for a child `engine/` this build boots.
@@ -236,14 +286,17 @@ fn accepts(dir: &Path, needed: Option<&str>) -> Result<(), richos_core::setup::E
 /// directory the walk passed over because it carries a different release — a developer's
 /// checkout that has moved ahead of the app's pin is the commonest case there is, and it is
 /// worth a named line rather than an unexplained "not found".
-fn engine_above(start: &Path, needed: Option<&str>) -> (Option<PathBuf>, Vec<(PathBuf, String)>) {
+fn engine_above(
+    start: &Path,
+    demand: richos_core::setup::EngineDemand<'_>,
+) -> (Option<PathBuf>, Vec<(PathBuf, String)>) {
     let mut rejected = Vec::new();
     let mut here = Some(start);
     for _ in 0..WALK_LIMIT {
         let Some(dir) = here else { break };
         for relative in ["engine", "richos/engine"] {
             let candidate = dir.join(relative);
-            match accepts(&candidate, needed) {
+            match accepts(&candidate, demand) {
                 Ok(()) => return (Some(candidate), rejected),
                 Err(richos_core::setup::EngineRejected::NotEngineShaped) => {}
                 Err(reason) => rejected.push((candidate, reason.reason())),
@@ -261,7 +314,10 @@ fn grouped_checkout_resolves_from_root_docs_and_app() {
     std::fs::create_dir_all(engine.join("scripts/hooks")).unwrap();
     std::fs::write(engine.join("VERSION"), "1.0.0\n").unwrap();
     for start in [&root, &root.join("docs"), &root.join("richos/app/src-tauri")] {
-        assert_eq!(engine_above(start, None).0.as_deref(), Some(engine.as_path()));
+        assert_eq!(
+            engine_above(start, Default::default()).0.as_deref(),
+            Some(engine.as_path())
+        );
     }
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -347,16 +403,40 @@ struct Candidate {
 ///
 /// **A build with no pin demands no release**, so a plain `cargo run`, `cargo test` and every
 /// unit test below behave exactly as they did (`setup::required_engine_version`).
+/// # AND IT MUST BE THE ASSET THIS BUILD WAS BUILT AGAINST — 2026-09-18
+///
+/// The release half above is necessary and is not sufficient. Every nightly publishes its own
+/// `richos-engine-1.2.0.tar.gz`, because `1.2.0` is the engine's RELEASE and a nightly is a new
+/// CUT of it — so the five searched candidates are now also required to have been installed from
+/// the asset whose digest is compiled into this binary (`setup::EngineIdentity`, which carries
+/// the measurement from candidate .8: two directories, one version string, the CEO's first
+/// background job dead 6.28 s in).
+///
+/// The two EXPLICIT candidates remain exempt from this as they are from the release, and for the
+/// same reason. A build with no pin demands neither.
 pub fn resolve_engine_dir(paths: &LaunchPaths) -> EngineResolution {
-    resolve_engine_dir_pinned(paths, richos_core::setup::required_engine_version().as_deref())
+    resolve_engine_dir_demanded(
+        paths,
+        richos_core::setup::EngineDemand::pinned(richos_core::setup::engine_pin().as_ref()),
+    )
 }
 
-/// [`resolve_engine_dir`] with the pinned release supplied rather than compiled in — the seam
-/// that lets the refusal be tested, since `option_env!` is read at compile time and a test
-/// binary can never carry a pin.
-pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> EngineResolution {
+/// [`resolve_engine_dir`] with the demand supplied rather than compiled in — the seam that lets
+/// the refusal be tested, since `option_env!` is read at compile time and a test binary can never
+/// carry a pin.
+///
+/// It replaces the release-only `resolve_engine_dir_pinned` this function used to sit beside.
+/// Keeping both would have left a public entry point that nothing outside the tests called, and a
+/// seam that can only express half of what the gate now asks is a seam a future caller reaches
+/// for by accident.
+pub fn resolve_engine_dir_demanded(
+    paths: &LaunchPaths,
+    demand: richos_core::setup::EngineDemand<'_>,
+) -> EngineResolution {
+    let needed = demand.version;
     let mut tried: Vec<(EngineSource, PathBuf)> = Vec::new();
     let needed_owned = needed.map(|n| n.to_string());
+    let identity_owned = demand.identity.pinned().map(|s| s.to_string());
 
     // 1 + 2. EXPLICIT, and exclusive. Taken verbatim, with no shape test and no release test:
     // an operator who names a directory is making a statement about which working directory
@@ -376,6 +456,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
                 source: Some(source),
                 tried,
                 needed: needed_owned,
+                pinned_identity: identity_owned,
                 rejected: Vec::new(),
             };
         }
@@ -389,7 +470,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
     // One directly-named path, judged once: it is the engine this build boots, it is not an
     // engine at all, or it is an engine of another release — and the third case is RECORDED
     // rather than collapsed into the second.
-    let direct = |source: EngineSource, candidate: PathBuf| match accepts(&candidate, needed) {
+    let direct = |source: EngineSource, candidate: PathBuf| match accepts(&candidate, demand) {
         Ok(()) => Candidate {
             source,
             probe: candidate.clone(),
@@ -419,7 +500,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
     // working directory but always knows where its own binary is.
     if let Some(exe) = paths.exe.as_deref() {
         let from = exe.parent().unwrap_or(exe);
-        let (engine, rejected) = engine_above(from, needed);
+        let (engine, rejected) = engine_above(from, demand);
         candidates.push(Candidate {
             source: EngineSource::RepoFromExe,
             probe: from.to_path_buf(),
@@ -432,7 +513,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
     // hard-code as `cwd/../engine`, generalized to an ancestor walk so `cargo run` from any
     // depth inside the repo resolves the same directory.
     if let Some(cwd) = paths.cwd.as_deref() {
-        let (engine, rejected) = engine_above(cwd, needed);
+        let (engine, rejected) = engine_above(cwd, demand);
         candidates.push(Candidate {
             source: EngineSource::RepoFromCwd,
             probe: cwd.to_path_buf(),
@@ -486,6 +567,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
             source: Some(c.source),
             tried,
             needed: needed_owned,
+            pinned_identity: identity_owned,
             rejected,
         },
         None => EngineResolution {
@@ -493,6 +575,7 @@ pub fn resolve_engine_dir_pinned(paths: &LaunchPaths, needed: Option<&str>) -> E
             source: None,
             tried,
             needed: needed_owned,
+            pinned_identity: identity_owned,
             rejected,
         },
     }
@@ -823,7 +906,14 @@ mod tests {
     // =======================================================================================
     // THE RELEASE THIS BUILD PINS — spec point 22
     //
-    // The pin is supplied as a VALUE here (`resolve_engine_dir_pinned`), because `option_env!`
+    /// The release-only demand these tests express, named once. They are about the WALK and the
+    /// release gate; the identity half has its own tests below, and spelling the full demand out
+    /// nine times would bury what each of these is actually proving.
+    fn release_only(paths: &LaunchPaths, needed: Option<&str>) -> EngineResolution {
+        resolve_engine_dir_demanded(paths, richos_core::setup::EngineDemand::release(needed))
+    }
+
+    // The pin is supplied as a VALUE here (`resolve_engine_dir_demanded`), because `option_env!`
     // is a compile-time read and a test binary can never carry one. Every refusal is paired
     // with the positive control that gives it meaning.
     // =======================================================================================
@@ -850,7 +940,7 @@ mod tests {
             ..Default::default()
         };
 
-        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        let got = release_only(&paths, Some("1.2.0"));
         assert_eq!(got.dir, None, "the newer engine was booted anyway: {got:?}");
         assert_eq!(got.needed.as_deref(), Some("1.2.0"));
         let (source, path, why) = got
@@ -867,7 +957,7 @@ mod tests {
 
         // THE POSITIVE CONTROL: the app that DOES pin 1.3.0 boots exactly this engine, from
         // exactly this fixture.
-        let matching = resolve_engine_dir_pinned(&paths, Some("1.3.0"));
+        let matching = release_only(&paths, Some("1.3.0"));
         assert_eq!(matching.dir.as_deref(), Some(newer.as_path()), "{matching:?}");
         assert_eq!(matching.source, Some(EngineSource::ApplicationSupport));
         assert!(matching.rejected.is_empty(), "{matching:?}");
@@ -889,7 +979,7 @@ mod tests {
         let cwd = repo.join("app/src-tauri");
 
         let searched = LaunchPaths { cwd: Some(cwd.clone()), ..Default::default() };
-        let got = resolve_engine_dir_pinned(&searched, Some("1.2.0"));
+        let got = release_only(&searched, Some("1.2.0"));
         assert_eq!(got.dir, None, "{got:?}");
         let named_in_report = got.rejected.iter().any(|(s, p, why)| {
             *s == EngineSource::RepoFromCwd && p == &working_tree && why.contains("1.4.0-dev")
@@ -903,13 +993,13 @@ mod tests {
             cwd: Some(cwd.clone()),
             ..Default::default()
         };
-        let got = resolve_engine_dir_pinned(&stated, Some("1.2.0"));
+        let got = release_only(&stated, Some("1.2.0"));
         assert_eq!(got.dir.as_deref(), Some(working_tree.as_path()), "{got:?}");
         assert_eq!(got.source, Some(EngineSource::EnvEngineDir));
 
         // POSITIVE CONTROL 2 — an UNPINNED build (every `cargo run` and `cargo test` here)
         // resolves the checkout exactly as it always did.
-        let got = resolve_engine_dir_pinned(&searched, None);
+        let got = release_only(&searched, None);
         assert_eq!(got.dir.as_deref(), Some(working_tree.as_path()), "{got:?}");
         assert!(got.rejected.is_empty(), "an unpinned build rejected something: {got:?}");
         assert!(
@@ -933,7 +1023,7 @@ mod tests {
             ..Default::default()
         };
 
-        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        let got = release_only(&paths, Some("1.2.0"));
         assert_eq!(got.dir.as_deref(), Some(named.as_path()), "{got:?}");
         let line = got.describe();
         assert!(line.contains("0.9.0-someone-elses"), "the running engine is not named: {line}");
@@ -942,7 +1032,7 @@ mod tests {
         assert!(line.contains(" (via ") && line.ends_with(')'), "{line}");
 
         // And the matching case says so plainly, with one version in it rather than two.
-        let matching = resolve_engine_dir_pinned(&paths, Some("0.9.0-someone-elses"));
+        let matching = release_only(&paths, Some("0.9.0-someone-elses"));
         assert!(
             matching.describe().contains("engine 0.9.0-someone-elses as this build pins"),
             "{}",
@@ -968,7 +1058,7 @@ mod tests {
             home: Some(home),
             ..Default::default()
         };
-        let got = resolve_engine_dir_pinned(&paths, Some("1.2.0"));
+        let got = release_only(&paths, Some("1.2.0"));
         assert_eq!(got.dir.as_deref(), Some(installed.as_path()), "{got:?}");
         assert_eq!(got.source, Some(EngineSource::ApplicationSupport));
         assert_eq!(got.rejected.len(), 1, "{got:?}");
@@ -976,5 +1066,151 @@ mod tests {
         // The audit trail does not shrink: every candidate is still in `tried`.
         let sources: Vec<EngineSource> = got.tried.iter().map(|(s, _)| *s).collect();
         assert!(sources.contains(&EngineSource::InstallPointer), "{sources:?}");
+    }
+
+    // =======================================================================================
+    // THE IDENTITY HALF — resolution, and the boot line (2026-09-18)
+    // =======================================================================================
+
+    /// The real digests from candidate .8: what was installed, and what the binary pinned.
+    const STALE: &str = "b7a882ef4381ca294259c1a01a6af29acc3159dc0b871e8064bd7f410b71da07";
+    const PINNED: &str = "ea7f79043e7dc8f51b5f4207964ec5fa3e15ca11b44e5342a5fb4d38580db194";
+
+    fn a_pin(sha: &str) -> richos_core::setup::EnginePin {
+        richos_core::setup::pin_from_parts(
+            "1.2.0",
+            "https://example.invalid/richos-engine-1.2.0.tar.gz",
+            sha,
+        )
+        .expect("the fixture pin must itself be well formed")
+    }
+
+    fn stamp(at: &Path, sha: &str) {
+        std::fs::write(
+            at.join("INSTALLED-FROM"),
+            format!("engine 1.2.0\nsha256 {sha}\nbytes 119463136\nfrom https://example.invalid/a\n"),
+        )
+        .unwrap();
+    }
+
+    /// **CANDIDATE .8, AS A RESOLUTION TEST.** The application-support engine carries `1.2.0` and
+    /// yesterday's contents. The release gate takes it; the identity gate must not.
+    #[test]
+    fn a_stale_cut_of_the_pinned_release_is_not_resolved() {
+        let root = scratch("identity-resolve");
+        let home = root.join("home");
+        let installed =
+            make_engine_release(&home.join("Library/Application Support/RichOS/engine"), "1.2.0");
+        stamp(&installed, STALE);
+
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+
+        // The release-only gate resolves it — the state that shipped, pinned as a fact so that a
+        // later change which only tightens versions cannot be mistaken for this fix.
+        assert_eq!(release_only(&paths, Some("1.2.0")).dir.as_deref(), Some(installed.as_path()));
+
+        // The identity gate refuses it, and REPORTS it rather than falling silent.
+        let pin = a_pin(PINNED);
+        let got = resolve_engine_dir_demanded(
+            &paths,
+            richos_core::setup::EngineDemand::pinned(Some(&pin)),
+        );
+        assert_eq!(got.dir, None, "a stale cut was resolved: {got:?}");
+        assert_eq!(got.rejected.len(), 1, "{got:?}");
+        assert_eq!(got.rejected[0].1, installed);
+        assert!(got.rejected[0].2.contains("right version"), "{:?}", got.rejected[0]);
+        assert!(got.rejected[0].2.contains("b7a882ef4381"), "{:?}", got.rejected[0]);
+
+        // POSITIVE CONTROL: the same fixture stamped with the asset this build pins — resolved.
+        stamp(&installed, PINNED);
+        let good = resolve_engine_dir_demanded(
+            &paths,
+            richos_core::setup::EngineDemand::pinned(Some(&pin)),
+        );
+        assert_eq!(good.dir.as_deref(), Some(installed.as_path()), "{good:?}");
+        assert!(good.rejected.is_empty(), "{good:?}");
+    }
+
+    /// **THE BOOT LINE NAMES THE CUT** — `engine 1.2.0 as this build pins` is exactly the sentence
+    /// candidate .8 printed while running the wrong engine, so it must no longer be sayable
+    /// without the identity beside it.
+    #[test]
+    fn the_boot_line_names_the_engine_identity_and_not_just_its_version() {
+        let root = scratch("identity-bootline");
+        let home = root.join("home");
+        let installed =
+            make_engine_release(&home.join("Library/Application Support/RichOS/engine"), "1.2.0");
+        stamp(&installed, PINNED);
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+        let pin = a_pin(PINNED);
+
+        let line = resolve_engine_dir_demanded(
+            &paths,
+            richos_core::setup::EngineDemand::pinned(Some(&pin)),
+        )
+        .describe();
+        assert!(line.contains("engine 1.2.0"), "{line}");
+        assert!(line.contains("from ea7f79043e7d as this build pins"), "{line}");
+        // Twelve characters, not sixty-four: this is a line a person reads.
+        assert!(!line.contains(PINNED), "the full digest is not operator copy: {line}");
+        // `gui-boot.test.sh` matches the `(via …)` shape with the parenthesis LAST. Unchanged.
+        assert!(line.ends_with(')'), "{line}");
+        assert!(line.contains("(via application support,"), "{line}");
+
+        // AN EXPLICIT OVERRIDE IS STILL TAKEN — and the line says what it actually got, because
+        // an operator who names a directory is owed that rather than a reassuring echo of the pin.
+        let named = LaunchPaths {
+            env_engine_dir: Some(installed.display().to_string()),
+            ..Default::default()
+        };
+        stamp(&installed, STALE);
+        let override_line = resolve_engine_dir_demanded(
+            &named,
+            richos_core::setup::EngineDemand::pinned(Some(&pin)),
+        );
+        assert_eq!(override_line.dir.as_deref(), Some(installed.as_path()));
+        let text = override_line.describe();
+        assert!(text.contains("from b7a882ef4381"), "{text}");
+        assert!(text.contains("NOT the ea7f79043e7d this build pins"), "{text}");
+        assert!(text.contains("taken as named"), "{text}");
+    }
+
+    /// A build with NO PIN says so, about both halves, and resolves what it always resolved.
+    /// Every `cargo run` in this repository is this case.
+    #[test]
+    fn an_unpinned_build_demands_no_identity_and_says_so() {
+        let root = scratch("identity-unpinned");
+        let home = root.join("home");
+        let installed =
+            make_engine_release(&home.join("Library/Application Support/RichOS/engine"), "1.2.0");
+        stamp(&installed, STALE);
+        let paths = LaunchPaths {
+            cwd: Some(PathBuf::from("/")),
+            home: Some(home),
+            ..Default::default()
+        };
+
+        let got = resolve_engine_dir_demanded(&paths, richos_core::setup::EngineDemand::pinned(None));
+        assert_eq!(got.dir.as_deref(), Some(installed.as_path()), "{got:?}");
+        let line = got.describe();
+        assert!(line.contains("pinned by nothing in this build"), "{line}");
+
+        // And an UNSTAMPED engine — the dogfood checkout — is resolved by an unpinned build too.
+        let checkout = make_engine(&root.join("richos/engine"));
+        let dev = LaunchPaths { cwd: Some(root.clone()), ..Default::default() };
+        assert_eq!(
+            resolve_engine_dir_demanded(&dev, richos_core::setup::EngineDemand::pinned(None))
+                .dir
+                .as_deref(),
+            Some(checkout.as_path())
+        );
     }
 }
