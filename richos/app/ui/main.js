@@ -5110,11 +5110,55 @@ el("first-run-later").addEventListener("click", declineFirstRunInterview);
 /// produce.
 window.__RICHOS_FIRST_RUN__ = () => renderFirstRunNotice();
 
+/// WHERE "NOT NOW" IS REMEMBERED — audit-7 row 13, and the honest fallback rather than the
+/// right home for it.
+///
+/// THE RIGHT HOME IS `config.rs`. Every other durable preference in this window is a Rust
+/// `ConfigStore` value with a `localStorage` mirror in front of it for the first paint, and
+/// this one has no backend field to mirror. Adding one is `richos-core`, which this branch is
+/// not permitted to touch, so what ships is the mirror on its own: it survives a relaunch,
+/// which is the whole of the defect, and it is lost if the webview's storage is cleared, which
+/// costs him one dismissal. SAID PLAINLY rather than left to be discovered — the durable half
+/// is a `memory_setup_declined` flag on the config record, and until it exists this is a
+/// per-webview answer and not a per-install one.
+const MEMORY_DECLINED_KEY = "richos.memorySetupDeclined";
+
+function memorySetupDeclined() {
+  try {
+    return window.localStorage.getItem(MEMORY_DECLINED_KEY) === "true";
+  } catch (_e) {
+    // Storage denied: fall back to asking, which is today's behavior and never a lost offer.
+    return false;
+  }
+}
+
+function rememberMemorySetupDeclined() {
+  try {
+    window.localStorage.setItem(MEMORY_DECLINED_KEY, "true");
+  } catch (_e) {
+    /* Then he is asked again next launch, which is the old behavior rather than a new fault. */
+  }
+}
+
 /// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
 /// `init` can hold the company question back rather than stacking it.
 function maybeAskAboutMemory() {
   if (!memoryState) return false;
   if (memoryState.state === "none") {
+    // **"NOT NOW" IS AN ANSWER, AND IT USED TO BE FORGOTTEN AT EVERY LAUNCH.** Ray saw the
+    // corpus sheet twice in one walk, over the home screen both times, and audit-6 saw it
+    // before that: on a machine with no memory folder this branch had no record of a decline,
+    // so it re-asked forever. It is the same defect the `no-compiler` branch immediately below
+    // was fixed for on 2026-09-04 — "on a provisioned machine with no compiler that is EVERY
+    // launch forever ... a permanent interruption rather than a one-time notice" — and this,
+    // the branch above it, was left with it.
+    //
+    // THE OFFER IS NOT LOST BY GOING QUIET. A question that stops being asked and leaves no way
+    // to answer it would trade a nag for a dead end, and the affordance rule would be right to
+    // refuse it — so the settings menu carries a `Memory folder` row (`registerMemory` below),
+    // which opens this same sheet in whatever state the backend reports. That row is the
+    // control this state now names.
+    if (memorySetupDeclined()) return false;
     openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
     return true;
   }
@@ -5213,10 +5257,69 @@ async function provisionMemory() {
 }
 
 memorySetupGoEl.addEventListener("click", provisionMemory);
-memorySetupLaterEl.addEventListener("click", closeMemorySetup);
+// "NOT NOW" IS THE ANSWER THAT GETS REMEMBERED, and only this control records it — audit-7 row
+// 13. `Close`, the scrim and Escape all dismiss the sheet in its DONE state, which is a
+// different screen with nothing to decline; recording a decline there would suppress an offer
+// he had just accepted. It records at the press rather than inside `closeMemorySetup` for that
+// reason, and `provisionMemory` never touches the flag at all.
+memorySetupLaterEl.addEventListener("click", () => {
+  rememberMemorySetupDeclined();
+  closeMemorySetup();
+});
 memorySetupCloseEl.addEventListener("click", closeMemorySetup);
 memorySetupEl.addEventListener("click", (e) => {
   if (e.target === memorySetupEl) closeMemorySetup();
+});
+
+/// THE WAY BACK TO AN OFFER HE PUT OFF (audit-7 row 13). §15's universal settings menu already
+/// carries `Connected repositories` and `Account connection`; this is the third of the same
+/// kind, in the app's own word for it — `provisionMemory`'s finished heading is "Your memory
+/// folder."
+///
+/// It opens the sheet in whatever state the backend reports, re-read at the press rather than
+/// from the boot's answer: `provision_memory` can be run from this window, so the answer can
+/// have changed since launch. An unreadable `memory_status` says so in the sheet rather than
+/// leaving the row dead.
+/// The sentence for `unusable`, and it is the ONE string this row needed that did not already
+/// exist. `MemoryStatus` has four states; `MEMORY_ASK`, `MEMORY_DONE` and `MEMORY_NO_READER`
+/// cover three, and `unusable` had none because the boot path deliberately says nothing for it
+/// ("an operator's problem with its own boot line and no sentence worth interrupting him with").
+/// A row he presses himself has to answer, so it answers in the same register as
+/// `MEMORY_NO_READER`: what does not work, what still does, and that nothing is required of him.
+/// `detail` is the machine-facing half and stays off this screen, exactly as `MemoryStatus`'s own
+/// doc comment says it must.
+const MEMORY_UNUSABLE =
+  "That folder is there and I couldn't use it. Everything else works as it does now — our " +
+  "conversations are kept somewhere else and are untouched — and there's nothing for you to fix.";
+
+window.RichSettings.registerMemory({
+  open: async () => {
+    const fresh = await invokeQuiet("memory_status");
+    if (fresh) memoryState = fresh;
+    if (!memoryState) {
+      openMemorySetup("I couldn't read where your memory is kept just now. Nothing has changed.", null, {
+        canProvision: false,
+      });
+      return;
+    }
+    if (memoryState.state === "none") {
+      openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
+      return;
+    }
+    memorySetupTitleEl.textContent = "Your memory folder.";
+    // The state's own sentence, never a guess: `ready`, `no-compiler` and `unusable` are three
+    // different facts and `MemoryStatus`'s own doc comment says why collapsing two of them would
+    // "offer to create a corpus he already has".
+    const note =
+      memoryState.state === "ready"
+        ? MEMORY_DONE
+        : memoryState.state === "no-compiler"
+          ? MEMORY_NO_READER
+          : MEMORY_UNUSABLE;
+    // `root`, which is where it actually IS — and from the backend, never composed here: the
+    // acceptance suite forbids a corpus path in this surface that the backend did not supply.
+    openMemorySetup(note, memoryState.root || null, { canProvision: false });
+  },
 });
 
 // ---------------------------------------------------------------------------------------

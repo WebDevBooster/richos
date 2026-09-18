@@ -3705,6 +3705,29 @@ module.exports = [
       "for the same event is the STOPPED_BY_REQUEST sentence above.",
   },
   {
+    s: "That folder is there and I couldn't use it. Everything else works as it does now — our conversations are kept somewhere else and are untouched — and there's nothing for you to fix.",
+    c: "INFORMATIONAL",
+    why:
+      "`MemoryStatus.state === \"unusable\"`, reached from the settings menu's `Memory folder` " +
+      "row (audit-7 row 13). NOT actionable and NOT needs-someone-else, and both halves of that " +
+      "are deliberate. He cannot clear it — the corpus resolved and something refused, and " +
+      "`MemoryStatus.detail` carries the machine-facing half which never reaches this screen by " +
+      "that field's own contract. And it names no party, for the same reason MEMORY_NO_READER " +
+      "stopped naming one on 2026-09-04: on a customer's Mac the person who set RichOS up IS " +
+      "him, so pointing him at a third party who does not exist is worse than saying nothing. " +
+      "It says what is off, what is still on, and that nothing is required of him — the three " +
+      "things that shape is for. Provisioning is not offered, because a corpus already exists.",
+  },
+  {
+    s: "I couldn't read where your memory is kept just now. Nothing has changed.",
+    c: "INFORMATIONAL",
+    why:
+      "`memory_status` itself would not answer when he pressed the `Memory folder` row. Nothing " +
+      "was attempted and nothing was changed, and the row is still there to press again — so " +
+      "this is a statement rather than a request, and it deliberately offers no control: a " +
+      "`Try again` button here would be a second name for the row he just used.",
+  },
+  {
     "s": "body > .overlay",
     "c": "NOT-RENDERED",
     "why":

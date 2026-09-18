@@ -291,6 +291,68 @@ async function main() {
     return "read at boot, silent on screen — the sentence belongs to the press that caused it";
   });
 
+  await run.check('5c "Not now" is remembered across a relaunch, and the offer is still reachable', async () => {
+    // **AUDIT-7 ROW 13.** Ray met the corpus sheet twice in one walk, over the opening screen
+    // both times, and audit-6 met it before that. `maybeAskAboutMemory` had no record of a
+    // decline, so on a machine with no memory folder it re-asked at every launch forever — the
+    // same defect the `no-compiler` branch directly below it was fixed for on 2026-09-04 ("on a
+    // provisioned machine with no compiler that is EVERY launch forever"), left in the branch
+    // above it.
+    //
+    // THE RELAUNCH IS A RELOAD, and it is the right instrument rather than a convenience. What
+    // is being tested is whether a FRESH `main.js` boot reads what the last one wrote, and a
+    // reload gives exactly that: the whole shell re-parses and re-runs `init()` against the same
+    // `localStorage`. (Two pages would not: Playwright gives each `browser.newPage()` its own
+    // context, so they share no storage at all and the check would pass over a variable.)
+    // `addInitScript` survives a reload, so the preset and the call recorder are still in front
+    // of the second boot.
+    const again = await openApp(browser, { memory: "none", chosenEntity: "northwind" });
+    await again.waitForSelector("#memory-setup:not([hidden])");
+    await again.click("#memory-setup-later");
+    await again.waitForFunction(() => document.getElementById("memory-setup").hidden);
+    const errors = again.__errors;
+
+    await again.reload();
+    await leaveHome(again);
+    await again.waitForSelector(".nav-thread", { state: "attached" });
+    // A NEGATIVE NEEDS SOMETHING TO WAIT FOR, so it waits for the boot to have got PAST the
+    // point that would have asked: `take_work_notices` is called from `openThread`'s tail,
+    // after `maybeAskAboutMemory` has had its turn.
+    await again.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === "memory_status"), { timeout: 10000 });
+    await again.waitForTimeout(400);
+    assert(await again.isHidden("#memory-setup"), "the corpus question came back on the next launch after he said Not now");
+
+    // AND THE OFFER IS NOT LOST. Going quiet without leaving a way in would trade a nag for a
+    // dead end, which the affordance rule is right to refuse — so the settings menu carries the
+    // row, and it opens this same sheet with the provisioning control still on it.
+    await again.click("#set-btn");
+    await again.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    const row = await again.evaluate(() => {
+      const n = document.getElementById("set-memory-open");
+      return n ? { text: (n.textContent || "").trim(), role: n.getAttribute("role") } : null;
+    });
+    assert(row, "the settings menu carries no way back to the memory folder");
+    assertEqual(row.text, "Memory folder", "the row does not name the thing it opens");
+    assertEqual(row.role, "menuitem");
+    await again.click("#set-memory-open");
+    await again.waitForSelector("#memory-setup:not([hidden])");
+    assert(
+      await again.isVisible("#memory-setup-go"),
+      "the row opened the sheet with no way to set the folder up — the offer is reachable but not answerable"
+    );
+    const said = await dialogText(again);
+    assert(said.includes("If this looks right, I'll set it up now."), "the sheet is not the offer: " + said);
+    // Pressing the row is not another decline: `Close` and the scrim must not record one.
+    await again.click("#memory-setup-later");
+    bump(7);
+    assertEqual(errors, [], "the relaunched shell logged errors");
+    await again.close();
+    return (
+      '"Not now" survives the relaunch and the question is not re-asked; the settings menu\'s ' +
+      '"Memory folder" row reopens the same offer with its own control on it'
+    );
+  });
+
   await run.check("6  an install that is already set up is never asked", async () => {
     const page = await openApp(browser, { memory: "ready" });
     await page.waitForTimeout(400);

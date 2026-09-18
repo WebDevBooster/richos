@@ -37,6 +37,7 @@ window.RichSettings = (function () {
   var company = null; // { read(), write(id) } — which company this copy of Rich works for
   var repositories = null; // { open() }
   var account = null; // { open() }
+  var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
   var home = null; // { open() } — the home screen's company buttons: their labels and which show
 
   var wrap = null;
@@ -389,6 +390,17 @@ window.RichSettings = (function () {
       accountButton.addEventListener("click", function () { close(); account.open(); });
       menu.appendChild(accountButton);
     }
+    // WHERE HIS MEMORY IS KEPT — audit-7 row 13. The sheet that asks this used to be the only
+    // way to reach it, and it asked at EVERY launch on a machine with no memory folder, which
+    // is what Ray met twice in one walk. "Not now" is remembered now, so the offer needs a door
+    // that is not a question: this row. The app's own word for the thing, taken from the
+    // sheet's own finished heading ("Your memory folder.") rather than invented here.
+    if (memory) {
+      var memoryButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-memory-open"});
+      memoryButton.textContent = "Memory folder";
+      memoryButton.addEventListener("click", function () { close(); memory.open(); });
+      menu.appendChild(memoryButton);
+    }
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
@@ -731,6 +743,12 @@ window.RichSettings = (function () {
      *  a page with no home screen behind it carries no door to a panel that is not there. */
     registerRepositories: function (host) { repositories = host || null; rebuild(); },
     registerAccount: function (host) { account = host || null; rebuild(); },
+    /** WHERE HIS MEMORY IS KEPT. `host.open()` opens the same sheet the first-launch question
+     *  uses, in whatever state `memory_status` reports at the press — which is why the row
+     *  exists at all: "Not now" is remembered since audit-7 row 13, so an offer he put off has
+     *  to be reachable without being asked again. Registering is what makes the row exist, so a
+     *  page with no shell behind it carries no door to a sheet that is not there. */
+    registerMemory: function (host) { memory = host || null; rebuild(); },
 
     registerHome: function (host) {
       home = host || null;
