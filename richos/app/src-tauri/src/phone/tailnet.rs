@@ -115,14 +115,33 @@ impl Diagnostic {
         }
     }
 
-    /// Classify a command's stderr **without keeping it**. Matched on the two sentences
-    /// `cmd/tailscale/cli/cert.go` actually prints, lowercased so a capitalization change upstream
-    /// is not a silent reclassification.
+    /// Classify a command's stderr **without keeping it**, lowercased so a capitalization change
+    /// upstream is not a silent reclassification.
+    ///
+    /// # The third pattern was measured, not read
+    ///
+    /// The first two come from `cmd/tailscale/cli/cert.go`'s own strings. The third does not exist
+    /// in that file at all. **Running `tailscale cert` on this Mac, against a real signed-in
+    /// account with certificates not yet enabled, returned:**
+    ///
+    /// ```text
+    /// 500 Internal Server Error: your Tailscale account does not support getting TLS certs
+    /// ```
+    ///
+    /// That is the **control plane's** sentence relayed through the CLI, not the CLI's own, so
+    /// reading `cert.go` could never have found it — and it is the single most likely refusal a
+    /// real user meets, because it is what a brand-new free tailnet says before the admin-console
+    /// switch is thrown. Without this arm it classified as [`Refused`](Diagnostic::Refused), and
+    /// the screen would have said "something went wrong" instead of "turn on HTTPS certificates".
     pub fn classify(stderr: &str) -> Diagnostic {
         let text = stderr.to_lowercase();
         if text.contains("not running") {
             Diagnostic::DaemonUnreachable
-        } else if text.contains("not enabled") || text.contains("not configured") {
+        } else if text.contains("not enabled")
+            || text.contains("not configured")
+            // Measured on this Mac, 2026-09-18. See the note above.
+            || text.contains("does not support getting tls cert")
+        {
             Diagnostic::HttpsNotEnabled
         } else {
             Diagnostic::Refused
@@ -335,6 +354,21 @@ pub fn detect_with(cli: &Path) -> (TailnetState, Option<Diagnostic>) {
 /// `#[serde(default)]` on every field and no `deny_unknown_fields`, on purpose: the real document
 /// is far larger than this and gains fields between releases, and a parser that refused what it was
 /// not told about would turn a Tailscale update into a RichOS outage.
+///
+/// # Every list is `Option<Vec<…>>`, and that is not defensive padding
+///
+/// **A nil Go slice marshals to `null`, not to `[]`**, and `#[serde(default)]` supplies a default
+/// for a **missing** field rather than for an explicit `null` — so `Vec<String>` here rejects the
+/// real document with *"invalid type: null, expected a sequence"* and the whole parse fails.
+///
+/// **This was a live defect, found by running the binary rather than by reading its types.** The
+/// first draft of this module was pinned to upstream's declarations — `CertDomains []string`,
+/// `TailscaleIPs []netip.Addr` — and used `Vec<String>`. Tailscale 1.102.4 was then installed on
+/// this Mac, and its very first `status --json` came back with `"CertDomains": null`,
+/// `"TailscaleIPs": null` and `"Peer": null`. Against that document the parser returned
+/// `Unreadable`, so **a signed-out Mac would have been reported as "not running"** and Urban's
+/// sign-in screen would never have been drawn. The type declaration was right and the inference
+/// from it was wrong, which is the whole reason the rule is to read the machine.
 #[derive(serde::Deserialize, Default)]
 struct StatusDocument {
     #[serde(rename = "BackendState", default)]
@@ -342,15 +376,15 @@ struct StatusDocument {
     #[serde(rename = "Self", default)]
     self_peer: Option<PeerDocument>,
     #[serde(rename = "CertDomains", default)]
-    cert_domains: Vec<String>,
+    cert_domains: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
 struct PeerDocument {
     #[serde(rename = "DNSName", default)]
-    dns_name: String,
+    dns_name: Option<String>,
     #[serde(rename = "TailscaleIPs", default)]
-    tailscale_ips: Vec<String>,
+    tailscale_ips: Option<Vec<String>>,
     #[serde(rename = "Online", default)]
     online: bool,
 }
@@ -382,7 +416,7 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
         // offer an origin from.
         return Ok(TailnetState::NotRunning);
     };
-    let name = normalize_name(&peer.dns_name);
+    let name = normalize_name(peer.dns_name.as_deref().unwrap_or_default());
     if name.is_empty() {
         return Ok(TailnetState::NotRunning);
     }
@@ -396,7 +430,11 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
     // name?", and it is the ONLY place that question is answered without asking for a certificate.
     // Comparing normalized on both sides: upstream says these are FQDNs *without* trailing
     // periods, but normalizing both is free and survives that changing.
-    let certified = document.cert_domains.iter().any(|domain| normalize_name(domain) == name);
+    let certified = document
+        .cert_domains
+        .unwrap_or_default()
+        .iter()
+        .any(|domain| normalize_name(domain) == name);
     if !certified {
         return Ok(TailnetState::CertificatesOff { name });
     }
@@ -407,8 +445,12 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
     // unspecified and broadcast. But "it happens to appear in ifconfig" is an accident of one
     // variant's implementation, on a machine nobody here has. Asking the daemon which addresses it
     // assigned this node is the same answer, from the thing that knows it.
-    let addresses =
-        peer.tailscale_ips.iter().filter_map(|text| text.trim().parse::<IpAddr>().ok()).collect();
+    let addresses = peer
+        .tailscale_ips
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|text| text.trim().parse::<IpAddr>().ok())
+        .collect();
     Ok(TailnetState::Ready { name, addresses })
 }
 
@@ -552,6 +594,165 @@ mod tests {
     fn with(document: &str, find: &str, replace: &str) -> String {
         assert!(document.contains(find), "the fixture no longer contains {find}");
         document.replace(find, replace)
+    }
+
+    /// **CAPTURED FROM THIS MAC, VERBATIM**, on 2026-09-18, by `/usr/local/bin/tailscale status
+    /// --json` immediately after the CEO installed Tailscale 1.102.4 and before anybody signed in.
+    /// Not abbreviated, not tidied — every key and every `null` is as the daemon printed it.
+    ///
+    /// **This document is the reason this module's lists are `Option<Vec<…>>`.** Against the
+    /// constructed fixture below, which used `[]`, the parser was green. Against this one it
+    /// returned `Unreadable`, because a nil Go slice marshals to `null` and `#[serde(default)]`
+    /// does not cover an explicit `null`. A signed-out Mac would have been reported as "not
+    /// running", and Urban's sign-in screen — the one screen this state exists to draw — would
+    /// never have appeared.
+    ///
+    /// No personal data: `User`, `CurrentTailnet` and `Peer` are all `null` on a signed-out node,
+    /// the node key is all zeroes, and `MM1` is this Mac's host name, already throughout this
+    /// module.
+    const REAL_SIGNED_OUT: &str = r#"{
+  "Version": "1.102.4-t3caf7d9e7-g084ee3b64",
+  "TUN": true,
+  "BackendState": "NeedsLogin",
+  "AuthURL": "",
+  "TailscaleIPs": null,
+  "Self": {
+    "ID": "",
+    "NodeID": 0,
+    "PublicKey": "nodekey:0000000000000000000000000000000000000000000000000000000000000000",
+    "HostName": "MM1",
+    "DNSName": "",
+    "OS": "macOS",
+    "UserID": 0,
+    "TailscaleIPs": null,
+    "Addrs": [],
+    "CurAddr": "",
+    "Relay": "",
+    "PeerRelay": "",
+    "RxBytes": 0,
+    "TxBytes": 0,
+    "Created": "0001-01-01T00:00:00Z",
+    "LastWrite": "0001-01-01T00:00:00Z",
+    "LastSeen": "0001-01-01T00:00:00Z",
+    "LastHandshake": "0001-01-01T00:00:00Z",
+    "Online": false,
+    "ExitNode": false,
+    "ExitNodeOption": false,
+    "Active": false,
+    "PeerAPIURL": null,
+    "TaildropTarget": 0,
+    "NoFileSharingReason": "",
+    "InNetworkMap": false,
+    "InMagicSock": false,
+    "InEngine": false
+  },
+  "Health": [
+    "Tailscale is stopped."
+  ],
+  "MagicDNSSuffix": "",
+  "CurrentTailnet": null,
+  "CertDomains": null,
+  "ExtraRecords": null,
+  "Peer": null,
+  "User": null,
+  "ClientVersion": null
+}"#;
+
+    /// **CAPTURED FROM THIS MAC**, 2026-09-18, minutes after `REAL_SIGNED_OUT` above, once the CEO
+    /// had signed in to a new free tailnet — and **scrubbed**, which is the one difference from
+    /// the fixture above and is named here rather than left to be noticed.
+    ///
+    /// A signed-in document carries an identity that a signed-out one does not: `User` holds a
+    /// `LoginName` and a `DisplayName`, and `CurrentTailnet.Name` is the account's email address.
+    /// Those two objects are replaced below, and the real `MagicDNSSuffix` is replaced with the
+    /// placeholder used everywhere else in this file. **Everything the parser reads — `BackendState`,
+    /// `Self.DNSName`, `Self.Online`, `Self.TailscaleIPs`, `CertDomains` — is structurally as the
+    /// daemon printed it**, including `CertDomains: null` and both address families.
+    ///
+    /// **This Mac was in `certificates-off` at the moment of capture**, which is the state the
+    /// brief's four-state list did not have. It is not a hypothetical: it is where a brand-new
+    /// free tailnet lands, before anybody visits the admin console.
+    const REAL_SIGNED_IN_NO_CERTS: &str = r#"{
+  "Version": "1.102.4-t3caf7d9e7-g084ee3b64",
+  "TUN": true,
+  "BackendState": "Running",
+  "AuthURL": "",
+  "TailscaleIPs": ["100.75.153.24", "fd7a:115c:a1e0::b3a:991a"],
+  "Self": {
+    "HostName": "MM1",
+    "DNSName": "mm1.tail1a2b3c.ts.net.",
+    "OS": "macOS",
+    "TailscaleIPs": ["100.75.153.24", "fd7a:115c:a1e0::b3a:991a"],
+    "Online": true,
+    "Active": false,
+    "InNetworkMap": true
+  },
+  "Health": [],
+  "MagicDNSSuffix": "tail1a2b3c.ts.net",
+  "CurrentTailnet": {"Name": "scrubbed", "MagicDNSSuffix": "tail1a2b3c.ts.net", "MagicDNSEnabled": true},
+  "CertDomains": null,
+  "ExtraRecords": null,
+  "Peer": null,
+  "User": {"1": {"ID": 1, "LoginName": "scrubbed", "DisplayName": "scrubbed"}},
+  "ClientVersion": null
+}"#;
+
+    #[test]
+    fn the_real_signed_in_document_lands_in_certificates_off_with_the_name_known() {
+        // THE STATE THIS MAC WAS ACTUALLY IN. Signed in, online, a real tailnet name, and a
+        // control plane that will not certify it until a switch is thrown on Tailscale's website.
+        let state = parse_status(REAL_SIGNED_IN_NO_CERTS).expect("the real document was refused");
+        assert_eq!(state.token(), "certificates-off");
+        assert_eq!(state.name(), Some("mm1.tail1a2b3c.ts.net"));
+        // AND NO ORIGIN, which is the whole point: offering one here would put a certificate
+        // warning on the phone on the one path whose promise is that there is not one.
+        assert_eq!(state.origin(), None);
+        assert!(state.sentence().contains("has not been told"));
+    }
+
+    #[test]
+    fn the_refusal_this_mac_actually_returned_is_read_as_certificates_being_off() {
+        // MEASURED, NOT READ. `cmd/tailscale/cli/cert.go` does not contain this sentence — it is
+        // the control plane's, relayed through the CLI — so no amount of reading that file would
+        // have produced it. Without this arm it classified as `Refused`, and the screen would have
+        // said "something went wrong" instead of naming the one switch that fixes it.
+        let measured = "500 Internal Server Error: your Tailscale account does not support getting TLS certs";
+        assert_eq!(Diagnostic::classify(measured), Diagnostic::HttpsNotEnabled);
+        // POSITIVE CONTROL: something genuinely unrecognized still lands in `Refused`, so the arm
+        // above is a pattern and not a catch-all that has swallowed the distinction.
+        assert_eq!(Diagnostic::classify("some unrelated trouble"), Diagnostic::Refused);
+    }
+
+    #[test]
+    fn the_real_document_this_mac_printed_is_read_as_a_mac_waiting_to_be_signed_in() {
+        // THE REGRESSION TEST FOR THE NULL DEFECT, and the only fixture in this file that was
+        // taken off a running daemon rather than transcribed from a type declaration.
+        let state = parse_status(REAL_SIGNED_OUT).expect("the real document was refused");
+        assert_eq!(state.token(), "needs-sign-in");
+        assert_eq!(state.origin(), None);
+        assert_eq!(state.name(), None);
+        // The sentence Urban's Screen 3 is built on has to be the one this state produces.
+        assert!(state.sentence().contains("nobody is signed in"));
+    }
+
+    #[test]
+    fn a_null_list_is_read_as_an_empty_one_wherever_one_can_appear() {
+        // Said once per field, because each is a separate `Option` and a future edit could drop
+        // one of them back to `Vec` without any other test noticing.
+        let running_with_nulls = r#"{
+          "BackendState": "Running",
+          "CertDomains": null,
+          "Self": {"DNSName": "mm1.tail1a2b3c.ts.net.", "TailscaleIPs": null, "Online": true}
+        }"#;
+        // Certificates unknown -> certificates-off, NOT a parse failure.
+        let state = parse_status(running_with_nulls).unwrap();
+        assert_eq!(state.token(), "certificates-off");
+        assert_eq!(state.name(), Some("mm1.tail1a2b3c.ts.net"));
+
+        // And a null `DNSName`, which Go would not produce for a string but costs nothing to
+        // survive.
+        let null_name = r#"{"BackendState": "Running", "Self": {"DNSName": null, "Online": true}}"#;
+        assert_eq!(parse_status(null_name).unwrap().token(), "not-running");
     }
 
     #[test]
@@ -938,6 +1139,50 @@ mod tests {
         for path in [&cli, &down] {
             let _ = std::fs::remove_dir_all(path.parent().unwrap());
         }
+    }
+
+    /// **THE LIVE PROOF, against whatever Tailscale is really doing on this machine.**
+    ///
+    /// `#[ignore]` because its answer depends on the state of somebody's Tailscale account, which
+    /// is not a thing a test suite may depend on. Run it deliberately:
+    ///
+    /// ```text
+    /// cargo test -p richos-tauri --bins phone::tailnet::tests::live -- --ignored --nocapture
+    /// ```
+    ///
+    /// It asserts only what is true of EVERY state — that detection answers, that it never
+    /// panics, and that an origin is offered if and only if the state is `ready` — and prints the
+    /// rest for a human to read. An ignored test that asserted a particular tailnet's condition
+    /// would be a test that fails when the CEO signs out.
+    #[test]
+    #[ignore = "depends on this machine's real Tailscale state; run with --ignored"]
+    fn live_detection_against_the_real_binary_on_this_machine() {
+        let found = find_cli();
+        println!("tailscale command line: {found:?}");
+        let Some(cli) = found else {
+            println!("not installed on this machine — nothing to prove");
+            return;
+        };
+        let (state, diagnostic) = detect_with(&cli);
+        println!("state      = {}", state.token());
+        println!("name       = {:?}", state.name());
+        println!("origin     = {:?}", state.origin());
+        println!("addresses  = {:?}", state.addresses());
+        println!("diagnostic = {:?}", diagnostic.map(|d| d.label()));
+        println!("sentence   = {}", state.sentence());
+
+        // The one invariant that holds whatever the account is doing.
+        assert_eq!(
+            state.origin().is_some(),
+            state.token() == "ready",
+            "an origin was offered by a state that is not ready, or withheld by one that is"
+        );
+        // And a name exists exactly where the two states that have one say it does.
+        assert_eq!(
+            state.name().is_some(),
+            matches!(state.token(), "ready" | "certificates-off"),
+            "the name and the state disagree"
+        );
     }
 
     #[test]
