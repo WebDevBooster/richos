@@ -20,6 +20,11 @@ mod update_startup;
 // `read_displays` and `remember_window_geometry`, live next to the window they serve below.
 mod window_geometry;
 
+// READING THE MAC'S SCREEN LOCK — the CEO's ruling §56's shell half. The syscall lives here
+// because the frameworks do; the rule about what waits lives in `richos_core::screen` because
+// the test suite does. Same split `work_gate.rs` documents for the update gate.
+mod screen;
+
 use richos_core::native::{resolve_claude_bin, resolve_claude_bin_checked, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};

@@ -53,19 +53,37 @@
 //!
 //! ## THE POLL INTERVAL IS A MEASUREMENT, NOT A PREFERENCE
 //!
-//! Measured on this Mac on 2026-09-18 against the real reader, 2000 consecutive readings
-//! (copy the session dictionary, look the key up, release): **298.4 µs per reading.**
+//! Measured on this Mac on 2026-09-18 against the real reader. **The first figure taken was an
+//! outlier and it is left in this table on purpose**, because it is the one the arithmetic
+//! below is deliberately built on:
 //!
 //! ```text
-//!   one reading                                   298.4 µs      =  0.0002984 s
+//!   six samples, idle machine, optimized, 2000 readings each
+//!       45.9  47.0  47.8  48.9  49.3  58.1 µs        min 45.9, max 58.1
+//!   the shipped reader, DEBUG build, two keys + CGDisplayIsAsleep
+//!       75.1 µs                                       (src-tauri screen::tests)
+//!   one sample taken while cargo was building this crate
+//!       298.4 µs                                      WORST OBSERVED
+//! ```
+//!
+//! A reading is an IPC round trip to the window server, so its cost tracks how busy that
+//! server is — a 6× spread between an idle machine and a loaded one is the finding, and a
+//! single number would have hidden it. **The arithmetic therefore uses the worst observed
+//! figure and not the typical one**, so the conclusion is an upper bound rather than a
+//! best case:
+//!
+//! ```text
+//!   worst observed reading                        298.4 µs      =  0.0002984 s
 //!   at SCREEN_POLL = 2 s   0.0002984 / 2       =  0.00014920   =  0.014920 % of one core
+//!   at the typical 75.1 µs  0.0000751 / 2      =  0.00003755   =  0.003755 % of one core
 //!   at the 10 s of the watcher he liked         =  0.00002984   =  0.002984 % of one core
 //!   worst-case added latency                    =  one interval =  2 s
 //! ```
 //!
-//! So 2 s costs 0.0149 % of one core **while a wait is outstanding and nothing at all
-//! otherwise**, and gives a fifth of the latency of the 10-second watcher he described as the
-//! thing he liked. That is the whole argument for the number.
+//! So 2 s costs **at most** 0.0149 % of one core, and about 0.0038 % in practice, **while a
+//! wait is outstanding and nothing at all otherwise** — at a fifth of the latency of the
+//! 10-second watcher he described as the thing he liked. That is the whole argument for the
+//! number, and it survives the reading being six times more expensive than it usually is.
 //!
 //! ## WHY THERE IS NO DISTRIBUTED-NOTIFICATION OBSERVER, STATED RATHER THAN LEFT AS A GAP
 //!
@@ -240,8 +258,9 @@ impl ScreenSource for FakeScreen {
 }
 
 /// **The shipped poll interval.** Its whole justification is the measured arithmetic in this
-/// module's own documentation: 298.4 µs per reading, so 0.0149 % of one core while a wait is
-/// outstanding, and nothing at all when none is.
+/// module's own documentation: at the WORST observed reading cost — 298.4 µs, six times the
+/// typical 45.9–58.1 µs and taken while the machine was building — a wait costs 0.0149 % of
+/// one core, and nothing at all when no wait is outstanding.
 pub const SCREEN_POLL: Duration = Duration::from_secs(2);
 
 /// How a wait ended.
@@ -584,17 +603,26 @@ mod tests {
 
     /// The measured arithmetic this module's poll interval rests on, recomputed here so a
     /// change to the constant has to face the number that justified it.
+    ///
+    /// **It is computed from the WORST reading observed, not the typical one**, so the
+    /// conclusion is an upper bound. A reading is an IPC round trip to the window server and
+    /// its cost tracks that server's load: 45.9–58.1 µs idle, 75.1 µs through the shipped
+    /// reader in a debug build, and 298.4 µs once while cargo was building this crate.
     #[test]
     fn the_poll_interval_is_the_measurement_it_claims_to_be() {
-        // 298.4 µs per reading, measured 2026-09-18 over 2000 consecutive real readings.
-        let one_reading = Duration::from_nanos(298_400);
-        let share = one_reading.as_secs_f64() / SCREEN_POLL.as_secs_f64();
+        // The worst of eight real samples taken on 2026-09-18, each over 2000 readings.
+        let worst_observed = Duration::from_nanos(298_400);
+        let share = worst_observed.as_secs_f64() / SCREEN_POLL.as_secs_f64();
         // 0.0002984 / 2 = 0.0001492 = 0.01492 % of one core.
         assert!(
             (share - 0.000_149_2).abs() < 1e-9,
             "the poll's cost share moved: {share} of one core per waiting thread"
         );
         assert!(share < 0.001, "a wait must cost well under a tenth of a percent of a core");
+        // The typical case, for the same interval, is about a quarter of that.
+        let typical = Duration::from_nanos(75_100).as_secs_f64() / SCREEN_POLL.as_secs_f64();
+        assert!(typical < share, "the typical cost must be below the bound the constant uses");
+        assert!((typical - 0.000_037_55).abs() < 1e-9, "typical share moved: {typical}");
         // And it is a fifth of the latency of the 10-second watcher the CEO said he liked.
         assert_eq!(SCREEN_POLL, Duration::from_secs(2));
     }
