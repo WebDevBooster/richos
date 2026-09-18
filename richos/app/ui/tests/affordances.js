@@ -2260,6 +2260,10 @@ async function main() {
           row("a-registered", "registered", "adding a line to notes.txt"),
           row("a-preparing", "preparing", "reviewing the hiring plan"),
           row("a-running", "running", "landing the three branches"),
+          // CEO §56's state, counted in its own words. It is `is_open` and NOT
+          // `awaits_his_word`, so it appears in neither `awaitingYou` nor the other two counts
+          // and had no count of its own — see the check below this one for what that costs.
+          row("a-screen", "waiting-for-screen", "the overnight import"),
           // Neither counted, and both are on the fixture deliberately: a terminal state must
           // not creep into either number if somebody widens one of the filters later.
           row("a-settled", "settled", "the quarterly summary"),
@@ -2288,6 +2292,15 @@ async function main() {
       !chip.text.includes("3 assignments running"),
       `the chip counts a job that has only been written down as running: ${JSON.stringify(chip.text)}`
     );
+    // CEO §56's state gets its own words and is never folded into either of the other two.
+    assert(
+      chip.text.includes("1 assignment waiting for the screen"),
+      `the chip does not say a job is waiting for the screen: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("2 assignments running") && !chip.text.includes("3 assignments starting"),
+      `a screen-waiting job was folded into another count: ${JSON.stringify(chip.text)}`
+    );
     // The spoken form says the same thing. §Options must survive being spoken.
     assert(
       chip.label.includes("2 assignments starting") && chip.label.includes("1 assignment running"),
@@ -2312,6 +2325,107 @@ async function main() {
     assertEqual(page.__errors, [], "the shell logged errors while the chip was read");
     await page.close();
     return `chip: ${JSON.stringify(chip.text)}; the pane says "Written down. Nothing has been prepared yet." for the registered one`;
+  });
+
+  await run.check("a job waiting for the screen, alone, still reaches the pane it lives in", async () => {
+    // **THE CASE THAT COSTS THE PANE, and it is the whole reason CEO §56's state needs a count
+    // of its own rather than a sentence in the pane.** `waiting-for-screen` is `is_open` in
+    // `AssignmentState` and deliberately NOT `awaits_his_word` — it resolves itself when the Mac
+    // is unlocked, and "waiting for you" would be the nag §56 was given to avoid. So it lands in
+    // neither `awaitingYou` nor the running/starting counts.
+    //
+    // With it as his ONLY open work, `parts` was empty, `drill-chip-zone` was hidden, and the
+    // chip is the only way to open the pane the assignments live in — so there was no chip, no
+    // pane, and no way to see the work at all. Every other check in this suite was green over
+    // it, because every other fixture has something else on the chip. Raised by
+    // `echo-opus-screenwait1` as `esc-20260918T114550Z-64ae379a`.
+    //
+    // ONE ROW, AND NOTHING ELSE ON THE FIXTURE. That is the point: a second row of any other
+    // state would put a part on the chip and the check would pass without touching the defect.
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          {
+            id: "only-waiting",
+            title: "the overnight import",
+            state: "waiting-for-screen",
+            detail: "",
+            repositories: [],
+            registeredAtMs: 1,
+            canStop: true,
+            onTheConnection: false,
+            awaitingYou: null,
+          },
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    // BOUNDED, AND THE FAILURE IS NAMED. With the count removed this wait can never be
+    // satisfied, and a 30s `waitForFunction` reports "Timeout exceeded" — true, and useless to
+    // whoever reads it, when the thing to say is "the chip is hidden and the pane is
+    // unreachable". Verified by removing the `forScreen` part from `renderDrillChip`.
+    const appeared = await page
+      .waitForFunction(
+        () => document.getElementById("drill-chip-zone").textContent.includes("waiting for the screen"),
+        { timeout: 8000 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) {
+      const stuck = await page.evaluate(() => {
+        const zone = document.getElementById("drill-chip-zone");
+        return { hidden: zone.hidden, text: (zone.textContent || "").trim() };
+      });
+      throw new Error(
+        `an assignment waiting for the screen is his ONLY open work and the chip does not name it: ` +
+          `zone hidden=${stuck.hidden}, text=${JSON.stringify(stuck.text)}. The chip is the only way into ` +
+          `the assignments pane, so this is no chip, no pane, and no way to see the work at all`
+      );
+    }
+    const chip = await page.evaluate(() => {
+      const zone = document.getElementById("drill-chip-zone");
+      const n = zone.querySelector(".drill-chip");
+      return {
+        zoneHidden: zone.hidden,
+        text: n ? (n.textContent || "").trim() : null,
+        label: n ? n.getAttribute("aria-label") || "" : null,
+      };
+    });
+    assert(!chip.zoneHidden, "the chip zone is hidden with open work on it — the pane is unreachable");
+    assert(chip.text, "there is no chip at all, so there is no way to open the pane");
+    assert(
+      chip.text.includes("1 assignment waiting for the screen"),
+      `the chip does not name the wait in its own words: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !/\brunning\b/.test(chip.text) && !/\bstarting\b/.test(chip.text),
+      `a job waiting for the screen is described as running or starting: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("waiting for you"),
+      `a wait that resolves itself is presented as his to act on: ${JSON.stringify(chip.text)}`
+    );
+    // Spoken-safe, and the two waits must not read as one another.
+    assert(
+      chip.label.includes("1 assignment waiting for the screen") && !chip.label.includes("waiting for you"),
+      `the accessible name disagrees with the chip: ${JSON.stringify(chip.label)}`
+    );
+
+    // AND THE CHIP OPENS THE PANE, which is the thing that was actually lost.
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-title");
+    const reached = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#slideover-body .assignment-title")).map((n) => (n.textContent || "").trim())
+    );
+    assertEqual(reached, ["the overnight import"], "the pane does not carry the waiting assignment");
+    // The pane's own SENTENCE for this state belongs to `work-summary.js` and arrives with CEO
+    // §56's own branch, not this one — this check deliberately asserts the row is REACHABLE
+    // rather than what it says, so it cannot go red on a tree where that sentence has not landed
+    // yet and cannot go green on one where the row never arrives.
+    assertEqual(page.__errors, [], "the shell logged errors while the waiting chip was read");
+    await page.close();
+    return `chip: ${JSON.stringify(chip.text)}, and it opens a pane carrying "${reached[0]}"`;
   });
 
   await run.check("PART 6: nothing on the opening screen presents as a control and does nothing", async () => {

@@ -3630,6 +3630,20 @@ module.exports = [
       "count and its control are the chip itself, classified below with the rest of it.",
   },
   {
+    "s": "waiting for the screen",
+    "c": "FRAGMENT",
+    "why":
+      "The tail of the work chip's own count for CEO §56's state — '1 assignment waiting for " +
+      "the screen' — classified beside `waiting for you` directly above it and for the same " +
+      "reason: it never renders alone, and the count IS the affordance, because the chip is " +
+      "the only way to open the pane the assignments live in. It is deliberately NOT the same " +
+      "words as `waiting for you`: `AssignmentState::waits_for_the_world` is not " +
+      "`awaits_his_word`, the wait clears itself when the Mac is unlocked, and telling him a " +
+      "self-resolving wait is his to act on is the nag §56 was given to avoid. Before it had a " +
+      "count of its own, an assignment in that state as his only open work left the chip empty " +
+      "and hidden — no chip, no pane, no way to see the work (esc-20260918T114550Z-64ae379a).",
+  },
+  {
     "s": "Waiting on you:",
     "c": "FRAGMENT",
     "why":

@@ -2996,9 +2996,26 @@ function renderDrillChip() {
   //
   // THE NOUN STAYS on both, because `${active} working` two parts up is about WORKERS: a chip
   // reading "2 working · 3 running" would be two different things counted in the same voice.
+  // **AND `waiting-for-screen` GETS ITS OWN COUNT, OR THE PANE BECOMES UNREACHABLE.** CEO §56
+  // added a first-class state for work that is waiting on the Mac being unlocked. It is
+  // `is_open` in `AssignmentState` and deliberately NOT `awaits_his_word` — it resolves itself,
+  // and "waiting for you" would be the nag §56 was given to avoid. So it appears in neither
+  // `awaiting` above nor the two counts below, and an assignment in that state was his ONLY
+  // open work would leave `parts` empty, hide the chip, and take the assignments pane with it —
+  // no chip, no pane, no way to see the work at all. Raised by `echo-opus-screenwait1` as
+  // `esc-20260918T114550Z-64ae379a`.
+  //
+  // ITS OWN WORD, NEVER FOLDED INTO "running", for the same reason `registered` is not:
+  // "waiting for the screen" is the truth and it is the one thing that tells him why nothing is
+  // moving. `work-summary.js` already carries the sentence for the row itself ("Waiting for the
+  // screen to unlock — I'll carry on the moment it's back."); this is the count that gets him to
+  // it. **MOST STUCK FIRST** is the order: his decision, then a wait that clears itself, then
+  // what is starting, then what is running.
+  const forScreen = rows.filter((row) => row.state === "waiting-for-screen").length;
   const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
   const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
+  if (forScreen) parts.push(`${forScreen} ${forScreen === 1 ? "assignment" : "assignments"} waiting for the screen`);
   if (starting) parts.push(`${starting} ${starting === 1 ? "assignment" : "assignments"} starting`);
   if (running) parts.push(`${running} ${running === 1 ? "assignment" : "assignments"} running`);
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
