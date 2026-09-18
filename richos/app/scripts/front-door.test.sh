@@ -168,6 +168,9 @@
 #       in the same listener in `main.js`)
 #   C3  Escape closes the search overlay
 #   C4  Escape closes the settings menu — audit-9 row 2, the row this file exists for
+#   C5b the word `Enter` is a promise — Return, on the SYSTEM EVENTS path, opens the door
+#       (audit-10 row 2; Ray's own measurement went through `cliclick`, which he then proved
+#       does not deliver special keys to this app, and he asked for exactly this re-run)
 #   C5  the tree is read by SIZE and the calibration above is re-proved on this run: a sheet
 #       that is `display:none` is present and 0x0
 #   Z   this run left nothing running, and the pid is named
@@ -664,13 +667,78 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------
-# Leave the opening screen by CLICKING the door at its own box — no key dependency yet,
-# because whether keys arrive is exactly what C1 is about to ask.
+# C5b — THE WORD `Enter` IS A PROMISE. DOES THE KEY KEEP IT, ON A REAL WINDOW? — audit-10 row 2
 # ---------------------------------------------------------------------------------------
-DOOR="$(middle_of 0-rest 'Talk to Rich')"
-if [ -n "$DOOR" ]; then
-  send "c:$DOOR"
+#
+# Ray, candidate .10 §4: "With the window frontmost I pressed Return on the opening screen at
+# 18:51:32. Nothing. The word `Enter` is clickable with a mouse — I clicked it at 18:51:43 and
+# it let me in — and that is the only way it works." And then, to his credit, the caveat:
+# "that Return went through `cliclick`, which I later proved unreliable for this app ... the
+# keyboard half of it deserves a re-run on the System Events path."
+#
+# IT DOES, AND THIS IS THE ONLY PLACE IN THIS REPOSITORY THAT CAN GIVE IT ONE. `ui/tests`
+# holds the handler green — `home.js`'s check "the word 'Enter' is a promise the key keeps,
+# from anywhere on the screen" asserts it and passes — and that suite hands keys to the page
+# through WebKit's automation protocol, a path the shipped window does not have. Three suites'
+# worth of green says the HANDLER is right and can never say the key ARRIVES. That is this
+# file's whole thesis, applied to a second row.
+#
+# IT COSTS THE RUN NOTHING, which is why it goes here rather than in a case of its own. The
+# harness has to leave the opening screen anyway, and it has always done that with a CLICK
+# precisely because key delivery was still in doubt. So: press Return first, look, and fall
+# back to the click. A run in which the key works reports it; a run in which it does not still
+# reaches every case below.
+#
+# C1 IS WHAT KEEPS THIS HONEST IN THE OTHER DIRECTION. If the System Events path itself stops
+# arriving, C1 goes red and this verdict is void rather than wrong — the same relationship C4
+# already has with C3.
+# THE DOOR IS IDENTIFIED BY ITS BOX, NOT BY ITS NAME, AND THE FIRST DRAFT OF THIS CASE PROVED
+# WHY. Run against the .5 bundle on 2026-09-18 it reported "the door is still on screen at
+# 40x40" — and the door is 174x52 (this file's own `size_of` example measures it). 40x40 is the
+# DESK's own `Settings` box, so a SECOND node carrying this name exists once the home screen
+# has gone, and a name-only test reads the door as still up on a run where it opened. The home
+# screen's door has one box, taken from `0-rest`; anything else by that name is another control.
+#
+# AND IT SPENDS ONE TREE DUMP, NOT THREE, WHICH IS ALSO MEASURED RATHER THAN TIDINESS. The
+# first draft took its own before-dump and its own fallback-dump, added about six seconds
+# before `drain_first_run`, and the first-run company question then surfaced DURING C1 — so C1
+# went red on the .5 bundle in both runs of that draft while the pristine file was 7-for-7 on
+# the same bundle in the same hour. A case that costs the run a positive control is a case that
+# has broken the suite to ask its question. `0-rest` is already taken above and `0c` serves both
+# the verdict and the fallback.
+DOOR_BOX="$(size_of 0-rest 'Talk to Rich')"
+if on_screen 0-rest 'Talk to Rich'; then
+  send_key 36 return
   sleep 2
+  ax 0c-after-return
+  AFTER_BOX="$(size_of 0c-after-return 'Talk to Rich')"
+  if [ "$AFTER_BOX" = "$DOOR_BOX" ]; then
+    bad "C5b the word 'Enter' is on the opening screen and Return did not open the door"
+    note "    the door measured $DOOR_BOX before the key and $AFTER_BOX after it — unchanged —"
+    note "    with a System Events Return (key code 36), NOT cliclick. audit-10 row 2 reproduces"
+    note "    on the reliable key path, and the caption is a promise the window does not keep."
+  else
+    ok "C5b Return on the opening screen opened the door — the caption is a promise kept"
+    note "    the door measured $DOOR_BOX before the key; after it the name measures"
+    note "    ${AFTER_BOX:-nothing} (the desk carries a control of its own by that name). Sent"
+    note "    with System Events key code 36, the path C2 and C3 prove arrives on this run."
+  fi
+else
+  note "C5b the door was not on screen before the key, so Return was never put to it. Nothing"
+  note "    about audit-10 row 2 was measured on this run."
+  ax 0c-after-return
+fi
+
+# ---------------------------------------------------------------------------------------
+# Leave the opening screen by CLICKING the door at its own box — the FALLBACK now, because
+# C5b above has already tried the key. Skipped when the key already got us in.
+# ---------------------------------------------------------------------------------------
+if [ "$(size_of 0c-after-return 'Talk to Rich')" = "$DOOR_BOX" ] && [ -n "$DOOR_BOX" ]; then
+  DOOR="$(middle_of 0c-after-return 'Talk to Rich')"
+  if [ -n "$DOOR" ]; then
+    send "c:$DOOR"
+    sleep 2
+  fi
 fi
 
 # ---------------------------------------------------------------------------------------
