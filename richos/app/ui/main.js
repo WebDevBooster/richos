@@ -2977,9 +2977,30 @@ function renderDrillChip() {
   // pane, no approve control, however plainly the notice said it was ready for him.
   const rows = assignments.rows || [];
   const awaiting = rows.filter((row) => row.awaitingYou).length;
-  const openWork = rows.filter((row) => ["registered", "preparing", "running"].includes(row.state)).length;
+  // **A JOB THAT HAS BEEN WRITTEN DOWN IS NOT RUNNING**, and this chip said it was. The line
+  // here counted `["registered", "preparing", "running"]` together and printed
+  // "N assignments running" — so the instant an assignment was registered, before a workspace
+  // existed and before anything had been dispatched, his chip claimed work was under way.
+  //
+  // That is Ray's row 2 on the UI side: "Rich tells him a job is running when it has already
+  // failed ... a CEO who reads the first answer and looks away has been told something false."
+  // `AssignmentState`'s own doc comments are precise about the difference and `work-summary.js`
+  // has always relayed them precisely — `registered` is "Written down. Nothing has been
+  // prepared yet.", `preparing` is "Getting a workspace ready.", `running` is "Running." The
+  // chip was the one surface that flattened three states into the strongest of the three.
+  //
+  // `running` now means what it says on the backend too: it is written once the back end's own
+  // stream proves the turn was taken, rather than at dispatch. So "starting" covers exactly the
+  // two states where the job exists and nothing has yet proved it is under way, and neither
+  // count is ever folded into the other.
+  //
+  // THE NOUN STAYS on both, because `${active} working` two parts up is about WORKERS: a chip
+  // reading "2 working · 3 running" would be two different things counted in the same voice.
+  const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
+  const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
-  if (openWork) parts.push(`${openWork} ${openWork === 1 ? "assignment" : "assignments"} running`);
+  if (starting) parts.push(`${starting} ${starting === 1 ? "assignment" : "assignments"} starting`);
+  if (running) parts.push(`${running} ${running === 1 ? "assignment" : "assignments"} running`);
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);

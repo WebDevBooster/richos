@@ -2227,6 +2227,93 @@ async function main() {
     };
   };
 
+  await run.check("a job that has only been written down is never counted as running", async () => {
+    // **AUDIT-7 ROW 2, ON THE UI SIDE.** Ray's finding was "Rich tells him a job is running
+    // when it has already failed ... a CEO who reads the first answer and looks away has been
+    // told something false." The same overclaim was on the chip, independently of any backend
+    // state: `renderDrillChip` counted `["registered", "preparing", "running"]` together and
+    // printed "N assignments running", so an assignment that had been written down and had no
+    // workspace yet appeared on his screen as work under way.
+    //
+    // `AssignmentState`'s doc comments keep the three apart and `work-summary.js` has always
+    // relayed them apart — "Written down. Nothing has been prepared yet." / "Getting a
+    // workspace ready." / "Running." The chip was the one surface that flattened them, and it
+    // flattened them to the strongest of the three.
+    //
+    // THREE ROWS, ONE OF EACH STATE, so the check can fail in both directions: a chip that
+    // said "3 assignments running" and a chip that said "3 assignments starting" are both
+    // wrong, and only "2 assignments starting · 1 assignment running" is the screen.
+    const row = (id, state, title) => ({
+      id,
+      title,
+      state,
+      detail: "",
+      repositories: [],
+      registeredAtMs: 1,
+      canStop: true,
+      onTheConnection: false,
+      awaitingYou: null,
+    });
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          row("a-registered", "registered", "adding a line to notes.txt"),
+          row("a-preparing", "preparing", "reviewing the hiring plan"),
+          row("a-running", "running", "landing the three branches"),
+          // Neither counted, and both are on the fixture deliberately: a terminal state must
+          // not creep into either number if somebody widens one of the filters later.
+          row("a-settled", "settled", "the quarterly summary"),
+          row("a-unknown", "unknown", "the branch that was running when we last looked"),
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    await page.waitForFunction(() =>
+      document.getElementById("drill-chip-zone").textContent.includes("assignment")
+    );
+    const chip = await page.evaluate(() => {
+      const n = document.querySelector(".drill-chip");
+      return { text: (n.textContent || "").trim(), label: n.getAttribute("aria-label") || "" };
+    });
+    assert(
+      chip.text.includes("2 assignments starting"),
+      `the chip does not say that two jobs are only starting: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      chip.text.includes("1 assignment running"),
+      `the chip does not say that exactly one job is running: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("3 assignments running"),
+      `the chip counts a job that has only been written down as running: ${JSON.stringify(chip.text)}`
+    );
+    // The spoken form says the same thing. §Options must survive being spoken.
+    assert(
+      chip.label.includes("2 assignments starting") && chip.label.includes("1 assignment running"),
+      `the accessible name disagrees with the chip: ${JSON.stringify(chip.label)}`
+    );
+
+    // AND THE PANE BEHIND IT SAYS WHICH IS WHICH, in the words `work-summary.js` already had.
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-title");
+    const said = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#slideover-body .slide-item")).map((n) => (n.textContent || "").trim())
+    );
+    const written = said.find((s) => s.includes("adding a line to notes.txt")) || "";
+    assert(
+      written.includes("Written down. Nothing has been prepared yet."),
+      `the pane does not say that the written-down job has not been prepared: ${JSON.stringify(written)}`
+    );
+    assert(
+      !/\brunning\b/i.test(written),
+      `the pane calls a written-down job running: ${JSON.stringify(written)}`
+    );
+    assertEqual(page.__errors, [], "the shell logged errors while the chip was read");
+    await page.close();
+    return `chip: ${JSON.stringify(chip.text)}; the pane says "Written down. Nothing has been prepared yet." for the registered one`;
+  });
+
   await run.check("PART 6: nothing on the opening screen presents as a control and does nothing", async () => {
     const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
     const pageErrors = [];

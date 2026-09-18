@@ -3704,4 +3704,15 @@ module.exports = [
       "stderr and never Finding::ceo_message, so it cannot appear on his screen. What he reads " +
       "for the same event is the STOPPED_BY_REQUEST sentence above.",
   },
+  {
+    "s": "body > .overlay",
+    "c": "NOT-RENDERED",
+    "why":
+      "A CSS SELECTOR, not a sentence. It is the argument to `document.querySelectorAll` in " +
+      "home.js's `giveWayToOpenDeskSheet` (audit-7 row 5): a `.overlay` that is a direct child " +
+      "of `<body>` is what a DESK SHEET structurally is, and the opening screen gives way when " +
+      "one appears rather than sitting on top of it. It is never assigned to textContent, an " +
+      "attribute or a label, and the prose filter caught it because a two-word string with a " +
+      "period in it is the one shape it cannot tell from a fragment of copy.",
+  },
 ];
