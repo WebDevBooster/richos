@@ -1162,6 +1162,24 @@ fi
 # ---------------------------------------------------------------------------
 export RICHOS_REQUIRE_REAL_ICONS=1
 
+# THE SOURCE-SIDE HALF OF "NO BUILD-MACHINE PATH SHIPS", run BEFORE the compile rather
+# than after the bundle.
+#
+# The artifact check below (`no_host_paths.py`) is still the guarantee and nothing here
+# weakens it. This runs first because of what the 2026-09-18 nightly cost: an hour of
+# compiling and a full bundle, refused at the end over ONE line of Rust
+# (`env!("CARGO_MANIFEST_DIR")` in `src/phone/mod.rs`) that was readable in the source the
+# whole time. Same defect, two orders of magnitude cheaper to find.
+#
+# It is fatal here for the same reason the icon gate is: this is the path that ships.
+say ""
+say "checking the source for compile-time paths..."
+if ! python3 "$app_dir/scripts/lib/no_compile_time_paths.py" "$src_tauri/src"; then
+  warn "refusing to build a bundle from source that bakes in a build-machine path."
+  warn "The artifact check would catch it after the compile; this catches it before."
+  exit 3
+fi
+
 # KEEP THE BUILDER'S HOME DIRECTORY OUT OF THE BINARY.
 #
 # Rust bakes the compile-time path of every crate into the executable as panic-location
