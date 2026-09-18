@@ -1,0 +1,19 @@
+{
+  "name": "richos-phone-probe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The half-day device probe from docs/plans/richos-phone-client-2026-09-18.md §3.2 — five checks on the CEO's iPhone, one page, no product code.",
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "keys": "node bin/generate-vapid-keys.js",
+    "push": "node bin/send-test-push.js"
+  },
+  "dependencies": {},
+  "comment:dependencies": "EMPTY ON PURPOSE. Node's own crypto covers ECDH P-256, HKDF-SHA256, AES-128-GCM and raw-format ECDSA signing, so RFC 8291 + RFC 8292 need no package; node:http and node:fs serve the page. The reasoning, including why the web-push package was not used, is at the top of lib/webpush.js."
+}
