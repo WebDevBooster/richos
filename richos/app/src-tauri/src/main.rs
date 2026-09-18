@@ -2830,6 +2830,21 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
             serde_json::json!({
                 "id": row.id,
                 "title": row.title,
+                // **WORK HE ASKED FOR, OR A QUESTION HE ASKED** (CEO ruling §58, 2026-09-18).
+                // The surface needs both: the timer beside his reply reads "checking" or
+                // "investigating" rather than "working", and the saved-work pane must not
+                // call an answered question "Finished."
+                "kind": row.kind.as_str(),
+                // **WHICH TURN OF HIS THIS ANSWERED**, so the timer can sit beside the reply
+                // he actually got rather than at the bottom of the thread. The whole
+                // reference travels rather than the turn alone: the surface compares
+                // `"ledger:" + threadId + ":" + turn.id` against it, which is an equality
+                // test on a string this app composed, and no parsing of a separator that
+                // might one day appear in an id.
+                //
+                // It is not an identifier he is ever shown — it never reaches a sentence,
+                // the same way `id` above never does.
+                "turnRef": row.instruction_ledger_ref,
                 "state": row.state.as_str(),
                 "detail": row.detail,
                 "repositories": row.repositories,

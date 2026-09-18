@@ -3685,6 +3685,102 @@ module.exports = [
       "honest 'I cannot tell' — it never reads as finished, and there is nothing he can do " +
       "about a record this build cannot parse.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // A QUESTION HE ASKED, rather than work he asked for — the CEO's ruling §58, 2026-09-18
+  // -------------------------------------------------------------------------------------
+  //
+  // *"The answer arrives on the timeline as an answer, never as 'done'."* The eight rows
+  // below are the same three surfaces as the work rows above, said about a question: the
+  // saved-work pane's six states (`work-summary.js`'s `QUESTION_STATES`) and the timeline
+  // timer's two accessible descriptions (`timeline.js`'s `questionRow`).
+  //
+  // WHY A SECOND SET AT ALL, rather than reusing the work sentences. Two of them would have
+  // been outright wrong about a question: "Getting a workspace ready." describes something
+  // done for work and nothing he needs to hear about a question of his, and "Finished." is
+  // the one framing §58 names and refuses. The other four would merely have read like
+  // machinery. The kind is on the record (`assignment.rs`'s `AssignmentKind`), so the pane
+  // does not have to guess which set to use.
+  //
+  // CONTRAST is unchanged by any of them: every sentence here renders in the same
+  // `.overlay-note` on `--card` as the work rows above (5.78:1 dark, 6.38:1 light at 16px,
+  // measured by `background-work.js`), and the two timer descriptions are the row's
+  // `aria-label` and `title` — read on focus and on hover, never painted as text.
+  {
+    "s": "Written down. Rich hasn't started looking yet.",
+    "c": "INFORMATIONAL",
+    "why":
+      "A question of his, written down, before the back end has been asked. It covers BOTH " +
+      "`registered` and `preparing`, which are two sentences for work and one here: the " +
+      "workspace the preparing state describes is a thing done for work, and telling him " +
+      "about it would be describing machinery in answer to a question he asked.",
+  },
+  {
+    "s": "Rich is looking into this.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The running state for a question. The row carries its own Stop control, but the state " +
+      "asks nothing of him: the answer arrives on the conversation when it arrives.",
+  },
+  {
+    "s": "Waiting for your decision before Rich can go on.",
+    "c": "ACTIONABLE",
+    "why":
+      "Answering a question reached a step the permission desk would have asked him about in " +
+      "a visible turn and could not — a command, a write outside its workspace. Identical to " +
+      "the work row above in every respect except the wording, and it carries the same " +
+      "Approve and Decline beside it; the `assignment-question-waiting` fixture proves the " +
+      "control is really on screen for a question and not only for a task.",
+    "control": ".assignment-approve",
+    "fixture": "assignment-question-waiting",
+  },
+  {
+    "s": "Waiting for your decision. Ask Rich to continue when you are ready.",
+    "c": "ACTIONABLE",
+    "why":
+      "The same stop with no question left on the desk — the queue lives in the running " +
+      "process, so a question that stopped at his decision before a relaunch has nothing to " +
+      "press. The path that does exist is asking Rich, through the composer.",
+    "control": "#input",
+  },
+  {
+    "s": "Answered — it's in your conversation.",
+    "c": "INFORMATIONAL",
+    "why":
+      "**The row §58 exists for on this surface.** A question that has been answered is not " +
+      "'Finished.' — the answer itself is on the timeline, said as an answer, which is where " +
+      "he reads it. This sentence says where it went and asks nothing. It deliberately does " +
+      "NOT repeat the answer: the pane would then be a second copy of it, able to disagree.",
+  },
+  {
+    "s": "Rich couldn't get you an answer. Ask him again and he'll try it a different way.",
+    "c": "ACTIONABLE",
+    "why":
+      "A question that got no answer — the back end never answered, or the connection failed. " +
+      "It is said as that rather than as a job that 'stopped before it finished', which would " +
+      "invite the wrong question about something that was never half-answered. Asking again " +
+      "is the thing to do and the composer is where he does it.",
+    "control": "#input",
+  },
+  {
+    "s": "Rich is checking this for you. You'll get the answer here.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The accessible description of the 'Checking for {duration}' timer beside his reply " +
+      "(§6.4: the timer's live updates are not announced every second, and this name is read " +
+      "on focus). It claims only what is known — the question is with the other Rich and " +
+      "nothing is finished — and names where the answer will appear. Nothing to act on: he " +
+      "has already been told it is being checked.",
+  },
+  {
+    "s": "Rich is looking into this for you. You'll get the answer here.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The same, for 'Investigating for {duration}' — either because he was told 'I'll " +
+      "investigate.' or because a check has been running for a minute and flipped its own " +
+      "label (§58: *\"a check still running at one minute flips its label to 'investigating' " +
+      "on its own\"*).",
+  },
   {
     "s": "Your assignments are unavailable:",
     "c": "FRAGMENT",

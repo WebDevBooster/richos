@@ -1371,8 +1371,10 @@ function flushRender() {
 /// One interval for the whole timeline, and it exists ONLY while something is live — an
 /// idle thread runs no timer at all.
 function startOrStopTimer() {
-  let anyLive = false;
-  for (const t of timelineModel.turns.values()) if (t.live) anyLive = true;
+  // §58 gave a row a second reason to tick — a question of his still being answered, on a
+  // turn that completed seconds after he sent it. The test lives beside `updateTimers`' own
+  // so the two cannot drift into different answers.
+  const anyLive = window.RichTimeline.hasLiveRow(timelineModel);
   if (anyLive && !timerHandle && !document.hidden) {
     timerHandle = window.setInterval(() => {
       window.RichTimeline.updateTimers(timelineModel, messagesEl, Date.now());
@@ -2942,6 +2944,13 @@ async function pollWorkerStatus() {
       const view = await Bridge.invoke("get_assignments", {threadId: thread});
       if (!current()) return;
       assignments = {rows: view.assignments || []};
+      // §58: a QUESTION of his that is still being answered puts a live "checking" or
+      // "investigating" timer beside the reply he already got. The register is the only
+      // thing that knows, and this read already runs every three seconds — so the timer
+      // appears and disappears with the record rather than with anything this file guesses.
+      window.RichTimeline.setQuestionsInFlight(timelineModel, assignments.rows, thread);
+      startOrStopTimer();
+      scheduleRender();
     } catch (error) {
       if (!current()) return;
       assignments = {rows: [], error: String(error)};

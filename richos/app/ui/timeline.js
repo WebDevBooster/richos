@@ -135,7 +135,72 @@
   ///
   /// `t`: { status, startedAt, activeMs, live, mergedFrom }
   /// `nowMs`: the clock for a LIVE tick only. Never consulted for a terminal turn.
+  /// **THE SIXTY SECONDS, AND THE ONE PLACE THEY EXIST IN THIS BUILD** — the CEO's ruling
+  /// §58 (`richos-hq` `wiki/ceo-decisions.md:2884-2914`, 2026-09-18): *"a check still running
+  /// at one minute flips its label to 'investigating' on its own."*
+  ///
+  /// The register does NOT rewrite the kind when this fires. The record keeps what the front
+  /// desk estimated, which is the only thing that can later be compared against what actually
+  /// happened; the screen shows what is true now.
+  const CHECK_BECOMES_INVESTIGATE_MS = 60000;
+
+  /// Turn -> the question still being answered for it, or null.
+  ///
+  /// `t.question` is `{ kind, registeredAtMs }` and is set by `main.js` from the assignment
+  /// register whenever an OPEN `check` or `investigate` names this turn. It is cleared the
+  /// moment the register stops saying so — which is how the timer stops: the answer arriving
+  /// settles the assignment, the next read drops it, and the row goes back to its own
+  /// completed duration.
+  function questionInFlight(t) {
+    const q = t && t.question;
+    if (!q || (q.kind !== "check" && q.kind !== "investigate")) return null;
+    if (typeof q.registeredAtMs !== "number") return null;
+    return q;
+  }
+
+  /// **THE WORD BESIDE THE TIMER WHILE A QUESTION IS BEING ANSWERED.**
+  ///
+  /// §58: *"in this case instead of 'working' it would say 'investigating' next to the
+  /// timer"*, and *"'I'll check' is for when the answer from back-end is expected quickly"*.
+  /// "Working" stays for tasks and never appears beside a question.
+  ///
+  /// **The elapsed time is measured from when the question was WRITTEN DOWN, not from when
+  /// this row was drawn.** The register's `registered_at_ms` is fsynced before the front desk
+  /// says "I'll check.", so the timer counts from the instant he was answered, and a window
+  /// he backgrounded and came back to shows the true elapsed time rather than a fresh clock
+  /// — the same derive-from-timestamps rule §6.2 already holds this file to.
+  ///
+  /// **The flip is mechanical and has a measurable worst case.** `updateTimers` runs on a
+  /// 1,000 ms interval (`main.js`'s `startOrStopTimer`), so a check registered at t=0 first
+  /// renders "Investigating for …" on the first tick at or after t=60,000 ms — worst case
+  /// t=60,999 ms, i.e. up to 999 ms late and never early. `formatDuration` floors to whole
+  /// seconds, so the number beside it reads `1m 0s` at the moment the word changes and the
+  /// two cannot disagree.
+  function questionRow(q, nowMs) {
+    const elapsed = nowMs - q.registeredAtMs;
+    const digging = q.kind === "investigate" || elapsed >= CHECK_BECOMES_INVESTIGATE_MS;
+    const word = digging ? "Investigating" : "Checking";
+    const d = formatDuration(elapsed);
+    return {
+      label: d ? `${word} for ${d}` : word,
+      duration: d,
+      tone: "active",
+      // It claims exactly what is known: the question is with the other Rich, and nothing
+      // about it is finished. No identifier, and it means the same read or spoken.
+      note: digging
+        ? "Rich is looking into this for you. You'll get the answer here."
+        : "Rich is checking this for you. You'll get the answer here.",
+      live: true,
+    };
+  }
+
   function durationRow(t, nowMs) {
+    // **§58 OUTRANKS THE TURN'S OWN DURATION, and it has to.** The front desk's turn ENDED
+    // when it said "I'll check." — §55's whole point — so this row would otherwise read
+    // "Worked for 2s" beside a question that is still being answered. The turn really did
+    // take two seconds and that is not what he needs to be looking at.
+    const q = questionInFlight(t);
+    if (q) return questionRow(q, nowMs);
     switch (t.status) {
       case "queued":
       case "working":
@@ -577,6 +642,15 @@
       collapsed: new Set(),
       settled: new Set(), // turnIds whose post-completion settle has already run
       announcedWorking: new Set(),
+      /// turnId -> `{ kind, registeredAtMs }` for a QUESTION of his that is still being
+      /// answered (CEO ruling §58). Written only by `setQuestionsInFlight`, from the
+      /// assignment register; never inferred from anything on the timeline.
+      ///
+      /// **It lives on the MODEL and is carried across `applySnapshot`, like `expanded` and
+      /// `settled`** — `model.turns` is rebuilt from scratch on every snapshot, so a flag
+      /// stamped only on a turn record would be wiped the next time he said anything, which
+      /// is exactly the way a background result was being destroyed before 2026-09-17.
+      questions: new Map(),
       pendingUser: [], // optimistic CEO bubbles awaiting a turn id
       /// TRUE when the snapshot in this model came from `get_machinery` — i.e. the CEO has
       /// techy mode on for this thread. Read in exactly one place, `isTurnExpanded`, and
@@ -714,6 +788,7 @@
     const collapsed = model.collapsed;
     const settled = model.settled;
     const announced = model.announcedWorking;
+    const questions = model.questions;
 
     model.items = new Map();
     model.turns = new Map();
@@ -722,6 +797,7 @@
     model.collapsed = collapsed;
     model.settled = settled;
     model.announcedWorking = announced;
+    model.questions = questions;
     model.pendingUser = [];
 
     if (!snapshot || !Array.isArray(snapshot.items)) return;
@@ -749,7 +825,59 @@
     }
     // A turn that contributed only a duration row still needs its place in the order.
     for (const raw of snapshot.items) if (raw.turnId) turnRecord(model, raw.turnId);
+    // §58: the questions still in flight go back onto the rebuilt records. Last, so every
+    // turn the snapshot mentions already exists.
+    stampQuestions(model);
     restoreLocalNotices(model, carried);
+  }
+
+  /// Copy `model.questions` onto the turn records it names. A question whose turn is not in
+  /// this thread's snapshot is left in the map untouched rather than dropped: `get_assignments`
+  /// is per thread and this is the same thread, so a missing turn means the snapshot has not
+  /// reached that far back, not that the question is over.
+  function stampQuestions(model) {
+    for (const [, t] of model.turns) if (t.question) t.question = null;
+    for (const [turnId, q] of model.questions) {
+      const t = model.turns.get(turnId);
+      if (t) t.question = q;
+    }
+  }
+
+  /// **THE QUESTIONS STILL BEING ANSWERED, from the assignment register** (CEO ruling §58).
+  ///
+  /// `rows` is what `get_assignments` returned. Each row that is an OPEN `check` or
+  /// `investigate`, and names a turn in this thread, puts a live timer beside that turn's
+  /// reply; everything else is ignored. **The answer arriving is what stops the timer** —
+  /// the assignment settles, the next read no longer lists it as open, and this clears it.
+  /// Nothing here times anything out and nothing here decides a question is over.
+  ///
+  /// `threadId` is required and is compared, not trusted: the reference the register stores
+  /// is `ledger:<thread>:<turn>`, so an assignment from another conversation cannot name a
+  /// turn in this one even by accident.
+  function setQuestionsInFlight(model, rows, threadId) {
+    const next = new Map();
+    for (const row of rows || []) {
+      if (row.kind !== "check" && row.kind !== "investigate") continue;
+      if (!["registered", "preparing", "running"].includes(row.state)) continue;
+      if (typeof row.turnRef !== "string" || typeof row.registeredAtMs !== "number") continue;
+      const prefix = "ledger:" + threadId + ":";
+      if (!row.turnRef.startsWith(prefix)) continue;
+      const turnId = row.turnRef.slice(prefix.length);
+      if (!turnId) continue;
+      next.set(turnId, { kind: row.kind, registeredAtMs: row.registeredAtMs });
+    }
+    model.questions = next;
+    stampQuestions(model);
+  }
+
+  /// Is anything on this timeline ticking — a live turn, or a question being answered?
+  ///
+  /// `main.js` runs one interval for the whole timeline and only while something moves. It
+  /// used to ask `t.live` directly; §58 added a second reason a row ticks, and asking here
+  /// keeps the two answers from drifting apart (`updateTimers` asks the same question).
+  function hasLiveRow(model) {
+    for (const t of model.turns.values()) if (t.live || questionInFlight(t)) return true;
+    return false;
   }
 
   /// WHERE A SYNTHETIC TURN GOES IN HIS SCROLLBACK: before the first turn that started after
@@ -2678,7 +2806,10 @@
   function updateTimers(model, container, nowMs) {
     let anyLive = false;
     for (const [turnId, t] of model.turns) {
-      if (!t.live) continue;
+      // §58: a turn whose question is still being answered ticks too, even though the turn
+      // itself completed seconds after he sent it. Without this the label would be drawn once
+      // and then freeze at "Checking for 1s".
+      if (!t.live && !questionInFlight(t)) continue;
       anyLive = true;
       const node = container.querySelector('[data-turn-id="' + cssEscape(turnId) + '"].tl-duration-label');
       if (!node) continue;
@@ -2704,6 +2835,9 @@
   window.RichTimeline = {
     PENDING_TURN,
     DURATION_MEANING,
+    CHECK_BECOMES_INVESTIGATE_MS,
+    setQuestionsInFlight,
+    hasLiveRow,
     createModel,
     bind,
     accepts,
