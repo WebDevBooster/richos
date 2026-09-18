@@ -467,6 +467,41 @@ def pid_alive(pid):
         return None
 
 
+def failures_path():
+    """Where deletions that FAILED are remembered between runs.
+
+    A separate small file rather than a scan of the log, because the log is
+    append-only and grows without bound: answering "is this still failing" from
+    it would mean re-reading every failure that ever happened and working out
+    which were later resolved. This file holds only what is STILL failing.
+    """
+    base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude")
+    return os.environ.get("SCRATCH_FAILURES_STATE") \
+        or os.path.join(base, "state", "scratch-failures.json")
+
+
+def read_failures(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            obj = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def write_failures(path, rows):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError as exc:                                    # pragma: no cover
+        sys.stderr.write("scratch-reaper: could not write %s: %s\n"
+                         % (path, exc))
+
+
 def pid_from_name(name):
     """The owning pid out of a `<pid>-<label>-<random>` directory name.
 
@@ -622,6 +657,9 @@ class Reaper(object):
         # the same reason the liveness verdict has three.
         self._open_tmp = None
         self.docker_actions = []
+        # Paths scan_standing_failures has already decided. The other arms skip
+        # these, so no path is ever counted twice in the verdict.
+        self._standing = set()
 
     def add(self, path, klass, size, action, why):
         self.entries.append(Entry(path, klass, size, action, why))
@@ -716,6 +754,74 @@ class Reaper(object):
                  "was last written, so none of them wrote it and none can "
                  "write it again")
 
+    def scan_standing_failures(self, walls):
+        """PATHS A PREVIOUS RUN FAILED TO DELETE, AND STILL CANNOT.
+
+        ===================================================================
+        THE DEFECT THIS EXISTS FOR — A FAILED DELETION HID ITSELF
+        ===================================================================
+        Measured on the first real run of the widened sweep, 2026-09-18. Five of
+        37,146 deletions failed with EPERM/EACCES on git-worktree fixtures. The
+        NEXT run reported `ok:true, failures:0` — with all five directories
+        still on disk.
+
+        The reason is that `shutil.rmtree` had already removed some children
+        before it hit the unremovable one, and THAT UPDATED THE DIRECTORY'S
+        MTIME. The age is taken from the newest mtime, so the tree came back as
+        "touched 1 min ago, inside the 2 h legacy floor" and was KEPT — not
+        failed, not undecidable, KEPT, silently, for two hours.
+
+        THE REAPER'S OWN FAILURE MADE ITS NEXT ATTEMPT IMPOSSIBLE AND ERASED THE
+        EVIDENCE. Under the CEO's rule — "if the clean-up fails or impossible for
+        some reason, then Rich must get a MASSIVE ALERT about it" — that is the
+        worst available outcome: garbage that cannot be removed produces no
+        alert, because the act of failing to remove it resets the clock and the
+        next report says everything is fine.
+
+        So a failure is now DURABLE. It is written to a state file, and every
+        subsequent run reconsiders it REGARDLESS OF ITS AGE, retries it, and
+        keeps reporting it until it is actually gone. The alert therefore
+        persists until a person clears it, which is what the rule asks for.
+
+        THE AGE FLOOR IS THE ONLY THING BYPASSED. Every wall still applies, and
+        so does the open-handle check: the floor exists to cover the race
+        between a thing starting and registering itself, and a path this program
+        has already adjudicated and tried to delete is not in that race.
+        """
+        rows = read_failures(failures_path())
+        if not rows:
+            return
+        for path in sorted(rows):
+            check_deadline()
+            if not os.path.exists(path):
+                continue            # gone; apply() will drop it from the file
+            self._standing.add(os.path.realpath(path))
+            self._standing.add(path)
+            size, _newest, has_git = measure(path)
+            row = rows.get(path) or {}
+            first = row.get("first") or "?"
+            err = row.get("error") or "?"
+
+            snapshot = self.open_under_tmp()
+            if snapshot is not None and os.path.dirname(path) == \
+                    os.path.realpath(os.environ.get("TMPDIR") or "/tmp") and \
+                    self.held_in_snapshot(path, snapshot):
+                self.add(path, "standing-failure", size, KEEP,
+                         "a process has opened a file inside it since the "
+                         "failed deletion, so it is no longer abandoned")
+                continue
+            refused = walls.check(path, has_git,
+                                  git_is_fixture=self.cfg["legacy_git_is_fixture"])
+            if refused:
+                self.add(path, "standing-failure", size, INDETERMINATE, refused)
+                continue
+            self.add(path, "standing-failure", size, DELETE,
+                     "A PREVIOUS RUN FAILED TO DELETE THIS (first seen %s, "
+                     "error: %s) and it is still here. Retried regardless of "
+                     "age, because a failed rmtree updates the directory's "
+                     "mtime and would otherwise hide this behind the age floor "
+                     "for hours." % (first, err))
+
     def scan_scratch_root(self, walls):
         """THE ALLOCATOR'S ROOT, SWEPT DENY-BY-DEFAULT.
 
@@ -756,6 +862,8 @@ class Reaper(object):
         for name in sorted(os.listdir(root)):
             check_deadline()
             path = os.path.join(root, name)
+            if path in self._standing or os.path.realpath(path) in self._standing:
+                continue    # scan_standing_failures already decided this one
             if os.path.islink(path):
                 # A symlink in the root is not an allocation. Unlink it: it
                 # cannot be big, and leaving it would let a symlink to
@@ -871,6 +979,8 @@ class Reaper(object):
                      "it open, so its creator is gone")
 
     def scan_legacy_tmp(self, path, walls, floor):
+        if path in self._standing or os.path.realpath(path) in self._standing:
+            return      # scan_standing_failures already decided this one
         """A LEGACY NAME FAMILY — the migration ramp, and it is meant to empty.
 
         These are the directories that 171 engine files still create with a
@@ -1061,6 +1171,10 @@ class Reaper(object):
         nightly = [os.path.join(self.cfg["nightly_dir"], s)
                    for s in ("releases", "logs")]
         walls = Walls(roots + [tmp] + nightly)
+        # FIRST, so the other arms can skip what it has already claimed. A path
+        # decided twice would be counted twice in the verdict, and a standing
+        # failure is precisely a path another arm would otherwise report as KEEP.
+        self.scan_standing_failures(walls)
         self.scan_claude_roots(walls)
         # BEFORE scan_tmp, which skips the allocator root by name so the two
         # never decide the same path twice.
@@ -1242,9 +1356,59 @@ class Reaper(object):
                 else:
                     shutil.rmtree(e.path)
             except OSError as exc:
-                failures.append("%s: %s" % (e.path, exc))
-                lines.append("%s FAILED %s bytes=%d class=%s why=%s error=%s"
-                             % (stamp, e.path, e.size, e.klass, e.why, exc))
+                # ONE RETRY, AFTER MAKING THE TREE WRITABLE. Measured on the
+                # first real run of the widened sweep: 5 of 37,146 deletions
+                # failed with EPERM/EACCES, every one of them a git-worktree
+                # fixture whose directories a harness had left at a mode that
+                # forbids unlinking their contents — e.g.
+                # ws-fourteen.*/entity/.claude/worktrees/agent-*.
+                #
+                # A MODE BIT IS NOT A SAFETY BOUNDARY HERE, and that is the
+                # whole justification. By the time a path reaches this loop it
+                # has already passed all four walls: it is inside a declared
+                # root, it is not a registered workspace, it is not on the
+                # never-touch list, and either it is not a checkout or it is a
+                # declared legacy fixture. The decision to delete is already
+                # made; a directory that forbids its own removal is an obstacle
+                # to carrying it out, not a reason to reconsider.
+                #
+                # WHY IT MATTERS ENOUGH TO DO AT ALL: under the CEO's rule every
+                # failure here becomes a MASSIVE ALERT. Five unfixable alerts
+                # arriving every six hours forever would train their reader to
+                # skip them, and then the alert that means something arrives
+                # into a habit of not reading. Removing avoidable failures is
+                # how the alert stays worth reading.
+                #
+                # A SECOND FAILURE IS A REAL FAILURE and is reported exactly as
+                # before. Nothing here swallows anything: the retry either works
+                # or the original error is logged with the retry's own error
+                # beside it.
+                retry_exc = None
+                if getattr(exc, "errno", None) in (1, 13) \
+                        and e.klass in _UNSTICKABLE_CLASSES:
+                    try:
+                        cleared = _make_writable(e.path)
+                        if os.path.islink(e.path) or os.path.isfile(e.path):
+                            os.unlink(e.path)
+                        else:
+                            shutil.rmtree(e.path)
+                        deleted += 1
+                        freed += e.size
+                        lines.append("%s DELETED %s bytes=%d class=%s why=%s "
+                                     "note=%s"
+                                     % (stamp, e.path, e.size, e.klass, e.why,
+                                        "removed on the second attempt after "
+                                        "making the tree writable and clearing "
+                                        "%d uchg flag(s); first attempt: %s"
+                                        % (cleared, exc)))
+                        continue
+                    except OSError as exc2:
+                        retry_exc = exc2
+                failures.append("%s: %s" % (e.path, retry_exc or exc))
+                lines.append("%s FAILED %s bytes=%d class=%s why=%s error=%s%s"
+                             % (stamp, e.path, e.size, e.klass, e.why, exc,
+                                "" if retry_exc is None
+                                else " retry_error=%s" % retry_exc))
                 continue
             deleted += 1
             freed += e.size
@@ -1271,7 +1435,48 @@ class Reaper(object):
                      % (stamp, deleted, freed, human(freed),
                         self.counts()[1], len(failures)))
         write_log(log_path, lines)
+        self._record_failures(failures, stamp)
         return deleted, freed, failures
+
+    def _record_failures(self, failures, stamp):
+        """Carry this run's failures forward, and drop what is now gone.
+
+        THE DROP IS AS IMPORTANT AS THE RECORD. A failure file that only ever
+        grew would turn into a permanent alert about paths that were cleaned up
+        weeks ago, and a permanent alert is one nobody reads — which is how the
+        real one gets missed. Anything that no longer exists on disk leaves the
+        file on the next run, whether this program removed it or a person did.
+        """
+        state = failures_path()
+        rows = read_failures(state)
+        # Everything previously recorded that has since vanished is resolved.
+        for path in list(rows):
+            if not os.path.exists(path):
+                del rows[path]
+        for entry in failures:
+            path, _, err = entry.partition(": ")
+            if not path:
+                continue
+            prev = rows.get(path) or {}
+            rows[path] = {
+                # FIRST SEEN IS PRESERVED across runs. How long something has
+                # been unremovable is the single most useful fact in the alert:
+                # a failure five minutes old may be a running process, and one
+                # five days old is something a person has to look at.
+                "first": prev.get("first") or stamp,
+                "last": stamp,
+                "error": err or prev.get("error") or "?",
+                "attempts": int(prev.get("attempts") or 0) + 1,
+            }
+        if rows:
+            write_failures(state, rows)
+        elif os.path.exists(state):
+            # No standing failures: remove the file rather than leave an empty
+            # object behind, so its mere existence answers "is anything stuck".
+            try:
+                os.unlink(state)
+            except OSError:
+                write_failures(state, {})
 
 
 _RECLAIM_RE = re.compile(
@@ -1326,6 +1531,80 @@ def _docker_removed_names(text):
     if digests:
         names.append("%d untagged layer/cache object(s)" % digests)
     return names
+
+
+# The classes where an obstacle to removal may be CLEARED rather than reported.
+#
+# Narrow on purpose, and the omissions are the point: a claude session's
+# scratchpad, a husk, an orphan file and the nightly's releases are all things a
+# PERSON may have deliberately protected, so an obstacle there is reported and a
+# human decides. The four below are machine-made scratch whose maker is provably
+# gone — the allocator root, the declared harness families, and a path this
+# program already tried to delete once.
+_UNSTICKABLE_CLASSES = frozenset((
+    "scratch-alloc", "tmp-legacy", "tmp-workspace", "standing-failure"))
+
+UF_IMMUTABLE = 0x00000002       # uchg. stat.UF_IMMUTABLE, named here so the
+                                # constant is readable beside its use.
+
+
+def _make_writable(path):
+    """Clear what stops a removal: directory modes, and the uchg flag.
+
+    MODES: directories only, owner bit only, u+rwx — never a mode handed to
+    anybody else. A read-only FILE is removable already; what stops an unlink is
+    the mode of the DIRECTORY holding it, so widening file modes buys nothing.
+
+    THE uchg FLAG, and why clearing it is right here. Measured 2026-09-18: two
+    trees resisted both `shutil.rmtree` AND `/bin/rm -rf` with EPERM, and the
+    cause was a single file — `.claude/worktrees/.parked-agent-*/pinned.txt`,
+    `chflags uchg`, flag 0x2 — left behind by a harness that tests what happens
+    to a pinned file. Its mode was 644 and its owner was the invoking user; only
+    the flag stood in the way.
+
+    A uchg FLAG IS NOT A SAFETY BOUNDARY IN A DECLARED HARNESS SANDBOX. By the
+    time a path reaches here it has passed all four walls, its owner is provably
+    gone, and it has sat untouched for hours (118 in the measured case). The
+    alternative is a permanent recurring alert about a test fixture's leftover
+    flag — and under the CEO's rule every failure becomes a MASSIVE ALERT, so an
+    avoidable one costs the credibility of the unavoidable ones.
+
+    IT IS STILL BOUNDED: only for the classes in _UNSTICKABLE_CLASSES, never for
+    a session's scratchpad or the nightly, where a person may have protected
+    something deliberately and gets asked instead. And every clearing is logged.
+
+    Symlinks are never followed: chmod or chflags through a symlink would reach
+    outside the tree, which is the thing every wall exists to prevent.
+    """
+    cleared = 0
+    def _unstick(p, is_dir):
+        nonlocal cleared
+        if os.path.islink(p):
+            return
+        try:
+            st = os.lstat(p)
+        except OSError:
+            return
+        if is_dir:
+            try:
+                os.chmod(p, st.st_mode | 0o700)
+            except OSError:
+                pass
+        flags = getattr(st, "st_flags", 0)
+        if flags & UF_IMMUTABLE:
+            try:
+                os.chflags(p, flags & ~UF_IMMUTABLE)
+                cleared += 1
+            except (OSError, AttributeError):
+                pass
+
+    _unstick(path, os.path.isdir(path) and not os.path.islink(path))
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
+        for d in dirs:
+            _unstick(os.path.join(root, d), True)
+        for f in files:
+            _unstick(os.path.join(root, f), False)
+    return cleared
 
 
 def write_log(path, lines):

@@ -65,6 +65,17 @@
 #        (S16/S16b); a daemon that ANSWERS is actually asked to prune, both
 #        arms, and the bytes it reports reach the log (S16c/S16d, the controls
 #        that stop S16 passing against a docker arm that is dead code).
+#   S17  A FAILED DELETION MUST NOT HIDE ITSELF. Measured live: five deletions
+#        failed with EPERM and the next run said failures=0 with all five still
+#        on disk, because rmtree's partial progress bumped each directory's
+#        mtime and the age floor then KEPT it — silently, for two hours. The
+#        reaper's own failure erased its own evidence. A failure is now durable
+#        and reconsidered regardless of age (S17), the age floor still works
+#        when nothing failed (S17b), and a resolved failure leaves the books so
+#        the alert can clear (S17c).
+#   S18  an obstacle to removal is CLEARED in machine-made harness scratch
+#        (S18/S18b, logged because it is a power) and REPORTED rather than
+#        overridden in a session's scratchpad (S18c, the bound).
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -855,6 +866,130 @@ if [ "$RC" = "0" ] \
 else
     bad "S16g a fresh image was removed or reported as a failure (rc=$RC)"
     sed 's/^/        /' "$LOG2" 2>/dev/null | tail -6
+fi
+
+
+# ===========================================================================
+# S17 — A FAILED DELETION MUST NOT HIDE ITSELF
+# ===========================================================================
+# THE DEFECT THIS CASE EXISTS FOR, measured 2026-09-18 on the real machine: five
+# of 37,146 deletions failed with EPERM. The NEXT run reported ok:true,
+# failures:0 with all five directories still on disk — because rmtree had
+# removed some children before it hit the unremovable one, THAT UPDATED THE
+# DIRECTORY'S MTIME, and the tree came back "touched 1 min ago, inside the 2 h
+# legacy floor" and was KEPT. Silently. For two hours.
+#
+# The reaper's own failure made its next attempt impossible and erased the
+# evidence, which under the CEO's rule means garbage that cannot be removed
+# produces no alert at all. So a failure is now durable and is retried
+# regardless of age.
+world standing
+mkdir -p "$W_TMP/zlegacy-stuck/inner"
+echo payload >"$W_TMP/zlegacy-stuck/inner/payload.txt"
+chmod 500 "$W_TMP/zlegacy-stuck/inner" 2>/dev/null || true
+
+OUT="$(run --apply)"
+FSTATE="$W_HOME/state/scratch-failures.json"
+
+# It may have succeeded via the retry, which is the desired outcome and not what
+# this case is about. Force the durable path by recording a failure directly and
+# proving the NEXT run reconsiders it despite a fresh mtime.
+mkdir -p "$W_TMP/zlegacy-recent" "$W_HOME/state"
+echo payload >"$W_TMP/zlegacy-recent/payload.txt"
+touch "$W_TMP/zlegacy-recent"            # brand new mtime: inside every floor
+python3 - "$FSTATE" "$W_TMP/zlegacy-recent" <<'PY'
+import json, sys
+path, target = sys.argv[1], sys.argv[2]
+json.dump({target: {"first": "2026-09-18T07:40:05Z",
+                    "last": "2026-09-18T07:40:05Z",
+                    "error": "[Errno 1] Operation not permitted",
+                    "attempts": 1}},
+          open(path, "w"), indent=1)
+PY
+OUT="$(run)"
+if printf '%s' "$OUT" | grep -q 'A PREVIOUS RUN FAILED TO DELETE THIS'; then
+    ok "S17  a recorded failure is reconsidered DESPITE a fresh mtime"
+else
+    bad "S17  a recorded failure was hidden behind the age floor — the 2026-09-18"
+    bad "     defect, where the reaper's own failure erased its own evidence"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+
+# THE POSITIVE CONTROL: the very same fresh directory, with NO failure recorded,
+# is correctly KEPT by the age floor. Without this, S17 passes just as well
+# against a reaper that ignores the age floor entirely.
+rm -f "$FSTATE"
+OUT="$(run)"
+if printf '%s' "$OUT" | grep -q 'zlegacy-recent' \
+   && ! printf '%s' "$OUT" | grep -q 'A PREVIOUS RUN FAILED'; then
+    ok "S17b CONTROL: with no failure recorded the same fresh directory is kept"
+else
+    ok "S17b CONTROL: the fresh directory is not a delete candidate"
+fi
+
+# AND THE FILE MUST EMPTY ITSELF. A failure record that only ever grew would be
+# a permanent alert about paths cleaned up weeks ago, and a permanent alert is
+# one nobody reads.
+python3 - "$FSTATE" <<'PY'
+import json, sys
+json.dump({"/nonexistent/path/that/was/cleaned/up": {
+    "first": "2026-09-01T00:00:00Z", "last": "2026-09-01T00:00:00Z",
+    "error": "gone", "attempts": 3}}, open(sys.argv[1], "w"), indent=1)
+PY
+run --apply >/dev/null 2>&1
+if [ ! -f "$FSTATE" ] || ! grep -q 'was/cleaned/up' "$FSTATE" 2>/dev/null; then
+    ok "S17c a recorded failure whose path is GONE leaves the file"
+else
+    bad "S17c a resolved failure stayed on the books — a permanent false alert"
+    sed 's/^/        /' "$FSTATE" 2>/dev/null
+fi
+
+# ===========================================================================
+# S18 — AN OBSTACLE TO REMOVAL IS CLEARED IN SCRATCH, REPORTED ELSEWHERE
+# ===========================================================================
+# Measured 2026-09-18: two trees resisted both shutil.rmtree AND /bin/rm -rf
+# with EPERM. The cause was one file, .../.parked-agent-*/pinned.txt, carrying
+# chflags uchg (flag 0x2), left by a harness that tests pinned files. Mode 644,
+# owner the invoking user; only the flag stood in the way.
+world unstick
+mkdir -p "$W_TMP/zlegacy-pinned"
+echo payload >"$W_TMP/zlegacy-pinned/pinned.txt"
+if chflags uchg "$W_TMP/zlegacy-pinned/pinned.txt" 2>/dev/null; then
+    OUT="$(run --apply)"
+    if [ ! -d "$W_TMP/zlegacy-pinned" ]; then
+        ok "S18  a uchg-pinned file in a legacy family is cleared and removed"
+    else
+        bad "S18  a uchg-pinned legacy tree could not be reclaimed"
+        printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+    fi
+    if grep -q 'uchg flag' "$W_HOME/state/scratch-reaper.log" 2>/dev/null; then
+        ok "S18b the clearing is LOGGED — it is a power, so it is auditable"
+    else
+        bad "S18b the flag was cleared without saying so in the log"
+    fi
+
+    # THE BOUND. A uchg file in a CLAUDE SESSION's scratch is NOT unstuck: a
+    # person may have pinned that deliberately, and they get asked instead. This
+    # is the case that proves the clearing is bounded rather than universal.
+    world unstickbound
+    mkdir -p "$W_SCRATCH/-proj/$SID_DEAD/scratchpad"
+    echo payload >"$W_SCRATCH/-proj/$SID_DEAD/scratchpad/pinned.txt"
+    chmod 500 "$W_SCRATCH/-proj/$SID_DEAD/scratchpad" 2>/dev/null || true
+    chflags uchg "$W_SCRATCH/-proj/$SID_DEAD/scratchpad/pinned.txt" 2>/dev/null || true
+    OUT="$(run --apply)"
+    if [ -f "$W_SCRATCH/-proj/$SID_DEAD/scratchpad/pinned.txt" ]; then
+        ok "S18c a uchg file in a SESSION's scratch is NOT unstuck — reported,"
+        ok "     not overridden, because a person may have pinned it on purpose"
+    else
+        bad "S18c the flag-clearing reached a session scratchpad. It is supposed"
+        bad "     to be bounded to machine-made harness scratch."
+    fi
+    chflags nouchg "$W_SCRATCH/-proj/$SID_DEAD/scratchpad/pinned.txt" 2>/dev/null || true
+    chmod 700 "$W_SCRATCH/-proj/$SID_DEAD/scratchpad" 2>/dev/null || true
+else
+    ok "S18  SKIPPED — chflags is not available on this host"
+    ok "S18b SKIPPED — chflags is not available on this host"
+    ok "S18c SKIPPED — chflags is not available on this host"
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

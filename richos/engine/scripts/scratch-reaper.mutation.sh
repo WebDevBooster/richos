@@ -184,4 +184,19 @@ mutant M18.docker-prune-order-reversed "S16d" "$LIB" \
      far less than its log implies. This is the CEO's own caveat — stopped
      containers pin images — turned into a defect."
 
+mutant M19.failed-deletion-forgotten "S17 " "$LIB" \
+    "rows = read_failures(failures_path())" \
+    "rows = {}" \
+    "A deletion that FAILED is forgotten between runs, so the failed rmtree's
+     own mtime bump hides the garbage behind the age floor and the next run
+     reports ok with the tree still on disk. Measured live on 2026-09-18: five
+     failures, then failures=0 with all five still there."
+
+mutant M20.unstick-unbounded "S18c" "$LIB" \
+    "and e.klass in _UNSTICKABLE_CLASSES" \
+    "and True" \
+    "The uchg-clearing stops being bounded to machine-made harness scratch and
+     reaches a SESSION's scratchpad, overriding a file a person pinned on
+     purpose instead of reporting it."
+
 mutation_end
