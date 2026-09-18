@@ -104,6 +104,9 @@ impl PhoneHub {
         }
     }
 
+    /// Whether a listener is running. Read by the tests that prove the hub is inert before one is,
+    /// which is the property plan §2.5 item 1 turns into "off means no socket".
+    #[allow(dead_code)]
     pub fn is_live(&self) -> bool {
         self.state.lock().unwrap().live
     }

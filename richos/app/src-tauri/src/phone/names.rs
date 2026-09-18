@@ -80,11 +80,6 @@ impl LocalNames {
         out
     }
 
-    /// True when the certificate this was issued for no longer covers where the Mac
-    /// actually is — the trigger for plan §2.1's *"renewed silently"*.
-    pub fn differs_from(&self, issued_for: &LocalNames) -> bool {
-        self.bonjour != issued_for.bonjour || self.addresses != issued_for.addresses
-    }
 }
 
 /// Read the name and the addresses off this machine.
@@ -220,23 +215,4 @@ awdl0: flags=8822<BROADCAST,SMART,SIMPLEX,MULTICAST> mtu 1500
         assert_eq!(names.san_list(), vec!["DNS:mm1.local", "IP:192.168.1.249"]);
     }
 
-    #[test]
-    fn a_moved_address_is_what_triggers_a_silent_renewal() {
-        let issued = LocalNames {
-            host: "MM1".into(),
-            bonjour: "mm1.local".into(),
-            addresses: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 249))],
-        };
-        let same = issued.clone();
-        assert!(!same.differs_from(&issued), "an unchanged network must not re-issue");
-
-        let moved = LocalNames {
-            addresses: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 77))],
-            ..issued.clone()
-        };
-        assert!(moved.differs_from(&issued), "a new lease must re-issue the leaf");
-
-        let renamed = LocalNames { bonjour: "mm2.local".into(), ..issued.clone() };
-        assert!(renamed.differs_from(&issued), "a renamed Mac must re-issue the leaf");
-    }
 }

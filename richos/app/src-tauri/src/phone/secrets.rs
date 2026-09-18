@@ -81,8 +81,10 @@ impl Default for Keychain {
 }
 
 impl Keychain {
-    /// A store under a different service name. Used by the verification record's scratch
-    /// runs so a walk-through cannot collide with the installed app's own items.
+    /// A store under a different service name, so a walk-through under a scratch `HOME` cannot
+    /// collide with the installed app's own Keychain items. **Called by the verification harness
+    /// and not by the app** — which is the point: the app has exactly one service name.
+    #[allow(dead_code)]
     pub fn for_service(service: &str) -> Self {
         Keychain { service: service.to_string() }
     }

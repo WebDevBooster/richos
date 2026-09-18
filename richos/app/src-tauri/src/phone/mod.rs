@@ -37,6 +37,7 @@
 //! rather than a rule to remember.
 
 pub mod api_base;
+pub mod bridge;
 pub mod ca;
 pub mod device;
 pub mod listen;
@@ -68,15 +69,6 @@ pub const MAX_BODY_BYTES: usize = 65536;
 
 /// How long a pairing window stays open. Plan §4.1: *"a 60-second one-shot pairing code"*.
 pub const PAIRING_WINDOW_MS: u64 = 60_000;
-
-/// How far a signed request's `time` may sit from the Mac's clock. Two minutes absorbs
-/// ordinary phone clock drift and makes a captured request worthless tomorrow.
-pub const SIGNATURE_SKEW_MS: u64 = 120_000;
-
-/// How long the events route's signature stays presentable — the ticket of contract
-/// DEVIATION 2. Ten minutes, because `EventSource` reconnects to the IDENTICAL URL and a
-/// single-use nonce would refuse the reconnection the browser performs for us.
-pub const STREAM_TICKET_MS: u64 = 600_000;
 
 /// The keep-alive comment interval on an open event stream. Long enough not to be a poll,
 /// short enough that a dead stream is obvious to the phone. Plan §6 forbids a loop that
@@ -210,4 +202,370 @@ pub fn random_bytes(n: usize) -> Result<Vec<u8>, PhoneError> {
     let mut out = vec![0u8; n];
     rng.fill(&mut out).map_err(|_| PhoneError::Crypto("the system random source refused".into()))?;
     Ok(out)
+}
+
+// -------------------------------------------------------------------------------------
+// THE RUNTIME — one object the shell holds, inert until he pairs a phone
+// -------------------------------------------------------------------------------------
+
+use secrets::SecretStore as _;
+use std::sync::{Arc, Mutex};
+
+/// **The whole of the phone channel, as one thing the shell owns.**
+///
+/// Created at boot and **inert**: no socket, no certificate authority, no keys. Plan §2.5 item 1
+/// is enforced by this object having nothing in it until [`PhoneRuntime::begin_pairing`] is called
+/// from the settings screen, and by [`PhoneRuntime::forget`] putting it back.
+pub struct PhoneRuntime {
+    /// Where the durable stores live — the SAME directory the boot resolved, carried rather than
+    /// re-asked, for the reason `main.rs` gives about `data_dir` at length.
+    data_dir: std::path::PathBuf,
+    /// The fan-out the spine's live observer feeds. Installed at boot and dropping everything
+    /// until a listener runs, so there is no second code path for "attach the emitter later".
+    hub: Arc<stream::PhoneHub>,
+    running: Mutex<Option<Running>>,
+}
+
+struct Running {
+    listener: listen::Listener,
+    channel: Arc<routes::Channel>,
+    bridge: Arc<bridge::PhoneBridge>,
+    vapid: Arc<push::VapidKey>,
+    names: names::LocalNames,
+    fingerprint_words: Vec<&'static str>,
+    fingerprint_hex: String,
+}
+
+/// What the settings screen needs to draw itself.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneStatus {
+    /// Is a socket open right now?
+    pub listening: bool,
+    /// Is a phone paired? `listening && !paired` means a pairing window is open.
+    pub paired: bool,
+    pub device_name: Option<String>,
+    /// Whether that phone can be pushed to yet — it cannot until he has installed the app to the
+    /// Home Screen and allowed notifications, which happens after pairing.
+    pub push_ready: bool,
+    /// The first QR code: the plain-HTTP trust endpoint.
+    pub trust_url: Option<String>,
+    /// The second QR code, with the one-shot code in it. Present only while the window is open.
+    pub pair_url: Option<String>,
+    /// The six words BOTH screens show.
+    pub fingerprint_words: Vec<String>,
+    pub fingerprint_hex: Option<String>,
+    /// Every address and port actually bound, read off the sockets.
+    pub bound: Vec<String>,
+    /// Seconds left in the pairing window, or `None` when none is open.
+    pub pairing_seconds_left: Option<u64>,
+}
+
+impl PhoneRuntime {
+    /// Build the inert runtime and the emitter that will feed it.
+    ///
+    /// Returns the runtime and the observer the shell must hand to `Spine::set_live_observer`
+    /// **beside** the webview's — see [`stream::FanOutLiveEmitter`].
+    pub fn install(data_dir: std::path::PathBuf) -> (Arc<Self>, Box<dyn richos_core::live::LiveObserver>) {
+        let hub = stream::PhoneHub::new();
+        let emitter = Box::new(stream::PhoneLiveEmitter::new(Arc::clone(&hub)));
+        let runtime = Arc::new(PhoneRuntime { data_dir, hub, running: Mutex::new(None) });
+        (runtime, emitter)
+    }
+
+    pub fn status(&self) -> PhoneStatus {
+        let running = self.running.lock().unwrap();
+        let Some(running) = running.as_ref() else {
+            return PhoneStatus {
+                listening: false,
+                paired: false,
+                device_name: None,
+                push_ready: false,
+                trust_url: None,
+                pair_url: None,
+                fingerprint_words: Vec::new(),
+                fingerprint_hex: None,
+                bound: Vec::new(),
+                pairing_seconds_left: None,
+            };
+        };
+        let device = running.channel.devices.paired();
+        let window = running.channel.devices.pairing_window();
+        PhoneStatus {
+            listening: running.listener.is_running(),
+            paired: device.is_some(),
+            device_name: device.as_ref().map(|d| d.name.clone()),
+            push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
+            trust_url: Some(running.names.trust_url()),
+            pair_url: window
+                .as_ref()
+                .map(|w| format!("{}/#pair={}", running.names.origin(), w.code)),
+            fingerprint_words: running.fingerprint_words.iter().map(|w| w.to_string()).collect(),
+            fingerprint_hex: Some(running.fingerprint_hex.clone()),
+            bound: running.listener.bound.iter().map(|a| a.to_string()).collect(),
+            pairing_seconds_left: window.map(|w| {
+                let elapsed = now_millis().saturating_sub(w.opened_at);
+                PAIRING_WINDOW_MS.saturating_sub(elapsed) / 1000
+            }),
+        }
+    }
+
+    /// **Everything that happens the first time he asks to use Rich from his phone**, in order:
+    /// the certificate authority, the VAPID key, the device desk, the listener, and a sixty-second
+    /// window.
+    ///
+    /// Called again while already running, it opens a fresh window without disturbing the socket —
+    /// which is what makes "the code expired, show me another" cost him nothing.
+    pub fn begin_pairing(&self, app: tauri::AppHandle) -> Result<PhoneStatus, PhoneError> {
+        self.start(app, true)
+    }
+
+    /// **Bring the channel back up at boot for a phone that is already paired.**
+    ///
+    /// Without this the channel would only exist after he next opened Settings — so a relaunch
+    /// would silently take his phone offline, and the only symptom would be a phone that says
+    /// "waiting to send" while the Mac sits two rooms away doing nothing. `DeviceDesk` reads the
+    /// paired device off disk, so this is a cheap read and a bind, and it opens NO pairing window:
+    /// a sixty-second code that appears at every launch without him asking is a code that gets
+    /// used by something other than him.
+    pub fn resume_if_paired(&self, app: tauri::AppHandle) {
+        // `listener_should_run` rather than `is_paired`, so there is ONE expression of "should the
+        // socket exist" rather than two that each cover half of it. At boot no pairing window can
+        // be open, so the two happen to agree here — and they would stop agreeing the first time
+        // anything else called this.
+        let should = device::DeviceDesk::open(&self.data_dir)
+            .map(|d| d.listener_should_run())
+            .unwrap_or(false);
+        if !should {
+            return;
+        }
+        if let Err(e) = self.start(app, false) {
+            // Not fatal and not silent. The commonest cause is the port being in use — another
+            // copy of RichOS, or something else on 8443 — and he can only act on it if it is said.
+            eprintln!(
+                "[richos] your phone is paired but the channel could not start, so the phone                  cannot reach this Mac: {e}"
+            );
+        }
+    }
+
+    fn start(&self, app: tauri::AppHandle, open_window: bool) -> Result<PhoneStatus, PhoneError> {
+        let mut running = self.running.lock().unwrap();
+        if let Some(existing) = running.as_ref() {
+            if open_window {
+                existing.channel.devices.open_pairing()?;
+            }
+            drop(running);
+            return Ok(self.status());
+        }
+
+        let names = names::read()?;
+        let keychain = secrets::Keychain::default();
+        let ca = ca::PhoneCa::open(&self.data_dir, &keychain, names.clone())?;
+        let fingerprint_words = ca.fingerprint_words();
+        let fingerprint_hex = ca.fingerprint_hex();
+        let profile = Arc::new(ca.mobileconfig());
+
+        // The VAPID key is minted once and kept: a reload that produced a different public point
+        // would make every existing push subscription start failing with a 403 and nothing would
+        // say why.
+        let vapid = match keychain.get(secrets::VAPID_KEY)? {
+            Some(pkcs8) => push::VapidKey::from_pkcs8(&pkcs8)?,
+            None => {
+                let fresh = push::VapidKey::generate()?;
+                keychain.put(secrets::VAPID_KEY, &fresh.pkcs8)?;
+                fresh
+            }
+        };
+        let vapid = Arc::new(vapid);
+
+        let devices = Arc::new(device::DeviceDesk::open(&self.data_dir)?);
+        let bridge = Arc::new(bridge::PhoneBridge::new(app));
+        let channel = Arc::new(routes::Channel {
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(api_base::ApiBaseDesk::home_only(names.origin())),
+            hub: Arc::clone(&self.hub),
+            bridge: Arc::clone(&bridge) as Arc<dyn routes::Bridge>,
+            assets: phone_assets(),
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: fingerprint_hex.clone(),
+        });
+
+        // The window opens BEFORE the socket, so a failure to bind leaves nothing half-armed.
+        if open_window {
+            devices.open_pairing()?;
+        }
+        let tls = listen::tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8)?;
+        let listener = listen::Listener::start(
+            Arc::clone(&channel),
+            tls,
+            Arc::clone(&profile),
+            &names.addresses,
+            HTTPS_PORT,
+            TRUST_PORT,
+        )?;
+
+        eprintln!(
+            "[richos] the phone channel is listening on {} — trust page {}",
+            listener.bound.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "),
+            names.trust_url()
+        );
+        *running = Some(Running {
+            listener,
+            channel,
+            bridge,
+            vapid,
+            names,
+            fingerprint_words,
+            fingerprint_hex,
+        });
+        drop(running);
+        Ok(self.status())
+    }
+
+    /// "Forget this phone" (plan §4.1). **Instant and complete on the Mac side by construction**:
+    /// the socket goes, the device record goes, and the Keychain keys go with it — there is nowhere
+    /// else the credential exists.
+    ///
+    /// What it cannot do is remove the profile from his phone, so the surface must tell him where
+    /// it is. That sentence is the settings screen's job and it is named here so it is not
+    /// forgotten: *"A cleanup the user has to know to do is a cleanup that does not happen."*
+    pub fn forget(&self) -> Result<(), PhoneError> {
+        let mut running = self.running.lock().unwrap();
+        if let Some(mut was) = running.take() {
+            was.listener.stop();
+            was.channel.devices.forget()?;
+        } else {
+            // Nothing is running, and the keys may still be on disk from a previous launch. He
+            // asked for them to be gone, so they go.
+            device::DeviceDesk::open(&self.data_dir)?.forget()?;
+        }
+        self.hub.set_live(false);
+        ca::PhoneCa::forget(&self.data_dir, &secrets::Keychain::default())?;
+        Ok(())
+    }
+
+    /// Make the cached view of the conversation current. Called after a turn the channel started.
+    pub fn bridge_refresh(&self) {
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.bridge.refresh();
+        }
+    }
+
+    /// **Push the reply that just finished**, if there is a phone to push to.
+    ///
+    /// Called from the drain thread once the turn is over and the spine lock is free. Blocking, on
+    /// its own small runtime: one push per turn is not worth threading an async sender through the
+    /// live observer, and the alternative — the emitter sending into a channel — would put an
+    /// await in the one place §13 says must never block the spine.
+    ///
+    /// **SUPPRESSED WHILE AN EVENT STREAM IS OPEN, and that is a deviation with a reason.** Plan
+    /// §3.4 says *"Push: on a completed reply"* without qualification, and it was written before
+    /// anyone had watched a reply arrive on the phone. Pushing a notification about a sentence he
+    /// is at that moment reading appear is noise, and WebKit requires every push to display one —
+    /// so it cannot be made silent. Cheap to revert: delete the `open_streams` check.
+    pub fn push_last_reply(&self) {
+        let running = self.running.lock().unwrap();
+        let Some(running) = running.as_ref() else { return };
+        let Some(device) = running.channel.devices.paired() else { return };
+        let Some(subscription) = device.push.clone() else { return };
+        if running.channel.devices.open_streams() > 0 {
+            return;
+        }
+        // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
+        // through the same gated door, so a push can never carry something the stream could not.
+        let bridge: &dyn routes::Bridge = running.bridge.as_ref();
+        let Some((thread_id, _title)) = bridge.current_thread() else { return };
+        let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
+        let rows = rows::rows_from_payload(&payload);
+        let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich") else { return };
+        if running.channel.devices.paired().and_then(|d| d.delivered_cursor)
+            >= last["cursor"].as_u64()
+        {
+            // He has already seen it. A push here would be the second time he was told.
+            return;
+        }
+
+        let api_base = running.channel.api_base.current().map(|o| o.api_base);
+        let full = last["text"].as_str().unwrap_or("");
+        let notification = serde_json::json!({
+            "notification": {
+                "title": "Rich",
+                "body": full,
+                "navigate": format!("/#thread={thread_id}&at={}", last["id"].as_str().unwrap_or("")),
+            },
+            "message": last,
+            "api_base": api_base,
+            "tier": "interrupt_now",
+            "truncated": false,
+        });
+        let mut body = notification.to_string();
+        let mut truncated = false;
+        if !push::fits_in_one_push(body.as_bytes()) {
+            // Trim HIS WORDS rather than the envelope, and say so. The alternative — a payload
+            // that overflows and is refused by APNs — is a reply he never hears about at all.
+            truncated = true;
+            let room = push::MAX_PLAINTEXT_BYTES.saturating_sub(body.len() - full.len() + 64);
+            let mut cut = full.len().min(room);
+            while cut > 0 && !full.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let mut shortened = notification.clone();
+            shortened["notification"]["body"] = serde_json::json!(&full[..cut]);
+            shortened["message"] = serde_json::json!({ "id": last["id"], "cursor": last["cursor"] });
+            shortened["truncated"] = serde_json::json!(true);
+            body = shortened.to_string();
+        }
+        let vapid = Arc::clone(&running.vapid);
+        drop(running);
+
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let Ok(client) = reqwest::Client::builder().build() else { return };
+            match push::send(&client, &vapid, &subscription, body.as_bytes(), "high").await {
+                Ok(delivery) if delivery.gone => {
+                    eprintln!(
+                        "[richos] the phone's push subscription has lapsed ({}). It will be asked \
+                         for a new one the next time it connects.",
+                        delivery.status
+                    );
+                }
+                Ok(delivery) if delivery.status >= 300 => {
+                    eprintln!(
+                        "[richos] a push was refused with {}: {}",
+                        delivery.status,
+                        delivery.body.trim()
+                    );
+                }
+                Ok(_) => {
+                    if truncated {
+                        eprintln!("[richos] a reply was too long for one push; its opening was sent");
+                    }
+                }
+                Err(e) => eprintln!("[richos] a push could not be sent: {e}"),
+            }
+        });
+    }
+}
+
+/// Where the static phone app lives.
+///
+/// `None` on a build with no phone assets, which is an ordinary developer build and not an error —
+/// the routes then serve nothing rather than a placeholder that looks like the app.
+fn phone_assets() -> Option<std::path::PathBuf> {
+    // The bundled location first, then the checkout's, so a developer running from source gets the
+    // same channel the shipped bundle does without a second code path.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(resources) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("Resources/phone")) {
+            if resources.join("index.html").is_file() {
+                return Some(resources);
+            }
+        }
+    }
+    let from_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone");
+    if from_source.join("index.html").is_file() {
+        return Some(from_source);
+    }
+    None
 }

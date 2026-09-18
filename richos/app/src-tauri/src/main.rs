@@ -654,6 +654,46 @@ struct AppState {
     boot_engine: Option<PathBuf>,
 }
 
+// ================================================================
+// THE PHONE CHANNEL'S THREE COMMANDS (see `src/phone/`)
+// ================================================================
+//
+// Three, and only three, because the channel is a thing he switches ON and OFF rather than a thing
+// he configures: what state is it in, open a pairing window, forget the phone. Everything else the
+// screen needs is in [`phone::PhoneStatus`].
+//
+// **None of them takes the spine lock**, which is the same reason `stop_turn` and `steer_message`
+// do not: `send_message` holds that lock for the whole of a turn, and a settings screen that froze
+// until Rich finished would be a settings screen nobody opens.
+
+/// What the "Use Rich from your phone" screen draws itself from.
+#[tauri::command(async)]
+fn phone_status(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::PhoneStatus {
+    runtime.status()
+}
+
+/// Open a sixty-second pairing window, starting the channel if this is the first time.
+///
+/// On a first call this mints the certificate authority, issues the leaf, mints the VAPID key and
+/// binds the socket — which is why it can fail in ways he needs to read, and why the error is a
+/// sentence rather than a code.
+#[tauri::command(async)]
+fn phone_begin_pairing(
+    app: AppHandle,
+    runtime: State<std::sync::Arc<phone::PhoneRuntime>>,
+) -> Result<phone::PhoneStatus, String> {
+    runtime.begin_pairing(app).map_err(|e| e.to_string())
+}
+
+/// "Forget this phone": the socket, the device record and the Keychain keys, all of it.
+///
+/// The one thing it cannot do is remove the configuration profile from his phone, so the screen
+/// says where that is. A cleanup the user has to know to do is a cleanup that does not happen.
+#[tauri::command(async)]
+fn phone_forget(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<(), String> {
+    runtime.forget().map_err(|e| e.to_string())
+}
+
 #[tauri::command(async)]
 fn list_threads(state: State<AppState>) -> Vec<ThreadSummary> {
     state.spine.lock().unwrap().threads()
@@ -1944,7 +1984,25 @@ fn main() {
             // beside the two above, so the four events the shipping UI listens to are
             // untouched; `crates/richos-core/tests/live_event_tests.rs` asserts their
             // payloads are byte-identical with and without this line.
-            spine.set_live_observer(Box::new(events::TauriLiveEmitter { app: app.handle().clone() }));
+            //
+            // TWO SINKS ON ONE STREAM SINCE THE PHONE CHANNEL (`src/phone/`). `set_live_observer`
+            // takes exactly one observer, so the two are fanned out rather than the spine being
+            // reshaped — and the fan-out hands both the SAME `&LiveEvent`, after the SAME gate, so
+            // the phone can never see anything the calm view cannot. The phone's half is INERT
+            // until he pairs a phone: it drops everything it is given while no listener runs,
+            // which is why it can be installed here, once, rather than reaching into the spine
+            // later (plan §2.5 item 1).
+            let (phone_runtime, phone_emitter) = phone::PhoneRuntime::install(data_dir.clone());
+            spine.set_live_observer(Box::new(phone::stream::FanOutLiveEmitter::new(vec![
+                Box::new(events::TauriLiveEmitter { app: app.handle().clone() }),
+                phone_emitter,
+            ])));
+            // A PHONE THAT IS ALREADY PAIRED GETS ITS CHANNEL BACK WITHOUT HIM ASKING. Without
+            // this line a relaunch would take his phone offline until he next opened Settings,
+            // and the only symptom would be a phone saying "waiting to send" while the Mac sat
+            // two rooms away doing nothing. It opens no pairing window.
+            phone_runtime.resume_if_paired(app.handle().clone());
+            app.manage(phone_runtime);
 
             // THE WORKER-LIFECYCLE STREAM (UX §7), 2026-08-29.
             //
@@ -2557,6 +2615,9 @@ fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            phone_status,
+            phone_begin_pairing,
+            phone_forget,
             list_threads,
             active_thread,
             create_thread,

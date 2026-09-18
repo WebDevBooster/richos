@@ -65,18 +65,26 @@ impl Listener {
     /// any address fails to bind, every socket already bound is dropped and the whole start fails
     /// — a half-bound listener that answers on one interface and not another is worse than one
     /// that says it could not start.
+    /// `https_port` and `trust_port` are parameters and not the constants, for one reason: the
+    /// end-to-end test in this file stands a REAL listener up on an ephemeral pair so it can prove
+    /// the handshake and the routes against a real TLS client, and a test that fought the shipped
+    /// app for port 8443 would be a test that fails when he has the app open.
+    /// **[`super::PhoneRuntime::start`] is the only production caller and it passes
+    /// [`HTTPS_PORT`] and [`TRUST_PORT`].**
     pub fn start(
         channel: Arc<Channel>,
         tls: Arc<rustls::ServerConfig>,
         profile: Arc<String>,
         addresses: &[IpAddr],
+        https_port: u16,
+        trust_port: u16,
     ) -> Result<Self, PhoneError> {
         check_addresses(addresses)?;
         let mut https: Vec<StdTcpListener> = Vec::new();
         let mut trust: Vec<StdTcpListener> = Vec::new();
         let mut bound: Vec<SocketAddr> = Vec::new();
         for address in addresses {
-            for (port, into) in [(HTTPS_PORT, &mut https), (TRUST_PORT, &mut trust)] {
+            for (port, into) in [(https_port, &mut https), (trust_port, &mut trust)] {
                 let socket = SocketAddr::new(*address, port);
                 let listener = StdTcpListener::bind(socket)
                     .map_err(|e| PhoneError::Io(format!("could not listen on {socket}: {e}")))?;
@@ -622,4 +630,405 @@ mod tests {
         assert_eq!(config.alpn_protocols, vec![b"http/1.1".to_vec()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // -----------------------------------------------------------------------------------
+    // THE WHOLE CHANNEL, END TO END, OVER REAL TLS
+    // -----------------------------------------------------------------------------------
+    //
+    // Every layer this slice built, in one test, with nothing stubbed between them:
+    //
+    //   * a REAL certificate authority and leaf from `openssl`, and a REAL `rustls` client that
+    //     validates the leaf against that root — so "the certificate is acceptable" is a fact
+    //     about the two of them rather than about the fields we asked for;
+    //   * the REAL `hyper` listener on a real socket, reached by writing HTTP/1.1 bytes;
+    //   * the REAL route table, the REAL signature check, the REAL SSE stream;
+    //   * a REAL `Spine` behind the bridge, with a mock lease standing in for `claude` and
+    //     nothing else standing in for anything.
+    //
+    // What it does not cover, named so the coverage claim is honest: `claude` itself (a mock
+    // lease), the browser (the client is `rustls` and hand-written HTTP), the macOS Keychain (an
+    // in-memory secret store, because a test must not write to his login keychain), and Apple's
+    // push service (nothing outbound happens here).
+
+    use crate::phone::api_base::ApiBaseDesk;
+    use crate::phone::ca::PhoneCa;
+    use crate::phone::device::{signing_string, DeviceDesk};
+    use crate::phone::names::LocalNames;
+    use crate::phone::routes::{Accepted, Bridge, Channel};
+    use crate::phone::secrets::MemorySecrets;
+    use crate::phone::stream::PhoneHub;
+    use richos_core::cognition::MockLeaseFactory;
+    use richos_core::entity::{Entity, EntityId, EntityRegistry};
+    use richos_core::ledger::Ledger;
+    use richos_core::spine::Spine;
+    use richos_core::steering::TurnControl;
+    use serde_json::Value;
+    use std::io::{Read, Write};
+    use std::net::Ipv4Addr;
+    use std::sync::Mutex as StdMutex;
+
+    /// A bridge over a real spine, with the same two-part shape the Tauri one has: the words go to
+    /// the durable intake log, and the drain runs on its own thread because it runs the turn.
+    struct SpineBridge {
+        spine: Arc<StdMutex<Spine>>,
+        control: TurnControl,
+        thread: String,
+        entity: EntityId,
+    }
+
+    impl Bridge for SpineBridge {
+        fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
+            let thread = thread_id.unwrap_or(&self.thread).to_string();
+            let record = self
+                .control
+                .submit_from_channel(&thread, Some(self.entity.clone()), text, "phone")
+                .map_err(|e| e.to_string())?;
+            let spine = Arc::clone(&self.spine);
+            std::thread::spawn(move || {
+                let _ = spine.lock().unwrap().poll_intake();
+            });
+            Ok(Accepted {
+                message_id: format!("intake_{}", record.id()),
+                thread_id: thread,
+                at: super::super::now_millis(),
+            })
+        }
+        fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
+            let thread = thread_id.unwrap_or(&self.thread).to_string();
+            let spine = self.spine.lock().unwrap();
+            crate::timeline_view::timeline_payload(&spine, &thread)
+        }
+        fn current_thread(&self) -> Option<(String, String)> {
+            Some((self.thread.clone(), "the proposal".into()))
+        }
+        fn threads(&self) -> Vec<(String, String)> {
+            vec![(self.thread.clone(), "the proposal".into())]
+        }
+    }
+
+    /// A real TLS client that validates against our own root, and writes HTTP/1.1 by hand.
+    struct TlsClient {
+        config: Arc<rustls::ClientConfig>,
+        port: u16,
+    }
+
+    impl TlsClient {
+        fn new(ca_der: &[u8], port: u16) -> Self {
+            let mut roots = rustls::RootCertStore::empty();
+            roots
+                .add(rustls::pki_types::CertificateDer::from(ca_der.to_vec()))
+                .expect("our own root was refused by rustls as a root");
+            let config = rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            TlsClient { config: Arc::new(config), port }
+        }
+
+        /// One request, one response, one connection. Returns `(status, headers, body)`.
+        ///
+        /// **The handshake is the first assertion in this function**: the client validates our leaf
+        /// against our root, for the server name `mm1.local`, with the connection made to
+        /// 127.0.0.1. If the SAN, the extended key usage, the signature algorithm or the chain were
+        /// wrong, this is where it would fail.
+        fn request(
+            &self,
+            method: &str,
+            path: &str,
+            headers: &[(&str, &str)],
+            body: &[u8],
+        ) -> (u16, Vec<(String, String)>, Vec<u8>) {
+            let server_name =
+                rustls::pki_types::ServerName::try_from("mm1.local").unwrap().to_owned();
+            let mut connection =
+                rustls::ClientConnection::new(Arc::clone(&self.config), server_name).unwrap();
+            let mut socket =
+                std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(20))).unwrap();
+            let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+
+            let mut request = format!("{method} {path} HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n");
+            for (name, value) in headers {
+                request.push_str(&format!("{name}: {value}\r\n"));
+            }
+            request.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+            tls.write_all(request.as_bytes()).expect("write request");
+            tls.write_all(body).expect("write body");
+            tls.flush().ok();
+
+            let mut raw = Vec::new();
+            // `Connection: close`, so the read ends when the server closes — no chunk parsing.
+            let _ = tls.read_to_end(&mut raw);
+            parse_response(&raw)
+        }
+
+        /// Open a stream and read whatever arrives within `wait`, then drop the connection.
+        fn stream(&self, path: &str, wait: std::time::Duration) -> String {
+            let server_name =
+                rustls::pki_types::ServerName::try_from("mm1.local").unwrap().to_owned();
+            let mut connection =
+                rustls::ClientConnection::new(Arc::clone(&self.config), server_name).unwrap();
+            let mut socket =
+                std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
+            socket.set_read_timeout(Some(wait)).unwrap();
+            let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+            let request = format!("GET {path} HTTP/1.1\r\nHost: mm1.local\r\nAccept: text/event-stream\r\n\r\n");
+            tls.write_all(request.as_bytes()).expect("write request");
+            tls.flush().ok();
+            let mut raw = Vec::new();
+            let deadline = std::time::Instant::now() + wait;
+            let mut buffer = [0u8; 4096];
+            while std::time::Instant::now() < deadline {
+                match tls.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => raw.extend_from_slice(&buffer[..n]),
+                    Err(_) => break,
+                }
+            }
+            String::from_utf8_lossy(&raw).to_string()
+        }
+    }
+
+    fn parse_response(raw: &[u8]) -> (u16, Vec<(String, String)>, Vec<u8>) {
+        let text = String::from_utf8_lossy(raw);
+        let split = text.find("\r\n\r\n").unwrap_or(text.len());
+        let head = &text[..split];
+        let body = raw[(split + 4).min(raw.len())..].to_vec();
+        let mut lines = head.lines();
+        let status = lines
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let headers = lines
+            .filter_map(|l| l.split_once(": "))
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
+            .collect();
+        (status, headers, body)
+    }
+
+    fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+        headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
+
+    /// An ephemeral port pair, taken by binding and releasing — so the test never fights the
+    /// shipped app for 8443.
+    fn free_port_pair() -> (u16, u16) {
+        let a = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = a.local_addr().unwrap().port();
+        drop(a);
+        let b = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let other = b.local_addr().unwrap().port();
+        drop(b);
+        (port, other)
+    }
+
+    #[test]
+    fn a_phone_pairs_posts_a_message_and_reads_richs_reply_over_real_tls() {
+        // --- the Mac -------------------------------------------------------------------------
+        let dir = std::env::temp_dir().join(format!(
+            "richos-phone-e2e-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secrets = MemorySecrets::default();
+        let names = LocalNames {
+            host: "MM1".into(),
+            bonjour: "mm1.local".into(),
+            addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        };
+        let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
+        let profile = Arc::new(ca.mobileconfig());
+
+        let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
+        spine.set_entity_registry(
+            EntityRegistry::new(vec![
+                Entity::new("femcboost", "FemcBoost", &["/fixture/femcboost"]).unwrap()
+            ])
+            .unwrap(),
+        );
+        let entity = EntityId::parse("femcboost").unwrap();
+        let thread = spine.create_thread("the proposal", &entity).unwrap();
+        spine.switch_thread(&thread).unwrap();
+        spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec![
+            "On it! The proposal is with legal.",
+        ])));
+        let control = TurnControl::open(dir.join("intake.jsonl")).unwrap();
+        spine.set_turn_control(control.clone());
+
+        let hub = PhoneHub::new();
+        spine.set_live_observer(Box::new(crate::phone::stream::PhoneLiveEmitter::new(Arc::clone(&hub))));
+        let spine = Arc::new(StdMutex::new(spine));
+
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+        let channel = Arc::new(Channel {
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::home_only(names.origin())),
+            hub: Arc::clone(&hub),
+            bridge: Arc::new(SpineBridge {
+                spine: Arc::clone(&spine),
+                control,
+                thread: thread.clone(),
+                entity,
+            }) as Arc<dyn Bridge>,
+            assets: None,
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+        });
+
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
+        let (https_port, trust_port) = free_port_pair();
+        let mut listener = Listener::start(
+            Arc::clone(&channel),
+            tls,
+            Arc::clone(&profile),
+            &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            https_port,
+            trust_port,
+        )
+        .expect("the listener did not start");
+
+        // --- the phone -----------------------------------------------------------------------
+        let client = TlsClient::new(&ca.ca_der, https_port);
+        let phone = crate::phone::device::tests::Phone::new();
+
+        // 1. PAIR. No signature: this is the request that establishes the credential.
+        let pair_body = serde_json::json!({
+            "code": code,
+            "public_key_jwk": phone.jwk(),
+            "device_name": "iPhone",
+        })
+        .to_string();
+        let (status, _headers, body) = client.request(
+            "POST",
+            "/api/pair",
+            &[("Content-Type", "application/json")],
+            pair_body.as_bytes(),
+        );
+        assert_eq!(status, 200, "pairing: {}", String::from_utf8_lossy(&body));
+        let paired: Value = serde_json::from_slice(&body).unwrap();
+        let device_id = paired["device_id"].as_str().unwrap().to_string();
+        let mut challenge = paired["challenge"].as_str().unwrap().to_string();
+        assert_eq!(paired["ca_fingerprint_sha256"], ca.fingerprint_hex());
+        assert_eq!(paired["api_base"], names.origin());
+
+        // 2. AN UNPAIRED CALLER STILL SEES NOTHING, over the same real socket. The positive
+        //    control for every 404 in the unit tests, asserted against the wire this time.
+        let (status, _h, body) = client.request("POST", "/api/messages", &[], b"{}");
+        assert_eq!(status, 404, "an unsigned POST was answered");
+        assert!(body.is_empty(), "a refusal carried a body: {}", String::from_utf8_lossy(&body));
+
+        // 3. POST HIS WORDS, signed exactly as `app/phone/lib/api.js` signs them.
+        let words = "where are we on the proposal?";
+        let message_body = serde_json::json!({
+            "client_id": "01JE2E",
+            "thread_id": thread,
+            "kind": "text",
+            "text": words,
+            "sent_at": "2026-09-18T13:00:00.000Z",
+        })
+        .to_string();
+        let signature = super::super::b64url(&phone.sign(&signing_string(
+            &challenge,
+            "POST",
+            "/api/messages",
+            message_body.as_bytes(),
+        )));
+        let authorization = format!("RichOS-Device {device_id}.{challenge}.{signature}");
+        let (status, headers, body) = client.request(
+            "POST",
+            "/api/messages",
+            &[("Content-Type", "application/json"), ("Authorization", &authorization)],
+            message_body.as_bytes(),
+        );
+        assert_eq!(status, 200, "posting: {}", String::from_utf8_lossy(&body));
+        let accepted: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(accepted["duplicate"], false);
+        assert!(accepted["message_id"].as_str().unwrap().starts_with("intake_"));
+        // EVERY response carries the next challenge, which is why there is no challenge route.
+        challenge = header_of(&headers, "x-richos-challenge").expect("no challenge header").to_string();
+
+        // 4. THE WORDS REACH THE LEDGER AS HIS OWN, and the turn runs. The drain is on its own
+        //    thread, so this waits for the ledger rather than for the response.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut seen = Vec::new();
+        while std::time::Instant::now() < deadline {
+            {
+                let guard = spine.lock().unwrap();
+                let binding = guard.ledger().thread_binding(&thread).unwrap();
+                seen = guard
+                    .ledger()
+                    .thread_turns_scoped(&binding)
+                    .unwrap()
+                    .into_iter()
+                    .filter(|t| t.source == richos_core::ledger::Source::Text)
+                    .map(|t| t.user_text.clone())
+                    .collect();
+            }
+            if !seen.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert_eq!(seen, vec![words.to_string()], "his words did not reach the ledger");
+
+        // 5. THE STREAM CARRIES RICH'S REPLY. A fresh ticket, and a real SSE read.
+        let stream_path = format!("/api/events?thread_id={thread}");
+        let stream_sig = super::super::b64url(&phone.sign(&signing_string(
+            &challenge,
+            "GET",
+            &stream_path,
+            b"",
+        )));
+        let stream_auth = format!("RichOS-Device {device_id}.{challenge}.{stream_sig}")
+            .replace(' ', "%20");
+        let wire = client.stream(
+            &format!("{stream_path}&auth={stream_auth}"),
+            std::time::Duration::from_secs(3),
+        );
+        assert!(wire.contains("200 OK"), "the stream was refused: {wire}");
+        assert!(wire.contains("text/event-stream"), "{wire}");
+        assert!(wire.contains("event: hello"), "no hello on the stream: {wire}");
+        assert!(
+            wire.contains("On it! The proposal is with legal."),
+            "Rich's reply is not on the stream: {wire}"
+        );
+        assert!(wire.contains(words), "his own words are not on the stream: {wire}");
+
+        // 6. THE TRUST ENDPOINT serves exactly one file, in the clear, on the neighboring port.
+        let mut plain = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, trust_port)).unwrap();
+        plain.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        plain
+            .write_all(b"GET /ca HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let mut raw = Vec::new();
+        let _ = plain.read_to_end(&mut raw);
+        let (status, headers, body) = parse_response(&raw);
+        assert_eq!(status, 200);
+        assert_eq!(header_of(&headers, "content-type"), Some("application/x-apple-aspen-config"));
+        assert!(String::from_utf8_lossy(&body).contains("com.apple.security.root"));
+
+        // 7. AND NOTHING ELSE ON THAT PORT.
+        let mut plain = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, trust_port)).unwrap();
+        plain.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        plain
+            .write_all(b"GET /ca.crt HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        let mut raw = Vec::new();
+        let _ = plain.read_to_end(&mut raw);
+        assert_eq!(parse_response(&raw).0, 404);
+
+        // 8. STOPPING THE CHANNEL FREES THE PORT. "Off means no socket, not a closed door" — the
+        //    proof is that the port can be bound again the instant `stop()` returns.
+        listener.stop();
+        assert!(
+            std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, https_port)).is_ok(),
+            "the port was still held after stop() returned"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }

@@ -30,6 +30,14 @@
 use std::sync::Mutex;
 
 /// One way the phone might currently reach this Mac.
+///
+/// **Several members of this module are built and not yet called**, and that is the seam doing its
+/// job rather than dead code: plan §10.8 item 1 says to build it *"even if it only ever has one
+/// provider — it is what keeps the phone app from being rewritten twice."* With one provider that
+/// never stops answering, `take_change` never fires; slice D's router door is the first caller.
+/// The alternative — leaving the interface out until something needs it — is the rewrite the plan
+/// names.
+#[allow(dead_code)]
 pub trait AddressProvider: Send + Sync {
     /// A short, stable name. It travels to the phone on the `api-base` event as `reason`, so
     /// the phone can say *why* in plain words rather than showing a URL.
@@ -72,6 +80,7 @@ impl AddressProvider for Home {
     }
 }
 
+#[allow(dead_code)]
 /// A provider that never offers anything. Not dead code and not a mock: it is the honest
 /// stand-in for a provider that is configured but cannot currently reach, and it is what the
 /// "no usable address" path is tested with.
@@ -94,6 +103,7 @@ impl AddressProvider for Unreachable {
     }
 }
 
+#[allow(dead_code)]
 /// What [`ApiBaseDesk::take_change`] found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiBaseChange {
@@ -115,6 +125,7 @@ pub struct ApiBaseDesk {
     last_told: Mutex<Option<Offer>>,
 }
 
+#[allow(dead_code)]
 impl ApiBaseDesk {
     pub fn new(providers: Vec<Box<dyn AddressProvider>>) -> Self {
         ApiBaseDesk { providers, last_told: Mutex::new(None) }

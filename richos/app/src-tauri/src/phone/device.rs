@@ -486,6 +486,11 @@ impl DeviceDesk {
     }
 
     /// Record the audio blob for one message id, so `GET /api/audio/<message_id>` can serve it.
+    ///
+    /// **Built and not yet called: slice B is what synthesizes a reply.** The route it feeds exists
+    /// now because the route is part of the contract the landed phone was built against, and a
+    /// route that 404s every id until slice B lands is the honest version of "not yet".
+    #[allow(dead_code)]
     pub fn mint_audio(&self, message_id: &str, file: PathBuf) {
         let mut state = self.state.lock().unwrap();
         state.audio.push_back((message_id.to_string(), file));
