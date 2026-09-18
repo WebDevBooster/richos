@@ -82,6 +82,32 @@
 #
 # P3  `cliclick`. The keys have to come from somewhere outside the app.
 #
+# P4  THE SCRATCH HOME MUST BE CANONICAL, AND THIS ONE IS NOT ABOUT THE MACHINE — IT IS
+#     ABOUT WHAT THIS FILE PUTS ON THE PERSON'S SCREEN. This harness asks for
+#     `RICHOS_ACTIVATION=regular`, which `activation.rs:72` grants and which
+#     `startup_alert.rs:110-112` uses as the EXACT condition for arming the modal alert. So
+#     this is the one harness in the repository that can show "RichOS could not open" to the
+#     person at the Mac, and on 2026-09-18 at 16:11:56Z it did, for two minutes, because the
+#     scratch HOME was built under `$TMPDIR` and `/var` is a symlink to `private/var`:
+#
+#         failure: application startup: Could not establish application update exclusion:
+#                  home is not a canonical directory
+#
+#     `richos-user-update::root` (lib.rs:147) refuses a HOME that is not already its own
+#     `canonicalize()`. `pwd -P` at creation makes it canonical; P4 then re-asks the same
+#     question before the launch, so a future `$TMPDIR` this harness did not anticipate is a
+#     named refusal with nothing on screen, rather than a dialog he has to dismiss.
+#
+#     THE FIRST ACCOUNT OF THIS FAILURE BLAMED THE DOUBLED SLASH IN `${TMPDIR}/...`, AND IT
+#     IS WRONG — measured on rustc 1.98.0: `Path::new("/a//b") == Path::new("/a/b")` is
+#     TRUE, `/private/var/…/T//x//home` canonicalizes EQUAL, and `/var/…/T/x/home` with no
+#     doubled slash anywhere canonicalizes UNEQUAL. Trimming the slash alone would have
+#     fixed nothing.
+#
+# And if a boot fails anyway, for a reason none of the four preconditions can see, the boot
+# watch below ends the instance at the stderr line — which `cannot_start` writes BEFORE it
+# raises the alert — rather than letting a ten-minute modal stand for the length of the run.
+#
 # =========================================================================================
 # CASES
 # =========================================================================================
@@ -89,6 +115,9 @@
 #   P1  a display is awake            -> otherwise a named refusal, exit 2
 #   P2  the session is unlocked       -> otherwise a named refusal, exit 2  (or wait for it)
 #   P3  cliclick is on this machine   -> otherwise a named refusal, exit 2
+#   P4  the scratch HOME is canonical -> otherwise a named refusal, exit 2, NOTHING LAUNCHED
+#   P5  the boot reached its window   -> otherwise the instance is ENDED AT ONCE and named,
+#                                        exit 2, so no modal alert stands on his screen
 #   C0  the bundle boots and puts exactly one window on screen
 #   C1  POSITIVE CONTROL — a native keystroke reaches the web content at all
 #   C2  POSITIVE CONTROL — the same DOCUMENT-level keydown listener that owns Escape runs on
@@ -108,6 +137,7 @@
 #   scripts/front-door.test.sh --bundle /path/to/RichOS.app
 #   scripts/front-door.test.sh --release ~/.richos-nightly/releases/v1.2.0-nightly.20260918.3
 #   scripts/front-door.test.sh --bundle … --wait-for-screen 900
+#   scripts/front-door.test.sh --bundle … --evidence docs/verification/<dir>   (keeps the dumps)
 #
 # macOS only.
 
@@ -117,12 +147,13 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/gui-launch.sh
 . "$APP_DIR/scripts/lib/gui-launch.sh"
 
-BUNDLE="" RELEASE="" WAIT_FOR_SCREEN=0
+BUNDLE="" RELEASE="" WAIT_FOR_SCREEN=0 EVIDENCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --bundle) BUNDLE="${2:-}"; shift 2 ;;
     --release) RELEASE="${2:-}"; shift 2 ;;
     --wait-for-screen) WAIT_FOR_SCREEN="${2:-0}"; shift 2 ;;
+    --evidence) EVIDENCE="${2:-}"; shift 2 ;;
     *) echo "front-door.test.sh: unknown argument $1" >&2; exit 64 ;;
   esac
 done
@@ -184,12 +215,40 @@ note "keys from $CLICLICK"
 # ---------------------------------------------------------------------------------------
 # The bundle
 # ---------------------------------------------------------------------------------------
+# THE SCRATCH TREE IS CANONICALIZED, AND THE REASON IS THE PRODUCT'S OWN RULE.
+#
+# `richos-user-update`'s `root()` (crates/richos-user-update/src/lib.rs:147-149) refuses a
+# HOME that is not already its own `canonicalize()`, and the app stops before its window
+# exists when it does. On macOS `/var` is a symlink to `private/var` and `$TMPDIR` lives
+# under it, so a scratch HOME built from `$TMPDIR` fails that check EVERY TIME.
+#
+# MEASURED rather than reasoned, with a five-line Rust probe on the same toolchain the app
+# builds with (1.98.0), because the first account of this failure blamed the doubled slash
+# `${TMPDIR}/...` produces and that account is WRONG:
+#
+#   Path::new("/a//b") == Path::new("/a/b")                                      ->  true
+#   given /var/folders/…/T/pathprobe/home      canonical /private/var/…/home     ->  false
+#   given /private/var/folders/…/T//pathprobe//home                              ->  TRUE
+#
+# The doubled separator is collapsed by `Path`'s component-wise equality and is harmless;
+# the `/var` symlink is the whole of it. `pwd -P` resolves both, so both are gone.
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/richos-front-door-XXXXXX")"
+TMP="$(cd "$TMP" && pwd -P)"
 GUI_LAUNCHED_PIDS="$TMP/pids"
 : > "$GUI_LAUNCHED_PIDS"
 export GUI_LAUNCHED_PIDS
 cleanup() {
   local survivors
+  # THE DUMPS OUTLIVE THE RUN ONLY IF ASKED. The scratch tree is deleted either way (CEO §54:
+  # garbage is always cleaned up); `--evidence <dir>` copies out the accessibility dumps and
+  # the boot log FIRST, which are a few kB of text, and never the unpacked bundle or the
+  # scratch HOME, which are not.
+  if [ -n "$EVIDENCE" ]; then
+    mkdir -p "$EVIDENCE" \
+      && cp "$TMP"/ax-*.txt "$EVIDENCE/" 2>/dev/null
+    [ -f "$TMP/app.log" ] && cp "$TMP/app.log" "$EVIDENCE/" 2>/dev/null
+    echo "  evidence copied to $EVIDENCE"
+  fi
   survivors="$(gui_reap_all)"
   [ "$survivors" -eq 0 ] || echo "  RESIDUE  $survivors process(es) survived both signals" >&2
   rm -rf "$TMP"
@@ -209,6 +268,72 @@ fi
 
 HOMEDIR="$TMP/home"
 mkdir -p "$HOMEDIR/Applications"
+
+# P4 — THE SCRATCH HOME MUST PASS THE APP'S OWN RULE BEFORE THE APP IS ASKED.
+#
+# This harness sets `RICHOS_ACTIVATION=regular` (see the boot below) because a key window and
+# a frontmost process are exactly what it is measuring. `activation.rs:72` says that forces
+# the front, and `startup_alert.rs:110-112` arms the CEO-FACING MODAL on precisely
+# `Presentation::Regular` and on nothing else. So this file is the one harness in the
+# repository that can put "RichOS could not open" on the person's screen, and it must
+# therefore prove the boot can succeed BEFORE it launches, rather than discover it after.
+#
+# It happened: the run at 16:11:56Z on 2026-09-18 left that alert up for two minutes and the
+# CEO sent a screenshot of it.
+#
+# `home_rule_violation` MIRRORS `root()` (crates/richos-user-update/src/lib.rs:141-168) rather
+# than approximating it — canonical, then every ancestor a directory owned by root or by me
+# and not writable by anyone else unless it is root-owned AND sticky, then the home itself
+# private to its owner. `stat -L` follows symlinks because Rust's `metadata()` does. It prints
+# the violation and returns 0 when there is one; returns 1 when the HOME would be accepted.
+home_rule_violation() {
+  local home="$1" me p uid mode
+  me="$(id -u)"
+  case "$home" in
+    /*) ;;
+    *) printf 'the scratch HOME is not an absolute path: %s\n' "$home"; return 0 ;;
+  esac
+  if [ "$(cd "$home" && pwd -P)" != "$home" ]; then
+    printf 'the scratch HOME is not canonical: %s resolves to %s (lib.rs:147)\n' \
+      "$home" "$(cd "$home" && pwd -P)"
+    return 0
+  fi
+  uid="$(stat -L -f '%u' "$home")"
+  mode="$(stat -L -f '%p' "$home")"
+  if [ "$uid" != "$me" ] || [ $((8#$mode & 8#22)) -ne 0 ]; then
+    printf 'the scratch HOME is not private to its owner: %s is uid %s mode %s (lib.rs:130)\n' \
+      "$home" "$uid" "$mode"
+    return 0
+  fi
+  p="$(dirname "$home")"
+  while :; do
+    uid="$(stat -L -f '%u' "$p")"
+    mode="$(stat -L -f '%p' "$p")"
+    if [ "$uid" != 0 ] && [ "$uid" != "$me" ]; then
+      printf 'an ancestor of the scratch HOME belongs to neither root nor me: %s is uid %s (lib.rs:156)\n' "$p" "$uid"
+      return 0
+    fi
+    if [ $((8#$mode & 8#22)) -ne 0 ] && { [ "$uid" != 0 ] || [ $((8#$mode & 8#1000)) -eq 0 ]; }; then
+      printf 'an ancestor of the scratch HOME is writable by others and not root-sticky: %s is uid %s mode %s (lib.rs:153-157)\n' "$p" "$uid" "$mode"
+      return 0
+    fi
+    [ "$p" = "/" ] && break
+    p="$(dirname "$p")"
+  done
+  return 1
+}
+
+if VIOLATION="$(home_rule_violation "$HOMEDIR")"; then
+  echo "  REFUSED  $VIOLATION"
+  echo "           richos-user-update::root refuses exactly that and the app would stop before"
+  echo "           its window exists — and because this harness asks for a regular activation,"
+  echo "           the person at this Mac would get a modal alert about it. Nothing was"
+  echo "           launched and nothing about the product was measured."
+  echo "           Point \$TMPDIR at a directory of your own that no one else can write to."
+  exit 2
+fi
+note "scratch HOME passes the app's own rule: $HOMEDIR"
+
 cp -a "$BUNDLE" "$HOMEDIR/Applications/RichOS.app"
 EXE="$HOMEDIR/Applications/RichOS.app/Contents/MacOS/richos-tauri"
 LOG="$TMP/app.log"
@@ -285,15 +410,44 @@ middle_of() {
     RICHOS_ACTIVATION=regular "$EXE" >> "$LOG" 2>&1 ) &
 PID=$!
 printf '%s\n' "$PID" >> "$GUI_LAUNCHED_PIDS"
+
+# THE BOOT WATCH ALSO WATCHES FOR THE FAILURE, AND ENDS THE INSTANCE THE MOMENT IT LANDS.
+#
+# `startup_alert::cannot_start` writes stderr FIRST and raises the modal AFTER
+# (startup_alert.rs:222-228), and the modal's timeout is TEN MINUTES
+# (`ALERT_TIMEOUT_SECONDS: f64 = 600.0`, startup_alert.rs:161). So a failing boot under this
+# harness puts a dialog on the person's screen for as long as the rest of this file takes to
+# run — which on 2026-09-18 was two minutes — unless something kills the process, and the
+# line that says to is already in the log a tenth of a second earlier.
+#
+# The old loop's only exit conditions were `boot complete` and the process being GONE. A
+# process sitting on a modal is neither, so it ran its full 60s and then measured a window
+# that does not exist. This arm is the one that matters for the person at the Mac.
+BOOT_FAILURE=""
 W=0
 while [ "$W" -lt 600 ]; do
   grep -q '^\[richos\] boot complete' "$LOG" 2>/dev/null && break
+  BOOT_FAILURE="$(grep -m1 '^\[richos\] application startup:' "$LOG" 2>/dev/null || true)"
+  [ -n "$BOOT_FAILURE" ] && break
   kill -0 "$PID" 2>/dev/null || break
   sleep 0.1
   W=$((W + 1))
 done
+if [ -n "$BOOT_FAILURE" ]; then
+  gui_kill "$PID" >/dev/null 2>&1
+  if kill -0 "$PID" 2>/dev/null; then
+    echo "  RESIDUE  pid $PID survived both signals and may still be showing a modal alert." >&2
+  fi
+  echo "  REFUSED  the bundle stopped before its window existed, $((W / 10)).$((W % 10))s after launch:"
+  echo "             $BOOT_FAILURE"
+  echo "           Its alert was armed (this harness asks for a regular activation), so the"
+  echo "           instance was ended at once rather than left on the person's screen. Nothing"
+  echo "           about the front door was measured — this is a verdict on the boot, not on"
+  echo "           Escape."
+  exit 2
+fi
 sleep 3
-osascript -e 'tell application "System Events" to set frontmost of process "richos-tauri" to true' >/dev/null 2>&1
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null 2>&1
 sleep 1
 ax 0-rest
 if [ "$(windows_in 0-rest)" = "1" ]; then
