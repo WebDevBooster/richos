@@ -353,21 +353,43 @@ that already exists is unaffected and still running.
 ## 7. Test tails
 
 ```
-scratch.test.sh                     14 passed, 0 failed
-scratch-reaper.test.sh              50 passed, 0 failed
-scratch-reaper.mutation.sh          === mutation: all 20 properties proven load-bearing ===
-disk-watchdog.test.sh               30 passed, 0 failed
-notice-disk-alert.test.sh           12 passed, 0 failed
-scratch-allocation-lint.test.sh     16 passed, 0 failed
-install-retire-reconciler.test.sh   === all 5 passed ===
-session-start-scratch.test.sh        9 passed, 0 failed
-root-contract.mutation.sh           === all 11 fixes proven load-bearing ===
-ceo-todos.mutation.sh               ✓ 12/12 mutants killed
-guard-worktree-removal.mutation.sh  === all 26 mutants proven load-bearing ===
+scratch.test.sh                      14 passed, 0 failed
+mutation-harness-guards.test.sh      12 passed, 0 failed
+scratch-reaper.test.sh               50 passed, 0 failed
+scratch-reaper.mutation.sh           === mutation: all 20 properties proven load-bearing ===
+disk-watchdog.test.sh                30 passed, 0 failed
+notice-disk-alert.test.sh            12 passed, 0 failed
+scratch-allocation-lint.test.sh      16 passed, 0 failed
+install-retire-reconciler.test.sh    === install-retire-reconciler: all 5 passed ===
+session-start-scratch.test.sh         9 passed, 0 failed
+root-contract.mutation.sh            === all 11 fixes proven load-bearing ===
+ceo-todos.mutation.sh                ✓ 12/12 mutants killed
+guard-worktree-removal.mutation.sh   === all 26 mutants proven load-bearing ===
 guard-worktree-isolation.mutation.sh === 26 proven load-bearing, 0 unproven ===
-mega-lander/tests/app.test.py       Ran 29 tests — OK
+mega-lander/tests/app.test.py        Ran 29 tests — OK
 mega-lander/tests/workspaces.test.py Ran 82 tests — OK
 ```
+
+**The brief's nine defeat tests, and where each one is:**
+
+| the brief asked for | where it is |
+|---|---|
+| `kill -9` mid-harness → reaped by the next sweep | **G8**, a real SIGKILL to a real `bash -c` child, then the shipped sweeper |
+| a sealed/finished agent's scratch → reaped | S12 (dead owner), S13 (released row) |
+| a session crash: ledger rows with a dead pid → reaped | S12, S12d (ledger deleted entirely) |
+| disk nearly full → alert at turn end AND session start | W3 (lowered threshold), D2 (session start), D3/D4 (turn end) |
+| an unregistered directory under the root → reaped | S12c |
+| a nested self-copy → refused BEFORE the copy | **G1**, with G5 asserting the refusal explains itself |
+| a deletion that fails → alert names it and Rich's manual path | S17, W12/W12b, and it fired for real on five paths |
+| the `launchd` agent runs with no session | W15, under `env -i` with an empty environment |
+| a mutation harness for the sweeper itself | M11 and M13 gut the dead-pid check; both turn the suite red |
+
+**Two of those tests found defects while being written**, which is the only reason
+they are worth having: G1 was passing *for the wrong reason* (an unresolvable-path
+branch, so containment never ran), and G8's first version used `( ... ) &` — where
+`$$` is the script's pid, not the subshell's — so the suite itself owned the row
+and the sweeper was right to keep it. The attribution is correct and is now
+documented in `scratch.sh`; the test was wrong.
 
 Two of those mutants earned their keep **during** this change rather than after:
 
