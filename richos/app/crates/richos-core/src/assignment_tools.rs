@@ -306,7 +306,14 @@ mod tests {
         assert_eq!(result["recorded"], true);
         let say = result["say"].as_str().unwrap();
         assert!(say.contains("landing the three branches"));
-        assert!(say.contains("taken down"));
+        assert!(say.contains("written down"));
+        // **The sentence the model is handed may not out-claim the record it describes.**
+        // This is the wire Ray's candidate-.7 row 2 came off: `say` is passed to the model
+        // verbatim and `doctrine/front-desk.md:14` tells it to end the turn with exactly
+        // this string, so a claim made here is a claim he hears. The state below is
+        // `registered`; "running" would therefore be false at the instant it is said, which
+        // on his walk it was — for three seconds, before the job failed.
+        assert!(!say.to_lowercase().contains("running"), "the receipt told him it was running: {say}");
         let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].state, assignment::AssignmentState::Registered);
