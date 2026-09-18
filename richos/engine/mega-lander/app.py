@@ -449,6 +449,28 @@ def prepare(scope_path, scope, args):
                 # names machinery he does not have to know exists.
                 raise ValueError("A safety check on this work could not run, so I did not "
                                  "start it. Nothing was created.")
+            # **THE DISPATCH IS ASYNCHRONOUS AND THAT IS NOT A CHOICE** — written down on
+            # 2026-09-18 after it was changed to `False` and measured, because nothing said
+            # why it was `True` and the next reader would have tried the same thing.
+            #
+            # Two independent things refuse a synchronous file-capable spawn:
+            #   * `scripts/hooks/guard-worktree-isolation.sh` clause 7b refuses
+            #     `run_in_background: false` outright; and
+            #   * `workspaces.py`'s `bind_agent` — the only thing that joins the platform's
+            #     agent id to this receipt — runs at `PostToolUse[Agent]`, which a synchronous
+            #     call does not deliver until the worker has ALREADY finished. Measured with
+            #     `False`: `SubagentStart` arrived, then every one of the worker's own tool
+            #     calls was refused by `worker_context` with *"worker identity has not joined
+            #     its app receipt; no tool action is allowed yet"*, and it handed back having
+            #     done nothing.
+            #
+            # So `Agent` answers `{"status": "async_launched"}` at once and the worker outlives
+            # the turn that started it. Waiting for it is the HOST's job, in
+            # `work_host.rs`'s `run_one` step 3b, which waits for the `SubagentStop` this
+            # journal records and then hands the lease another turn. It is not the back end's:
+            # `DESKTOP.md` step 4 asked it to wait with `TaskOutput`, and `TaskOutput` is not
+            # in a work lease's tool inventory at all (read off the child's own `system/init`
+            # frame: 30 tools, no `TaskOutput`, no `BashOutput`).
             record.update(status="prepared",payload={**ready["payload"],"run_in_background":True},
                 workspace_ref=W.named_key(scope["binding"]["session_id"],name))
             save(path,record);project(scope,path,record)

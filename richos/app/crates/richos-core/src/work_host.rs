@@ -308,6 +308,46 @@ const HANDOFF_ASK: &str = "You are about to hand this conversation's background 
 /// priming. Roughly five sentences of prose.
 const HANDOFF_BUDGET_CHARS: usize = 1500;
 
+/// **What the back end is told when the helper it launched has been witnessed ending** —
+/// `run_one` step 3b.
+///
+/// The first half is all the host actually knows: a run this lease started is over, by
+/// `SubagentStop` in the app's own journal. The second half names the NEXT STEP, and that is
+/// there because of what happened without it: on the first end-to-end run of this loop the
+/// worker finished and committed, and the back end then asked `prepare` for a second WORKER.
+/// That was refused — correctly, by the spawn registration, because the first worker's work
+/// was neither landed nor discarded — and the assignment failed with the work sitting done in
+/// its workspace. `DESKTOP.md` step 5 says a reviewer comes next; this says it at the one
+/// moment it applies, the same argument as the async-launch sentence in the brief.
+const WORKER_ENDED_CONTINUATION: &str =
+    "The helper you started has ended — that is this app telling you, from its own record of \
+     the run, not a guess. Read its receipt with the desktop work tools and carry this \
+     assignment on from there: if it did the work, the next step is an independent REVIEWER \
+     (`prepare` with `role: reviewer` and `review_of` that helper's receipt), then the land, \
+     then closing the assignment. Do not prepare another worker for work that is already \
+     done. Nothing about the assignment has changed and your seat is the same one.";
+
+/// How many times one assignment's turn may be resumed after waiting for a helper.
+///
+/// Six is the shape of the flow rather than a round number: a worker, a reviewer, a revision
+/// and a re-review is four, and the two spare are for a second revision. An assignment that
+/// wants a seventh is not a slow one, it is a loop, and the readings after the wait report it
+/// as what could be witnessed rather than spinning.
+const WORKER_WAIT_ROUNDS: usize = 6;
+
+/// How long ONE wait may last before the host stops waiting and claims nothing.
+///
+/// **It is a bound on a wait, never a verdict on the worker.** `wait_for_owned_workers`
+/// returning `false` says "I did not see it end", and the arm that reports says exactly that.
+/// Twenty minutes is longer than any worker run measured on this product (the longest, a
+/// `work_lease_roundtrip` worker that actually wrote and committed, was 3 m 41 s) and short
+/// enough that a CEO who walks away is not left with a row that never moves.
+const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+/// How often the wait re-reads the journal. One small file; chosen for how soon the back end
+/// gets its next turn, not for cost.
+const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl WorkHost {
     pub fn new(
         state: &Path,
@@ -790,38 +830,100 @@ impl WorkHost {
         } else {
             "The back end has started on it."
         };
-        let outcome = {
+        let mut say = |lease: &mut Box<dyn Cognition>, text: &str| {
+            lease.prompt(text, &mut |item: TurnItem| {
+                if !confirmed {
+                    confirmed = true;
+                    advance(AssignmentState::Running, started_detail);
+                }
+                match item {
+                TurnItem::Text { text, .. } => {
+                    chars += text.len();
+                    // Bounded while it accumulates, not only at the end: a back end that
+                    // streamed a hundred megabytes would otherwise hold all of it before
+                    // anything trimmed it. 64 KiB is eight times the answer cap, so no
+                    // real answer can reach this line and be cut by it.
+                    if keeping_an_answer && answer.len() < 64 * 1024 {
+                        answer.push_str(text);
+                    }
+                }
+                TurnItem::Machinery(record) => {
+                    // **The one machinery record that is READ rather than retained**,
+                    // same as `spine.rs:2034`. The back end's own machinery is not
+                    // otherwise journalled: its turns are never rendered.
+                    if let Some(usage) = record.context_usage() {
+                        measured = Some(usage);
+                    }
+                }
+                }
+            })
+        };
+        let mut outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => lease.prompt(&prompt, &mut |item: TurnItem| {
-                    if !confirmed {
-                        confirmed = true;
-                        advance(AssignmentState::Running, started_detail);
-                    }
-                    match item {
-                    TurnItem::Text { text, .. } => {
-                        chars += text.len();
-                        // Bounded while it accumulates, not only at the end: a back end that
-                        // streamed a hundred megabytes would otherwise hold all of it before
-                        // anything trimmed it. 64 KiB is eight times the answer cap, so no
-                        // real answer can reach this line and be cut by it.
-                        if keeping_an_answer && answer.len() < 64 * 1024 {
-                            answer.push_str(text);
-                        }
-                    }
-                    TurnItem::Machinery(record) => {
-                        // **The one machinery record that is READ rather than retained**,
-                        // same as `spine.rs:2034`. The back end's own machinery is not
-                        // otherwise journalled: its turns are never rendered.
-                        if let Some(usage) = record.context_usage() {
-                            measured = Some(usage);
-                        }
-                    }
-                    }
-                }),
+                Some(lease) => say(lease, &prompt),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
+
+        // ===================================================================================
+        // 3b. THE HELPER OUTLIVES THE TURN THAT STARTED IT, SO THE HOST WAITS AND ASKS AGAIN
+        // ===================================================================================
+        //
+        // **This is the whole of candidate .10's "the job does not land", and it is a fact
+        // about the platform rather than about the back end.** The prepared payload is
+        // `run_in_background: true` — it has to be: `guard-worktree-isolation.sh` clause 7b
+        // refuses a file-capable spawn with `run_in_background: false`, and the engine joins
+        // the worker's platform id to its app receipt at `PostToolUse[Agent]`, which a
+        // synchronous call does not deliver until the worker has already finished (measured:
+        // every one of its tool calls refused with *"worker identity has not joined its app
+        // receipt"*). So `Agent` answers `{"status": "async_launched"}` at once, and the turn
+        // ends seconds later with the worker just getting started.
+        //
+        // **`DESKTOP.md` step 4 told the back end to wait for it with `TaskOutput`, and
+        // `TaskOutput` IS NOT IN THIS LEASE'S TOOL INVENTORY.** Read off the child's own
+        // `system/init` frame on 2026-09-18: 30 tools, including `Task`, `TaskStop`,
+        // `Monitor`, `ListAgents` and `SendMessage`, and no `TaskOutput` and no `BashOutput`.
+        // The one instruction standing between "launched" and "landed" has always named a
+        // tool that is not there — which is why it was never called in any run measured, with
+        // the lease's tools deferred and again with them resident, and with the wait spelled
+        // out in the assignment brief itself.
+        //
+        // **So the waiting is the HOST's, where it cannot be forgotten, and it is done on a
+        // positive signal.** `app_workers::status` counts a run open until a `SubagentStop`
+        // for that `agent_id` is in the journal; this loop waits for that row, never for a
+        // timer to expire and never for the filesystem to go quiet. When it arrives the lease
+        // is given one more turn, on the same seat and the same open grant, saying the helper
+        // has ended and to carry on. A CEO Stop and a quit both end the wait at once.
+        //
+        // If the bound is reached, nothing is claimed: the loop stops and the existing
+        // readings below report what they can witness — which is the `Outcome::StillRunning`
+        // arm's *"nothing could be witnessed finishing it"*, unchanged.
+        let mut waits = 0usize;
+        while outcome.is_ok() && waits < WORKER_WAIT_ROUNDS {
+            let Some(session) = backend.inner.lock().unwrap().lease_session.clone() else { break };
+            let view = crate::app_workers::status(&self.state, Some(&session));
+            // Unattributed evidence is NOT a reason to wait: it is the one thing this loop
+            // could wait on forever, and `settlement` below already reads it as unsettled and
+            // says so. Only a run this host can see open is worth waiting for.
+            if !view.is_attributed() || view.active + view.liveness_unknown == 0 {
+                break;
+            }
+            if waits == 0 {
+                advance(AssignmentState::Running, "A helper is doing the work.");
+            }
+            waits += 1;
+            if !self.wait_for_owned_workers(backend, record, &session) {
+                break;
+            }
+            outcome = {
+                let mut lease = backend.lease.lock().unwrap();
+                match lease.as_mut() {
+                    Some(lease) => say(lease, WORKER_ENDED_CONTINUATION),
+                    None => Err(CognitionError::Protocol("The work connection closed.".into())),
+                }
+            };
+        }
         {
             let mut inner = backend.inner.lock().unwrap();
             inner.context_chars += chars;
@@ -893,6 +995,36 @@ impl WorkHost {
                 advance(AssignmentState::Failed, &sentence);
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Failed, &tell(&record.title, &sentence));
+                // **A BACK END THAT FAILED A TURN IS RETIRED, NOT HANDED THE NEXT ONE.**
+                //
+                // `ensure_lease` short-circuits on `lease.is_some()` — *"this conversation's
+                // back end opens once and stands"* — and several of the errors that reach
+                // this arm have already killed the child on their way here: the three grant
+                // revocations and the worker-settlement check in `native.rs` all do
+                // `child.kill()` before returning. So the lease that stays in this slot is a
+                // corpse, and the next assignment on this thread talks to it.
+                //
+                // **That is the second half of Ray's candidate-.10 walk, on his screen.**
+                // Attempt 1 ended at the settlement check, which stopped the child. Attempt 2
+                // — Rich's own offer, accepted — came back *"The first attempt stopped before
+                // finishing did not start"*: `did not start` because `prompt` on the dead
+                // child returned before anything streamed, so `took_the_turn` was false. Two
+                // different failures, one cause, and the second one told him nothing true
+                // about itself. There is only one work-lease evidence session in that state
+                // root for two attempts, which is the same fact from the other side.
+                //
+                // Retiring is cheap and always safe: `ensure_lease` opens a fresh back end on
+                // the next assignment (seconds, and `run_one` step 1 says that is where those
+                // seconds belong), the register is durable so nothing is lost with the
+                // connection, and dropping the lease runs its own shutdown. It is done for
+                // EVERY `Err` rather than only the ones known to kill, because "which errors
+                // leave the child alive" is a list that goes stale silently, and the cost of
+                // being wrong in this direction is one extra spawn.
+                *backend.lease.lock().unwrap() = None;
+                let mut inner = backend.inner.lock().unwrap();
+                inner.lease_session = None;
+                inner.context_chars = 0;
+                inner.context_usage = None;
             }
             Ok(reason) if stopped || reason == crate::native::STOP_REASON_CANCELLED => {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
@@ -1056,6 +1188,51 @@ impl WorkHost {
                     self.raise(record, NoticeKind::Failed, &tell(&record.title, spoken));
                 }
             },
+        }
+    }
+
+    /// **Wait for every run this lease has open to be WITNESSED ending.** `true` when they
+    /// all did, `false` when the wait ended for any other reason — a CEO Stop, a quit, the
+    /// lease going away, the evidence becoming unreadable, or the bound being reached.
+    ///
+    /// A `false` claims nothing at all. The readings after the caller's loop are what report,
+    /// and they report what can be witnessed, exactly as they did before this existed.
+    ///
+    /// **The signal is `SubagentStop` in the app's own callback journal and nothing else.**
+    /// Not elapsed time, not the worktree's mtime, not the worker's branch appearing — the
+    /// same positive-signal-only rule the continuity design's §5.2 holds the crash watchdog
+    /// to. The poll interval is a read of one small file, so [`WORKER_WAIT_POLL`] is chosen
+    /// for how soon the back end is handed its next turn rather than for cost.
+    fn wait_for_owned_workers(
+        self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, session: &str,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
+        loop {
+            {
+                let inner = backend.inner.lock().unwrap();
+                if inner.closing || inner.stopped.iter().any(|id| *id == record.id) {
+                    return false;
+                }
+            }
+            if backend.lease.lock().unwrap().is_none() {
+                return false;
+            }
+            let view = crate::app_workers::status(&self.state, Some(session));
+            if !view.is_attributed() {
+                return false;
+            }
+            if view.active + view.liveness_unknown == 0 {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                eprintln!(
+                    "[richos] work: waited {WORKER_WAIT_BUDGET:?} for this back end's helpers and \
+                     {} are still open; nothing is being claimed about them",
+                    view.active + view.liveness_unknown
+                );
+                return false;
+            }
+            std::thread::sleep(WORKER_WAIT_POLL);
         }
     }
 
@@ -1892,11 +2069,26 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
     // tells the back end to finish, and the two claims it must still never make are spelled
     // out: never report a land it did not perform, and never close an assignment it did not
     // finish.
+    // **THE ASYNC LAUNCH IS NAMED IN THE BRIEF, NOT ONLY IN THE STANDING INSTRUCTION.**
+    //
+    // `DESKTOP.md` step 4 is the back end's job description and it says this too. It is said
+    // again HERE because the message a turn opens with is the one it is read against, and
+    // because the sentence it replaced was the exact belief that broke candidate .10: the
+    // back end took `{"status": "async_launched"}` for a result and had nowhere to go with
+    // it. Neither this nor step 4 asks it to WAIT — it has no tool that can (the lease's init
+    // frame carries no `TaskOutput` and no `BashOutput`) — they tell it the opposite, that
+    // ending the turn is correct and the app will bring it back.
     format!(
         "This is a background assignment from the CEO. Carry it out with the desktop work \
          tools.{repositories}\n\nThe assignment: {}\n\nCarry it through to the end: do the \
          work, get an independent review, land the reviewed result, and close the \
-         assignment. Do not ask him to approve the land — that is your job, not his. Report \
+         assignment. Do not ask him to approve the land — that is your job, not his.\n\nWhen \
+         you submit a prepared payload to Agent it comes back at once as `async_launched`: \
+         that is the helper STARTING and it has done nothing yet. Do not report on it, do not \
+         read its receipt for an outcome, and do not try to wait for it — end your turn \
+         instead. This app is watching the run and will give you another turn the moment the \
+         helper has actually ended, and you carry on from there. The same goes for the \
+         reviewer.\n\nReport \
          what you actually landed: the branch, the repository and the reviewer's verdict. If \
          the land did not go through, say so and say why, and never describe unlanded work \
          as landed or an open assignment as finished.",
@@ -2119,6 +2311,11 @@ mod tests {
         /// `Some(sentence)` is a lease that came up without one of them and could only say so
         /// once its first turn had brought the frame that reports them.
         readiness: Arc<Mutex<Option<String>>>,
+        /// **A turn that FAILS, which no fake here could produce before 2026-09-18.** The
+        /// real `native.rs` kills its child on its way out of several of these (the three
+        /// grant revocations and the worker-settlement check), so an `Err` from `prompt` is
+        /// the one case where the lease left standing is a corpse.
+        turn_error: Arc<Mutex<Option<String>>>,
     }
 
     impl Cognition for WorkLease {
@@ -2137,6 +2334,9 @@ mod tests {
             Ok("end_turn".to_string())
         }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+            if let Some(why) = self.turn_error.lock().unwrap().clone() {
+                return Err(CognitionError::Protocol(why));
+            }
             if !self.answer_reply.is_empty() {
                 _on(TurnItem::Text { seq: 0, text: &self.answer_reply });
             }
@@ -2202,6 +2402,7 @@ mod tests {
         handoff_reply: Arc<Mutex<String>>,
         answer_reply: Arc<Mutex<String>>,
         readiness: Arc<Mutex<Option<String>>>,
+        turn_error: Arc<Mutex<Option<String>>>,
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
         refuse_next: Arc<AtomicBool>,
@@ -2236,6 +2437,7 @@ mod tests {
                 handoff_reply: self.handoff_reply.lock().unwrap().clone(),
                 answer_reply: self.answer_reply.lock().unwrap().clone(),
                 readiness: self.readiness.clone(),
+                turn_error: self.turn_error.clone(),
             }))
         }
     }
@@ -2266,6 +2468,7 @@ mod tests {
         answer_reply: Arc<Mutex<String>>,
         refuse_next: Arc<AtomicBool>,
         readiness: Arc<Mutex<Option<String>>>,
+        turn_error: Arc<Mutex<Option<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -2287,6 +2490,7 @@ mod tests {
         let answer_reply = Arc::new(Mutex::new(String::new()));
         let refuse_next = Arc::new(AtomicBool::new(false));
         let readiness = Arc::new(Mutex::new(None));
+        let turn_error = Arc::new(Mutex::new(None));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -2301,11 +2505,12 @@ mod tests {
             answer_reply: answer_reply.clone(),
             refuse_next: refuse_next.clone(),
             readiness: readiness.clone(),
+            turn_error: turn_error.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
-            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness }
+            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -3805,6 +4010,70 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
+    /// **A BACK END WHOSE TURN FAILED IS RETIRED, AND THE NEXT ASSIGNMENT GETS A FRESH
+    /// ONE** — the second half of Ray's candidate-.10 walk, which nothing in this file could
+    /// produce until `turn_error` existed.
+    ///
+    /// `ensure_lease` stands the back end up once and reuses it, which is right. But several
+    /// of the errors that reach `run_one`'s `Err` arm have already killed the child on their
+    /// way there — the three grant revocations and the worker-settlement check in
+    /// `native.rs` all call `child.kill()` before returning — so without this, the slot holds
+    /// a corpse and every later assignment on the thread is handed it.
+    ///
+    /// On the shipped candidate that is exactly what he saw: attempt 1 died at the
+    /// settlement check; attempt 2, which he accepted from Rich's own offer, came back
+    /// *"did not start"*, because `prompt` on the dead child returned before anything
+    /// streamed and `took_the_turn` was therefore false. Two different failures, one cause,
+    /// and the second told him nothing true about itself. The state root has ONE work-lease
+    /// evidence session for those two attempts, which is the same fact from the other side.
+    ///
+    /// The assertion is the spawn count, not a message: 1 before, 2 after, with the second
+    /// assignment settling on the fresh back end.
+    #[test]
+    fn a_work_turn_that_failed_retires_its_back_end_instead_of_handing_on_a_dead_one() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        // The successor's session has its own evidence directory, so the second assignment
+        // is settled by the same witnessed-ending rule and not by an unreadable view.
+        let folder = h.state.join("evidence").join("work-session-rotated-1");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let _runner = h.host.start();
+
+        *h.turn_error.lock().unwrap() =
+            Some("Worker settlement could not be verified at turn end.".into());
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the first assignment did not open a back end");
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &first.id).unwrap().state,
+            AssignmentState::Failed,
+        );
+        assert!(
+            h.host.lease_sessions().is_empty(),
+            "the failed back end is still standing, so the next assignment would be handed it",
+        );
+
+        // The next assignment opens a NEW connection and runs to a proper end on it.
+        *h.turn_error.lock().unwrap() = None;
+        let second = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the second assignment reused the failed back end");
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &second.id).unwrap().state,
+            AssignmentState::Settled,
+            "the fresh back end could not settle a perfectly ordinary assignment",
+        );
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-rotated-1".to_string()]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// **TWO CONVERSATIONS RUN AT ONCE, AND NEITHER WAITS FOR THE OTHER.** The CEO's own
     /// reason for the shape: *"the CEO could open and run multiple things in parallel"*, and
     /// *"the CEO's conversation with Rich is never blocked by any work that's going on in the
@@ -4038,6 +4307,7 @@ mod tests {
                 answer_reply: h.answer_reply.clone(),
                 refuse_next: h.refuse_next.clone(),
                 readiness: h.readiness.clone(),
+                turn_error: h.turn_error.clone(),
             }),
             counter.clone(),
             Arc::clone(&h.desk),

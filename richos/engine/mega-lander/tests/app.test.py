@@ -374,6 +374,22 @@ class DesktopWork(unittest.TestCase):
         other={**self.scope,"binding":{**self.scope["binding"],"thread_id":"thread-b"}}
         self.scope_path.write_text(json.dumps(other))
         with self.assertRaisesRegex(ValueError,"partition"):self.call("inspect")
+
+    def test_a_prepared_worker_is_dispatched_in_the_background_because_nothing_else_works(self):
+        """The invariant candidate .10 exposed, and the one this was changed to and back.
+
+        `run_in_background: True` carried no comment and no test of its own, so it read like
+        an accident. It is not: `guard-worktree-isolation.sh` clause 7b refuses a file-capable
+        spawn with `False`, and `workspaces.py`'s `bind_agent` — the only thing that joins the
+        platform's agent id to this receipt — runs at `PostToolUse[Agent]`, which a synchronous
+        call does not deliver until the worker has already finished. Measured with `False` on
+        a real provider: `SubagentStart` arrived and then every one of the worker's own tool
+        calls was refused with *"worker identity has not joined its app receipt"*.
+
+        Waiting for the helper is therefore the host's (`work_host.rs`'s `run_one` step 3b),
+        and this assertion exists so the next reader changes the host rather than this line.
+        """
+        ready=self.call("prepare",self.args)
         self.assertEqual(ready["agent_payload"]["run_in_background"],True)
 
     def test_uncertain_preparation_is_retained_and_not_repeated(self):
