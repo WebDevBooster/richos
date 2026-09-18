@@ -3306,25 +3306,36 @@ function calmEnoughForANotice() {
 
 /// Say one background result on the calm timeline, as an attributed local line — never as
 /// Rich's own turn text, and never a stack trace (§3.3, §3.7).
-function sayWorkNotice(text) {
+///
+/// `raisedAt` IS WHEN IT HAPPENED, NOT WHEN HE WAS TOLD, and carrying it is audit-7 row 9.
+/// `PendingNotice` has always reported `raisedAtMs`; this file read `.text` and threw the rest
+/// away, so `addLocalNotice` stamped `Date.now()` and put the card at the end of the thread.
+/// After a relaunch that is wrong by however long the notice waited on disk: Ray watched two
+/// failures raised at `08:13:10Z` and `08:14` come back, after the relaunch at `08:19:35Z`,
+/// BELOW an answer given at about `08:16` — "his scrollback no longer matches the order of
+/// events". Omitted (the live `rich://` lane, a relayed refusal) it still means now.
+function sayWorkNotice(text, raisedAt) {
   if (!text) return;
-  richVoiceSays(text);
+  richVoiceSays(text, raisedAt);
 }
 
 function flushWorkNotices() {
   if (!heldWorkNotices.length || !calmEnoughForANotice()) return;
   const pending = heldWorkNotices;
   heldWorkNotices = [];
-  for (const text of pending) sayWorkNotice(text);
+  for (const held of pending) sayWorkNotice(held.text, held.raisedAt);
 }
 
-function receiveWorkNotice(text) {
+function receiveWorkNotice(text, raisedAt) {
   if (!text) return;
+  // HELD WITH ITS OWN TIME. A notice that waits for a turn boundary can wait minutes, and
+  // stamping it at the moment the boundary arrives would misplace it for the same reason the
+  // relaunch did.
   if (!calmEnoughForANotice()) {
-    heldWorkNotices.push(text);
+    heldWorkNotices.push({ text, raisedAt });
     return;
   }
-  sayWorkNotice(text);
+  sayWorkNotice(text, raisedAt);
 }
 
 /// Everything he has not been told yet on this conversation. Called when a thread opens and
@@ -3341,14 +3352,23 @@ async function drainWorkNotices() {
     // honest, temporary answers (§3.2). The notices stay on disk; the next call gets them.
     return;
   }
-  for (const notice of pending || []) receiveWorkNotice(notice.text);
+  // `raisedAtMs` comes straight off `assignment::PendingNotice` and is what puts the card where
+  // it happened rather than at the end of his thread (audit-7 row 9). These are the notices that
+  // may be OLD — this read is the durable half, and it is the one a relaunch takes.
+  for (const notice of pending || []) receiveWorkNotice(notice.text, notice.raisedAtMs);
 }
 
 /// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
 /// evidence: it carries a synthetic turn id with no turn record, so it can never grow a
-/// duration row claiming work that never happened, and the next snapshot drops it.
-function richVoiceSays(text) {
-  window.RichTimeline.addLocalNotice(timelineModel, text, Date.now());
+/// duration row claiming work that never happened.
+///
+/// `at` defaults to now, which is what every caller in the voice path means. A background
+/// result handed over by `take_work_notices` passes its own `raisedAtMs` instead, so it lands
+/// where it happened in his scrollback rather than under the newest answer (audit-7 row 9);
+/// `timeline.js`'s `placeByTime` does the placing, and for a notice raised now it appends
+/// exactly as it always did.
+function richVoiceSays(text, at) {
+  window.RichTimeline.addLocalNotice(timelineModel, text, typeof at === "number" ? at : Date.now());
   followBottom = true;
   scheduleRender();
 }
@@ -3760,7 +3780,7 @@ Bridge.listen("rich://voice-notice", ({ payload }) => {
 Bridge.listen("rich://work-notice", ({ payload }) => {
   if (!payload || !payload.notice || !payload.notice.text) return;
   if (payload.threadId !== activeThreadId) return;
-  receiveWorkNotice(payload.notice.text);
+  receiveWorkNotice(payload.notice.text, payload.notice.raisedAtMs);
 });
 
 // Relay the reply stream to the speaker. Separate listeners so the render path above is

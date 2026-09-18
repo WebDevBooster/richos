@@ -752,33 +752,48 @@
     restoreLocalNotices(model, carried);
   }
 
-  /// Put the carried local notices back, IN TIME ORDER rather than at the end.
+  /// WHERE A SYNTHETIC TURN GOES IN HIS SCROLLBACK: before the first turn that started after
+  /// it, by the earliest `createdAt` the snapshot gives that turn, and at the end only when
+  /// nothing on screen is newer — which is the ordinary case for something that has just
+  /// happened.
   ///
-  /// Appending would be simpler and would read as a lie: a microphone failure from ten turns
-  /// ago sitting under the newest answer says "this just happened". So each notice goes back
-  /// before the first turn that started after it, by the earliest `createdAt` the snapshot
-  /// gives that turn, and at the end only when nothing in the snapshot is newer than it —
-  /// which is the ordinary case for a result that has just arrived.
-  function restoreLocalNotices(model, carried) {
-    if (!carried.length) return;
+  /// Appending unconditionally would be simpler and would read as a lie: a failure from six
+  /// minutes ago sitting under the newest answer says "this just happened". That is audit-7
+  /// row 9 — after a relaunch the two failure cards came back at the END of his thread, after
+  /// "Paris.", instead of where they happened, so "his scrollback no longer matches the order
+  /// of events".
+  ///
+  /// IT IS A SHARED FUNCTION NOW, AND THAT IS THE WHOLE OF THE ROW-9 FIX. This arithmetic was
+  /// written for `restoreLocalNotices` — a notice CARRIED ACROSS A SNAPSHOT within one session,
+  /// where it keeps the `createdAt` it was born with — and `addLocalNotice`, the path every
+  /// notice is born on, pushed to the end regardless. Within a session that is right, because
+  /// a notice is born now. Across a RELAUNCH it is not: `take_work_notices` hands back
+  /// everything he has not been told, each carrying `raisedAtMs`, and those are minutes or days
+  /// old. One placement rule, used by both, and neither can drift from the other.
+  function placeByTime(model, turnId, at) {
+    if (model.turnOrder.includes(turnId)) return;
     const startedAt = new Map();
     for (const item of model.items.values()) {
-      if (!item.turnId) continue;
-      const at = typeof item.createdAt === "number" ? item.createdAt : null;
-      if (at == null) continue;
+      if (!item.turnId || item.turnId === turnId) continue;
+      const t = typeof item.createdAt === "number" ? item.createdAt : null;
+      if (t == null) continue;
       const known = startedAt.get(item.turnId);
-      if (known == null || at < known) startedAt.set(item.turnId, at);
+      if (known == null || t < known) startedAt.set(item.turnId, t);
     }
+    const before = model.turnOrder.findIndex((id) => {
+      const turnAt = startedAt.get(id);
+      return turnAt != null && turnAt > at;
+    });
+    if (before < 0) model.turnOrder.push(turnId);
+    else model.turnOrder.splice(before, 0, turnId);
+  }
+
+  /// Put the carried local notices back, in time order rather than at the end.
+  function restoreLocalNotices(model, carried) {
+    if (!carried.length) return;
     for (const [id, item] of carried) {
       model.items.set(id, item);
-      if (model.turnOrder.includes(item.turnId)) continue;
-      const at = typeof item.createdAt === "number" ? item.createdAt : 0;
-      const before = model.turnOrder.findIndex((turnId) => {
-        const turnAt = startedAt.get(turnId);
-        return turnAt != null && turnAt > at;
-      });
-      if (before < 0) model.turnOrder.push(item.turnId);
-      else model.turnOrder.splice(before, 0, item.turnId);
+      placeByTime(model, item.turnId, typeof item.createdAt === "number" ? item.createdAt : 0);
     }
   }
 
@@ -859,7 +874,13 @@
       text,
       closed: true,
     });
-    if (!model.turnOrder.includes(turnId)) model.turnOrder.push(turnId);
+    // BY WHEN IT HAPPENED, NOT AT THE END — audit-7 row 9. `at` is now for a notice that has
+    // just been raised, so this pushes to the end exactly as it always did for the live path.
+    // What it stops doing is putting a notice the BACKEND has been holding since before the
+    // relaunch under the newest answer: `take_work_notices` hands back everything he has not
+    // been told, each `PendingNotice` carrying its own `raisedAtMs`, and Ray watched two
+    // failures from `08:13` and `08:14` come back after an answer given at `08:16`.
+    placeByTime(model, turnId, at);
     return id;
   }
 
