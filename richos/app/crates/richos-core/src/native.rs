@@ -1118,6 +1118,33 @@ impl ReaderState {
     /// The write happens under this lock, deliberately: it is one `write_verified` (~1 ms,
     /// measured as part of the 143 ms ECS round trip elsewhere in this change), and releasing
     /// the lock first would let a second frame decide the same thing again.
+    ///
+    /// # WHY EVERY CALLER CALLS THIS **AFTER** ROUTING THE TEXT
+    ///
+    /// **Because it is a file write with an `fsync` in it, and it used to sit in front of his
+    /// first words.** All three call sites opened the grant and then routed the text; run C of
+    /// `docs/verification/first-words-2026-09-18.md` measured the consequence on both of its
+    /// turns — the grant observed open at **5.771 s against his first words at 5.778 s**, and at
+    /// **6.236 s against 6.241 s**. The probe polls that file every 2 ms and is therefore biased
+    /// LATE, so the true inversion is at least the 7 ms and 5 ms it saw.
+    ///
+    /// Two things were wrong with that, and the smaller one is the latency:
+    ///
+    /// 1. **7 ms of his wait, on the one path §55 is about**, spent on the app's own `fsync`
+    ///    between deciding to speak and speaking.
+    /// 2. **The grant was open, briefly, before he had heard anything** — which is the exact
+    ///    property this function exists to hold. The window is far too short for a model round
+    ///    trip, so nothing was ever measured getting through it; a window nothing got through is
+    ///    still not the invariant.
+    ///
+    /// Routing first inverts the only risk, and it inverts it in the safe direction: a model
+    /// whose next frame arrives before this write completes gets its checkpoint REFUSED by the
+    /// engine's adapter and writes it a moment later, rather than getting it through early.
+    ///
+    /// `receipt_said` is still set BEFORE the text is routed, and that is not an inconsistency:
+    /// it is a field on a struct behind a lock the routing path also takes, and the thing it
+    /// prevents (a delta racing the flag it is tested against) is a real race, where this one
+    /// is I/O in front of his sentence.
     fn he_has_now_been_spoken_to(&mut self) {
         if self.spoken_this_turn {
             return;
@@ -1912,24 +1939,26 @@ impl NativeClient {
             {
                 if let Some(t) = ev.get("delta").and_then(|d| d.get("text")).and_then(|v| v.as_str()) {
                     text_deltas.fetch_add(1, Ordering::SeqCst);
-                    // **He has now heard something.** Set at the FIRST delta, not at the end
-                    // of the message: the measure §55 is written against is his first word,
-                    // and everything the gate above protects is protected from that instant.
-                    let mut st = state.lock().unwrap();
-                    st.he_has_now_been_spoken_to();
                     // **AND HE HAS ALREADY HEARD IT ONCE IF THE APP SAID THE RECEIPT.** The
                     // register's answer IS the whole of a hand-over turn's reply
                     // (`front-desk.md`), the app has already said it, and everything the model
                     // adds afterwards is the doubled line that was measured in his own
                     // conversation. Withheld and RECORDED, never silently dropped.
+                    let mut st = state.lock().unwrap();
                     if st.receipt_said.is_some() {
                         st.withheld_after_receipt.push_str(t);
+                        st.he_has_now_been_spoken_to();
                         drop(st);
                         Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
                         return;
                     }
                     drop(st);
+                    // **HIS WORDS GO OUT FIRST, AND THE GRANT IS OPENED AFTER THEM** — see
+                    // [`ReaderState::he_has_now_been_spoken_to`]'s "Why this is called after the
+                    // text is routed". Measured at the FIRST delta, not at the end of the
+                    // message: the measure §55 is written against is his first word.
                     Self::route(ChunkMsg::Text(t.to_string()), current, between, &msg);
+                    state.lock().unwrap().he_has_now_been_spoken_to();
                     return;
                 }
             }
@@ -2002,12 +2031,16 @@ impl NativeClient {
                         let mut st = state.lock().unwrap();
                         // Set BEFORE the text is routed, so a delta that arrives in the same
                         // instant is withheld rather than racing the flag it is tested against.
+                        // **The GRANT is not opened here, and that is the difference between
+                        // this and the flag above**: the flag is a field, and opening the grant
+                        // is a file write with an `fsync` in it. Measured on 2026-09-18 in front
+                        // of his words, at 5 ms and 7 ms of his wait on the two turns of run C.
                         st.receipt_said = Some(sentence.clone());
-                        // He has heard something — the same fact the text path sets, and the
-                        // checkpoint gate above reads it exactly as it would for model text.
-                        st.he_has_now_been_spoken_to();
                     }
                     Self::route(ChunkMsg::Text(sentence), current, between, &msg);
+                    // He has heard something — the same fact the text path sets, after the words
+                    // rather than in front of them.
+                    state.lock().unwrap().he_has_now_been_spoken_to();
                 }
             }
         }
@@ -2060,15 +2093,16 @@ impl NativeClient {
                 // The same fact, on the path that exists for `--include-partial-messages`
                 // having stopped working. A degraded stream must not also silently re-open
                 // the pre-reply checkpoint.
-                let mut st = state.lock().unwrap();
-                st.he_has_now_been_spoken_to();
                 // And the withholding is on this path too, for the reason it is on the other:
                 // a degraded stream must not hand him the receipt twice either.
+                let mut st = state.lock().unwrap();
                 if st.receipt_said.is_some() {
                     st.withheld_after_receipt.push_str(&whole);
+                    st.he_has_now_been_spoken_to();
                 } else {
                     drop(st);
                     Self::route(ChunkMsg::Text(whole), current, between, &msg);
+                    state.lock().unwrap().he_has_now_been_spoken_to();
                 }
             }
         }
@@ -4651,6 +4685,7 @@ read -r init
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
 read -r prompt
 printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"On it!"}}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":" Landing now."}}}'
 printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
 read -r prompt
 printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
@@ -4680,15 +4715,23 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert!(!allowed(&scope), "the lease came up with the bookkeeping already open");
 
         let mut said = String::new();
-        let mut open_when_he_heard_it = None;
+        let mut open_at_each_run_of_his_words = Vec::new();
         {
             let mut collect = |item: TurnItem| {
                 if let TurnItem::Text { text, .. } = item {
-                    // **THE ASSERTION FROM INSIDE THE TURN.** The reader opens the grant as it
-                    // sees his first words and BEFORE it routes them, so by the time this
-                    // callback runs the flag is already true — which is the ordering the whole
-                    // change is about, and it cannot be seen from outside the turn.
-                    open_when_he_heard_it.get_or_insert(allowed(&scope));
+                    // **THE ASSERTION FROM INSIDE THE TURN, and the ORDER it now proves.**
+                    // `he_has_now_been_spoken_to` is called AFTER the text is routed (see its
+                    // doc: opening the grant is a file write with an `fsync` in it, and run C
+                    // measured it costing 7 ms and 5 ms IN FRONT OF his first words). So:
+                    //
+                    //   - at his FIRST words the grant is still SHUT — nothing could have
+                    //     written to ECS while he waited, which is the §55 property;
+                    //   - by the SECOND delta of the same turn it is OPEN — the front desk's own
+                    //     bookkeeping is deferred, not abolished.
+                    //
+                    // Two deltas rather than one is what makes both halves observable: with one,
+                    // "shut when he heard it" and "never opens at all" are the same reading.
+                    open_at_each_run_of_his_words.push(allowed(&scope));
                     said.push_str(text);
                 }
             };
@@ -4697,9 +4740,9 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
                 "end_turn"
             );
         }
-        assert_eq!(said, "On it!");
-        assert_eq!(open_when_he_heard_it, Some(true),
-            "he was answered and the front desk still could not write its checkpoint");
+        assert_eq!(said, "On it! Landing now.");
+        assert_eq!(open_at_each_run_of_his_words, vec![false, true],
+            "his first words must go out with the grant still shut, and it must open straight after them");
         // And the turn's end revokes it, by the same all-or-nothing loop as every other grant.
         assert!(!allowed(&scope), "the bookkeeping grant outlived the turn");
 
