@@ -34,7 +34,9 @@
 //! not worth a `[[package]]` line.
 
 use super::routes::{dispatch, dispatch_trust, Channel, Incoming, Outcome};
-use super::{PhoneError, HTTPS_PORT, KEEPALIVE_MS, MAX_BODY_BYTES, TRUST_PORT};
+use super::{PhoneError, KEEPALIVE_MS, MAX_BODY_BYTES};
+#[cfg(test)]
+use super::{HTTPS_PORT, TRUST_PORT};
 use bytes::Bytes;
 use futures_util::future::{select, Either};
 use http_body_util::{BodyExt, Full, Limited};

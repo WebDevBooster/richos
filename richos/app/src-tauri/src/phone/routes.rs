@@ -288,7 +288,15 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
     // parameters are honored here so the phone's queue gets a real answer; the transcription
     // itself is slice B and is NOT built, so this says so in a sentence he can read rather than
     // pretending to accept a note it will never transcribe.
-    if query_value(&request.query, "kind") == Some("voice") {
+    // BOTH the query's `kind` and the body's content type, because the phone sends both and a
+    // check on one of them would accept a text envelope wearing a voice query string.
+    let says_voice = query_value(&request.query, "kind") == Some("voice");
+    let sounds_like_voice = request
+        .content_type
+        .as_deref()
+        .map(|t| t.starts_with("audio/"))
+        .unwrap_or(false);
+    if says_voice || sounds_like_voice {
         return Outcome::Json {
             status: 503,
             body: json!({

@@ -125,8 +125,10 @@ pub struct ApiBaseDesk {
     last_told: Mutex<Option<Offer>>,
 }
 
-#[allow(dead_code)]
 impl ApiBaseDesk {
+    /// The general constructor. This slice calls `home_only`; slice D's router door is the first
+    /// caller with a list — see the note on [`AddressProvider`] for why it is built now.
+    #[allow(dead_code)]
     pub fn new(providers: Vec<Box<dyn AddressProvider>>) -> Self {
         ApiBaseDesk { providers, last_told: Mutex::new(None) }
     }

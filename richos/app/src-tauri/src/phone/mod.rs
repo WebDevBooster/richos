@@ -510,28 +510,40 @@ impl PhoneRuntime {
     /// is at that moment reading appear is noise, and WebKit requires every push to display one —
     /// so it cannot be made silent. Cheap to revert: delete the `open_streams` check.
     pub fn push_last_reply(&self) {
-        let running = self.running.lock().unwrap();
-        let Some(running) = running.as_ref() else { return };
-        let Some(device) = running.channel.devices.paired() else { return };
-        let Some(subscription) = device.push.clone() else { return };
-        if running.channel.devices.open_streams() > 0 {
-            return;
-        }
+        // EVERYTHING THE PUSH NEEDS IS TAKEN OUT OF THE LOCK FIRST, and the lock is released by
+        // THIS BLOCK ENDING rather than by a `drop` call. The first version wrote
+        // `let Some(running) = running.as_ref() else …` and then `drop(running)`, which drops a
+        // REFERENCE and does nothing — so the channel's mutex was held across a blocking round
+        // trip to Apple, and "Forget this phone" would have frozen the settings screen for as
+        // long as a push took. `rustc`'s `dropping_references` lint found it.
+        let gathered = {
+            let running = self.running.lock().unwrap();
+            let Some(running) = running.as_ref() else { return };
+            let Some(device) = running.channel.devices.paired() else { return };
+            let Some(subscription) = device.push.clone() else { return };
+            if running.channel.devices.open_streams() > 0 {
+                return;
+            }
+            Gathered {
+                subscription,
+                delivered_cursor: device.delivered_cursor,
+                vapid: Arc::clone(&running.vapid),
+                api_base: running.channel.api_base.current().map(|o| o.api_base),
+                bridge: Arc::clone(&running.bridge),
+            }
+        };
+        let Gathered { subscription, delivered_cursor, vapid, api_base, bridge } = gathered;
         // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
         // through the same gated door, so a push can never carry something the stream could not.
-        let bridge: &dyn routes::Bridge = running.bridge.as_ref();
+        let bridge: &dyn routes::Bridge = bridge.as_ref();
         let Some((thread_id, _title)) = bridge.current_thread() else { return };
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
         let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich") else { return };
-        if running.channel.devices.paired().and_then(|d| d.delivered_cursor)
-            >= last["cursor"].as_u64()
-        {
+        if delivered_cursor >= last["cursor"].as_u64() {
             // He has already seen it. A push here would be the second time he was told.
             return;
         }
-
-        let api_base = running.channel.api_base.current().map(|o| o.api_base);
         let full = last["text"].as_str().unwrap_or("");
         let notification = serde_json::json!({
             "notification": {
@@ -561,9 +573,6 @@ impl PhoneRuntime {
             shortened["truncated"] = serde_json::json!(true);
             body = shortened.to_string();
         }
-        let vapid = Arc::clone(&running.vapid);
-        drop(running);
-
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
             return;
         };
@@ -593,6 +602,18 @@ impl PhoneRuntime {
             }
         });
     }
+}
+
+/// What [`PhoneRuntime::push_last_reply`] takes out of the lock before it does any network work.
+///
+/// A struct rather than a tuple of five, so the thing that makes the lock's scope a BLOCK is
+/// visible in the type rather than being a convention somebody has to keep.
+struct Gathered {
+    subscription: push::Subscription,
+    delivered_cursor: Option<u64>,
+    vapid: Arc<push::VapidKey>,
+    api_base: Option<String>,
+    bridge: Arc<bridge::PhoneBridge>,
 }
 
 /// Where the static phone app lives.

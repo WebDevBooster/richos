@@ -184,6 +184,10 @@ impl SecretStore for Keychain {
 ///
 /// **It is not a degraded Keychain and the app never constructs one.** There is no path by
 /// which a real launch keeps the CEO's certificate authority in memory and loses it at quit.
+/// **The app never constructs one, and that is the property rather than an oversight**: there is
+/// no path by which a real launch keeps the CEO's certificate authority in memory and loses it
+/// at quit. It exists for the tests, which must never write to his login keychain.
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct MemorySecrets {
     items: Mutex<HashMap<String, Vec<u8>>>,

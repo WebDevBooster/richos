@@ -271,6 +271,10 @@ impl DeviceDesk {
         self.state.lock().unwrap().device.clone()
     }
 
+    /// Read by the tests and by nothing in the app: the product asks `listener_should_run`
+    /// instead, so there is ONE expression of "should the socket exist" rather than two that
+    /// each cover half of it.
+    #[allow(dead_code)]
     pub fn is_paired(&self) -> bool {
         self.state.lock().unwrap().device.is_some()
     }
