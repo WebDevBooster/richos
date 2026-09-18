@@ -627,3 +627,129 @@ shared temp roots are swept deny-by-default, so an unallocated site is collected
 called. What a baselined site still lacks is **speed**: days under the deny-by-default floor, two
 hours under a declared legacy family, minutes under the allocator root. That is a real reason to keep
 migrating, and it is the honest one.
+
+---
+
+## 7. D3 — the `~/ab` campaign roots, and the census that changed the fix
+
+Frank's finding, re-measured: `richos-rechecks` **18.90 GB** and
+`richos-password-free-workspaces` **13.75 GB** sit under `~/ab` in no ledger row and under no
+declared root, so neither reaper will ever see them.
+
+**His proposed signal — "not in the ledger" — does not survive the census, and that is the finding
+that decided the shape.** Run over the whole of `~/ab` on 2026-09-18:
+
+```
+       bytes name                                       age_d  .git?  named?
+ 18897490871 richos-rechecks                              1.5    yes      NO
+ 18321407840 richos-wt                                    0.0    yes     yes
+ 13749244192 richos-password-free-workspaces              7.7    yes      NO
+  7548546256 richos-alex                                 14.2    yes      NO
+  1963954285 li-profile-data-grabber                     33.2    yes      NO   <- Norm's repo
+  1208193411 prospects                                   10.1    yes      NO   <- Mark's repo
+   967111456 press-and-publicity                          7.7    yes      NO
+   845633760 saferecord                                  57.1    yes      NO
+   488729376 richos-cleanup-source                        7.7    yes      NO
+   438986564 fitapp                                     176.0    yes      NO   <- the product
+   ... 24 of 29 directories are unnamed by any ledger
+```
+
+**Most of the unnamed directories are the CEO's own projects.** Under `~/ab` the default is *this is
+somebody's work*, which is the exact opposite of the default under `$TMPDIR` — so the
+deny-by-default shape that is right there would nominate `fitapp` and `prospects` here.
+
+### 7.1 The shape, and why an enumeration is right for once
+
+An enumeration is normally the wrong answer; it is the whole D1 lesson. But **the failure modes are
+not comparable**: a missed campaign root costs disk space that the watchdog's `~/ab` consumer line
+still reports, while a deny-by-default miss costs the product tree. **An enumeration that can only
+fail to NOMINATE is a safe enumeration.**
+
+`SCRATCH_CAMPAIGN_ROOTS` names them; `SCRATCH_CAMPAIGN_RETENTION_DAYS` (7) is how long after its last
+touch one is reported. **Nothing is ever deleted automatically.** Every one of these trees contains a
+`.git`, which is wall 2 — *"a scratch directory holding a checkout is somebody's work"* — and this
+program refuses those everywhere else. §54's second branch is exactly this case, so a root past
+retention is counted into `skipped` (which the garbage alarm reads) and its reason carries the
+command.
+
+**`richos-alex` (7.55 GB, 14.2 d) is deliberately NOT declared.** Its name suggests a personal
+checkout and nothing establishes that it is finished with. That is the CEO's word to give, not mine
+to assume, and it is in §9 as an open item rather than in the config as a guess.
+
+### 7.2 What it does on its first run — the answer the brief asked for
+
+```
+$ scripts/scratch-reaper.sh          (the plain plan, no --verbose)
+
+KEEP             12.8 GB  /Users/alex/ab/richos-password-free-workspaces
+   why: A DECLARED CAMPAIGN ROOT PAST ITS RETENTION: nothing has touched it for 7 d and the
+        declared retention is 7 d. IT IS NOT DELETED AUTOMATICALLY — it holds a checkout, which
+        is wall 2 everywhere else in this program — so under §54 it is reported and a person
+        removes it:  rm -rf /Users/alex/ab/richos-password-free-workspaces
+KEEP              1.2 MB  /Users/alex/ab/richos-recovery-codex
+   why: ... nothing has touched it for 12 d ...
+
+verdict: undecided deletable=13355 reclaimable=317.7 MB kept=57131 undecidable=24
+         skipped=2939 skipped_bytes=13.9 GB
+```
+
+| pile | size | untouched | first run |
+|---|---|---|---|
+| `richos-password-free-workspaces` | 13.75 GB | 7 d | **REPORTED** — past retention |
+| `richos-recovery-codex` | 1.2 MB | 12 d | **REPORTED** — past retention |
+| `richos-rechecks` | 18.90 GB | 1 d | **KEPT** — inside retention |
+| `richos-cleanup-source` | 0.49 GB | 1 d | **KEPT** — inside retention |
+
+**And the two "1 d" rows are a correction to my own first draft.** `stat` on those directories says
+7.7 and 1.5 days, and I wrote that into the declaration as a prediction. The reaper takes its age
+from **the newest mtime anywhere in the tree** — which is the right semantics, because "nothing has
+touched this" is a statement about abandonment rather than about a directory inode — and something
+inside `richos-cleanup-source` was written yesterday. The root's mtime and the tree's newest mtime
+are two different facts and the declaration now quotes the program rather than my prediction.
+
+**Nothing was deleted by this pass.** The arm cannot delete, and the two reported piles are Rich's to
+remove from the main checkout after the land, which is what the brief asked for.
+
+### 7.3 A third kind of KEEP, which the tests forced
+
+S24b and S24c failed on first run: the campaign row was a KEEP, and `report()` hides KEEP rows unless
+asked for `--verbose`. **A standing condition that only appears under `--verbose` is not reported**,
+which would have made this the same silence D3 describes, one layer up.
+
+So there are now three kinds of KEEP, not two: alive/young/held (nothing to do, hidden), and
+**STANDING** — kept, and a person has to act on it — which is always printed. It is a flag on the
+entry, not a substring match on the report's prose: my first cut asked `"PAST ITS RETENTION" not in
+e.why` in two different places, which makes a sentence load-bearing and means rewording it silently
+changes the accounting.
+
+### 7.4 What this does NOT cover, said plainly
+
+The two stale `codex-*` worktrees under `~/ab/richos-wt` (0.20 GB and 0.18 GB) are **registered git
+worktrees of `richos`**, and removing the directory without `git worktree remove` leaves a stale
+administrative entry behind. That is the worktree reaper's jurisdiction, not this program's — this
+engine already retired `com.richos.worktree-reconciler` over precisely that class of mistake — so
+they are named in §9 rather than swept here.
+
+### 7.5 Tests
+
+```
+$ scripts/scratch-reaper.test.sh          96 passed, 0 failed
+   S24  a campaign root past its retention is NOT deleted
+   S24b ...it is REPORTED, which is §54's other branch
+   S24c and the reason carries the command a person runs
+   S24d CONTROL: one inside its retention is kept and says so
+   S24e CONTROL: an UNDECLARED sibling is not nominated, however old
+   S24f a reported campaign root is counted into skipped, so the alarm sees it
+
+$ scripts/scratch-reaper.mutation.sh      all 41 properties proven load-bearing
+   M39.campaign-root-deleted        -> S24  red
+   M40.campaign-root-not-nominated  -> S24b red
+   M41.standing-keep-hidden         -> S24b red
+```
+
+**S24e is the case that matters most** — an undeclared directory beside a declared one, backdated
+past every floor, must not be nominated at all. That is the shape of `fitapp` and `prospects`.
+
+And M31's anchor drifted when `skipped()` was rewritten; **the harness reported "MUTATION TARGET
+ABSENT — the source has drifted" instead of scoring green against a line that no longer existed.**
+That assertion is why a stale mutant is a failure here rather than a silent pass.

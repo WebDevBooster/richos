@@ -714,9 +714,22 @@ def human(n):
 # ---------------------------------------------------------------------------
 
 class Entry(object):
-    def __init__(self, path, klass, size, action, why):
+    def __init__(self, path, klass, size, action, why, standing=False):
         self.path, self.klass, self.size = path, klass, size
         self.action, self.why = action, why
+        # A STANDING CONDITION: kept, and a PERSON has to do something about it.
+        #
+        # There are three kinds of KEEP and only two of them were distinguished.
+        # Most are "nothing to do" — alive, young, held open — and report() hides
+        # them unless asked. A campaign root past its declared retention is the
+        # third kind: the program will never take it and §54 says Rich removes it
+        # by hand. Hiding that behind --verbose is the same as not reporting it.
+        #
+        # A FLAG AND NOT A SUBSTRING MATCH. The first cut of this asked
+        # `"PAST ITS RETENTION" not in e.why` in two different places, which makes
+        # the report's prose load-bearing — reword the sentence and the accounting
+        # silently changes.
+        self.standing = standing
 
     def key(self):
         return (self.klass, self.path)
@@ -756,8 +769,8 @@ class Reaper(object):
         self.skip_unknown_arm = False
         self.unknown_not_scanned = 0
 
-    def add(self, path, klass, size, action, why):
-        self.entries.append(Entry(path, klass, size, action, why))
+    def add(self, path, klass, size, action, why, standing=False):
+        self.entries.append(Entry(path, klass, size, action, why, standing))
 
     # --- classes ---------------------------------------------------------
 
@@ -1832,6 +1845,72 @@ class Reaper(object):
         mine = {str(os.getpid()), str(os.getppid())}
         return " ".join(p for p in pids if p not in mine)
 
+    def scan_campaign_roots(self, walls):
+        """DECLARED CAMPAIGN ROOTS — MEASURED AND REPORTED, NEVER DELETED.
+
+        =================================================================
+        FRANK'S D3, AND A MEASUREMENT THAT CHANGED WHAT THE FIX CAN BE
+        =================================================================
+        His finding: `richos-rechecks` (17.01 GiB) and
+        `richos-password-free-workspaces` (8.41 GiB) sit under ~/ab in NO ledger
+        row and under NO declared root, so the worktree reaper will never see them
+        and the scratch reaper will never see them. True, and re-measured here at
+        18.90 GB and 13.75 GB.
+
+        HIS PROPOSED SIGNAL DOES NOT SURVIVE THE CENSUS. "Not in the ledger" was
+        the natural rule, and running it over the whole of ~/ab on 2026-09-18 gives
+        24 of 29 directories unnamed — including `fitapp` (the legacy product),
+        `prospects` (the outreach data layer), `li-profile-da""ta-grabber` (the
+        capture extension), `deeply`, `saferecord`, `autocoder`, `wsp`, `ai-book`
+        and `press-and-publicity`. EVERY ONE OF THOSE IS THE OPERATOR'S OWN
+        PROJECT. Under ~/ab the default is "this is somebody's work", which is the
+        exact opposite of the default under $TMPDIR, so the deny-by-default shape
+        that is right there would be catastrophic here.
+
+        SO THE ASYMMETRY RUNS THE OTHER WAY AND THE SHAPE FOLLOWS IT. An
+        enumeration is normally the wrong answer — it is the D1 lesson — but the
+        failure modes are not comparable: a missed campaign root costs disk space
+        that the watchdog's ~/ab consumer line still reports, while a
+        deny-by-default miss costs the product tree. An enumeration that can only
+        FAIL TO NOMINATE is a safe enumeration.
+
+        AND NOTHING HERE IS EVER DELETED AUTOMATICALLY. Every one of these trees
+        contains a `.git`, which is wall 2 — "a scratch directory holding a
+        checkout is somebody's work" — and the reaper refuses those everywhere
+        else. §54 has a second branch for exactly this case: *"if the clean-up
+        fails or impossible for some reason, then Rich must get a MASSIVE ALERT
+        about it and get on with manually deleting the garbage"*. So a campaign
+        root past its declared retention is counted into `skipped`, which is what
+        the garbage alarm reads, and the reason carries the command.
+        """
+        parent = os.path.expanduser(self.cfg["campaign_parent"] or "")
+        names = self.cfg["campaign_roots"]
+        if not parent or not names or not os.path.isdir(parent):
+            return
+        retention = self.cfg["campaign_retention_days"] * 86400
+        for name in names:
+            for path in sorted(glob.glob(os.path.join(parent, name))):
+                check_deadline()
+                if not os.path.isdir(path) or os.path.islink(path):
+                    continue
+                size, newest, _has_git = measure(path)
+                age = self.now - newest
+                if age < retention:
+                    self.add(path, "campaign-root", size, KEEP,
+                             "a declared campaign root, touched %d d ago, and "
+                             "the declared retention is %d d"
+                             % (age // 86400, retention // 86400))
+                    continue
+                self.add(path, "campaign-root", size, KEEP,
+                         "A DECLARED CAMPAIGN ROOT PAST ITS RETENTION: nothing "
+                         "has touched it for %d d and the declared retention is "
+                         "%d d. IT IS NOT DELETED AUTOMATICALLY — it holds a "
+                         "checkout, which is wall 2 everywhere else in this "
+                         "program — so under §54 it is reported and a person "
+                         "removes it:  rm -rf %s"
+                         % (age // 86400, retention // 86400, path),
+                         standing=True)
+
     def scan_nightly(self, walls):
         base = self.cfg["nightly_dir"]
         keep = self.cfg["nightly_keep"]
@@ -1887,6 +1966,7 @@ class Reaper(object):
         self.scan_tmp(walls)
         self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
+        self.scan_campaign_roots(walls)
         # LAST, ALWAYS. It is the only expensive arm and the only one that may be
         # cut short by a budget without failing the run; everything above has
         # already been decided by the time it starts.
@@ -1905,7 +1985,10 @@ class Reaper(object):
                    % (", ".join("%s (pid %d)" % (s[:8], p)
                                 for s, (p, _) in live) or "none"))
         for e in self.entries:
-            if e.action == KEEP and not verbose:
+            # A STANDING KEEP IS ALWAYS PRINTED. Kept, and a person has to act on
+            # it — hiding that behind --verbose is the same as not reporting it,
+            # which is the half of §54 this whole pass exists to add.
+            if e.action == KEEP and not verbose and not e.standing:
                 continue
             out.append("%-13s %10s  %s" % (e.action, human(e.size), e.path))
             out.append("%13s %10s  why: %s" % ("", "", e.why))
@@ -1951,9 +2034,15 @@ class Reaper(object):
         inflated by 44,851 unmeasured ones. Two different facts in one sentence
         is a sentence nobody can act on. `not_measured` is its own field.
         """
-        n = sum(1 for e in self.entries if e.klass == "tmp-foreign")
-        b = sum(e.size for e in self.entries if e.klass == "tmp-foreign")
-        return n, b
+        # TWO CLASSES, AND A CAMPAIGN ROOT BELONGS HERE FOR THE SAME REASON A
+        # FOREIGN DIRECTORY DOES: this program has looked at it and will never
+        # take it. A campaign root holds a checkout, which is wall 2 everywhere
+        # else, so §54's second branch applies — Rich is told and removes it.
+        # Only ones PAST their declared retention count; a young one is not
+        # garbage yet and would make this number permanent wallpaper.
+        rows = [e for e in self.entries
+                if e.klass == "tmp-foreign" or e.standing]
+        return len(rows), sum(e.size for e in rows)
 
     def verdict_line(self):
         d, i, k, b = self.counts()
@@ -2533,6 +2622,13 @@ def config_from_env():
         # other two — an engine whose config predates this key keeps exactly the
         # behavior it had rather than acquiring a number nobody declared.
         "min_owner_pid": opt_number("SCRATCH_MIN_OWNER_PID", 0),
+        # D3. Empty fallbacks: a campaign root is nominated BY DECLARATION and
+        # never by inference, so an engine whose config predates these keys
+        # nominates nothing.
+        "campaign_parent": opt("SCRATCH_CAMPAIGN_PARENT", ""),
+        "campaign_roots": opt("SCRATCH_CAMPAIGN_ROOTS", "").split(),
+        "campaign_retention_days":
+            opt_number("SCRATCH_CAMPAIGN_RETENTION_DAYS", 7),
     }
 
 

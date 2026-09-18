@@ -1728,6 +1728,82 @@ else
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
 fi
 
+# ===========================================================================
+# S24 — DECLARED CAMPAIGN ROOTS ARE REPORTED, NEVER DELETED (D3)
+# ===========================================================================
+# Frank's D3: `richos-rechecks` (18.90 GB) and `richos-password-free-workspaces`
+# (13.75 GB) sit under ~/ab in no ledger row and under no declared root, so
+# neither reaper will ever see them.
+#
+# HIS PROPOSED SIGNAL — "not in the ledger" — DOES NOT SURVIVE THE CENSUS, and that
+# is why this arm is an enumeration rather than a sweep. Over the whole of ~/ab on
+# 2026-09-18, 24 of 29 directories are unnamed by any ledger, and they include
+# `fitapp`, `prospects`, `li-profile-da""ta-grabber`, `deeply`, `saferecord` and
+# `autocoder` — the operator's own projects. Under ~/ab the default is "this is
+# somebody's work", the exact opposite of the default under $TMPDIR.
+#
+# So: nominated by declaration only, and NEVER deleted. Every one of these trees
+# holds a checkout, which is wall 2 everywhere else in this program, so §54's second
+# branch applies — Rich is told and removes it by hand.
+world campaign
+mkdir -p "$W_ROOT/ab/zcampaign-old" "$W_ROOT/ab/zcampaign-fresh" \
+         "$W_ROOT/ab/zzz-a-real-project"
+echo evidence >"$W_ROOT/ab/zcampaign-old/notes.txt"
+echo evidence >"$W_ROOT/ab/zcampaign-fresh/notes.txt"
+echo work >"$W_ROOT/ab/zzz-a-real-project/source.txt"
+mkdir -p "$W_ROOT/ab/zcampaign-old/.git" "$W_ROOT/ab/zzz-a-real-project/.git"
+backdate "$W_ROOT/ab/zcampaign-old"
+backdate "$W_ROOT/ab/zzz-a-real-project"
+{
+    echo "SCRATCH_CAMPAIGN_PARENT=\"$W_ROOT/ab\""
+    echo 'SCRATCH_CAMPAIGN_ROOTS="zcampaign-*"'
+    echo 'SCRATCH_CAMPAIGN_RETENTION_DAYS="1"'
+} >>"$W_CFG"
+OUT="$(run --apply)"
+if [ -f "$W_ROOT/ab/zcampaign-old/notes.txt" ]; then
+    ok "S24  a campaign root past its retention is NOT deleted"
+else
+    bad "S24  a campaign root holding a checkout was DELETED"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+case "$OUT" in
+    *"PAST ITS RETENTION"*)
+        ok "S24b ...it is REPORTED, which is §54's other branch" ;;
+    *) bad "S24b the pile was neither deleted nor reported — the D3 state exactly"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+case "$OUT" in
+    *"rm -rf $W_ROOT/ab/zcampaign-old"*)
+        ok "S24c and the reason carries the command a person runs" ;;
+    *) bad "S24c reported without saying what to do about it"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+# THE TWO CONTROLS, and the second is the one that matters most: an UNDECLARED
+# directory beside it — the shape of `fitapp` and `prospects` — must not be
+# nominated at all, however old it is.
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *zcampaign-fresh*"inside"*|*"zcampaign-fresh"*"retention is"*)
+        ok "S24d CONTROL: one inside its retention is kept and says so" ;;
+    *) bad "S24d a young campaign root was not reported at all"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -10 ;;
+esac
+if printf '%s' "$OUT" | grep -q 'zzz-a-real-project'; then
+    bad "S24e AN UNDECLARED DIRECTORY UNDER THE PARENT WAS NOMINATED. That is the"
+    bad "     shape of fitapp and prospects, and this arm must never reach them."
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+else
+    ok "S24e CONTROL: an UNDECLARED sibling is not nominated, however old"
+fi
+# AND IT REACHES THE GARBAGE ALARM, because reporting that nobody reads is the
+# same as not reporting.
+if printf '%s' "$OUT" | grep -qE 'skipped=[1-9]'; then
+    ok "S24f a reported campaign root is counted into skipped, so the alarm sees it"
+else
+    bad "S24f it is reported in the plan and invisible to the alarm"
+    printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /'
+fi
+
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and
 # eight harnesses in this engine were once run by nothing at all. It matters

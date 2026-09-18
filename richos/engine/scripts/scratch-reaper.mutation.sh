@@ -320,9 +320,14 @@ mutant M30.lstart-dst-offset "S21o" "$LIB" \
 # cannot say "there is garbage here and nobody is coming for it" satisfies §54
 # only for the paths it already sweeps, which was the whole of Frank's verdict.
 
+# THE ANCHOR MOVED ONCE ALREADY AND THE HARNESS SAID SO RATHER THAN SCORING
+# GREEN — "MUTATION TARGET ABSENT — the source has drifted" — when skipped() was
+# rewritten to key on Entry.standing instead of matching a sentence in the report.
+# That assertion is the reason a stale mutant is a failure here and not a silent
+# pass against a line that no longer exists.
 mutant M31.skipped-not-counted "S22 " "$LIB" \
-    "        n = sum(1 for e in self.entries if e.klass == \"tmp-foreign\")" \
-    "        n = 0 * sum(1 for e in self.entries if e.klass == \"tmp-foreign\")" \
+    "        return len(rows), sum(e.size for e in rows)" \
+    "        return 0, 0" \
     "The skipped count is always zero, so a pile of garbage nothing will ever
      collect reports as an empty one. This is the shape the mechanism was in
      before Fix 2: 1.13 GB on this machine, and every report green."
@@ -402,5 +407,32 @@ mutant M38.ledger-pid-reuse-not-detected "S23f" "$LIB" \
      row whose pid now belongs to an unrelated live process is immortal. S23c
      stays green under this mutation, because a name-derived reuse is still caught
      — which is what makes S23f the case that is actually about this line."
+
+# ===========================================================================
+# D3 — declared campaign roots under ~/ab
+# ===========================================================================
+
+mutant M39.campaign-root-deleted "S24 " "$LIB" \
+    "                self.add(path, \"campaign-root\", size, KEEP,{NL}                         \"A DECLARED CAMPAIGN ROOT PAST ITS RETENTION" \
+    "                self.add(path, \"campaign-root\", size, DELETE,{NL}                         \"A DECLARED CAMPAIGN ROOT PAST ITS RETENTION" \
+    "A campaign root is DELETED automatically. Every one of them holds a checkout,
+     which is wall 2 everywhere else in this program, and these are 13-19 GB of
+     somebody's campaign under ~/ab. §54's second branch exists for exactly this
+     case: report it and a person removes it."
+
+mutant M40.campaign-root-not-nominated "S24b" "$LIB" \
+    "        for name in names:{NL}            for path in sorted(glob.glob(os.path.join(parent, name))):" \
+    "        for name in []:{NL}            for path in sorted(glob.glob(os.path.join(parent, name))):" \
+    "The declared campaign roots are never enumerated, so the piles under ~/ab go
+     back to being seen by no arm of the mechanism at all. That is D3, and it was
+     18.90 GB plus 13.75 GB."
+
+mutant M41.standing-keep-hidden "S24b" "$LIB" \
+    "            if e.action == KEEP and not verbose and not e.standing:" \
+    "            if e.action == KEEP and not verbose:" \
+    "A STANDING keep — kept, and a person has to act on it — is hidden behind
+     --verbose again, so the only channel that reports it is one nobody runs. The
+     report says nothing and the pile stays; reporting that nobody reads is the
+     same as not reporting."
 
 mutation_end
