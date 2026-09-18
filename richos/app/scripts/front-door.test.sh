@@ -114,9 +114,47 @@
 # raises the alert — rather than letting a ten-minute modal stand for the length of the run.
 #
 # =========================================================================================
+# A BUILD HOST HAS NO BUNDLE, AND THAT IS A GAP — NOT A USAGE ERROR (exit 2, not 64)
+# =========================================================================================
+#
+# `run-tests.sh` discovers this file from disk and runs it WITH NO ARGUMENTS, because that is
+# the only way an inventory can be honest (see its header: there is no second place to edit,
+# so a suite dropped beside it runs). A build host therefore invokes this suite with no
+# bundle at all — and until 2026-09-18 that produced exit 64 from the argument check below,
+# which the runner reads as a FAILED SUITE. It stopped the nightly build of candidate .10
+# (run log `~/.richos-nightly/logs/20260918T171138Z-c26afbc2.log:2571`), and the thing it
+# reported was not a defect in the product or in this file: there was simply no app to drive.
+#
+# The two states are different and now exit differently:
+#
+#   NO BUNDLE WAS NAMED          -> exit 2, "this host cannot answer". A fact about THIS
+#     (neither --bundle nor         INVOCATION, not a verdict about the code. Nothing is
+#      --release)                   launched, no key is synthesized, the screen is untouched.
+#                                   `run-tests.sh` tolerates it only under a caller's
+#                                   declaration by name WITH a reason, and goes red the day
+#                                   this suite starts answering there instead.
+#
+#   A BUNDLE WAS NAMED AND IS    -> exit 64, unchanged. Somebody pointed this suite at a
+#     NOT A RichOS.app              thing and the thing is wrong; that is an answer about
+#     (or a --release with no       the argument, and no declaration may tolerate it.
+#      RichOS.app.tar.gz)
+#
+# THE GAP IS DELIBERATELY DECIDED FIRST, ahead of P1-P4. On a build host the true and only
+# interesting fact is "no bundle was named"; refusing over an asleep screen or a missing
+# `cliclick` first would report the second-most-relevant thing and make the repair look like
+# a machine to fix rather than a run to make by hand.
+#
+# AND THE HONEST LIMIT, because `run-tests.sh`'s header names it: a gap over a suite with no
+# host-independent cases is a gap over silence. Every case in this file needs a window, so
+# under a declaration this suite contributes NOTHING to a build. It is not a build-time check
+# and never was — it is run by hand, or from a walk, against a published release.
+#
+# =========================================================================================
 # CASES
 # =========================================================================================
 #
+#   P0  a bundle was named at all    -> otherwise THIS HOST CANNOT ANSWER, exit 2, and
+#                                        nothing is launched, sent or put on the screen
 #   P1  a display is awake            -> otherwise a named refusal, exit 2
 #   P2  the session is unlocked       -> otherwise a named refusal, exit 2  (or wait for it)
 #   P3  cliclick is on this machine   -> otherwise a named refusal, exit 2
@@ -140,6 +178,7 @@
 #
 # Usage:
 #   scripts/front-door.test.sh --bundle /path/to/RichOS.app
+#   scripts/front-door.test.sh                       (no bundle named -> P0, exit 2, nothing run)
 #   scripts/front-door.test.sh --release ~/.richos-nightly/releases/v1.2.0-nightly.20260918.3
 #   scripts/front-door.test.sh --bundle … --wait-for-screen 900
 #   scripts/front-door.test.sh --bundle … --evidence docs/verification/<dir>   (keeps the dumps)
@@ -165,6 +204,25 @@ done
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "REFUSED: this drives AppKit and a WKWebView, which exist only on macOS." >&2
+  exit 2
+fi
+
+# ---------------------------------------------------------------------------------------
+# P0 — NO BUNDLE WAS NAMED. See the header: this is a gap, not a usage error.
+# ---------------------------------------------------------------------------------------
+# Decided before P1-P4 and before anything is created, launched or synthesized, so a build
+# host's run of this suite is a dozen lines of output and no process. The exit-64 refusal for
+# a bundle that WAS named and is wrong is further down and is untouched.
+if [ -z "$BUNDLE" ] && [ -z "$RELEASE" ]; then
+  echo "== The front door, through AppKit (audit-9 row 2) =="
+  echo "  GAP      no bundle was named — this invocation passed neither --bundle nor --release,"
+  echo "           and this suite drives the SHIPPED window: a real app, on a real screen, with"
+  echo "           keys synthesized from outside it. There was nothing to drive, so NOTHING was"
+  echo "           launched, no key was sent, and the screen was not touched."
+  echo "           That is a fact about THIS INVOCATION, not a verdict about the code."
+  echo "           Run it by hand against a published release, on an unlocked screen:"
+  echo "             scripts/front-door.test.sh --release ~/.richos-nightly/releases/<version>"
+  echo "           A bundle that IS named and is not a RichOS.app is a different answer: exit 64."
   exit 2
 fi
 
