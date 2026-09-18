@@ -528,8 +528,13 @@ impl WorkHost {
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
         //    after the turn, never inside it.
         if let Err(why) = self.ensure_lease(backend, binding) {
+            // **"Did not start", not "stopped before it finished".** Nothing has been asked of
+            // the back end at this line, so there is nothing that could have stopped. Ray's
+            // candidate-.7 failures were all of this shape and all reported as the other one,
+            // which invites the wrong question ("how far did it get?") about a job that got
+            // nowhere at all.
             advance(AssignmentState::Failed, &honest(&why));
-            self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &honest(&why)));
+            self.raise(record, NoticeKind::Failed, &assignment::says::did_not_start(&record.title, &honest(&why)));
             return;
         }
 
@@ -550,11 +555,13 @@ impl WorkHost {
                 return;
             };
             if let Err(why) = lease.bind_work_assignment(&work) {
+                // Pre-turn, like `ensure_lease` above: the seat could not be bound, so the back
+                // end was never asked for anything.
                 advance(AssignmentState::Failed, &honest(&why.to_string()));
                 self.raise(
                     record,
                     NoticeKind::Failed,
-                    &assignment::says::failed(&record.title, &honest(&why.to_string())),
+                    &assignment::says::did_not_start(&record.title, &honest(&why.to_string())),
                 );
                 return;
             }
@@ -588,10 +595,21 @@ impl WorkHost {
         }
 
         // 3. The work turn. This is the long one, and nothing about it is on his turn.
+        //
+        // **IT IS STILL `Preparing` HERE, AND THAT IS RAY'S CANDIDATE-.7 ROW 2.** This line
+        // used to write `Running` — before `prompt` below had been called, so before the back
+        // end had been asked for anything, let alone answered. The old detail string on it
+        // said "Preparing the workspace and starting the work", which is the state word the
+        // record should have carried in the first place.
+        //
+        // What "running" is worth to him depends entirely on it being false until it is true:
+        // on his walk the receipt said the job was running and the job failed three seconds
+        // later, having never started. So `Running` is now written from ONE place, below,
+        // when the child's first stream item proves it took the turn.
         advance(
-            AssignmentState::Running,
+            AssignmentState::Preparing,
             if resumed {
-                "You approved the step it stopped at. Carrying it out now."
+                "You approved the step it stopped at. Handing it back to the back end now."
             } else {
                 "Preparing the workspace and starting the work."
             },
@@ -609,10 +627,41 @@ impl WorkHost {
         // and the adapter's own `usage_update` is what actually decides below.
         let mut chars = prompt.len();
         let mut measured: Option<crate::machinery::ContextUsage> = None;
+        // **THE ONE PLACE `Running` IS WRITTEN, AND THE EVIDENCE THAT MAKES IT TRUE.**
+        //
+        // Ray's candidate-.7 walk, row 2: *"It's running now"* was on his screen at
+        // 08:13:07Z for a job that failed at 08:13:10Z. A CEO who reads the first answer and
+        // looks away has been told something false, so the word has to be attached to a fact
+        // rather than to a step the app has reached.
+        //
+        // The fact is this: a `TurnItem` is parsed off the child's own stream in reply to the
+        // prompt just below. Its arrival is a POSITIVE signal from the back end that it has
+        // taken the turn — the same standard the continuity design's §5.2 holds the crash
+        // watchdog to, and for the same reason. Nothing here is inferred from elapsed time,
+        // from the lease being open, or from silence.
+        //
+        // **Why not `work_readiness_after_turn`, which the brief for this change named.**
+        // That reading is real and it stays exactly where it is (step 3a below), but it is
+        // reachable only AFTER `prompt` has returned — after the whole work turn, the long
+        // one. Gating the word on it would leave every assignment reading `preparing` for the
+        // entire run and `running` only once the run had ended, which is the same defect
+        // pointing the other way. The two are different questions: that one asks whether the
+        // lease was ever equipped, this one asks whether the turn was taken.
+        let mut confirmed = false;
+        let started_detail: &str = if resumed {
+            "You approved the step it stopped at. Carrying it out now."
+        } else {
+            "The back end has started on it."
+        };
         let outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => lease.prompt(&prompt, &mut |item: TurnItem| match item {
+                Some(lease) => lease.prompt(&prompt, &mut |item: TurnItem| {
+                    if !confirmed {
+                        confirmed = true;
+                        advance(AssignmentState::Running, started_detail);
+                    }
+                    match item {
                     TurnItem::Text { text, .. } => chars += text.len(),
                     TurnItem::Machinery(record) => {
                         // **The one machinery record that is READ rather than retained**,
@@ -621,6 +670,7 @@ impl WorkHost {
                         if let Some(usage) = record.context_usage() {
                             measured = Some(usage);
                         }
+                    }
                     }
                 }),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
@@ -672,12 +722,33 @@ impl WorkHost {
             let inner = backend.inner.lock().unwrap();
             inner.closing || inner.stopped.iter().any(|id| *id == record.id)
         };
+        // **Which failure sentence he hears is decided by EVIDENCE, not by which arm we are
+        // in.** A turn that broke before the child said anything did not start; one that broke
+        // after it had been talking stopped before it finished. Both are true statements about
+        // different events, and they are not interchangeable.
+        //
+        // **There are TWO positive signals and the honest test needs both.** A stream item is
+        // the earlier one — it is what moves the record to `Running` above. `outcome.is_ok()`
+        // is the other: `prompt` answers `Ok` only on the child's own terminal `result` frame,
+        // which is proof it took the turn even for a turn that streamed nothing this host
+        // retained. Testing the first alone reported three of this module's own scenarios — a
+        // job that ran and did not land, a land the reviewer refused, a land with the
+        // assignment still open — as jobs that "did not start", which is Ray's row 2 inverted
+        // and every bit as false. Absence of a signal is still never read as a signal here.
+        let took_the_turn = confirmed || outcome.is_ok();
+        let tell = |title: &str, why: &str| {
+            if took_the_turn {
+                assignment::says::failed(title, why)
+            } else {
+                assignment::says::did_not_start(title, why)
+            }
+        };
         match outcome {
             Err(why) => {
                 let sentence = honest(&why.to_string());
                 advance(AssignmentState::Failed, &sentence);
                 self.forget_at_the_desk(record);
-                self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &sentence));
+                self.raise(record, NoticeKind::Failed, &tell(&record.title, &sentence));
             }
             Ok(reason) if stopped || reason == crate::native::STOP_REASON_CANCELLED => {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
@@ -693,7 +764,7 @@ impl WorkHost {
                 let sentence = readiness.expect("checked by the guard");
                 advance(AssignmentState::Failed, &sentence);
                 self.forget_at_the_desk(record);
-                self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &sentence));
+                self.raise(record, NoticeKind::Failed, &tell(&record.title, &sentence));
             }
             // ===========================================================================
             // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
@@ -745,11 +816,16 @@ impl WorkHost {
                 // *"{title} stopped before it finished. {why}"* — which is exactly true of
                 // every case above, including the one where the land itself succeeded and
                 // the assignment was never closed.
+                //
+                // It goes through `tell` all the same: reaching this arm means the obligation
+                // is open, which a turn the child never answered also produces. In that case
+                // "stopped before it finished" would be the false half of Ray's row 2 again,
+                // and `confirmed` is the only thing that can tell the two apart.
                 Outcome::NotSettled => {
                     let why = self.what_happened(record);
                     advance(AssignmentState::Failed, &why);
                     self.forget_at_the_desk(record);
-                    self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &why));
+                    self.raise(record, NoticeKind::Failed, &tell(&record.title, &why));
                 }
                 Outcome::StillRunning(detail) => {
                     // §0's honest sentence: "anything we cannot witness counts as still
@@ -1574,13 +1650,112 @@ fn and_list(items: &[String]) -> String {
 fn honest(why: &str) -> String {
     let flattened: String = why.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     let trimmed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
-    let bounded: String = trimmed.chars().take(200).collect();
+    let named = strip_engineer_prefix(&trimmed);
+    // **The detail is not discarded, it is MOVED.** Row 8 asks for the seam label off his
+    // timeline, not for it to stop existing: a plugin that did not load is diagnosed from the
+    // label. Logged only when there was one to strip, so the log gains a line exactly when the
+    // card loses one.
+    if !std::ptr::eq(named, trimmed.as_str()) {
+        eprintln!("[richos] work: reported to him as \"{named}\"; the connection said: {trimmed}");
+    }
+    let bounded: String = named.chars().take(200).collect();
     if bounded.is_empty() {
-        "No reason was recorded.".into()
-    } else if bounded.ends_with('.') {
-        bounded
+        return "No reason was recorded.".into();
+    }
+    // **A card is a sentence, so it starts like one.** This became load-bearing the moment the
+    // seam label came off: the label used to supply the opening word, and behind it sit reasons
+    // that are lowercase by construction — `CognitionError::Io(e.to_string())` wraps whatever
+    // the operating system said. The curated sentences are already capitalized and are
+    // untouched by this. Only a leading lowercase ASCII letter is raised, so a reason that opens
+    // on a quote, a number or a path is left exactly as it is.
+    let mut sentence = bounded;
+    if sentence.starts_with(|c: char| c.is_ascii_lowercase()) {
+        let rest = sentence.split_off(1);
+        sentence = sentence.to_ascii_uppercase() + &rest;
+    }
+    if sentence.ends_with('.') {
+        sentence
     } else {
-        format!("{bounded}.")
+        format!("{sentence}.")
+    }
+}
+
+/// **Take the engineer's label off a sentence that is about to appear on his timeline.**
+///
+/// Ray's candidate-.7 audit, row 8: his failure card read *"cognition protocol: The desktop
+/// engine plugin did not load"*. The sentence after the colon is a good sentence — it names
+/// what did not happen, in his terms, and it was written for him. The prefix is `thiserror`'s
+/// `Display` on [`CognitionError`] (`cognition.rs:19-24`), which exists so the wire, the
+/// stderr log and a panic message all say which seam an error came from.
+///
+/// **So the prefix is not wrong, it is just not his.** It is stripped here and nowhere else:
+/// `honest` is the one funnel between a `CognitionError` and a sentence he reads, so
+/// [`CognitionError`]'s own `Display` keeps the label for every log, every `eprintln!` and
+/// every test that asserts on a seam. The protocol detail goes to the log, the card names what
+/// did not happen.
+///
+/// Matching is by exact prefix on the two variants that carry a seam label, never by searching
+/// for a colon: a reason of his own can legitimately contain one ("the land lock timed out
+/// after 300 s: nothing was merged"), and cutting at the first colon would eat it.
+fn strip_engineer_prefix(sentence: &str) -> &str {
+    // `cognition.rs:19-24`. `PrimingStopped` is deliberately absent — "Preparation stopped
+    // with …" is already a sentence about the job rather than about a seam.
+    const LABELS: [&str; 2] = ["cognition protocol: ", "cognition io: "];
+    for label in LABELS {
+        if let Some(rest) = sentence.strip_prefix(label) {
+            return rest.trim_start();
+        }
+    }
+    sentence
+}
+
+#[cfg(test)]
+mod honest_sentence_tests {
+    use super::*;
+
+    /// **Ray's candidate-.7 row 8: the failure card said "cognition protocol:".**
+    ///
+    /// The exact string off his walk is the first case. The sentence after the label was always
+    /// the right sentence — it names what did not happen, in his terms — and the label is
+    /// `thiserror`'s `Display` on `CognitionError` (`cognition.rs:19-24`), written for logs.
+    #[test]
+    fn a_failure_card_names_what_did_not_happen_and_never_the_seam_it_came_from() {
+        let card = honest(&CognitionError::Protocol(crate::native::ENGINE_PLUGIN_ABSENT.into()).to_string());
+        assert_eq!(card, "The desktop engine plugin did not load.");
+        assert!(!card.contains("cognition"), "{card}");
+        assert!(!card.contains("protocol:"), "{card}");
+        // The other variant that carries a seam label, same treatment.
+        assert_eq!(
+            honest(&CognitionError::Io("the work connection could not be opened".into()).to_string()),
+            "The work connection could not be opened."
+        );
+
+        // **Positive control on the log half: the label still EXISTS.** Row 8 asks for it off
+        // his timeline, not out of the system — a plugin that did not load is diagnosed from
+        // it. `honest` is the only funnel to a sentence he reads, so `Display` is untouched.
+        let raw = CognitionError::Protocol(crate::native::ENGINE_PLUGIN_ABSENT.into()).to_string();
+        assert!(raw.starts_with("cognition protocol: "), "{raw}");
+
+        // **A colon of his own is never eaten.** Matching is by exact label prefix, not by
+        // cutting at the first colon, which a real reason can legitimately contain.
+        let his = "the land lock timed out after 300 s: nothing was merged";
+        assert_eq!(honest(his), "The land lock timed out after 300 s: nothing was merged.");
+
+        // **The card starts like a sentence, which the stripped label used to do for it.** The
+        // reasons behind `Io` are lowercase by construction — it wraps what the OS said.
+        assert_eq!(honest("no such file or directory"), "No such file or directory.");
+        // A reason that opens on something other than a lowercase letter is left alone.
+        assert_eq!(honest("\"claude\" is not on the path"), "\"claude\" is not on the path.");
+        assert_eq!(honest("300 s elapsed"), "300 s elapsed.");
+
+        // `PrimingStopped` deliberately carries no seam label: it is already about the job.
+        let priming = honest(&CognitionError::PrimingStopped("a stop you pressed".into()).to_string());
+        assert_eq!(priming, "Preparation stopped with a stop you pressed.");
+
+        // Unchanged behavior: bounded, flattened, and an empty reason still says so.
+        assert_eq!(honest("  \n\t "), "No reason was recorded.");
+        assert_eq!(honest("line one\nline two"), "Line one line two.");
+        assert!(honest(&"x".repeat(500)).chars().count() <= 201);
     }
 }
 
@@ -2110,8 +2285,16 @@ mod tests {
         let (thread, notice) = notices.last().unwrap();
         assert_eq!(thread, "thread-one");
         assert_eq!(notice.kind, NoticeKind::Failed);
-        assert!(notice.text.contains("stopped before it finished"));
-        assert!(!notice.text.to_lowercase().contains("started"));
+        // **This test's own name was already the invariant: "not as started".** It used to
+        // assert *"stopped before it finished"*, which claims there was something to stop — the
+        // lease never opened, so nothing was ever asked of the back end. Ray's candidate-.7
+        // failures were every one of them this shape and every one reported the other way.
+        assert!(notice.text.contains("did not start"), "{}", notice.text);
+        assert!(!notice.text.contains("stopped before it finished"), "{}", notice.text);
+        // Capitalized, because `honest` now opens the card like the sentence it is — the seam
+        // label it replaced used to be the first thing on the line.
+        assert!(notice.text.contains("The engine release gate refused this lease"), "{}", notice.text);
+        assert!(!notice.text.contains("cognition"), "a seam label reached his card: {}", notice.text);
         drop(notices);
         host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -3076,9 +3259,11 @@ mod tests {
 
     #[test]
     fn a_failure_sentence_carries_no_stack_trace_and_is_never_empty() {
-        assert_eq!(honest("  a\nb  "), "a b.");
+        // Flattened, bounded, never empty — and opened like a sentence, which it did not used to
+        // be: the seam label `honest` now strips (row 8) was supplying the first word.
+        assert_eq!(honest("  a\nb  "), "A b.");
         assert_eq!(honest("   "), "No reason was recorded.");
-        assert_eq!(honest("ended."), "ended.");
+        assert_eq!(honest("ended."), "Ended.");
         assert!(honest(&"x".repeat(500)).chars().count() <= 201);
     }
 }

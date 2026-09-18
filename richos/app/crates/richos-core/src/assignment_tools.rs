@@ -120,16 +120,27 @@ struct RecordArguments {
     assignment: String,
     #[serde(default)]
     repositories: Vec<String>,
+    /// **Did he have to answer a question before this could be written down?** The CEO's
+    /// ruling §55 has two replies — *"On it!"*, and *"Got it. On it!"* once the answers are in
+    /// — and only the model knows which turn this is.
+    ///
+    /// It reports a fact and chooses nothing: both sentences are the app's
+    /// ([`assignment::Receipt`]), so a model that gets this wrong says the other three-word
+    /// reply rather than a paragraph of its own. Defaults to `false`, which is the ordinary
+    /// case.
+    #[serde(default)]
+    after_questions: bool,
 }
 
 pub fn tools() -> Value {
     json!({"tools":[
         {"name":RECORD_TOOL_NAME,
-         "description":"Write down a piece of work the CEO has asked for so it can run in the background, and END YOUR TURN with what this returns. Use it whenever he asks for work that will take more than a moment — landing branches, a review, a build. It records the assignment and returns the sentence to say; it does not do the work and does not wait for it. The work then runs on a separate connection and he is told when there is something for him to look at. Never claim the work is finished, started or prepared on the strength of this call: what it establishes is that the assignment is written down.",
+         "description":"Write down a piece of work the CEO has asked for so it can run in the background, and END YOUR TURN with what this returns — which is three words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task back to him, no claim that the work is running, started, prepared or finished.",
          "inputSchema":{"type":"object","properties":{
              "obligation_id":{"type":"string","minLength":1,"maxLength":128,"description":"The open ECS obligation this assignment carries out. Open it first; a background assignment with no obligation behind it cannot be prepared or reconciled."},
              "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. No identifiers, no internal names."},
-             "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."}
+             "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."},
+             "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."}
          },"required":["obligation_id","assignment"],"additionalProperties":false},
          "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}}
     ]})
@@ -140,8 +151,10 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     if name != RECORD_TOOL_NAME {
         return Err("That assignment tool does not exist. Nothing was recorded.".into());
     }
-    let args: RecordArguments = serde_json::from_value(arguments)
-        .map_err(|_| "Use only assignment and repositories. Nothing was recorded.".to_string())?;
+    let args: RecordArguments = serde_json::from_value(arguments).map_err(|_| {
+        "Use only obligation_id, assignment, repositories and after_questions. Nothing was recorded.".to_string()
+    })?;
+    let after_questions = args.after_questions;
     let scope = read_scope(scope_path)?;
     if !scope.actions_allowed {
         // Spec §5.1's rule, in its own place: with no visible turn the answer is a refusal,
@@ -163,11 +176,17 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
         },
     )
     .map_err(|e| assignment::failed_registration_sentence(&format!("{e}.")))?;
-    // **What comes back is the sentence, not an id.** Spec §1.2: the closing sentence names
-    // the assignment in the CEO's own terms and carries no identifiers, and
-    // `desktop-work.md:42-43` puts receipt ids on Rich's side of that line. A tool result
-    // that handed the model an id would be handing it something to say.
-    Ok(json!({"recorded": true, "say": receipt.sentence()}))
+    // **What comes back is the words, not an id.** `desktop-work.md:42-43` puts receipt ids on
+    // Rich's side of that line; a tool result that handed the model an id would be handing it
+    // something to say. Under the CEO's ruling §55 the words are three of them, so there is
+    // nothing left in this payload that could name the assignment even by accident.
+    Ok(json!({
+        "recorded": true,
+        "say": if after_questions { receipt.sentence_after_questions() } else { receipt.sentence() },
+        // Said in the payload the model actually reads, not only in the tool description it
+        // may have summarized: §55's reply is the whole turn.
+        "say_nothing_else": true,
+    }))
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -304,9 +323,24 @@ mod tests {
             "repositories":["/fictional/project"]}))
             .unwrap();
         assert_eq!(result["recorded"], true);
+        // **This is the wire both defects came off.** `say` is handed to the model verbatim and
+        // `doctrine/front-desk.md` tells it to end the turn with exactly this string, so
+        // whatever is here is what he reads. The CEO's ruling §55 fixes it at three words; his
+        // walk had waited 35 seconds for a paragraph, and the paragraph also said the work was
+        // running three seconds before it failed.
         let say = result["say"].as_str().unwrap();
-        assert!(say.contains("landing the three branches"));
-        assert!(say.contains("taken down"));
+        assert_eq!(say, "On it!");
+        assert_eq!(result["say_nothing_else"], true);
+        assert!(!say.contains("landing the three branches"), "his task was read back to him: {say}");
+        assert!(!say.to_lowercase().contains("running"), "the receipt told him it was running: {say}");
+        let second_reply_check = |scope: &std::path::Path| {
+            // The other reply, and the only thing that selects it: a fact the model reports,
+            // never words the model composes.
+            let asked = call(scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-8","assignment":"the pricing review",
+                "after_questions":true}))
+                .unwrap();
+            assert_eq!(asked["say"], "Got it. On it!");
+        };
         let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].state, assignment::AssignmentState::Registered);
@@ -315,7 +349,41 @@ mod tests {
         // §1.2: nothing the model can say back carries an identifier.
         assert!(!say.contains(&rows[0].id));
         assert!(!say.contains(&rows[0].seat));
+        // Last, because it writes a second record: the reply after a clarifying question.
+        second_reply_check(&scope);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **The CEO's ruling §55 reaches the model, not just this file's tests.**
+    ///
+    /// The doctrine is what the conversation lease is actually given
+    /// (`engine_profile.rs:158` hands it `FRONT_DESK_DOCTRINE`), so a rule that lives only in a
+    /// tool description the model may skim is a rule with one carrier. §55's measure is the time
+    /// from his send to "On it!" on screen, and the only thing that can spend that time is a tool
+    /// call made before the register.
+    #[test]
+    fn the_doctrine_tells_the_front_desk_to_register_first_and_reply_in_three_words() {
+        let doctrine = crate::doctrine::FRONT_DESK_DOCTRINE;
+        // His two replies, verbatim, in the text the model reads.
+        assert!(doctrine.contains("On it!"), "the reply itself is not in the doctrine");
+        assert!(doctrine.contains("Got it. On it!"), "the after-a-question reply is not in the doctrine");
+        // The register is the FIRST call — the half of §55 that costs the 35 seconds.
+        assert!(doctrine.contains("FIRST tool call"), "the ordering rule is not stated");
+        // Wrap-safe: the doctrine is hard-wrapped prose, so assertions stay inside one line.
+        assert!(
+            doctrine.contains("never before writing a new"),
+            "the read is not fenced off from a new work request"
+        );
+        // And the distinction job 2 put on the wire is explained where the model will read it.
+        assert!(doctrine.contains("two different answers"), "starting vs running is not explained");
+        // Negative: the superseded clauses are gone from the doctrine too, not just from the
+        // sentence. A doctrine still promising "the work is written down. Say that" would have
+        // the model narrating instead of saying three words.
+        assert!(!doctrine.contains("you'll find it with your saved work"), "a superseded clause survives");
+        assert!(!doctrine.contains("It's running now"), "a superseded clause survives");
+        // Positive control: the doctrine was actually loaded and is not an empty string.
+        assert!(doctrine.len() > 500, "the doctrine did not load: {} bytes", doctrine.len());
+        assert!(doctrine.contains("richos_assignments.record"));
     }
 
     /// The model supplies WHAT, never WHERE or WHOSE. Every redirection field is in the

@@ -268,35 +268,123 @@ pub struct Receipt {
 }
 
 impl Receipt {
-    /// Spec §1.2: names the assignment in his own terms, says it is running, says where it
-    /// will show up, claims nothing about the outcome, carries no identifiers, and means
-    /// the same read or spoken.
+    /// **"On it!" — the CEO's ruling §55, verbatim and entire** (`richos-hq`
+    /// `wiki/ceo-decisions.md:2822-2846`, 2026-09-18).
     ///
-    /// **"Taken down" and not "started".** §1.3 is precise about what the receipt
-    /// guarantees — the assignment is on disk — and §7.1 moved preparation off this turn,
-    /// so at the moment this sentence is said no workspace exists yet. A sentence claiming
-    /// one would be false for the 3.0–3.8 seconds that matter most.
+    /// *"3) Rich **immediately** replies with: "On it!" and only after that does all that work
+    /// that took 35 seconds in this example. … That's it. Instant responses and ultra-short
+    /// replies."* What it binds, in his words: no restating the task back, no "running", no
+    /// "you'll find it with your saved work". **It supersedes the engineering annex
+    /// `background-work-spec-2026-09-17.md` §1.2 and spec §1.2's own list of clauses**, and
+    /// the supersession is the point — every clause this sentence used to carry was a true
+    /// clause, and he does not want any of them.
+    ///
+    /// **Two defects died here and they were different defects.** The sentence read *"I've
+    /// taken down your assignment: [the task, verbatim]. It's running now, and you'll find it
+    /// with your saved work. …"*. Ray's candidate-.7 row 2 is that *"running"* was false: it
+    /// was on his screen at 08:13:07Z and the job had failed at 08:13:10Z, three seconds
+    /// later. §55 is that the whole paragraph was the wrong shape at the wrong time — he had
+    /// waited 35 seconds for it. Fixing only the first would have left him waiting 35 seconds
+    /// for a more accurate paragraph.
+    ///
+    /// **It carries no title, and that is now a property rather than an omission.** A title
+    /// cannot be read aloud wrong, truncated, double-punctuated or leaked if it is not in the
+    /// sentence. [`sanitize_title`] and [`after_title`] still matter, because the seven
+    /// sentences in [`says`] that report a RESULT do name the assignment — that is where Ray's
+    /// row 8 double period lives now.
+    ///
+    /// **What the app still guarantees at the instant this is said:** the assignment is on
+    /// disk, fsynced, and `work_host.rs`'s `adopt_registered` will pick it up at the turn
+    /// boundary. The sentence asserts none of it, which is exactly why it cannot be wrong.
     pub fn sentence(&self) -> String {
-        format!(
-            "I've taken down your assignment: {}. It's running now, and you'll find it \
-             with your saved work. I'll tell you when there's something for you to look at.",
-            self.title
-        )
+        "On it!".into()
+    }
+
+    /// The same reply when he had to answer a question first — §55's other half.
+    ///
+    /// *"And if clarification questions need to be asked, then Rich asks those questions
+    /// first. And once all answers are in, Rich replies with a simple "Got it. On it!""*
+    ///
+    /// **It is a second fixed string and not a composed one.** Only the model knows whether it
+    /// asked him anything, so it reports that one fact; the words stay the app's, the same way
+    /// [`Registration`] keeps the id, the seat and the instruction out of the model's hands. A
+    /// model free to compose this would eventually compose the 35-second paragraph again.
+    pub fn sentence_after_questions(&self) -> String {
+        "Got it. On it!".into()
     }
 }
 
+// **Where Ray's row 8 double period went, and why there is no helper here for it.**
+//
+// He saw *"… and land it.. It's running now"*: the model's title ended in a period and the
+// receipt put its own straight after it. Two things removed that, and between them nothing in
+// this module now writes a period directly after a title:
+//
+//   1. [`sanitize_title`] strips a trailing period at the source. That is the production fix,
+//      and it is the one that matters for the seven sentences in [`says`] — a title of *"land
+//      it."* used to make every one of them read *"land it. is finished."*
+//   2. The CEO's ruling §55 took the title out of the receipt altogether, which was the only
+//      sentence in the module that appended punctuation to one.
+//
+// A first pass here added an `after_title` helper for the case `sanitize_title` deliberately
+// leaves — a truncated title keeps the ellipsis it needs. It is gone because after (2) nothing
+// calls it: every sentence in [`says`] continues with a word rather than a mark (*"{title} is
+// finished"*, *"{title} did not start"*), so an ellipsis is followed by a space and reads
+// correctly. A helper kept for a case that cannot occur is dead code whose doc comment claims a
+// guarantee nothing is enforcing. The tests assert the property over every [`says`] sentence
+// instead, which is what would actually catch a future sentence that got this wrong.
+
 /// Spec §1.4: *"A failed registration is never softened into 'I have started it'."*
+///
+/// It says "write down" for the same reason [`Receipt::sentence`] does: the two sentences are
+/// the success and the failure of one act, and he should not hear the act called two things.
 pub fn failed_registration_sentence(why: &str) -> String {
-    format!("I could not take that assignment down: {why} Nothing is running.")
+    format!("I could not write that assignment down: {why} Nothing is running and nothing was started.")
 }
 
 /// One line, bounded, no control characters — a title travels into a spoken sentence and
 /// onto his timeline, and it comes from the model.
 ///
 /// The cap is 160 characters because the sentence it lands in is read aloud; a title that
-/// has to be truncated is truncated on a word boundary and ends in a period, so the spoken
-/// form never trails off mid-word.
+/// has to be truncated is truncated on a word boundary and ends in an ellipsis, so the
+/// spoken form never trails off mid-word.
+///
+/// **A TRAILING PERIOD IS STRIPPED, because a title is never the end of a sentence.** Every
+/// sentence that embeds one — [`Receipt::sentence`] and all seven in [`says`] — continues
+/// talking after it (*"{title} is finished"*, *"{title} stopped before it finished"*), so a
+/// title carrying its own period produced *"… and land it.. It's running now"* on his
+/// timeline, which is what Ray's candidate-.7 walk found at row 8. It is stripped HERE, once,
+/// rather than at each of the eight joins: a fix at one join would have left the other seven
+/// reading *"and land it. is finished."*
+///
+/// The truncation path is deliberately left ending in `…`, which is terminal punctuation it
+/// needs; [`after_title`] is what keeps a second mark off that one.
 pub fn sanitize_title(raw: &str) -> Result<String, AssignmentError> {
+    let line = sanitize_line(raw)?;
+    // A truncated line already ends in the ellipsis the truncation needs, and that is
+    // terminal punctuation to keep — [`after_title`] is what stops a second mark landing
+    // after it.
+    if line.ends_with('…') {
+        return Ok(line);
+    }
+    let stripped = line.trim_end_matches('.').trim_end();
+    // A "title" that was nothing but punctuation is refused rather than silently emptied —
+    // an empty title would be read aloud as a missing clause.
+    if stripped.is_empty() {
+        return Err(AssignmentError("an assignment needs a title in the CEO's own terms".into()));
+    }
+    Ok(stripped.to_string())
+}
+
+/// Flatten to one bounded line, and nothing else.
+///
+/// **This is the half a DETAIL wants, and the reason the two are now separate functions.**
+/// A detail is a whole sentence — *"The review asked for changes, so nothing was landed."* —
+/// and it keeps its period. A title is a noun phrase that something else always says more
+/// after, so it loses one. Both were [`sanitize_title`] until 2026-09-18, and stripping the
+/// period for the title's sake took the period off three of `work_host`'s outcome sentences
+/// before the tests caught it.
+fn sanitize_line(raw: &str) -> Result<String, AssignmentError> {
     let flattened: String = raw
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -548,7 +636,8 @@ pub fn advance(
     to: AssignmentState,
     detail: &str,
 ) -> Result<Assignment, AssignmentError> {
-    let detail = sanitize_title(detail).unwrap_or_else(|_| "No detail was recorded.".into());
+    // A detail is a whole sentence and keeps its own period — see [`sanitize_line`].
+    let detail = sanitize_line(detail).unwrap_or_else(|_| "No detail was recorded.".into());
     update(state, entity, thread, id, |record| {
         record.state = to;
         record.detail = detail;
@@ -732,8 +821,29 @@ pub mod says {
         format!("{title} is finished. {outcome} Everything it produced is with your saved work.")
     }
     /// Spec §3.7: *"A failure says what stopped and what it is waiting on."*
+    ///
+    /// **Only for a job that actually got going** — see [`did_not_start`] for the other
+    /// half. "Stopped before it finished" carries the claim that there was something to
+    /// stop.
     pub fn failed(title: &str, waiting_on: &str) -> String {
         format!("{title} stopped before it finished. {waiting_on}")
+    }
+
+    /// **A job that never got going, said as that and not as a job that stopped.**
+    ///
+    /// Ray's candidate-.7 row 2 is the reason this sentence exists. The failures on his walk
+    /// happened BEFORE the back end had taken the turn — the work connection had not opened
+    /// — and every one of them was reported with [`failed`], *"… stopped before it
+    /// finished"*. That sentence tells him work began and then broke off, which invites
+    /// exactly the wrong question ("how far did it get?") about a job that got nowhere at
+    /// all. Nothing had started, so nothing stopped.
+    ///
+    /// **Which of the two a caller uses is decided by evidence, never by which arm it is
+    /// in.** `work_host.rs`'s `run_one` sets a flag when the back end's first stream item
+    /// arrives — a positive signal from the child, the only thing that establishes the turn
+    /// was taken — and picks the sentence off that flag.
+    pub fn did_not_start(title: &str, why: &str) -> String {
+        format!("{title} did not start. {why} Nothing was changed, and nothing is running.")
     }
     pub fn interrupted(title: &str) -> String {
         format!("{title} was stopped. Everything it had done is kept, and nothing was landed.")
@@ -838,24 +948,87 @@ mod tests {
         std::fs::remove_dir_all(state).unwrap();
     }
 
+    /// **The whole reply is "On it!" — the CEO's ruling §55, as an assertion.**
+    ///
+    /// Both of his negatives are tested, because they are separate failures: the sentence must
+    /// not claim the work is running (Ray's row 2 — it said so three seconds before the job
+    /// failed), and it must not restate his task back to him or tell him where to find it
+    /// (§55 — he had waited 35 seconds for that paragraph). The state word on disk is asserted
+    /// beside it so the record and the reply can never drift apart again.
     #[test]
-    fn a_receipt_says_it_was_taken_down_and_claims_no_outcome() {
+    fn the_whole_reply_to_a_recorded_assignment_is_on_it() {
         let state = root();
         let receipt = register(&state, &registration()).unwrap();
+        // Verbatim, both forms. Nothing is composed, so nothing can be composed wrongly.
+        assert_eq!(receipt.sentence(), "On it!");
+        assert_eq!(receipt.sentence_after_questions(), "Got it. On it!");
         let sentence = receipt.sentence();
-        assert!(sentence.contains("landing the three branches"));
-        assert!(sentence.contains("taken down"));
-        // §1.3: the receipt does not guarantee success, and no wording may imply it.
-        for forbidden in ["done", "finished", "complete", "landed", "succeeded"] {
+        // §55: no restating the task back to him.
+        assert!(!sentence.contains("landing the three branches"), "the task was read back: {sentence}");
+        // §55: nothing about where it will show up.
+        for absent in ["saved work", "look at", "written down", "assignment"] {
+            assert!(!sentence.to_lowercase().contains(absent), "§55 forbids this clause: {sentence}");
+        }
+        // Ray's row 2, and `doctrine/front-desk.md:46-49`: no claim that work is underway.
+        for forbidden in ["done", "finished", "complete", "landed", "succeeded", "running", "started", "underway"] {
             assert!(!sentence.to_lowercase().contains(forbidden), "receipt implied an outcome: {sentence}");
         }
-        // §1.2: no identifiers.
+        // The record it describes says `registered` — and the reply claims nothing at all, so
+        // there is no clause left for the record to contradict.
+        let rows = read_all(&state, "depot", "thread-one").unwrap();
+        assert_eq!(rows[0].state, AssignmentState::Registered);
+        // No identifiers, which is now structural: the reply has no room for one.
         assert!(!sentence.contains(&receipt.id));
-        // §1.4 says the opposite sentence out loud.
+        assert!(!sentence.contains(&rows[0].seat));
+        // §1.4 still says the opposite out loud: a registration that FAILED is never softened,
+        // and it is the one reply that must say more than three words.
         let refusal = failed_registration_sentence("the work connection could not be opened.");
-        assert!(refusal.contains("Nothing is running."));
-        assert!(!refusal.to_lowercase().contains("started"));
+        assert!(refusal.contains("Nothing is running and nothing was started."));
         std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **Ray's row 8, at the join that built it.** A title carrying its own terminal
+    /// punctuation never produces a second mark, in any of the seven sentences that embed one —
+    /// and the assertion is over ALL of them, because fixing only one join would have left the
+    /// rest reading *"and land it. is finished."*
+    ///
+    /// **The receipt is no longer one of them, and the fix still matters.** He saw the double
+    /// period in *"… and land it.. It's running now"*, which the CEO's ruling §55 has since
+    /// replaced with *"On it!"* — but every sentence that reports a RESULT still names the
+    /// assignment in his own words, and those are the ones he reads for the rest of the job's
+    /// life.
+    #[test]
+    fn a_title_that_ends_a_sentence_never_gets_a_second_period() {
+        // What Ray actually saw, verbatim from his walk: the model's title ended in a period
+        // and the sentence added its own.
+        let title = sanitize_title("review the branches and land it.").unwrap();
+        assert_eq!(title, "review the branches and land it", "the trailing period survived the sanitizer");
+        // The truncation path keeps its ellipsis, which is terminal punctuation it needs, and is
+        // asserted through the sentences themselves rather than through a helper — see the note
+        // above `sanitize_title`'s neighbors for why there is no helper.
+        let truncated = sanitize_title(&"branch ".repeat(60)).unwrap();
+        assert!(truncated.ends_with('…'));
+
+        // Every sentence that embeds a title, over all three shapes: his own period, an
+        // ellipsis, and a real truncated title.
+        for embedded in [title.as_str(), "review the branches and land it…", truncated.as_str()] {
+            for line in [
+                says::ready_to_approve(embedded),
+                says::settled(embedded, "It landed on a branch in his depot."),
+                says::settled(embedded, ""),
+                says::failed(embedded, "The work connection could not be opened."),
+                says::interrupted(embedded),
+                says::declined(embedded),
+                says::unknown(embedded, ""),
+                says::did_not_start(embedded, "The work connection could not be opened."),
+            ] {
+                assert!(!line.contains(".."), "double period: {line}");
+                assert!(!line.contains("…."), "ellipsis then period: {line}");
+            }
+        }
+        // A title that is nothing but punctuation is refused, not silently emptied.
+        assert!(sanitize_title("...").is_err());
+        assert!(sanitize_title(".").is_err());
     }
 
     /// **Spec §5.8c, in the shape the landed engine forces it into.** One seat per
