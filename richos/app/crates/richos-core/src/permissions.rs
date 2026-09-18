@@ -41,6 +41,23 @@
 //! dies with the assignment ([`PermissionDesk::forget`]). Nothing here ever decides on his
 //! behalf: with no answer from him there is no standing decision, and the refusal is a
 //! refusal.
+//!
+//! # WHAT THE QUEUE IS FOR, AFTER 2026-09-18 (CEO ruling §52)
+//!
+//! *"There's nothing that ever not lands on its own here in the terminal … So, yes, always
+//! land on its own."* Until that ruling, the one thing this queue reliably held was a
+//! background lease's `mcp__richos_work__integrate` call, and the whole "ready for you to
+//! approve" state was built around it. It is now granted to a background lease outright,
+//! beside the four work tools that were already allowed, so **no land ever reaches this
+//! desk**.
+//!
+//! The queue is unchanged and it is not vestigial: it exists for a request the desk would
+//! have put in front of him in a visible turn and cannot, because there is no turn — a
+//! `Bash` command, a write outside the workspace, any tool with no standing grant. That is
+//! the whole of its remaining purpose, and every test below that used `integrate` as its
+//! convenient example of a waiting request now uses one of those instead, because an
+//! example that no longer waits would have quietly turned each of those tests green for the
+//! wrong reason.
 use crate::{ecs::Binding, native::PermissionDecision};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -300,6 +317,43 @@ impl ScopedPermissions {
             return deny("The conversation does not run work directly. Write the assignment down with \
                          the assignment register and let the background connection run it.");
         }
+        // ===================================================================================
+        // A BACKGROUND JOB LANDS ON ITS OWN — the CEO's ruling of 2026-09-18, §52
+        // ===================================================================================
+        //
+        // *"There's nothing that ever not lands on its own here in the terminal. Anything
+        // including things like design mockups always land before they are presented to me
+        // for review. So, yes, always land on its own."*
+        //
+        // This line is that ruling. `mcp__richos_work__integrate` used to be the one work
+        // tool deliberately OFF the list below — background-work spec §0 row 7, §5.4 and
+        // §7.8 all turned on its absence, and the whole `blocked`/"ready for you to approve"
+        // state existed to hold the assignment at it. §52 closes that open item the other
+        // way: a land is not a thing he is asked about, it is the thing the job is FOR, and
+        // what he hears is the outcome.
+        //
+        // **It is guarded on the audience rather than added to the list below, and that is
+        // not decoration.** The list below is reached by BOTH audiences; the front desk is
+        // kept off every work tool by the four lines above it, so putting `integrate` on the
+        // list would have made the ruling depend on that refusal continuing to exist. Here
+        // the grant names its own precondition, so a future edit that weakened the front
+        // desk's refusal could not silently hand the conversation a land.
+        //
+        // **What this does NOT do is empty the queue.** A background lease still reaches the
+        // desk for anything the desk would have asked about in a visible turn — `Bash`, a
+        // `Write` outside its workspace, any tool this app has no standing grant for — and
+        // `a_real_question_from_a_work_lease_still_waits_for_him` is the positive control
+        // that says so on the same desk, in the same test, as the land that does not ask.
+        //
+        // **And the engine still refuses a land that has not earned it.** Nothing here is a
+        // grant to merge: `integrate` requires an observed run end on both the worker and an
+        // independent reviewer, a `passed` verdict on the exact reviewed commit, clean
+        // checkouts, an unmoved recorded tip, and a fast-forward — and it never pushes
+        // (`richos/engine/mega-lander/app.py:755-836`). What was removed is the CEO's
+        // keystroke, not a check.
+        if tool == "mcp__richos_work__integrate" && is_background(&binding) {
+            return allow();
+        }
         // These tools implement their own explicit host scope and write contracts.
         if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_work__complete"|"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
             "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding"|
@@ -308,9 +362,12 @@ impl ScopedPermissions {
             // model supplies what the assignment IS, and the company, conversation, state
             // root and attested instruction all come from a scope the app wrote. It records
             // an intent and changes nothing else — what it cannot do is the thing worth
-            // saying out loud, which is finish the work. The step that would change his
-            // repository is `mcp__richos_work__integrate`, which is NOT on this list and is
-            // not meant to be (background-work spec §0 row 7, §5.4, §7.8).
+            // saying out loud, which is finish the work.
+            //
+            // `mcp__richos_work__integrate` is still NOT on this list, and the reason changed
+            // on 2026-09-18 rather than going away: it is granted above, on the background
+            // audience alone (CEO ruling §52). This list is reached by BOTH audiences, and a
+            // land is a thing only the back end does.
             "mcp__richos_assignments__record"|
             // The front desk's READ (`status_tools.rs`). On the list on the same grounds as
             // the three app-owned tools above it — its own host scope, written by the app —
@@ -436,16 +493,21 @@ impl ScopedPermissions {
     /// and a conversation binding whose grant has gone still denies at once
     /// (`stop_and_expiry_never_approve_an_action` above), so "it waited" is a fact about the
     /// background arm rather than about a desk that never refuses anything.
+    ///
+    /// **The example is `Bash` and not `integrate`, and that is a correction rather than a
+    /// preference** (CEO ruling §52, 2026-09-18). `integrate` is granted outright to a
+    /// background lease now, so a test that kept it as its waiting request would have gone
+    /// green by never queuing anything and asserting nothing.
     #[test] fn a_background_request_with_no_visible_turn_waits_instead_of_being_denied(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        let call=ask(&work_lease,"mcp__richos_work__integrate",Duration::from_secs(3));
+        let call=ask(&work_lease,"Bash",Duration::from_secs(3));
         assert!(wait_for(||!desk.background_queue().is_empty()),"the request was refused rather than queued");
         // It is NOT on the conversation's sheet: a modal for background work would be an
         // interruption (§0 row 6).
         assert!(desk.current().is_none(),"a background request opened the permission sheet");
         let request=desk.background_queue().remove(0);
-        assert_eq!(request.tool,"mcp__richos_work__integrate");
+        assert_eq!(request.tool,"Bash");
         assert_eq!(desk.resolve(&request.id,true).unwrap(),Answered::Delivered);
         assert_eq!(call.join().unwrap().behavior(),"allow");
         assert!(desk.background_queue().is_empty());
@@ -460,7 +522,7 @@ impl ScopedPermissions {
         let desk=Arc::new(PermissionDesk::default());
         let (p1,one)=joined(&desk,WORK_AUDIENCE,"obligation-1");
         let (p2,two)=joined(&desk,WORK_AUDIENCE,"obligation-2");
-        let first=ask(&one,"mcp__richos_work__integrate",Duration::from_secs(5));
+        let first=ask(&one,"Write",Duration::from_secs(5));
         assert!(wait_for(||desk.background_queue().len()==1));
         let second=ask(&two,"Bash",Duration::from_secs(5));
         assert!(wait_for(||desk.background_queue().len()==2),"the second request was refused rather than queued");
@@ -486,7 +548,7 @@ impl ScopedPermissions {
     #[test] fn the_deadline_ends_the_call_and_never_the_request(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        let call=work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"cc/x"}}),Duration::from_millis(30));
+        let call=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"say what happened"}}),Duration::from_millis(30));
         assert_eq!(call.behavior(),"deny","the deadline approved something on his behalf");
         match &call { PermissionDecision::Deny{message}=>assert!(message.contains("has not been approved"),"{message}"), _=>unreachable!() }
         let waiting=desk.background_queue();
@@ -503,7 +565,7 @@ impl ScopedPermissions {
         }
         assert!(desk.background_queue().is_empty());
         // The resumed run asks for the SAME action and is allowed exactly once.
-        let again=||work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"cc/x"}}),Duration::from_millis(30));
+        let again=||work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"say what happened"}}),Duration::from_millis(30));
         assert_eq!(again().behavior(),"allow","his approval never reached the step he approved");
         assert_eq!(again().behavior(),"deny","a standing decision was reused — that is an auto-approval");
         std::fs::remove_file(p).unwrap();
@@ -515,12 +577,12 @@ impl ScopedPermissions {
     #[test] fn a_standing_decision_never_covers_a_different_action(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"cc/x"}}),Duration::from_millis(20));
+        work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"one exact command"}}),Duration::from_millis(20));
         let waiting=desk.background_queue();
         desk.resolve(&waiting[0].id,true).unwrap();
         // Same tool, different input.
-        let other=work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"cc/other"}}),Duration::from_millis(20));
-        assert_eq!(other.behavior(),"deny","an approval for one branch approved another");
+        let other=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"a different command"}}),Duration::from_millis(20));
+        assert_eq!(other.behavior(),"deny","an approval for one command approved another");
         // And it is still HIS: the different action is waiting for him, not thrown away.
         assert_eq!(desk.background_queue().len(),1);
         std::fs::remove_file(p).unwrap();
@@ -531,13 +593,13 @@ impl ScopedPermissions {
     #[test] fn a_decline_after_the_deadline_reaches_the_assignment_and_refuses_the_step(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20));
+        work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20));
         let waiting=desk.background_queue();
         match desk.resolve(&waiting[0].id,false).unwrap() {
             Answered::ToAssignment{allow,..}=>assert!(!allow),
             other=>panic!("{other:?}"),
         }
-        assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20)).behavior(),"deny");
         std::fs::remove_file(p).unwrap();
     }
 
@@ -566,27 +628,44 @@ impl ScopedPermissions {
     #[test] fn forgetting_an_assignment_drops_the_standing_decision_too(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20));
+        work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20));
         let waiting=desk.background_queue();
         desk.resolve(&waiting[0].id,true).unwrap();
         desk.forget("alpha","thread","obligation-7");
-        assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20)).behavior(),"deny");
         std::fs::remove_file(p).unwrap();
     }
 
-    /// **`integrate` is not on the allow-list and this is the assertion of that absence**
-    /// (§0 row 7). The four that are allowed are allowed; the fifth work tool reaches the
-    /// desk and waits for him. A test naming only the four would stay green the day
-    /// somebody adds a fifth.
-    #[test] fn the_step_that_changes_his_repository_is_the_one_that_has_to_ask(){
+    /// **THE INVERSE OF THE TEST THAT USED TO BE HERE, and it is the CEO's ruling §52 in one
+    /// measurement** (2026-09-18): *"There's nothing that ever not lands on its own here in
+    /// the terminal … So, yes, always land on its own."*
+    ///
+    /// Its predecessor was named `the_step_that_changes_his_repository_is_the_one_that_has_to_ask`
+    /// and asserted the exact opposite — `integrate` reaching his queue and waiting — so the
+    /// day the ruling landed it landed against a measurement rather than a memory. **All
+    /// FIVE** work tools now go through on a background lease and none of them touches the
+    /// queue.
+    ///
+    /// **Both arms are here because either alone passes for the wrong reason.** A desk that
+    /// allowed everything would satisfy the first arm and be no desk at all, so the second
+    /// arm is a real question from the SAME lease on the SAME desk, and it still waits. And
+    /// the loop is over the whole set rather than four names, so a sixth work tool added
+    /// tomorrow is a decision somebody has to make here rather than a silent inheritance.
+    #[test] fn a_background_lease_lands_without_asking_him(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect","mcp__richos_work__complete"] {
-            assert_eq!(work_lease.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20)).behavior(),"allow","{tool}");
+        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect",
+                     "mcp__richos_work__complete","mcp__richos_work__integrate"] {
+            assert_eq!(work_lease.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20)).behavior(),
+                "allow","{tool} asked him for permission to do the job he gave it");
         }
-        assert!(desk.background_queue().is_empty(),"an allow-listed tool reached his queue");
-        assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
-        assert_eq!(desk.background_queue().len(),1,"integrate did not reach his queue");
+        assert!(desk.background_queue().is_empty(),"a work tool reached his queue; a land is not a question");
+        // POSITIVE CONTROL, same lease, same desk, same call: the queue still works, so the
+        // five allows above are a fact about those five tools and not about a desk that has
+        // stopped refusing anything.
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20)).behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1,"a genuine permission request no longer reaches him");
+        assert_eq!(desk.background_queue()[0].tool,"Bash");
         std::fs::remove_file(p).unwrap();
     }
 
@@ -603,12 +682,12 @@ impl ScopedPermissions {
             "session_id":"s2","turn_id":"obligation-2","audience":WORK_AUDIENCE,"revision":1}}).to_string()).unwrap();
         let one=ScopedPermissions{desk:Arc::clone(&desk),scope:p1.clone()};
         let two=ScopedPermissions{desk:Arc::clone(&desk),scope:p2.clone()};
-        one.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20));
+        one.wait(&json!({"tool_name":"Write","input":{}}),Duration::from_millis(20));
         two.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20));
         assert_eq!(desk.background_queue().len(),2);
         assert_eq!(desk.background_queue_on("thread-one").len(),1);
         assert_eq!(desk.background_queue_on("thread-two").len(),1);
-        assert_eq!(desk.background_queue_on("thread-one")[0].tool,"mcp__richos_work__integrate");
+        assert_eq!(desk.background_queue_on("thread-one")[0].tool,"Write");
         assert_eq!(desk.background_queue_on("thread-two")[0].tool,"Bash");
         // Answering one conversation's question leaves the other's alone.
         desk.resolve(&desk.background_queue_on("thread-one")[0].id,true).unwrap();
@@ -629,11 +708,16 @@ impl ScopedPermissions {
     /// pass for the wrong reason: a front desk that reached nothing at all would satisfy the
     /// refusal and be useless, and a back end that reached nothing would make the app unable
     /// to work while this test stayed green.
-    #[test] fn the_front_desk_reaches_no_work_tool_and_the_back_end_still_reaches_the_four(){
+    #[test] fn the_front_desk_reaches_no_work_tool_and_the_back_end_reaches_all_five(){
         let desk=Arc::new(PermissionDesk::default());
         let (front,conversation)=joined(&desk,"ceo","turn-9");
         let (back,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect","mcp__richos_work__complete"] {
+        // **All FIVE, in one loop, including the land** — CEO ruling §52, 2026-09-18. This
+        // loop carried four names and asserted the fifth separately, because the fifth was
+        // the one that waited for him; it no longer does, so it belongs with its siblings and
+        // there is no longer a name in this file that a sixth work tool could hide behind.
+        for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect",
+                     "mcp__richos_work__complete","mcp__richos_work__integrate"] {
             let refused=conversation.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20));
             assert_eq!(refused.behavior(),"deny","the front desk still reaches {tool}");
             // The refusal names the way OUT, not just the door: a model told "no" with no
@@ -642,13 +726,11 @@ impl ScopedPermissions {
             // Positive control, same tool, same desk, other audience.
             assert_eq!(work_lease.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20)).behavior(),"allow","back end: {tool}");
         }
-        assert!(desk.background_queue().is_empty(),"an allow-listed tool reached his queue");
-        // The fifth is his, and the refusal the front desk now gets is the ROLE refusal
-        // rather than his decision — a front desk cannot put `integrate` in his queue at all.
-        assert_eq!(conversation.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
-        assert!(desk.background_queue().is_empty(),"the front desk queued a question for him about work it should not be doing");
-        assert_eq!(work_lease.wait(&json!({"tool_name":"mcp__richos_work__integrate","input":{}}),Duration::from_millis(20)).behavior(),"deny");
-        assert_eq!(desk.background_queue().len(),1,"only the back end's request waits for him");
+        assert!(desk.background_queue().is_empty(),"a work tool reached his queue; the job does its own work");
+        // **What still reaches him from the back end**, so the empty queue above is a fact
+        // about work tools and not about a desk that has stopped asking him anything.
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20)).behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1,"a genuine permission request no longer reaches him");
         assert_eq!(desk.background_queue()[0].binding.audience,WORK_AUDIENCE);
         // **And what note 3 LEAVES on the front desk**: hand the work over, and look at it.
         // Without these two arms the test above would be satisfied by a front desk that can
