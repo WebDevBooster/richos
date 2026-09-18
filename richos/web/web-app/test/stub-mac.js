@@ -128,10 +128,26 @@ function createStubMac(options) {
 		autoReply: opts.autoReply !== false
 	};
 
+	/// A RING OF LIVE CHALLENGES, NOT ONE, because that is what the Mac has and the difference is
+	/// load-bearing now. `device.rs` keeps the last LIVE_CHALLENGES = 16 and accepts any of them
+	/// (`device.rs:413-417`), so a phone with a request in flight is not refused because something
+	/// else asked for a challenge a millisecond earlier. A stub holding exactly one would refuse
+	/// that phone, and the reconnect this harness now exercises asks for a challenge and signs a
+	/// stream with it as two separate requests.
+	const LIVE_CHALLENGES = 16;
 	function newChallenge(deviceId) {
 		const value = crypto.randomBytes(12).toString('base64url');
-		state.challenges.set(deviceId, value);
+		const live = state.challenges.get(deviceId) || [];
+		live.push(value);
+		while (live.length > LIVE_CHALLENGES) live.shift();
+		state.challenges.set(deviceId, live);
 		return value;
+	}
+
+	/// The newest one this device was given, for the `hello` frame.
+	function liveChallenge(deviceId) {
+		const live = state.challenges.get(deviceId) || [];
+		return live[live.length - 1] || null;
 	}
 
 	/// The whole of authentication, and it is a real verification rather than a shape check.
@@ -143,7 +159,7 @@ function createStubMac(options) {
 		const [deviceId, challenge, signature] = header.slice('RichOS-Device '.length).split('.');
 		const device = state.devices.get(deviceId);
 		if (!device) return null;
-		if (state.challenges.get(deviceId) !== challenge) return null;
+		if (!(state.challenges.get(deviceId) || []).includes(challenge)) return null;
 
 		// The path the phone signed is the path WITHOUT the credential it appended.
 		const signedSearch = new URLSearchParams(url.search);
@@ -249,6 +265,28 @@ function createStubMac(options) {
 			return;
 		}
 
+		// --- the way back to a challenge this phone can sign ---------------------------------
+		//
+		// `lib/api.js` `refreshChallenge()` knocks here, UNAUTHENTICATED and on purpose: an
+		// `EventSource` cannot read a response header, so a phone whose challenge aged out during
+		// an outage has no other way to learn a live one, and signing the dead challenge to ask
+		// for a live one is the circle. The real Mac has no such route and answers the flat 404 —
+		// WITH the challenge attached, because EVERY answer on that port carries one
+		// (`app/src-tauri/src/phone/listen.rs:334-342`, pinned by its test at `listen.rs:557`).
+		// This answers exactly the same way, status included, so the harness exercises the path
+		// the phone will really take.
+		if (url.pathname === '/api/challenge') {
+			const only = [...state.devices.keys()][0] || 'unpaired';
+			res.writeHead(404, {
+				'Content-Type': 'text/plain; charset=utf-8',
+				'Cache-Control': 'no-store',
+				'Access-Control-Allow-Origin': '*',
+				'X-RichOS-Challenge': newChallenge(only)
+			});
+			res.end('Not Found');
+			return;
+		}
+
 		// --- the stream ---------------------------------------------------------------------
 		if (url.pathname === '/api/events' && url.searchParams.get('before') === null && req.headers.accept && req.headers.accept.includes('text/event-stream')) {
 			const who = authenticate(req, url, null);
@@ -265,7 +303,7 @@ function createStubMac(options) {
 			req.on('close', () => state.streams.delete(res));
 
 			res.write(`event: hello\ndata: ${JSON.stringify({
-				challenge: state.challenges.get(who.deviceId),
+				challenge: liveChallenge(who.deviceId),
 				api_base: opts.apiBase || null,
 				thread_id: threadId,
 				latest_cursor: state.nextCursor - 1,

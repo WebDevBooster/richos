@@ -1,6 +1,6 @@
 //! **THE PHONE APP ITSELF, COMPILED INTO THIS EXECUTABLE.**
 //!
-//! `app/phone/` is a static app with no dependencies: an HTML file, a stylesheet, eight
+//! `app/phone/` is a static app with no dependencies: an HTML file, a stylesheet, nine
 //! small modules, a service worker, a manifest and four icons. [`super::routes`] serves it
 //! over the phone channel's TLS socket. Until 2026-09-18 it was served *from the source
 //! tree*, by way of a path `env!("CARGO_MANIFEST_DIR")` baked in at compile time — which

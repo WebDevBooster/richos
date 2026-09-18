@@ -52,8 +52,14 @@ let signer = null;
 let apiState = { apiBase: location.origin, challenge: null, deviceId: null };
 let threads = [];
 let currentThreadId = null;
-let stream = null;
-let streamOpen = false;
+// The ONE owner of the event stream (`lib/link.js`). It used to be a bare `stream` handle plus a
+// boolean, and both the closing and the reconnecting were spread across four places that could not
+// see each other. There is no `stream` variable any more on purpose: nothing outside the link is
+// allowed to hold a source, which is what makes "never more than one alive" a property rather than
+// a hope.
+let link = null;
+/// The sentence currently under the header, by name. Read only to keep a retry from flickering it.
+let linkStateNow = null;
 let vapidPublicKey = null;
 let loadingOlder = false;
 let renderQueued = false;
@@ -289,6 +295,7 @@ async function startConversation(keys) {
 
 function setLinkState(which, detail) {
 	const el = $('link-state');
+	linkStateNow = which;
 	el.classList.toggle('away', which === 'away');
 	if (which === 'connected') el.textContent = 'Connected to your Mac.';
 	else if (which === 'opening') el.textContent = 'Looking for your Mac…';
@@ -313,45 +320,65 @@ function applyCapabilities() {
 	$('hold-note').hidden = !voice;
 }
 
-function connectStream() {
-	if (stream) { try { stream.close(); } catch { /* already gone */ } stream = null; }
-	if (!currentThreadId) return;
+/// Is there a stream the Mac has accepted, right now? The link is the only thing that knows.
+function streamIsOpen() { return Boolean(link && link.isOpen()); }
 
-	api.openEvents(currentThreadId, thread.latestCursor(), {
-		open() { streamOpen = true; setLinkState('connected'); flushQueue(); },
-		hello(data) {
-			streamOpen = true;
-			setLinkState('connected');
-			// What this Mac can actually be asked for, before anything else in this handler: the
-			// screen should never be one frame ahead of what the Mac has said it can do.
-			applyCapabilities();
-			if (data.vapid_public_key) {
-				vapidPublicKey = data.vapid_public_key;
-				settings.set('vapidPublicKey', vapidPublicKey).catch(() => {});
-			}
-			if (Array.isArray(data.threads) && data.threads.length) {
-				threads = data.threads;
-				settings.set('threads', threads).catch(() => {});
-				renderThreadPicker();
-			}
-			flushQueue();
-		},
-		message(row) {
-			thread.merge(row);
-			messageCache.put(row).catch(() => {});
-			scheduleRender();
-		},
-		delta(data) { thread.applyDelta(data); scheduleRender(); },
-		state(data) { thread.applyState(data); scheduleRender(); },
-		heartbeat() { if (!streamOpen) { streamOpen = true; setLinkState('connected'); } },
-		error() {
-			streamOpen = false;
-			setLinkState('away');
+/// Build the one link, once. Everything it needs — the thread, the cursor, the credential — is
+/// read at the moment of each attempt rather than captured here, because an attempt three minutes
+/// into an outage must sign the challenge the phone has THEN, not the one it had when the app
+/// booted. That is the whole point of the slice.
+function makeLink() {
+	return globalThis.RichOSLink.createLink({
+		open: (handlers) => api.openEvents(currentThreadId, thread.latestCursor(), handlers),
+		refresh: () => api.refreshChallenge(),
+
+		// The sentence on screen, and nothing else decides it.
+		onState: (which) => {
+			// A RETRY DOES NOT FLICKER THE LINE. Once he is being told the Mac is not reachable,
+			// that sentence is TRUE and it stays up. An attempt against a Mac that is off fails in
+			// a fraction of a second, so mapping every attempt to "Looking for your Mac…" would
+			// flash the line at him six times in the first minute and then twice a minute for as
+			// long as the walk lasts — the app fidgeting rather than telling him anything new.
+			// The first attempt still says it, because then it is news.
+			if (which === 'opening' && linkStateNow === 'away') return;
+			if (which === 'open') setLinkState('connected');
+			else if (which === 'opening') setLinkState('opening');
+			else setLinkState('away');
 			updateQueueBanner();
+		},
+
+		handlers: {
+			open() { flushQueue(); },
+			hello(data) {
+				// What this Mac can actually be asked for, before anything else in this handler:
+				// the screen should never be one frame ahead of what the Mac has said it can do.
+				applyCapabilities();
+				if (data.vapid_public_key) {
+					vapidPublicKey = data.vapid_public_key;
+					settings.set('vapidPublicKey', vapidPublicKey).catch(() => {});
+				}
+				if (Array.isArray(data.threads) && data.threads.length) {
+					threads = data.threads;
+					settings.set('threads', threads).catch(() => {});
+					renderThreadPicker();
+				}
+				flushQueue();
+			},
+			message(row) {
+				thread.merge(row);
+				messageCache.put(row).catch(() => {});
+				scheduleRender();
+			},
+			delta(data) { thread.applyDelta(data); scheduleRender(); },
+			state(data) { thread.applyState(data); scheduleRender(); }
 		}
-	}).then((source) => { stream = source; }).catch(() => {
-		setLinkState('away');
 	});
+}
+
+function connectStream() {
+	if (!currentThreadId) return;
+	if (!link) link = makeLink();
+	link.connect();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -398,7 +425,7 @@ function render(forceBottom) {
 		empty.className = 'msg msg-rich';
 		const p = document.createElement('p');
 		p.className = 'msg-text';
-		p.textContent = streamOpen
+		p.textContent = streamIsOpen()
 			? 'Nothing here yet. Write to Rich, or hold the button and speak.'
 			: 'Nothing here yet. When your Mac is reachable, this is where the conversation appears.';
 		empty.appendChild(p);
@@ -675,7 +702,10 @@ function handleApiError(err) {
 }
 
 async function goRevoked() {
-	if (stream) { try { stream.close(); } catch { /* already gone */ } stream = null; }
+	// FINAL, and it has to stop the retry loop as well as the socket. A revoked phone that went on
+	// reconnecting every thirty seconds would be this app knocking on a door it has been told it is
+	// not welcome at — which is the thing `lib/api.js` classifies REVOKED as never-retry to avoid.
+	if (link) link.close();
 	showTakeover('revoked');
 	$('revoked-detail').textContent = 'Nothing you wrote has been lost from your Mac — this phone simply has no way in any more.';
 	try {
@@ -924,7 +954,14 @@ document.addEventListener('visibilitychange', () => {
 	}
 	// Back on screen: this is one of the three moments a queued message can go, because a PWA
 	// cannot flush anything in the background (§2.4).
-	if (!streamOpen) connectStream();
+	//
+	// WAKE, NEVER CONNECT. `if (!streamOpen) connectStream()` looks like the same thing and is
+	// not: `streamOpen` was false for the whole of an outage, so every foreground during one
+	// started another attempt, on top of the browser's own reconnect loop and on top of anything
+	// already in flight — three openers, and the app could only ever hold the last source any of
+	// them produced. `wake()` fires the retry that is ALREADY OWED, immediately, because he is
+	// looking at the screen; it opens nothing beside anything.
+	if (link) link.wake(); else connectStream();
 	flushQueue();
 });
 
@@ -1100,6 +1137,7 @@ globalThis.__richosPhone = {
 	get thread() { return thread; },
 	get api() { return api; },
 	get state() { return apiState; },
+	get link() { return link; },
 	render, flushQueue, connectStream, applyCapabilities
 };
 
