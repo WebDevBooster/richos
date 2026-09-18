@@ -981,6 +981,17 @@ impl ActionGrant {
     fn set(&self, allowed: bool) -> Result<(), String> {
         match self {
             Self::Onboarding(path) => crate::onboarding_tools::set_actions_allowed(path, allowed),
+            // **CLOSING THIS ONE IS A STOP, NOT A TURN END, AND THEY ARE NOT THE SAME EVENT.**
+            // Every caller of this function with `false` is a withdrawal of authority — the
+            // CEO's stop (`NativeCancelHandle::cancel`), a shutdown, and the rollback of a
+            // turn-start that could not open every grant. An ordinary turn ending does NOT
+            // come through here: `prompt` calls `ecs::set_actions_allowed(path, false)`
+            // directly, which leaves the standing background grant alone so a worker
+            // dispatched in that turn can finish its job (see
+            // `ecs::ToolScope::background_work_allowed`). So a stop revokes both flags and a
+            // turn end revokes one, and the difference is visible here rather than inferred.
+            Self::Continuity(path) if !allowed =>
+                crate::ecs::revoke(path).map_err(|e| e.to_string()),
             Self::Continuity(path) | Self::ContinuityTools(path) =>
                 crate::ecs::set_actions_allowed(path, allowed).map_err(|e| e.to_string()),
             // **An absent assignment scope is not a failure to grant; it is nothing to
@@ -3083,6 +3094,9 @@ impl Cognition for NativeCognition {
             // at the end of his turn is fenced against this thread's row and not against
             // whichever thread bound last. Without it, the two seams disagree: the host
             // would bind per thread and the model would check point on `ceo-default`.
+            // A CONVERSATION lease dispatches no background worker of its own; the back end
+            // does, on the work lease, and only `bind_work_assignment` grants this.
+            background_work_allowed: false,
             seat: seat.clone() })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         // ===================================================================================
@@ -3251,6 +3265,13 @@ impl Cognition for NativeCognition {
                 sha256: work.instruction_sha256.clone(),
             }),
             seat: Some(work.seat.clone()),
+            // **THE ONE PLACE THIS IS EVER TRUE, and it is written with the standing grant
+            // above because it is the same grant seen from the worker's side.** §5.4 lets a
+            // background lease reach the work tools with no visible turn; this lets the
+            // WORKERS it dispatches reach their own tools between this lease's turns, which
+            // is the only time they run. Both are withdrawn together by `ecs::revoke` when
+            // the CEO stops the work; an ordinary turn end takes the first and leaves this.
+            background_work_allowed: true,
         })
         .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.work_binding = Some((binding_for_reads, work.seat.clone()));
@@ -3297,7 +3318,12 @@ impl Cognition for NativeCognition {
     fn revoke_work_assignment(&mut self) -> Result<(), CognitionError> {
         let Some((_, path)) = &self.continuity else { return Ok(()) };
         if !path.exists() { return Ok(()); }
-        if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
+        // **`revoke`, not `set_actions_allowed`, because THE ASSIGNMENT is what is ending
+        // here** — `work_host.rs`'s `run_one` step 4, after its wait loop and its last
+        // continuation turn. Every permission this scope carries goes with it, the standing
+        // one its background workers hold included. The turn-by-turn close inside `prompt`
+        // is the other call and deliberately keeps that one.
+        if let Err(error) = crate::ecs::revoke(path) {
             let _ = self.client.child.kill();
             let _ = self.client.child.wait();
             let _ = std::fs::remove_file(path);
@@ -3679,6 +3705,7 @@ mod native_driver_tests {
             },
             user_instruction: None,
             seat: Some("ceo-thread:thr_one".into()),
+            background_work_allowed: false,
         })
         .unwrap();
         // **The one grant on a work lease that DOES have a file under it**, written here
@@ -3701,6 +3728,9 @@ mod native_driver_tests {
             },
             user_instruction: None,
             seat: Some("work-seat:ob-1".into()),
+            // The state `start_work_lease` leaves behind: nothing is granted until
+            // `bind_work_assignment` writes the standing grant for one assignment.
+            background_work_allowed: false,
         })
         .unwrap();
         let (doctrine, skills) = (doctrine_fixture(), skills_fixture());
@@ -3870,6 +3900,68 @@ mod native_driver_tests {
         );
         drop(chat);
         let _ = std::fs::remove_dir_all(&chat_root);
+    }
+
+    /// **THE HELPER OUTLIVES THE TURN THAT DISPATCHED IT, SO ITS PERMISSION HAS TO — and a
+    /// stop still takes it.**
+    ///
+    /// Measured on 2026-09-18 in a `work_lease_roundtrip` run and quoted from the worker's
+    /// own last words in that run's `callbacks.jsonl` (row 21): *"the host's PreToolUse hook
+    /// is blocking all tool actions this turn, including SubagentHandback itself, with:
+    /// 'RichOS desktop engine: This app turn is stopped or is supplying context. New actions
+    /// are unavailable.'"* The worker was dispatched `run_in_background: true`, the turn
+    /// ended seconds later by design, and every tool call it then made — every one of its
+    /// real work — was refused by the app's own turn gate. It changed nothing, the fixture
+    /// kept its two commits, and its worktree was disposed of as landed because an agent
+    /// that produced nothing IS landed.
+    ///
+    /// The three transitions below are the whole of the rule, each asserted against the
+    /// function the real caller calls:
+    ///
+    /// | event | caller | actions | worker |
+    /// |---|---|---|---|
+    /// | a turn ends | `prompt` → `ecs::set_actions_allowed(_, false)` | closed | **kept** |
+    /// | the CEO stops | `NativeCancelHandle::cancel` → `ActionGrant::set(false)` | closed | withdrawn |
+    /// | the assignment ends | `work_host`'s `run_one` step 4 → `revoke_work_assignment` | closed | withdrawn |
+    #[test]
+    fn a_turn_ending_keeps_the_grant_a_background_helper_acts_under_and_a_stop_takes_it() {
+        let frame = work_init_frame(true, true, true);
+        let (mut lease, root) = lease_with_production_grants(
+            "worker-grant", LeaseRole::Work, &one_turn_reporting(&frame));
+        let scope = lease.continuity.as_ref().unwrap().1.clone();
+        let read = |path: &std::path::Path| -> (bool, bool) {
+            let value: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            (value["actions_allowed"] == true, value["background_work_allowed"] == true)
+        };
+        // The standing §5.4 grant, in the shape `bind_work_assignment` writes it: the turn's
+        // permission and the permission its already-dispatched helpers act under, together.
+        let mut bound: crate::ecs::ToolScope =
+            serde_json::from_slice(&std::fs::read(&scope).unwrap()).unwrap();
+        bound.actions_allowed = true;
+        bound.background_work_allowed = true;
+        crate::ecs::write_scope(&scope, &bound).unwrap();
+
+        assert_eq!(
+            crate::cognition::Cognition::prompt(&mut lease, "do the job", &mut |_| {}).unwrap(),
+            "end_turn"
+        );
+        assert_eq!(read(&scope), (false, true),
+            "the turn's end took the helper's permission with it — the helper is dispatched \
+             during a turn and does all of its work after that turn has ended");
+
+        // The CEO's stop is a different event and takes both, in one write.
+        ActionGrant::Continuity(scope.clone()).set(false).unwrap();
+        assert_eq!(read(&scope), (false, false), "a stop left the helper still able to act");
+
+        // And so does the end of the assignment, on a scope that is open on both counts.
+        crate::ecs::write_scope(&scope, &bound).unwrap();
+        assert_eq!(read(&scope), (true, true));
+        crate::cognition::Cognition::revoke_work_assignment(&mut lease).unwrap();
+        assert_eq!(read(&scope), (false, false),
+            "the assignment ended with its helpers still permitted to act");
+
+        drop(lease);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// **THE SEAT SPELLING, AND THAT NOTHING INVENTS IT** — the app derives his per-thread
@@ -5193,6 +5285,7 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
                 binding: crate::ecs::Binding { entity_id: "depot".into(), thread_id: "thread".into(),
                     session_id: "session".into(), turn_id: "turn-7".into(), audience: "ceo".into(), revision: 1 },
                 user_instruction: None, seat: Some("ceo-thread:thread".into()),
+                background_work_allowed: false,
             }).unwrap();
         };
         let allowed = || -> bool {

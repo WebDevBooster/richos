@@ -110,6 +110,48 @@ pub struct ToolScope {
     /// [`EcsBridge::supports_work_seats`] is how the app finds out rather than assuming.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seat: Option<String>,
+    /// **The standing permission for a background WORKER this lease has already dispatched —
+    /// and the one thing on this scope that the END OF A TURN does not take away.**
+    ///
+    /// `actions_allowed` is a TURN's grant: `NativeCognition::prompt` opens it at the start of
+    /// a turn and closes it at the end, and `engine/scripts/app-engine-hook.py` refuses EVERY
+    /// `PreToolUse` in the session while it is closed. A background worker outlives the turn
+    /// that dispatched it BY DESIGN (`mega-lander/app.py`'s `prepare` stamps
+    /// `run_in_background: true`; the provider answers `{"status":"async_launched"}` and the
+    /// turn ends with the worker running), so those two facts together meant the worker was
+    /// refused every tool it ever tried to call.
+    ///
+    /// **Measured, 2026-09-18**, from the worker's own last words in
+    /// `engine-state/evidence/<session>/callbacks.jsonl` row 21 of a `work_lease_roundtrip`
+    /// run: *"Unable to complete or report via tools — the host's PreToolUse hook is blocking
+    /// all tool actions this turn, including SubagentHandback itself, with: 'RichOS desktop
+    /// engine: This app turn is stopped or is supplying context. New actions are
+    /// unavailable.'"* It then stopped having changed nothing, its workspace was automatically
+    /// disposed as landed (an agent that produced nothing IS landed, worktree-spec point 7),
+    /// and the continuation was refused because the agent it named was no longer pending.
+    /// The app's sentence for that last refusal — *"I could not give this work its own
+    /// separate copy of your project"* — was true of the continuation and was never the cause.
+    ///
+    /// So the worker's authority comes from its RECEIPT, not from the turn that is running:
+    /// `mega-lander/app.py`'s `worker_context` already refuses any agent id that does not join
+    /// exactly one live receipt of this session and this binding, refuses the CEO-scoped mcp
+    /// tools outright, and fences every write to the registered target worktree;
+    /// `guard-sealed-worktree.sh` refuses a run the platform has already ended. This flag is
+    /// what tells the hook that those checks — and not the turn flag — are the ones that apply
+    /// to a call carrying an `agent_id`.
+    ///
+    /// **A stop still stops it.** It is written true in exactly one place
+    /// ([`Cognition::bind_work_assignment`]'s standing §5.4 grant) and cleared by
+    /// [`revoke`], which is what `ActionGrant::set(false)` calls — the CEO's stop, a shutdown,
+    /// and a failed turn-start rollback. An ordinary turn end calls [`set_actions_allowed`],
+    /// which leaves it alone. Absent means false: an engine reading an older scope, or a scope
+    /// written by anything but the work lease, refuses a worker exactly as it does today.
+    #[serde(default, skip_serializing_if = "is_not_granted")]
+    pub background_work_allowed: bool,
+}
+
+fn is_not_granted(granted: &bool) -> bool {
+    !*granted
 }
 
 pub fn write_scope(path: &Path, scope: &ToolScope) -> Result<(), EcsError> {
@@ -134,10 +176,29 @@ pub fn write_scope(path: &Path, scope: &ToolScope) -> Result<(), EcsError> {
     result.map_err(|e| EcsError(e.to_string()))
 }
 
+/// **The TURN's grant, and only the turn's.** It round-trips the scope, so a standing
+/// background grant written by [`Cognition::bind_work_assignment`] survives every turn
+/// boundary — which is the whole point of [`ToolScope::background_work_allowed`].
 pub fn set_actions_allowed(path: &Path, allowed: bool) -> Result<(), EcsError> {
     let bytes = std::fs::read(path).map_err(|e| EcsError(e.to_string()))?;
     let mut scope: ToolScope = serde_json::from_slice(&bytes).map_err(|e| EcsError(e.to_string()))?;
     scope.actions_allowed = allowed;
+    write_scope(path, &scope)
+}
+
+/// **EVERYTHING this scope grants, withdrawn in one write** — the turn's actions and the
+/// standing permission its already-dispatched background workers hold.
+///
+/// This is what a STOP means, and it is deliberately a different function from
+/// [`set_actions_allowed`] rather than a `false` argument to it: the two callers are not the
+/// same event. A turn ending is routine and must not disarm a worker that is mid-job; the
+/// CEO's stop, a shutdown and a failed turn-start rollback withdraw the lot. One write rather
+/// than two so a stop cannot be observed half-applied.
+pub fn revoke(path: &Path) -> Result<(), EcsError> {
+    let bytes = std::fs::read(path).map_err(|e| EcsError(e.to_string()))?;
+    let mut scope: ToolScope = serde_json::from_slice(&bytes).map_err(|e| EcsError(e.to_string()))?;
+    scope.actions_allowed = false;
+    scope.background_work_allowed = false;
     write_scope(path, &scope)
 }
 

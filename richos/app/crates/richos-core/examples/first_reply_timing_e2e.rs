@@ -325,6 +325,9 @@ fn drive_prepare(
                 sha256: instruction_sha256.to_string(),
             }),
             seat: Some(seat.to_string()),
+            // This probe drives `prepare` directly and dispatches no worker, so the standing
+            // worker grant is not part of what it measures.
+            background_work_allowed: false,
         },
     )?;
     let harness = scratch.join("drive_prepare.py");

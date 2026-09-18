@@ -375,15 +375,23 @@ fn close_orphan_grants(state: &Path, unreconciled: &mut Vec<String>) -> usize {
             unreconciled.push(name.to_string());
             continue;
         };
-        let already_closed = serde_json::from_slice::<serde_json::Value>(&bytes)
-            .ok()
-            .and_then(|value| value.get("actions_allowed").and_then(serde_json::Value::as_bool))
-            .map(|allowed| !allowed)
-            .unwrap_or(false);
-        if already_closed {
+        // **BOTH grants on the file, because a crash withdraws both.** `actions_allowed` is
+        // the turn's; `background_work_allowed` is the standing permission the assignment's
+        // already-dispatched workers hold between turns, and a crash between a turn end and
+        // the next turn leaves the first closed and the second open. Every worker died with
+        // the process group, so nothing is holding either one. Reading only the first would
+        // skip such a file as "already closed" and leave a grant on disk that names an
+        // authority nothing can any longer exercise.
+        let open = serde_json::from_slice::<serde_json::Value>(&bytes).ok().map(|value| {
+            let flag = |name: &str| {
+                value.get(name).and_then(serde_json::Value::as_bool).unwrap_or(false)
+            };
+            flag("actions_allowed") || flag("background_work_allowed")
+        });
+        if open == Some(false) {
             continue;
         }
-        match crate::ecs::set_actions_allowed(&path, false) {
+        match crate::ecs::revoke(&path) {
             Ok(()) => closed += 1,
             Err(_) => unreconciled.push(name.to_string()),
         }
@@ -836,6 +844,9 @@ mod tests {
             },
             user_instruction: None,
             seat: Some("work-seat:obligation-1".into()),
+            // An assignment that was live when the app died: its workers held the standing
+            // grant, and the sweep below is what takes it back.
+            background_work_allowed: true,
         };
         for path in [&open_work, &conversation] {
             std::fs::write(path, serde_json::to_vec(&granted).unwrap()).unwrap();

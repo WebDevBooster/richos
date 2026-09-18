@@ -48,6 +48,45 @@ class DesktopHooks(unittest.TestCase):
         self.assertFalse((self.root / "state/evidence/fictional-session/callbacks.jsonl").exists())
         self.assertEqual(self.hook("Stop", last_assistant_message="I'm dispatching Worker now.").returncode, 0)
 
+    def test_a_dispatched_worker_still_acts_after_the_turn_that_dispatched_it_ended(self):
+        """The turn's grant is the LEASE's; a background worker's is its receipt's.
+
+        Measured 2026-09-18 (`work_lease_roundtrip`, that run's own `callbacks.jsonl` row
+        21, the worker's last words): with the turn closed, the worker's every tool call —
+        including `SubagentHandback` — was refused with the sentence below, so it changed
+        nothing and its worktree was then disposed of as landed. It is dispatched
+        `run_in_background: true` and does ALL of its work after that turn has ended.
+
+        Admitted here is not waved through: the call goes on to `guard-sealed-worktree.sh`
+        and to `app.py`'s `worker_context`, which refuses any agent id that does not join
+        exactly one live receipt of this session. There is no receipt in this fixture, so
+        the attempt is still refused — by the WORKER's gate, naming the worker's own
+        reason, and with the attempt recorded, which the turn gate refuses before
+        recording anything."""
+        self.scope.write_text(json.dumps({"version": 1, "actions_allowed": False,
+                                          "background_work_allowed": True}))
+        result = self.hook("PreToolUse", tool_name="Bash", tool_use_id="tool-2",
+                           agent_id="a1b2c3d4e5f6a7b8c", tool_input={"command": "true"})
+        self.assertNotIn("This app turn is stopped", result.stderr)
+        self.assertTrue((self.root / "state/evidence/fictional-session/callbacks.jsonl").exists(),
+                        "the worker's attempt was not even recorded")
+        # Its own gate, not the turn's, and it is the one that answers.
+        self.assertEqual(result.returncode, 2)
+
+        # FAIL CLOSED both ways: no standing grant, or no worker identity, and the turn
+        # gate is exactly as closed as it was before.
+        self.scope.write_text('{"version":1,"actions_allowed":false}')
+        without_grant = self.hook("PreToolUse", tool_name="Bash", tool_use_id="tool-3",
+                                  agent_id="a1b2c3d4e5f6a7b8c", tool_input={"command": "true"})
+        self.assertEqual(without_grant.returncode, 2)
+        self.assertIn("This app turn is stopped", without_grant.stderr)
+        self.scope.write_text(json.dumps({"version": 1, "actions_allowed": False,
+                                          "background_work_allowed": True}))
+        lease_itself = self.hook("PreToolUse", tool_name="Bash", tool_use_id="tool-4",
+                                 tool_input={"command": "true"})
+        self.assertEqual(lease_itself.returncode, 2)
+        self.assertIn("This app turn is stopped", lease_itself.stderr)
+
     def test_missing_or_corrupt_grant_fails_closed(self):
         for content in ('{', '{"version":99,"actions_allowed":true}'):
             self.scope.write_text(content)
