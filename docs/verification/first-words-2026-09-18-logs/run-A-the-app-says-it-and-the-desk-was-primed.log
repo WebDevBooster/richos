@@ -1,0 +1,48 @@
+$ cargo run -q -p richos-core --example first_reply_timing_e2e -- \
+    /Users/alex/ab/richos-wt/echo-opus-firstwords1/richos/engine /Users/alex/.richos-nightly/runtime
+# captured stderr, verbatim. claude 2.1.275. Three model turns: the priming turn, a task, a question.
+# Budgets as they stood during this run: 12 s warm / 20 s on the lease's first turn.
+---
+front desk made ready before he types : 2.768 s  (Ready { millis: 2767, spawned: false })
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (6 chars, the same sentence again): "On it!"
+---
+he said    : Land the pricing branch and get the staging deploy done.
+Rich said  : "On it!"
+send -> first words : 7.998 s
+send -> turn ended  : 9.266 s
+tool calls before he spoke : 2
+      5.836 s  mcp__richos_assignments__record
+      6.086 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+runs of prose he can see : 1
+      7.998 s  "On it!"  (turn_0ec9a885832b4635859f866d7070bb5a:text:0)
+the turn, in arrival order:
+      5.836 s  mcp__richos_assignments__record
+      6.086 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+      7.998 s  HIS FIRST WORDS
+      7.998 s  tool_call closed: {"recorded":true,"say":"On it!","say_nothing_else":true}
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (17 chars, the same sentence again): "I'll investigate."
+---
+he said    : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+Rich said  : "I'll investigate."
+send -> first words : 6.358 s
+send -> turn ended  : 7.567 s
+tool calls before he spoke : 2
+      3.968 s  mcp__richos_assignments__record
+      4.321 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what is act…
+runs of prose he can see : 1
+      6.358 s  "I'll investigate."  (turn_e5132b87db0645549e32a40fd004d2ad:text:0)
+the turn, in arrival order:
+      3.968 s  mcp__richos_assignments__record
+      4.321 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what is act…
+      6.358 s  HIS FIRST WORDS
+      6.358 s  tool_call closed: {"recorded":true,"say":"I'll investigate.","say_nothing_else":true}
+---
+assignments written: 2
+  kind=task state=registered title="Land the pricing branch and get the staging deploy done"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday, and what is actually causing it?"
+[task] reply was "On it!"
+[question] reply was "I'll investigate."
+---
+PASS: the register was the first tool call on every turn that handed work over, and nothing was discovered or written down ahead of his first word.
+slowest send -> first words this run: 7.998 s (budgets: 12 s warm, 20 s on an UNPRIMED lease's first turn; §55: a few seconds, 35 s is a defect)
+the priming turn, which every figure above is now WITHOUT: 2.768 s, spent before he typed. Three model turns were spent by this run.

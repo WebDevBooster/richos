@@ -1,0 +1,68 @@
+$ cargo run -q -p richos-core --example first_reply_timing_e2e -- \
+    /Users/alex/ab/richos-wt/echo-opus-firstwords1/richos/engine /Users/alex/.richos-nightly/runtime
+# captured stderr, verbatim. claude 2.1.275. Three model turns: the priming turn, a task, a question.
+# Budgets as they stood during this run: 12 s warm / 20 s on the lease's first turn.
+#
+# THIS RUN IS THE FINDING. The model wrote the continuity CHECKPOINT before it said anything, on
+# BOTH turns, and nothing refused it — `native::bookkeeping_before_the_reply` is only reachable from
+# a `can_use_tool` control request, and no permission frame appears anywhere in this run (the trace
+# prints every one it is given). The turn costs 3.0 s and 2.4 s more than run A's because of it.
+---
+front desk made ready before he types : 2.802 s  (Ready { millis: 2802, spawned: false })
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (6 chars, the same sentence again): "On it!"
+---
+he said    : Land the pricing branch and get the staging deploy done.
+Rich said  : "On it!"
+send -> first words : 15.714 s
+send -> turn ended  : 17.119 s
+tool calls before he spoke : 5
+      8.932 s  mcp__richos_continuity__checkpoint
+      9.424 s  {"checkpoint":{"statements":[{"fields":{"id":"land-pricing-branch-staging-deploy","t…
+     11.892 s  tool_call
+     12.901 s  mcp__richos_assignments__record
+     13.634 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+runs of prose he can see : 1
+     15.714 s  "On it!"  (turn_5bf5cc2e6ce5471da251bf7109fb46d2:text:0)
+the turn, in arrival order:
+      8.932 s  mcp__richos_continuity__checkpoint
+      9.424 s  {"checkpoint":{"statements":[{"fields":{"id":"land-pricing-branch-staging-deploy","t…
+     11.892 s  tool_call closed: {"turn_id": "turn_5bf5cc2e6ce5471da251bf7109fb46d2", "request_id": "depot-land-prici…
+     12.901 s  mcp__richos_assignments__record
+     13.634 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+     15.714 s  HIS FIRST WORDS
+     15.714 s  tool_call closed: {"recorded":true,"say":"On it!","say_nothing_else":true}
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (17 chars, the same sentence again): "I'll investigate."
+---
+he said    : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+Rich said  : "I'll investigate."
+send -> first words : 12.176 s
+send -> turn ended  : 13.921 s
+tool calls before he spoke : 5
+      5.429 s  mcp__richos_continuity__checkpoint
+      5.649 s  {"checkpoint":{"statements":[{"fields":{"id":"nightly-build-failure-cause","title":"…
+      7.813 s  tool_call
+      9.383 s  mcp__richos_assignments__record
+     10.174 s  {"assignment":"Why has the nightly build been failing since Tuesday? He wants to kno…
+runs of prose he can see : 1
+     12.176 s  "I'll investigate."  (turn_ca0d5ad7352144309b52bbfec2698cec:text:0)
+the turn, in arrival order:
+      5.429 s  mcp__richos_continuity__checkpoint
+      5.649 s  {"checkpoint":{"statements":[{"fields":{"id":"nightly-build-failure-cause","title":"…
+      7.813 s  tool_call closed: {"turn_id": "turn_ca0d5ad7352144309b52bbfec2698cec", "request_id": "depot-nightly-bu…
+      9.383 s  mcp__richos_assignments__record
+     10.174 s  {"assignment":"Why has the nightly build been failing since Tuesday? He wants to kno…
+     12.176 s  HIS FIRST WORDS
+     12.177 s  tool_call closed: {"recorded":true,"say":"I'll investigate.","say_nothing_else":true}
+---
+assignments written: 2
+  kind=task state=registered title="Land the pricing branch and get the staging deploy done"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday? He wants to know what is actually causing it"
+[task] reply was "On it!"
+[question] reply was "I'll investigate."
+FAIL: [task] the continuity checkpoint was written at 8.932 s, before he had heard anything — it is bookkeeping and front-desk.md puts it after the reply
+FAIL: [task] the register was tool call 4 of 5 and not the first: ["mcp__richos_continuity__checkpoint", "{\"checkpoint\":{\"statements\":[{\"fields\":{\"id\":\"land-pricing-branch-staging-deploy\",\"t…", "tool_call"] came before it
+FAIL: [task] send -> his first words was 15.714 s, over the 12 s budget (§55: a few seconds; 35 s is a defect)
+FAIL: [question] the continuity checkpoint was written at 5.429 s, before he had heard anything — it is bookkeeping and front-desk.md puts it after the reply
+FAIL: [question] the register was tool call 4 of 5 and not the first: ["mcp__richos_continuity__checkpoint", "{\"checkpoint\":{\"statements\":[{\"fields\":{\"id\":\"nightly-build-failure-cause\",\"title\":\"…", "tool_call"] came before it
+FAIL: [question] send -> his first words was 12.176 s, over the 12 s budget (§55: a few seconds; 35 s is a defect)
+Error: "6 check(s) failed"

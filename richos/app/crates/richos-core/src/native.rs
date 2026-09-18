@@ -266,6 +266,36 @@ pub const CHECKPOINT_BEFORE_REPLY: &str =
 /// doctrine's case 1, "you know the answer"), and refusing it would make a fast answer
 /// impossible in the name of making a reply fast. The work lease is not reached by this at all
 /// — it is never given the continuity server (§5.8a-ii seam 1).
+///
+/// # MEASURED 2026-09-18: THIS GATE DOES NOT FIRE ON THE REAL WIRE. Read this before trusting it.
+///
+/// The paragraphs above describe it as the enforcement the doctrine sentence could not be. **It is
+/// not, in production, and the measurement is
+/// `docs/verification/first-words-2026-09-18-logs/run-B-the-pre-reply-checkpoint-is-not-refused-on-the-real-wire.log`.**
+/// On both turns of that run the model wrote the checkpoint BEFORE it said anything (8.932 s and
+/// 5.429 s), the ECS write succeeded, and his first words arrived at 15.714 s and 12.176 s against
+/// 7.998 s and 6.358 s on the same code with no pre-reply checkpoint (run A).
+///
+/// **Why:** this function is reachable only from a `can_use_tool` control request
+/// ([`NativeClient::handle_agent_request`]), and **no permission frame appears anywhere in that
+/// run** — the probe traces every one it is handed. The lease is spawned with
+/// `--permission-mode auto` and the `autoMode` settings block (`engine_profile.rs:214-222`), under
+/// which the binary classifies and auto-approves its own trusted MCP tools and never asks the
+/// app's desk about them. The desk sees `Bash` and the things auto mode will not take by itself;
+/// it does not see `mcp__richos_continuity__checkpoint`.
+///
+/// **What IS enforceable, and why neither half is taken here.** The engine's own adapter gates both
+/// continuity tools on the app-written `actions_allowed` flag and re-reads the scope file on every
+/// call (`engine/ecs/adapters/mcp.py:18-26`), so the app could refuse a pre-reply checkpoint by
+/// deferring that grant until it has spoken — with no engine change, but it would close `inspect`
+/// before the reply too, which this function's own paragraph above deliberately keeps open.
+/// Gating `checkpoint` alone needs a field in that scope and a change in the adapter, which is an
+/// engine release. **Which of the two is a design call about what the front desk may do before it
+/// speaks, so it is raised rather than taken:** `esc-20260918T141320Z-49570979`.
+///
+/// The function stays, tests and all: it is correct, it is cheap, and a build or a permission mode
+/// that does ask the desk gets the ordering it describes. What it must not be is quoted as the
+/// reason the pre-reply checkpoint cannot happen. It can, and it was measured happening.
 fn bookkeeping_before_the_reply(request: &Value, spoken: bool) -> bool {
     !spoken && request.get("tool_name").and_then(|v| v.as_str()) == Some(CONTINUITY_CHECKPOINT_TOOL)
 }
