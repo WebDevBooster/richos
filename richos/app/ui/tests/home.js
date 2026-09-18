@@ -2830,8 +2830,15 @@ async function main() {
     // THE CEO'S OWN MACHINE IS ABOUT TO TAKE THIS PATH. His `launches.json` carries a start
     // this branch's own `open(1)` runs put there, and `splash.js` declines to draw on anything
     // that is not a fresh launch — so the next thing he sees may well be the home screen with
-    // nothing in front of it. It is also what every reload, every crash-restart and every
-    // second window gets, and what a CEO who switched the opening screen off gets forever.
+    // nothing in front of it. It is also what every reload and every crash-restart gets, and
+    // what a CEO who switched the opening screen off gets forever.
+    //
+    // A SECOND WINDOW IS NO LONGER ONE OF THEM, and this sentence used to say it was — which is
+    // how this suite came to hold the product to audit-9 row 3. A Dock restore builds a new
+    // window with `LaunchKind::SecondWindow`, whose contract `main.rs::reopen_window` already
+    // stated ("nothing begins, no opening screen, no count"), and since that row it is honored
+    // here too: `home.js` declines to OPEN on that kind, and `tests/front-door.js` B1/B2 owns
+    // both sides of it. This check stays on `"reload"`, which still lands on the screen.
     //
     // The reason it is worth its own check rather than being covered by the others: the
     // always-dark clamp has TWO owners, and every other check in this file runs after the

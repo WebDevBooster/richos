@@ -1093,6 +1093,13 @@ window.RichHome = (function () {
     if (!root) return;
     var loading = root.querySelector("#home-loading");
     if (!loading) return;
+    // THE SENTENCE HAS TO BE READABLE, AND `.gone` IS WHAT WOULD HAVE HIDDEN IT. `field-engine.js`
+    // adds that class as it starts its first frame, so a picture that starts and then fails
+    // reaches here with the layer already faded — and since audit-9 row 1 the class also carries
+    // `visibility: hidden`, which would have made this honest failure silent to a screen reader
+    // as well as invisible on screen. Removing it is one line and it is what makes the fade safe
+    // to strengthen.
+    loading.classList.remove("gone");
     loading.innerHTML = "";
     var txt = elem("div", "txt");
     txt.textContent = "I couldn't draw the picture on this display. Everything else works.";
@@ -1190,6 +1197,17 @@ window.RichHome = (function () {
     if (appEl) appEl.setAttribute("inert", "");
     document.addEventListener("focusin", onFocusIn, true);
     document.addEventListener("keydown", onHomeKey, true);
+
+    // THE LAYOUT IS RE-DERIVED, because it may never have been derived on a laid-out screen.
+    // Since audit-9 row 3 a second window builds this composition HIDDEN, and every reservation
+    // below measures a rendered box — a hidden one reads zero, and `show()` used to take the
+    // screen's geometry entirely on trust. It also fixes the older, quieter case: a window
+    // resized while the screen was away came back on the width it left on. All four are
+    // idempotent, so the launch that measured correctly measures the same answer again.
+    reserveTopInset();
+    reserveNoteInset();
+    reserveDoorTop();
+    measureChips();
 
     // NOTHING IS REBUILT. If the picture was already up it resumes; if the CEO never waited
     // for it the first time, the load is still in flight and finishes on its own.
@@ -1521,6 +1539,55 @@ window.RichHome = (function () {
     // FIRST IN THE BODY, like the curtain, so the composition is in the window's first paint
     // rather than something that arrives after the shell has been parsed.
     document.body.insertBefore(root, document.body.firstChild);
+
+    // -------------------------------------------------------------------------------------
+    // A WINDOW COMING BACK IS NOT A LAUNCH — audit-9 row 3.
+    //
+    // Ray, walking candidate .9: "On restoring the window from the Dock — with a job running,
+    // he is put back on the splash rather than on the conversation he left, and nothing on that
+    // screen says work is in progress." He read the `Opening screen` switch as the one that had
+    // been ignored; that switch is the CURTAIN's (`splash.js`'s `KEY_ENABLED`, reconciled in
+    // `main.js`'s `readSplashEnabled`) and this screen has never had one. What was actually
+    // wrong is smaller and entirely ours: THIS FILE NEVER READ THE LAUNCH KIND. Grepped on
+    // `6a5b6496`, `window.__RICHOS_LAUNCH__` had exactly one reader in `app/ui`, `splash.js`.
+    //
+    // THE SHELL HAD ALREADY DECIDED, AND SAID SO. `main.rs::reopen_window`: "It is a
+    // `SecondWindow` launch: nothing begins, no opening screen, no count." A Dock restore takes
+    // that path — closing the window DESTROYS it (`ExitRequested` prevents the PROCESS exit,
+    // not the window's destruction), so `app.webview_windows()` is empty and a NEW window is
+    // built, with a NEW webview that boots this file from scratch. So the contract existed, in
+    // Rust, in the initialization script, and the frontend was not honoring it.
+    //
+    // SCOPED TO THAT ONE KIND. The CEO ruled on 2026-09-01 that this screen "must be shown in
+    // the app after the splash screen", and a fresh launch, a reload and a crash-restart are all
+    // launches. `tests/front-door.js` B2 is the check that keeps this a scoping and not a
+    // removal.
+    //
+    // BUILT, NOT SHOWN. The composition is in the document and `show()` opens it, so the logo
+    // in the corner still works — B3.
+    // -------------------------------------------------------------------------------------
+    var launch = null;
+    try {
+      launch = window.__RICHOS_LAUNCH__ || null;
+    } catch (e) {
+      launch = null;
+    }
+    var secondWindow = !!(launch && launch.kind === "second-window");
+    if (secondWindow) {
+      root.hidden = true;
+      state.open = false;
+      state.lastLeaveReason = "second-window";
+      // `afterShell` is a function DECLARATION below and is therefore hoisted into this scope;
+      // the two branches are the same two the foot of `start()` uses, and duplicating them is
+      // cheaper than a flag read twice.
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", afterShell, { once: true });
+      } else {
+        afterShell();
+      }
+      return;
+    }
+
     document.body.classList.add("home-open");
     state.open = true;
 
@@ -1572,7 +1639,10 @@ window.RichHome = (function () {
       if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
         document.fonts.ready.then(measureChips).catch(function () {});
       }
-      focusHome();
+      // NOT ON A SECOND WINDOW: the hand belongs to the conversation he came back to, and
+      // `main.js` has already put it on the composer. Taking it here would move it off the
+      // thread for a screen that is not even up.
+      if (state.open) focusHome();
       // A sheet that lives on the desk takes the CEO to the desk (audit-7 row 5). Installed
       // here rather than in the module body because `document.body` is what it observes.
       watchForDeskSheets();
@@ -1587,6 +1657,22 @@ window.RichHome = (function () {
       // THE PICTURE STARTS HERE AND NOWHERE EARLIER. `requestIdleCallback` fires when the main
       // thread is free, which during a launch is after the boot's synchronous work; the
       // timeout is the floor under it so a busy boot cannot push the picture past the curtain.
+      //
+      // ...AND NOT AT ALL ON A SECOND WINDOW. A WebGL field drawing behind a hidden screen is a
+      // GPU cost on a window whose whole point is the conversation in front of it; `show()`
+      // starts it (or resumes it) the moment the logo asks for the screen.
+      //
+      // GATED ON THE LAUNCH KIND AND NOT ON `state.open`, and the difference is a real defect
+      // this line shipped for about an hour. "The screen was never opened" and "the screen has
+      // already been left" are not the same condition: a caller that leaves before the document
+      // has finished parsing — which is every acceptance suite, through `leaveHome` — would take
+      // an `!state.open` branch and the picture would never start at all. Measured on the
+      // permission surface, where the sheet is pending from the first poll: `contrast.js`
+      // counted 418 text-bearing elements against 480 on `6a5b6496`, and the 31 per theme that
+      // went missing were the home screen's own — `#home-owner`, `#home-brand-line`, the six
+      // `li#home-spc-*`, the nine `span.v` counters. Nothing a person could see, and a guard
+      // that says one thing and tests another all the same.
+      if (secondWindow) return;
       if (window.requestIdleCallback) {
         window.requestIdleCallback(startField, { timeout: FIELD_IDLE_TIMEOUT_MS });
       } else {

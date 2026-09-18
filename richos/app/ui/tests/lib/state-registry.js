@@ -3150,9 +3150,22 @@ module.exports = [
     "why": "Composite HTML for the repository connection dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
   },
   {
-    "s": "<div class=\"overlay-panel overlay-panel--compact\"><h2 id=\"permission-title\" class=\"overlay-title\">Allow this action?</h2> <p id=\"permission-scope\" class=\"overlay-note\"></p><p id=\"permission-description\" class=\"overlay-note\"></p> <pre id=\"permission-input\" class=\"desk-preview\" style=\"max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere\"></pre> <p id=\"permission-status\" class=\"overlay-note\" role=\"status\">This permission applies only to this action.</p> <div class=\"desk-card-actions\"><button id=\"permission-deny\" class=\"desk-btn\" type=\"button\">Decline</button> <button id=\"permission-allow\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Allow action</button></div></div>",
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"><h2 id=\"permission-title\" class=\"overlay-title\">Allow this action?</h2> <p id=\"permission-description\" class=\"overlay-note\"></p><p id=\"permission-scope\" class=\"overlay-note\"></p> <button id=\"permission-detail\" class=\"desk-btn desk-btn--plain\" type=\"button\" aria-expanded=\"false\" aria-controls=\"permission-input\">Show the technical detail</button> <pre id=\"permission-input\" class=\"desk-preview\" style=\"max-height:45vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere\" hidden></pre> <p id=\"permission-status\" class=\"overlay-note\" role=\"status\">This permission applies only to this action.</p> <div class=\"desk-card-actions\"><button id=\"permission-deny\" class=\"desk-btn\" type=\"button\">Decline</button> <button id=\"permission-allow\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Allow action</button></div></div>",
     "c": "FRAGMENT",
     "why": "Composite HTML for the native permission dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
+  },
+  // The disclosure over the raw request (audit-9 row 5). Two labels, one control: each says
+  // what the press does, and both survive being spoken aloud. The state they report is also
+  // on the element as `aria-expanded`, so a screen reader is not relying on the wording.
+  {
+    "s": "Show the technical detail",
+    "c": "CONTROL",
+    "why": "The label of #permission-detail while the exact request is closed. It is an affordance, not a state: pressing it opens the `<pre>` beside it and nothing else. `tests/permissions.js` check 4 drives it by keyboard."
+  },
+  {
+    "s": "Hide the technical detail",
+    "c": "CONTROL",
+    "why": "The same control's label once the exact request is open. Both halves are asserted in `tests/permissions.js` check 4, so a label that stopped matching the state would fail there."
   },
   // ---------------------------------------------------------------------------------------
   // THE QUIT QUESTION — the background-work spec §2.5/§2.5a, and the CEO's row 5.
