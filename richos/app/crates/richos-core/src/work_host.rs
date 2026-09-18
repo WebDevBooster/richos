@@ -2708,6 +2708,7 @@ mod tests {
             instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
             instruction_sha256: "abc".into(),
             title: "landing the three branches".into(),
+            kind: assignment::AssignmentKind::Task,
             repositories: vec!["/fictional/project".into()],
             state: AssignmentState::Registered,
             detail: String::new(),

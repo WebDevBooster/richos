@@ -187,6 +187,83 @@ pub enum NoticeKind {
     /// result nor a stop, and a surface that sorted it under either would be telling him
     /// something that is not known.
     Unknown,
+    /// **The answer to a question he asked** — the CEO's ruling §58 (`richos-hq`
+    /// `wiki/ceo-decisions.md:2884-2914`, 2026-09-18): *"The answer arrives on the timeline
+    /// as an answer, never as 'done'."*
+    ///
+    /// A kind of its own because every other kind above reports what happened to a piece of
+    /// WORK, and this one carries what he asked for. A surface that sorted it under
+    /// [`Self::Settled`] would put his answer behind the word "finished", which is the one
+    /// framing §58 names and refuses.
+    Answer,
+}
+
+/// **Is this a piece of work he asked for, or a question he asked?** The CEO's ruling §58,
+/// 2026-09-18.
+///
+/// *"when the user asks Rich a question (in RichOS app) and the front desk Rich doesn't
+/// immediately know the answer and therefore has to get it from the back-end Rich, the front
+/// desk Rich should reply as follows: If the answer from the back-end Rich is expected to take
+/// more than a minute, then the front desk Rich should reply with "I'll investigate." … And if
+/// the answer from the back-end Rich is expected to take less than a minute, then the front
+/// desk Rich should reply with "I'll check.""*
+///
+/// **The split between [`Self::Check`] and [`Self::Investigate`] is a ROUGH ESTIMATE and
+/// nothing here measures it.** Asked directly whether the minute was a measurement, he said:
+/// *"Yeah, just a rough estimate whether or not the answer is expected quickly is all we need
+/// to distinguish between "I'll check" or "I'll investigate". OK, go."* So the model reports
+/// which kind of work it expects and the app owns both sentences — the same division §55 made
+/// for `after_questions`, and for the same reason: a model free to compose the sentence would
+/// eventually compose a paragraph.
+///
+/// **The minute appears exactly once in this build and it is not here.** A check still running
+/// at sixty seconds reads "investigating" on his screen — that flip is mechanical, derived in
+/// the UI from the registered-at time (`ui/timeline.js`), and it deliberately does not rewrite
+/// this field: the record keeps what the model estimated, which is the only thing that can be
+/// compared against what actually happened.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssignmentKind {
+    /// Work he asked for. §55's *"On it!"*, and every state sentence in [`says`] below.
+    #[default]
+    Task,
+    /// A question whose answer is expected quickly. *"I'll check."*
+    Check,
+    /// A question whose answer is expected to take more than about a minute.
+    /// *"I'll investigate."*
+    Investigate,
+}
+
+impl AssignmentKind {
+    /// Is this a question of his rather than a piece of work?
+    ///
+    /// **Everything that behaves differently for a question branches on THIS**, never on
+    /// `Check` or `Investigate` separately: the two differ only in the sentence he hears and
+    /// the word beside the timer. What the back end is asked to do, and how its answer comes
+    /// back, is the same for both.
+    pub fn is_question(self) -> bool {
+        matches!(self, Self::Check | Self::Investigate)
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Check => "check",
+            Self::Investigate => "investigate",
+        }
+    }
+    /// Parse the one word the model reports. Anything unrecognized is refused rather than
+    /// defaulted: a mistyped kind that silently became a task would hand him *"On it!"* for a
+    /// question he asked, which is the wrong sentence in the one place §58 is about.
+    pub fn parse(word: &str) -> Result<Self, AssignmentError> {
+        match word {
+            "task" => Ok(Self::Task),
+            "check" => Ok(Self::Check),
+            "investigate" => Ok(Self::Investigate),
+            _ => Err(AssignmentError(
+                "an assignment is a task, a check or an investigate, and nothing else".into(),
+            )),
+        }
+    }
 }
 
 /// One thing to say to him, held on disk until he has been told.
@@ -236,6 +313,17 @@ pub struct Assignment {
     pub instruction_sha256: String,
     /// His assignment in his own terms. Bounded and single-line; see [`sanitize_title`].
     pub title: String,
+    /// **Work he asked for, or a question he asked** — the CEO's ruling §58.
+    ///
+    /// `#[serde(default)]` so every record written before 2026-09-18 reads back as
+    /// [`AssignmentKind::Task`], which is what all of them are. It is deliberately NOT a
+    /// schema bump: the schema number exists to refuse a record this build cannot
+    /// understand, and a missing `kind` is one this build understands exactly. A record
+    /// written HERE and read by an older RichOS is refused by that build's
+    /// `deny_unknown_fields` with *"written by a newer RichOS"*, which is the honest answer
+    /// and the one that path was built to give.
+    #[serde(default)]
+    pub kind: AssignmentKind,
     pub repositories: Vec<String>,
     pub state: AssignmentState,
     /// What the state is waiting on or stopped by. Never a stack trace.
@@ -329,6 +417,10 @@ pub struct Registration {
 pub struct Receipt {
     pub id: String,
     pub title: String,
+    /// Which of the three sentences [`Self::sentence`] hands back. Set by the register from
+    /// what was actually written down, never by the caller — so the reply he hears and the
+    /// record on disk cannot be two different kinds of thing.
+    pub kind: AssignmentKind,
 }
 
 impl Receipt {
@@ -360,8 +452,21 @@ impl Receipt {
     /// **What the app still guarantees at the instant this is said:** the assignment is on
     /// disk, fsynced, and `work_host.rs`'s `adopt_registered` will pick it up at the turn
     /// boundary. The sentence asserts none of it, which is exactly why it cannot be wrong.
+    ///
+    /// **The two question sentences are the CEO's ruling §58, verbatim and entire**
+    /// (`richos-hq` `wiki/ceo-decisions.md:2884-2914`, 2026-09-18): *"If the answer from the
+    /// back-end Rich is expected to take more than a minute, then the front desk Rich should
+    /// reply with "I'll investigate." … And if the answer from the back-end Rich is expected
+    /// to take less than a minute, then the front desk Rich should reply with "I'll
+    /// check.""* Three fixed strings now, chosen by one reported fact, exactly as §55's two
+    /// are — see [`AssignmentKind`] for why the estimate is the model's and the words are
+    /// not.
     pub fn sentence(&self) -> String {
-        "On it!".into()
+        match self.kind {
+            AssignmentKind::Task => "On it!".into(),
+            AssignmentKind::Check => "I'll check.".into(),
+            AssignmentKind::Investigate => "I'll investigate.".into(),
+        }
     }
 
     /// The same reply when he had to answer a question first — §55's other half.
@@ -373,8 +478,21 @@ impl Receipt {
     /// asked him anything, so it reports that one fact; the words stay the app's, the same way
     /// [`Registration`] keeps the id, the seat and the instruction out of the model's hands. A
     /// model free to compose this would eventually compose the 35-second paragraph again.
+    ///
+    /// **FOR A QUESTION IT RETURNS THE SAME SENTENCE AS [`Self::sentence`], and that is a
+    /// decision rather than an omission.** §55 gives *"Got it. On it!"* for a task whose
+    /// clarification is answered. §58 gives exactly two sentences for a question — *"I'll
+    /// check."* and *"I'll investigate."* — and gives no third form for the after-a-question
+    /// case. Prefixing *"Got it. "* onto one of them would be this app composing a sentence
+    /// the CEO never wrote, in the one feature whose entire point is that it does not. So a
+    /// question he clarified first is answered with his own words for a question, and the
+    /// gap is named here rather than filled: if he wants *"Got it. I'll check."* it is one
+    /// line, and it is his to say.
     pub fn sentence_after_questions(&self) -> String {
-        "Got it. On it!".into()
+        match self.kind {
+            AssignmentKind::Task => "Got it. On it!".into(),
+            AssignmentKind::Check | AssignmentKind::Investigate => self.sentence(),
+        }
     }
 }
 
@@ -542,6 +660,28 @@ fn usable_identity(value: &str) -> bool {
 /// Nothing here spawns, prepares, binds or waits. The caller gets a [`Receipt`] and ends
 /// the turn with it (spec §1.1); the work host picks the assignment up afterwards.
 pub fn register(state: &Path, request: &Registration) -> Result<Receipt, AssignmentError> {
+    register_kind(state, request, AssignmentKind::Task)
+}
+
+/// The same turn boundary, for a QUESTION of his as well as a piece of work — the CEO's
+/// ruling §58, 2026-09-18.
+///
+/// **It is a second entry point rather than a field on [`Registration`], and the reason is
+/// blast radius.** `Registration` is a struct literal in six places across four modules, three
+/// of which belong to other slices in flight today. A field would have edited all six to say
+/// "task" and given this change a merge conflict in every one of them; this gives every
+/// existing caller the behavior it already had, with no edit at all, and the one caller that
+/// needs the choice makes it explicitly.
+///
+/// Nothing else differs. The same validation, the same one-open-assignment-per-obligation
+/// refusal, the same single fsynced file. A question is a piece of work the back end does
+/// and reports on; what changes is the sentence he hears, the word beside the timer, and how
+/// the result comes back.
+pub fn register_kind(
+    state: &Path,
+    request: &Registration,
+    kind: AssignmentKind,
+) -> Result<Receipt, AssignmentError> {
     if !usable_identity(&request.thread_id) {
         return Err(AssignmentError("this conversation cannot be identified".into()));
     }
@@ -610,9 +750,18 @@ pub fn register(state: &Path, request: &Registration) -> Result<Receipt, Assignm
         instruction_ledger_ref: request.instruction_ledger_ref.clone(),
         instruction_sha256: request.instruction_sha256.clone(),
         title: title.clone(),
+        kind,
         repositories: request.repositories.clone(),
         state: AssignmentState::Registered,
-        detail: "Written down. Preparation has not started.".into(),
+        // **A question has not been "prepared" either, and it is not waiting to be.** The
+        // word he would hear about this state comes from `status_tools.rs`'s `starting`
+        // section and from the timer, not from this string; what this says is what is true
+        // of both — it is written down and the back end has not been asked yet.
+        detail: if kind.is_question() {
+            "Written down. The back end has not been asked yet.".into()
+        } else {
+            "Written down. Preparation has not started.".to_string()
+        },
         registered_at_ms: at,
         updated_at_ms: at,
         notices: Vec::new(),
@@ -624,7 +773,7 @@ pub fn register(state: &Path, request: &Registration) -> Result<Receipt, Assignm
     };
     let root = folder(state, &request.entity_id, &request.thread_id)?;
     write(&root.join(format!("{id}.json")), &record)?;
-    Ok(Receipt { id, title })
+    Ok(Receipt { id, title, kind })
 }
 
 fn read_one(path: &Path, entity: &str, thread: &str) -> Result<Assignment, AssignmentError> {
@@ -1024,6 +1173,68 @@ pub mod says {
             ),
         )
     }
+
+    /// **THE ANSWER TO A QUESTION, SAID AS AN ANSWER** — the CEO's ruling §58, 2026-09-18:
+    /// *"The answer arrives on the timeline as an answer, never as 'done'."*
+    ///
+    /// **It is the only function in this module that adds no words of its own, and that is
+    /// the whole of it.** Every other sentence here wraps a fact in the app's framing —
+    /// *"{title} is finished."*, *"{title} stopped before it finished."* — because every
+    /// other sentence reports on a piece of WORK. He did not ask for work; he asked a
+    /// question, and the thing he is owed is the answer to it. A receipt sentence wrapped
+    /// around an answer is the *"done/landed"* framing §58 names and refuses, and prefixing
+    /// *"Here's what I found:"* would be this app narrating over the back end's own words.
+    ///
+    /// So: the back end's answer, flattened to what a timeline line and a spoken line can
+    /// both carry, and nothing else.
+    ///
+    /// **`answer` empty is a real case with a real sentence.** A back end that closed the
+    /// question without saying anything has told us nothing, and *"I looked and found
+    /// nothing"* would be a claim about the world rather than about the run. The fallback
+    /// says which of the two happened and names the one thing that moves it — the same shape
+    /// [`unknown`] uses, and for the same reason.
+    pub fn answered(title: &str, answer: &str) -> String {
+        let answer = answer.trim();
+        if answer.is_empty() {
+            return format!(
+                "I came back from {title} with nothing I can tell you — the answer never \
+                 reached me. Ask me again and I'll go at it properly."
+            );
+        }
+        answer.to_string()
+    }
+}
+
+/// An answer, bounded and safe to put on the timeline and read aloud.
+///
+/// **It is NOT [`sanitize_title`] and it is NOT [`sanitize_line`], and the difference is the
+/// cap.** A title is a noun phrase that lands inside a spoken sentence, so 160 characters is
+/// generous. An answer IS the whole reply — a paragraph of his answer is the normal case, and
+/// truncating it at 160 would throw away the thing he asked for.
+///
+/// 8,000 characters is the ceiling, and it bounds a record rather than an answer: the notice
+/// is held in a JSON file that `read_one` refuses above 256 KiB, and 64 notices of 8,000
+/// characters is 512 KiB — so without a cap here a long-winded back end could write an
+/// assignment record this app can no longer read, which would lose his answer entirely
+/// rather than shorten it. Control characters other than newline are flattened to spaces;
+/// newlines survive, because an answer with a list in it reads as a list on his timeline and
+/// the markdown renderer is already there (`ui/timeline.js`).
+pub fn sanitize_answer(raw: &str) -> String {
+    let flattened: String = raw
+        .chars()
+        .map(|c| if c.is_control() && c != '\n' { ' ' } else { c })
+        .collect();
+    // Collapse runs of blank lines and trailing spaces without touching single newlines.
+    let tidy: String =
+        flattened.lines().map(str::trim_end).collect::<Vec<_>>().join("\n").trim().to_string();
+    if tidy.chars().count() <= 8000 {
+        return tidy;
+    }
+    let mut cut: String = tidy.chars().take(8000).collect();
+    if let Some(space) = cut.rfind(char::is_whitespace) {
+        cut.truncate(space);
+    }
+    format!("{}…", cut.trim_end())
 }
 
 #[cfg(test)]
@@ -1435,6 +1646,11 @@ mod tests {
                 says::declined(embedded),
                 says::unknown(embedded, ""),
                 says::did_not_start(embedded, "The work connection could not be opened."),
+                // §58's empty-answer fallback is the one arm of `answered` that embeds a
+                // title, so it belongs in this loop. The ordinary arm returns the back end's
+                // own words and embeds nothing — a title cannot collide with punctuation
+                // that is not there.
+                says::answered(embedded, ""),
             ] {
                 assert!(!line.contains(".."), "double period: {line}");
                 assert!(!line.contains("…."), "ellipsis then period: {line}");
@@ -1443,6 +1659,104 @@ mod tests {
         // A title that is nothing but punctuation is refused, not silently emptied.
         assert!(sanitize_title("...").is_err());
         assert!(sanitize_title(".").is_err());
+    }
+
+    /// **THE THREE SENTENCES, EXACT, AND THE FACT THAT CHOOSES EACH** — the CEO's ruling
+    /// §58 (`richos-hq` `wiki/ceo-decisions.md:2884-2914`, 2026-09-18).
+    ///
+    /// *"If the answer from the back-end Rich is expected to take more than a minute, then
+    /// the front desk Rich should reply with "I'll investigate." … And if the answer from
+    /// the back-end Rich is expected to take less than a minute, then the front desk Rich
+    /// should reply with "I'll check.""*
+    ///
+    /// The strings are asserted whole, with their punctuation, because they ARE the feature:
+    /// `assignment_tools.rs` hands `say` to the model verbatim and the doctrine tells it to
+    /// end the turn with exactly that, so whatever is here is what he reads and hears.
+    #[test]
+    fn a_question_is_answered_with_one_of_two_exact_sentences_and_never_with_on_it() {
+        let state = root();
+        let check = register_kind(&state, &registration(), AssignmentKind::Check).unwrap();
+        assert_eq!(check.sentence(), "I'll check.");
+        let investigate = register_kind(
+            &state,
+            &Registration { obligation_id: "obligation-8".into(), ..registration() },
+            AssignmentKind::Investigate,
+        )
+        .unwrap();
+        assert_eq!(investigate.sentence(), "I'll investigate.");
+        // §55's sentence is untouched, and `register` still means a task with no argument.
+        let task = register_kind(
+            &state,
+            &Registration { obligation_id: "obligation-9".into(), ..registration() },
+            AssignmentKind::Task,
+        )
+        .unwrap();
+        assert_eq!(task.sentence(), "On it!");
+        assert_eq!(task.sentence_after_questions(), "Got it. On it!");
+        // **The one place §58 is silent, decided conservatively and asserted so a future
+        // change to it is deliberate**: a question he clarified first still gets his own two
+        // words for a question, not a composed "Got it. I'll check."
+        assert_eq!(check.sentence_after_questions(), "I'll check.");
+        assert_eq!(investigate.sentence_after_questions(), "I'll investigate.");
+        // Nothing a question hands back says "On it!", and nothing restates his question.
+        for say in [check.sentence(), check.sentence_after_questions(), investigate.sentence()] {
+            assert!(!say.contains("On it"), "a question was answered with the task reply: {say}");
+            assert!(!say.contains("landing the three branches"), "his question was read back: {say}");
+            assert!(!say.contains(&check.id), "an identifier reached the sentence: {say}");
+        }
+        // The kind is on disk, and it is what the reply was chosen from.
+        let rows = read_all(&state, "depot", "thread-one").unwrap();
+        assert_eq!(rows.len(), 3);
+        let kinds: Vec<&str> = rows.iter().map(|r| r.kind.as_str()).collect();
+        assert!(kinds.contains(&"check") && kinds.contains(&"investigate") && kinds.contains(&"task"));
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **A record written before 2026-09-18 has no `kind`, and it reads back as a task** —
+    /// which is what every one of them is. Positive control: a record whose `kind` IS on
+    /// disk reads back as that kind rather than as the default.
+    #[test]
+    fn an_older_record_without_a_kind_is_a_task_and_a_newer_one_keeps_what_it_says() {
+        let state = root();
+        let receipt = register_kind(&state, &registration(), AssignmentKind::Investigate).unwrap();
+        let path = folder(&state, "depot", "thread-one").unwrap().join(format!("{}.json", receipt.id));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"kind\":\"investigate\""), "the kind was not written: {text}");
+        assert_eq!(read(&state, "depot", "thread-one", &receipt.id).unwrap().kind, AssignmentKind::Investigate);
+        // Now the pre-§58 shape: the same record with the field removed entirely.
+        let older: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mut older = older.as_object().unwrap().clone();
+        older.remove("kind");
+        std::fs::write(&path, serde_json::to_vec(&older).unwrap()).unwrap();
+        let back = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(back.kind, AssignmentKind::Task, "an older record did not read back as a task");
+        assert!(!back.kind.is_question());
+        // A kind the model could mistype is refused rather than defaulted to a task: the
+        // wrong reply is the one defect §58 exists to remove.
+        assert!(AssignmentKind::parse("checking").is_err());
+        assert!(AssignmentKind::parse("").is_err());
+        assert_eq!(AssignmentKind::parse("check").unwrap(), AssignmentKind::Check);
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **§58: the answer arrives as an answer, never as "done".**
+    #[test]
+    fn an_answer_is_delivered_as_itself_and_never_wrapped_in_a_receipt_sentence() {
+        let answer = "Three branches are waiting on you, and the oldest has been there since Tuesday.";
+        let said = says::answered("what is waiting on me", answer);
+        assert_eq!(said, answer, "the answer was wrapped in the app's own words");
+        for forbidden in ["is finished", "landed", "done", "your saved work", "assignment"] {
+            assert!(!said.to_lowercase().contains(forbidden), "a work receipt's framing reached an answer: {said}");
+        }
+        // The empty case says which of the two happened rather than claiming the world is empty.
+        let nothing = says::answered("what is waiting on me", "   ");
+        assert!(nothing.contains("nothing I can tell you"), "{nothing}");
+        assert!(!nothing.contains("I looked and found nothing"), "{nothing}");
+        // Bounded, and a newline survives because a list reads as a list.
+        let long = says::answered("x", &sanitize_answer(&"word ".repeat(4000)));
+        assert!(long.chars().count() <= 8001, "the answer was not bounded: {}", long.chars().count());
+        assert!(long.ends_with('…'));
+        assert_eq!(sanitize_answer("one\ntwo\u{7}three  \n\n"), "one\ntwo three");
     }
 
     /// **Spec §5.8c, in the shape the landed engine forces it into.** One seat per
