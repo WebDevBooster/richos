@@ -92,7 +92,14 @@
 		<li>turn on the switch beside <strong>{{CA_NAME}}</strong></li>
 		<li><strong>Continue</strong></li>
 	</ol>
-	<p class="detail">Compare what it shows with this, which your Mac printed a moment ago:<br>SHA-256 {{CA_FINGERPRINT}}</p>
+	<p class="plain">Your Mac calls this certificate by six words. They are the same six words the
+	phone app will show you when you pair it, and they are how you tell your Mac's certificate from
+	anybody else's:</p>
+	<p class="words">{{CA_WORDS}}</p>
+	<details class="digits">
+		<summary>The same thing as digits, if you want to compare it character by character</summary>
+		<p class="detail">SHA-256 {{CA_FINGERPRINT}}</p>
+	</details>
 </section>
 
 <!-- ============================ Step 4 ============================ -->

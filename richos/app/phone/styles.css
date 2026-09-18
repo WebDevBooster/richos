@@ -1,0 +1,528 @@
+/* Rich, on a phone.
+ *
+ * THE PALETTE IS NOT INVENTED HERE. Every token below is the shipped app's own
+ * (`richos/app/ui/style.css`) so this reads as RichOS rather than as a stranger, and so the
+ * contrast reasoning already done there is inherited instead of redone by eye. The two tokens this
+ * file adds — the ground of a message bubble, his and Rich's — are computed like everything else.
+ *
+ * CONTRAST. Every pair actually rendered is COMPUTED, twice over: `test/contrast.test.js` asserts
+ * the token pairs in Node, and `test/desktop-verify.js` walks EVERY TEXT NODE of the running app in
+ * a real browser, in both themes, with the shipped app's own contrast walker. WCAG AA: 4.5:1 normal
+ * text, 3:1 for large text (24px+, or 18.66px+ bold) and for non-text indicators.
+ *
+ * NO EXEMPTIONS ARE CLAIMED IN THIS FILE. Every string on this screen is meant to be read —
+ * including the line that says a message is waiting, which is the one he most needs to believe.
+ *
+ * TWO TRAPS THE APP ALREADY HIT, avoided here by construction:
+ *   - `--gold` PAINTS and `--gold-text` READS. They coincide in dark and are deliberately different
+ *     in light, where the painting value computes 3.29:1 on the ivory ground and fails as body text.
+ *   - `--on-gold` is the DARK ink in BOTH themes. White on gold is a failure this project shipped
+ *     once already.
+ *
+ * NO HORIZONTAL SCROLL, EVER. His own finding on the probe: "an ugly horizontal scroll bar
+ * appeared. I suspect that was caused by the long SHA256 which was all in one line." Nothing here
+ * hides overflow to satisfy that — hiding it would only hide it from the check. Instead every text
+ * container wraps anywhere it must, every flex child may shrink (`min-width: 0`), and
+ * `test/desktop-verify.js` fails if the document is ever wider than the viewport at four phone
+ * widths in both themes.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* ---- DARK — "Sovereign", what a new install opens in ---- */
+	--ground: #0c1322;
+	--surface-sunk: #0a1120;
+	--surface-raised: #141e34;
+	--card: #182440;
+
+	--ink: #dfe4ee;
+	--ink-soft: #b9c1d2;
+	--line: rgba(76, 96, 135, 0.42);
+	--line-control: #6b7ea8;
+
+	--gold: #c2a35c;      /* paints */
+	--gold-text: #c2a35c; /* reads */
+	--on-gold: #0c1322;
+	/* The ink that sits ON `--danger` as a FILL. It flips with the theme where `--on-gold` does not,
+	 * because `--danger` flips lightness and `--gold` does not. Dark ink on the light theme's red
+	 * computes 2.22:1 — which is how a record button ships unreadable while recording. */
+	--on-danger: #0c1322;
+
+	--attention: #e09a55;
+	--danger: #e8837c;
+	--success: #7fb894;
+	--trim-text: #7e92b8;
+
+	/* THE TWO TOKENS THIS FILE ADDS. A message bubble is a surface, so it owes the same 4.5:1 to the
+	 * text on it as any other surface, and his own bubble owes it to the WAITING line as well. Both
+	 * are asserted in test/contrast.test.js against --ink, --ink-soft and --attention. */
+	--mine-bg: #1b2a4a;
+	--rich-bg: #141e34;
+
+	--font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+	--mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+	--radius: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		/* ---- LIGHT — "Daybreak", the app's ivory ground ---- */
+		--ground: #eae6dd;
+		--surface-sunk: #efebe0;
+		--surface-raised: #f7f5ef;
+		--card: #fdfcf8;
+
+		--ink: #0c1322;
+		--ink-soft: #4a5265;
+		--line: rgba(60, 70, 95, 0.38);
+		--line-control: #767c8d;
+
+		--gold: #9c7c34;
+		--gold-text: #715715;
+		--on-gold: #0c1322;
+		--on-danger: #fdfcf8;
+
+		--attention: #8c4a1b;
+		--danger: #8a2f28;
+		--success: #3a5c46;
+		--trim-text: #44567a;
+
+		--mine-bg: #f0e7d0;
+		--rich-bg: #f7f5ef;
+	}
+}
+
+* { box-sizing: border-box; }
+
+html {
+	background: var(--ground);
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	/* The installed window runs under the status bar and over the home indicator, and the composer
+	 * is the thing that must never be underneath the latter. */
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+	min-height: 100vh;
+	/* `dvh` accounts for Safari's collapsing toolbars; `vh` above is the floor for anything older. */
+	min-height: 100dvh;
+	height: 100vh;
+	height: 100dvh;
+	display: flex;
+	flex-direction: column;
+	font-family: var(--font);
+	/* 17px: above the 16px floor for text meant to be easily read, and the size iOS itself uses for
+	 * body copy. Nothing on this screen is below 15px, and nothing below 16px is prose. */
+	font-size: 17px;
+	line-height: 1.5;
+	color: var(--ink);
+	background: var(--ground);
+	-webkit-text-size-adjust: 100%;
+	overscroll-behavior-y: none;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* ---------------------------------------------------------------------------------------
+   The top bar — who he is talking to, and whether his Mac can hear him
+   --------------------------------------------------------------------------------------- */
+
+.topbar {
+	flex: 0 0 auto;
+	padding: 10px 16px 8px;
+	border-bottom: 1px solid var(--line);
+	background: var(--surface-raised);
+}
+
+.topbar-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	min-width: 0;
+}
+
+.title {
+	margin: 0;
+	font-size: 22px;
+	line-height: 1.2;
+	font-weight: 650;
+	letter-spacing: -0.01em;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.picker { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.picker-caption { font-size: 16px; color: var(--ink-soft); }
+.picker[hidden] { display: none; }
+
+select {
+	max-width: 58vw;
+	min-width: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--line-control);
+	border-radius: 8px;
+	background: var(--surface-sunk);
+	color: var(--ink);
+	font-family: inherit;
+	font-size: 16px;
+}
+
+.link-state {
+	margin: 4px 0 0;
+	font-size: 16px;
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+}
+
+.link-state.away { color: var(--attention); }
+
+/* ---------------------------------------------------------------------------------------
+   Offers — a sentence and the control that acts on it, never one without the other
+   --------------------------------------------------------------------------------------- */
+
+.offer {
+	flex: 0 0 auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--line);
+	background: var(--card);
+}
+
+.offer[hidden] { display: none; }
+.offer-text { margin: 0; flex: 1 1 220px; min-width: 0; font-size: 16px; color: var(--ink); overflow-wrap: anywhere; }
+.waiting-offer { border-left: 5px solid var(--attention); }
+.waiting-offer .offer-text { color: var(--attention); }
+
+/* ---------------------------------------------------------------------------------------
+   The thread — newest at the bottom, older behind a scroll. No pagination, anywhere, ever.
+   --------------------------------------------------------------------------------------- */
+
+.thread {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	-webkit-overflow-scrolling: touch;
+	padding: 12px 16px 4px;
+}
+
+.older {
+	margin: 0 0 10px;
+	font-size: 16px;
+	color: var(--ink-soft);
+	text-align: center;
+}
+
+.older[hidden] { display: none; }
+
+.messages {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.msg {
+	max-width: 88%;
+	min-width: 0;
+	padding: 10px 13px;
+	border-radius: var(--radius);
+	/* The one rule his horizontal-scroll finding turns into a habit: a long unbroken run of
+	 * characters — a URL, a path, an id he was never meant to read — wraps instead of widening the
+	 * document. */
+	overflow-wrap: anywhere;
+	word-break: normal;
+}
+
+.msg-rich {
+	align-self: flex-start;
+	background: var(--rich-bg);
+	border: 1px solid var(--line);
+	border-bottom-left-radius: 4px;
+}
+
+.msg-mine {
+	align-self: flex-end;
+	background: var(--mine-bg);
+	border: 1px solid var(--line);
+	border-bottom-right-radius: 4px;
+}
+
+.msg-text {
+	margin: 0;
+	font-size: 17px;
+	white-space: pre-wrap;
+}
+
+.msg-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: 6px;
+	font-size: 16px;
+	color: var(--ink-soft);
+}
+
+/* The state of one of his own messages. Three honest states, and the middle one is the one that
+ * matters: an optimistic bubble, then "waiting to send" with a reason, then delivered. */
+.msg-state { color: var(--ink-soft); }
+.msg-state.waiting { color: var(--attention); }
+.msg-state.blocked { color: var(--danger); }
+
+.msg-voice {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 17px;
+}
+
+/* "Hear it" — one tap, per reply, never automatic. Nothing is synthesized on the Mac for a reply he
+ * only reads, and no autoplay rule is fought. */
+.hear {
+	margin-top: 8px;
+	min-height: 44px;
+	padding: 8px 14px;
+	font-size: 16px;
+	font-weight: 600;
+	border-radius: 9px;
+	border: 1px solid var(--line-control);
+	background: var(--surface-sunk);
+	color: var(--ink);
+	font-family: inherit;
+}
+
+.hear.playing { border-color: var(--gold); color: var(--gold-text); }
+
+.truncated {
+	margin: 6px 0 0;
+	font-size: 16px;
+	color: var(--attention);
+}
+
+/* ---------------------------------------------------------------------------------------
+   The composer — type, or hold and speak
+   --------------------------------------------------------------------------------------- */
+
+.composer {
+	flex: 0 0 auto;
+	padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+	border-top: 1px solid var(--line);
+	background: var(--surface-raised);
+}
+
+.composer-row {
+	display: flex;
+	align-items: flex-end;
+	gap: 10px;
+	min-width: 0;
+}
+
+textarea {
+	flex: 1 1 auto;
+	min-width: 0;
+	max-height: 40vh;
+	padding: 11px 12px;
+	border: 1px solid var(--line-control);
+	border-radius: 10px;
+	background: var(--surface-sunk);
+	color: var(--ink);
+	font-family: inherit;
+	/* 17px and never smaller: iOS zooms the whole page when a focused field is under 16px, and a
+	 * page zoomed by the keyboard is a page with a horizontal scroll bar. */
+	font-size: 17px;
+	line-height: 1.4;
+	resize: none;
+	overflow-wrap: anywhere;
+}
+
+textarea::placeholder { color: var(--trim-text); opacity: 1; }
+
+button {
+	font-family: inherit;
+	font-size: 17px;
+	font-weight: 600;
+	min-height: 48px;
+	padding: 12px 18px;
+	border-radius: 10px;
+	border: 1px solid var(--line-control);
+	background: var(--surface-sunk);
+	color: var(--ink);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+button.primary {
+	background: var(--gold);
+	border-color: var(--gold);
+	color: var(--on-gold);
+}
+
+button:disabled {
+	/* Opacity would silently break the computed ratio, so a disabled control is REPAINTED with
+	 * tokens that clear the floor on their own rather than faded. */
+	opacity: 1;
+	background: var(--surface-sunk);
+	color: var(--trim-text);
+	border-color: var(--line);
+	cursor: default;
+}
+
+.send { flex: 0 0 auto; }
+
+.hold {
+	width: 100%;
+	min-height: 64px;
+	margin-top: 10px;
+	font-size: 19px;
+	/* Without these, a long press on iOS selects text or raises the callout menu instead of
+	 * recording — which reads as a broken microphone. */
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+.hold.recording {
+	background: var(--danger);
+	border-color: var(--danger);
+	color: var(--on-danger);
+}
+
+.hold.opening {
+	background: var(--surface-raised);
+	border-color: var(--attention);
+	color: var(--ink);
+}
+
+.hold-note {
+	margin: 8px 0 0;
+	font-size: 16px;
+	color: var(--ink-soft);
+	overflow-wrap: anywhere;
+}
+
+.hold-note.trouble { color: var(--attention); }
+
+/* The level, while he holds. A non-text indicator, so the fill owes 3:1 against its own track. */
+.meter {
+	height: 20px;
+	margin-top: 10px;
+	border: 1px solid var(--line-control);
+	border-radius: 10px;
+	background: var(--surface-sunk);
+	overflow: hidden;
+}
+
+.meter[hidden] { display: none; }
+
+.meter-fill {
+	height: 100%;
+	/* Driven from JavaScript through a custom property rather than an inline width, so the
+	 * presentation rule stays in the stylesheet and the script only supplies the number. */
+	width: var(--level, 0%);
+	background: var(--success);
+	transition: width 60ms linear;
+}
+
+.meter-read {
+	margin: 6px 0 0;
+	font-family: var(--mono);
+	font-size: 16px;
+	color: var(--ink);
+}
+
+.meter-read[hidden] { display: none; }
+
+/* ---------------------------------------------------------------------------------------
+   Pairing, and the screen that says this phone was removed
+   --------------------------------------------------------------------------------------- */
+
+.takeover {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+	background: var(--ground);
+}
+
+.takeover[hidden] { display: none; }
+
+.takeover h2 {
+	margin: 0 0 10px;
+	font-size: 24px;
+	line-height: 1.25;
+	font-weight: 650;
+}
+
+.takeover-lede { margin: 0 0 16px; font-size: 17px; color: var(--ink); overflow-wrap: anywhere; }
+.takeover-detail { margin: 16px 0 0; font-size: 16px; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+.fingerprint {
+	margin: 0 0 18px;
+	padding: 16px;
+	border: 1px solid var(--gold);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.fingerprint-caption { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+
+/* SIX WORDS, NOT A HASH. His own finding from the probe walk is what put this rule here, and the
+ * words are large because comparing them with another screen is the entire job of this element. */
+.fingerprint-words {
+	margin: 0 0 10px;
+	font-size: 24px;
+	line-height: 1.35;
+	font-weight: 650;
+	color: var(--gold-text);
+	overflow-wrap: anywhere;
+}
+
+.fingerprint-note { margin: 0; font-size: 16px; color: var(--ink-soft); }
+
+.row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	min-width: 0;
+}
+
+.row > button { flex: 1 1 auto; min-width: 0; }
+.row[hidden] { display: none; }
+
+/* When a takeover is showing, the conversation and its composer are not merely hidden — they are
+ * out of the layout, so nothing of the thread is reachable behind it. */
+body.pairing .topbar,
+body.pairing .thread,
+body.pairing .composer,
+body.pairing .offer,
+body.revoked .topbar,
+body.revoked .thread,
+body.revoked .composer,
+body.revoked .offer { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+	* { transition: none !important; animation: none !important; }
+}

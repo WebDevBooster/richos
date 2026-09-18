@@ -164,6 +164,21 @@ async function waitForServer(tries = 60) {
 
 		process.stdout.write(`\n=== the server, without a browser ===\n`);
 
+		// --- the TRUST page, which is the first page he opens and the one the hash used to sit on ---
+		const trust = await get(`http://${HOST}:${TRUST_PORT}/?k=${CODE}`);
+		const words = JSON.parse((await get(`${ORIGIN}/api/config?k=${CODE}`)).body).tls.caWords;
+		check('the trust page renders, with every placeholder filled',
+			trust.status === 200 && !/\{\{[A-Z_]+\}\}/.test(trust.body), `HTTP ${trust.status}`);
+		check('it names the certificate authority in six words rather than in hexadecimal',
+			words && words.split(' ').length === 6 && trust.body.includes(words), words || '(none)');
+		// The digits still exist for anyone who wants to compare them with what iOS shows under
+		// "More Details" — but they are behind a disclosure, which is the difference between being
+		// available and being in his way.
+		const hashInBody = /SHA-256 [0-9A-F:]{40,}/.exec(trust.body);
+		check('the hash is present but tucked inside the disclosure, not printed in the flow',
+			Boolean(hashInBody) && /<details class="digits">[\s\S]*SHA-256[\s\S]*<\/details>/.test(trust.body),
+			hashInBody ? `${hashInBody[0].slice(0, 24)}…` : 'no hash at all, which is also wrong: it should be available');
+
 		// --- the access code behaves as the plan's doctrine says ---
 		const openPage = await get(`${ORIGIN}/`);
 		check('an unauthorized page request gets a flat 404, not an informative error',
@@ -251,8 +266,25 @@ async function waitForServer(tries = 60) {
 				context0.host === `${HOST}:${HTTPS_PORT}`, context0.host);
 
 			const facts = await page.textContent('#trust-facts');
+			// CHANGED 2026-09-18: this used to require the words "root SHA-256" on the page. That
+			// line is what put a horizontal scroll bar on the CEO's phone, and the page now shows the
+			// certificate authority's SIX-WORD name instead — the same form the phone app uses at
+			// pairing. So the assertion is now that the evidence is there AND that a raw hash is not.
 			check('check 0 shows the evidence rather than asserting trust',
-				facts.includes(HOST) && /root SHA-256/.test(facts), facts);
+				facts.includes(HOST) && /six-word name is/.test(facts), facts);
+			const hexOnPage = await page.evaluate(() => {
+				const m = /\b[0-9a-fA-F]{16,}\b/.exec(document.body.innerText);
+				return m ? m[0] : null;
+			});
+			check('no raw hash is anywhere on the probe page — his 2026-09-18 finding, as a gate',
+				hexOnPage === null, hexOnPage || '');
+			const overflow = await page.evaluate(() => ({
+				scrollWidth: document.documentElement.scrollWidth,
+				clientWidth: document.documentElement.clientWidth
+			}));
+			check('and the page is never wider than the viewport, which is what he actually saw',
+				overflow.scrollWidth <= overflow.clientWidth + 1,
+				`document ${overflow.scrollWidth}px against a viewport of ${overflow.clientWidth}px`);
 			check('check 0 asks him which of the two things happened, because the page cannot tell',
 				await page.isVisible('#trust-row'));
 			await page.click('#trust-clean');

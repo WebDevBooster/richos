@@ -146,7 +146,11 @@ function trustFacts(config) {
 	if (window.isSecureContext !== undefined) parts.push(`secure context: ${window.isSecureContext ? 'yes' : 'no'}`);
 	if (config && config.tls) {
 		parts.push(`the certificate covers ${config.tls.names}`);
-		parts.push(`root SHA-256 ${config.tls.caFingerprintSha256}`);
+		// SIX WORDS, NEVER THE HASH. This line used to print the root's SHA-256 in full, and on the
+		// CEO's own walk on 2026-09-18 it was what put a horizontal scroll bar on this page: "the
+		// long SHA256 which was all in one line on the second page". The words are the same identity
+		// in a form he can compare, and they are what the real phone app shows at pairing.
+		if (config.tls.caWords) parts.push(`its six-word name is "${config.tls.caWords}"`);
 	}
 	return parts.join('. ') + '.';
 }

@@ -123,14 +123,14 @@ h1 {
 .lede {
 	margin: 0 0 4px;
 	color: var(--ink-soft);
-	font-size: 16px;
+	font-size: 16px;	overflow-wrap: anywhere;
 }
 
 .build {
 	margin: 0 0 20px;
 	font-family: var(--mono);
 	font-size: 15px;
-	color: var(--trim-text);
+	color: var(--trim-text);	overflow-wrap: anywhere;
 }
 
 /* ---- The banner that says a browser tab cannot answer the real question ---- */
@@ -200,6 +200,12 @@ h1 {
 	margin: 0 0 12px;
 	color: var(--ink-soft);
 	font-size: 16px;
+	/* HIS OWN FINDING, 2026-09-18: "an ugly horizontal scroll bar appeared. I suspect that was caused
+	 * by the long SHA256 which was all in one line on the second page." He was right. The hash is
+	 * gone from both pages now — six words instead — but ANY long unbroken run (an address, a name
+	 * he was never meant to read) has to wrap rather than widen the document, so the rule lives here
+	 * rather than beside the one string that happened to break it. */
+	overflow-wrap: anywhere;
 }
 
 .step p.plain { color: var(--ink); }
@@ -275,6 +281,37 @@ button:disabled {
 	color: var(--gold-text);
 	text-decoration: underline;
 	text-underline-offset: 2px;
+}
+
+/* SIX WORDS — the certificate authority's name, in the form he can compare with the phone app's
+ * pairing screen. Large, because comparing it with another screen is the entire job of this element.
+ * `gold-text` READS (the split from `--gold`, which only paints); asserted in test/contrast.test.js
+ * against the step card in both themes. */
+.words {
+	margin: 0 0 12px;
+	font-size: 24px;
+	line-height: 1.35;
+	font-weight: 650;
+	color: var(--gold-text);
+	overflow-wrap: anywhere;
+}
+
+/* The digits, for anyone who wants to compare them with what iOS shows under "More Details". Behind
+ * a disclosure because it is not what he is being asked to do, and wrapping anywhere because a
+ * 95-character line is exactly what put a scroll bar on his phone. */
+.digits {
+	margin: 0 0 12px;
+}
+
+.digits summary {
+	font-size: 16px;
+	color: var(--ink);
+	cursor: pointer;
+}
+
+.digits .detail {
+	overflow-wrap: anywhere;
+	word-break: break-all;
 }
 
 /* The numbered taps on the trust step. */

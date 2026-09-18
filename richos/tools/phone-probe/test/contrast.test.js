@@ -141,6 +141,8 @@ const TEXT_PAIRS = [
 	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.step p.plain, 16px' },
 	{ fg: 'ink-soft', bg: 'card', floor: 4.5, where: '.step p, 16px' },
 	{ fg: 'gold-text', bg: 'card', floor: 4.5, where: '.gate, 15px 700 — bold but under 18.66px, so 4.5' },
+	{ fg: 'gold-text', bg: 'card', floor: 4.5, where: '.words, 24px 650 — the six-word root name (large text; asserted at the stricter 4.5 anyway)' },
+	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.digits summary, 16px — the disclosure that hides the digits' },
 
 	// --- the gold accent, carrying dark ink in both themes ---
 	{ fg: 'on-gold', bg: 'gold', floor: 4.5, where: '.step-n, 17px 700 — under 18.66px, so 4.5' },
