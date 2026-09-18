@@ -579,3 +579,51 @@ The pid-reuse fixture is **constructed rather than argued about**: the directory
 then a process is started, then the directory is RENAMED to carry that process's pid — rename
 preserves `st_birthtime` because the inode does not change. So the name says a live pid owns it and
 the filesystem says that process did not exist when the directory was made.
+
+---
+
+## 6. D16 — the ratchet now has a ratchet
+
+Frank's grep, re-run and confirmed: `scratch-allocation-lint.sh` appeared in nothing but a record.
+Not in `hooks/hooks.json`, not in `.claude/settings.local.json`, not in the contract-integrity probe,
+not in any test runner. **And every case in its own suite ran against a fixture tree** — the suite's
+header says so in as many words: *"the lint takes its root from `SCRATCH_LINT_ROOT`, so nothing here
+reads the real tree."* So the lint was proven correct and pointed at nothing, and its declared
+baseline of 45 could only be checked by somebody who remembered to.
+
+**L11 is the wiring.** `run-all-tests.sh` discovers every `*.test.sh` under the engine, so the lint
+now runs against the real engine in the ordinary pass. CI is paused by CEO ruling and is therefore
+not the answer; the test runner is. It asserts the **exit code and not a number** on purpose —
+pinning 45 in two places means the second one gets forgotten, so the baseline stays in the lint with
+its date and its reasoning and the case asks the lint whether it is satisfied. The count is printed
+either way, because a ratchet that only speaks when it breaks gives nobody the number to lower.
+
+**Proven by defeat, and the fixture was removed:**
+
+```
+# with a bare `mktemp -d` added in scripts/zzz-ratchet-proof.sh
+FAIL  L11 the real engine is OVER the declared scratch baseline
+      scratch-allocation-lint: 46 unallocated scratch directories across 199
+      script(s), and the declared baseline is 45.
+16 passed, 1 failed
+
+# fixture removed
+PASS  L11 the lint RUNS AGAINST THE REAL ENGINE and is satisfied (D16)
+      scratch-allocation-lint: 45 unallocated scratch directories across 198
+      script(s) — AT OR UNDER the declared baseline of 45, plus 0 exemption(s).
+17 passed, 0 failed
+```
+
+The first version of that case reported **"16 passed, 3 failed" for one defect**, because it called
+`bad` three times to print its guidance. Fixed while proving it: one `bad`, guidance on plain
+`printf`.
+
+### 6.1 And the lint's own justification was one of Frank's stale claims
+
+Its summary said *"Every one of these is swept today by the reaper's declared legacy families"*, and
+§7 of his report contradicted it directly: those families were on disk, nine to ten days old, and
+matched by nothing. **That claim is now true for a different reason and says so** — `$TMPDIR` and the
+shared temp roots are swept deny-by-default, so an unallocated site is collected whatever it is
+called. What a baselined site still lacks is **speed**: days under the deny-by-default floor, two
+hours under a declared legacy family, minutes under the allocator root. That is a real reason to keep
+migrating, and it is the honest one.

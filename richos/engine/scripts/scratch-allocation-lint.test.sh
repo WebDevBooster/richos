@@ -21,6 +21,13 @@
 #       with 45 pre-existing sites instead of red-and-waived.
 #   L9  --zero ignores the baseline.
 #   L10 the allocator and this lint are never their own findings.
+#   L11 THE LINT RUNS AGAINST THE REAL ENGINE. Every case above this one uses a
+#       fixture tree, which was frank-opus-garbage1's D16: the lint was proven
+#       correct and pointed at nothing, wired into no hook, no probe and no
+#       runner, so its declared baseline could only be checked by somebody who
+#       remembered to. run-all-tests.sh discovers every *.test.sh, so this case is
+#       the wiring — a bare `mktemp -d` added anywhere under scripts/ now turns
+#       this suite red in the ordinary pass. Proven by defeat before it shipped.
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -230,6 +237,55 @@ if [ "$RC" = "0" ]; then
 else
     bad "L10 the lint flagged the mechanism it exists to enforce"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# ---------------------------------------------------------------------------
+# L11 — THE RATCHET IS RUN AGAINST THE REAL ENGINE, AND THAT IS D16
+# ---------------------------------------------------------------------------
+# frank-opus-garbage1, D16: "the allocation lint is wired nowhere — the ratchet
+# has no ratchet."
+#
+#   $ grep -rn 'scratch-allocation-lint' --include='*.json' --include='*.sh' \
+#            --include='*.yml' --include='*.py' --include='*.md' .
+#   docs/verification/2026-09-18-garbage-always-cleaned-up.md:362   (the record)
+#   docs/verification/2026-09-18-garbage-always-cleaned-up.md:460   (the record)
+#
+# Not in hooks.json, not in .claude/settings.local.json, not in the
+# contract-integrity probe, not in any test runner. And EVERY CASE ABOVE THIS ONE
+# runs against a fixture tree — the suite's own header says so: "the lint takes
+# its root from SCRATCH_LINT_ROOT, so nothing here reads the real tree." So the
+# lint was proven correct and pointed at nothing, and its declared baseline of 45
+# could only be checked by somebody who remembered to.
+#
+# THIS CASE IS THE WIRING. run-all-tests.sh discovers every *.test.sh under the
+# engine, so a bare `mktemp -d` added anywhere in scripts/ now turns this suite red
+# in the ordinary pass. CI is paused by CEO ruling and is therefore not the answer;
+# the test runner is.
+#
+# IT ASSERTS THE EXIT CODE AND NOT A NUMBER, deliberately. Pinning 45 here would
+# mean two places to edit when somebody migrates a site, and the second one would
+# be forgotten — the baseline lives in the lint, with its date and its reasoning,
+# and this case asks the lint whether it is satisfied.
+echo ""
+if [ "${RICHOS_LINT_SELFTEST_ONLY:-0}" = "1" ]; then
+    ok "L11 SKIPPED — RICHOS_LINT_SELFTEST_ONLY=1"
+else
+    REAL_OUT="$(bash "$LINT" 2>&1)"; REAL_RC=$?
+    if [ "$REAL_RC" = "0" ]; then
+        ok "L11 the lint RUNS AGAINST THE REAL ENGINE and is satisfied (D16)"
+    else
+        # ONE `bad`, and the guidance on plain printf lines. Proven by defeat
+        # while this case was written: three `bad` calls for one failing case
+        # reported "16 passed, 3 failed" for a single defect, which makes the
+        # summary line a worse number than the case list.
+        bad "L11 the real engine is OVER the declared scratch baseline"
+        printf '        A new bare `mktemp -d` is outside the allocator. Migrate it to\n'
+        printf "        scripts/lib/scratch.sh, or declare '# scratch-exempt: <reason>'.\n"
+        printf '%s\n' "$REAL_OUT" | tail -8 | sed 's/^/        /'
+    fi
+    # AND THE COUNT IS PRINTED whether it passed or not, because a ratchet that
+    # only speaks when it breaks gives nobody the number to lower.
+    printf '        %s\n' "$(printf '%s\n' "$REAL_OUT" | grep -m1 'unallocated scratch directories' || echo 'no summary line')"
 fi
 
 echo ""
