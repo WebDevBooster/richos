@@ -1,0 +1,28 @@
+Run 1 — the first real-provider run of `question_receipt_e2e`, 2026-09-18, before the probe
+carried its tool-call accounting. Captured verbatim from the terminal.
+
+Command (from `richos/app`):
+
+    cargo run -q -p richos-core --example question_receipt_e2e -- \
+      "/Users/alex/ab/richos-wt/echo-opus-question1/richos/engine" \
+      "/Users/alex/.richos-nightly/runtime"
+
+Exit 0.
+
+---
+asked      : Did that pricing review ever actually land, or is it still sitting on a branch somewhere?
+he said    : "I'll investigate."
+send -> first words : 31.023 s
+send -> turn ended  : 31.287 s
+---
+asked      : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+he said    : "I'll investigate."
+send -> first words : 12.197 s
+send -> turn ended  : 12.539 s
+---
+assignments written: 2
+  kind=investigate state=registered title="Did the pricing review ever actually land, or is it still sitting on a branch somewhere?"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday? He wants to know what's actually causing it"
+NOTE: expected "I'll check." for this question and got "I'll investigate.". Not a failure — the estimate is the model's rough guess (§58: "just a rough estimate"). Recorded so a drift in judgment is visible.
+---
+PASS: both questions answered with one of §58's two sentences, both written down as questions.
