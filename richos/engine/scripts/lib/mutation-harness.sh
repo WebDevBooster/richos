@@ -176,16 +176,28 @@ _mut_engine_root() {
 mut_refuse_recursive_copy() { # <dest> <src>
     local dest="$1" src="$2"
     local rsrc rdest tmp root
-    # The destination usually does not exist yet, so its PARENT is resolved and
-    # the leaf appended. Resolving a path that is not there yet returns nothing
-    # and would silently pass every check below.
+    # THE DESTINATION USUALLY DOES NOT EXIST YET, so the DEEPEST EXISTING
+    # ANCESTOR is resolved and the remaining components appended.
+    #
+    # The first version resolved only the immediate parent, and its own test
+    # caught the hole: given a destination two levels down (`$SRC/inner/dest`
+    # where `inner` does not exist either), `cd "$(dirname ...)"` failed, the
+    # function took the unresolvable-path branch, and the copy was refused FOR
+    # THE WRONG REASON. It looked like a pass — the call was refused, which is
+    # what the case asserted — while the containment check had never run at all.
+    # A guard that refuses by accident is a guard that stops refusing the day the
+    # accident goes away.
     rsrc="$( cd "$src" 2>/dev/null && pwd -P )" || rsrc=""
-    rdest="$( cd "$(dirname "$dest")" 2>/dev/null && pwd -P )" || rdest=""
-    [ -n "$rdest" ] && rdest="$rdest/$(basename "$dest")"
-    if [ -z "$rsrc" ] || [ -z "$rdest" ]; then
-        echo "mutation-harness: REFUSING A COPY whose source or destination" >&2
-        echo "  cannot be resolved (src='$src' dest='$dest'). An unresolvable" >&2
-        echo "  path defeats every containment check below." >&2
+    if [ -z "$rsrc" ]; then
+        echo "mutation-harness: REFUSING A COPY whose SOURCE cannot be resolved" >&2
+        echo "  (src='$src'). An unresolvable path defeats every containment" >&2
+        echo "  check below, so it is refused rather than guessed at." >&2
+        return 1
+    fi
+    rdest="$(_mut_resolve_future "$dest")"
+    if [ -z "$rdest" ]; then
+        echo "mutation-harness: REFUSING A COPY whose DESTINATION cannot be" >&2
+        echo "  resolved (dest='$dest') — no existing ancestor to resolve from." >&2
         return 1
     fi
 
@@ -229,6 +241,37 @@ mut_refuse_recursive_copy() { # <dest> <src>
         esac
     fi
     return 0
+}
+
+# _mut_resolve_future <path> — the absolute, symlink-resolved form of a path that
+# does not exist yet.
+#
+# Walks up to the deepest ancestor that DOES exist, resolves that with
+# `cd`+`pwd -P`, and re-appends the components that were trimmed. Symlinks are
+# therefore resolved for the real part of the path and taken literally for the
+# part that is not there — which is the only answer available, and the right one
+# for a containment test: a component that does not exist cannot be a symlink to
+# somewhere else.
+_mut_resolve_future() { # <path>
+    local p="${1:-}" tail="" base real
+    [ -n "$p" ] || return 0
+    case "$p" in
+        /*) : ;;
+        *)  p="$PWD/$p" ;;
+    esac
+    while [ "$p" != "/" ] && [ -n "$p" ] && [ ! -d "$p" ]; do
+        base="$(basename "$p")"
+        tail="${tail:+$base/$tail}"
+        tail="${tail:-$base}"
+        p="$(dirname "$p")"
+    done
+    real="$( cd "$p" 2>/dev/null && pwd -P )" || return 0
+    [ -n "$real" ] || return 0
+    if [ -n "$tail" ]; then
+        printf '%s/%s\n' "${real%/}" "$tail"
+    else
+        printf '%s\n' "$real"
+    fi
 }
 
 _mut_scratch_root() {

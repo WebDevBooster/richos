@@ -62,6 +62,35 @@
 # maker allocated here.
 #
 # ===========================================================================
+# WHICH PID `$$` IS, AND WHY THAT IS THE RIGHT ONE
+# ===========================================================================
+# In bash, `$$` inside a subshell is the pid of the SCRIPT, not of the subshell.
+# So an allocation made in `( ... ) &`, in a `$( )`, or inside a mutation-pool
+# worker is attributed to the top-level run rather than to the worker.
+#
+# THAT IS DELIBERATE AND IT IS THE SAFER ATTRIBUTION. The question the sweeper
+# asks is "may I delete this", and the honest owner of a worker's sandbox is the
+# RUN and not the worker: a pool that has finished one mutant and moved on may
+# still read that directory, and a parent script whose worker exited has not
+# finished with the tree. Attributing to the subshell would make every completed
+# worker's sandbox immediately reapable while its run was still going.
+#
+# It also costs nothing in the case this exists for. On 2026-09-17 the thing that
+# died was the SCRIPT — root-contract.mutation.sh, exit 144 — so its `$$` died
+# with it and every sandbox it had allocated became reapable at once. A run that
+# is killed loses its pid; a run that is merely between mutants does not.
+#
+# `$BASHPID` would give the subshell's own pid and is NOT used: macOS ships bash
+# 3.2.57 as /bin/bash and does not have it, and a mechanism that behaved one way
+# under the system shell and another under a newer one is a mechanism whose tests
+# do not describe production.
+#
+# MEASURED while writing the kill -9 case in mutation-harness-guards.test.sh: a
+# `( ... ) &` victim was correctly KEPT, because the test suite that spawned it
+# was still alive and owned the row. The TEST was wrong, not the attribution —
+# the case now kills a real separate `bash -c` child, whose `$$` is its own.
+#
+# ===========================================================================
 # WHY THE PID IS IN THE DIRECTORY NAME AS WELL AS IN THE LEDGER
 # ===========================================================================
 # Two records of the same fact, deliberately, because they fail differently.
