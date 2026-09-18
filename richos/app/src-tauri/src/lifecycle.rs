@@ -179,6 +179,62 @@ pub fn quit_question(registered: &Registered) -> String {
     )
 }
 
+/// **WHY A QUIT WAS ALLOWED, so a walk can tell one red button from another** — audit-10
+/// row 5.
+///
+/// Ray closed the window twice on candidate .10 and got two different outcomes from one
+/// control. With work registered, `.9` wrote a line and he could read it:
+///
+/// ```text
+/// [richos] window closed with work registered: RichOS stays running with no window.
+///          The Dock icon brings it back.
+/// ```
+///
+/// With nothing registered the app quit and `app.log` carried **nothing at all**
+/// (`docs/verification/2026-09-18-nightly-1.2.0-nightly.20260918.5-onscreen-audit.md` §5).
+/// He is right that the behavior is bimodal and he is explicitly NOT calling the quit wrong,
+/// and neither is this: the nothing-registered quit is the spec, by name. §2.4 is *"idle must
+/// still quit"*, with the reason *"otherwise every user leaves invisible processes behind"*,
+/// and the branch table at `docs/verification/two-riches-window-and-recovery-2026-09-17.md:161`
+/// records it as "exactly today's behavior". So the defect is not the decision. It is that
+/// **one of the two paths says what it did and the other is silent**, which leaves a walk
+/// unable to distinguish "quit as designed" from "died".
+///
+/// `None` means the exit was not allowed — the caller has a `StayResident` or an
+/// `AskBeforeQuitting`, both of which already log or ask for themselves.
+///
+/// **THE BRANCH ORDER MIRRORS `decide` AND A TEST REFUSES TO LET THE TWO DRIFT.** A reason
+/// function that says something `decide` did not do would be worse than no line, because a
+/// walk would then be reading a confident sentence about the wrong branch — so
+/// `every_allowed_exit_has_exactly_one_reason_and_no_other_decision_has_any` sweeps the whole
+/// request space and asserts `allow_reason(r).is_some()` exactly when `decide(r)` is `Allow`.
+pub fn allow_reason(request: &ExitRequest) -> Option<&'static str> {
+    if request.confirmed {
+        return Some(
+            "quit confirmed: he was asked and answered \"quit and stop the work\". RichOS is \
+             ending, and everything the work produced is kept.",
+        );
+    }
+    if !request.registered.anything() {
+        return Some(
+            "last window closed with nothing registered: RichOS quits. Nothing was running \
+             and nothing was waiting for him, so there is nothing to stay alive for \
+             (background-work spec \u{a7}2.4 \u{2014} idle must still quit).",
+        );
+    }
+    if request.programmatic {
+        return None;
+    }
+    if request.can_come_back {
+        return None;
+    }
+    Some(
+        "window closed with work registered and NO way back in \u{2014} this launch has no Dock \
+         icon, so staying resident would leave a process he can neither see nor reach. RichOS \
+         quits and the work stops with it (\u{a7}2.4b).",
+    )
+}
+
 /// The two answers, as the surface names them. Here rather than in the page because a
 /// control's words and the action behind it drifting apart is the defect the affordance
 /// gate exists for.
@@ -194,6 +250,86 @@ mod tests {
     }
     fn some_work() -> Registered {
         Registered { running: 1, awaiting_you: 0, readable: true }
+    }
+
+    /// **The whole request space, so `allow_reason` can never describe a branch `decide` did
+    /// not take** — audit-10 row 5.
+    ///
+    /// Two functions with the same five branches in the same order is a drift waiting to
+    /// happen, and the cost of that drift is specific: a walk reads a confident sentence
+    /// about the wrong branch and trusts it. So this enumerates every shape an `ExitRequest`
+    /// can have — 2 x 2 x 2 over the flags, crossed with every interesting register state,
+    /// 48 requests — and asserts the two agree on every one.
+    #[test]
+    fn every_allowed_exit_has_exactly_one_reason_and_no_other_decision_has_any() {
+        let registers = [
+            Registered::nothing(),
+            Registered { running: 1, awaiting_you: 0, readable: true },
+            Registered { running: 0, awaiting_you: 1, readable: true },
+            Registered { running: 2, awaiting_you: 3, readable: true },
+            Registered { running: 0, awaiting_you: 0, readable: false },
+            Registered { running: 1, awaiting_you: 1, readable: false },
+        ];
+        let mut allowed = 0;
+        let mut refused = 0;
+        for registered in registers {
+            for programmatic in [false, true] {
+                for confirmed in [false, true] {
+                    for can_come_back in [false, true] {
+                        let r = ExitRequest { programmatic, confirmed, registered, can_come_back };
+                        let decision = decide(&r);
+                        let reason = allow_reason(&r);
+                        if decision == ExitDecision::Allow {
+                            allowed += 1;
+                            let said = reason.unwrap_or_else(|| {
+                                panic!("decide allowed {r:?} and allow_reason had nothing to say")
+                            });
+                            // A LINE A PERSON CAN ACT ON, not a token. The StayResident line
+                            // this one is built to sit beside is a sentence, and a walk
+                            // comparing the two has to tell them apart by reading.
+                            assert!(said.len() > 40, "the reason for {r:?} is not a sentence: {said:?}");
+                            assert!(
+                                !said.contains("lease") && !said.contains("obligation"),
+                                "the reason for {r:?} leaked machinery: {said:?}"
+                            );
+                        } else {
+                            refused += 1;
+                            assert!(
+                                reason.is_none(),
+                                "decide returned {decision:?} for {r:?} and allow_reason still \
+                                 claimed {reason:?} — a walk would read that as a quit"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // POSITIVE CONTROL ON THE SWEEP ITSELF: a matrix that happened to be all-allow or
+        // all-refuse would pass the loop above while proving nothing about the other side.
+        assert_eq!(allowed + refused, 48, "the sweep did not cover the space it claims to");
+        assert!(allowed > 0 && refused > 0, "the sweep never saw both outcomes: {allowed} / {refused}");
+    }
+
+    /// The two paths a person at the Mac can actually take with the red button, and the
+    /// point of the row: **they must not read the same.**
+    #[test]
+    fn the_two_red_button_outcomes_say_different_things() {
+        let idle = ExitRequest {
+            programmatic: false,
+            confirmed: false,
+            registered: Registered::nothing(),
+            can_come_back: true,
+        };
+        assert_eq!(decide(&idle), ExitDecision::Allow);
+        let said = allow_reason(&idle).expect("the quit that ended Ray's walk says nothing");
+        assert!(said.contains("nothing registered"), "{said}");
+        assert!(said.contains("quits"), "{said}");
+
+        // The other path is the one that already had a line, and it must still not produce
+        // one from here — `main.rs` logs `StayResident` itself.
+        let working = ExitRequest { registered: some_work(), ..idle };
+        assert_eq!(decide(&working), ExitDecision::StayResident);
+        assert_eq!(allow_reason(&working), None);
     }
 
     /// **Row 5, both halves, and the second half is the one that must not regress.**

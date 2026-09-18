@@ -2906,7 +2906,19 @@ fn main() {
                         can_come_back: state.can_come_back,
                     };
                     match lifecycle::decide(&request) {
-                        lifecycle::ExitDecision::Allow => {}
+                        lifecycle::ExitDecision::Allow => {
+                            // AUDIT-10 ROW 5: THE OTHER HALF OF THE RED BUTTON NOW SAYS SO
+                            // TOO. Ray closed the window with nothing registered, the app
+                            // quit, and `app.log` carried no line at all — while the
+                            // work-registered path below has written one since .9. One
+                            // control, two outcomes, and only one of them readable
+                            // afterwards, so a walk could not tell a quit-as-designed from a
+                            // death. The DECISION is unchanged and is not in question: §2.4
+                            // is "idle must still quit". Only the silence was.
+                            if let Some(why) = lifecycle::allow_reason(&request) {
+                                eprintln!("[richos] {why}");
+                            }
+                        }
                         lifecycle::ExitDecision::StayResident => {
                             api.prevent_exit();
                             eprintln!(
