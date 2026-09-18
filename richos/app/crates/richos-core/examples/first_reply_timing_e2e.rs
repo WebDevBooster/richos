@@ -16,10 +16,33 @@
 //! measured the same path at 12.197 s, 19.343 s, 22.956 s and 31.023 s to his first words, with
 //! two `ToolSearch` round trips and a continuity checkpoint ahead of the register.
 //!
+//! # And the other half: no ECS write ahead of his words, and does what was written DISPATCH?
+//!
+//! Two things were added on 2026-09-18 after the register began opening the obligation itself
+//! (`assignment_tools.rs`), and neither is a timing measurement:
+//!
+//! 1. **The front desk's continuity grant is watched on its own thread for the whole of every
+//!    turn** ([`GrantWatch`]) — the `richos_continuity` server's own scope file, shut by
+//!    `Cognition::prompt` at the start of a turn and opened by
+//!    `ReaderState::he_has_now_been_spoken_to` at his first words. The frame-level rule sees an
+//!    ECS write that HAPPENED; this sees whether one was POSSIBLE, which is the half a model
+//!    that simply chose not to write would hide. It is watched across the PRIMING turn too,
+//!    where it must never open: an internal turn he never saw opening the grant would hand the
+//!    next real turn one that was already open.
+//! 2. **`richos_work.prepare` is driven for real** ([`does_it_dispatch`]), against the
+//!    obligation the register opened (must reach the dispatch step) and against the old shape —
+//!    a model-typed obligation nobody ever opened (must be refused at `app.py:318-321`). The
+//!    previous record could only state this from source; this measures it.
+//!
 //! # What it costs and what it touches
 //!
-//! **THREE MODEL TURNS on the CEO's subscription** — the lease's PRIMING turn, then one task and
-//! one question — and it is opt-in for exactly that reason. The priming turn is counted here
+//! **`RICHOS_PROBE_DISPATCH_ONLY=1` runs the whole of (2) with NO lease, NO provider and NO
+//! model turn**: the register's own code writes the assignment and the engine's own `prepare`
+//! judges it, so the join can be re-checked for nothing, forever. That mode is also how the
+//! dispatch section was developed and proven red before a single model turn was spent on it.
+//!
+//! **THREE MODEL TURNS on the CEO's subscription** for the full run — the lease's PRIMING turn,
+//! then one task and one question — and it is opt-in for exactly that reason. The priming turn is counted here
 //! because it always ran: before 2026-09-18 it ran inside the first `submit_prompt` and the probe
 //! measured it as part of turn 1 without naming it, which is how a run of this example came to be
 //! described as two model turns when it spent three. Everything it writes goes into a throwaway directory under the system
@@ -31,11 +54,12 @@
 //! Run:
 //! ```text
 //! cargo run -p richos-core --example first_reply_timing_e2e -- <engine> <delivered-runtime>
+//! RICHOS_PROBE_DISPATCH_ONLY=1 cargo run -p richos-core --example first_reply_timing_e2e -- …
 //! ```
 
 use richos_core::live::LiveEvent;
 use richos_core::{ecs::EcsBridge, native::{resolve_claude_bin, NativeCognition}};
-use richos_core::{EntityId, EntityRegistry, Ledger, Source, Spine};
+use richos_core::{Cognition, EntityId, EntityRegistry, Ledger, Source, Spine};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -156,6 +180,301 @@ impl richos_core::live::LiveObserver for FirstWords {
     }
 }
 
+/// **The front desk's continuity grant, watched on its own thread for the whole of a turn.**
+///
+/// This is the second scope file — `richos_continuity`'s own copy, the one
+/// `ReaderState::he_has_now_been_spoken_to` opens at his first words and `Cognition::prompt`
+/// shuts at the start and end of every turn. It is what the engine's adapter actually reads,
+/// re-read on every call (`engine/ecs/adapters/mcp.py:18-26`), so **WHEN it flips is the whole
+/// of "no ECS write precedes his first words"** — the frame-level rule
+/// ([`richos_core::first_reply::first_reply_faults`]) sees a write that happened, and this
+/// sees whether one was POSSIBLE.
+///
+/// **Why a poller and not a read at the event.** The grant is opened inside the reader, under
+/// its lock, in the same call that routes his first words — reading the file from the live
+/// observer would read it after the flip whatever the true order was, and putting a filesystem
+/// read on the thread whose latency is the measurement is the last thing this probe should do.
+/// A 400-byte read every 2 ms on a thread of its own costs nothing and is biased LATE, which is
+/// the safe direction: an observed open before his first words is a real fault, never an
+/// artifact of the sampling.
+struct GrantWatch {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    opened_at: Arc<Mutex<Option<f64>>>,
+    /// Was it shut when the watch began? On a turn, that is `Cognition::prompt`'s positive
+    /// close; on the priming turn, it is the file `start_with_engine` writes.
+    closed_at_start: bool,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl GrantWatch {
+    fn is_open(path: &std::path::Path) -> bool {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| value.get("actions_allowed").and_then(serde_json::Value::as_bool))
+            == Some(true)
+    }
+
+    fn start(path: &std::path::Path, from: Instant) -> Self {
+        let closed_at_start = !Self::is_open(path);
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let opened_at: Arc<Mutex<Option<f64>>> = Arc::new(Mutex::new(None));
+        let handle = {
+            let path = path.to_path_buf();
+            let stop = stop.clone();
+            let opened_at = opened_at.clone();
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    if Self::is_open(&path) {
+                        *opened_at.lock().unwrap() = Some(from.elapsed().as_secs_f64());
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            })
+        };
+        Self { stop, opened_at, closed_at_start, handle: Some(handle) }
+    }
+
+    /// `(it was shut when the watch began, the first instant it was seen open)`.
+    fn finish(mut self) -> (bool, Option<f64>) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        (self.closed_at_start, *self.opened_at.lock().unwrap())
+    }
+}
+
+/// The `prepare` harness, run by the delivered interpreter against the engine's own module.
+///
+/// `app.py`'s `call` IS the whole tool handler — `__main__` only wires it to the MCP transport
+/// (`transport.serve(..., handler=call)`), and every gate this probe is about lives inside it:
+/// `read_scope` (the grant, the host-issued partition, the workspace authority) and then
+/// `prepare`'s own obligation check. So this calls `call` directly rather than reimplementing a
+/// JSON-RPC handshake to reach the same function.
+const PREPARE_HARNESS: &str = r#"import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("richos_mega_lander_app", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    print(json.dumps({"ok": True, "result": module.call(sys.argv[2], "prepare", json.loads(sys.argv[3]))}))
+except Exception as error:
+    print(json.dumps({"ok": False, "error": "%s: %s" % (type(error).__name__, error)}))
+"#;
+
+/// **The engine's own refusal when the obligation is not there to dispatch against** — the two
+/// sentences `prepare` can stop at on lines 318-321 of `mega-lander/app.py`, quoted from the
+/// engine rather than paraphrased: `ecs_inspect.py:78` raises the first when the item does not
+/// exist on the seat doing the looking, and `app.py:321` raises the second when it exists and
+/// its status is outside `("accepted","active","pending","blocked")`.
+fn refused_at_the_obligation_gate(detail: &str) -> bool {
+    detail.contains("item is absent or outside the active scope")
+        || detail.contains("dispatch requires an accepted open obligation")
+}
+
+/// One real `prepare`, driven exactly as a work lease drives it.
+///
+/// Everything here is the host's, which is the point: the work scope is written by
+/// `native.rs`'s `prepare_work_turn` in the app and by this function in the probe, with the
+/// same fields — `actions_allowed: true` (the standing grant, spec §5.4), the binding from
+/// `bind_work_seat` whose `turn_id` IS the obligation, and the frozen instruction reference.
+/// `carried_obligation` then reads the obligation off that binding and the model never sees it.
+#[allow(clippy::too_many_arguments)]
+fn drive_prepare(
+    bridge: &EcsBridge,
+    runtime: &richos_core::runtime::EngineRuntime,
+    engine: &PathBuf,
+    state_root: &PathBuf,
+    coordination: &PathBuf,
+    scratch: &PathBuf,
+    entity: &str,
+    thread: &str,
+    session: &str,
+    obligation: &str,
+    seat: &str,
+    instruction_ledger_ref: &str,
+    instruction_sha256: &str,
+    repo: &str,
+    request_id: &str,
+    title: &str,
+) -> Result<(bool, String), Box<dyn std::error::Error>> {
+    let binding = bridge.bind_work_seat(entity, thread, session, obligation, seat)?;
+    let scope_path = scratch.join(format!("work-scope-{}.json", uuid::Uuid::new_v4()));
+    richos_core::ecs::write_scope(
+        &scope_path,
+        &richos_core::ecs::ToolScope {
+            version: 1,
+            actions_allowed: true,
+            bridge: bridge.clone(),
+            binding,
+            user_instruction: Some(richos_core::ecs::UserInstruction {
+                ledger_ref: instruction_ledger_ref.to_string(),
+                sha256: instruction_sha256.to_string(),
+            }),
+            seat: Some(seat.to_string()),
+        },
+    )?;
+    let harness = scratch.join("drive_prepare.py");
+    std::fs::write(&harness, PREPARE_HARNESS)?;
+    // `read_scope`'s workspace-authority check: the same digest `EngineProfile::workspace_state`
+    // computes, and `app.py:64-66` recomputes, over `[entity_id, thread_id]`.
+    use sha2::Digest;
+    let partition = format!("{:x}", sha2::Sha256::digest(serde_json::to_vec(&(entity, thread))?));
+    let workspaces = state_root.join("workspaces").join(&partition);
+    let arguments = serde_json::json!({
+        "request_id": request_id,
+        "repo": repo,
+        "title": title,
+        "brief": "This probe never dispatches the payload. It exists to find out whether what the \
+                  register wrote is a thing the engine will prepare work against.",
+        "role": "worker",
+    });
+    let mut command = std::process::Command::new(&runtime.python);
+    richos_core::runtime::isolate_interpreter_environment(&mut command);
+    command
+        .arg(&harness)
+        .arg(engine.join("mega-lander/app.py"))
+        .arg(&scope_path)
+        .arg(arguments.to_string())
+        .env("PATH", runtime.path())
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("RICHOS_APP_STATE", state_root)
+        .env("RICHOS_APP_ENTITY", entity)
+        .env("RICHOS_APP_THREAD", thread)
+        .env("RICHOS_WORKSPACES_DIR", &workspaces)
+        .env("RICHOS_APP_REGISTRY", coordination.parent().unwrap().join("entities.json"))
+        .env("RICHOS_ENTITY_ROOT", coordination)
+        .env("RICHOS_ENGINE_ROOT", engine)
+        .env("RICHOS_ENGINE_DIR", engine);
+    let output = command.output()?;
+    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+        format!(
+            "the prepare harness said nothing this reader understands: stdout {:?} stderr {:?}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })?;
+    if answer["ok"] == serde_json::Value::Bool(true) {
+        Ok((true, answer["result"].to_string()))
+    } else {
+        Ok((false, answer["error"].as_str().unwrap_or_default().to_string()))
+    }
+}
+
+/// **DOES WHAT THE REGISTER WROTE ACTUALLY DISPATCH?** — `mega-lander/app.py:318-321`, driven.
+///
+/// Returns the faults, so the caller scores this on the same list as everything else.
+fn does_it_dispatch(
+    bridge: &EcsBridge,
+    runtime: &richos_core::runtime::EngineRuntime,
+    engine: &PathBuf,
+    state_root: &PathBuf,
+    coordination: &PathBuf,
+    scratch: &PathBuf,
+    session: &str,
+    repo: &std::path::Path,
+    recorded: &[richos_core::assignment::Assignment],
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut failures = Vec::new();
+    // ====================================================================================
+    // AND DOES WHAT THE REGISTER WROTE ACTUALLY DISPATCH? — `mega-lander/app.py:318-321`
+    // ====================================================================================
+    //
+    // **THE JOIN THIS WHOLE SLICE EXISTS FOR, DRIVEN ON THE REAL ENGINE RATHER THAN READ OFF
+    // ITS SOURCE.** The previous record could only state it: *"both of run A's assignments carry
+    // an obligation that was never opened, and `prepare` would refuse them"* — read off
+    // `app.py:318-321` and the absence of any ECS write in run A's trace, with no dispatch
+    // attempted. That is the sentence this section replaces with a measurement.
+    //
+    // Both directions are driven, because a green that cannot go red is not evidence:
+    //
+    // - **GREEN** — each assignment the register wrote, against the obligation the register
+    //   opened for it. The engine must get PAST its obligation gate.
+    // - **RED** — the OLD SHAPE, and it is not a synthetic one: the obligation id is
+    //   `land-pricing-branch-staging-deploy`, verbatim what run B's model minted for the same
+    //   sentence (`first-words-2026-09-18.md`, finding 2), carried by a lease exactly as a real
+    //   one would carry it. Nothing ever opened it, so the engine must refuse.
+    //
+    // **The obligation is also read straight off the store first**, on the work seat, with the
+    // same `inspect` `prepare` makes — so a green here is a positive observation of the item's
+    // status and not merely `prepare` failing somewhere else.
+    let repo_argument = std::fs::canonicalize(repo)?.to_string_lossy().to_string();
+    let mut dispatch = Vec::new();
+    let opened_by_the_register: Vec<(String, String)> =
+        recorded.iter().map(|row| (row.obligation_id.clone(), row.seat.clone())).collect();
+    let old_shape = ("land-pricing-branch-staging-deploy".to_string(),
+                     "work-seat:land-pricing-branch-staging-deploy".to_string());
+    for (index, (obligation, seat)) in opened_by_the_register.iter().chain(std::iter::once(&old_shape)).enumerate() {
+        let from_the_register = index < opened_by_the_register.len();
+        let row = recorded.first();
+        let (entity, thread_id, ledger_ref, digest) = match row {
+            Some(row) => (row.entity_id.clone(), row.thread_id.clone(),
+                          row.instruction_ledger_ref.clone(), row.instruction_sha256.clone()),
+            None => break,
+        };
+        let binding = bridge.bind_work_seat(&entity, &thread_id, session, obligation, seat)?;
+        let state = bridge.obligation_state(&binding, Some(seat), obligation)?;
+        let (ok, detail) = drive_prepare(
+            bridge, runtime, engine, state_root, coordination, scratch,
+            &entity, &thread_id, &session, obligation, seat, &ledger_ref, &digest,
+            &repo_argument, &format!("probe-dispatch-{index}"), "Probe: does this obligation dispatch?",
+        )?;
+        eprintln!("---");
+        eprintln!(
+            "prepare against {} obligation {obligation}",
+            if from_the_register { "the REGISTER's own" } else { "the OLD SHAPE's never-opened" }
+        );
+        eprintln!("    the store says its status is : {state:?}");
+        eprintln!("    prepare {} : {detail}", if ok { "answered" } else { "refused" });
+        dispatch.push((from_the_register, obligation.clone(), state, ok, detail));
+    }
+    for (from_the_register, obligation, state, ok, detail) in &dispatch {
+        if *from_the_register {
+            if *state != richos_core::cognition::ObligationState::Open {
+                failures.push(format!(
+                    "the register opened {obligation} and the store reads it {state:?} from the work \
+                     seat — `prepare` inspects it exactly there (`app.py:319`)"
+                ));
+            }
+            if refused_at_the_obligation_gate(detail) {
+                failures.push(format!(
+                    "`prepare` refused the register's own obligation {obligation} at the dispatch \
+                     gate: {detail}"
+                ));
+            }
+            // **AND IT GOT ALL THE WAY TO THE DISPATCH, which is what makes this a positive
+            // observation rather than "it failed somewhere else".** After the obligation gate
+            // `prepare` still checks the host-attested instruction, the connected repository,
+            // the main checkout, the role, the request-id reuse and the per-obligation
+            // unresolved-work rule, then writes the receipt and the brief and builds the spawn
+            // command (`app.py:322-430`). Reaching `spawn:` means every one of those passed. A
+            // refusal anywhere in between would leave this green check passing on a technicality,
+            // so it is a fault.
+            if !ok && !detail.contains("spawn: refused by") {
+                failures.push(format!(
+                    "`prepare` stopped before the dispatch step on the register's own obligation \
+                     {obligation}, so nothing here shows the assignment is dispatchable: {detail}"
+                ));
+            }
+        } else {
+            if *state != richos_core::cognition::ObligationState::Absent {
+                failures.push(format!(
+                    "the old shape's obligation {obligation} reads {state:?} in the store — it was \
+                     never opened, so this probe is no longer testing the thing it says it is"
+                ));
+            }
+            if *ok || !refused_at_the_obligation_gate(detail) {
+                failures.push(format!(
+                    "the OLD SHAPE was not refused at the dispatch gate, so the green above proves \
+                     nothing: prepare said {detail}"
+                ));
+            }
+        }
+    }
+    Ok(failures)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     // **The app-owned MCP servers are served by THIS executable**, because `mcp_config` points
@@ -232,6 +551,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let thread = spine.create_thread("First reply probe", &EntityId::parse("depot")?)?;
     profile.scope_to(&spine.ledger().thread_binding(&thread)?)?;
     let state_root = profile.state.clone();
+    let coordination = profile.coordination.clone();
+
+    // ====================================================================================
+    // `RICHOS_PROBE_DISPATCH_ONLY=1` — THE JOIN, WITH NO MODEL AND NO PROVIDER AT ALL
+    // ====================================================================================
+    //
+    // **The dispatch half of this probe costs nothing and therefore must be runnable for
+    // nothing.** Everything below this block spends the CEO's subscription — a priming turn and
+    // two visible turns — and the question "does what the register wrote dispatch?" has no model
+    // in it: the register's own code writes the assignment, the engine's own `prepare` judges it.
+    // So this mode calls `assignment_tools::call` directly, on the real `EcsObligations` opener
+    // and the real bridge, and then runs the same `does_it_dispatch` the measured run runs.
+    //
+    // It was also how the dispatch section was developed and proven before a single model turn
+    // was spent on it, which is the reason it exists rather than a side effect of it.
+    if std::env::var_os("RICHOS_PROBE_DISPATCH_ONLY").is_some() {
+        eprintln!("RICHOS_PROBE_DISPATCH_ONLY: no lease is started and no model turn is spent.");
+        let session = format!("probe-session-{}", uuid::Uuid::new_v4());
+        let seat = richos_core::ecs::ceo_seat(&thread).filter(|_| bridge.supports_ceo_thread_seats());
+        let binding = bridge.bind("depot", &thread, &session, "probe-turn", seat.as_deref(), "ceo")?;
+        let scope_path = root.0.join("assignments-dispatch-only.json");
+        use sha2::Digest;
+        richos_core::assignment_tools::write_scope(&scope_path, &richos_core::assignment_tools::AssignmentToolScope {
+            version: 1,
+            actions_allowed: true,
+            state_root: state_root.clone(),
+            entity_id: "depot".into(),
+            thread_id: thread.clone(),
+            instruction_ledger_ref: format!("ledger:{thread}:probe-turn"),
+            instruction_sha256: format!("{:x}", sha2::Sha256::digest(b"dispatch-only rehearsal")),
+            obligation_desk: Some(richos_core::assignment_tools::ObligationDesk {
+                bridge: bridge.clone(), binding, seat,
+            }),
+        })?;
+        // One of each kind, the same two the measured run puts in front of the model — so the
+        // `commitment`/`open_loop` split is exercised here too, and both must dispatch.
+        // `task` and `investigate` are two of the three kinds `AssignmentKind::parse` accepts
+        // (`assignment.rs:259-261`) and they are the two the measured run produces: the task
+        // opens a `commitment`, the investigate an `open_loop` (§58). Both must dispatch, and
+        // the split is exactly what `EcsObligations::open` decides on.
+        for (kind, assignment) in [("task", "Land the pricing branch and get the staging deploy done."),
+                                   ("investigate", "Why has the nightly build been failing since Tuesday?")] {
+            let answer = richos_core::assignment_tools::call(
+                &scope_path,
+                richos_core::assignment_tools::RECORD_TOOL_NAME,
+                serde_json::json!({"assignment": assignment, "kind": kind}),
+            )?;
+            eprintln!("the register said : {answer}");
+        }
+        let recorded = richos_core::assignment::read_all(&state_root, "depot", &thread)?;
+        eprintln!("assignments written: {}", recorded.len());
+        let failures = does_it_dispatch(
+            &bridge, &runtime, &engine, &state_root, &coordination, &root.0, &session, &repo, &recorded,
+        )?;
+        if !failures.is_empty() {
+            for why in &failures { eprintln!("FAIL: {why}"); }
+            return Err(format!("{} dispatch check(s) failed", failures.len()).into());
+        }
+        eprintln!("---");
+        eprintln!("PASS: every obligation the register opened is one the engine will prepare work \
+                   against, and the old shape is refused at the same gate.");
+        return Ok(());
+    }
+
     let cognition = NativeCognition::start_with_engine(
         &resolve_claude_bin(),
         &doctrine,
@@ -241,9 +624,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         profile,
         None,
     )?;
+    let session = cognition.session_id().to_string();
     spine.set_central_root(data.join("corpus"));
     spine.set_onboarding_record(data.join("onboarding.json"));
     spine.attach_lease(Box::new(cognition));
+
+    // **THE SECOND SCOPE FILE, FOUND RATHER THAN CONSTRUCTED.** `start_with_engine` names it
+    // `<uuid>-continuity-tools.json` under the profile's `scopes` directory and hands the path
+    // to the child; the probe looks it up by that suffix so a rename shows up as this line
+    // failing rather than as a watch that silently watches nothing. Exactly one lease exists
+    // here, so exactly one file must match.
+    let grant_path = {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(state_root.join("scopes"))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.to_string_lossy().ends_with("-continuity-tools.json"))
+            .collect();
+        match found.len() {
+            1 => found.pop().unwrap(),
+            other => return Err(format!(
+                "expected exactly one continuity-tools scope under {}, found {other} — the file \
+                 `ReaderState::he_has_now_been_spoken_to` opens is not where this probe looks",
+                state_root.join("scopes").display()
+            ).into()),
+        }
+    };
 
     // ================================================================================
     // THE PRIMING TURN, BEFORE HE TYPES (CEO §55)
@@ -264,10 +669,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     } else {
         let started = Instant::now();
+        // **A PRIMING TURN IS NOT HIM, AND THIS IS WHERE THAT IS MEASURED RATHER THAN ASSERTED.**
+        // `he_has_now_been_spoken_to` returns early on `context_only`, so the grant must still
+        // be shut when the priming turn ends. If it opened here, the next real turn would start
+        // with an already-open grant and the whole deferral would be undone by a turn he never
+        // saw — silently, because the priming turn's text is discarded and never rendered.
+        let watch = GrantWatch::start(&grant_path, started);
         let verdict = spine.prime_front_desk(&thread);
         let elapsed = started.elapsed().as_secs_f64();
+        let (shut_before_priming, opened_during_priming) = watch.finish();
         eprintln!("---");
         eprintln!("front desk made ready before he types : {elapsed:.3} s  ({verdict:?})");
+        eprintln!(
+            "the continuity grant across the priming turn : shut at its start = {shut_before_priming}, \
+             opened at = {opened_during_priming:?}"
+        );
+        if !shut_before_priming {
+            return Err("the continuity grant was already open before the priming turn ran".into());
+        }
+        if let Some(at) = opened_during_priming {
+            return Err(format!(
+                "the continuity grant opened at {at:.3} s DURING the priming turn — an internal \
+                 turn he never saw handed the next real turn an open grant (`context_only`)"
+            ).into());
+        }
         match verdict {
             richos_core::spine::FrontDeskReady::Ready { .. } => Some(elapsed),
             other => return Err(format!("the desk was not made ready, so nothing below is measuring what it says: {other:?}").into()),
@@ -293,8 +718,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sent = Instant::now();
         *before.start.lock().unwrap() = Some(sent);
         *first_words.start.lock().unwrap() = Some(sent);
+        let watch = GrantWatch::start(&grant_path, sent);
         let turn = spine.submit_prompt(text, Source::Text)?;
         let turn_ended = sent.elapsed();
+        let (grant_shut_at_send, grant_opened_at) = watch.finish();
         let to_first_words = first_words.at.lock().unwrap().map(|at| at.duration_since(sent).as_secs_f64());
         let said = spine.ledger().turn(&turn).unwrap().assistant_text.trim().to_string();
         let ahead = before.calls.lock().unwrap().clone();
@@ -328,7 +755,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (label, at) in &trace {
             eprintln!("    {at:>7.3} s  {label}");
         }
-        rows.push((kind, said, to_first_words, ahead, runs, trace));
+        eprintln!(
+            "the continuity grant : shut at the send = {grant_shut_at_send}, first seen open at = {}",
+            grant_opened_at.map(|at| format!("{at:.3} s")).unwrap_or_else(|| "never".into())
+        );
+        rows.push((kind, said, to_first_words, ahead, runs, trace, grant_shut_at_send, grant_opened_at));
     }
 
     // What the register actually holds. A right reply over a wrong record would be half the
@@ -347,7 +778,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // asked for and the doctrine could not enforce: nothing ahead of the reply that does not
     // have to be there, and the hand-over first when there is one.
     let mut failures = Vec::new();
-    for (index, (kind, said, to_first_words, ahead, runs, trace)) in rows.iter().enumerate() {
+    for (index, (kind, said, to_first_words, ahead, runs, trace, grant_shut_at_send, grant_opened_at))
+        in rows.iter().enumerate()
+    {
         // **The lease's FIRST visible turn is a different measurement and gets its own budget.**
         // Measured on the same run: the model's first tool call at 11.714 s cold against 3.122 s
         // warm, all of it in front of the register. Handing the cold turn the warm budget would
@@ -395,6 +828,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(fault) = richos_core::first_reply::first_words_not_from_the_app(answered_at, *to_first_words) {
             failures.push(format!("[{kind}] {fault}"));
         }
+        // **SCORED: NO ECS WRITE COULD HAVE PRECEDED HIS FIRST WORDS.** The rule above catches a
+        // write that HAPPENED; this catches the turn where one was possible and the model simply
+        // did not make it. The grant is the `richos_continuity` server's own scope file, which
+        // the engine's adapter re-reads on every call (`engine/ecs/adapters/mcp.py:18-26`), so
+        // while it reads false every continuity tool is refused inside the server — not at a
+        // permission desk the child may never consult, which is exactly how the gate that landed
+        // on 2026-09-18 came to enforce nothing (finding 1 of the previous record).
+        if !grant_shut_at_send {
+            failures.push(format!(
+                "[{kind}] the front desk's continuity grant was already OPEN when he pressed send — \
+                 an ECS write could have preceded his first words"
+            ));
+        }
+        match (grant_opened_at, to_first_words) {
+            // The observation is biased LATE by the 2 ms poll, so an open seen before his first
+            // words is a real ordering fault and never a sampling artifact.
+            (Some(opened), Some(spoke)) if opened < spoke => failures.push(format!(
+                "[{kind}] the continuity grant opened at {opened:.3} s, {:.3} s BEFORE his first \
+                 words at {spoke:.3} s — the front desk could write to ECS while he waited",
+                spoke - opened
+            )),
+            // A grant that never opens is the other failure: the bookkeeping §55 defers is
+            // bookkeeping the front desk still has to be able to do, on this turn, after the reply.
+            (None, Some(spoke)) => failures.push(format!(
+                "[{kind}] the continuity grant never opened, though he was spoken to at {spoke:.3} s — \
+                 the front desk's own record is deferred into never"
+            )),
+            _ => {}
+        }
         // Reported, never scored: which words he is handed is the other ruling's subject. It is
         // printed so a drift in it is visible on the same run as the timing.
         eprintln!("[{kind}] reply was {said:?}");
@@ -402,6 +864,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if recorded.is_empty() {
         failures.push("nothing was written down at all, so neither turn exercised the register".into());
     }
+
+    failures.extend(does_it_dispatch(
+        &bridge, &runtime, &engine, &state_root, &coordination, &root.0, &session, &repo, &recorded,
+    )?);
 
     if !failures.is_empty() {
         for why in &failures {
@@ -412,7 +878,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("---");
     eprintln!("PASS: the register was the first tool call on every turn that handed work over, and \
                nothing was discovered or written down ahead of his first word.");
-    let slowest = rows.iter().filter_map(|(_, _, d, _, _, _)| *d).fold(0.0, f64::max);
+    let slowest = rows.iter().filter_map(|(_, _, d, _, _, _, _, _)| *d).fold(0.0, f64::max);
     eprintln!(
         "slowest send -> first words this run: {slowest:.3} s (budgets: {:.0} s warm, {:.0} s on the \
          lease's first VISIBLE turn; §55: a few seconds, 35 s is a defect)",
