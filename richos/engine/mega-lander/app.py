@@ -449,44 +449,29 @@ def prepare(scope_path, scope, args):
                 # names machinery he does not have to know exists.
                 raise ValueError("A safety check on this work could not run, so I did not "
                                  "start it. Nothing was created.")
-            # **THE DISPATCH IS SYNCHRONOUS, AND THIS LINE USED TO SAY THE OPPOSITE.**
+            # **THE DISPATCH IS ASYNCHRONOUS AND THAT IS NOT A CHOICE** — written down on
+            # 2026-09-18 after it was changed to `False` and measured, because nothing said
+            # why it was `True` and the next reader would have tried the same thing.
             #
-            # It read `"run_in_background": True` from 099e886d until 2026-09-18, with no
-            # comment and no test that asserted the behavior it implies — and it is the
-            # reason candidate .10's job never landed. Measured on Ray's own walk, from the
-            # app's callback journal for work-lease session
-            # 0320b4d4-95f4-4a25-8d2b-950bcaa2d728 (18:58 BST):
+            # Two independent things refuse a synchronous file-capable spawn:
+            #   * `scripts/hooks/guard-worktree-isolation.sh` clause 7b refuses
+            #     `run_in_background: false` outright; and
+            #   * `workspaces.py`'s `bind_agent` — the only thing that joins the platform's
+            #     agent id to this receipt — runs at `PostToolUse[Agent]`, which a synchronous
+            #     call does not deliver until the worker has ALREADY finished. Measured with
+            #     `False`: `SubagentStart` arrived, then every one of the worker's own tool
+            #     calls was refused by `worker_context` with *"worker identity has not joined
+            #     its app receipt; no tool action is allowed yet"*, and it handed back having
+            #     done nothing.
             #
-            #   15 PreToolUse  Agent  ... "run_in_background": true
-            #   16 SubagentStart      richos-app-engine:worker  agent_id a277e633d501dceb3
-            #   17 PostToolUse Agent  tool_response {"isAsync": true, "status": "async_launched"}
-            #   18 Stop
-            #
-            # No `SubagentStop` anywhere in the file, on any of its 18 sessions: the Agent
-            # call returned the instant the worker was launched, the turn ended, and the
-            # app's turn-end settlement check (`native.rs`) stopped the owning child with
-            # the worker still inside it.
-            #
-            # **FOUR THINGS IN THIS FLOW REQUIRE THE WORKER TO END INSIDE THE TURN**, so a
-            # background launch is not a variant of it, it is a different flow that nothing
-            # here implements:
-            #   * `DESKTOP.md` step 4 — *"All workers must settle before your turn ends."*
-            #   * `refresh()` above — `status` becomes `run-ended` only from the workspace's
-            #     `end`, which `workspaces.py` writes on `SubagentStop`.
-            #   * `prepare(role="reviewer")` — refuses without `status == "run-ended"`.
-            #   * `observe()` — takes the reviewer's verdict off `SubagentStop`'s
-            #     `last_assistant_message`.
-            # And `scripts/probe-engine-runtime.py:172` dispatches with `False` and asserts
-            # `started <= ended`, which is exactly why the probe landed end to end while the
-            # shipped bundle could not.
-            #
-            # Nothing is lost by waiting: the work lease is the CEO's background job already
-            # (it is a second connection, opened by `WorkHost`), so his conversation is not
-            # held by this, and Stop still reaches the turn through the lease's cancel
-            # handle. Written explicitly rather than omitted because `dispatch_intent`
-            # compares the submitted Agent input to this payload byte for byte, and an
-            # explicit `False` says to the next reader that the shape was chosen.
-            record.update(status="prepared",payload={**ready["payload"],"run_in_background":False},
+            # So `Agent` answers `{"status": "async_launched"}` at once and the worker outlives
+            # the turn that started it. Waiting for it is the HOST's job, in
+            # `work_host.rs`'s `run_one` step 3b, which waits for the `SubagentStop` this
+            # journal records and then hands the lease another turn. It is not the back end's:
+            # `DESKTOP.md` step 4 asked it to wait with `TaskOutput`, and `TaskOutput` is not
+            # in a work lease's tool inventory at all (read off the child's own `system/init`
+            # frame: 30 tools, no `TaskOutput`, no `BashOutput`).
+            record.update(status="prepared",payload={**ready["payload"],"run_in_background":True},
                 workspace_ref=W.named_key(scope["binding"]["session_id"],name))
             save(path,record);project(scope,path,record)
             return view(record,include_payload=True)
