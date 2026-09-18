@@ -1984,6 +1984,20 @@ module.exports = [
     why: "#techy-chip's label when the global default is holding it on. Same button, different cause.",
   },
   {
+    s: "Technical view · this company",
+    c: "CONTROL",
+    why:
+      "#techy-chip's label when a COMPANY pin is holding it on — §7.1's middle tier, added " +
+      "on the CEO's answer of 2026-09-18. Third cause, same button. The chip names the tier " +
+      "rather than the company, because the scope crumb beside it already names the company " +
+      "and two places printing one name is two places that can disagree.",
+  },
+  {
+    s: "Technical view is on for every conversation in this company. Turn it off here.",
+    c: "CONTROL",
+    why: "#techy-chip's accessible name in the company case, matching the two beside it.",
+  },
+  {
     s: "Technical view is on for this conversation. Turn it off.",
     c: "CONTROL",
     why: "#techy-chip's accessible name in the pinned case — the label plus what pressing it does.",
@@ -1993,22 +2007,95 @@ module.exports = [
     c: "CONTROL",
     why: "#techy-chip's accessible name in the global case. 'here' because the switch it undoes is in Settings.",
   },
-  { s: "Show the technical view", c: "CONTROL", why: "Settings popover title over #techy-default." },
-  { s: "In every conversation", c: "CONTROL", why: "#techy-default's checkbox label — §3.1's one switch for 'all'." },
+  // THE RAIL'S TECHY GROUP HAS NO ROW HERE ANY MORE, and that is this gate working rather
+  // than a gap. Its title was "Show the technical view" and its label "In every
+  // conversation"; on 2026-09-18 they became "Technical view" and "Show it" — the
+  // subject/act split the Opening screen group below already uses — because a label naming
+  // one scope is true of exactly one of the CEO's three choices now that the switch asks
+  // which. Both new strings fall under `state-strings.js`'s documented prose floor (12
+  // characters AND 3 words), so the scraper does not see them, and the staleness half of
+  // the classification check refused the rows the moment they were written: a registry may
+  // not claim coverage of a string nothing tracks. Where the switch applies is said in
+  // #techy-hint, which IS above the floor and IS classified, three tiers' worth.
   {
-    s: "This conversation is set on its own. changes just this one.",
+    s: "On for this conversation. changes just this one.",
     c: "CONTROL",
     why:
       "#techy-hint under the Settings switch, with the `${key}` shortcut hole folded out by " +
-      "the scraper — it renders as 'This conversation is set on its own. ⌘⇧T changes just " +
-      "this one.' It describes the KEYBOARD affordance and distinguishes it from the switch " +
-      "beside it, so it is a control's description rather than a state: there is no fault " +
+      "the scraper — it renders as 'On for this conversation. ⌘⇧T changes just this one.' " +
+      "It names WHICH of the three tiers is holding this conversation on, which the switch's " +
+      "label carried until 2026-09-18 and can no longer carry, and it describes the KEYBOARD " +
+      "affordance beside it. A control's description rather than a state: there is no fault " +
       "here and nothing has gone wrong.",
+  },
+  {
+    s: "On for all conversations in this company. changes just this one.",
+    c: "CONTROL",
+    why: "The same hint over §7.1's middle tier — a company pin is holding this one on.",
+  },
+  {
+    s: "On for all conversations in all companies. changes just this one.",
+    c: "CONTROL",
+    why: "The same hint over the global tier. Three tiers, three sentences, one hint.",
   },
   {
     s: "shows it for one conversation only.",
     c: "CONTROL",
-    why: "The other branch of #techy-hint, for a thread that is following the global default. Same hole, same job.",
+    why:
+      "The OFF branch of #techy-hint: with the technical view off there is no tier to name, " +
+      "so the hint is the shortcut — which is still exactly what it says it is, the " +
+      "per-conversation control and the one entrance that does not ask for a scope.",
+  },
+
+  // ---- §7.1'S THREE-WAY SCOPE SHEET (the CEO's answer, 2026-09-18) ---------------------
+  //
+  // Every string here is CONTROL and none of them is a state: the sheet is a question the
+  // CEO opened by touching a switch, its three answers are radio buttons in front of him,
+  // and both ways out (Cancel, Escape) are one keystroke away. Nothing has gone wrong and
+  // there is nothing for him to fix — which is the distinction this registry exists to
+  // make, and the reason a question's own words are not an ACTIONABLE state.
+  {
+    s: "Turn on the technical view",
+    c: "CONTROL",
+    why:
+      "#techy-scope-title on the switch-ON path, and the sheet's own accessible name. It " +
+      "says which direction the confirm goes, so that is never inferred from which switch " +
+      "was touched. Also the markup's shipped default, which is why it is scraped from " +
+      "index.html as well as from main.js.",
+  },
+  {
+    s: "Turn off the technical view",
+    c: "CONTROL",
+    why: "The same title on the switch-OFF path — his 'switch it off for a given company or a given thread'.",
+  },
+  {
+    s: "For all conversations in all companies",
+    c: "CONTROL",
+    why:
+      "His first radio, preselected, in his own words with 'threads' -> 'conversations' — " +
+      "the word every other surface in this product says to him.",
+  },
+  {
+    s: "For all conversations in this company",
+    c: "CONTROL",
+    why:
+      "His second radio. Hidden, not disabled, for a conversation with no company binding: " +
+      "`ConfigStore::apply_techy_scope` refuses a company scope without one, and offering a " +
+      "choice the store will reject is worse than offering two.",
+  },
+  { s: "For this conversation only", c: "CONTROL", why: "His third radio — the scope ⌘⇧T applies directly." },
+  {
+    s: "unknown techy scope: {scope}",
+    c: "NOT-RENDERED",
+    why:
+      "`set_techy_scope`'s refusal of a scope this build does not know (main.rs). It never " +
+      "reaches the DOM, and there are two independent reasons: the only caller is " +
+      "`confirmTechyScope`, which sends the `value` of a radio the SHELL ships, so the " +
+      "string cannot be reached from the product at all; and `invokeQuiet` swallows a " +
+      "refusal and returns null, on which that function repaints every switch from the " +
+      "store rather than rendering a message. It exists so a scope is refused by name " +
+      "instead of being rounded to an adjacent tier — which would apply the CEO's switch " +
+      "somewhere he did not point it — and the sentence is for whoever reads the log.",
   },
 
   // ---- §7.2: the raw-retention window, in the same Settings group ----------------------
