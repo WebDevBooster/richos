@@ -58,6 +58,31 @@ pub struct AssignmentError(pub String);
 pub enum AssignmentState {
     /// Written down. Nothing has been prepared; no workspace exists yet.
     Registered,
+    /// **The screen is locked and this assignment needs it** — the CEO's ruling §56
+    /// (2026-09-18): *"I like that "Watch for the Mac's screen to unlock" feature that you had
+    /// running here. Should be added to the RichOS app for automatic use when Rich needs it."*
+    ///
+    /// **It is a WAIT, not a failure, and it is not waiting on him.** It resolves itself the
+    /// moment the screen unlocks ([`crate::screen`]), so unlike [`Self::Blocked`] it is
+    /// deliberately NOT [`Self::awaits_his_word`] — there is nothing for him to decide and
+    /// nothing he has to come back to. No notice is raised for it either: §56 is a wait that
+    /// looks after itself, and a push notification about one would be a nag he did not ask
+    /// for.
+    ///
+    /// **It is strictly BEFORE the lease.** `work_host.rs` gates on the screen before
+    /// `ensure_lease`, so nothing has been asked of the back end while an assignment sits
+    /// here — which is what makes it safe to leave the app in this state and what makes the
+    /// recovery treatment below honest.
+    ///
+    /// **What a relaunch does with it, and why it is not re-armed.** A crash here produces
+    /// [`Self::Unknown`] like everything else open (`recovery.rs`), and that is deliberate
+    /// rather than an omission: spec §6.3 — *"Nothing restarts work by itself"* — is not
+    /// overridden by §56, and a [`Self::Registered`] assignment that had done strictly LESS
+    /// than this one already becomes `Unknown` on a relaunch. Re-arming the wait would treat
+    /// the assignment that got further more permissively than the one that got nowhere. A
+    /// clean quit is different and is already witnessed: the quit stops the wait and the
+    /// state is [`Self::Interrupted`], which is a fact rather than an inference.
+    WaitingForScreen,
     /// On the work lease, inside `richos_work.prepare`.
     Preparing,
     /// Prepared and dispatched. A worker start has been recorded.
@@ -106,17 +131,33 @@ impl AssignmentState {
     /// running or waiting inside this app*; an assignment nobody witnessed the end of is
     /// neither.
     pub fn is_open(self) -> bool {
-        matches!(self, Self::Registered | Self::Preparing | Self::Running | Self::Blocked)
+        matches!(
+            self,
+            // `WaitingForScreen` IS open: something is outstanding inside this app and an
+            // update must not install over it, even though nothing is on a lease yet.
+            Self::Registered | Self::WaitingForScreen | Self::Preparing | Self::Running | Self::Blocked
+        )
     }
     /// Is this assignment waiting on a decision only he can make? `Blocked` is the step it
     /// stopped at; `Unknown` is whether to pick it back up at all (spec §6.3: *"resuming is
     /// a decision, and the decision is his"*).
+    ///
+    /// **`WaitingForScreen` is deliberately not here.** It is waiting on the SCREEN, not on
+    /// him, and it resolves itself — telling him a self-resolving wait is his to decide would
+    /// be the nag §56 was given to avoid.
     pub fn awaits_his_word(self) -> bool {
         matches!(self, Self::Blocked | Self::Unknown)
+    }
+    /// **Is this assignment waiting for something outside the app that will arrive by
+    /// itself?** Today that is only the screen. It exists so a surface can say *"waiting"*
+    /// without having to mean *"waiting for you"*.
+    pub fn waits_for_the_world(self) -> bool {
+        matches!(self, Self::WaitingForScreen)
     }
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Registered => "registered",
+            Self::WaitingForScreen => "waiting-for-screen",
             Self::Preparing => "preparing",
             Self::Running => "running",
             Self::Blocked => "blocked",
@@ -223,6 +264,26 @@ pub struct Assignment {
     /// repository changed, never that this assignment is what changed it.
     #[serde(default)]
     pub repository_pins: Vec<RepositoryPin>,
+    /// **Does this assignment's work need the Mac's screen?** The CEO's ruling §56's one
+    /// input, and the reason the app can wait for an unlock without polling the screen for
+    /// work that does not care about it.
+    ///
+    /// **Nothing infers it, and nothing can.** The app cannot tell from a title whether a job
+    /// will drive a window, take a screenshot or walk a build, so this is declared by the
+    /// conversation that writes the assignment down (`assignment_tools.rs`'s `needs_screen`)
+    /// — the same shape as `after_questions`, which is also a fact only the model knows. The
+    /// cost of getting it wrong is bounded in both directions and neither direction loses
+    /// work: a false `true` waits for a screen it did not need, a false `false` runs on a
+    /// locked screen exactly as this app did before §56.
+    ///
+    /// **`serde(default)` keeps `schema` at 1 on purpose.** An assignment written before this
+    /// field existed reads back as `false`, which is the truthful answer for it — no old job
+    /// declared a screen need. The reverse direction is already this module's documented
+    /// behavior: an older RichOS meeting a record with this field refuses it as *"written by a
+    /// newer RichOS"* rather than half-understanding it, which is what `deny_unknown_fields`
+    /// is there for.
+    #[serde(default)]
+    pub needs_screen: bool,
 }
 
 /// One repository, as it stood when an assignment started.
@@ -259,6 +320,9 @@ pub struct Registration {
     pub instruction_sha256: String,
     pub title: String,
     pub repositories: Vec<String>,
+    /// Whether this work needs the Mac's screen — see [`Assignment::needs_screen`]. Declared
+    /// by the conversation, never inferred here.
+    pub needs_screen: bool,
 }
 
 /// What the turn ends with.
@@ -546,6 +610,7 @@ pub fn register(state: &Path, request: &Registration) -> Result<Receipt, Assignm
         // written later, on the work lease, after this turn has ended (§7.1).
         work_session: None,
         repository_pins: Vec::new(),
+        needs_screen: request.needs_screen,
     };
     let root = folder(state, &request.entity_id, &request.thread_id)?;
     write(&root.join(format!("{id}.json")), &record)?;
@@ -914,7 +979,73 @@ mod tests {
             instruction_sha256: instruction_digest(),
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
+            needs_screen: false,
         }
+    }
+
+    /// **The CEO's ruling §56's one input survives a write and a read, and an assignment
+    /// written before the field existed still reads.**
+    ///
+    /// The second half is the one that matters on the day this lands: there are records on
+    /// disk with no `needs_screen` in them, and `serde(deny_unknown_fields)` plus a `schema`
+    /// check makes this module deliberately strict about shape. `serde(default)` is what keeps
+    /// `schema` at 1 — and `false` is the TRUTHFUL default for an old record, because no
+    /// assignment written before today declared a screen need.
+    #[test]
+    fn a_screen_need_survives_the_record_and_an_older_record_still_reads_as_not_needing_one() {
+        let state = root();
+        let plain = register(&state, &registration()).unwrap();
+        let screen = register(
+            &state,
+            &Registration { obligation_id: "obligation-8".into(), needs_screen: true, ..registration() },
+        )
+        .unwrap();
+
+        assert!(!read(&state, "depot", "thread-one", &plain.id).unwrap().needs_screen);
+        assert!(read(&state, "depot", "thread-one", &screen.id).unwrap().needs_screen);
+
+        // **A record written by the RichOS that existed yesterday.** Built by deleting the
+        // field from the JSON on disk, which is exactly the shape an older build left behind.
+        let folder = folder(&state, "depot", "thread-one").unwrap();
+        let path = folder.join(format!("{}.json", screen.id));
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("needs_screen");
+        assert!(value.get("needs_screen").is_none(), "the field was not removed, so this proves nothing");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let old = read(&state, "depot", "thread-one", &screen.id).unwrap();
+        assert!(!old.needs_screen, "an older record must read as not needing the screen");
+        assert_eq!(old.schema, 1, "reading an older record must not have changed its schema");
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// The new state word, and the two questions every surface asks of it. `WaitingForScreen`
+    /// is open (an update must not install over it) and is NOT his to decide.
+    #[test]
+    fn waiting_for_the_screen_is_open_work_that_is_not_waiting_on_him() {
+        let state = AssignmentState::WaitingForScreen;
+        assert_eq!(state.as_str(), "waiting-for-screen");
+        assert!(state.is_open());
+        assert!(!state.awaits_his_word());
+        assert!(state.waits_for_the_world());
+        // Nothing else waits for the world, so a future state cannot join it by accident.
+        for other in [
+            AssignmentState::Registered,
+            AssignmentState::Preparing,
+            AssignmentState::Running,
+            AssignmentState::Blocked,
+            AssignmentState::Settled,
+            AssignmentState::Failed,
+            AssignmentState::Interrupted,
+            AssignmentState::Unknown,
+        ] {
+            assert!(!other.waits_for_the_world(), "{:?}", other);
+            assert_ne!(other.as_str(), "waiting-for-screen");
+        }
+        // The kebab-case wire form is what `serde` writes, so the record and the word agree.
+        let json = serde_json::to_string(&AssignmentState::WaitingForScreen).unwrap();
+        assert_eq!(json, "\"waiting-for-screen\"");
     }
 
     /// Spec §1.1/§7.1: the turn boundary is the receipt, so registration must be a write

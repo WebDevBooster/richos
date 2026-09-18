@@ -20,6 +20,11 @@ mod update_startup;
 // `read_displays` and `remember_window_geometry`, live next to the window they serve below.
 mod window_geometry;
 
+// READING THE MAC'S SCREEN LOCK — the CEO's ruling §56's shell half. The syscall lives here
+// because the frameworks do; the rule about what waits lives in `richos_core::screen` because
+// the test suite does. Same split `work_gate.rs` documents for the update gate.
+mod screen;
+
 use richos_core::native::{resolve_claude_bin, resolve_claude_bin_checked, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
@@ -1228,7 +1233,12 @@ fn main() {
     // the back end or changing anything.
     if first.as_deref() == Some(std::ffi::OsStr::new("--status-mcp")) {
         let result = args.next().ok_or_else(|| "Missing status scope".to_string())
-            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope))
+            // **The screen reader goes with it** — the CEO's ruling §56. This arm IS the app's
+            // own executable, so the same `MacScreen` the work host uses is available here,
+            // and the front desk's answer carries the screen as it is right now beside the
+            // work that is waiting for it. A short-lived child of the GUI session reads the
+            // same session dictionary the app does.
+            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope), &screen::MacScreen)
                 .map_err(|e| e.to_string()));
         if let Err(error) = result {
             startup_alert::cannot_start(
@@ -2056,6 +2066,12 @@ fn main() {
                 // The same reader the host pins an assignment's starting point with, so the
                 // "before" and the "after" of a comparison are taken by one thing.
                 work.set_repositories(reader());
+                // **HOW THE MAC'S SCREEN IS READ** — the CEO's ruling §56. Installed beside
+                // the Git reader and for the same reason: `richos-core` links no framework, so
+                // the real reading comes from the shell. Without this line the host keeps its
+                // honest default (`UnknownScreen`), which never blocks — so a missing
+                // installation loses the feature and never loses the work.
+                work.set_screen(std::sync::Arc::new(screen::MacScreen));
                 let report =
                     richos_core::recovery::reconcile(&data_dir.join("engine-state"), reader().as_ref());
                 eprintln!("[richos] {}", report.log_message());

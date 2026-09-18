@@ -130,6 +130,17 @@ struct RecordArguments {
     /// case.
     #[serde(default)]
     after_questions: bool,
+    /// **Will this work need the Mac's screen?** The CEO's ruling §56's one input — see
+    /// [`assignment::Assignment::needs_screen`].
+    ///
+    /// A model argument for the same reason `after_questions` is one: the app cannot tell from
+    /// a title whether a job will drive a window, take a screenshot or walk a build, and only
+    /// the thing that read his request knows. It chooses nothing about WHAT happens — the wait
+    /// and the sentence are the app's ([`crate::screen`]) — and getting it wrong loses no work
+    /// in either direction: a false `true` waits for a screen it did not need, a false `false`
+    /// behaves exactly as this app did before §56.
+    #[serde(default)]
+    needs_screen: bool,
 }
 
 pub fn tools() -> Value {
@@ -140,7 +151,8 @@ pub fn tools() -> Value {
              "obligation_id":{"type":"string","minLength":1,"maxLength":128,"description":"The open ECS obligation this assignment carries out. Open it first; a background assignment with no obligation behind it cannot be prepared or reconciled."},
              "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. No identifiers, no internal names."},
              "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."},
-             "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."}
+             "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."},
+             "needs_screen":{"type":"boolean","description":"True if this work needs the Mac's screen to be unlocked — it drives the app's own window, takes screenshots, walks a build on screen, or otherwise cannot be done while the screen is locked. If the screen is locked when this comes up, the app waits for the unlock and carries on by itself; nobody is asked anything. Omit it for ordinary work, which is almost all work."}
          },"required":["obligation_id","assignment"],"additionalProperties":false},
          "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}}
     ]})
@@ -152,7 +164,8 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
         return Err("That assignment tool does not exist. Nothing was recorded.".into());
     }
     let args: RecordArguments = serde_json::from_value(arguments).map_err(|_| {
-        "Use only obligation_id, assignment, repositories and after_questions. Nothing was recorded.".to_string()
+        "Use only obligation_id, assignment, repositories, after_questions and needs_screen. Nothing was recorded."
+            .to_string()
     })?;
     let after_questions = args.after_questions;
     let scope = read_scope(scope_path)?;
@@ -173,6 +186,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             instruction_sha256: scope.instruction_sha256,
             title: args.assignment,
             repositories: args.repositories,
+            needs_screen: args.needs_screen,
         },
     )
     .map_err(|e| assignment::failed_registration_sentence(&format!("{e}.")))?;

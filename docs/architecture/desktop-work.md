@@ -90,6 +90,33 @@ assignment has one ECS seat, spelled from its obligation, bound with a worker au
 released with the assignment; a second open assignment on one obligation is refused, because
 one seat shared by two is the collision the seat exists to prevent.
 
+**Work that needs the Mac's screen waits for the screen, and the wait resolves itself.** An
+assignment says when it is written down whether its work needs the screen unlocked — it drives
+a window, takes a picture of one, or walks a build on screen. Nothing infers that from a title.
+If the screen is locked when such an assignment comes up, it enters a state of its own,
+**waiting for the screen**, and the app watches for the unlock and carries on by itself. He is
+asked nothing and told nothing about it: no notice is raised, and the app never suggests he
+unlock anything. Work that did not declare a screen need never reads the screen at all.
+
+The wait is before the work connection is opened, so nothing has been asked of the back end
+while an assignment sits in it: no provider connection, no seat, nothing in flight. It is open
+work — an update must not install over it — and it is **not** waiting on him, which is a
+different sentence from an assignment stopped at a decision of his and is kept a different
+sentence everywhere it is read. His stop reaches it and reports that nothing was prepared;
+quit reaches it too, and an assignment stopped that way stays stopped even if the screen is
+unlocked afterwards.
+
+A screen this build cannot read is not a locked screen. An unestablished reading never waits —
+the wait has no timeout, so an unbounded wait on something unknown is the worse failure — and a
+platform with no reader loses the feature rather than the work. A sleeping display on an
+unlocked session is reported and does not wait, because it is still a usable session.
+
+A crash while waiting is reconciled like anything else that was open: the assignment comes back
+as unknown, its receipt saying it was waiting for the screen and had not started, and picking it
+up again is his decision. The wait is not re-armed by a relaunch, because nothing restarts work
+by itself and an assignment that had been written down and never started is treated the same
+way.
+
 His next message never cancels an assignment, and Stop stays the conversation's Stop. Each
 assignment carries its own stop control where the work is visible. The work lease is never
 attached to the conversation's turn control, so a conversation Stop cannot reach it, and
@@ -151,6 +178,15 @@ and calls nothing. It cannot start, stop, approve or retry anything — those ar
 on the assignment, or they are relayed — and it returns his own words rather than any
 identifier. A permission request waiting in the running process is not in its answer; the
 durable half of the same fact is, as the assignment that stopped at a step of his.
+
+That read also carries the state of the screen itself, which is the one live reading in an
+answer that is otherwise entirely the record on disk, so work waiting for the screen is
+reported with the reason beside it. It has three answers and not two: locked, unlocked, and
+not established — and the third is never reported as either of the others. The back end has no
+such read. The status server is the front desk's alone by design, so a back end that wanted to
+wait on the screen mid-job would need an app-owned server of its own attached to the work
+audience; that does not exist, and the mechanism that does exist is the declaration made when
+the assignment is written down.
 
 Each conversation's front desk stays resident. Switching conversations parks it alive with
 its own provider session, its own priming and its own context measurement, rather than
