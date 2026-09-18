@@ -327,12 +327,22 @@ impl Receipt {
 //      sentence in the module that appended punctuation to one.
 //
 // A first pass here added an `after_title` helper for the case `sanitize_title` deliberately
-// leaves — a truncated title keeps the ellipsis it needs. It is gone because after (2) nothing
-// calls it: every sentence in [`says`] continues with a word rather than a mark (*"{title} is
-// finished"*, *"{title} did not start"*), so an ellipsis is followed by a space and reads
-// correctly. A helper kept for a case that cannot occur is dead code whose doc comment claims a
-// guarantee nothing is enforcing. The tests assert the property over every [`says`] sentence
-// instead, which is what would actually catch a future sentence that got this wrong.
+// leaves — a truncated title keeps the ellipsis it needs. It was dropped at `25b933f2` on the
+// reasoning that *"every sentence in [`says`] continues with a word rather than a mark, so an
+// ellipsis is followed by a space and reads correctly"*.
+//
+// **THAT REASONING WAS WRONG, AND RAY'S CANDIDATE-.8 ROW 8 IS IT BEING WRONG ON HIS SCREEN**
+// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 8), verbatim:
+//
+//   "…and land it. (Third try; the first two stopped before they… stopped before it finished."
+//
+// An ellipsis is TERMINAL punctuation. A lowercase verb phrase running straight on from one does
+// not read as a continuation; it reads as a sentence that broke off and restarted — and it reads
+// that way aloud, which is the half that matters on a voice-first surface. The join is back, as
+// [`says::continues`], for the case the old one was written for and now against the evidence that
+// the case is real rather than hypothetical. It is still ONE funnel and not seven, for the same
+// reason [`sanitize_title`] strips the period once. The property is asserted over every sentence
+// in [`says`], which is what catches the eighth one somebody adds.
 
 /// Spec §1.4: *"A failed registration is never softened into 'I have started it'."*
 ///
@@ -790,6 +800,34 @@ pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
 ///
 /// **American English, spoken-safe, comparative rather than absolute, no identifiers.**
 pub mod says {
+    /// **Join a title to the clause that always continues after it.**
+    ///
+    /// Every sentence in this module is `{title}` followed by a verb phrase about it, and
+    /// [`super::sanitize_title`] leaves exactly one title shape that breaks that: a truncated
+    /// one, which keeps the `…` its truncation needs. Ray's candidate-.8 row 8 is what that
+    /// collision looks like on his timeline — see the comment above `sanitize_title` for the
+    /// verbatim sentence and the reasoning it disproved.
+    ///
+    /// **So a truncated title CLOSES, and the verdict becomes its own sentence about "It".**
+    /// An ellipsis followed by a capital is ordinary typography for precisely this: the
+    /// truncation stays marked, and what follows is unmistakably a new sentence rather than
+    /// the tail of a broken one. Spoken, it is a pause and a fresh clause instead of a stutter.
+    ///
+    /// An untruncated title is joined exactly as it was, so this changes nothing for every
+    /// title short enough to survive the 160-character cap — which is almost all of them.
+    ///
+    /// **It is not a second period, and that distinction is the one `25b933f2` got right.**
+    /// Nothing is appended to the `…`; a word is inserted after it. So the double-mark defect
+    /// of candidate .7's row 8 (*"… and land it.. It's running now"*) cannot come back through
+    /// this door.
+    fn continues(title: &str, clause: &str) -> String {
+        if title.ends_with('…') {
+            format!("{title} It {clause}")
+        } else {
+            format!("{title} {clause}")
+        }
+    }
+
     /// **What he hears when a job is waiting on a decision of his** — spec §0 row 7 / §7.8's
     /// *"you hear 'ready for you to approve', never 'done'"*, narrowed by the CEO's ruling
     /// §52 (2026-09-18) to the only case that can still produce it.
@@ -802,7 +840,7 @@ pub mod says {
     /// sentence would have told him his repository was untouched while his branch had already
     /// moved. What is left claims only what is known: it is waiting on him.
     pub fn ready_to_approve(title: &str) -> String {
-        format!("{title} is waiting on a decision from you before it can go on.")
+        continues(title, "is waiting on a decision from you before it can go on.")
     }
     /// **What he hears when a job is finished, and `outcome` is the whole of §52 in this
     /// module.** *"There's nothing that ever not lands on its own here in the terminal …
@@ -816,9 +854,9 @@ pub mod says {
     pub fn settled(title: &str, outcome: &str) -> String {
         let outcome = outcome.trim();
         if outcome.is_empty() {
-            return format!("{title} is finished, and I've kept everything it produced with your saved work.");
+            return continues(title, "is finished, and I've kept everything it produced with your saved work.");
         }
-        format!("{title} is finished. {outcome} Everything it produced is with your saved work.")
+        continues(title, &format!("is finished. {outcome} Everything it produced is with your saved work."))
     }
     /// Spec §3.7: *"A failure says what stopped and what it is waiting on."*
     ///
@@ -826,7 +864,7 @@ pub mod says {
     /// half. "Stopped before it finished" carries the claim that there was something to
     /// stop.
     pub fn failed(title: &str, waiting_on: &str) -> String {
-        format!("{title} stopped before it finished. {waiting_on}")
+        continues(title, &format!("stopped before it finished. {waiting_on}"))
     }
 
     /// **A job that never got going, said as that and not as a job that stopped.**
@@ -843,10 +881,10 @@ pub mod says {
     /// arrives — a positive signal from the child, the only thing that establishes the turn
     /// was taken — and picks the sentence off that flag.
     pub fn did_not_start(title: &str, why: &str) -> String {
-        format!("{title} did not start. {why} Nothing was changed, and nothing is running.")
+        continues(title, &format!("did not start. {why} Nothing was changed, and nothing is running."))
     }
     pub fn interrupted(title: &str) -> String {
-        format!("{title} was stopped. Everything it had done is kept, and nothing was landed.")
+        continues(title, "was stopped. Everything it had done is kept, and nothing was landed.")
     }
     /// He declined the step it stopped at (spec §5.7: nothing is approved on his behalf, and
     /// nothing he answered is thrown away either).
@@ -856,9 +894,10 @@ pub mod says {
     /// work "was stopped" when he declined one step would describe his own decision back to
     /// him in somebody else's words.
     pub fn declined(title: &str) -> String {
-        format!(
-            "{title} stopped at the step you declined. Nothing in your repository was changed, \
-             and everything it produced is kept with your saved work."
+        continues(
+            title,
+            "stopped at the step you declined. Nothing in your repository was changed, \
+             and everything it produced is kept with your saved work.",
         )
     }
 
@@ -875,16 +914,20 @@ pub mod says {
     pub fn unknown(title: &str, checked: &str) -> String {
         let checked = checked.trim();
         if checked.is_empty() {
-            return format!(
-                "{title} was running when RichOS closed, and I can't tell you how it ended. \
+            return continues(
+                title,
+                "was running when RichOS closed, and I can't tell you how it ended. \
                  Nothing is running now and nothing was finished. Say the word and I'll pick \
-                 it back up."
+                 it back up.",
             );
         }
-        format!(
-            "{title} was running when RichOS closed, and I can't tell you how it ended. \
-             {checked} Nothing is running now and nothing was finished. Say the word and \
-             I'll pick it back up."
+        continues(
+            title,
+            &format!(
+                "was running when RichOS closed, and I can't tell you how it ended. \
+                 {checked} Nothing is running now and nothing was finished. Say the word and \
+                 I'll pick it back up."
+            ),
         )
     }
 }
@@ -892,6 +935,109 @@ pub mod says {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **RAY'S CANDIDATE-.8 ROW 8, AS A TEST — and the sentence it reproduces is his, verbatim.**
+    ///
+    /// He read this off the third failure card
+    /// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 8):
+    ///
+    /// > "…and land it. (Third try; the first two stopped before they… stopped before it
+    /// > finished. …"
+    ///
+    /// **The mechanism is the truncation ellipsis, not a doubled prefix.** His instruction was
+    /// 168 characters; `sanitize_line` caps a title at 160 and cuts on a word boundary, which
+    /// lands it on *"…stopped before they"* and appends the `…` the truncation needs. `says::failed`
+    /// then continued with a lowercase verb phrase, and an ellipsis is terminal punctuation — so
+    /// the card read as a sentence that broke off and restarted. Asserted below by rebuilding his
+    /// title from a 168-character instruction and comparing the join to the string he quoted.
+    ///
+    /// **The positive control is the first assertion**: the old join is still constructed here and
+    /// still produces the collision, so the property assertions underneath are a defect that went
+    /// away rather than a check that moved.
+    ///
+    /// The property is asserted over ALL SEVEN sentences, not just the one he saw, because the
+    /// next sentence somebody adds is the one no targeted test would cover.
+    #[test]
+    fn a_truncated_title_never_collides_with_the_verdict_that_continues_from_it() {
+        let instruction = "Add a line to the notes file in the QA fixture repository saying the \
+                           candidate eight walk happened, and land it. (Third try; the first two \
+                           stopped before they started.)";
+        let instruction = instruction.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(instruction.chars().count(), 168, "the fixture stopped being an over-length title");
+        let title = sanitize_title(&instruction).unwrap();
+        assert!(title.ends_with('…'), "the fixture no longer truncates, so it tests nothing: {title}");
+
+        // ---- POSITIVE CONTROL: the old join, and it is his card ---------------------------
+        let before = format!("{title} stopped before it finished. Choose a company before saving interview answers.");
+        assert!(
+            before.contains("stopped before they… stopped before it finished."),
+            "the collision this test exists for can no longer be constructed: {before}"
+        );
+
+        // ---- THE FIX, over every sentence in `says` --------------------------------------
+        let cards = |title: &str| {
+            vec![
+                says::ready_to_approve(title),
+                says::settled(title, ""),
+                says::settled(title, "It landed on cc/pricing."),
+                says::failed(title, "Choose a company before saving interview answers."),
+                says::did_not_start(title, "The work connection could not be opened."),
+                says::interrupted(title),
+                says::declined(title),
+                says::unknown(title, ""),
+                says::unknown(title, "Your branch has not moved."),
+            ]
+        };
+
+        for card in cards(&title) {
+            // An ellipsis is terminal, so nothing lowercase may run on from one.
+            let mut chars = card.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '…' {
+                    let tail: String = chars.clone().collect();
+                    let next = tail.trim_start().chars().next();
+                    assert!(
+                        !matches!(next, Some(n) if n.is_lowercase()),
+                        "a clause runs straight on from the truncation ellipsis: {card}"
+                    );
+                }
+            }
+            // And candidate .7's row 8 must not come back the other way: no second mark.
+            for double in ["..", ". .", "…."] {
+                assert!(!card.contains(double), "two terminal marks in a row: {card}");
+            }
+            assert!(card.starts_with(&title), "the title stopped leading its own sentence: {card}");
+        }
+
+        // The one he saw, now, in full.
+        assert_eq!(
+            says::failed(&title, "Choose a company before saving interview answers."),
+            format!("{title} It stopped before it finished. Choose a company before saving interview answers.")
+        );
+
+        // ---- AND NOTHING CHANGES FOR A TITLE SHORT ENOUGH TO SURVIVE THE CAP -------------
+        // Which is almost every title. `continues` inserts a word only after an ellipsis.
+        let short = sanitize_title("landing the three branches").unwrap();
+        assert_eq!(short, "landing the three branches");
+        assert_eq!(
+            says::failed(&short, "The land lock timed out."),
+            "landing the three branches stopped before it finished. The land lock timed out."
+        );
+        assert_eq!(
+            says::interrupted(&short),
+            "landing the three branches was stopped. Everything it had done is kept, and nothing was landed."
+        );
+        // Asserted at the JOIN and not over the whole card: an outcome of his own may perfectly
+        // well contain "It" ("It landed on cc/pricing."), and a test that banned the word
+        // anywhere would fail for a reason that has nothing to do with the title.
+        for card in cards(&short) {
+            let after = card.strip_prefix(&format!("{short} ")).expect(&card);
+            assert!(
+                !after.starts_with("It "),
+                "a word was inserted after an untruncated title: {card}"
+            );
+        }
+    }
 
     fn root() -> PathBuf {
         let path = std::env::temp_dir().join(format!("assignment-{}", uuid::Uuid::new_v4()));
