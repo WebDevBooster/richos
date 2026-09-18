@@ -75,8 +75,14 @@
 	<div class="meter" id="meter" hidden aria-hidden="true"><div class="meter-fill" id="meter-fill"></div></div>
 	<p class="meter-read" id="meter-read" role="status" aria-live="polite" hidden>Level: &mdash;</p>
 
-	<button class="hold" id="hold">Hold to record</button>
-	<p class="hold-note" id="hold-note">Hold the button, speak, and let go to send.</p>
+	<!-- HIDDEN UNTIL THE MAC SAYS IT CAN TAKE ONE, and hidden is the DEFAULT rather than a state
+	     the app has to remember to reach. This build's Mac answers every voice note 503, so the
+	     control below cannot appear at all unless a `hello` names `voice` in `capabilities`
+	     (contract §5.3) — there is no path through this app that shows it by omission, by an error,
+	     or in the seconds before the stream opens. A control that cannot work is worse than an
+	     absent one, and this one sat on screen as one of the two biggest things on it. -->
+	<button class="hold" id="hold" hidden>Hold to record</button>
+	<p class="hold-note" id="hold-note" hidden>Hold the button, speak, and let go to send.</p>
 </footer>
 
 <!-- ===================================================================================

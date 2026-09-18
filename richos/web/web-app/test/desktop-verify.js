@@ -409,6 +409,61 @@ async function runEngine(playwright, engine) {
 		check('NO PAGINATION — no page number, no pagination control, anywhere', pagination === false);
 
 		// ---------------------------------------------------------------------------------------
+		section(`${engine}: the controls this Mac can actually stand behind`);
+		// ---------------------------------------------------------------------------------------
+		//
+		// The app shipped "Hold to record" as one of the two biggest controls on the screen while
+		// the real Mac answered every voice note 503 (plan §2 A). The control is now rendered only
+		// where the `hello` frame named `voice` in `capabilities`. BOTH directions are walked here,
+		// in a real browser, against the real app — the stub advertises voice because it can take
+		// one, and `applyCapabilities` is then driven against a Mac that cannot.
+
+		const holdShown = await page.evaluate(() => {
+			const hold = document.getElementById('hold');
+			return !hold.hidden && getComputedStyle(hold).display !== 'none';
+		});
+		check('the hold control is on screen when the Mac advertises voice', holdShown === true);
+
+		const withoutVoice = await page.evaluate(() => {
+			// The stream's own path, with a Mac that offers text only — the state the shipped Mac
+			// is in today. `offers` is default-deny, so the third case is a Mac that says nothing.
+			const read = () => {
+				const hold = document.getElementById('hold');
+				const note = document.getElementById('hold-note');
+				return {
+					hold: !hold.hidden && getComputedStyle(hold).display !== 'none',
+					note: !note.hidden && getComputedStyle(note).display !== 'none'
+				};
+			};
+			globalThis.__richosPhone.api.setCapabilities(['text'], '1.2.0');
+			globalThis.__richosPhone.applyCapabilities();
+			const textOnly = read();
+			globalThis.__richosPhone.api.setCapabilities(undefined, undefined);
+			globalThis.__richosPhone.applyCapabilities();
+			const saysNothing = read();
+			globalThis.__richosPhone.api.setCapabilities(['text', 'voice'], '1.2.0');
+			globalThis.__richosPhone.applyCapabilities();
+			return { textOnly, saysNothing, restored: read() };
+		});
+		check('a Mac that offers text only shows no hold control and no note under it',
+			withoutVoice.textOnly.hold === false && withoutVoice.textOnly.note === false,
+			JSON.stringify(withoutVoice.textOnly));
+		check('a Mac that names no capabilities at all offers nothing — default-deny, not default-show',
+			withoutVoice.saysNothing.hold === false && withoutVoice.saysNothing.note === false,
+			JSON.stringify(withoutVoice.saysNothing));
+		check('and it comes back when the Mac offers voice again',
+			withoutVoice.restored.hold === true && withoutVoice.restored.note === true,
+			JSON.stringify(withoutVoice.restored));
+
+		const toldBuild = await page.evaluate(() => ({
+			build: globalThis.__richosPhone.state.build,
+			onScreen: /\b\d+\.\d+\.\d+\b/.test(document.body.innerText)
+		}));
+		check('the build the Mac named is held as state', toldBuild.build === '1.2.0', String(toldBuild.build));
+		// Plan §3: nothing he reads is an identifier, and a build number is one.
+		check('and it is nowhere on his screen', toldBuild.onScreen === false);
+
+		// ---------------------------------------------------------------------------------------
 		section(`${engine}: the microphone, and the bytes the Mac receives`);
 		// ---------------------------------------------------------------------------------------
 

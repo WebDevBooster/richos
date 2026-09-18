@@ -279,6 +279,27 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
 // 1. POST /api/messages
 // -------------------------------------------------------------------------------------
 
+/// **WHAT THIS MAC CAN ACTUALLY BE ASKED FOR**, sent in every `hello` (contract §5.3, plan §2 A).
+///
+/// The phone shipped a "Hold to record" button as one of its two biggest controls while this
+/// route answered every voice note `503`. A control that cannot work is worse than an absent one,
+/// so the phone now renders a control only where this list names the capability behind it, and
+/// believes nothing it was not told.
+///
+/// **This list and the route below it are one fact written twice, so a test holds them together.**
+/// `voice_is_offered_exactly_when_the_route_would_take_one` fails the day someone builds slice B
+/// and forgets to advertise it — a Mac that can take a voice note behind a phone that will not
+/// show the button — and the day someone advertises it before it works, which is today's defect
+/// with a longer fuse.
+pub const CAPABILITIES: &[&str] = &["text"];
+
+/// Which RichOS is answering. `CARGO_PKG_VERSION` and nothing else: `app/src-tauri/Cargo.toml` is
+/// the single source the shipped version comes from, `tauri.conf.json` has never carried a
+/// `version` key and `make-release.sh` refuses one outright — the chain is written out at
+/// `updates.rs:141`. Taken at compile time rather than plumbed through [`Channel`], because a
+/// value assembled at a call site is a value a call site can get wrong.
+pub const BUILD: &str = env!("CARGO_PKG_VERSION");
+
 fn messages(channel: &Channel, request: &Incoming) -> Outcome {
     let Some(header) = request.authorization.as_deref() else { return Outcome::NotFound };
     let path = signed_path(&request.path, &request.query);
@@ -303,6 +324,13 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
             status: 503,
             body: json!({
                 "accepted": false,
+                // THE ANSWER WILL BE THE SAME EVERY TIME THIS BUILD IS ASKED, so the phone is told
+                // not to ask again. Without this the phone reads a 503 as a fault, a fault is
+                // retryable, and the recording sits at the head of his queue holding back every
+                // text he types afterwards (contract §9, plan §2 A). The OTHER 503 on this route —
+                // the Mac could not write his words down — deliberately does NOT carry this and is
+                // still retried, which is the whole reason the flag exists rather than a status.
+                "retry": false,
                 "reason": "Voice notes are not switched on yet. Your recording is still on your phone."
             })
             .to_string(),
@@ -455,6 +483,12 @@ fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
         "latest_cursor": rows.len() as u64,
         "threads": threads,
         "vapid_public_key": channel.vapid_public,
+        // What this Mac can be asked for, and which RichOS is answering. Sent on EVERY `hello`
+        // rather than once at pairing, because the phone outlives the build it paired with: he
+        // updates the Mac and the app on his phone is the same app, holding whatever it was last
+        // told. The phone replaces its answer from each frame and never merges (`api.js`).
+        "capabilities": CAPABILITIES,
+        "build": BUILD,
         // The rows themselves ride along, so the first paint needs no second request. The phone
         // merges them by cursor exactly as it merges a live `message`.
         "messages": rows,
@@ -892,6 +926,14 @@ mod tests {
                 let reason = v["reason"].as_str().unwrap();
                 assert!(reason.contains("Nothing was lost on your phone"), "{reason}");
                 assert!(!reason.contains("intake"), "the reason leaks an internal name: {reason}");
+                // THE ONE 503 THAT MUST BE RETRIED. A disk that would not take his words this
+                // second may take them the next, and the phone is holding the only copy. If this
+                // ever grows a `retry: false` his message is marked "Not sent." and stops being
+                // tried — the exact opposite of what this branch is for (contract §9).
+                assert!(
+                    v.get("retry").is_none(),
+                    "the Mac told the phone not to retry the one failure that must be retried: {body}"
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -922,10 +964,64 @@ mod tests {
             Outcome::Json { body, .. } => {
                 let v: Value = serde_json::from_str(&body).unwrap();
                 assert!(v["reason"].as_str().unwrap().contains("still on your phone"), "{body}");
+                // AND IT SAYS SO ONCE. This build's answer to a voice note will be identical every
+                // time it is asked, so the phone is told to stop asking. Without it the phone reads
+                // a 503 as a fault, a fault is retryable, and the recording holds the head of his
+                // queue against every text he types afterwards (plan §2 A).
+                assert_eq!(
+                    v["retry"], false,
+                    "a refusal that can never change was not marked final: {body}"
+                );
             }
             other => panic!("{other:?}"),
         }
         assert!(f.bridge.submitted.lock().unwrap().is_empty(), "a voice note was filed as text");
+    }
+
+    #[test]
+    fn voice_is_offered_exactly_when_the_route_would_take_one() {
+        // CAPABILITIES and the route are one fact written twice, and this is what holds them
+        // together. It fails the day slice B lands and nobody advertises it — a Mac that can take
+        // a voice note behind a phone that will not show the button — and the day voice is
+        // advertised before it works, which is today's defect with a longer fuse.
+        //
+        // The route is ASKED rather than read: a real signed voice note goes through `dispatch`,
+        // and whether it was taken is read off the answer.
+        let f = fixture("capability-agreement");
+        let query = "client_id=c-cap&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1";
+        let path_with_query = format!("/api/messages?{query}");
+        let wav = b"RIFF....WAVE".to_vec();
+        let message = signing_string(&f.challenge, "POST", &path_with_query, &wav);
+        let sig = super::super::b64url(&f.phone.sign(&message));
+        let request = Incoming {
+            method: "POST".into(),
+            path: "/api/messages".into(),
+            query: query.into(),
+            authorization: Some(format!("RichOS-Device {}.{}.{sig}", f.device_id, f.challenge)),
+            last_event_id: None,
+            content_type: Some("audio/wav".into()),
+            body: wav,
+        };
+        let taken = dispatch(&f.channel, &request).status() == 200;
+        let advertised = CAPABILITIES.contains(&"voice");
+        assert_eq!(
+            advertised, taken,
+            "CAPABILITIES says voice is {}, and the route {} a voice note",
+            if advertised { "offered" } else { "not offered" },
+            if taken { "took" } else { "refused" }
+        );
+        // Text is the one thing this build is FOR, so it is never absent from the list.
+        assert!(CAPABILITIES.contains(&"text"), "the Mac stopped advertising the only thing it does");
+    }
+
+    #[test]
+    fn the_build_the_phone_is_told_is_the_one_this_binary_was_compiled_as() {
+        // Not a second place the version can be written. `updates.rs:141` writes the chain out:
+        // `Cargo.toml` -> `CARGO_PKG_VERSION` -> here, one hop and no branch. A `build` assembled
+        // at a call site would be a `build` a call site could get wrong.
+        assert_eq!(BUILD, env!("CARGO_PKG_VERSION"));
+        assert!(!BUILD.is_empty());
+        assert!(BUILD.chars().next().unwrap().is_ascii_digit(), "the build is not a version: {BUILD}");
     }
 
     // --- pairing ----------------------------------------------------------------------------
@@ -1054,6 +1150,11 @@ mod tests {
                 assert_eq!(data["thread_id"], "thr_5c1e");
                 assert_eq!(data["latest_cursor"], 4);
                 assert_eq!(data["vapid_public_key"], "BExampleVapidKey");
+                // What this Mac can be asked for, and which RichOS is answering (contract §5.3).
+                // The phone renders a control only where the capability behind it is named here,
+                // so an absent or renamed key is a button that disappears from his screen.
+                assert_eq!(data["capabilities"], json!(["text"]));
+                assert_eq!(data["build"], BUILD);
                 assert_eq!(data["threads"][0]["title"], "the proposal");
                 assert_eq!(data["messages"].as_array().unwrap().len(), 4);
                 assert_eq!(data["messages"][0]["cursor"], 1);

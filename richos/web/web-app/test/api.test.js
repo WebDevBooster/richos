@@ -19,7 +19,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('node:crypto');
 
-const { createApi, ApiError, signingInput, UNREACHABLE, REVOKED, REFUSED, FAULT } = require('../lib/api.js');
+const { createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT } = require('../lib/api.js');
 
 // A signer in the shape the browser provides over WebCrypto, implemented here over node:crypto so
 // the signature this test verifies is a real ECDSA P-256 signature rather than a stub.
@@ -56,7 +56,7 @@ function response(status, body, headers) {
 	return make();
 }
 
-function makeApi(handler, initial) {
+function makeApi(handler, initial, eventSourceImpl) {
 	const calls = [];
 	const signer = makeSigner('device-1');
 	const state = Object.assign({ apiBase: 'https://mm1.local:8443', challenge: 'challenge-one', deviceId: 'device-1' }, initial || {});
@@ -67,9 +67,28 @@ function makeApi(handler, initial) {
 			calls.push({ url, init });
 			return handler(url, init, calls.length);
 		},
-		eventSourceImpl: null
+		eventSourceImpl: eventSourceImpl || null
 	});
 	return { api, calls, signer, state };
+}
+
+/// An `EventSource` in the shape the browser gives one: constructed with a URL, listened to by
+/// name, and closed. The test holds the handlers so it can deliver a frame by hand.
+function makeEventSource() {
+	const made = [];
+	class Stub {
+		constructor(url) {
+			this.url = url;
+			this.handlers = {};
+			made.push(this);
+		}
+		addEventListener(name, fn) { this.handlers[name] = fn; }
+		close() { this.closed = true; }
+		/// Deliver a frame exactly as the browser would: one `data` string, already JSON.
+		deliver(name, value) { this.handlers[name]({ data: JSON.stringify(value) }); }
+	}
+	Stub.made = made;
+	return Stub;
 }
 
 test('the string that gets signed is the documented one, exactly', () => {
@@ -219,4 +238,149 @@ test('audio is fetched with the credential, by an id the Mac minted', async () =
 	assert.ok(blob);
 	assert.ok(calls[0].url.endsWith('/api/audio/message%20with%20spaces%2Fand-slash'), calls[0].url);
 	assert.ok(calls[0].init.headers.Authorization.startsWith('RichOS-Device device-1.'), 'the audio request was unauthenticated');
+});
+
+// ---------------------------------------------------------------------------------------------
+// The 503 that is an ANSWER, and the 503 that is an accident (contract §9, plan §2 A)
+// ---------------------------------------------------------------------------------------------
+//
+// Both of these are `503 {"accepted":false,"reason":"…"}` and until today they were the same row of
+// the contract. One of them MUST be retried — the Mac failed to write his words down — and the
+// other must never be, because the answer will be identical every time this build is asked. Nothing
+// in the status or the body shape can tell them apart, so the Mac says which it is: `"retry": false`.
+
+test('a 503 the Mac marks final is an answer, not a fault, and is never retried', async () => {
+	const { api } = makeApi(() => response(503, {
+		accepted: false,
+		retry: false,
+		reason: 'Voice notes are not switched on yet. Your recording is still on your phone.'
+	}));
+	await assert.rejects(
+		() => api.sendVoice({ clientId: 'c-20', threadId: 't', bytes: [1, 2, 3], seconds: 2, sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, REFUSED);
+			assert.strictEqual(err.retryable, false, 'a refusal that cannot change was queued for another try');
+			assert.strictEqual(err.status, 503);
+			// The Mac's own sentence survives, because the Mac is the only thing that knows WHY.
+			// The phone never invents a reason for a refusal it was handed one for.
+			assert.match(err.message, /Voice notes are not switched on yet/);
+			return true;
+		}
+	);
+});
+
+test('the 503 that means the Mac could not write it down is still a fault, and is still retried', async () => {
+	const { api } = makeApi(() => response(503, {
+		accepted: false,
+		reason: 'Your Mac could not save that message. Nothing was lost on your phone — try again.'
+	}));
+	await assert.rejects(
+		() => api.sendText({ clientId: 'c-21', threadId: 't', text: 'where are we on the proposal?', sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, FAULT);
+			assert.strictEqual(err.retryable, true, 'the one 503 that MUST be retried stopped being retried');
+			assert.strictEqual(err.status, 503);
+			return true;
+		}
+	);
+});
+
+test('only `retry: false` is final — `retry: true`, a missing key and a non-JSON body are all faults', async () => {
+	// The default is the safe one in the direction that loses nothing: a message that is retried
+	// when it need not have been costs one request, and a message treated as refused when the Mac
+	// would have taken it is a message he has to type again.
+	const bodies = [
+		[{ accepted: false, retry: true, reason: 'busy' }, 'retry: true'],
+		[{ accepted: false, reason: 'no retry key at all' }, 'no retry key'],
+		['not json at all', 'a body that is not JSON'],
+		['', 'an empty body'],
+		[{ accepted: false, retry: 'false', reason: 'a string, not a boolean' }, 'the string "false"'],
+		[{ accepted: false, retry: 0, reason: 'a number, not a boolean' }, 'the number 0']
+	];
+	for (const [body, what] of bodies) {
+		const { api } = makeApi(() => response(503, body));
+		await assert.rejects(
+			() => api.sendText({ clientId: 'c-22', threadId: 't', text: 'x', sentAt: 'now' }),
+			(err) => {
+				assert.strictEqual(err.retryable, true, `${what} was read as a final answer`);
+				assert.strictEqual(err.reason, FAULT, `${what} was read as a final answer`);
+				return true;
+			}
+		);
+	}
+});
+
+test('a final answer can be given on any status — the Mac decides, the status number does not', async () => {
+	const { api } = makeApi(() => response(500, { retry: false, reason: 'this build cannot do that' }));
+	await assert.rejects(
+		() => api.sendText({ clientId: 'c-23', threadId: 't', text: 'x', sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, REFUSED);
+			assert.strictEqual(err.retryable, false);
+			assert.strictEqual(err.status, 500);
+			return true;
+		}
+	);
+});
+
+test('a 403 that is not a revocation is still REFUSED — the new body read did not swallow the old branch', async () => {
+	const { api } = makeApi(() => response(403, { revoked: false }));
+	await assert.rejects(
+		() => api.sendText({ clientId: 'c-24', threadId: 't', text: 'x', sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, REFUSED);
+			assert.strictEqual(err.status, 403);
+			return true;
+		}
+	);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Capabilities — what this Mac can actually do, said out loud (plan §2 A)
+// ---------------------------------------------------------------------------------------------
+//
+// The phone shipped a "Hold to record" button against a Mac that answers every voice note 503.
+// A control that cannot work is worse than an absent one, so the Mac names what it has and the
+// phone believes nothing it was not told. DEFAULT-DENY: absent, malformed or empty, the answer to
+// "can this Mac take a voice note?" is no — which is the honest answer for every build that
+// predates the `capabilities` key, because not one of them could take one.
+
+test('capabilities are read from the Mac and nothing is assumed — a Mac that says nothing offers nothing', () => {
+	assert.strictEqual(offers(['text', 'voice'], 'voice'), true);
+	assert.strictEqual(offers(['text'], 'voice'), false);
+	assert.strictEqual(offers(undefined, 'voice'), false, 'a Mac that said nothing was read as offering voice');
+	assert.strictEqual(offers(null, 'voice'), false);
+	assert.strictEqual(offers([], 'voice'), false);
+	assert.strictEqual(offers('voice', 'voice'), false, 'a string was read as a list of capabilities');
+	assert.strictEqual(offers(['voice '], 'voice'), false, 'an untrimmed name was accepted');
+	assert.strictEqual(offers(['Voice'], 'voice'), false, 'the name is matched exactly, and it was not');
+	assert.strictEqual(offers([{ name: 'voice' }], 'voice'), false, 'an object was read as the name');
+	assert.strictEqual(offers(['text', 'voice'], 'text'), true);
+});
+
+test('the capabilities and the build from `hello` are held on the api state, where the screen can read them', async () => {
+	const Stub = makeEventSource();
+	const { api, state } = makeApi(() => response(200, {}), null, Stub);
+	const frames = [];
+	await api.openEvents('t-1', 0, { hello: (d) => frames.push(d) });
+	const source = Stub.made[0];
+
+	source.deliver('hello', { challenge: 'challenge-two', capabilities: ['text'], build: '1.2.0' });
+
+	assert.deepStrictEqual(state.capabilities, ['text']);
+	assert.strictEqual(state.build, '1.2.0');
+	assert.strictEqual(api.offers('voice'), false);
+	assert.strictEqual(api.offers('text'), true);
+	assert.strictEqual(frames.length, 1, 'the app did not get the frame it is wired to');
+
+	// A later frame from a Mac that has grown voice replaces the answer; it is never accumulated,
+	// because a capability that was true once is not evidence about the Mac answering now.
+	source.deliver('hello', { capabilities: ['text', 'voice'], build: '1.3.0' });
+	assert.strictEqual(api.offers('voice'), true);
+	assert.strictEqual(state.build, '1.3.0');
+
+	// And a frame with no capabilities at all puts it back to offering nothing, rather than
+	// leaving the phone showing a control on the strength of a frame that is no longer current.
+	source.deliver('hello', { challenge: 'challenge-three' });
+	assert.strictEqual(api.offers('voice'), false);
 });
