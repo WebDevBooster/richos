@@ -435,4 +435,39 @@ mutant M41.standing-keep-hidden "S24b" "$LIB" \
      report says nothing and the pile stays; reporting that nobody reads is the
      same as not reporting."
 
+# ===========================================================================
+# D14 — the volume stage, and the container nobody could ever collect
+# ===========================================================================
+
+mutant M42.volume-age-ignored "S25b" "$LIB" \
+    "            if when is None or when > cutoff:" \
+    "            if False:" \
+    "The volume stage stops applying an age, so a volume created ten minutes ago —
+     exactly the one somebody is about to reattach — is removed. THE AGE IS THE
+     ONLY THING MAKING THIS SAFE, and Docker has no until= filter for volumes to
+     do it for us, which is why this line exists at all."
+
+mutant M43.named-volume-pruned "S25c" "$LIB" \
+    "            if anon.strip() == \"<no value>\":" \
+    "            if False:" \
+    "A NAMED volume becomes a candidate. Docker itself requires -a before it will
+     touch one, because a name is somebody having meant it — this is somebody's
+     database, not scratch."
+
+mutant M44.throwaway-container-not-reported "S26 " "$LIB" \
+    "            if not any(fnmatch.fnmatch(image, p) for p in pats):{NL}                continue" \
+    "            if True:{NL}                continue" \
+    "A running container on a declared throwaway image is never reported, so
+     \`rl55\` and \`rlx\` go back to being immortal by design: \`container prune\`
+     considers stopped containers only, so they pin their images for ever and
+     nothing anywhere says so."
+
+mutant M45.running-container-stopped "S26d" "$LIB" \
+    "            if not any(fnmatch.fnmatch(image, p) for p in pats):" \
+    "            if False and not any(fnmatch.fnmatch(image, p) for p in pats):" \
+    "The declared image list stops being consulted, so EVERY running container is
+     nominated — including the four-container Buzz production stack on this
+     machine. Nomination here is only a report, and it would still be a report
+     telling a person to \`docker rm -f\` a live service."
+
 mutation_end

@@ -122,6 +122,19 @@
 #        found by mutant M37: a REUSED LEDGER pid was immortal too, and the code's
 #        own comment claimed TTL covered it when TTL never runs after a live KEEP.
 #
+#   S24  DECLARED CAMPAIGN ROOTS UNDER ~/ab ARE REPORTED, NEVER DELETED (D3). An
+#        enumeration rather than a sweep, because the census says 24 of 29
+#        directories under ~/ab are in no ledger and most of them are the
+#        operator's projects — `fitapp`, `prospects`, `deeply`, `saferecord`. S24e
+#        is the case that matters: an UNDECLARED sibling is never nominated.
+#   S25  THE VOLUME STAGE (D14), with the age applied by us because
+#        `docker volume prune` has no `until` filter — checked against the vendor's
+#        reference before it was built. Anonymous only (S25c) and past the declared
+#        age only (S25b), which are the two things making it safe.
+#   S26  A RUNNING CONTAINER on a declared throwaway image is REPORTED and never
+#        stopped (D14). S26d is the control that protects the Buzz production
+#        stack: an undeclared image is never nominated, however old.
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -1803,6 +1816,144 @@ else
     bad "S24f it is reported in the plan and invisible to the alarm"
     printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /'
 fi
+
+# ===========================================================================
+# S25 — THE VOLUME STAGE, AND THE AGE THIS PROGRAM HAS TO APPLY ITSELF
+# ===========================================================================
+# Frank's D14: 21 dangling volumes, 402.2 MB, and no arm of the sweep had an
+# opinion about any of them.
+#
+# THE BRIEF PRESCRIBED `docker volume prune --filter until=...` AND THAT FILTER
+# DOES NOT EXIST. Checked against this machine and the vendor's reference before
+# anything was built: volume prune takes `label` and nothing else, while container,
+# image and builder prune all take `until`. Copying the prescription would have
+# shipped a command that errors on every run — or, worse, one whose unknown filter
+# is ignored, which prunes with NO AGE LIMIT AT ALL. Every other stage of this
+# sweep is safe BECAUSE of its age filter, so the age is applied here instead, from
+# `docker volume inspect --format '{{.CreatedAt}}'`.
+#
+# The stub RECORDS ITS ARGUMENTS, for the reason S16c gives: a stub that only
+# echoed a total could not tell a correct implementation from one that deletes
+# every volume on the machine.
+world dockervol
+STUBV="$W_ROOT/stubbin"
+mkdir -p "$STUBV"
+OLD_TS="$(date -u -v-40d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '40 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+NEW_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat >"$STUBV/docker" <<STUB
+#!/bin/sh
+echo "\$@" >>"$W_ROOT/docker-calls.txt"
+case "\$1 \$2" in
+  "info --format")  echo "27.0.0"; exit 0 ;;
+  "volume ls")      echo vol-old-anon; echo vol-new-anon; echo vol-old-named; exit 0 ;;
+  "volume inspect")
+      case "\$3" in
+        vol-old-anon)  echo "$OLD_TS|"; exit 0 ;;
+        vol-new-anon)  echo "$NEW_TS|"; exit 0 ;;
+        vol-old-named) echo "$OLD_TS|<no value>"; exit 0 ;;
+      esac
+      exit 1 ;;
+  "volume rm")      exit 0 ;;
+esac
+case "\$1" in
+  info)      echo "27.0.0"; exit 0 ;;
+  container) echo "Total reclaimed space: 0B"; exit 0 ;;
+  image)     echo "Total reclaimed space: 0B"; exit 0 ;;
+  builder)   echo "Total reclaimed space: 0B"; exit 0 ;;
+  ps)        exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$STUBV/docker"
+sed -i.bak 's/^SCRATCH_DOCKER_PRUNE=.*/SCRATCH_DOCKER_PRUNE="1"/' "$W_CFG"
+echo 'SCRATCH_DOCKER_UNTIL="720h"' >>"$W_CFG"
+OUT="$(PATH="$STUBV:$PATH" run --apply)"
+VLOG="$W_HOME/state/scratch-reaper.log"
+VCALLS="$W_ROOT/docker-calls.txt"
+if grep -q 'volume rm vol-old-anon' "$VCALLS" 2>/dev/null; then
+    ok "S25  an ANONYMOUS volume past the declared age is removed"
+else
+    bad "S25  the volume stage did not run, so D14 is still open"
+    sed 's/^/        /' "$VCALLS" 2>/dev/null | head -10
+fi
+if grep -q 'volume rm vol-new-anon' "$VCALLS" 2>/dev/null; then
+    bad "S25b A VOLUME CREATED TODAY WAS REMOVED. The age is the only thing making"
+    bad "     this safe, and Docker has no until= filter for volumes to do it."
+    sed 's/^/        /' "$VCALLS" 2>/dev/null | head -10
+else
+    ok "S25b CONTROL: one created today is NOT removed — the age is applied"
+fi
+if grep -q 'volume rm vol-old-named' "$VCALLS" 2>/dev/null; then
+    bad "S25c A NAMED VOLUME WAS REMOVED. A name is somebody having meant it, and"
+    bad "     docker itself needs -a before it will touch one."
+else
+    ok "S25c CONTROL: a NAMED volume is left alone whatever its age"
+fi
+if grep -q 'class=docker-volume-prune-item' "$VLOG" 2>/dev/null; then
+    ok "S25d the removal is on the record with its name and its age"
+else
+    bad "S25d a volume was removed and nothing says which"
+    sed 's/^/        /' "$VLOG" 2>/dev/null | tail -6
+fi
+
+# ===========================================================================
+# S26 — A RUNNING CONTAINER ON A THROWAWAY IMAGE IS REPORTED, NEVER STOPPED
+# ===========================================================================
+# `container prune` only ever considers STOPPED containers — correct as a deletion
+# rule, and it leaves `rl55` and `rlx`, two `sleep infinity` dev shells eight days
+# old, pinning 514 MB and 349 MB of image for ever with nothing alerting.
+#
+# NOTHING IS EVER STOPPED. Four of the six containers on this machine are the Buzz
+# production stack. A match is REPORTED, and a person ends it.
+world dockerps
+STUBP="$W_ROOT/stubbin"
+mkdir -p "$STUBP"
+OLD_PS="$(date -v-9d '+%Y-%m-%d %H:%M:%S %z %Z' 2>/dev/null \
+    || date -d '9 days ago' '+%Y-%m-%d %H:%M:%S %z %Z')"
+NEW_PS="$(date '+%Y-%m-%d %H:%M:%S %z %Z')"
+cat >"$STUBP/docker" <<STUB
+#!/bin/sh
+case "\$1" in
+  info) echo "27.0.0"; exit 0 ;;
+  ps)   printf 'zthrow-old\tzimg-throwaway:latest\t$OLD_PS\tsleep infinity\n'
+        printf 'zthrow-new\tzimg-throwaway:latest\t$NEW_PS\tsleep infinity\n'
+        printf 'zservice\tpostgres:17-alpine\t$OLD_PS\tdocker-entrypoint\n'
+        exit 0 ;;
+  volume) exit 0 ;;
+  container|image|builder) echo "Total reclaimed space: 0B"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$STUBP/docker"
+sed -i.bak 's/^SCRATCH_DOCKER_PRUNE=.*/SCRATCH_DOCKER_PRUNE="1"/' "$W_CFG"
+{
+    echo 'SCRATCH_DOCKER_THROWAWAY_IMAGES="zimg-throwaway:*"'
+    echo 'SCRATCH_DOCKER_CONTAINER_ALERT_DAYS="7"'
+} >>"$W_CFG"
+OUT="$(PATH="$STUBP:$PATH" run --dry-run)"
+case "$OUT" in
+    *"docker://container/zthrow-old"*)
+        ok "S26  a running container on a declared throwaway image is REPORTED" ;;
+    *) bad "S26  an eight-day-old dev shell is still invisible (D14)"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -8 ;;
+esac
+case "$OUT" in
+    *"docker rm -f zthrow-old"*)
+        ok "S26b and the reason carries the command, because nothing is stopped here" ;;
+    *) bad "S26b reported without saying what to do about it"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -8 ;;
+esac
+case "$OUT" in
+    *zthrow-new*) bad "S26c a container started today was reported — the age is not applied" ;;
+    *)            ok "S26c CONTROL: one started today is not reported" ;;
+esac
+case "$OUT" in
+    *zservice*)
+        bad "S26d A SERVICE WAS NOMINATED. Only DECLARED throwaway images may be"
+        bad "     named here; the Buzz production stack is the shape this protects." ;;
+    *)  ok "S26d CONTROL: an UNDECLARED image is never nominated, however old" ;;
+esac
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and

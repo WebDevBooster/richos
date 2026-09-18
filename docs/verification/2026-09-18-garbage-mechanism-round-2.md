@@ -753,3 +753,103 @@ past every floor, must not be nominated at all. That is the shape of `fitapp` an
 And M31's anchor drifted when `skipped()` was rewritten; **the harness reported "MUTATION TARGET
 ABSENT — the source has drifted" instead of scoring green against a line that no longer existed.**
 That assertion is why a stale mutant is a failure here rather than a silent pass.
+
+---
+
+## 8. Docker (D14) — a fourth stage, and a filter the brief prescribed that does not exist
+
+### 8.1 `docker volume prune --filter until=…` is not a thing
+
+The brief and Frank's note both prescribe it. **Checked before building it:**
+
+```
+$ docker volume prune --help
+  -a, --all             Remove all unused volumes, not just anonymous ones
+      --filter filter   Provide filter values (e.g. "label=<label>")
+  -f, --force           Do not prompt for confirmation
+
+$ docker version --format '{{.Server.APIVersion}} {{.Server.Version}}'
+1.53 29.2.0
+```
+
+and docs.docker.com/reference/cli/docker/volume/prune: *"The currently supported filters are:
+label"*. Container, image and builder prune all take `until`; **volume prune does not.**
+
+**Copying the prescription would have shipped one of two defects** — a command that errors on every
+run, or, worse, one whose unknown filter is silently ignored and which therefore **prunes with no age
+limit at all.** Every other stage of this sweep is safe *because* of its age filter: *"an image
+pulled or built this month is never a candidate, however unreferenced it is today."* A volume detached
+ten minutes ago is exactly the one somebody is about to reattach.
+
+So the age is applied by us, from `docker volume inspect --format '{{.CreatedAt}}'` (documented, and
+this machine answers `2026-09-10T11:25:40Z`), and **only to anonymous volumes** — which is Docker's
+own default rather than a choice of mine, since `volume prune` needs `-a` before it will touch a named
+one. Measured: 21 dangling volumes, 402.2 MB, every one carrying `com.docker.volume.anonymous`.
+
+### 8.2 The running container that is immortal by design
+
+```
+$ docker ps --format '{{.Names}} | {{.Image}} | up {{.RunningFor}} | {{.Command}}'
+rl55 | richos-linux:git-latest | up 8 days ago | "sleep infinity"
+rlx  | richos-linux:24.04      | up 8 days ago | "sleep infinity"
+buzz-prod-relay-1 / postgres-1 / redis-1 / minio-1   (8 weeks, real services)
+```
+
+`container prune` only ever considers STOPPED containers, and the code says so as a virtue. That is
+right as a **deletion** rule and it leaves the hole: two `sleep infinity` dev shells pinning 514 MB
+and 349 MB of image so `image prune -a` can never reclaim them, with nothing alerting.
+
+**Nothing is ever stopped automatically** — four of the six containers here are the Buzz production
+stack. A container on a **declared** throwaway image, past a declared age, is reported as a standing
+entry, which reaches the garbage alarm. Verified against the real daemon:
+
+```
+$ scripts/scratch-reaper.sh
+KEEP                 0 B  docker://container/rl55
+   why: A RUNNING CONTAINER ON A DECLARED THROWAWAY IMAGE (richos-linux:git-latest) has been
+        up 8 d, and the declared limit is 7 d. It is never stopped automatically — a running
+        container may be a service — and `container prune` considers stopped ones only, so it
+        pins its image for ever. Under §54 it is reported and a person ends it:
+        docker rm -f rl55
+KEEP                 0 B  docker://container/rlx
+```
+
+Only the two dev shells. The Buzz stack is not named, because `postgres:17-alpine` is not a declared
+throwaway.
+
+### 8.3 Two resolvers for "where is docker", and the suite caught it
+
+S26 failed on first run because my new container arm resolved docker by checking three absolute paths
+while the prune arm resolved it through `PATH` — so a stubbed `docker` was honored by one arm and
+ignored by the other. **Two answers to "where is docker" is one more than there can usefully be**,
+and they are now one function.
+
+While there: the prune arm's lookup shelled out to `command -v`, which I suspected was dead code.
+**It is not** — macOS ships `/usr/bin/command` as a real binary (`-rwxr-xr-x root wheel`, verified),
+so it worked here and would fail on a host that does not. It is now `shutil.which`, which is the
+documented way and needs no such accident.
+
+### 8.4 Tests
+
+```
+$ scripts/scratch-reaper.test.sh          104 passed, 0 failed
+   S25  an ANONYMOUS volume past the declared age is removed
+   S25b CONTROL: one created today is NOT removed — the age is applied
+   S25c CONTROL: a NAMED volume is left alone whatever its age
+   S25d the removal is on the record with its name and its age
+   S26  a running container on a declared throwaway image is REPORTED
+   S26b and the reason carries the command, because nothing is stopped here
+   S26c CONTROL: one started today is not reported
+   S26d CONTROL: an UNDECLARED image is never nominated, however old
+
+$ scripts/scratch-reaper.mutation.sh      all 45 properties proven load-bearing
+   M42.volume-age-ignored                 -> S25b red
+   M43.named-volume-pruned                -> S25c red
+   M44.throwaway-container-not-reported   -> S26  red
+   M45.running-container-stopped          -> S26d red
+```
+
+**Every Docker case runs against a stubbed daemon that records its arguments**, for the reason S16c
+gives: a stub that only echoed a total could not tell a correct implementation from one that deletes
+every volume on the machine. **No real volume was removed by this pass** — the volume stage only runs
+under `--apply`, and `--apply` was never run against the real daemon from this worktree.

@@ -1967,6 +1967,7 @@ class Reaper(object):
         self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
         self.scan_campaign_roots(walls)
+        self.scan_docker_containers(walls)
         # LAST, ALWAYS. It is the only expensive arm and the only one that may be
         # cut short by a budget without failing the run; everything above has
         # already been decided by the time it starts.
@@ -2084,22 +2085,8 @@ class Reaper(object):
         out = []
         if not self.cfg["docker_prune"]:
             return out
-        docker = None
-        for cand in ("docker", "/usr/local/bin/docker", "/opt/homebrew/bin/docker"):
-            if os.path.isabs(cand):
-                if os.access(cand, os.X_OK):
-                    docker = cand
-                    break
-            else:
-                try:
-                    r = subprocess.run(["command", "-v", cand],
-                                       capture_output=True, text=True,
-                                       timeout=5, shell=False)
-                except (OSError, subprocess.TimeoutExpired):
-                    r = None
-                if r is not None and r.returncode == 0 and r.stdout.strip():
-                    docker = r.stdout.strip().splitlines()[0]
-                    break
+        # ONE RESOLVER, shared with scan_docker_containers. See _docker_path.
+        docker = self._docker_path()
         if docker is None:
             # Not installed. Not a failure, and not worth a line every run.
             return out
@@ -2176,7 +2163,211 @@ class Reaper(object):
                        % (stamp, freed, klass,
                           "the daemon reclaimed it (%s)" % " ".join(args)))
             self.docker_actions.append((klass, freed, ""))
+        out.extend(self.prune_docker_volumes(docker, stamp))
         return out
+
+    def prune_docker_volumes(self, docker, stamp):
+        """THE FOURTH STAGE — unused ANONYMOUS volumes past the declared age.
+
+        =================================================================
+        THE BRIEF PRESCRIBED `docker volume prune --filter until=...`
+        AND THAT FILTER DOES NOT EXIST
+        =================================================================
+        Checked before it was built, against this machine and against the vendor's
+        own reference:
+
+            $ docker volume prune --help
+              --filter filter   Provide filter values (e.g. "label=<label>")
+            $ docker version --format '{{.Server.Version}}'   ->  29.2.0
+
+        and docs.docker.com/reference/cli/docker/volume/prune: *"The currently
+        supported filters are: label"*. There is no `until` for volumes — unlike
+        container, image and builder prune, which all take one. So the prescription
+        could not have worked, and copying it would have shipped either a command
+        that errors on every run or, worse, one whose unknown filter is ignored and
+        which therefore prunes with NO AGE LIMIT AT ALL.
+
+        THE AGE IS NOT OPTIONAL HERE, which is why this is not simply
+        `docker volume prune -f`. Every other stage of this sweep is safe because
+        of its age filter: "an image pulled or built this month is never a
+        candidate, however unreferenced it is today". A volume detached from a
+        container ten minutes ago is exactly the thing somebody is about to
+        reattach. So the window is applied HERE, from
+        `docker volume inspect --format '{{.CreatedAt}}'`, which is documented and
+        which this machine answers with an RFC3339 timestamp.
+
+        ANONYMOUS VOLUMES ONLY, and that is Docker's own default rather than a
+        choice of mine: `docker volume prune` needs `-a` before it will touch a
+        NAMED volume, because a name is somebody having meant it. Measured here:
+        21 dangling volumes, 402.2 MB, every one carrying
+        `com.docker.volume.anonymous`.
+        """
+        out = []
+        hours = _hours_from_until(self.cfg["docker_until"])
+        if hours is None:
+            out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                       "why=unreadable-age error=%r is not a duration this "
+                       "understands (expected e.g. 720h)"
+                       % (stamp, self.cfg["docker_until"]))
+            return out
+        try:
+            r = subprocess.run([docker, "volume", "ls", "-q", "-f",
+                                "dangling=true"],
+                               capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                       "why=list error=%s" % (stamp, exc))
+            return out
+        if r.returncode != 0:
+            return out
+        cutoff = self.now - hours * 3600
+        removed = 0
+        for name in r.stdout.split():
+            try:
+                i = subprocess.run(
+                    [docker, "volume", "inspect", name, "--format",
+                     "{{.CreatedAt}}|{{index .Labels \"com.docker.volume.anonymous\"}}"],
+                    capture_output=True, text=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if i.returncode != 0:
+                continue
+            created, _, anon = (i.stdout or "").strip().partition("|")
+            # `index` on a missing key prints "<no value>"; an anonymous volume
+            # carries the label with an EMPTY value, which prints as "".
+            if anon.strip() == "<no value>":
+                continue            # a NAMED volume: somebody meant it
+            when = _rfc3339_epoch(created)
+            if when is None or when > cutoff:
+                continue
+            try:
+                d = subprocess.run([docker, "volume", "rm", name],
+                                   capture_output=True, text=True, timeout=120)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                           "why=%s error=%s" % (stamp, name, exc))
+                continue
+            if d.returncode != 0:
+                err = (d.stderr or "").strip().splitlines()
+                out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                           "why=%s error=%s"
+                           % (stamp, name, err[-1] if err else
+                              "exit %d" % d.returncode))
+                continue
+            removed += 1
+            out.append("%s DELETED docker bytes=0 class=docker-volume-prune-item "
+                       "why=%s, anonymous and unused, created %s (older than the "
+                       "declared %s)" % (stamp, name, created,
+                                         self.cfg["docker_until"]))
+        if removed:
+            out.append("%s DELETED docker bytes=0 class=docker-volume-prune "
+                       "why=%d anonymous unused volume(s) older than %s"
+                       % (stamp, removed, self.cfg["docker_until"]))
+            self.docker_actions.append(("docker-volume-prune", 0, ""))
+        return out
+
+    def scan_docker_containers(self, walls):
+        """A RUNNING CONTAINER IS IMMORTAL BY DESIGN — so it gets reported.
+
+        Frank's D14. `container prune` only ever considers STOPPED containers, and
+        the shipped code says so as a virtue: "a running one is not a candidate at
+        any age". That is correct as a deletion rule and it leaves a hole:
+
+            $ docker ps --format '{{.Names}} | {{.Image}} | up {{.RunningFor}} | {{.Command}}'
+            rl55 | richos-linux:git-latest | up 8 days ago | "sleep infinity"
+            rlx  | richos-linux:24.04      | up 8 days ago | "sleep infinity"
+
+        Two `sleep infinity` dev shells, eight days old, pinning 514 MB and 349 MB
+        of image so `image prune -a` can never reclaim them. Nothing alerts, and
+        that is how dev containers are actually used, so it recurs.
+
+        NOTHING IS EVER STOPPED HERE. A running container may be a service — four
+        of the six on this machine are the Buzz production stack — and stopping one
+        automatically is a category of action this program does not take. It is
+        REPORTED, as a standing entry, so it reaches the garbage alarm and a person
+        decides. Same shape as a campaign root, for the same reason.
+
+        Narrow by construction: only images matching a DECLARED throwaway pattern,
+        and only past a declared age.
+        """
+        pats = self.cfg["docker_throwaway_images"]
+        if not self.cfg["docker_prune"] or not pats or self.skip_unknown_arm:
+            return
+        docker = self._docker_path()
+        if docker is None or not self._docker_alive(docker):
+            return
+        try:
+            r = subprocess.run(
+                [docker, "ps", "--format",
+                 "{{.Names}}\t{{.Image}}\t{{.CreatedAt}}\t{{.Command}}"],
+                capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if r.returncode != 0:
+            return
+        max_age = self.cfg["docker_container_alert_days"] * 86400
+        for line in r.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            name, image, created = parts[0], parts[1], parts[2]
+            if not any(fnmatch.fnmatch(image, p) for p in pats):
+                continue
+            when = _docker_ps_epoch(created)
+            if when is None:
+                continue
+            age = self.now - when
+            if age < max_age:
+                continue
+            self.add("docker://container/" + name, "docker-container", 0, KEEP,
+                     "A RUNNING CONTAINER ON A DECLARED THROWAWAY IMAGE (%s) has "
+                     "been up %d d, and the declared limit is %d d. It is never "
+                     "stopped automatically — a running container may be a service "
+                     "— and `container prune` considers stopped ones only, so it "
+                     "pins its image for ever. Under §54 it is reported and a "
+                     "person ends it:  docker rm -f %s"
+                     % (image, age // 86400,
+                        self.cfg["docker_container_alert_days"], name),
+                     standing=True)
+
+    def _docker_path(self):
+        """Where docker is, resolved ONCE and the same way for every caller.
+
+        THIS WAS TWO RESOLVERS AND THEY DISAGREED, which the suite caught: the
+        prune arm resolved through PATH and this one only checked three absolute
+        locations, so a test's stubbed `docker` was honored by one arm and ignored
+        by the other. Two answers to "where is docker" is one more than there can
+        usefully be.
+
+        shutil.which, because it honors PATH and is the documented way. The prune
+        arm used to shell out to `command -v`, which works here only because macOS
+        ships /usr/bin/command as a real binary — checked, it does — and would fail
+        on a host that does not.
+        """
+        if "_dockerbin" in self.__dict__:
+            return self.__dict__["_dockerbin"]
+        import shutil
+        found = shutil.which("docker")
+        if not found:
+            for cand in ("/opt/homebrew/bin/docker", "/usr/local/bin/docker",
+                         "/usr/bin/docker"):
+                if os.access(cand, os.X_OK):
+                    found = cand
+                    break
+        self.__dict__["_dockerbin"] = found
+        return found
+
+    def _docker_alive(self, docker):
+        if "_dockerup" in self.__dict__:
+            return self.__dict__["_dockerup"]
+        try:
+            p = subprocess.run([docker, "info", "--format", "{{.ServerVersion}}"],
+                               capture_output=True, text=True, timeout=20)
+            up = p.returncode == 0 and bool(p.stdout.strip())
+        except (OSError, subprocess.TimeoutExpired):
+            up = False
+        self.__dict__["_dockerup"] = up
+        return up
 
     def apply(self, log_path):
         """Delete, one line per deletion, freed bytes counted from what the
@@ -2372,6 +2563,66 @@ class Reaper(object):
                 os.unlink(state)
             except OSError:
                 write_failures(state, {})
+
+
+def _hours_from_until(text):
+    """'720h' -> 720. None if it is not a form this understands.
+
+    Deliberately narrow: `until` accepts several spellings from Docker, and this
+    only has to read the one THIS config declares. A duration it cannot read is
+    reported as a failure rather than defaulted, because a default here would be
+    an age limit nobody chose on a command that deletes.
+    """
+    t = (text or "").strip().lower()
+    if t.endswith("h"):
+        t = t[:-1]
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _rfc3339_epoch(text):
+    """'2026-09-10T11:25:40Z' -> epoch seconds, or None.
+
+    `docker volume inspect --format '{{.CreatedAt}}'` answers in this form on this
+    machine, measured. Parsed with calendar.timegm and never with mktime, for the
+    reason lstart_epoch carries at length: the string is UTC and mktime reads local.
+    """
+    t = (text or "").strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return calendar.timegm(time.strptime(t[:19], fmt))
+        except ValueError:
+            continue
+    return None
+
+
+def _docker_ps_epoch(text):
+    """`docker ps --format '{{.CreatedAt}}'` -> epoch seconds, or None.
+
+    Its shape is '2026-09-10 11:25:40 +0100 BST' — LOCAL time with an explicit
+    numeric offset, which is a different format from the volume inspect one above
+    and is why this is a second function rather than a second regex in the first.
+    The numeric offset is what makes it unambiguous; the trailing zone NAME is
+    ignored because names are not unique across the world.
+    """
+    parts = (text or "").strip().split()
+    if len(parts) < 3:
+        return None
+    try:
+        base = calendar.timegm(time.strptime(" ".join(parts[:2]),
+                                             "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return None
+    off = parts[2]
+    if len(off) != 5 or off[0] not in "+-":
+        return None
+    try:
+        mins = int(off[1:3]) * 60 + int(off[3:5])
+    except ValueError:
+        return None
+    return base - mins * 60 if off[0] == "+" else base + mins * 60
 
 
 _RECLAIM_RE = re.compile(
@@ -2629,6 +2880,11 @@ def config_from_env():
         "campaign_roots": opt("SCRATCH_CAMPAIGN_ROOTS", "").split(),
         "campaign_retention_days":
             opt_number("SCRATCH_CAMPAIGN_RETENTION_DAYS", 7),
+        # D14. Empty fallback: no image is a throwaway unless somebody says so.
+        "docker_throwaway_images":
+            opt("SCRATCH_DOCKER_THROWAWAY_IMAGES", "").split(),
+        "docker_container_alert_days":
+            opt_number("SCRATCH_DOCKER_CONTAINER_ALERT_DAYS", 7),
     }
 
 
