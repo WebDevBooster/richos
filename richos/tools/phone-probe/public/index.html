@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<!-- `viewport-fit=cover` plus the safe-area padding in styles.css is what keeps the installed
+     window from tucking content under the status bar and the home indicator. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RichOS phone probe</title>
+
+<!-- `apple-mobile-web-app-capable` is the legacy iOS route to a standalone window and is kept
+     alongside the manifest's `display: standalone`, because an older iOS reads only this one and
+     step 1 has to be answerable on whatever version his phone is on. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Probe">
+<!-- `black-translucent` so the status bar takes the page's own ground instead of flashing white. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0c1322" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eae6dd" media="(prefers-color-scheme: light)">
+
+<!-- The manifest link and the icon carry the access code, which app.js rewrites at load if the
+     page was opened with one. iOS fetches both itself and does not send our headers, so the code
+     has to travel in the URL or Add to Home Screen installs an app that cannot load. -->
+<link rel="manifest" href="/manifest.webmanifest" id="manifest-link">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" id="touch-icon">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<h1>RichOS phone probe</h1>
+<p class="lede">Five checks, about twenty minutes. They answer one question: can Rich on your phone be a web app, or does it have to be a real app from the App Store?</p>
+<p class="build" id="build">Loading&hellip;</p>
+
+<div class="banner" id="tab-banner" hidden>
+	<strong>You are in a browser tab.</strong>
+	Steps 2 and 4 only answer the real question from the installed app. Tap the Share button at the
+	bottom of Safari, choose <strong>Add to Home Screen</strong>, then open the new icon and start again
+	from here.
+</div>
+
+<!-- ============================ 1. Install ============================ -->
+<section class="step" id="step-1">
+	<div class="step-head"><span class="step-n">1</span><h2>Install it</h2></div>
+	<p>Add this page to your Home Screen and open it from that icon. It should open in its own window
+	with no address bar.</p>
+	<p class="plain" id="install-how">In Safari: the Share button, then <strong>Add to Home Screen</strong>.</p>
+	<div class="verdict waiting" id="v1"><span class="label">Checking&hellip;</span></div>
+</section>
+
+<!-- ======================== 2. Microphone (gate) ======================= -->
+<section class="step" id="step-2">
+	<div class="step-head"><span class="step-n">2</span><h2>The microphone<span class="gate">the one that matters</span></h2></div>
+	<p>Turn the microphone on first, then hold the big button and talk for about three seconds. Your
+	voice is measured on the phone and thrown away. Nothing is uploaded and nothing is saved.</p>
+
+	<div class="row">
+		<button id="mic-on" class="primary">Turn on the microphone</button>
+	</div>
+
+	<div class="meter" aria-hidden="true"><div class="meter-fill" id="meter-fill"></div></div>
+	<p class="meter-read" id="meter-read" role="status" aria-live="polite">Level: &mdash;</p>
+
+	<button id="record" disabled>Hold to record</button>
+
+	<div class="row" id="playback-row" hidden>
+		<button id="play">Optional: play it back</button>
+	</div>
+
+	<div class="verdict waiting" id="v2"><span class="label">Not run yet.</span>
+		<p class="detail" id="d2">Non-silent means a peak above &minus;50&nbsp;dBFS.</p>
+	</div>
+</section>
+
+<!-- ========================= 3. Persistence ========================== -->
+<section class="step" id="step-3">
+	<div class="step-head"><span class="step-n">3</span><h2>Does it ask again?</h2></div>
+	<p>Close this app completely, open it again from the Home Screen icon, and record once more. We
+	want to know whether iOS asks for the microphone a second time. Either answer is fine &mdash; it
+	is a cost, not a deal-breaker.</p>
+	<div class="row" id="persist-row" hidden>
+		<button id="asked-again">It asked me again</button>
+		<button id="asked-once">It just recorded</button>
+	</div>
+	<div class="verdict waiting" id="v3"><span class="label">Waiting for a second launch.</span>
+		<p class="detail" id="d3"></p>
+	</div>
+</section>
+
+<!-- ===================== 4. Push with the app closed ================== -->
+<section class="step" id="step-4">
+	<div class="step-head"><span class="step-n">4</span><h2>A notification with the app closed</h2></div>
+	<p>Turn notifications on, ask for a test push, then close this app completely and wait. The
+	notification should arrive about a minute later.</p>
+
+	<div class="row">
+		<button id="notif-on" class="primary">Turn on notifications</button>
+		<button id="send-push" disabled>Send me a test push in 60 seconds</button>
+	</div>
+	<div class="row" id="push-answer-row" hidden>
+		<button id="push-yes">The notification appeared</button>
+		<button id="push-no">Nothing arrived</button>
+	</div>
+	<div class="verdict waiting" id="v4"><span class="label">Not run yet.</span>
+		<p class="detail" id="d4"></p>
+	</div>
+</section>
+
+<!-- ============================= 5. Wake ============================= -->
+<section class="step" id="step-5">
+	<div class="step-head"><span class="step-n">5</span><h2>Tapping it opens the app</h2></div>
+	<p>Tap the notification. This app should open straight onto a message saying you arrived from
+	the notification.</p>
+	<div class="verdict waiting" id="v5"><span class="label">Not run yet.</span>
+		<p class="detail" id="d5"></p>
+	</div>
+</section>
+
+<!-- ============================ Results ============================= -->
+<section class="results">
+	<h2>The five results</h2>
+	<textarea id="results-text" readonly aria-label="The five results, as text you can copy"></textarea>
+	<div class="row row-spaced">
+		<button id="copy" class="primary">Copy results</button>
+		<button id="reset">Start over</button>
+	</div>
+	<p class="detail" id="copy-said" role="status" aria-live="polite"></p>
+</section>
+
+<p class="note">
+	<strong>What this stores.</strong> Your voice never leaves the phone &mdash; it is measured in
+	memory and discarded, and there is no upload of it anywhere in this page. The five results above
+	are saved on this phone only, and <strong>Start over</strong> erases them. The one thing the
+	server holds is the notification address from step 4, in memory, because a push cannot be sent
+	without it; it is forgotten when the server restarts, and <strong>Start over</strong> deletes it
+	immediately. No account, no password, no analytics.
+</p>
+
+<script src="/pcm.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

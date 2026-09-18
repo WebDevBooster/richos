@@ -272,7 +272,9 @@ button:disabled {
 
 .meter-fill {
 	height: 100%;
-	width: 0%;
+	/* Driven from JS via a custom property rather than an inline width, so the presentation rule
+	 * stays here in the stylesheet and JS only supplies the number. */
+	width: var(--level, 0%);
 	background: var(--success);
 	transition: width 60ms linear;
 }
