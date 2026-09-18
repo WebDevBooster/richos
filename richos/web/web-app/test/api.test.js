@@ -284,7 +284,7 @@ test('pairing stores the device and the first challenge, and needs no signature 
 });
 
 test('backfill asks for what is BEFORE a cursor — chunked loading behind a scroll, never a page number', async () => {
-	const { api, calls } = makeApi(() => response(200, { messages: [], more: false }));
+	const { api, calls, signer } = makeApi(() => response(200, { messages: [], more: false }));
 	await api.backfill('t-1', 42, 25);
 	const url = new URL(calls[0].url);
 	assert.strictEqual(url.pathname, '/api/events');
@@ -292,6 +292,15 @@ test('backfill asks for what is BEFORE a cursor — chunked loading behind a scr
 	assert.strictEqual(url.searchParams.get('limit'), '25');
 	assert.strictEqual(url.searchParams.get('page'), null, 'a page number reached the wire');
 	assert.strictEqual(url.searchParams.get('offset'), null, 'an offset reached the wire');
+
+	// AND THE CREDENTIAL IS IN THE QUERY, because `routes.rs` `events()` reads it there and
+	// nowhere else (`:405`), for the backfill exactly as for the stream. A header here is a flat
+	// 404 on his Mac and was invisible for as long as the harness accepted either place.
+	assert.ok(url.searchParams.get('auth').startsWith('RichOS-Device device-1.'), calls[0].url);
+	assert.strictEqual(calls[0].init.headers.Authorization, undefined, 'the credential also went in a header the Mac never reads');
+	// Signed over the path WITHOUT the credential, which is what `signed_path` verifies against.
+	const signed = signer.signed[signer.signed.length - 1].split('\n')[2];
+	assert.strictEqual(signed, '/api/events?thread_id=t-1&before=42&limit=25', signed);
 });
 
 test('audio is fetched with the credential, by an id the Mac minted', async () => {

@@ -151,9 +151,32 @@ function createStubMac(options) {
 	}
 
 	/// The whole of authentication, and it is a real verification rather than a shape check.
-	function authenticate(req, url, bodyBytes) {
-		const header = req.headers.authorization
-			|| (url.searchParams.get('auth') ? url.searchParams.get('auth') : null);
+	///
+	/// **`where` IS REQUIRED, AND IT IS THE FIX FOR A DEFECT THIS FUNCTION WAS HIDING.** It used to
+	/// read `req.headers.authorization || url.searchParams.get('auth')` — the header OR the query,
+	/// on every route. The shipped Mac does no such thing. It reads ONE of the two per route, and
+	/// which one is not a detail:
+	///
+	///   * `GET /api/events` — the QUERY and only the query. `routes.rs:403-411` is
+	///     `let Some(auth) = query_value(&request.query, "auth") else { return Outcome::NotFound }`
+	///     and the word `request.authorization` does not appear anywhere in that function.
+	///   * `POST /api/messages` (`routes.rs:304`), `GET /api/audio/…` (`:504`) and
+	///     `POST /api/pair` when it is the device record (`:210`) — the HEADER and only the header.
+	///
+	/// So a stub that accepts either is MORE PERMISSIVE THAN THE MAC, and a phone that signs the
+	/// wrong way passes every check in this repository and gets a flat 404 on his actual Mac. That
+	/// is not a hypothetical: `lib/api.js` `backfill()` went through `request()`, which sets the
+	/// header, against a route that reads only the query — so every "load older messages" scroll on
+	/// a real Mac was a 404, and `api.test.js` and `desktop-verify` were green the whole time.
+	///
+	/// It is required rather than defaulted because a default is how the next route forgets.
+	function authenticate(req, url, bodyBytes, where) {
+		if (where !== 'header' && where !== 'query') {
+			throw new Error("authenticate() needs to be told where this route reads the credential: 'header' or 'query'");
+		}
+		const header = where === 'query'
+			? url.searchParams.get('auth')
+			: (req.headers.authorization || null);
 		if (!header || !header.startsWith('RichOS-Device ')) return null;
 
 		const [deviceId, challenge, signature] = header.slice('RichOS-Device '.length).split('.');
@@ -289,7 +312,8 @@ function createStubMac(options) {
 
 		// --- the stream ---------------------------------------------------------------------
 		if (url.pathname === '/api/events' && url.searchParams.get('before') === null && req.headers.accept && req.headers.accept.includes('text/event-stream')) {
-			const who = authenticate(req, url, null);
+			// THE QUERY, because an `EventSource` cannot set a header (`routes.rs:405`).
+			const who = authenticate(req, url, null, 'query');
 			if (!who) { flat404(res); return; }
 			if (state.mode === 'revoked') { send(res, 403, { revoked: true }); return; }
 
@@ -329,7 +353,11 @@ function createStubMac(options) {
 
 		// --- the backfill behind infinite scroll --------------------------------------------
 		if (url.pathname === '/api/events') {
-			const who = authenticate(req, url, null);
+			// THE QUERY HERE TOO, AND THAT IS THE WHOLE POINT. `routes.rs` `events()` reads the
+			// credential ONCE, at `:405`, BEFORE it looks at `before=` and decides whether this is
+			// the stream or the backfill. One route, one contract — the Mac does not grow a second
+			// way to be asked just because the answer is JSON.
+			const who = authenticate(req, url, null, 'query');
 			if (!who) { flat404(res); return; }
 			const before = Number(url.searchParams.get('before'));
 			const limit = Number(url.searchParams.get('limit')) || 40;
@@ -346,7 +374,8 @@ function createStubMac(options) {
 			req.on('data', (c) => parts.push(c));
 			req.on('end', () => {
 				const bodyBytes = Buffer.concat(parts);
-				const who = authenticate(req, url, bodyBytes);
+				// THE HEADER — `routes.rs:304`.
+				const who = authenticate(req, url, bodyBytes, 'header');
 				if (!who) { flat404(res); return; }
 				if (state.mode === 'revoked') { send(res, 403, { revoked: true }); return; }
 
@@ -411,7 +440,8 @@ function createStubMac(options) {
 
 		// --- one audio blob, by an id the Mac minted -----------------------------------------
 		if (url.pathname.startsWith('/api/audio/')) {
-			const who = authenticate(req, url, null);
+			// THE HEADER — `routes.rs:504`.
+			const who = authenticate(req, url, null, 'header');
 			if (!who) { flat404(res); return; }
 			const id = decodeURIComponent(url.pathname.slice('/api/audio/'.length));
 			if (!state.ledger.some((row) => row.id === id)) { flat404(res); return; }
@@ -457,7 +487,8 @@ function createStubMac(options) {
 					return;
 				}
 
-				const who = authenticate(req, url, bodyBytes);
+				// THE HEADER — `routes.rs:210`, the device-record half of this route.
+				const who = authenticate(req, url, bodyBytes, 'header');
 				if (!who) { flat404(res); return; }
 				who.device.push = body.push || null;
 				who.device.pushTransport = body.push_transport || null;

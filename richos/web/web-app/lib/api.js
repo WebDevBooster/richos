@@ -199,9 +199,23 @@
 			return `RichOS-Device ${state.deviceId}.${state.challenge}.${signature}`;
 		}
 
-		async function request(method, pathWithQuery, body, contentType) {
+		/// `options.credential` says WHERE THIS ROUTE READS THE CREDENTIAL, and it is not a style
+		/// choice — it is a property of the route on the Mac.
+		///
+		///   `'header'` (the default) — `POST /api/messages` (`routes.rs:304`),
+		///     `GET /api/audio/…` (`:504`), `POST /api/pair` as the device record (`:210`). Each of
+		///     those reads `request.authorization` and nothing else.
+		///   `'query'` — `GET /api/events` (`:403-411`), which reads
+		///     `query_value(&request.query, "auth")` and nothing else. `grep -n
+		///     'request.authorization' routes.rs` returns `:210`, `:304`, `:504` and NOTHING inside
+		///     `events()`, so a header on that route is not a fallback, it is invisible.
+		///
+		/// Either way the signature covers the path WITHOUT the credential, because the Mac strips
+		/// `auth` before it verifies (`routes.rs:572-586` `signed_path`).
+		async function request(method, pathWithQuery, body, contentType, options) {
 			if (!fetchImpl) throw new ApiError(FAULT, 'this browser has no fetch');
-			const url = joinBase(state.apiBase, pathWithQuery);
+			const inQuery = !!(options && options.credential === 'query');
+			let url = joinBase(state.apiBase, pathWithQuery);
 			const headers = {};
 			let payload;
 			if (body !== undefined && body !== null) {
@@ -212,7 +226,15 @@
 			}
 			const bodyHash = payload === undefined ? '' : await signer.sha256Hex(payload);
 			const auth = await authorization(method, pathWithQuery, bodyHash);
-			if (auth) headers.Authorization = auth;
+			if (auth && inQuery) {
+				// The separator is derived rather than assumed, for the same reason `openEvents`
+				// derives it: a path that ever lost its query string would otherwise produce
+				// `…/api/events&auth=`, which the Mac refuses for a reason nobody would find
+				// quickly. Appended LAST, so `signed_path`'s filter leaves the rest in order.
+				url += `${url.includes('?') ? '&' : '?'}auth=${encodeURIComponent(auth)}`;
+			} else if (auth) {
+				headers.Authorization = auth;
+			}
 
 			let response;
 			try {
@@ -254,8 +276,8 @@
 			return response;
 		}
 
-		async function json(method, pathWithQuery, body, contentType) {
-			const response = await request(method, pathWithQuery, body, contentType);
+		async function json(method, pathWithQuery, body, contentType, options) {
+			const response = await request(method, pathWithQuery, body, contentType, options);
 			const text = await response.text();
 			if (!text) return {};
 			try {
@@ -366,10 +388,21 @@
 				return next;
 			},
 
+			/// "LOAD OLDER MESSAGES", AND ITS CREDENTIAL GOES IN THE QUERY.
+			///
+			/// This is the same route as the stream — `GET /api/events` — and `routes.rs`
+			/// `events()` reads the credential ONCE, at `:405`, BEFORE it looks at `before=` and
+			/// decides whether the answer is a stream or a page of JSON. One route, one contract.
+			///
+			/// It used to go through `request()` with the credential in the `Authorization`
+			/// header, which `events()` never reads, so every scroll into the past on a real Mac
+			/// was a flat 404. It was invisible because the harness Mac accepted either place; the
+			/// harness is now strict per route (`test/stub-mac.js` `authenticate`), which is what
+			/// stops this returning. The stream was always right, and this is the side that moved.
 			async backfill(threadId, beforeCursor, limit) {
 				return json('GET', '/api/events' + query({
 					thread_id: threadId, before: beforeCursor, limit: limit || 40
-				}));
+				}), undefined, undefined, { credential: 'query' });
 			},
 
 			/// The live stream. `EventSource` cannot carry a header, so the stream — and only the
