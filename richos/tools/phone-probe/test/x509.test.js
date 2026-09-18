@@ -194,6 +194,89 @@ test('the signature is ECDSA with SHA-256 over a P-256 key, as Apple requires', 
 	assert.strictEqual(tbsField(leaf.certPem, 2).hex, '300a06082a8648ce3d040302');
 });
 
+// Every extension in a certificate, by OID, with its critical flag and its raw value. Node exposes
+// almost none of this, and the difference between an extension that is present and one that is
+// present AND critical is a difference a trust store acts on.
+function extensionsOf(certPem) {
+	const raw = new crypto.X509Certificate(certPem).raw;
+	const outer = der.readTlv(raw, 0);
+	const tbs = der.readTlv(raw, outer.start);
+	let at = tbs.start;
+	for (let i = 0; i < 7; i++) at = der.readTlv(raw, at).end; // version..spki
+	const wrapper = der.readTlv(raw, at);
+	assert.strictEqual(wrapper.tag, 0xa3, 'the extensions must be in the [3] EXPLICIT slot');
+	const list = der.readTlv(raw, wrapper.start);
+	const found = {};
+	let cursor = list.start;
+	while (cursor < list.end) {
+		const ext = der.readTlv(raw, cursor);
+		let inner = ext.start;
+		const oidTlv = der.readTlv(raw, inner);
+		const oidHex = raw.subarray(inner, oidTlv.end).toString('hex');
+		inner = oidTlv.end;
+		let critical = false;
+		let next = der.readTlv(raw, inner);
+		if (next.tag === der.TAG.BOOLEAN) {
+			critical = next.content[0] === 0xff;
+			inner = next.end;
+			next = der.readTlv(raw, inner);
+		}
+		found[oidHex] = { critical, value: Buffer.from(next.content) };
+		cursor = ext.end;
+	}
+	return found;
+}
+
+const oidHexOf = (dotted) => der.oid(dotted).toString('hex');
+
+test('the root constrains itself: CA:TRUE with pathLenConstraint 0, and it is critical', () => {
+	// pathlen:0 says this root may issue end-entity certificates and may NOT issue another CA. An
+	// unconstrained local root is a bigger thing to trust than it needs to be.
+	const ext = extensionsOf(ca.certPem)[oidHexOf('2.5.29.19')];
+	assert.ok(ext, 'basicConstraints must be present on a CA');
+	assert.strictEqual(ext.critical, true);
+	assert.strictEqual(ext.value.toString('hex'), '30060101ff020100', 'SEQUENCE { BOOLEAN TRUE, INTEGER 0 }');
+});
+
+test('the root may sign certificates and revocation lists, and nothing else', () => {
+	const ext = extensionsOf(ca.certPem)[oidHexOf('2.5.29.15')];
+	assert.strictEqual(ext.critical, true);
+	// A BIT STRING with one unused bit and bits 5 and 6 set: keyCertSign, cRLSign.
+	assert.strictEqual(ext.value.toString('hex'), '03020106');
+});
+
+test('the leaf is for TLS servers ONLY: extendedKeyUsage is critical and holds just serverAuth', () => {
+	const ext = extensionsOf(leaf.certPem)[oidHexOf('2.5.29.37')];
+	assert.ok(ext, 'Apple requires extendedKeyUsage on a server certificate');
+	assert.strictEqual(ext.critical, true, 'critical says this certificate is for TLS servers and nothing else');
+	assert.strictEqual(ext.value.toString('hex'), '300a06082b06010505070301',
+		'exactly one usage: SEQUENCE { id-kp-serverAuth }');
+	assert.strictEqual(ext.value.toString('hex'), der.seq(der.oid('1.3.6.1.5.5.7.3.1')).toString('hex'));
+});
+
+test('the leaf asserts digitalSignature and NOT keyEncipherment — RFC 5480 §3 for an EC key', () => {
+	// The plan's openssl block asserts keyEncipherment too. That is right for RSA and wrong here:
+	// nothing encrypts to an EC key directly, and every modern ECDSA suite needs digitalSignature
+	// alone. This is the one place this implementation deliberately differs from that block.
+	const ext = extensionsOf(leaf.certPem)[oidHexOf('2.5.29.15')];
+	assert.strictEqual(ext.critical, true);
+	// A BIT STRING with seven unused bits and only bit 0 set. keyEncipherment would be bit 2, which
+	// would make the second byte 0xa0 and the unused count 5.
+	assert.deepStrictEqual([...ext.value], [0x03, 0x02, 0x07, 0x80], 'digitalSignature and nothing else');
+});
+
+test('the leaf carries both key identifiers, and the authority one points at the root', () => {
+	const { keyIdentifier } = require('../lib/x509.js');
+	const exts = extensionsOf(leaf.certPem);
+	const ski = exts[oidHexOf('2.5.29.14')];
+	const aki = exts[oidHexOf('2.5.29.35')];
+	assert.ok(ski && aki);
+	assert.strictEqual(ski.critical, false, 'a key identifier is a lookup hint, never critical');
+	// The AKI wraps the identifier in [0]; its last 20 bytes are the SHA-1 of the root's key.
+	assert.strictEqual(aki.value.subarray(aki.value.length - 20).toString('hex'),
+		keyIdentifier(crypto.createPublicKey(ca.certPem)).toString('hex'));
+});
+
 test('the private keys are unencrypted PKCS#8 and are not the same key twice', () => {
 	// Matched in pieces rather than as one literal: this repository's write-time secret scanner reads
 	// a full PEM private-key header as a live credential, and it is right to.

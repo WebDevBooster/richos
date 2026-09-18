@@ -2,8 +2,8 @@
 
 // What this Mac is called on the home Wi-Fi, and at which address.
 //
-// The phone has to reach the Mac by a name the certificate covers. There are two such names and
-// they fail in different ways, so both go in:
+// The phone has to reach the Mac by a name the certificate covers. There are exactly two, and they
+// fail in different ways, so both go in:
 //
 //   1. `<LocalHostName>.local` — the Bonjour name mDNSResponder already publishes. NOTHING has to
 //      be installed or started for this to resolve from an iPhone on the same subnet, and it
@@ -11,11 +11,13 @@
 //   2. the LAN IPv4 address — the fallback for when multicast DNS is blocked, which is exactly what
 //      a guest network or a router with "client isolation" / "AP isolation" does.
 //
-// `richos.local` is included as a third name because it is the name the real product will want, and
-// a certificate that already covers it means that step needs no new certificate. It resolves only
-// while something publishes it (see bin/register-bonjour-alias.sh) — the certificate covering a name
-// and the network resolving it are two independent things, and conflating them is how "I typed the
-// URL and nothing happened" becomes a mystery.
+// `richos.local` is deliberately NOT here. It is the nicer name and it is deferred with its price
+// stated, per `richos-hq/docs/plans/richos-phone-client-2026-09-18.md` §2.1: publishing an extra
+// `.local` address record needs either FFI to `DNSServiceRegisterRecord` or a new mDNS dependency,
+// PLUS `NSLocalNetworkUsageDescription` and a local-network permission prompt on macOS 15 and later.
+// The Mac's own name needs none of that, because we are not the ones publishing it. It buys exactly
+// one thing — the origin surviving him renaming his Mac — and the trade only flips if this probe
+// finds the Mac's own name unreliable from the iPhone, which is a finding this probe can produce.
 //
 // The LocalHostName is read from `scutil`, which is the authoritative source on macOS — the same
 // value System Settings shows as "Local hostname" and the one Bonjour actually publishes.
@@ -71,15 +73,15 @@ function lanAddresses() {
 /**
  * The names the leaf certificate covers, in the order they appear in the SAN.
  *
- * `localhost` and `127.0.0.1` are in there for one reason: the desktop verification drives the real
- * page over HTTPS on this Mac, and a certificate that cannot serve `localhost` would force that
- * harness to test a different origin from the one the phone uses.
+ * Nothing extra is added for the desktop verification's convenience. `localhost` would be a second
+ * origin with its own service worker and its own push subscription, so a harness that used it would
+ * be testing something the phone never touches. The desktop verification drives `mm1.local` — the
+ * name the phone uses — which is the stronger test and needs no extra name in the certificate.
  */
 function certificateNames(options = {}) {
 	const host = options.hostName || localHostName();
-	const names = [`${host}.local`, 'richos.local', 'localhost'];
+	const names = [`${host}.local`];
 	for (const { address } of lanAddresses()) names.push(address);
-	names.push('127.0.0.1');
 	// Preserve order, drop duplicates.
 	return names.filter((n, i) => names.indexOf(n) === i);
 }

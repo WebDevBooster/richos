@@ -148,9 +148,10 @@ function createCertificateAuthority(options = {}) {
 		subject,
 		spkiDer(publicKey),
 		der.explicit(3, der.seq([
-			// CA:TRUE with no pathLenConstraint. Critical, because a relying party that cannot
-			// understand basicConstraints must not treat this as a CA by accident.
-			extension(OID.basicConstraints, true, der.seq(der.bool(true))),
+			// CA:TRUE with pathLenConstraint 0 — this root may issue end-entity certificates and may
+			// not issue another CA. Critical, because a relying party that cannot understand
+			// basicConstraints must not treat this as a CA by accident.
+			extension(OID.basicConstraints, true, der.seq(der.bool(true), der.integer(0))),
 			extension(OID.keyUsage, true, der.namedBits([KU.keyCertSign, KU.cRLSign])),
 			extension(OID.subjectKeyIdentifier, false, der.octetString(keyIdentifier(publicKey)))
 		]))
@@ -203,10 +204,19 @@ function createServerCertificate(options) {
 			// Not a CA. Critical and explicit, rather than absent: an omitted basicConstraints is
 			// legal and leaves the question to the verifier's defaults.
 			extension(OID.basicConstraints, true, der.seq()),
+			// digitalSignature ONLY.
+			//
+			// The plan's openssl block (§2.2) also asserts keyEncipherment. That is correct for an RSA
+			// key and wrong for this one: RFC 5480 §3 says keyEncipherment is not an appropriate usage
+			// for an id-ecPublicKey key, because nothing encrypts to an EC key directly. Every modern
+			// ECDSA cipher suite needs digitalSignature and nothing else. Named here because it is the
+			// one place this file deliberately differs from the plan's extension list.
 			extension(OID.keyUsage, true, der.namedBits([KU.digitalSignature])),
-			// serverAuth is required by Apple. clientAuth costs nothing and lets the same leaf be
-			// used if the Mac side ever needs to present it to something.
-			extension(OID.extKeyUsage, false, der.seq(der.oid(OID.serverAuth), der.oid(OID.clientAuth))),
+			// serverAuth, and CRITICAL — a critical extendedKeyUsage says this certificate is for TLS
+			// servers and for nothing else, which is exactly the claim a local CA should make. Apple
+			// requires the extension to contain serverAuth; adding clientAuth would widen a
+			// certificate that has one job.
+			extension(OID.extKeyUsage, true, der.seq(der.oid(OID.serverAuth))),
 			extension(OID.subjectAltName, false, subjectAltNameValue(names)),
 			extension(OID.subjectKeyIdentifier, false, der.octetString(keyIdentifier(publicKey))),
 			extension(OID.authorityKeyIdentifier, false, der.seq(der.implicitPrimitive(0, keyIdentifier(caPublicKey))))

@@ -216,12 +216,19 @@ test('a derived UUID is stable and namespaced', () => {
 // The names this Mac answers on
 // ---------------------------------------------------------------------------
 
-test('the certificate names include a .local name, localhost and the loopback address', () => {
+test('the certificate covers the Bonjour name and the LAN address, and nothing else', () => {
 	const names = localnames.certificateNames();
 	assert.ok(names[0].endsWith('.local'), `${names[0]} should be the Bonjour name`);
-	assert.ok(names.includes('richos.local'), 'the name the real product will want, so this step needs no second certificate');
-	assert.ok(names.includes('localhost'), 'the desktop verification drives the same origin the phone uses');
-	assert.ok(names.includes('127.0.0.1'));
+	// `richos.local` is deferred with its price stated (plan §2.1: an extra .local record needs
+	// DNSServiceRegisterRecord plus a macOS 15 local-network permission prompt). `localhost` is
+	// absent because it is a DIFFERENT ORIGIN — its own service worker, its own push subscription —
+	// so a harness testing it would not be testing what the phone touches.
+	assert.ok(!names.includes('richos.local'), 'richos.local is deferred, not quietly claimed');
+	assert.ok(!names.includes('localhost'), 'localhost would be a second origin, not a convenience');
+	assert.ok(!names.includes('127.0.0.1'));
+	for (const name of names.slice(1)) {
+		assert.match(name, /^\d+\.\d+\.\d+\.\d+$/, `${name} should be an address`);
+	}
 	assert.deepStrictEqual(names, [...new Set(names)], 'no duplicates');
 });
 
