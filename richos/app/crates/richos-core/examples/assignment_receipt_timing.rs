@@ -17,30 +17,80 @@
 //! |---|---|
 //! | The model's own latency before it calls anything | **No.** Unmeasured, and usually the largest single term |
 //! | The MCP stdio round trip to a spawned child | **No.** This drives the server in-process |
+//! | Opening the obligation in ECS, if an engine is given (see below) | **Yes, and it is the largest term here** |
 //! | Validating and writing the assignment, fsynced | **Yes** |
 //! | Reading the record back and rendering the receipt sentence | **Yes** |
 //! | Spawning the work lease, `prepare`, guards, workspace creation | **No — and that is the point.** All of it moved off his turn |
 //!
+//! **Since 2026-09-18 the register also OPENS THE OBLIGATION** (`assignment_tools.rs`'s module
+//! doc), which is one `checkpoint` through the engine's ECS bridge — a real subprocess, and now
+//! the largest term on this path. Give this example an engine and a delivered runtime and it
+//! measures that too, against a real store; give it nothing and it measures the app's own work
+//! with the obligation stubbed, which is what every earlier run of it measured.
+//!
 //! Run:
 //! ```text
-//! cargo run -p richos-core --example assignment_receipt_timing
+//! cargo run -p richos-core --example assignment_receipt_timing [ENGINE DELIVERED_RUNTIME]
 //! ```
 //!
 //! It touches nothing outside a fresh temp directory, which it removes, and it starts no
 //! app, no lease and no provider.
 
-use richos_core::assignment_tools::{self, AssignmentToolScope, RECORD_TOOL_NAME};
+use richos_core::assignment::AssignmentKind;
+use richos_core::assignment_tools::{self, AssignmentToolScope, EcsObligations, ObligationDesk,
+                                    ObligationOpener, RECORD_TOOL_NAME};
 use serde_json::json;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::time::Instant;
 
 const RUNS: usize = 20;
 
+/// The obligation, NOT opened — what this example measured before the register opened one.
+/// Kept so the app's own cost is still visible on a machine with no engine to hand.
+struct Stubbed;
+impl ObligationOpener for Stubbed {
+    fn open(&self, _: &ObligationDesk, _: &str, _: &str, _: AssignmentKind) -> Result<(), String> { Ok(()) }
+    fn abandon(&self, _: &ObligationDesk, _: &str) {}
+}
+
+/// Removed however this ends (CEO 2026-09-18) — the rule the suite's leaked fixtures bought.
+struct Scratch(PathBuf);
+impl Drop for Scratch {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
 fn main() {
-    let root = std::env::temp_dir().join(format!("assignment-timing-{}", uuid::Uuid::new_v4()));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let scratch = Scratch(std::env::temp_dir().join(format!("richos-assignment-timing-{}", uuid::Uuid::new_v4())));
+    let root = scratch.0.clone();
     std::fs::create_dir_all(&root).expect("temp root");
     let scope_path = root.join("assignments.json");
     let state_root = root.join("engine-state");
+
+    // With an engine, the obligation is opened for real, on a real seat, in a throwaway store.
+    // Without one, it is stubbed and this example measures exactly what it always measured.
+    let (desk, opener): (ObligationDesk, Box<dyn ObligationOpener>) = if args.len() == 2 {
+        let engine = std::fs::canonicalize(&args[0]).expect("engine");
+        let runtime = richos_core::runtime::EngineRuntime::load(&engine, Some(&PathBuf::from(&args[1])))
+            .expect("delivered runtime");
+        let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &engine, &root.join("ecs")).expect("bridge");
+        let seat = richos_core::ecs::ceo_seat("thread-one");
+        let binding = bridge
+            .bind("depot", "thread-one", "session-one", "turn-0", seat.as_deref(), "ceo")
+            .expect("bind the CEO's own seat, as prepare_work_turn does");
+        println!("measuring WITH a real obligation open per registration ({}).", engine.display());
+        (ObligationDesk { bridge, binding, seat }, Box::new(EcsObligations))
+    } else {
+        println!("measuring with the obligation STUBBED — pass ENGINE DELIVERED_RUNTIME to include it.");
+        (ObligationDesk {
+            bridge: richos_core::ecs::EcsBridge { python: "/fictional/python3".into(),
+                component: "/fictional/ecs".into(), state_root: "/fictional/state".into() },
+            binding: richos_core::ecs::Binding { entity_id: "depot".into(), thread_id: "thread-one".into(),
+                session_id: "session-one".into(), turn_id: "turn-0".into(), audience: "ceo".into(), revision: 1 },
+            seat: None,
+        }, Box::new(Stubbed))
+    };
 
     let mut timings = Vec::with_capacity(RUNS);
     for n in 0..RUNS {
@@ -57,6 +107,7 @@ fn main() {
                 thread_id: "thread-one".into(),
                 instruction_ledger_ref: format!("ledger:thread-one:turn-{n}"),
                 instruction_sha256: "a".repeat(64),
+                obligation_desk: Some(desk.clone()),
             },
         )
         .expect("scope");
@@ -68,8 +119,7 @@ fn main() {
         input.push_str(
             &json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
                 "name": RECORD_TOOL_NAME,
-                "arguments": {"obligation_id": format!("obligation-{n}"),
-                              "assignment": "landing the three branches",
+                "arguments": {"assignment": "landing the three branches",
                               "repositories": ["/fictional/project"]}
             }})
             .to_string(),
@@ -78,7 +128,8 @@ fn main() {
 
         let mut out = Vec::new();
         let started = Instant::now();
-        assignment_tools::serve(&scope_path, Cursor::new(input.into_bytes()), &mut out).expect("serve");
+        assignment_tools::serve_with(&scope_path, Cursor::new(input.into_bytes()), &mut out, opener.as_ref())
+            .expect("serve");
         timings.push(started.elapsed());
 
         let replies: Vec<serde_json::Value> = String::from_utf8(out)
@@ -108,5 +159,5 @@ fn main() {
     let rows = richos_core::assignment::read_all(&state_root, "depot", "thread-one").expect("read back");
     println!("\n{} assignments on disk, every one in state `{}`.", rows.len(), rows[0].state.as_str());
     println!("Seat of the first: {}", rows[0].seat);
-    std::fs::remove_dir_all(&root).expect("cleanup");
+    println!("Obligation of the first, which no model ever saw: {}", rows[0].obligation_id);
 }

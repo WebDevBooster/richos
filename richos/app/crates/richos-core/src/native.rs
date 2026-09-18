@@ -244,62 +244,25 @@ pub const WITHHELD_AFTER_THE_RECEIPT: &str =
 /// The continuity checkpoint tool — the front desk's own bookkeeping.
 pub const CONTINUITY_CHECKPOINT_TOOL: &str = "mcp__richos_continuity__checkpoint";
 
-/// What the child is told when it tries to write the checkpoint before it has said anything.
+/// # WHERE THE PRE-REPLY ORDER IS ENFORCED — and why there is no gate here any more
 ///
-/// **A refusal the CEO never sees, and the only sentence in this file whose whole job is to
-/// change what the model does NEXT.** It names the order rather than the rule, because a model
-/// that is told "not now" and not "do this instead" pays another round trip working it out.
-pub const CHECKPOINT_BEFORE_REPLY: &str =
-    "Not yet — he has not heard anything from you on this turn. Answer him first, in as few      words as the situation takes, and write the checkpoint after you have spoken. It is      bookkeeping: it is never worth a second of his waiting.";
-
-/// Is this the front desk trying to do its bookkeeping before it has said a word?
+/// **`bookkeeping_before_the_reply` and `CHECKPOINT_BEFORE_REPLY` were removed on 2026-09-18,
+/// the day after they landed, because they never fired.** They refused
+/// `mcp__richos_continuity__checkpoint` from a `can_use_tool` control request, and on the real
+/// wire that request is never made for this tool: the lease runs `--permission-mode auto` with
+/// the `autoMode` settings (`engine_profile.rs:214-222`), under which the binary approves its
+/// own trusted MCP tools itself. A whole run wrote the checkpoint before the reply with **no
+/// permission frame anywhere in it** — 8.932 s and 5.429 s, costing him 3.0 s and 2.4 s of
+/// silence (`docs/verification/first-words-2026-09-18-logs/run-B-*`).
 ///
-/// **The ordering the doctrine states and could not enforce.** `front-desk.md` has asked for
-/// the reply first since the front desk existed; run 2 of
-/// `docs/verification/question-receipt-2026-09-18.md` measured a `checkpoint` round trip
-/// occupying 12.980 s to 17.023 s of a 22.956 s wait, ahead of both the register and his first
-/// word. A sentence that is not obeyed is not a fix, so the order is a condition of the tool
-/// being usable rather than a request.
+/// Keeping it "for a permission mode that does ask" is what a gate that enforces nothing looks
+/// like from the inside, and this one had already been quoted in a review as the reason the
+/// pre-reply checkpoint could not happen — while it was happening.
 ///
-/// **Scoped to the checkpoint, and `inspect` is deliberately NOT here.** A write is bookkeeping
-/// and has nowhere to be before the reply; a read may BE the answer he is waiting for (the
-/// doctrine's case 1, "you know the answer"), and refusing it would make a fast answer
-/// impossible in the name of making a reply fast. The work lease is not reached by this at all
-/// — it is never given the continuity server (§5.8a-ii seam 1).
-///
-/// # MEASURED 2026-09-18: THIS GATE DOES NOT FIRE ON THE REAL WIRE. Read this before trusting it.
-///
-/// The paragraphs above describe it as the enforcement the doctrine sentence could not be. **It is
-/// not, in production, and the measurement is
-/// `docs/verification/first-words-2026-09-18-logs/run-B-the-pre-reply-checkpoint-is-not-refused-on-the-real-wire.log`.**
-/// On both turns of that run the model wrote the checkpoint BEFORE it said anything (8.932 s and
-/// 5.429 s), the ECS write succeeded, and his first words arrived at 15.714 s and 12.176 s against
-/// 7.998 s and 6.358 s on the same code with no pre-reply checkpoint (run A).
-///
-/// **Why:** this function is reachable only from a `can_use_tool` control request
-/// ([`NativeClient::handle_agent_request`]), and **no permission frame appears anywhere in that
-/// run** — the probe traces every one it is handed. The lease is spawned with
-/// `--permission-mode auto` and the `autoMode` settings block (`engine_profile.rs:214-222`), under
-/// which the binary classifies and auto-approves its own trusted MCP tools and never asks the
-/// app's desk about them. The desk sees `Bash` and the things auto mode will not take by itself;
-/// it does not see `mcp__richos_continuity__checkpoint`.
-///
-/// **What IS enforceable, and why neither half is taken here.** The engine's own adapter gates both
-/// continuity tools on the app-written `actions_allowed` flag and re-reads the scope file on every
-/// call (`engine/ecs/adapters/mcp.py:18-26`), so the app could refuse a pre-reply checkpoint by
-/// deferring that grant until it has spoken — with no engine change, but it would close `inspect`
-/// before the reply too, which this function's own paragraph above deliberately keeps open.
-/// Gating `checkpoint` alone needs a field in that scope and a change in the adapter, which is an
-/// engine release. **Which of the two is a design call about what the front desk may do before it
-/// speaks, so it is raised rather than taken:** `esc-20260918T141320Z-49570979`.
-///
-/// The function stays, tests and all: it is correct, it is cheap, and a build or a permission mode
-/// that does ask the desk gets the ordering it describes. What it must not be is quoted as the
-/// reason the pre-reply checkpoint cannot happen. It can, and it was measured happening.
-fn bookkeeping_before_the_reply(request: &Value, spoken: bool) -> bool {
-    !spoken && request.get("tool_name").and_then(|v| v.as_str()) == Some(CONTINUITY_CHECKPOINT_TOOL)
-}
-
+/// **The order is now kept by WHEN THE APP OPENS THE GRANT**, which the child cannot route
+/// around: [`ReaderState::he_has_now_been_spoken_to`] writes the continuity server's scope the
+/// instant his first words go out, and until then the engine's own adapter refuses every call
+/// to that server (`engine/ecs/adapters/mcp.py:24-26`).
 /// Is the child deferring its tools, according to the child?
 ///
 /// The one reading that can catch [`TOOL_SEARCH_ENV`] silently stopping work. Its own tool is
@@ -927,13 +890,23 @@ enum ActionGrant {
     Continuity(std::path::PathBuf),
     /// The assignment register's grant (`assignment_tools.rs`). Conversation leases only.
     Assignments(std::path::PathBuf),
+    /// **The `richos_continuity` server's own grant, and the only one that is not opened at
+    /// turn start** — the CEO's §55: the front desk's bookkeeping waits until he has been
+    /// spoken to. Opened by [`ReaderState::he_has_now_been_spoken_to`], closed with the rest.
+    ///
+    /// It is a SECOND FILE rather than the flag on [`Self::Continuity`] because that one is
+    /// `RICHOS_APP_SCOPE`, which the engine's hook reads to decide whether any tool at all may
+    /// run — including the register itself. Measured, with the sentence it refuses with, in
+    /// `prepare_work_turn`.
+    ContinuityTools(std::path::PathBuf),
 }
 
 impl ActionGrant {
     fn set(&self, allowed: bool) -> Result<(), String> {
         match self {
             Self::Onboarding(path) => crate::onboarding_tools::set_actions_allowed(path, allowed),
-            Self::Continuity(path) => crate::ecs::set_actions_allowed(path, allowed).map_err(|e| e.to_string()),
+            Self::Continuity(path) | Self::ContinuityTools(path) =>
+                crate::ecs::set_actions_allowed(path, allowed).map_err(|e| e.to_string()),
             // **An absent assignment scope is not a failure to grant; it is nothing to
             // grant.** The scope is written by `prepare_work_turn`, which is the first
             // point at which a company and a conversation exist — so before a thread is
@@ -950,7 +923,12 @@ impl ActionGrant {
         }
     }
     fn path(&self) -> &Path {
-        match self { Self::Onboarding(path) | Self::Continuity(path) | Self::Assignments(path) => path }
+        match self {
+            Self::Onboarding(path)
+            | Self::Continuity(path)
+            | Self::Assignments(path)
+            | Self::ContinuityTools(path) => path,
+        }
     }
 }
 
@@ -1095,6 +1073,56 @@ struct ReaderState {
     receipt_said: Option<String>,
     /// What was withheld after the receipt, kept so the turn's end can SAY what it took.
     withheld_after_receipt: String,
+    /// **The front desk's bookkeeping grant, held here because this is where his first words
+    /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
+    /// server (every work lease, and any lease started without a bridge).
+    continuity_tools_grant: Option<ActionGrant>,
+}
+
+impl ReaderState {
+    /// **HE HAS NOW HEARD SOMETHING — and that is what opens the front desk's bookkeeping**
+    /// (the CEO's §55, `doctrine/front-desk.md`'s "The record": *"Write it after you have
+    /// answered him, never before"*).
+    ///
+    /// **Why this is the enforcement and the permission desk was not.** The gate that landed
+    /// this morning answered a `can_use_tool` control request, and on the real wire no such
+    /// request is ever made for this tool: the lease runs `--permission-mode auto` with the
+    /// `autoMode` settings (`engine_profile.rs:214-222`), under which the binary approves its
+    /// own trusted MCP tools and never asks the app. Measured: a whole run with the checkpoint
+    /// written before the reply and **not one permission frame anywhere in it**
+    /// (`docs/verification/first-words-2026-09-18-logs/run-B-*`).
+    ///
+    /// **What cannot be bypassed is the engine's own adapter**, which re-reads the scope file
+    /// on every call and refuses unless `actions_allowed` is true
+    /// (`engine/ecs/adapters/mcp.py:24-26`) — a file the model cannot write, checked inside the
+    /// server rather than at a desk the child may or may not consult. So the order is kept by
+    /// WHEN the app writes that file, which is here.
+    ///
+    /// **A priming turn is not him.** `context_only` is the host's own flag for the internal
+    /// re-prime (`prompt_context_only`), whose text is discarded and never rendered; opening
+    /// the grant there would hand the next real turn a grant that was already open, which is
+    /// the whole deferral undone by a turn he never saw.
+    ///
+    /// The write happens under this lock, deliberately: it is one `write_verified` (~1 ms,
+    /// measured as part of the 143 ms ECS round trip elsewhere in this change), and releasing
+    /// the lock first would let a second frame decide the same thing again.
+    fn he_has_now_been_spoken_to(&mut self) {
+        if self.spoken_this_turn {
+            return;
+        }
+        self.spoken_this_turn = true;
+        if self.context_only {
+            return;
+        }
+        if let Some(grant) = &self.continuity_tools_grant {
+            if let Err(error) = grant.set(true) {
+                // Machinery, never his screen: he has just been answered, and the worst case
+                // is that the front desk's own checkpoint is refused on this turn and the
+                // conversation is checkpointed on the next one.
+                eprintln!("[richos] the continuity grant could not be opened after the reply: {error}");
+            }
+        }
+    }
 }
 
 impl Default for ReaderState {
@@ -1114,6 +1142,7 @@ impl Default for ReaderState {
             engine_plugin_loaded: InitFact::NotYetReported,
             tool_search_offered: InitFact::NotYetReported,
             spoken_this_turn: false,
+            continuity_tools_grant: None,
             register_call_id: None,
             receipt_said: None,
             withheld_after_receipt: String::new(),
@@ -1271,7 +1300,7 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
 ///   a Tauri command reaching the webview, which the model never sees (Sage's check of the
 ///   page, finding 6).
 fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Path, status_scope: &Path,
-    continuity: Option<(&crate::ecs::EcsBridge, &Path)>,
+    continuity: Option<(&crate::ecs::EcsBridge, &Path)>, continuity_tools_scope: Option<&Path>,
     profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole) -> Value {
     let mut config = json!({"mcpServers": {}});
     // **The company-notes tools, on the CONVERSATION lease only** (`onboarding_tools.rs`).
@@ -1309,9 +1338,17 @@ fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Pa
             "args": ["--status-mcp", status_scope]
         });
     }
-    if let Some((bridge, scope)) = continuity.filter(|_| role == LeaseRole::Conversation) {
+    // **The continuity tools read THEIR OWN scope file, not the hook's** — the two differ in
+    // one flag and in when it opens (`prepare_work_turn`'s note, and the measurement that
+    // forced it). `continuity_tools_scope` is `None` only on a lease with no bridge, where
+    // this server is not registered at all; a conversation lease that had one and lost it
+    // would register the server over the hook's file, which is the pre-2026-09-18 behavior and
+    // never a silent upgrade — so it is `expect`-free and simply falls back to nothing.
+    if let (Some((bridge, _)), Some(tools_scope)) =
+        (continuity.filter(|_| role == LeaseRole::Conversation), continuity_tools_scope)
+    {
         config["mcpServers"]["richos_continuity"] = json!({"type":"stdio", "command":bridge.python,
-            "args":[bridge.component.join("adapters/mcp.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
+            "args":[bridge.component.join("adapters/mcp.py"),tools_scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
     }
     if let (Some(profile), Some((bridge, scope))) = (profile, continuity.filter(|_| role == LeaseRole::Work)) {
         config["mcpServers"]["richos_work"] = json!({"type":"stdio", "command":bridge.python,
@@ -1335,10 +1372,10 @@ impl NativeClient {
     /// `entity.rs` makes about its own directory: the shell resolves `app_data_dir()` and that
     /// is the authority, so this file does not carry a second opinion about where it lives.
     pub fn spawn(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
-        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None, LeaseRole::Conversation)
+        Self::spawn_with_tools(bin, cwd, Some((doctrine, skills)), None, None, None, None, None, LeaseRole::Conversation)
     }
 
-    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path, &Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>, role: LeaseRole) -> Result<Self, NativeError> {
+    fn spawn_with_tools(bin: &Path, cwd: &Path, standing: Option<(&Path, &Path)>, onboarding: Option<(&Path, &Path, &Path, &Path)>, continuity: Option<(&crate::ecs::EcsBridge, &Path)>, continuity_tools: Option<&Path>, profile: Option<&crate::engine_profile::EngineProfile>, control: Option<&crate::steering::TurnControl>, role: LeaseRole) -> Result<Self, NativeError> {
         let (doctrine, skills) = (standing.map(|s| s.0), standing.map(|s| s.1));
         preflight(bin, cwd, doctrine, skills)?;
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -1352,7 +1389,7 @@ impl NativeClient {
             None => child_args(&session_id),
         };
         if let Some((executable, scope, assignments, status)) = onboarding {
-            let config = mcp_config(executable, scope, assignments, status, continuity, profile, role);
+            let config = mcp_config(executable, scope, assignments, status, continuity, continuity_tools, profile, role);
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         // The supervisor observes parent death, including a crash where Rust
@@ -1411,6 +1448,11 @@ impl NativeClient {
         if let (Some(profile), Some((_, scope))) = (profile, continuity) {
             state.lock().unwrap().permissions = Some(crate::permissions::ScopedPermissions {desk: profile.permissions.clone(), scope: scope.into()});
         }
+        // **The grant that waits for his first words lives on the READER**, because the reader
+        // is the only thing that knows when they happened — see
+        // [`ReaderState::he_has_now_been_spoken_to`].
+        state.lock().unwrap().continuity_tools_grant =
+            continuity_tools.map(|path| ActionGrant::ContinuityTools(path.into()));
         let stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>> =
             Arc::new(Mutex::new(std::collections::VecDeque::new()));
         // Reset at every `message_start`; read at every `assistant` frame. See
@@ -1520,7 +1562,14 @@ impl NativeClient {
                 .map(|(_, path, _, _)| ActionGrant::Onboarding(path.into())).into_iter()
                 .chain(onboarding.filter(|_| role == LeaseRole::Conversation)
                     .map(|(_, _, path, _)| ActionGrant::Assignments(path.into())))
-                .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into()))).collect(),
+                .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into())))
+                // **The continuity tools' own grant is in this list for the CLOSING half
+                // only.** `prompt` deliberately does not open it with the others (see there);
+                // it is here so the turn's end, a cancel and a dropped lease all revoke it by
+                // the same all-or-nothing loop that revokes the rest — a deferred grant that
+                // could be left open by a path that forgot it would be worse than no deferral.
+                .chain(continuity_tools.map(|path| ActionGrant::ContinuityTools(path.into())))
+                .collect(),
             reader_closed,
             between,
             stderr_tail,
@@ -1712,8 +1761,7 @@ impl NativeClient {
             // **Read on the reader thread, which is also the thread the text deltas arrive
             // on** — so "has he heard anything yet" is answered in the order the wire put the
             // two events in, with no race to lose.
-            let spoken = state.lock().unwrap().spoken_this_turn;
-            Self::handle_agent_request(&msg, stdin, current, between, context_only, spoken, permissions.as_ref());
+            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref());
             return;
         }
 
@@ -1856,7 +1904,7 @@ impl NativeClient {
                     // of the message: the measure §55 is written against is his first word,
                     // and everything the gate above protects is protected from that instant.
                     let mut st = state.lock().unwrap();
-                    st.spoken_this_turn = true;
+                    st.he_has_now_been_spoken_to();
                     // **AND HE HAS ALREADY HEARD IT ONCE IF THE APP SAID THE RECEIPT.** The
                     // register's answer IS the whole of a hand-over turn's reply
                     // (`front-desk.md`), the app has already said it, and everything the model
@@ -1945,7 +1993,7 @@ impl NativeClient {
                         st.receipt_said = Some(sentence.clone());
                         // He has heard something — the same fact the text path sets, and the
                         // checkpoint gate above reads it exactly as it would for model text.
-                        st.spoken_this_turn = true;
+                        st.he_has_now_been_spoken_to();
                     }
                     Self::route(ChunkMsg::Text(sentence), current, between, &msg);
                 }
@@ -2001,7 +2049,7 @@ impl NativeClient {
                 // having stopped working. A degraded stream must not also silently re-open
                 // the pre-reply checkpoint.
                 let mut st = state.lock().unwrap();
-                st.spoken_this_turn = true;
+                st.he_has_now_been_spoken_to();
                 // And the withholding is on this path too, for the reason it is on the other:
                 // a degraded stream must not hand him the receipt twice either.
                 if st.receipt_said.is_some() {
@@ -2047,7 +2095,6 @@ impl NativeClient {
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
-        spoken: bool,
         permissions: Option<&crate::permissions::ScopedPermissions>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
@@ -2057,14 +2104,6 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
-            } else if bookkeeping_before_the_reply(&request, spoken) {
-                // **ORDER, NOT POLICY.** It is refused BEFORE the desk sees it, because the
-                // desk's answer would be `allow` and correctly so: the tool is granted, it is
-                // simply granted for after he has been answered. It costs the model one round
-                // trip when it fires, against the four-to-six-second ECS round trip it
-                // replaces — so a turn that trips this gate is never slower than the turn
-                // that did not have it, and a turn that obeys the doctrine never reaches it.
-                PermissionDecision::Deny { message: CHECKPOINT_BEFORE_REPLY.into() }
             } else if let Some(policy) = permissions { policy.decide(&request) }
               else { decide_permission(&request) };
             let body = match &decision {
@@ -2580,6 +2619,12 @@ pub struct NativeCognition {
     /// its own obligation on its own seat and has no business in the front desk's record.
     status_scope: Option<std::path::PathBuf>,
     continuity: Option<(crate::ecs::EcsBridge, std::path::PathBuf)>,
+    /// **The scope the `richos_continuity` SERVER reads, which is not the one the engine's
+    /// hook reads** — see the long note in `prepare_work_turn` for why there are two files.
+    ///
+    /// `None` on a work lease (it has no continuity server at all) and on any lease started
+    /// without a bridge. Its grant is the one that waits for his first words.
+    continuity_tools_scope: Option<std::path::PathBuf>,
     /// The work seat's binding and its seat name, once this lease has taken an assignment.
     /// Held so the host can read the OBLIGATION on that seat — the one thing allowed to
     /// settle an assignment (`mega-lander/app.py:664-669`).
@@ -2610,7 +2655,7 @@ impl NativeCognition {
     pub fn start(claude_bin: &Path, engine_cwd: &Path, doctrine: &Path, skills: &Path) -> Result<Self, NativeError> {
         let client = NativeClient::spawn(claude_bin, engine_cwd, doctrine, skills)?;
         let session_id = client.session_id().to_string();
-        Ok(NativeCognition { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None, continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
+        Ok(NativeCognition { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None, continuity: None, continuity_tools_scope: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
     /// A chat lease with app-owned, company-scoped persistence tools. The scope is
     /// supplied by the spine before priming, never selected by the model.
@@ -2622,9 +2667,9 @@ impl NativeCognition {
         let scope = scopes.join(format!("{identity}.json"));
         let assignments = scopes.join(format!("{identity}-assignments.json"));
         let status = scopes.join(format!("{identity}-status.json"));
-        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope, &assignments, &status)), None, None, control, LeaseRole::Conversation)?;
+        let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)), Some((executable, &scope, &assignments, &status)), None, None, None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: None, continuity_tools_scope: None, work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
     pub fn start_with_continuity(bin: &Path, cwd: &Path, doctrine: &Path, skills: &Path,
         executable: &Path, bridge: crate::ecs::EcsBridge,
@@ -2635,12 +2680,14 @@ impl NativeCognition {
         let identity = uuid::Uuid::new_v4();
         let scope = scopes.join(format!("{identity}.json"));
         let continuity_scope = scopes.join(format!("{identity}-continuity.json"));
+        let continuity_tools = scopes.join(format!("{identity}-continuity-tools.json"));
+        std::fs::write(&continuity_tools, "{\"version\":1,\"actions_allowed\":false}\n")?;
         let assignments = scopes.join(format!("{identity}-assignments.json"));
         let status = scopes.join(format!("{identity}-status.json"));
         let client = NativeClient::spawn_with_tools(bin, cwd, Some((doctrine, skills)),
-            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), None, control, LeaseRole::Conversation)?;
+            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(continuity_tools.as_path()), None, control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
-        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
+        Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status), continuity: Some((bridge, continuity_scope)), continuity_tools_scope: Some(continuity_tools), work_binding: None, engine_profile: None, role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
 
     /// Settings-isolated desktop lease from verified engine delivery.
@@ -2656,13 +2703,17 @@ impl NativeCognition {
         // SessionStart and the first internal prime precede entity binding. The
         // hook sees an explicit closed grant, never a guessed active scope.
         std::fs::write(&continuity_scope, "{\"version\":1,\"actions_allowed\":false}\n")?;
+        // The continuity SERVER's own scope, closed the same way and for longer: it opens
+        // when he has been spoken to, not when the turn starts (`prepare_work_turn`'s note).
+        let continuity_tools = scopes.join(format!("{identity}-continuity-tools.json"));
+        std::fs::write(&continuity_tools, "{\"version\":1,\"actions_allowed\":false}\n")?;
         let assignments = scopes.join(format!("{identity}-assignments.json"));
         let status = scopes.join(format!("{identity}-status.json"));
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
-            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(&profile), control, LeaseRole::Conversation)?;
+            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(continuity_tools.as_path()), Some(&profile), control, LeaseRole::Conversation)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: Some(scope), assignments_scope: Some(assignments), status_scope: Some(status),
-            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Conversation, ceo_thread_seats: None })
+            continuity: Some((bridge, continuity_scope)), continuity_tools_scope: Some(continuity_tools), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Conversation, ceo_thread_seats: None })
     }
 
     /// **The WORK lease** — the background-work spec §2.1's second compute lease, in the
@@ -2712,10 +2763,13 @@ impl NativeCognition {
         // about his own company would be the second half of the drift the CEO's page closes.
         let status = scopes.join(format!("{identity}-status.json"));
         let client = NativeClient::spawn_with_tools(bin, &profile.coordination, Some((doctrine, skills)),
-            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), Some(&profile), None, LeaseRole::Work)?;
+            Some((executable, &scope, &assignments, &status)), Some((&bridge, &continuity_scope)), None, Some(&profile), None, LeaseRole::Work)?;
         let session_id = client.session_id().to_string();
         Ok(Self { client, session_id, onboarding_scope: None, assignments_scope: None, status_scope: None,
-            continuity: Some((bridge, continuity_scope)), work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
+            // A work lease has no `richos_continuity` server, so there is no second scope for
+            // one — the file it does read is `richos_work`'s, and its grant is §5.4's standing
+            // one, opened per assignment rather than per reply.
+            continuity: Some((bridge, continuity_scope)), continuity_tools_scope: None, work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
     pub fn role(&self) -> LeaseRole { self.role }
@@ -2879,6 +2933,11 @@ impl Cognition for NativeCognition {
             Err(error) => brief.push_str(&format!("\nLoro correction receipts are unavailable: {error}. Do not claim a missing write succeeded or retry an uncertain write.")),
             _ => {}
         }
+        let obligation_desk = crate::assignment_tools::ObligationDesk {
+            bridge: bridge.clone(),
+            binding: scope.clone(),
+            seat: seat.clone(),
+        };
         crate::ecs::write_scope(path, &crate::ecs::ToolScope { version:1, actions_allowed:false, bridge:bridge.clone(), binding:scope,
             user_instruction: if matches!(source, crate::ledger::Source::Text | crate::ledger::Source::Jam) {
                 use sha2::Digest;
@@ -2893,6 +2952,37 @@ impl Cognition for NativeCognition {
             // would bind per thread and the model would check point on `ceo-default`.
             seat: seat.clone() })
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        // ===================================================================================
+        // THE CONTINUITY TOOLS' OWN SCOPE — THE SECOND FILE, AND WHY THERE HAS TO BE ONE
+        // ===================================================================================
+        //
+        // **Byte-identical to the scope above except for one flag, and on a different clock.**
+        // The file above is `RICHOS_APP_SCOPE` (`engine_profile.rs:235`), and the engine's
+        // hook reads `actions_allowed` off it to decide whether ANY tool may run at all —
+        // `if active.get("actions_allowed") is not True: raise` on every `PreToolUse`
+        // (`engine/scripts/app-engine-hook.py:51-53`), with no matcher, so it covers
+        // `mcp__richos_assignments__record` too.
+        //
+        // **MEASURED 2026-09-18, before this was built:** with that flag false the hook
+        // refuses the register itself — *"This app turn is stopped or is supplying context.
+        // New actions are unavailable."*, exit 2 — and refuses `Bash` and the checkpoint with
+        // the same sentence, while the same payload with the flag true gets past that gate and
+        // fails later on something else entirely. So deferring the grant ON THAT FILE would
+        // not delay the front desk's bookkeeping; it would make §55's own first tool call
+        // impossible. The escalation this slice was dispatched from believed that flag gated
+        // the two continuity tools; it gates every tool the lease has.
+        //
+        // So the continuity SERVER gets its own copy (`mcp_config`'s `richos_continuity` arg),
+        // this one is what [`ActionGrant::ContinuityTools`] opens when he has been spoken to,
+        // and the hook's file keeps exactly the lifecycle it has always had.
+        if let Some(tools_path) = &self.continuity_tools_scope {
+            let mut for_tools: crate::ecs::ToolScope = serde_json::from_slice(
+                &std::fs::read(path).map_err(|e| CognitionError::Io(e.to_string()))?,
+            )
+            .map_err(|e| CognitionError::Io(e.to_string()))?;
+            for_tools.actions_allowed = false;
+            crate::ecs::write_scope(tools_path, &for_tools).map_err(|e| CognitionError::Io(e.to_string()))?;
+        }
         // **The assignment register's scope, written in the same place and from the same
         // attested instruction.** `richos_assignments.record` is how this turn ENDS when
         // he asks for background work (spec §1.1 and `assignment_tools.rs`), and
@@ -2910,6 +3000,14 @@ impl Cognition for NativeCognition {
                 thread_id: binding.thread_id().to_string(),
                 instruction_ledger_ref: format!("ledger:{}:{turn}", binding.thread_id()),
                 instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
+                // **The register opens the obligation itself, so it carries the desk to open it
+                // on** (`assignment_tools.rs`'s module doc). These are the three values written
+                // one call above — the same bridge, the same binding, the same seat — so the
+                // item opens on the CEO's own cursor for this thread, which is the only seat
+                // the engine accepts a `checkpoint` from (`ecs/adapters/app.py`'s
+                // `CONVERSATION_ONLY`). Nothing here is a model argument, and there is no
+                // longer an `obligation_id` for a model to guess.
+                obligation_desk: Some(obligation_desk),
             })
             .map_err(CognitionError::Io)?;
         }
@@ -3113,7 +3211,17 @@ impl Cognition for NativeCognition {
                 return Ok(STOP_REASON_CANCELLED.to_string());
             }
             for (index, grant) in self.client.action_grants.iter().enumerate() {
-                if let Err(error) = grant.set(true) {
+                // **THE ONE GRANT THIS LOOP CLOSES INSTEAD OF OPENING** — the CEO's §55.
+                //
+                // The front desk's bookkeeping waits until he has been spoken to
+                // ([`ReaderState::he_has_now_been_spoken_to`]), so the turn STARTS with it
+                // shut and it is shut HERE, positively, rather than assumed to be shut by the
+                // previous turn's end. A turn that ended in a crash, a cancel, or a
+                // context-only priming turn that ran in between must not hand this one an
+                // open grant — and the whole point of the deferral is that its closed state
+                // is the one the wire can be trusted to be in.
+                let opening = !matches!(grant, ActionGrant::ContinuityTools(_));
+                if let Err(error) = grant.set(opening) {
                     for previous in &self.client.action_grants[..index] {
                         if previous.set(false).is_err() { let _ = std::fs::remove_file(previous.path()); }
                     }
@@ -3123,6 +3231,16 @@ impl Cognition for NativeCognition {
         }
         let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
         let _operation = self.client.operation_cancel.lock().unwrap();
+        // The deferred grant is revoked with the same severity as the one below it: a lease
+        // whose grant cannot be revoked must not accept another operation. It is closed FIRST
+        // because it is the one that was opened last.
+        if let Some(path) = &self.continuity_tools_scope {
+            if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
+                let _ = self.client.child.kill(); let _ = self.client.child.wait();
+                let _ = std::fs::remove_file(path);
+                return Err(CognitionError::Io(error.to_string()));
+            }
+        }
         if let Some((_, path)) = &self.continuity {
             if let Err(error) = crate::ecs::set_actions_allowed(path, false) {
                 let _ = self.client.child.kill(); let _ = self.client.child.wait();
@@ -3216,12 +3334,13 @@ mod native_driver_tests {
         let profile = fixture_profile(&root);
         let scope = root.join("scope.json");
         let continuity = root.join("continuity.json");
+        let continuity_tools = root.join("continuity-tools.json");
         let executable = root.join("RichOS");
 
         let assignments = root.join("assignments.json");
         let status = root.join("status.json");
 
-        let work = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
+        let work = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work);
         let servers = &work["mcpServers"];
         assert!(servers.get("richos_continuity").is_none(), "the work lease was given the continuity server");
         assert!(servers.get("richos_work").is_some(), "the work lease was not given the work server");
@@ -3239,7 +3358,7 @@ mod native_driver_tests {
             "the work lease was given the front desk's status server");
 
         // Positive control: the same call for the conversation DOES register its two.
-        let chat = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(&profile), LeaseRole::Conversation);
+        let chat = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation);
         assert!(chat["mcpServers"].get("richos_continuity").is_some(), "the conversation lost its continuity server");
         assert!(chat["mcpServers"].get(crate::assignment_tools::SERVER_NAME).is_some(),
             "the conversation has no way to end a turn on a receipt");
@@ -3281,6 +3400,7 @@ mod native_driver_tests {
         let profile = fixture_profile(&root);
         let (scope, continuity, executable) =
             (root.join("scope.json"), root.join("continuity.json"), root.join("RichOS"));
+        let continuity_tools = root.join("continuity-tools.json");
         let (assignments, status) = (root.join("assignments.json"), root.join("status.json"));
 
         let names = |config: &Value| {
@@ -3291,7 +3411,7 @@ mod native_driver_tests {
         };
 
         let chat = mcp_config(&executable, &scope, &assignments, &status,
-            Some((&bridge, &continuity)), Some(&profile), LeaseRole::Conversation);
+            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation);
         assert_eq!(
             names(&chat),
             vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_status"],
@@ -3304,7 +3424,7 @@ mod native_driver_tests {
         // The back end is the other half of the same sentence: it holds the work, and it can
         // neither give itself more of it nor read the front desk's record.
         let work = mcp_config(&executable, &scope, &assignments, &status,
-            Some((&bridge, &continuity)), Some(&profile), LeaseRole::Work);
+            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work);
         assert_eq!(
             names(&work),
             vec!["richos_work"],
@@ -3343,7 +3463,28 @@ mod native_driver_tests {
         let assignments = scopes.join(format!("{identity}-assignments.json"));
         let status = scopes.join(format!("{identity}-status.json"));
         let continuity = scopes.join(format!("{identity}-work.json"));
+        // **The deferred grant's file, on a CONVERSATION lease only** — exactly as the two
+        // production constructors write it, and exactly as `start_work_lease` does not.
+        let continuity_tools = scopes.join(format!("{identity}-continuity-tools.json"));
         let bridge = fixture_bridge(&root);
+        // Written in full for the same reason the work scope below is: `ecs::ToolScope` denies
+        // unknown fields, and this grant reads the file it rewrites.
+        crate::ecs::write_scope(&continuity_tools, &crate::ecs::ToolScope {
+            version: 1,
+            actions_allowed: false,
+            bridge: bridge.clone(),
+            binding: crate::ecs::Binding {
+                entity_id: "qa-test-co".into(),
+                thread_id: "thr_one".into(),
+                session_id: "sess_one".into(),
+                turn_id: "turn-1".into(),
+                audience: "ceo".into(),
+                revision: 1,
+            },
+            user_instruction: None,
+            seat: Some("ceo-thread:thr_one".into()),
+        })
+        .unwrap();
         // **The one grant on a work lease that DOES have a file under it**, written here
         // because `start_work_lease` writes it (`{"version":1,"actions_allowed":false}`).
         // Written in full rather than as that two-field stub because `ecs::ToolScope` requires
@@ -3374,6 +3515,7 @@ mod native_driver_tests {
             Some((&doctrine, &skills)),
             Some((&root.join("RichOS"), &onboarding, &assignments, &status)),
             Some((&bridge, &continuity)),
+            match role { LeaseRole::Conversation => Some(continuity_tools.as_path()), LeaseRole::Work => None },
             None,
             None,
             role,
@@ -3393,6 +3535,10 @@ mod native_driver_tests {
             assignments_scope: None,
             status_scope: None,
             continuity: Some((bridge, continuity)),
+            continuity_tools_scope: match role {
+                LeaseRole::Conversation => Some(continuity_tools),
+                LeaseRole::Work => None,
+            },
             work_binding: None,
             engine_profile: None,
             role,
@@ -3409,6 +3555,7 @@ mod native_driver_tests {
                 ActionGrant::Onboarding(_) => "onboarding",
                 ActionGrant::Assignments(_) => "assignments",
                 ActionGrant::Continuity(_) => "continuity",
+                ActionGrant::ContinuityTools(_) => "continuity-tools",
             })
             .collect()
     }
@@ -3488,7 +3635,10 @@ mod native_driver_tests {
             lease_with_production_grants("chat-list", LeaseRole::Conversation, SILENT_AFTER_HANDSHAKE);
         assert_eq!(
             grant_names(&chat.client),
-            vec!["onboarding", "assignments", "continuity"],
+            // `continuity-tools` joined this list on 2026-09-18 and is the one grant `prompt`
+            // does NOT open with the others — it is in the list so that the turn's end, a
+            // cancel and a dropped lease all revoke it by the same loop.
+            vec!["onboarding", "assignments", "continuity", "continuity-tools"],
             "the front desk lost a grant it needs — the fix has moved, not landed"
         );
         drop(chat);
@@ -3599,6 +3749,7 @@ mod native_driver_tests {
             assignments_scope: None,
             status_scope: None,
             continuity: Some((fixture_bridge(&root), root.join("work-scope.json"))),
+            continuity_tools_scope: None,
             work_binding: None,
             engine_profile: Some(fixture_profile(&root)),
             role: LeaseRole::Work,
@@ -4450,64 +4601,87 @@ done
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
     }
 
+    /// **THE FRONT DESK'S BOOKKEEPING IS SHUT UNTIL HE HAS HEARD SOMETHING, ON A REAL TURN** —
+    /// the CEO's §55, driven through `Cognition::prompt` against a real child.
+    ///
+    /// **This test used to prove a permission refusal, and that refusal never happened.** The
+    /// gate it drove was reachable only from a `can_use_tool` control request, which the
+    /// binary never sends for this tool under `--permission-mode auto`; a whole run wrote the
+    /// checkpoint before the reply with no permission frame in it at all
+    /// (`docs/verification/first-words-2026-09-18-logs/run-B-*`). The fixture child answered a
+    /// request production never makes, so the test passed while the product did not.
+    ///
+    /// What is driven now is the thing the engine's adapter actually reads — `actions_allowed`
+    /// in the continuity server's own scope file (`engine/ecs/adapters/mcp.py:24-26`) — at the
+    /// three instants that matter, and the assertions are made from inside the turn.
     #[test]
-    fn the_checkpoint_is_refused_until_he_has_heard_something_and_refused_again_next_turn() {
-        // **THE ENFORCEMENT THE DOCTRINE SENTENCE COULD NOT BE.** Run 2 of
-        // `docs/verification/question-receipt-2026-09-18.md` spent 12.980 s -> 17.023 s of a
-        // 22.956 s wait on a `checkpoint` written before his first word, with the doctrine
-        // already asking for the reply first. So the order is a condition of the tool working.
-        //
-        // The fixture child asserts the behavior it receives and exits 9 if it is wrong, so a
-        // gate that silently stopped working fails this test rather than passing it quietly.
-        //
-        // **Four facts, and the fourth is the one an obvious implementation gets wrong:**
-        // deny before a word; allow after a word; `inspect` is never gated; and the NEXT turn
-        // starts refused again, because `spoken_this_turn` is reset with the send.
-        let script = write_script("checkpoint-after-the-reply", r#"
+    fn the_bookkeeping_grant_is_shut_until_his_first_words_on_a_real_turn() {
+        let body = r#"
 read -r init
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
 read -r prompt
-printf '%s\n' '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
-read -r answer
-case "$answer" in *\"behavior\":\"deny\"*) ;; *) exit 9 ;; esac
-printf '%s\n' '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__inspect","input":{}}}'
-read -r answer
-case "$answer" in *\"behavior\":\"allow\"*) ;; *) exit 8 ;; esac
 printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"On it!"}}}'
-printf '%s\n' '{"type":"control_request","request_id":"p3","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
-read -r answer
-case "$answer" in *\"behavior\":\"allow\"*) ;; *) exit 7 ;; esac
 printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
 read -r prompt
-printf '%s\n' '{"type":"control_request","request_id":"p4","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
-read -r answer
-case "$answer" in *\"behavior\":\"deny\"*) ;; *) exit 6 ;; esac
 printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
-"#);
-        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+"#;
+        let (mut lease, root) = lease_with_production_grants("spoken", LeaseRole::Conversation, body);
+        let scope = lease.continuity_tools_scope.clone().expect("a front desk has one");
+        // The company-notes grant is a conversation lease's, and `prompt` opens it first: a
+        // front desk with no company bound fails the turn before it sends (deliberately — see
+        // `ActionGrant::set`). This fixture is about the grant AFTER it, so a company is bound.
+        crate::onboarding_tools::write_scope(
+            lease.onboarding_scope.as_ref().expect("a front desk has one"),
+            &crate::onboarding_tools::OnboardingToolScope {
+                version: 1,
+                entity_id: "qa-test-co".into(),
+                actions_allowed: false,
+                central_root: root.join("corpus"),
+                record_path: root.join("onboarding.json"),
+            },
+        )
+        .unwrap();
+        let allowed = |path: &std::path::Path| -> bool {
+            serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()["actions_allowed"] == true
+        };
+
+        // Before the turn: shut. Every call to `richos_continuity` is refused by the engine's
+        // own adapter while this reads false, and the model cannot write this file.
+        assert!(!allowed(&scope), "the lease came up with the bookkeeping already open");
+
         let mut said = String::new();
-        let mut permissions = Vec::new();
+        let mut open_when_he_heard_it = None;
         {
-            let mut collect = |item: TurnItem| match item {
-                TurnItem::Text { text, .. } => said.push_str(text),
-                TurnItem::Machinery(record) => {
-                    if record.kind == crate::machinery::MachineryKind::PermissionRequested {
-                        permissions.push(record.title.clone());
-                    }
+            let mut collect = |item: TurnItem| {
+                if let TurnItem::Text { text, .. } = item {
+                    // **THE ASSERTION FROM INSIDE THE TURN.** The reader opens the grant as it
+                    // sees his first words and BEFORE it routes them, so by the time this
+                    // callback runs the flag is already true — which is the ordering the whole
+                    // change is about, and it cannot be seen from outside the turn.
+                    open_when_he_heard_it.get_or_insert(allowed(&scope));
+                    said.push_str(text);
                 }
             };
-            assert_eq!(client.prompt("Land the pricing branch", &mut collect).unwrap(), "end_turn");
+            assert_eq!(
+                crate::cognition::Cognition::prompt(&mut lease, "Land the pricing branch", &mut collect).unwrap(),
+                "end_turn"
+            );
         }
         assert_eq!(said, "On it!");
-        // The refusal is MACHINERY and never his words — it is on the technical view's lane,
-        // beside the two that were allowed, and nothing about it reaches the conversation.
-        assert_eq!(permissions.len(), 3, "{permissions:?}");
-        assert!(!said.contains("Not yet"), "a refusal aimed at the model must never be shown to him");
+        assert_eq!(open_when_he_heard_it, Some(true),
+            "he was answered and the front desk still could not write its checkpoint");
+        // And the turn's end revokes it, by the same all-or-nothing loop as every other grant.
+        assert!(!allowed(&scope), "the bookkeeping grant outlived the turn");
 
-        // And the second turn, whose only job is to prove the per-turn reset exists: the
-        // child exits 6 if the checkpoint it tries before speaking is allowed on the strength
-        // of the PREVIOUS turn's reply.
-        assert_eq!(client.prompt("And the second thing", &mut |_| {}).unwrap(), "end_turn");
+        // The SECOND turn starts shut again — the per-turn reset, which `prompt` makes
+        // positively rather than inheriting from the previous turn's end.
+        assert_eq!(
+            crate::cognition::Cognition::prompt(&mut lease, "And the second thing", &mut |_| {}).unwrap(),
+            "end_turn"
+        );
+        assert!(!allowed(&scope), "a second turn inherited an open grant");
+        drop(lease);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// One turn of a front desk that hands work over, as the wire actually carries it.
@@ -4683,22 +4857,63 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert_eq!(said, "", "a priming turn is not his turn: {said:?}");
     }
 
+    /// **HIS FIRST WORDS ARE WHAT OPENS THE FRONT DESK'S BOOKKEEPING** — the CEO's §55, as
+    /// the app's own state machine rather than as a permission answer nobody asks for.
+    ///
+    /// This replaces `the_pre_reply_gate_is_about_the_checkpoint_alone`, which tested a
+    /// predicate that was never reached on the real wire (see the note where that function
+    /// used to be). What is asserted here is the thing the engine's adapter reads: the flag in
+    /// the continuity server's own scope file, before and after the first word.
     #[test]
-    fn the_pre_reply_gate_is_about_the_checkpoint_alone() {
-        // The pure predicate, spelled out, because the scope is the whole decision: a WRITE
-        // has nowhere to be before the reply, a READ may be the answer he is waiting for, and
-        // the register is the one tool that is SUPPOSED to be called before he hears anything.
-        let checkpoint = json!({"subtype":"can_use_tool","tool_name":CONTINUITY_CHECKPOINT_TOOL,"input":{}});
-        assert!(bookkeeping_before_the_reply(&checkpoint, false));
-        assert!(!bookkeeping_before_the_reply(&checkpoint, true));
-        for tool in ["mcp__richos_continuity__inspect", crate::assignment_tools::QUALIFIED_RECORD_TOOL,
-                     "mcp__richos_status__background_work", "Bash", ""] {
-            let request = json!({"subtype":"can_use_tool","tool_name":tool,"input":{}});
-            assert!(!bookkeeping_before_the_reply(&request, false), "{tool} must not be gated on the reply");
+    fn the_continuity_grant_opens_at_his_first_words_and_never_on_a_priming_turn() {
+        let root = std::env::temp_dir().join(format!("richos-spoken-grant-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&root).unwrap();
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
         }
-        // A request with no tool name at all is not this gate's business — the desk below
-        // already refuses it by name ("could not be safely displayed").
-        assert!(!bookkeeping_before_the_reply(&json!({"subtype":"can_use_tool"}), false));
+        let _scratch = Scratch(root.clone());
+        let scope = root.join("continuity-tools.json");
+        let bridge = fixture_bridge(&root);
+        let write_closed = || {
+            crate::ecs::write_scope(&scope, &crate::ecs::ToolScope {
+                version: 1, actions_allowed: false, bridge: bridge.clone(),
+                binding: crate::ecs::Binding { entity_id: "depot".into(), thread_id: "thread".into(),
+                    session_id: "session".into(), turn_id: "turn-7".into(), audience: "ceo".into(), revision: 1 },
+                user_instruction: None, seat: Some("ceo-thread:thread".into()),
+            }).unwrap();
+        };
+        let allowed = || -> bool {
+            serde_json::from_slice::<Value>(&std::fs::read(&scope).unwrap()).unwrap()["actions_allowed"] == true
+        };
+        let mut state = ReaderState { continuity_tools_grant: Some(ActionGrant::ContinuityTools(scope.clone())),
+                                      ..ReaderState::default() };
+
+        // The turn starts with him having heard nothing, and the tools are shut. The engine's
+        // adapter refuses every call to that server while this flag reads false
+        // (`engine/ecs/adapters/mcp.py:24-26`), which is the enforcement.
+        write_closed();
+        assert!(!allowed(), "the turn did not start with the bookkeeping shut");
+
+        // His first words open it — once, whatever else arrives afterwards.
+        state.he_has_now_been_spoken_to();
+        assert!(state.spoken_this_turn);
+        assert!(allowed(), "he was answered and the front desk still cannot write its checkpoint");
+
+        // **A PRIMING TURN IS NOT HIM.** `prompt_context_only` sets `context_only`, its text is
+        // discarded and never rendered, and a grant opened there would be an open grant handed
+        // to the next real turn — the deferral undone by a turn he never saw.
+        write_closed();
+        let mut priming = ReaderState { continuity_tools_grant: Some(ActionGrant::ContinuityTools(scope.clone())),
+                                        context_only: true, ..ReaderState::default() };
+        priming.he_has_now_been_spoken_to();
+        assert!(priming.spoken_this_turn, "the host still records that text went past");
+        assert!(!allowed(), "an internal priming turn opened the front desk's bookkeeping");
+
+        // And a lease with no continuity server (every work lease) is untouched by any of it.
+        let mut work = ReaderState::default();
+        work.he_has_now_been_spoken_to();
+        assert!(work.spoken_this_turn);
     }
 
     #[test]
