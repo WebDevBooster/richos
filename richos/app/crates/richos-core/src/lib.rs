@@ -195,3 +195,11 @@ pub mod assignment;
 pub mod assignment_tools;
 pub mod status_tools;
 pub mod work_host;
+
+/// **THE OPENING OF HIS TURN** (the CEO's ruling §55, 2026-09-18):
+///   - `first_reply` — what the model did before he heard a word, and whether it was allowed
+///                    to. The doctrine's *"the register is your FIRST tool call"* was measured
+///                    not being obeyed, so the ordering is a rule something can run rather
+///                    than a sentence: no tool discovery, no bookkeeping, and the hand-over
+///                    first, inside a budget taken off two real turns.
+pub mod first_reply;
