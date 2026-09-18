@@ -467,6 +467,10 @@ richos/app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
+    tests/front_desk_priming_tests.rs
+                             5 tests for PRIMING THE FRONT DESK before he types (`Spine::prime_front_desk`,
+                              CEO §55): the priming turn is spent when a thread opens, once per lease,
+                              and never on his first message.
     tests/setup.rs           52 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
                               two executables a customer's Mac does not have, fetched and
                               verified. Every failure path is a VALUE rather than a network
