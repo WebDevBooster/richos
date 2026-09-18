@@ -374,7 +374,21 @@ class DesktopWork(unittest.TestCase):
         other={**self.scope,"binding":{**self.scope["binding"],"thread_id":"thread-b"}}
         self.scope_path.write_text(json.dumps(other))
         with self.assertRaisesRegex(ValueError,"partition"):self.call("inspect")
-        self.assertEqual(ready["agent_payload"]["run_in_background"],True)
+
+    def test_a_prepared_worker_is_dispatched_synchronously_so_it_ends_inside_the_turn(self):
+        """The invariant candidate .10 broke, and the one line that broke it.
+
+        `prepare` used to stamp `run_in_background: True` on every prepared payload.
+        A background Agent call returns `{"isAsync": true, "status": "async_launched"}`
+        immediately, no `SubagentStop` arrives, and so `refresh()` never reaches
+        `run-ended`, no reviewer can be prepared, `observe()` never sees a verdict, and
+        the app's turn-end settlement check stops the owning child with the worker still
+        inside it. Measured on the shipped candidate: work-lease session
+        0320b4d4-95f4-4a25-8d2b-950bcaa2d728, 18 callbacks, one `SubagentStart` and no
+        `SubagentStop` at all.
+        """
+        ready=self.call("prepare",self.args)
+        self.assertEqual(ready["agent_payload"]["run_in_background"],False)
 
     def test_uncertain_preparation_is_retained_and_not_repeated(self):
         with patch.object(self.app,"run",side_effect=TimeoutError("synthetic uncertain command")):
