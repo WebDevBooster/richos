@@ -111,6 +111,40 @@ pub enum IntakeRecord {
         text: String,
         at: u64,
     },
+    /// **The CEO speaking to Rich through something that is not the desktop window** —
+    /// today a paired phone (phone-client plan §4.2 i, *"Inbound goes through the intake
+    /// log, never straight at the spine"*).
+    ///
+    /// A SEPARATE VARIANT FROM [`IntakeRecord::Steer`], and the difference is the whole
+    /// reason it exists. `Steer` means *words the CEO added while Rich was working*, and it
+    /// carries `steering_turn_id` as the evidence behind that cue. A phone message usually
+    /// arrives at an **idle** app, where there is no such turn — so reusing `Steer` would
+    /// mean either inventing a turn id (an attribution with nothing behind it, which is the
+    /// one thing this file refuses) or making the field optional and changing the shape of
+    /// a record every shipped build can read today. A new tag is the honest third option:
+    /// an older build meets an unknown `record` tag, classifies it, counts it and reports
+    /// it (`IntakeLog::health`), and never silently drops it.
+    ///
+    /// Everything else about it is deliberately identical to `Steer`: same durability, same
+    /// `id` as the de-duplication key, same single fate — it becomes a ledger turn or it is
+    /// refused. `Spine::drain_intake` handles the two arms the same way, because from the
+    /// spine's side the CEO's words are the CEO's words whatever mouth they came through
+    /// (plan §4.2 iv: *"The back end never learns which mouth the CEO used"*).
+    Channel {
+        id: u64,
+        /// The thread the message is FOR, captured at write time. Never re-derived at drain
+        /// time, for the reason `Steer::thread_id` gives: the active context can move while
+        /// a record waits, and re-scoping it to wherever the desktop happens to be looking
+        /// would launder it across an entity boundary (ECS §3.4).
+        thread_id: String,
+        entity_id: Option<EntityId>,
+        text: String,
+        at: u64,
+        /// WHICH MOUTH — `"phone"` today. A field rather than a variant, so a second
+        /// channel is a new value here and not a new record type every older build then
+        /// cannot read.
+        channel: String,
+    },
     /// §9.3 step 1: "Persist a stop request."
     Stop { id: u64, turn_id: String, at: u64 },
     /// Everything with `id <= through` has reached the ledger or been refused. Written
@@ -122,7 +156,9 @@ pub enum IntakeRecord {
 impl IntakeRecord {
     pub fn id(&self) -> u64 {
         match self {
-            IntakeRecord::Steer { id, .. } | IntakeRecord::Stop { id, .. } => *id,
+            IntakeRecord::Steer { id, .. }
+            | IntakeRecord::Channel { id, .. }
+            | IntakeRecord::Stop { id, .. } => *id,
             IntakeRecord::Drained { through } => *through,
         }
     }
@@ -134,7 +170,7 @@ impl IntakeRecord {
 /// damaged one, so it has to stay exactly in step with [`IntakeRecord`]. That is not left
 /// to care: `intake_forward_compat_tests.rs` maps every variant through an EXHAUSTIVE
 /// match, so adding a variant here without adding its name does not compile.
-pub const KNOWN_INTAKE_TAGS: &[&str] = &["steer", "stop", "drained"];
+pub const KNOWN_INTAKE_TAGS: &[&str] = &["steer", "channel", "stop", "drained"];
 
 /// How the intake log's records are told apart from a newer build's and from damage.
 /// The judgment itself is [`crate::skip::classify_line`] — the same one the ledger uses,
@@ -526,6 +562,36 @@ impl IntakeLog {
         Ok(rec)
     }
 
+    /// Durably record one message that arrived from a channel other than the desktop
+    /// window — the phone (plan §4.2 i). Returns it, carrying the `id` the caller answers
+    /// the phone with.
+    ///
+    /// **`fsync` before the caller can answer** is the whole point, and it is why the phone
+    /// bridge writes here instead of calling the spine: `Spine::submit_prompt` does not
+    /// return until the turn is over, and an HTTP request that waits for a two-hour turn is
+    /// a request that times out. This returns in the time one `fsync` takes, and the
+    /// message is on disk when it does.
+    pub fn channel_message(
+        &mut self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+    ) -> Result<IntakeRecord, SteeringError> {
+        let rec = IntakeRecord::Channel {
+            id: self.next_id,
+            thread_id: thread_id.to_string(),
+            entity_id,
+            text: text.to_string(),
+            at: now_millis(),
+            channel: channel.to_string(),
+        };
+        self.write(&rec)?;
+        self.next_id += 1;
+        self.pending.push(rec.clone());
+        Ok(rec)
+    }
+
     /// Durably record one stop request. Returns it, carrying the timestamp that
     /// `Ledger::stop_turn` will quote.
     pub fn stop(&mut self, turn_id: &str) -> Result<IntakeRecord, SteeringError> {
@@ -827,6 +893,31 @@ impl TurnControl {
         let mut guard = self.inner.intake.lock().unwrap();
         let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
         log.steer(&active.thread_id, &active.turn_id, active.entity_id.clone(), text)
+    }
+
+    /// **The phone's road in** (plan §4.2 i). Durable on return, and it does NOT require a
+    /// turn to be running — which is the one way it differs from [`steer`](Self::steer),
+    /// and the reason it is a different function rather than a relaxed flag on that one.
+    ///
+    /// `steer` REFUSES when nothing is running, correctly: "add this to what Rich is
+    /// doing" is meaningless when Rich is doing nothing, and the desktop composer sends a
+    /// prompt instead. The phone has no such fork — it posts one message and the Mac
+    /// decides. So the two entry points answer two different questions and neither one
+    /// should have to guess which it was asked.
+    ///
+    /// Reached WITHOUT the spine lock, exactly as `steer` and `request_stop` are, because
+    /// `Spine::submit_prompt` holds that lock for the whole of a turn. Nothing here waits
+    /// on Rich.
+    pub fn submit_from_channel(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+    ) -> Result<IntakeRecord, SteeringError> {
+        let mut guard = self.inner.intake.lock().unwrap();
+        let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
+        log.channel_message(thread_id, entity_id, text, channel)
     }
 
     // --- read by the spine, at the turn boundary ----------------------------------------
