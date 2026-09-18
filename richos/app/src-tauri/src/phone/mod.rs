@@ -37,6 +37,7 @@
 //! rather than a rule to remember.
 
 pub mod ca;
+pub mod device;
 pub mod names;
 pub mod push;
 pub mod secrets;

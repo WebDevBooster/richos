@@ -60,13 +60,13 @@ pub const APNS_BODY_CEILING: usize = 4096;
 pub const MAX_PLAINTEXT_BYTES: usize = APNS_BODY_CEILING - AES128GCM_HEADER_BYTES - 1 - 16;
 
 /// What `PushSubscription.toJSON()` produces, verbatim.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Subscription {
     pub endpoint: String,
     pub keys: SubscriptionKeys,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SubscriptionKeys {
     /// The 65-byte uncompressed P-256 point, base64url.
     pub p256dh: String,
