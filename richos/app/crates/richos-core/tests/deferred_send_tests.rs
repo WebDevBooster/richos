@@ -109,6 +109,9 @@ struct SlowPrimingLease {
     reply: String,
     priming_started: Latch,
     release_priming: Latch,
+    /// How long HIS turn takes once it is delivered. Zero for every test but the one about
+    /// `Ready.millis`, which needs the two durations to be tellable apart.
+    prompt_delay: Duration,
     reprimes: Arc<Mutex<Vec<String>>>,
     prompts: Arc<Mutex<Vec<String>>>,
 }
@@ -127,6 +130,7 @@ impl Cognition for SlowPrimingLease {
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
         self.prompts.lock().unwrap().push(text.to_string());
+        std::thread::sleep(self.prompt_delay);
         on_item(TurnItem::Text { seq: 0, text: &self.reply });
         Ok("end_turn".to_string())
     }
@@ -147,6 +151,10 @@ struct Contended {
 
 impl Contended {
     fn open(tag: &str, reply: &str) -> Contended {
+        Contended::open_with_turn_taking(tag, reply, Duration::ZERO)
+    }
+
+    fn open_with_turn_taking(tag: &str, reply: &str, prompt_delay: Duration) -> Contended {
         let ledger_path = tmp_path(&format!("{tag}-ledger"));
         let intake_path = tmp_path(&format!("{tag}-intake"));
         let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
@@ -164,6 +172,7 @@ impl Contended {
             reply: reply.to_string(),
             priming_started: priming_started.clone(),
             release_priming: release_priming.clone(),
+            prompt_delay,
             reprimes: reprimes.clone(),
             prompts: prompts.clone(),
         }));
@@ -389,6 +398,46 @@ fn a_control_with_nowhere_durable_to_write_refuses_rather_than_accepting_what_it
         control.defer_send("thr_1", Some(femcboost()), "no log here"),
         Err(SteeringError::NoDurableIntake)
     ));
+}
+
+#[test]
+fn the_ready_verdict_counts_the_prime_and_never_the_turn_it_drained_on_its_way_out() {
+    // **A DEFECT THIS SLICE INTRODUCED AND ITS OWN PROBE CAUGHT, PINNED SO IT CANNOT RETURN.**
+    //
+    // `FrontDeskReady::Ready.millis` is documented as *"what he would otherwise have waited
+    // through on his first message"*, and the shell prints it verbatim into `app.log` as *"the
+    // front desk is ready before he types: {millis} ms"*. `prime_front_desk` now drains his
+    // deferred message before returning — and the first version stamped the clock after that
+    // drain, so the number carried HIS WHOLE TURN. Run F of `first_reply_timing_e2e` printed
+    // `Ready { millis: 11355 }` for a prime of about four seconds and then decomposed the run
+    // into a turn of MINUS 1.431 s. `app.log`'s figure would have been wrong in the same way,
+    // silently, and it is exactly the sort of number that ends up quoted in a record.
+    //
+    // 400 ms of turn against a prime released immediately: the two are an order of magnitude
+    // apart, so this tells them apart without being a timing threshold.
+    let c = Contended::open_with_turn_taking("ready-millis", "On it!", Duration::from_millis(400));
+    let priming = c.start_priming();
+    c.control.defer_send(&c.thread, Some(femcboost()), "his message").unwrap().expect("accepted");
+    c.release_priming.raise();
+
+    let joined_at = Instant::now();
+    let verdict = priming.join().unwrap();
+    let across_the_join = joined_at.elapsed();
+
+    let millis = match verdict {
+        FrontDeskReady::Ready { millis, .. } => millis,
+        other => panic!("the desk should have been made ready: {other:?}"),
+    };
+    assert!(
+        across_the_join >= Duration::from_millis(400),
+        "the priming thread did not actually run his turn before returning: {across_the_join:?}"
+    );
+    assert!(
+        millis < 400,
+        "Ready.millis is {millis} ms — his own turn has been folded into the number `app.log` \
+         reports as the priming he did NOT have to wait for"
+    );
+    assert_eq!(*c.prompts.lock().unwrap(), vec!["his message"]);
 }
 
 #[test]

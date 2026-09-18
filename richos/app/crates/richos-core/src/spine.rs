@@ -3468,6 +3468,15 @@ impl Spine {
         // that removes them is a desk that was already primed when the thread opened.
         self.control.begin_front_desk_prime(thread_id);
         let prepared = self.prepare_request(&binding);
+        // **THE CLOCK STOPS HERE, BEFORE THE DRAIN, AND THAT IS NOT A DETAIL.** `Ready.millis`
+        // is documented as *"what he would otherwise have waited through on his first
+        // message"*, and the shell prints it as *"the front desk is ready before he types:
+        // {millis} ms"*. Taking it after the lines below would fold HIS OWN TURN into it — run
+        // F of `examples/first_reply_timing_e2e.rs` printed `Ready { millis: 11355 }` for a
+        // ~4 s prime that had a ~7 s turn drained behind it, and the probe's decomposition came
+        // out NEGATIVE, which is how this was found. A number that ends up in `app.log` and
+        // then in a record is exactly the kind that has to be right at the source.
+        let primed_in = started.elapsed();
         // Shut the road BEFORE draining it, from under the same spine mutex. Every ordering
         // is covered by `TurnControl::defer_send`'s own guard: a send accepted before this
         // line is drained by the next one, and a send that arrives after it blocks on a spine
@@ -3479,7 +3488,7 @@ impl Spine {
             eprintln!("[richos] a message sent during the front desk's priming could not be delivered yet ({e})");
         }
         match prepared {
-            Ok(()) => FrontDeskReady::Ready { millis: started.elapsed().as_millis() as u64, spawned },
+            Ok(()) => FrontDeskReady::Ready { millis: primed_in.as_millis() as u64, spawned },
             // **A FAILURE HERE IS NOT HIS PROBLEM AND MUST NOT BECOME ONE.** Priming only decides
             // WHEN the waiting happens; if it cannot be done now, his first message takes the path
             // it has always taken and primes on its own. So the reason is said once, on the
