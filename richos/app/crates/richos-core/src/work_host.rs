@@ -1855,6 +1855,19 @@ mod honest_sentence_tests {
             "The work connection could not be opened."
         );
 
+        // **RAY'S CANDIDATE-.8 ROW 8, PINNED BY ITS EXACT STRING.** He read
+        // `cognition io: Choose a company before saving interview answers.` off the third
+        // failure card at 10:45Z. This function landed at `8926fd93` (2026-09-18 09:24:43Z),
+        // AFTER the `1.2.0-nightly.20260918.2` binary he walked was built — which is why the
+        // label was on his screen and is not on main. So his row is a stale assertion against
+        // an older binary on this half, and a live defect only on the truncation half
+        // (`assignment.rs`'s `says::continues`). Pinned here rather than argued: the exact
+        // sentence he saw, through the funnel it now goes through.
+        assert_eq!(
+            honest(&CognitionError::Io("Choose a company before saving interview answers.".into()).to_string()),
+            "Choose a company before saving interview answers."
+        );
+
         // **Positive control on the log half: the label still EXISTS.** Row 8 asks for it off
         // his timeline, not out of the system — a plugin that did not load is diagnosed from
         // it. `honest` is the only funnel to a sentence he reads, so `Display` is untouched.

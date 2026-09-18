@@ -391,12 +391,22 @@ impl Receipt {
 //      sentence in the module that appended punctuation to one.
 //
 // A first pass here added an `after_title` helper for the case `sanitize_title` deliberately
-// leaves — a truncated title keeps the ellipsis it needs. It is gone because after (2) nothing
-// calls it: every sentence in [`says`] continues with a word rather than a mark (*"{title} is
-// finished"*, *"{title} did not start"*), so an ellipsis is followed by a space and reads
-// correctly. A helper kept for a case that cannot occur is dead code whose doc comment claims a
-// guarantee nothing is enforcing. The tests assert the property over every [`says`] sentence
-// instead, which is what would actually catch a future sentence that got this wrong.
+// leaves — a truncated title keeps the ellipsis it needs. It was dropped at `25b933f2` on the
+// reasoning that *"every sentence in [`says`] continues with a word rather than a mark, so an
+// ellipsis is followed by a space and reads correctly"*.
+//
+// **THAT REASONING WAS WRONG, AND RAY'S CANDIDATE-.8 ROW 8 IS IT BEING WRONG ON HIS SCREEN**
+// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 8), verbatim:
+//
+//   "…and land it. (Third try; the first two stopped before they… stopped before it finished."
+//
+// An ellipsis is TERMINAL punctuation. A lowercase verb phrase running straight on from one does
+// not read as a continuation; it reads as a sentence that broke off and restarted — and it reads
+// that way aloud, which is the half that matters on a voice-first surface. The join is back, as
+// [`says::continues`], for the case the old one was written for and now against the evidence that
+// the case is real rather than hypothetical. It is still ONE funnel and not seven, for the same
+// reason [`sanitize_title`] strips the period once. The property is asserted over every sentence
+// in [`says`], which is what catches the eighth one somebody adds.
 
 /// Spec §1.4: *"A failed registration is never softened into 'I have started it'."*
 ///
@@ -672,6 +682,25 @@ pub fn read(state: &Path, entity: &str, thread: &str, id: &str) -> Result<Assign
 
 /// Read, change, write — the one mutation path, so every state change goes through the
 /// schema and scope checks on the way in.
+///
+/// **IT DOES NOT TOUCH `updated_at_ms`, AND THAT IS RAY'S CANDIDATE-.8 ROW 9.** It used to
+/// stamp `now_ms()` on every call, which meant any write bumped it — including
+/// [`take_pending_notices`], whose whole job is to mark a notice delivered and which changes
+/// nothing about the assignment itself. Measured on his walk
+/// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 9): job 1
+/// failed at `10:35:49.190Z`, **6.280 s** after its `10:35:42.910Z` registration; after the
+/// relaunch delivered its notice the record read `10:39:47.649Z`, **244.739 s**. Both figures
+/// re-derived from his timestamps here. He only had the true one because he read the file live.
+///
+/// **The field is consumed as "when did this last MOVE".** `status_tools.rs:138` publishes it
+/// to the front desk's model under the name `last_moved_at_ms`, and `:195` SORTS the list by
+/// it — so a delivery did not merely record a wrong elapsed time, it reordered "what moved most
+/// recently" by the order notices happened to be handed over.
+///
+/// So the stamp moves to [`advance`], which is the only function in this module that writes
+/// `record.state` — verified: `record.state =` appears at exactly one line in this file.
+/// Delivery is already recorded separately and durably, per notice, on
+/// `Notice::delivered_at_ms`; nothing needed adding for it.
 fn update(
     state: &Path,
     entity: &str,
@@ -681,7 +710,6 @@ fn update(
 ) -> Result<Assignment, AssignmentError> {
     let mut record = read(state, entity, thread, id)?;
     change(&mut record);
-    record.updated_at_ms = now_ms();
     write(&folder(state, entity, thread)?.join(format!("{id}.json")), &record)?;
     Ok(record)
 }
@@ -706,6 +734,17 @@ pub fn advance(
     update(state, entity, thread, id, |record| {
         record.state = to;
         record.detail = detail;
+        // **THE ONLY PLACE `updated_at_ms` IS STAMPED** — see [`update`] for Ray's row 9 and
+        // the two numbers. This is the only function in the module that writes `record.state`,
+        // so a time stamped here is a time the assignment actually moved, which is what
+        // `status_tools.rs` publishes it as (`last_moved_at_ms`) and sorts the list by.
+        //
+        // **Stamped on a detail-only `advance` too, deliberately.** A detail is the sentence
+        // the front desk would read him about this job; a job that is still `Running` but is
+        // now waiting on something else HAS moved as far as he is concerned. What must never
+        // touch it is a write that changes nothing he could be told — which is delivery, and
+        // delivery does not come through here.
+        record.updated_at_ms = now_ms();
     })
 }
 
@@ -855,6 +894,34 @@ pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
 ///
 /// **American English, spoken-safe, comparative rather than absolute, no identifiers.**
 pub mod says {
+    /// **Join a title to the clause that always continues after it.**
+    ///
+    /// Every sentence in this module is `{title}` followed by a verb phrase about it, and
+    /// [`super::sanitize_title`] leaves exactly one title shape that breaks that: a truncated
+    /// one, which keeps the `…` its truncation needs. Ray's candidate-.8 row 8 is what that
+    /// collision looks like on his timeline — see the comment above `sanitize_title` for the
+    /// verbatim sentence and the reasoning it disproved.
+    ///
+    /// **So a truncated title CLOSES, and the verdict becomes its own sentence about "It".**
+    /// An ellipsis followed by a capital is ordinary typography for precisely this: the
+    /// truncation stays marked, and what follows is unmistakably a new sentence rather than
+    /// the tail of a broken one. Spoken, it is a pause and a fresh clause instead of a stutter.
+    ///
+    /// An untruncated title is joined exactly as it was, so this changes nothing for every
+    /// title short enough to survive the 160-character cap — which is almost all of them.
+    ///
+    /// **It is not a second period, and that distinction is the one `25b933f2` got right.**
+    /// Nothing is appended to the `…`; a word is inserted after it. So the double-mark defect
+    /// of candidate .7's row 8 (*"… and land it.. It's running now"*) cannot come back through
+    /// this door.
+    fn continues(title: &str, clause: &str) -> String {
+        if title.ends_with('…') {
+            format!("{title} It {clause}")
+        } else {
+            format!("{title} {clause}")
+        }
+    }
+
     /// **What he hears when a job is waiting on a decision of his** — spec §0 row 7 / §7.8's
     /// *"you hear 'ready for you to approve', never 'done'"*, narrowed by the CEO's ruling
     /// §52 (2026-09-18) to the only case that can still produce it.
@@ -867,7 +934,7 @@ pub mod says {
     /// sentence would have told him his repository was untouched while his branch had already
     /// moved. What is left claims only what is known: it is waiting on him.
     pub fn ready_to_approve(title: &str) -> String {
-        format!("{title} is waiting on a decision from you before it can go on.")
+        continues(title, "is waiting on a decision from you before it can go on.")
     }
     /// **What he hears when a job is finished, and `outcome` is the whole of §52 in this
     /// module.** *"There's nothing that ever not lands on its own here in the terminal …
@@ -881,9 +948,9 @@ pub mod says {
     pub fn settled(title: &str, outcome: &str) -> String {
         let outcome = outcome.trim();
         if outcome.is_empty() {
-            return format!("{title} is finished, and I've kept everything it produced with your saved work.");
+            return continues(title, "is finished, and I've kept everything it produced with your saved work.");
         }
-        format!("{title} is finished. {outcome} Everything it produced is with your saved work.")
+        continues(title, &format!("is finished. {outcome} Everything it produced is with your saved work."))
     }
     /// Spec §3.7: *"A failure says what stopped and what it is waiting on."*
     ///
@@ -891,7 +958,7 @@ pub mod says {
     /// half. "Stopped before it finished" carries the claim that there was something to
     /// stop.
     pub fn failed(title: &str, waiting_on: &str) -> String {
-        format!("{title} stopped before it finished. {waiting_on}")
+        continues(title, &format!("stopped before it finished. {waiting_on}"))
     }
 
     /// **A job that never got going, said as that and not as a job that stopped.**
@@ -908,10 +975,10 @@ pub mod says {
     /// arrives — a positive signal from the child, the only thing that establishes the turn
     /// was taken — and picks the sentence off that flag.
     pub fn did_not_start(title: &str, why: &str) -> String {
-        format!("{title} did not start. {why} Nothing was changed, and nothing is running.")
+        continues(title, &format!("did not start. {why} Nothing was changed, and nothing is running."))
     }
     pub fn interrupted(title: &str) -> String {
-        format!("{title} was stopped. Everything it had done is kept, and nothing was landed.")
+        continues(title, "was stopped. Everything it had done is kept, and nothing was landed.")
     }
     /// He declined the step it stopped at (spec §5.7: nothing is approved on his behalf, and
     /// nothing he answered is thrown away either).
@@ -921,9 +988,10 @@ pub mod says {
     /// work "was stopped" when he declined one step would describe his own decision back to
     /// him in somebody else's words.
     pub fn declined(title: &str) -> String {
-        format!(
-            "{title} stopped at the step you declined. Nothing in your repository was changed, \
-             and everything it produced is kept with your saved work."
+        continues(
+            title,
+            "stopped at the step you declined. Nothing in your repository was changed, \
+             and everything it produced is kept with your saved work.",
         )
     }
 
@@ -940,16 +1008,20 @@ pub mod says {
     pub fn unknown(title: &str, checked: &str) -> String {
         let checked = checked.trim();
         if checked.is_empty() {
-            return format!(
-                "{title} was running when RichOS closed, and I can't tell you how it ended. \
+            return continues(
+                title,
+                "was running when RichOS closed, and I can't tell you how it ended. \
                  Nothing is running now and nothing was finished. Say the word and I'll pick \
-                 it back up."
+                 it back up.",
             );
         }
-        format!(
-            "{title} was running when RichOS closed, and I can't tell you how it ended. \
-             {checked} Nothing is running now and nothing was finished. Say the word and \
-             I'll pick it back up."
+        continues(
+            title,
+            &format!(
+                "was running when RichOS closed, and I can't tell you how it ended. \
+                 {checked} Nothing is running now and nothing was finished. Say the word and \
+                 I'll pick it back up."
+            ),
         )
     }
 }
@@ -958,10 +1030,221 @@ pub mod says {
 mod tests {
     use super::*;
 
+    /// **RAY'S CANDIDATE-.8 ROW 8, AS A TEST — and the sentence it reproduces is his, verbatim.**
+    ///
+    /// He read this off the third failure card
+    /// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 8):
+    ///
+    /// > "…and land it. (Third try; the first two stopped before they… stopped before it
+    /// > finished. …"
+    ///
+    /// **The mechanism is the truncation ellipsis, not a doubled prefix.** His instruction was
+    /// 168 characters; `sanitize_line` caps a title at 160 and cuts on a word boundary, which
+    /// lands it on *"…stopped before they"* and appends the `…` the truncation needs. `says::failed`
+    /// then continued with a lowercase verb phrase, and an ellipsis is terminal punctuation — so
+    /// the card read as a sentence that broke off and restarted. Asserted below by rebuilding his
+    /// title from a 168-character instruction and comparing the join to the string he quoted.
+    ///
+    /// **The positive control is the first assertion**: the old join is still constructed here and
+    /// still produces the collision, so the property assertions underneath are a defect that went
+    /// away rather than a check that moved.
+    ///
+    /// The property is asserted over all seven sentences rather than the one he saw, because six
+    /// of them were equally capable of it and none had been checked.
+    ///
+    /// **What this does NOT do, said plainly rather than left implied:** it enumerates the seven by
+    /// hand, so an EIGHTH sentence added to [`says`] is not covered until somebody adds it to the
+    /// list here, and a title-bearing sentence written in another module is not covered at all.
+    /// (Checked against the screen-wait slice landed the same day: `screen::says`'s three sentences
+    /// are `&'static str` and embed no title, so nothing there needs this.) The structural guard is
+    /// that [`says::continues`] is the only join in this module; the enumeration is the evidence
+    /// that it is applied, not a promise about code that does not exist yet.
+    #[test]
+    fn a_truncated_title_never_collides_with_the_verdict_that_continues_from_it() {
+        let instruction = "Add a line to the notes file in the QA fixture repository saying the \
+                           candidate eight walk happened, and land it. (Third try; the first two \
+                           stopped before they started.)";
+        let instruction = instruction.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(instruction.chars().count(), 168, "the fixture stopped being an over-length title");
+        let title = sanitize_title(&instruction).unwrap();
+        assert!(title.ends_with('…'), "the fixture no longer truncates, so it tests nothing: {title}");
+
+        // ---- POSITIVE CONTROL: the old join, and it is his card ---------------------------
+        let before = format!("{title} stopped before it finished. Choose a company before saving interview answers.");
+        assert!(
+            before.contains("stopped before they… stopped before it finished."),
+            "the collision this test exists for can no longer be constructed: {before}"
+        );
+
+        // ---- THE FIX, over every sentence in `says` --------------------------------------
+        let cards = |title: &str| {
+            vec![
+                says::ready_to_approve(title),
+                says::settled(title, ""),
+                says::settled(title, "It landed on cc/pricing."),
+                says::failed(title, "Choose a company before saving interview answers."),
+                says::did_not_start(title, "The work connection could not be opened."),
+                says::interrupted(title),
+                says::declined(title),
+                says::unknown(title, ""),
+                says::unknown(title, "Your branch has not moved."),
+            ]
+        };
+
+        for card in cards(&title) {
+            // An ellipsis is terminal, so nothing lowercase may run on from one.
+            let mut chars = card.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '…' {
+                    let tail: String = chars.clone().collect();
+                    let next = tail.trim_start().chars().next();
+                    assert!(
+                        !matches!(next, Some(n) if n.is_lowercase()),
+                        "a clause runs straight on from the truncation ellipsis: {card}"
+                    );
+                }
+            }
+            // And candidate .7's row 8 must not come back the other way: no second mark.
+            for double in ["..", ". .", "…."] {
+                assert!(!card.contains(double), "two terminal marks in a row: {card}");
+            }
+            assert!(card.starts_with(&title), "the title stopped leading its own sentence: {card}");
+        }
+
+        // The one he saw, now, in full.
+        assert_eq!(
+            says::failed(&title, "Choose a company before saving interview answers."),
+            format!("{title} It stopped before it finished. Choose a company before saving interview answers.")
+        );
+
+        // ---- AND NOTHING CHANGES FOR A TITLE SHORT ENOUGH TO SURVIVE THE CAP -------------
+        // Which is almost every title. `continues` inserts a word only after an ellipsis.
+        let short = sanitize_title("landing the three branches").unwrap();
+        assert_eq!(short, "landing the three branches");
+        assert_eq!(
+            says::failed(&short, "The land lock timed out."),
+            "landing the three branches stopped before it finished. The land lock timed out."
+        );
+        assert_eq!(
+            says::interrupted(&short),
+            "landing the three branches was stopped. Everything it had done is kept, and nothing was landed."
+        );
+        // Asserted at the JOIN and not over the whole card: an outcome of his own may perfectly
+        // well contain "It" ("It landed on cc/pricing."), and a test that banned the word
+        // anywhere would fail for a reason that has nothing to do with the title.
+        for card in cards(&short) {
+            let after = card.strip_prefix(&format!("{short} ")).expect(&card);
+            assert!(
+                !after.starts_with("It "),
+                "a word was inserted after an untruncated title: {card}"
+            );
+        }
+    }
+
     fn root() -> PathBuf {
         let path = std::env::temp_dir().join(format!("assignment-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    /// **RAY'S CANDIDATE-.8 ROW 9: the record overwrote when a job failed.**
+    ///
+    /// Measured on his walk
+    /// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 9) and
+    /// re-derived from his own timestamps rather than quoted: job 1 registered `10:35:42.910Z`
+    /// and failed `10:35:49.190Z`, which is **6.280 s**. After the relaunch delivered its notice
+    /// the same record read `10:39:47.649Z` — **244.739 s**. Both of his figures reproduce. He
+    /// only had the true one because he read the file while it was live; anyone reading it
+    /// afterwards got the wrong elapsed time.
+    ///
+    /// **And it was worse than a wrong number on a card.** `status_tools.rs:138` publishes this
+    /// field to the front desk's model as `last_moved_at_ms` and `:195` sorts the list by it, so
+    /// delivery order was silently reordering "what moved most recently".
+    ///
+    /// **The positive controls are the two halves that must NOT change.** `advance` must still
+    /// move the time — otherwise this is a field that stopped working rather than a defect that
+    /// went away — and `take_pending_notices` must still actually mark the notice delivered,
+    /// otherwise its write never happened and the negative below is vacuous.
+    #[test]
+    fn delivering_a_notice_never_rewrites_when_the_assignment_last_moved() {
+        let state = root();
+        let receipt = register(&state, &registration()).unwrap();
+        let registered = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(registered.updated_at_ms, registered.registered_at_ms);
+
+        // ---- POSITIVE CONTROL 1: a real move still moves the time ------------------------
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let failed = advance(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            AssignmentState::Failed,
+            "The work connection could not be opened.",
+        )
+        .unwrap();
+        assert!(
+            failed.updated_at_ms > registered.updated_at_ms,
+            "advance stopped recording when the assignment moved"
+        );
+        let moved_at = failed.updated_at_ms;
+
+        // Raising the notice is not a move either — it is the same event being written down.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        raise_notice(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            NoticeKind::Failed,
+            "It stopped before it finished.",
+        )
+        .unwrap();
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at,
+            "raising a notice rewrote when the assignment moved"
+        );
+
+        // Nor is writing down which back end took it.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        note_start(&state, "depot", "thread-one", &receipt.id, "sess_one", Vec::new()).unwrap();
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at,
+            "noting the work session rewrote when the assignment moved"
+        );
+
+        // ---- THE DEFECT: delivery, which is what his relaunch did ------------------------
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let delivered = take_pending_notices(&state, "depot", "thread-one").unwrap();
+        assert_eq!(delivered.len(), 1, "nothing was delivered, so the negative below proves nothing");
+        let after = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+
+        // ---- POSITIVE CONTROL 2: the delivery write really happened ----------------------
+        assert!(
+            after.notices[0].delivered_at_ms.is_some(),
+            "delivery was not recorded, so no write went past `update` and the test is vacuous"
+        );
+        assert!(
+            after.notices[0].delivered_at_ms.unwrap() > moved_at,
+            "the delivery time is not even later than the move, so nothing was timed"
+        );
+        // Delivery is recorded, separately and durably, on the notice. It is not recorded on
+        // the assignment, because the assignment did not move.
+        assert_eq!(
+            after.updated_at_ms, moved_at,
+            "delivering a notice rewrote when the assignment moved — Ray's row 9"
+        );
+        assert_eq!(after.state, AssignmentState::Failed);
+
+        // A second delivery has nothing to deliver and still must not touch it.
+        assert!(take_pending_notices(&state, "depot", "thread-one").unwrap().is_empty());
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at
+        );
+        std::fs::remove_dir_all(state).unwrap();
     }
 
     /// The host's digest of the CEO's exact ledger text, as `prepare_work_turn` computes it.
