@@ -58,6 +58,8 @@ let currentThreadId = null;
 // allowed to hold a source, which is what makes "never more than one alive" a property rather than
 // a hope.
 let link = null;
+/// The sentence currently under the header, by name. Read only to keep a retry from flickering it.
+let linkStateNow = null;
 let vapidPublicKey = null;
 let loadingOlder = false;
 let renderQueued = false;
@@ -293,6 +295,7 @@ async function startConversation(keys) {
 
 function setLinkState(which, detail) {
 	const el = $('link-state');
+	linkStateNow = which;
 	el.classList.toggle('away', which === 'away');
 	if (which === 'connected') el.textContent = 'Connected to your Mac.';
 	else if (which === 'opening') el.textContent = 'Looking for your Mac…';
@@ -331,6 +334,13 @@ function makeLink() {
 
 		// The sentence on screen, and nothing else decides it.
 		onState: (which) => {
+			// A RETRY DOES NOT FLICKER THE LINE. Once he is being told the Mac is not reachable,
+			// that sentence is TRUE and it stays up. An attempt against a Mac that is off fails in
+			// a fraction of a second, so mapping every attempt to "Looking for your Mac…" would
+			// flash the line at him six times in the first minute and then twice a minute for as
+			// long as the walk lasts — the app fidgeting rather than telling him anything new.
+			// The first attempt still says it, because then it is news.
+			if (which === 'opening' && linkStateNow === 'away') return;
 			if (which === 'open') setLinkState('connected');
 			else if (which === 'opening') setLinkState('opening');
 			else setLinkState('away');
