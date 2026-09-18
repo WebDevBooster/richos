@@ -50,6 +50,10 @@
      panel), which is a surface no single-background calculation reaches. A token
      calibrated against the page ground is not calibrated against every ground. */
   --ink-faint: rgba(223, 228, 238, 0.62);
+  /* THE TECHNICAL VIEW'S OWN INK — audit-10 row 4. 8.50:1 on the ground here, 7.39:1 in
+     light, and it exists because `--ink-faint` clears the floor by 0.48 and the RENDERED
+     GLYPH does not. The whole derivation is beside `.tl-tech-title`. */
+  --ink-tech: rgba(223, 228, 238, 0.75);
 
   --line-strong: rgba(76, 96, 135, 0.26);
   --line-soft: rgba(76, 96, 135, 0.14);
@@ -220,6 +224,10 @@
   /* 4.85:1 on the rail — the darkest surface it paints on in this theme. Round 10 shipped
      this token lower and `.rail-count` came out at 3.60:1; the CEO named it. */
   --ink-faint: rgba(12, 19, 34, 0.63);
+  /* The technical view's own ink, light branch. 7.39:1 on the ground — see `.tl-tech-title`.
+     THIS IS THE THEME THE DEFECT WAS MEASURED IN: `--ink-faint` declares 4.98:1 here and the
+     11px italic monospace glyph it paints measures 4.36:1. */
+  --ink-tech: rgba(12, 19, 34, 0.75);
 
   --line-strong: rgba(60, 70, 95, 0.24);
   --line-soft: rgba(60, 70, 95, 0.12);
@@ -4315,16 +4323,68 @@ body.bp-narrow .tl-user-bubble {
   overflow-wrap: anywhere;
 }
 
-/* An untyped vendor kind is ONE DIM LINE (§1.4 G5): it is an accounting update, not
-   something Rich did, and it must not read with the same weight as a command he ran. */
+/* =========================================================================================
+   THE TECHNICAL VIEW'S INK — audit-10 row 4, and the reason it is a SEPARATE TOKEN.
+
+   Ray walked candidate .10 with the technical view on and measured six labels between
+   4.36:1 and 4.99:1 against a 4.5:1 floor, two of them under it
+   (`docs/verification/2026-09-18-nightly-1.2.0-nightly.20260918.5-onscreen-audit.md` §4,
+   frame `38-techy-on-thread.png`). RE-DERIVED HERE, from the pixels, on the `acme` fixture
+   under WebKit, before this token existed — his numbers to the second decimal:
+
+                                              declared   RENDERED   floor 4.5
+     `system:init` / `system:status`   11px italic mono    4.98:1     4.36:1   FAIL
+     `stream_event:message_delta`      11px italic mono    4.98:1     4.59:1   pass, barely
+     the bounded preview / the paths   14px                4.98:1     4.99:1   pass, barely
+     the chevron                       11px                4.98:1     3.75:1   FAIL as text
+
+   THE TWO COLUMNS ARE THE FINDING, and they are why raising the token is the fix rather than
+   arguing with the audit. `--ink-faint` on `--ground` in light mode DECLARES 4.98:1 — it
+   clears the floor by 0.48 — and at 11px italic monospace the glyph that reaches the screen
+   measures 4.36:1. Antialiasing over thin, slanted, small strokes never lets the painted
+   pixel reach the declared color, and the thinner the stroke the further short it falls: the
+   same token in the same crop measures 4.99:1 at 14px upright and 4.36:1 at 11px italic.
+   A declared ratio with no headroom is not a passing ratio; it is a ratio that has not been
+   measured where it is read.
+
+   SO THE TECHNICAL VIEW GETS ITS OWN INK, at 0.75 rather than 0.62/0.63:
+
+                        declared on --ground      rendered at 11px italic
+     light  #444851          7.39:1                     6.4:1
+     dark   #aab0bb          8.50:1                     7.4:1
+
+   IT IS STILL ONE DIM LINE. §1.4 G5's intent is that an untyped vendor frame must not read
+   with the weight of a command Rich ran, and it does not: `--ink` is 14.90:1 in this theme
+   and this is 7.39:1, half of it. Recessive was never the same thing as unreadable, and no
+   exemption applies here — a person who has turned the technical view on has turned it on in
+   order to read exactly these labels.
+
+   WHY A NEW TOKEN RATHER THAN MOVING `--ink-faint`. `--ink-faint` is carried by the rail
+   tallies, the popover fine print, the turn digest and a dozen other places that are 14px or
+   larger and upright, measure 4.99:1 rendered, and were calibrated against the rail — its own
+   comment records the CEO naming `.rail-count` at 3.60:1, so that token has been tuned to a
+   different constraint and moving it would re-open a ruled surface to fix an unruled one.
+
+   WHAT IS DELIBERATELY NOT IN THIS BLOCK. `.tl-activity-state` ("done", "failed", "outcome
+   not recorded") keeps `--ink-faint`: it is 16px upright, it measures 4.99:1 RENDERED, and it
+   is shared with the calm view, where nothing was reported. It is named here so that its
+   absence is a decision and not an oversight.
+
+   AND THE SIZE IS A SEPARATE QUESTION THAT THIS DOES NOT ANSWER. These labels are 11px
+   (`0.6875rem`), which is below §15's 14px floor for anything readable — the ruling's own
+   words are "nothing readable sits below 14px", and `appearance.js` check 12 only enumerates
+   the PIXEL declarations, so a `rem` under the floor has never been counted. Raising the ink
+   makes them legible at the size they are; it does not make the size compliant. Escalated
+   rather than taken.
+   ========================================================================================= */
 .tl-tech[data-vendor] .tl-tech-title {
-  color: var(--ink-faint);
+  color: var(--ink-tech);
   font-style: italic;
 }
 
 .tl-tech-chevron {
   flex: 0 0 auto;
-  color: var(--ink-faint);
+  color: var(--ink-tech);
   font-size: 0.6875rem;
 }
 
@@ -4348,7 +4408,9 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-paths {
   padding-left: 20px; /* aligns under the title, past the status glyph */
   font-size: 0.875rem;
-  color: var(--ink-faint);
+  /* 4.99:1 rendered on `--ink-faint` — a pass with 0.01 in hand, which is the same "no
+     headroom" the block above is about. Same token as the labels beside them. */
+  color: var(--ink-tech);
   overflow-wrap: anywhere;
 }
 
