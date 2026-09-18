@@ -29,6 +29,22 @@ fn main() {
     println!("cargo::rerun-if-changed=../ui");
     println!("cargo::rerun-if-env-changed=RICHOS_REQUIRE_REAL_ICONS");
 
+    // THE SOURCE-COMMIT STAMP, so a changed commit actually reaches the next build.
+    //
+    // `option_env!("RICHOS_SOURCE_SHA")` (`engine::source_commit`) is read when THIS crate is
+    // compiled, and cargo does not know that unless it is told — without this line a cached
+    // build would carry the previous commit's stamp and nothing would say so, which is the
+    // exact failure the stamp exists to prevent.
+    //
+    // SCOPED TO THIS CRATE, deliberately, because that is all it can do. The engine pin's three
+    // variables (`setup::engine_pin`) are read in `richos-core`, which has no build.rs, so
+    // naming them here would declare a dependency for a crate this file cannot speak for. That
+    // exposure is real and it is NOT fixed here: `make-release.sh:459` catches it after the
+    // fact, by grepping the digest out of the produced executable and refusing to publish.
+    // Whether richos-core should gain a build.rs of its own is a question about that crate's
+    // deliberate no-build-script shape, not something to answer silently from here.
+    println!("cargo::rerun-if-env-changed=RICHOS_SOURCE_SHA");
+
     check_icons(Path::new("tauri.conf.json"), Path::new("icons"));
     stage_frontend(Path::new("tauri.conf.json"), Path::new("../ui"));
     tauri_build::build();

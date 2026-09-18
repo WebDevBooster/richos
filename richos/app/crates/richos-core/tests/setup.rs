@@ -53,6 +53,29 @@ fn usable_except(rejected: Vec<PathBuf>) -> impl Fn(&Path) -> Result<(), String>
     }
 }
 
+/// Every file beneath `dir`, path and CONTENTS, sorted — so "his data is untouched" can be an
+/// equality over bytes rather than a claim about a directory still existing.
+fn walk_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => stack.push(path),
+                Ok(t) if t.is_file() => {
+                    let bytes = std::fs::read(&path).unwrap_or_default();
+                    out.push((path, bytes));
+                }
+                _ => {}
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn siblings_of(dir: &Path) -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect())
@@ -580,6 +603,433 @@ fn the_lease_refuses_a_directory_this_build_does_not_boot_unless_an_operator_nam
     assert_eq!(engine_boot_refusal(&newer, false, None), None, "this build pins nothing");
     // Not an engine at all is `verify_engine`'s sentence and preflight's, not this gate's.
     assert_eq!(engine_boot_refusal(&empty, false, Some("1.2.0")), None, "not this gate's question");
+}
+
+// ===========================================================================================
+// THE IDENTITY GATE — same version string, different engine (2026-09-18)
+// ===========================================================================================
+//
+// The two digests below are the REAL ones from candidate .8's walk, not invented values, so a
+// reader can tie every assertion here back to the failure it came from:
+//
+//   - `STALE_DIGEST` is the `sha256` line of the `INSTALLED-FROM` in the engine directory the
+//     app actually used, written when `v1.2.0-nightly.20260917.2` was installed;
+//   - `PINNED_DIGEST` is the digest compiled into candidate .8's own binary, recovered with
+//     `strings Contents/MacOS/richos-tauri` and appearing there exactly once — while
+//     `STALE_DIGEST` appears in it zero times.
+//
+// Both directories carry `VERSION` = `1.2.0`, which is why the release gate above passed them.
+
+/// `v1.2.0-nightly.20260917.2` — what was installed.
+const STALE_DIGEST: &str = "b7a882ef4381ca294259c1a01a6af29acc3159dc0b871e8064bd7f410b71da07";
+/// `v1.2.0-nightly.20260918.2` — what candidate .8 pinned.
+const PINNED_DIGEST: &str = "ea7f79043e7dc8f51b5f4207964ec5fa3e15ca11b44e5342a5fb4d38580db194";
+
+/// Write the stamp `install_engine` writes, so the reader under test is fed the writer's own
+/// format rather than a test's idea of it.
+fn stamp_engine(at: &Path, version: &str, sha256: &str, url: &str) {
+    std::fs::write(
+        at.join("INSTALLED-FROM"),
+        format!("engine {version}\nsha256 {sha256}\nbytes 119463136\nfrom {url}\n"),
+    )
+    .unwrap();
+}
+
+fn a_nightly_pin(sha256: &str) -> EnginePin {
+    pin_from_parts("1.2.0", "https://example.invalid/richos-engine-1.2.0.tar.gz", sha256).unwrap()
+}
+
+/// **THE DEFECT, AS A UNIT TEST.** Two engine directories, both `VERSION` = `1.2.0`, one
+/// installed from yesterday's asset. The release gate cannot tell them apart; the identity gate
+/// must.
+#[test]
+fn an_engine_with_the_right_version_and_yesterdays_contents_is_refused() {
+    let root = scratch("identity-stale");
+    let stale = root.join("stale");
+    make_engine(&stale, "1.2.0");
+    stamp_engine(&stale, "1.2.0", STALE_DIGEST, "https://example.invalid/20260917.2.tar.gz");
+
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    // The version-only gate passes it — this is the state that shipped, asserted rather than
+    // described, so a future change that "fixes" it by tightening the version gate is caught.
+    assert_eq!(engine_accepted(&stale, Some("1.2.0")), Ok(()));
+
+    // The identity gate refuses it.
+    assert_eq!(
+        engine_accepted_demand(&stale, EngineDemand::pinned(Some(&pin))),
+        Err(EngineRejected::WrongIdentity {
+            installed: Some(STALE_DIGEST.to_string()),
+            pinned: PINNED_DIGEST.to_string(),
+        })
+    );
+
+    // AND THE SENTENCE SAYS THE LABEL IS RIGHT AND THE CONTENTS ARE NOT. An operator who reads
+    // only "wrong engine" about a directory whose VERSION matches hunts for a version fault
+    // that is not there — which is the whole reason this rejection has its own variant.
+    let reason = EngineRejected::WrongIdentity {
+        installed: Some(STALE_DIGEST.to_string()),
+        pinned: PINNED_DIGEST.to_string(),
+    }
+    .reason();
+    assert!(reason.contains("right version"), "{reason}");
+    assert!(reason.contains("b7a882ef4381"), "{reason}");
+    assert!(reason.contains("ea7f79043e7d"), "{reason}");
+    // The display is twelve characters; the COMPARISON is never truncated.
+    assert!(!reason.contains(STALE_DIGEST), "the full digest is not operator copy: {reason}");
+}
+
+/// Matching contents are KEPT — the positive control, without which the test above would pass
+/// for a gate that refused everything.
+#[test]
+fn an_engine_installed_from_the_pinned_asset_is_kept() {
+    let root = scratch("identity-match");
+    let current = root.join("current");
+    make_engine(&current, "1.2.0");
+    stamp_engine(&current, "1.2.0", PINNED_DIGEST, "https://example.invalid/20260918.2.tar.gz");
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    assert_eq!(engine_accepted_demand(&current, EngineDemand::pinned(Some(&pin))), Ok(()));
+
+    // A digest recorded in upper case is the same digest. Nothing writes one today; a gate that
+    // depended on that is a gate with a silent failure waiting in it.
+    let shouty = root.join("shouty");
+    make_engine(&shouty, "1.2.0");
+    stamp_engine(&shouty, "1.2.0", &PINNED_DIGEST.to_ascii_uppercase(), "https://example.invalid/x");
+    assert_eq!(engine_accepted_demand(&shouty, EngineDemand::pinned(Some(&pin))), Ok(()));
+}
+
+/// **NO MANIFEST MEANS UNKNOWN, AND THE PIN IS WHAT DECIDES WHETHER UNKNOWN IS ACCEPTABLE.**
+///
+/// A build that names an asset boots the directory installed from that asset. A build that names
+/// none demands nothing — which is every `cargo run` and every `cargo test` here, and is why the
+/// dogfood checkout is untouched by all of this.
+#[test]
+fn a_missing_manifest_is_unknown_and_a_pinned_build_refuses_unknown() {
+    let root = scratch("identity-unstamped");
+    let unstamped = root.join("unstamped");
+    make_engine(&unstamped, "1.2.0");
+    assert!(installed_from(&unstamped).is_none(), "the fixture must carry no stamp");
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    // A PINNED build: unknown contents, refused. This is the clause that closes the hole pid
+    // 66030 fell through — `~/.claude/richos-engine` carries no stamp either.
+    assert_eq!(
+        engine_accepted_demand(&unstamped, EngineDemand::pinned(Some(&pin))),
+        Err(EngineRejected::WrongIdentity { installed: None, pinned: PINNED_DIGEST.to_string() })
+    );
+    let reason =
+        EngineRejected::WrongIdentity { installed: None, pinned: PINNED_DIGEST.to_string() }
+            .reason();
+    assert!(reason.contains("no record of what installed it"), "{reason}");
+
+    // AN UNPINNED build: nothing demanded, and the same directory resolves exactly as it always
+    // has. Without this control the rule above would be indistinguishable from one that breaks
+    // every developer run in the repository.
+    assert_eq!(engine_accepted_demand(&unstamped, EngineDemand::pinned(None)), Ok(()));
+    assert_eq!(engine_accepted_demand(&unstamped, EngineDemand::default()), Ok(()));
+    assert_eq!(required_engine_version(), None, "this test binary must carry no pin");
+}
+
+/// The stamp is parsed BY KEY, and a partial one still yields the field that decides.
+#[test]
+fn the_stamp_is_read_by_key_and_a_truncated_one_still_answers() {
+    let root = scratch("identity-parse");
+    let full = root.join("full");
+    make_engine(&full, "1.2.0");
+    stamp_engine(&full, "1.2.0", PINNED_DIGEST, "https://example.invalid/asset.tar.gz");
+    let parsed = installed_from(&full).expect("a stamp that is there");
+    assert_eq!(parsed.version.as_deref(), Some("1.2.0"));
+    assert_eq!(parsed.sha256.as_deref(), Some(PINNED_DIGEST));
+    assert_eq!(parsed.bytes, Some(119_463_136));
+    assert_eq!(parsed.url.as_deref(), Some("https://example.invalid/asset.tar.gz"));
+
+    // Fields in another order, an unknown field added, and the `bytes` line lost to a full disk.
+    // The digest is still found, because nothing here depends on line position.
+    let odd = root.join("odd");
+    make_engine(&odd, "1.2.0");
+    std::fs::write(
+        odd.join("INSTALLED-FROM"),
+        format!("from https://example.invalid/a\nsomething-new yes\nsha256 {PINNED_DIGEST}\nengine 1.2.0\n"),
+    )
+    .unwrap();
+    let odd_parsed = installed_from(&odd).unwrap();
+    assert_eq!(odd_parsed.sha256.as_deref(), Some(PINNED_DIGEST));
+    assert_eq!(odd_parsed.bytes, None);
+    assert_eq!(engine_accepted_demand(&odd, EngineDemand::pinned(Some(&a_nightly_pin(PINNED_DIGEST)))), Ok(()));
+
+    // A stamp with no readable digest is a stamp that answers nothing, and must be treated as
+    // unknown rather than as a match.
+    let gutted = root.join("gutted");
+    make_engine(&gutted, "1.2.0");
+    std::fs::write(gutted.join("INSTALLED-FROM"), "engine 1.2.0\nsha256 \n").unwrap();
+    assert_eq!(installed_from(&gutted).unwrap().sha256, None);
+    assert_eq!(
+        engine_accepted_demand(&gutted, EngineDemand::pinned(Some(&a_nightly_pin(PINNED_DIGEST)))),
+        Err(EngineRejected::WrongIdentity { installed: None, pinned: PINNED_DIGEST.to_string() })
+    );
+}
+
+/// **THE LAST GATE, ASKED ABOUT CONTENTS.** Resolution refusing a stale directory is not the
+/// same as nothing running in it — `main.rs::resolve_engine` hands the lease factory the last
+/// place it looked. This is the line that would have stopped candidate .8 booting yesterday's
+/// engine, as opposed to merely mentioning it.
+#[test]
+fn the_lease_refuses_an_engine_whose_contents_are_not_the_pinned_ones() {
+    let root = scratch("identity-lease");
+    let stale = root.join("stale");
+    let current = root.join("current");
+    make_engine(&stale, "1.2.0");
+    make_engine(&current, "1.2.0");
+    stamp_engine(&stale, "1.2.0", STALE_DIGEST, "https://example.invalid/20260917.2.tar.gz");
+    stamp_engine(&current, "1.2.0", PINNED_DIGEST, "https://example.invalid/20260918.2.tar.gz");
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    let refusal = engine_boot_refusal_demand(&stale, false, EngineDemand::pinned(Some(&pin)))
+        .expect("a lease started in yesterday's engine");
+    assert!(refusal.contains(&stale.display().to_string()), "{refusal}");
+    assert!(refusal.contains("b7a882ef4381") && refusal.contains("ea7f79043e7d"), "{refusal}");
+
+    // POSITIVE CONTROLS — the states that must NOT be refused, each for its own stated reason:
+    assert_eq!(
+        engine_boot_refusal_demand(&current, false, EngineDemand::pinned(Some(&pin))),
+        None,
+        "the engine this build pins"
+    );
+    assert_eq!(
+        engine_boot_refusal_demand(&stale, true, EngineDemand::pinned(Some(&pin))),
+        None,
+        "an operator named it, and a statement outranks the pin"
+    );
+    assert_eq!(
+        engine_boot_refusal_demand(&stale, false, EngineDemand::pinned(None)),
+        None,
+        "this build pins nothing, so it demands nothing"
+    );
+    // And the old signature keeps its old, narrower meaning: version only.
+    assert_eq!(
+        engine_boot_refusal(&stale, false, Some("1.2.0")),
+        None,
+        "the release-only gate is unchanged, which is why the demand-aware one exists"
+    );
+}
+
+/// **DETECTION picks the pinned engine over a stale one and names the reason it passed the stale
+/// one over** — the walk, not just the predicate.
+#[test]
+fn detection_walks_past_a_stale_managed_engine_and_says_why() {
+    let root = scratch("identity-detect");
+    let home = root.join("home");
+    let managed = engine_install_dir(&home);
+    make_engine(&managed, "1.2.0");
+    stamp_engine(&managed, "1.2.0", STALE_DIGEST, "https://example.invalid/20260917.2.tar.gz");
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
+    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    assert!(!status.engine.present, "a stale-by-content engine was accepted: {status:?}");
+    let places = status.engine.looked_in.join(" | ");
+    assert!(places.contains(&managed.display().to_string()), "{places}");
+    assert!(places.contains("right version"), "{places}");
+    assert!(places.contains("b7a882ef4381"), "{places}");
+    // The offer to fix it is the same one a MISSING engine produces — which is how the refresh
+    // reaches the CEO without a second surface being invented for it.
+    assert!(status.engine_installable, "nothing offered to replace it: {status:?}");
+    assert_eq!(status.engine_pin_version.as_deref(), Some("1.2.0"));
+
+    // POSITIVE CONTROL: the same walk, the same fixture, the pinned contents — found.
+    stamp_engine(&managed, "1.2.0", PINNED_DIGEST, "https://example.invalid/20260918.2.tar.gz");
+    let good = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    assert!(good.engine.present, "{good:?}");
+    assert_eq!(good.engine.at.as_deref(), Some(managed.display().to_string().as_str()));
+}
+
+/// **A SHIPPED BUILD DOES NOT SILENTLY BOOT THE DEVELOPER'S ENGINE** — Ray's second finding on
+/// candidate .8, as a test.
+///
+/// With the managed directory absent, pid 66030 resolved `/Users/alex/.claude/richos-engine`: the
+/// engine pointer on the machine that BUILT the candidate, outside the walk's HOME entirely, with
+/// a matching `VERSION` and no record of where its contents came from. Signed, notarized, and
+/// running a working tree.
+///
+/// The pointer is candidate 6 and it is probed BEFORE the directory RichOS installs, so leniency
+/// here is not a corner case — it is the answer a shipped build reaches first on any machine that
+/// has the engine checked out.
+#[test]
+fn a_pinned_build_refuses_the_unstamped_developer_pointer_and_names_it() {
+    let root = scratch("identity-devpointer");
+    let home = root.join("home");
+    let config = root.join("developer-dot-claude");
+    let pointer = config.join("richos-engine");
+    make_engine(&pointer, "1.2.0");
+    assert!(installed_from(&pointer).is_none(), "the developer's pointer carries no stamp");
+    let pin = a_nightly_pin(PINNED_DIGEST);
+
+    let paths = SetupPaths {
+        home: Some(home),
+        config_dir: Some(config),
+        ..Default::default()
+    };
+    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    assert!(!status.engine.present, "a shipped build took the developer's engine: {status:?}");
+    let places = status.engine.looked_in.join(" | ");
+    assert!(places.contains(&pointer.display().to_string()), "{places}");
+    assert!(places.contains("no record of what installed it"), "{places}");
+    // It is refused, and it is refused LOUDLY: the place and the reason are both in the report
+    // the boot line prints, rather than a silent fall-through to the next candidate.
+    assert!(places.contains("ea7f79043e7d"), "{places}");
+
+    // POSITIVE CONTROL — THE DOGFOOD GUARANTEE. The same pointer, the same walk, a build with no
+    // pin: found. Every `cargo run` in this repository is this case, and if this assertion ever
+    // fails the fix above has broken development rather than secured it.
+    let unpinned = detect_with_pin(&paths, &[], &every_engine_is_usable, None);
+    assert!(unpinned.engine.present, "an unpinned build refused a checkout: {unpinned:?}");
+    assert_eq!(unpinned.engine.at.as_deref(), Some(pointer.display().to_string().as_str()));
+
+    // AND THE ESCAPE HATCH STILL WORKS. A developer who wants a pinned build to run against a
+    // working tree names it, once, deliberately — the same statement the release gate honors.
+    let named = SetupPaths {
+        engine_override: Some(pointer.clone()),
+        ..Default::default()
+    };
+    let honored = detect_with_pin(&named, &[], &every_engine_is_usable, Some(&pin));
+    assert!(honored.engine.present, "$RICHOS_ENGINE_DIR was overruled: {honored:?}");
+}
+
+/// **THE GATE, RUN OVER A REAL INSTALLED ENGINE ON THIS MACHINE.**
+///
+/// Everything above builds its own fixtures, which proves the RULE and cannot prove that
+/// `installed_from` parses the file `install_engine` actually wrote onto a real Mac. Point this at
+/// an engine directory and it reports the verdict against a digest you supply:
+///
+/// ```bash
+/// RICHOS_ENGINE_DIR_FIXTURE="$HOME/Library/Application Support/RichOS/engine" \
+/// RICHOS_ENGINE_PIN_FIXTURE=ea7f79043e7dc8f51b5f4207964ec5fa3e15ca11b44e5342a5fb4d38580db194 \
+///   cargo test -p richos-core --test setup a_real_installed_engine -- --nocapture
+/// ```
+///
+/// It is env-var-gated and skips with a printed reason when unset, the same shape
+/// `richos-voice` uses for the CEO's private echo-path recording: evidence that depends on
+/// something not in the repository must be reproducible AND must not fail a clean checkout.
+///
+/// **It only ever READS.** No install, no swap, no write of any kind — so it is safe to aim at a
+/// real installation, which is the only reason aiming it there is worth doing.
+#[test]
+fn a_real_installed_engine_is_judged_against_a_supplied_pin() {
+    let (Some(dir), Some(sha)) = (
+        std::env::var_os("RICHOS_ENGINE_DIR_FIXTURE").map(PathBuf::from),
+        std::env::var("RICHOS_ENGINE_PIN_FIXTURE").ok(),
+    ) else {
+        println!(
+            "SKIPPED: set RICHOS_ENGINE_DIR_FIXTURE and RICHOS_ENGINE_PIN_FIXTURE to judge a real \
+             engine directory on this machine. Nothing is assumed in their absence."
+        );
+        return;
+    };
+
+    println!("directory : {}", dir.display());
+    println!("shape     : {}", if engine_looks_valid(&dir) { "engine" } else { "NOT an engine" });
+    println!("VERSION   : {:?}", engine_version(&dir));
+    match installed_from(&dir) {
+        None => println!("INSTALLED-FROM: absent — contents unknown"),
+        Some(s) => {
+            println!("INSTALLED-FROM: {:?}", s.sha256);
+            println!("  bytes  : {:?}", s.bytes);
+            println!("  from   : {:?}", s.url);
+        }
+    }
+
+    let version = engine_version(&dir).unwrap_or_default();
+    let pin = pin_from_parts(&version, "https://example.invalid/asset.tar.gz", &sha)
+        .expect("RICHOS_ENGINE_PIN_FIXTURE must be 64 lowercase hex characters");
+
+    // THE OLD RULE — version equality alone. Printed, not asserted, because what it answers here
+    // depends on the machine this runs on; it is the "before" half of the comparison.
+    println!(
+        "version-only gate : {:?}",
+        engine_accepted(&dir, Some(version.as_str())).map_err(|e| e.reason())
+    );
+    // THE RULE AS IT SHIPS NOW.
+    println!(
+        "identity gate     : {:?}",
+        engine_accepted_demand(&dir, EngineDemand::pinned(Some(&pin))).map_err(|e| e.reason())
+    );
+
+    // The one thing that IS asserted, because it is true of any real installation whatever digest
+    // it carries: a directory whose recorded digest equals the pin is accepted, and one whose
+    // recorded digest differs is refused. No claim is made here about which of those this machine
+    // happens to be in.
+    let recorded = installed_from(&dir).and_then(|s| s.sha256);
+    let verdict = engine_accepted_demand(&dir, EngineDemand::pinned(Some(&pin)));
+    match recorded {
+        Some(r) if r.eq_ignore_ascii_case(&sha) => {
+            assert_eq!(verdict, Ok(()), "a matching digest was refused")
+        }
+        _ if engine_looks_valid(&dir) => {
+            assert!(verdict.is_err(), "a non-matching or absent digest was accepted")
+        }
+        _ => println!("(not engine-shaped, so the identity half is not this gate's question)"),
+    }
+}
+
+/// **THE CEO'S OWN DATA IS NOT THE ENGINE, AND NOTHING HERE TOUCHES IT.** `install_engine`
+/// replaces `Application Support/RichOS/engine`; his conversation, ledger and corpus live in
+/// `Application Support/com.richos.app`, a sibling. This is the positive control the brief asks
+/// for: a full refresh runs, and every byte of his directory is still there afterwards.
+#[test]
+fn a_refresh_replaces_the_engine_and_leaves_the_ceos_data_untouched() {
+    let root = scratch("identity-refresh");
+    let home = root.join("home");
+    let managed = engine_install_dir(&home);
+
+    // His data, beside the engine, with contents worth checking byte for byte.
+    let his = app_support_richos(&home).with_file_name("com.richos.app");
+    std::fs::create_dir_all(his.join("engine-state")).unwrap();
+    std::fs::write(his.join("ledger.jsonl"), "his turns, and nothing may rewrite them\n").unwrap();
+    std::fs::write(his.join("engine-state/assignments.jsonl"), "his background work\n").unwrap();
+    let before: Vec<(PathBuf, Vec<u8>)> = walk_files(&his);
+    assert_eq!(before.len(), 2, "the fixture must have two files: {before:?}");
+
+    // Yesterday's engine, installed and stamped as yesterday's.
+    //
+    // The RELEASE here is `1.0.0` rather than `1.2.0` for one mechanical reason worth naming:
+    // `install_engine` runs the full `runtime::verify_engine` inventory when the pinned version
+    // is exactly `1.2.0`, and that wants a real 322 MB delivered runtime no unit test can build.
+    // The identity rule under test has nothing to do with which release string is used.
+    make_engine(&managed, "1.0.0");
+    std::fs::write(managed.join("marker"), "from the 17th").unwrap();
+    stamp_engine(&managed, "1.0.0", STALE_DIGEST, "https://example.invalid/20260917.2.tar.gz");
+    let stale_pin = pin_from_parts("1.0.0", ASSET_URL, STALE_DIGEST).unwrap();
+    assert_eq!(engine_accepted(&managed, Some("1.0.0")), Ok(()), "the version gate passes it");
+
+    // Today's asset, fetched and installed the way the product installs it.
+    let body = b"today's asset, and its digest is what identifies it";
+    let digest = body_and_digest(&root, body);
+    assert_ne!(digest, STALE_DIGEST, "the fixture must actually be a different asset");
+    let pin = a_pin(&digest);
+    let report =
+        install_engine(&FakeFetcher::new(body), &good_engine_plan("1.0.0"), &pin, &managed)
+            .expect("the refresh");
+
+    // The engine is today's, and it SAYS it is today's — the stamp the next boot reads. This is
+    // the round trip that matters: the digest the installer WRITES is the digest the gate READS,
+    // so the writer and the reader cannot drift into disagreeing.
+    assert_eq!(installed_from(&managed).and_then(|s| s.sha256).as_deref(), Some(pin.sha256.as_str()));
+    assert_eq!(engine_accepted_demand(&managed, EngineDemand::pinned(Some(&pin))), Ok(()));
+    assert!(!managed.join("marker").is_file(), "yesterday's engine survived the refresh");
+    assert!(report.previous_at.is_some(), "the predecessor was not preserved");
+    // And the refreshed directory is no longer the one the STALE pin describes — the refusal that
+    // sent it here would not fire twice.
+    assert_eq!(
+        engine_accepted_demand(&managed, EngineDemand::pinned(Some(&stale_pin))),
+        Err(EngineRejected::WrongIdentity {
+            installed: Some(digest.clone()),
+            pinned: STALE_DIGEST.to_string(),
+        })
+    );
+
+    // AND HIS DATA IS BYTE-FOR-BYTE WHAT IT WAS.
+    assert_eq!(walk_files(&his), before, "the refresh touched the CEO's own data");
 }
 
 // ===========================================================================================
