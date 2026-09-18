@@ -34,8 +34,58 @@ SRC_ENGINE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t root-mutation.XXXXXX)" && pwd -P)"
-trap 'rm -rf "$SANDBOX"' EXIT
+
+# ===========================================================================
+# THIS FILE MADE THE 105 GB. WHAT CHANGED, AND WHY EACH PART CHANGED.
+# ===========================================================================
+# 2026-09-17 22:39. This harness was run as a dry check and killed at exit 144.
+# By morning its sandbox held 105.3 GB — mutant-1 13.0, mutant-2 26.2,
+# mutant-3 52.8, mutant-4 13.2 — $TMPDIR held 114.5 GB across 88,829 entries,
+# and the Data volume was down to 49 GB free from about 170 the morning before.
+# A person deleted it by hand.
+#
+# THREE INDEPENDENT THINGS HAD TO BE TRUE FOR THAT, and all three are fixed
+# here, because fixing one would have left the other two loaded:
+#
+#   1. THE SANDBOX WAS NAMED, NOT ALLOCATED. `mktemp -d -t root-mutation.XXXXXX`
+#      put it where only a declared glob could find it, and the reaper's glob
+#      list did not contain `root-mutation.*`. The reaper ran at 21:40 and 03:40
+#      either side of this and freed 156 KB; "root-mutation" appears nowhere in
+#      its log, ever. Now allocated through scripts/lib/scratch.sh: one root,
+#      one ledger, the owning pid recorded, found by the sweeper whatever it is
+#      called.
+#
+#   2. THE COPY WAS THE WHOLE ENGINE ROOT. `cp -R "$SRC_ENGINE" "$M"` took
+#      everything, including whatever else happened to be sitting in it. The
+#      13.0 -> 26.2 -> 52.8 doubling is the arithmetic signature of each mutant
+#      copying its predecessors, which means the copy source contained the
+#      sandbox. Now mutation_copy_engine() from the shared library, which takes
+#      the MECHANICAL LAYER ONLY and refuses a copy whose destination is inside
+#      its source or whose source is itself scratch.
+#
+#   3. CLEANUP WAS A TRAP. `trap 'rm -rf "$SANDBOX"' EXIT` is a promise
+#      conditional on exiting, and exit 144 is not exiting. The trap is KEPT
+#      because it returns the space sooner on the happy path — but it is now an
+#      optimization behind a mechanism that does not need it, rather than the
+#      only thing standing between a killed run and a full disk.
+#
+# THE EXACT PATH ARITHMETIC IS NOT REPRODUCED and that is said plainly. The
+# deletion log showed a $TMPDIR-shaped path nested inside mutant-3, so something
+# built a destination out of an absolute $TMPDIR; nothing in the tree does that
+# today. The refusals in mutation-harness.sh therefore check the INVARIANT from
+# the destination's side — is the destination inside the source, is the source
+# scratch, has the root already blown its ceiling — rather than the one
+# concatenation somebody guessed at.
+
+# shellcheck source=../lib/mutation-harness.sh
+. "$SRC_ENGINE/scripts/lib/mutation-harness.sh"
+# shellcheck source=../lib/scratch.sh
+. "$SRC_ENGINE/scripts/lib/scratch.sh"
+
+SANDBOX="$(scratch_new root-mutation)" || {
+    echo "FATAL: could not allocate a sandbox" >&2; exit 2; }
+# KEPT, AND NO LONGER LOAD-BEARING. See point 3 above.
+trap 'scratch_release "$SANDBOX"' EXIT
 
 ok()  { printf '  PROVEN     %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  NOT PROVEN %s\n' "$1"; FAIL=$((FAIL + 1)); }
@@ -52,7 +102,16 @@ mutate() {
     local label="$1" suite="$2" expect="$3" fn="$4"
     N=$((N + 1))
     local M="$SANDBOX/mutant-$N"
-    cp -R "$SRC_ENGINE" "$M"
+    # THE MECHANICAL LAYER, NOT THE WHOLE ROOT, and it carries the two refusals.
+    # `cp -R "$SRC_ENGINE" "$M"` is what this line used to be; see point 2 in the
+    # header. A refusal here is a FAILURE and never a skip: a harness that
+    # quietly did not build a mutant would report PROVEN for a property nothing
+    # tested.
+    mkdir -p "$M"
+    if ! mutation_copy_engine "$M" "$SRC_ENGINE"; then
+        bad "$label — THE SANDBOX COULD NOT BE BUILT (see the refusal above)"
+        return
+    fi
 
     if ! "$fn" "$M"; then
         bad "$label — THE MUTATION DID NOT APPLY (the anchor it edits has moved; this harness is no longer testing what it claims)"
