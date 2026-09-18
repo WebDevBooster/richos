@@ -133,6 +133,12 @@
     preparing: "Written down. Rich hasn't started looking yet.",
     running: "Rich is looking into this.",
     blocked: "Waiting for your decision before Rich can go on.",
+    // The same stop with nothing left on the desk: the queue lives in the running process, so
+    // a question that stopped at his decision before a relaunch has nothing to press. **This
+    // line was dropped by the §56 rebase and the affordance gate is what found it** — without
+    // it the state falls through to "Its state could not be read.", which is the honest
+    // sentence for a record this build cannot parse and a false one for a record it can.
+    blockedNoRequest: "Waiting for your decision. Ask Rich to continue when you are ready.",
     // **§56's state, in a question's words.** Without this row a question waiting on the
     // screen falls through to "Its state could not be read." — the same gap §56's own slice
     // closed for work, arriving one commit later for questions.

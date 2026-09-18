@@ -3744,6 +3744,16 @@ module.exports = [
     "control": "#input",
   },
   {
+    "s": "Waiting for the screen to unlock — Rich will carry on the moment it's back.",
+    "c": "INFORMATIONAL",
+    "why":
+      "§56's state in a question's words, and it arrived because the §58 slice rebased onto " +
+      "§56's: without a row here a question waiting on the screen falls through to 'Its state " +
+      "could not be read.' It names no control for the same reason the work version does not — " +
+      "it is waiting on the Mac, it resolves itself, and the app never tells him to go and " +
+      "unlock anything.",
+  },
+  {
     "s": "Answered — it's in your conversation.",
     "c": "INFORMATIONAL",
     "why":
