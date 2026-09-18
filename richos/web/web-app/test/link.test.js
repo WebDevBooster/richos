@@ -228,6 +228,24 @@ test('the backoff resets on `open` and not only on `hello`, because this Mac rep
 	assert.deepStrictEqual(p.frames.filter((f) => f[0] === 'hello'), [], 'this test is not testing what it says it is');
 });
 
+test('a heartbeat is proof the Mac accepted this credential, even with no `open` and no `hello`', async () => {
+	// `app.js` already read a heartbeat this way before any of this landed, and it was right to:
+	// a frame only arrives down a stream the Mac verified. It is the case that matters after the
+	// quiet reconnect above, where the first thing that ever arrives is a heartbeat.
+	const p = makePhone();
+	p.link.connect();
+	await settle();
+	p.Stub.made[0].fail();
+	await settle();
+	await p.clock.advance(1000);
+	assert.strictEqual(p.link.isOpen(), false);
+
+	p.Stub.made[1].deliver('heartbeat', {});
+	assert.strictEqual(p.link.isOpen(), true, 'a live stream was still counted as away');
+	assert.strictEqual(p.link.nextDelayMs(), FIRST_RETRY_MS);
+	assert.deepStrictEqual(p.states, ['opening', 'away', 'opening', 'open']);
+});
+
 test('coming back on screen during a pending retry produces ONE open, not two', async () => {
 	const p = makePhone();
 	p.link.connect();

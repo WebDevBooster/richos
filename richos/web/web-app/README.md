@@ -32,6 +32,7 @@ its test. Anywhere the plan was silent and the phone had to choose, the stub say
 | `index.html`, `styles.css`, `app.js` | the screen and its wiring |
 | `sw.js` | keeps the shell so the app OPENS where his Mac does not resolve; shows Rich's reply when the app is closed and writes it into storage on the way past; never caches anything under `/api/` |
 | `lib/api.js` | the four routes, the API base seam, the signed challenge, and the failure classification the queue depends on |
+| `lib/link.js` | the ONE owner of the event stream: closes it rather than letting the browser reopen a URL whose signature has died, re-signs every attempt over a freshly fetched challenge, backs off 1 s → 30 s, and never lets a second source exist |
 | `lib/queue.js` | the on-phone send queue — durable before `enqueue` resolves, strictly in order, safe to retry, never retried after a final answer |
 | `lib/thread.js` | the thread as a VIEW of the ledger on his Mac; the Mac's cursor is the only order |
 | `lib/pcm.js`, `lib/recorder-worklet.js` | the recorder: `AudioWorklet` → 16 kHz mono WAV, no codec anywhere |

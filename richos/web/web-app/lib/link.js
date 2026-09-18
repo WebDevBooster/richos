@@ -118,6 +118,10 @@
 		function wire(mine) {
 			const forward = (name) => (data) => {
 				if (mine !== generation || stopped) return;
+				// ANY frame is proof the Mac accepted this credential — `app.js` already treated a
+				// heartbeat that way, and it was right to. It matters most for the quiet reconnect
+				// described below, where the first thing that ever arrives is a heartbeat.
+				accepted();
 				if (handlers[name]) handlers[name](data);
 			};
 			// WHAT COUNTS AS THE MAC HAVING ACCEPTED THIS RE-SIGNED URL — and it is NOT `hello`
@@ -136,6 +140,7 @@
 			// refuses an unverified stream with `Outcome::NotFound` (`routes.rs:406-411`) long
 			// before any stream body exists. A stream that opened is a signature the Mac accepted.
 			function accepted() {
+				if (live) return;
 				live = true;
 				delay = firstRetryMs;
 				onState('open');

@@ -39,6 +39,7 @@ const SHELL = [
 	'/lib/queue.js',
 	'/lib/thread.js',
 	'/lib/api.js',
+	'/lib/link.js',
 	'/lib/storage.js',
 	'/manifest.webmanifest',
 	'/icons/apple-touch-icon.png',
