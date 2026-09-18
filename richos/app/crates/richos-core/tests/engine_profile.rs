@@ -27,6 +27,16 @@ fn app_profile_creates_neutral_coordination_and_one_hook_per_event() {
     let hooks = manifest["hooks"].as_object().unwrap();
     assert_eq!(hooks.len(), 9);
     assert!(hooks.values().all(|groups| groups.as_array().unwrap().len() == 1 && groups[0]["hooks"].as_array().unwrap().len() == 1));
+    // **NO `matcher`, SO `PreToolUse` COVERS EVERY TOOL.** Asserted rather than left to be
+    // inferred: two escalations and one brief on 2026-09-18 were built on the belief that
+    // this registration gated only the two continuity tools, and deferring the app's action
+    // grant on that basis would have made the register itself impossible (CEO §55). If a
+    // matcher is ever added here, the reach of `RICHOS_APP_SCOPE` changes and this must be
+    // the thing that says so.
+    for (event, groups) in hooks {
+        assert!(groups[0].get("matcher").is_none(),
+            "{event} was registered with a matcher; the app hook's reach is no longer every tool");
+    }
     for role in ["worker", "reviewer"] {
         assert_eq!(std::fs::read(profile.plugin.join(format!("agents/{role}.md"))).unwrap(),
             std::fs::read(engine().join(format!("agents/{role}.md"))).unwrap());

@@ -191,6 +191,25 @@ impl EngineProfile {
         write(&plugin.join("gitconfig"), "[user]\n\tname = RichOS\n\temail = richos@localhost\n")?;
         let command = format!("{} {}", quote(&runtime.python), quote(&engine.join("scripts/app-engine-hook.py")));
         let mut hooks = serde_json::Map::new();
+        // **NO `matcher` KEY, ON ANY OF THE NINE EVENTS — SO THE `PreToolUse` REGISTRATION
+        // COVERS EVERY TOOL, NOT A CHOSEN FEW.**
+        //
+        // Stated here because two escalations and one brief were built on the opposite
+        // belief. `scripts/app-engine-hook.py`'s `PreToolUse` branch reads `RICHOS_APP_SCOPE`
+        // and raises *"This app turn is stopped or is supplying context. New actions are
+        // unavailable."* whenever that file's `actions_allowed` is not true — for EVERY tool
+        // the lease calls, because of this loop. It was read as gating only the two
+        // continuity tools, and deferring the grant on that basis would have made the
+        // register itself impossible, which is the opposite of the CEO's §55.
+        //
+        // This is the app's OWN turn lifecycle and it is right that it is broad: `prompt`
+        // shuts it at the start of a turn, the reader opens it at his first words, and an app
+        // turn that is stopped or is only supplying context genuinely may take no action of
+        // any kind. Nothing in it reads a development session — it is not the guard-audience
+        // defect wearing another costume (see
+        // docs/verification/guard-audience-2026-09-18.md, "Is RICHOS_APP_SCOPE the same
+        // root?"). What was wrong was that its reach was written down nowhere, so every
+        // reader had to infer it and one inferred it narrow.
         for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop"] {
             hooks.insert(event.into(), json!([{"hooks":[{"type":"command","command":command,"timeout":25}]}]));
         }
