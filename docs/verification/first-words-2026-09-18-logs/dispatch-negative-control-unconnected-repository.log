@@ -1,0 +1,17 @@
+$ # NEGATIVE CONTROL. `does_it_dispatch`'s green arm asserts that `prepare` reaches its
+$ # DISPATCH step, not merely that it failed somewhere else. With `repo_argument` pointed at
+$ # an unconnected path (a one-line edit, reverted), both green rows go red. Captured so the
+$ # check is provably able to fail without anyone re-doing the edit.
+---
+prepare against the REGISTER's own obligation work-78ac766ede6c4e51962efd18bd74656d
+    the store says its status is : Open
+    prepare refused : ValueError: connect this exact repository to the active company before dispatch
+prepare against the REGISTER's own obligation work-199e71cf76ef46548d1f88ad7c1d276d
+    the store says its status is : Open
+    prepare refused : ValueError: connect this exact repository to the active company before dispatch
+prepare against the OLD SHAPE's never-opened obligation land-pricing-branch-staging-deploy
+    the store says its status is : Absent
+    prepare refused : ScopeError: item is absent or outside the active scope
+FAIL: `prepare` stopped before the dispatch step on the register's own obligation work-78ac766ede6c4e51962efd18bd74656d, so nothing here shows the assignment is dispatchable: ValueError: connect this exact repository to the active company before dispatch
+FAIL: `prepare` stopped before the dispatch step on the register's own obligation work-199e71cf76ef46548d1f88ad7c1d276d, so nothing here shows the assignment is dispatchable: ValueError: connect this exact repository to the active company before dispatch
+Error: "2 dispatch check(s) failed"
