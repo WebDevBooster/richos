@@ -36,11 +36,13 @@
 //! could reach anything else — plan §4.2 (iii), and the reason it is a structural property
 //! rather than a rule to remember.
 
+pub mod api_base;
 pub mod ca;
 pub mod device;
 pub mod names;
 pub mod push;
 pub mod secrets;
+pub mod stream;
 
 use std::fmt;
 
