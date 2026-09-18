@@ -234,9 +234,10 @@ the lifecycle it always had. The escalation this slice was dispatched from held 
 ## Garbage (CEO §54)
 
 **Zero `richos-*` directories in `$TMPDIR` were left by this session's runs.** Counted against a
-listing taken before the first run: 761 entries appeared, 761 are gone, and the single `richos-*`
-entry standing that was not in the baseline belongs to another agent's live run
-(`richos-front-door-ivT8Uq`) and was left alone.
+listing taken before the first run: **1,315** entries appeared across every test run, every probe
+run and the two real-provider runs, and **1,315 are gone**. The one `richos-*` entry standing that
+is not in the baseline belongs to another agent's live run (`richos-front-door-ivT8Uq`) and was
+left alone.
 
 **The probe itself never leaked** — its `Scratch` drop guard removed every `richos first reply *`
 fixture, including on the run that failed.
@@ -257,8 +258,11 @@ through one `richos-core-test-fixtures-<pid>` directory, and a `libc::atexit` ha
 by `fixture_root()` removes it. The counts above are consistent with that and do not by
 themselves prove which line did it. **Its honest limit:** `atexit` does not run if the test binary
 is killed, so a killed run leaves ONE directory instead of ~130. The remaining 91 per run belong
-to other modules (`richos-worker-status-test-*`, `richos-staging-*`, `richos-provision-*`) and are
-named here rather than fixed here — they are a sweep of their own.
+to other modules and to the integration-test binaries, and are named here rather than fixed here
+— they are a sweep of their own. The largest are `richos-setup-*`, `richos-fwdcompat-*`,
+`richos-provision-*`, `richos-staging-*`, `richos-worker-status-test-*`,
+`tests/request_preparation_tests.rs:37` (`richos-preparation-*`) and
+`tests/native_cancel_tests.rs:179` (`richos-native-terminal-*`).
 
 **The standing 7,915 was left alone, and the scope of the removal is what says so:** the cleanup
 loop iterated over exactly the set difference between the baseline listing and the listing after
