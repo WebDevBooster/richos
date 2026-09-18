@@ -1046,7 +1046,14 @@ impl WorkHost {
                     let why = self.what_happened(record);
                     advance(AssignmentState::Failed, &why);
                     self.forget_at_the_desk(record);
-                    self.raise(record, NoticeKind::Failed, &tell(&record.title, &why));
+                    // **A QUESTION HEARS NOTHING ABOUT LANDS.** `what_happened` reads the
+                    // WORK receipts, and for a question there are none — so it would say "No
+                    // work was started, so nothing was landed", which is literally true and a
+                    // non-sequitur about something he never asked for (§58). `could_not_answer`
+                    // has its own sentence for a reason it cannot name, and that is the honest
+                    // one here. The row's own `detail` above is unchanged: it is not spoken.
+                    let spoken = if record.kind.is_question() { "" } else { why.as_str() };
+                    self.raise(record, NoticeKind::Failed, &tell(&record.title, spoken));
                 }
             },
         }
