@@ -1,0 +1,70 @@
+spawn.sh
+  repository resolution
+  PASS  a bare repository name resolves (the old helper answered "'richos' is not a directory")
+  PASS  an unknown bare name is refused WITH the candidates
+  PASS  an ambiguous bare name is refused and both candidates are named
+  PASS  an absolute path resolves
+  the shared teammate-name shape (scripts/lib/teammate-name.sh, 2026-09-17)
+  PASS  an over-length identifier (14 chars) is refused BEFORE creation, in the guard table, in the creator's exact wording
+  PASS  and nothing was created for it
+  PASS  POSITIVE CONTROL: a name within the shared shape (12-char identifier) still passes
+  the branch this work integrates on (point 14)
+  PASS  an ABSENT record is RECORDED, not refused with a second command to run
+  PASS  and the recording SAYS SO, with the one line that would change it
+  PASS  the recording names a body of work (widgets-001)
+  PASS  NEGATIVE CONTROL: with the stale record every consumer abstains
+  PASS  a STALE record is CORRECTED in place
+  PASS  the correction KEEPS the body of work's id (widgets-001), so agents bound to it move with it
+  PASS  where the answer is a human's, it says WHICH decision and stops (it never guesses one)
+  PASS  --integration answers it and the run proceeds
+  every guard, from every surface, all failures together
+  PASS  a MATCHERLESS PreToolUse group is collected (it matches every tool, Agent included)
+  PASS  the repository's OWN settings.local.json is collected (femcboost's surface)
+  PASS  a group matched to another tool is NOT collected
+  PASS  TWO guards refusing are BOTH named in ONE run (never one refusal per attempt)
+  create, and leave nothing behind on failure
+  PASS  a refusal BEFORE creation leaves no workspace, no branch and no registration
+  PASS  a clean run creates the workspace and exits 0
+  PASS  the workspace exists EXACTLY once
+  PASS  the printed payload carries isolation, the registered workspace and the ack contract
+  PASS  a REUSED name is refused before anything is created
+  PASS  and the refusal did not touch the workspace that already owned the name
+  PASS  FAULT INJECTION: a refusal AFTER creation rolls the workspace back and says so
+  PASS  the rollback leaves no workspace, no branch and no registration
+  PASS  and the name is FREE again, so the retry is the same command
+  several repositories, ONE teammate (point 10)
+  PASS  two --repo produce TWO cross-repo-worktree: lines in one payload, under the one name
+  PASS  and EVERY guard passes that payload — clause 4c reads every marker line, and always has
+  PASS  a clean run CREATES both workspaces, each on cc/<name> in its own repository
+  PASS  and BOTH are registered on the ONE agent's record, so they go together at the land
+  PASS  NEGATIVE: the SAME repository twice under one name is refused (one workspace per repository)
+  PASS  NEGATIVE: an UNSCOPED --dir with several repositories is refused, naming the form that answers it
+  PASS  POSITIVE CONTROL: the SCOPED form --dir <repo>=<path> is honored, and the other repository keeps its default
+  PASS  FAULT INJECTION: a refusal after creation rolls back BOTH workspaces and both branches — nothing is left behind in either repository
+  the dry evaluation is the same code with the write removed
+  PASS  check-spawn evaluates a payload the platform has not minted a tool_use_id for
+  PASS  NEGATIVE CONTROL: register-spawn still refuses it — that was the pre-flight's false positive
+  PASS  check-spawn wrote NOTHING: no record, no binding, no event
+  PASS  a payload WITH a tool_use_id is refused by check-spawn: the marker cannot dry-run a live call
+  --audience app: the RichOS app's own dispatch
+  PASS  operator audience: a refusing guard refuses the dispatch (the control for the next case)
+  PASS  app audience: an operator-session guard's refusal does NOT refuse the app
+  PASS  app audience: the operator-session guard is not run at all, not run-and-ignored
+  PASS  app audience: what was left out is NAMED, never dropped quietly
+  PASS  app audience: a user-work guard's refusal reaches the caller in the app's own words
+  PASS  the five absent-string cases below can go red: the operator report contains all five
+  PASS  app audience: the refusal carries no operator text (isolation)
+  PASS  app audience: the refusal carries no operator text (REFUSES this spawn)
+  PASS  app audience: the refusal carries no operator text (guards evaluated)
+  PASS  app audience: the refusal carries no operator text (NOTHING WAS CREATED)
+  PASS  app audience: the refusal carries no operator text (problem(s))
+  PASS  app audience: an undeclared guard is not run, and is named as not run
+  PASS  app audience: an empty user-work list refuses, rather than passing unguarded
+  PASS  app audience: an unreadable classification refuses, rather than allowing everything
+  PASS  an unknown --audience is refused by name
+  REAL SURFACES (not hermetic, on purpose)
+  PASS  the engine's MATCHERLESS guard is collected from the real hooks.json
+  PASS  a guard registered only in the repository's settings.local.json is collected (the hole that cost two refusals)
+  PASS  the brief-scope guard names BOTH broken rules in ONE message (the brief's premise that it names one was false)
+
+  58 passed, 0 failed, 0 skipped
