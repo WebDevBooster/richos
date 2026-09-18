@@ -119,6 +119,52 @@ impl fmt::Display for PhoneError {
 
 impl std::error::Error for PhoneError {}
 
+impl PhoneError {
+    /// **What HE reads when the pairing screen could not do what he asked.**
+    ///
+    /// [`Display`](fmt::Display) above is for the Mac's own log and says exactly what failed —
+    /// `add-generic-password for tls-leaf-key exited 51`. That is the right sentence for a
+    /// reader who can act on it and the wrong one for the CEO, who cannot and did not ask.
+    ///
+    /// **This split was not a design decision; it was found by a gate.** `ui/tests/affordances.js`
+    /// derives every user-visible string in the product and refuses one that is not classified as
+    /// something he can act on, something somebody else must, or something with genuinely nothing
+    /// to do. Thirty internal error strings arrived at it, because the command layer was handing
+    /// `to_string()` straight to the screen. The honest answer was not to classify them — it was
+    /// to stop showing them.
+    ///
+    /// So: every sentence below is one HE can read, each one says what was and was not changed,
+    /// and the detail is printed for the log beside it rather than lost.
+    pub fn ceo_sentence(&self) -> String {
+        match self {
+            PhoneError::Tool { tool, .. } if tool == "openssl" => {
+                "Your Mac's own certificate tool would not run, so I could not make a certificate                  for your phone. Nothing on your Mac was changed."
+            }
+            PhoneError::Tool { tool, .. } if tool == "security" => {
+                "Your Mac's keychain would not let me keep the key your phone needs. Nothing was                  changed, and I have not stored anything."
+            }
+            PhoneError::Tool { .. } => {
+                "I could not find the name this Mac publishes on your network, so there is no                  address your phone could use."
+            }
+            PhoneError::Io(_) => {
+                "Something else on this Mac is already using the port your phone needs. If you have                  a second copy of RichOS open, quit it and ask me again."
+            }
+            PhoneError::NoSecret(_) => {
+                "The key for your phone is not on this Mac any more. Ask me to set your phone up                  again and I will make a new one."
+            }
+            PhoneError::Crypto(_) => {
+                "Your Mac refused to make the keys your phone needs. Nothing was changed."
+            }
+            PhoneError::NotPaired => "No phone is paired with this Mac yet.",
+            // `Malformed` is the one variant whose text is already written FOR him — the
+            // already-paired refusal and the no-address refusal are both sentences he can act on —
+            // so it passes through rather than being replaced by something vaguer.
+            PhoneError::Malformed(detail) => return detail.clone(),
+        }
+        .to_string()
+    }
+}
+
 impl From<std::io::Error> for PhoneError {
     fn from(e: std::io::Error) -> Self {
         PhoneError::Io(e.to_string())

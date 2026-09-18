@@ -682,7 +682,12 @@ fn phone_begin_pairing(
     app: AppHandle,
     runtime: State<std::sync::Arc<phone::PhoneRuntime>>,
 ) -> Result<phone::PhoneStatus, String> {
-    runtime.begin_pairing(app).map_err(|e| e.to_string())
+    runtime.begin_pairing(app).map_err(|e| {
+        // THE DETAIL GOES TO THE LOG AND THE SENTENCE GOES TO HIM. `Display` says what failed
+        // and is the right thing for whoever can act on it; `ceo_sentence` is what he reads.
+        eprintln!("[richos] the phone channel could not start: {e}");
+        e.ceo_sentence()
+    })
 }
 
 /// "Forget this phone": the socket, the device record and the Keychain keys, all of it.
@@ -691,7 +696,10 @@ fn phone_begin_pairing(
 /// says where that is. A cleanup the user has to know to do is a cleanup that does not happen.
 #[tauri::command(async)]
 fn phone_forget(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<(), String> {
-    runtime.forget().map_err(|e| e.to_string())
+    runtime.forget().map_err(|e| {
+        eprintln!("[richos] forgetting the phone did not complete: {e}");
+        e.ceo_sentence()
+    })
 }
 
 #[tauri::command(async)]

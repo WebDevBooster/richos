@@ -50,7 +50,6 @@
         profile, then Remove Profile.</p>
       <div class="desk-card-actions">
         <button id="phone-forget" class="desk-btn" type="button">Forget this phone</button>
-        <button id="phone-close-paired" class="desk-btn" type="button">Close</button>
       </div>
     </div>
 
@@ -91,7 +90,6 @@
       <p class="overlay-note" id="phone-message" role="status"></p>
       <div class="desk-card-actions">
         <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
-        <button id="phone-close" class="desk-btn" type="button">Close</button>
       </div>
     </div>
 
@@ -99,8 +97,18 @@
       <p class="overlay-note" id="phone-off-message"></p>
       <div class="desk-card-actions">
         <button id="phone-start" class="desk-btn desk-btn--confirm" type="button">Set my phone up</button>
-        <button id="phone-close-off" class="desk-btn" type="button">Close</button>
       </div>
+    </div>
+
+    <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE.
+         The first version of this sheet had three, one inside each state block, and
+         ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the
+         document-level Escape handler clicks it, and a button hidden with its block does
+         nothing at all. Two of the three states could not be dismissed from the keyboard. One
+         button that is always on screen is both the simpler markup and the only shape that can
+         satisfy the contract. -->
+    <div class="desk-card-actions">
+      <button id="phone-close" class="desk-btn" type="button">Close</button>
     </div>
   </div>`;
   document.body.appendChild(sheet);
@@ -291,8 +299,6 @@
   field("phone-start").addEventListener("click", begin);
   field("phone-refresh").addEventListener("click", begin);
   field("phone-close").addEventListener("click", close);
-  field("phone-close-off").addEventListener("click", close);
-  field("phone-close-paired").addEventListener("click", close);
   field("phone-forget").addEventListener("click", async () => {
     if (busy) return;
     busy = true;
