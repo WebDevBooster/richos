@@ -143,9 +143,40 @@ command on a machine with it installed settles it.
 |---|---|---|
 | `phone/tailnet.rs` — detection, eight states, closed-label diagnostics | `32a04341` | 15 new |
 | `PhoneStatus.tailnet` — the state on the wire for Urban's screens | `ba0bafd5` | 4 new |
+| This record | `86f360f3` | — |
+| `listen.rs` — SNI certificate resolution, one listener serving two names | `a0359ccd` | 1 new |
+| `tailnet::fetch_cert` — the certificate, to stdout, key type read off the label | `e5e3b682` | 5 new |
 
-**158 phone tests green; the 139 that existed before this branch are untouched** (`cargo test -p
-richos-tauri --bins phone::`, measured before and after).
+**164 phone tests green; the 139 that existed before this branch are untouched** (`cargo test -p
+richos-tauri --bins phone::`, measured before and after). **`ui/tests/phone.js`: 10 of 10 PASS**,
+run against this branch after the `PhoneStatus` change.
+
+### The SNI resolution is proved, and the proof was probed
+
+`the_tailnet_name_gets_the_tailnet_certificate_and_every_other_name_still_gets_our_own` stands a
+real listener on an ephemeral port and drives **four** handshakes against it:
+
+| | Name asked for | Root trusted | Expected |
+|---|---|---|---|
+| 1 | `mm1.local` | home | Ok — the home path is untouched |
+| 2 | the tailnet name | tailnet | Ok — SNI actually switched |
+| 3 | the tailnet name | **home** | **Err — the control** |
+| 4 | `127.0.0.1` (an IP-literal `ServerName`, so **no SNI at all**) | home | Ok — the fallback |
+
+Case 3 is what makes the others mean anything: had the resolver ignored SNI and served home for
+everything, 3 would have passed and 2 failed; had it served the tailnet leaf for everything, 1 and
+4 would have failed. Case 4 running *after* case 3 and succeeding also rules out case 3 having
+"passed" because the server had stopped accepting.
+
+**Mutation-probed rather than assumed.** `&& false` was inserted into the SNI match arm; case 2
+failed with *"the tailnet name was not served the tailnet certificate"* (`listen.rs:843`), 1 failed
+/ 0 passed. Reverted, 164 passed. A negative assertion nobody has watched fail is not evidence.
+
+`unverified:` that a real Let's Encrypt chain from `tailscale cert` is accepted by a phone. That is
+a claim about certificate *contents*; the test above makes a claim about *which* certificate the
+resolver hands out, which is the part we wrote. The stand-in for "publicly trusted" is a second
+`PhoneCa` under its own root — a good stand-in for exactly one reason, that the home root knows
+nothing about it, which is what turns case 3 into a control.
 
 ### The parser is pinned to upstream's declarations, not to a recollection
 
@@ -204,13 +235,15 @@ through and asserts neither reaches a label.
 Named plainly rather than left to be discovered. None is blocked by anything except time and the
 missing tailnet.
 
-1. **The certificate itself.** `tailscale cert --cert-file - --key-file - <name>`, parsed from
-   stdout into DER, kept in the Keychain beside the existing leaf. Cannot be exercised here at all.
-2. **SNI certificate resolution in `listen.rs`.** `tls_config` is `with_single_cert` today; it needs
-   a `ResolvesServerCert` returning the tailnet leaf for the tailnet name and the Mac-CA leaf for
-   everything else, so **`mm1.local` keeps working unchanged**, which the brief requires. *This one
-   is fully provable offline* — two generated certificates and two client handshakes — and is the
-   first thing the next slice should do.
+1. **Keeping the certificate, and renewing it.** `fetch_cert` exists and is tested; **nothing calls
+   it yet.** The remaining work is where the result lives — the chain and key into the Keychain
+   beside the existing leaf via `secrets::Keychain`, re-fetched on a schedule. `tailscale cert`
+   renews on call and `--min-validity` is already a parameter, so renewal is one idempotent call
+   rather than an ACME client; the open question is only when to make it.
+2. **Passing the certificate to the listener at start-up.** `tls_config_with_tailnet` takes it and
+   `PhoneRuntime::start` still calls the `None` form. This is a small, purely local change and it
+   is the next one to make — but it is gated on item 3 below, because a tailnet certificate with
+   nothing bound on the tailnet address serves nobody.
 3. **Binding the tailnet addresses.** `Listener::start` is all-or-nothing on bind failure by
    design. A tailnet address exists only while Tailscale is up, so adding it to the bind list needs
    that arm softened deliberately, or the channel will refuse to start when Tailscale is off.
@@ -223,7 +256,12 @@ missing tailnet.
    provider list has to be selected from the paired origin, so that field comes first.
 5. **Urban's seven screens in `ui/phone.js`.** The state they switch on is on the wire and tested;
    the markup is not written. Urban's §5 has the four new CSS rules and the computed ratios, and
-   his §3 state table maps one-to-one onto the tokens `TailnetView.state` emits.
+   his §3 state table maps one-to-one onto the tokens `TailnetView.state` emits — `absent`,
+   `needs-sign-in`, `certificates-off`, `ready` and the rest — so the screen is a switch on one
+   string. `ui/tests/phone.js` is 10 of 10 PASS on this branch and its check 10 (*"nothing on the
+   sheet threw, in either theme"*) is what a new block has to keep true.
+6. **The six words over the tailnet leaf** — §1 above. The decision is made and the copy is
+   settled; the plumbing (SNI name → which fingerprint the pair answer reports) is not written.
 
 ## 5. Answers to Urban's other three seams
 
