@@ -775,10 +775,25 @@ fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Re
 /// about to type into, and the snapshot he is looking at has already been handed over.
 ///
 /// **The lock being held for ~8 s is an existing, tolerated condition, not a new one.**
-/// `send_message` takes the same lock and holds it for the WHOLE of a turn (`:707`, still held at
-/// the end of the function), which is longer than this. And a message he sends during priming is
-/// never slower than it is today: it waits for exactly the priming his own message used to
-/// perform, and then runs on a desk that is ready.
+/// `send_message` takes the same lock and holds it for the WHOLE of a turn (still held at the end
+/// of the function), which is longer than this.
+///
+/// **HIS SEND NO LONGER WAITS FOR IT** (CEO §55, 2026-09-18). This paragraph used to say that a
+/// message sent during priming *"waits for exactly the priming his own message used to perform"*,
+/// which was true and was also the whole defect: Ray opened a brand-new thread and typed into it
+/// immediately, and his Send sat on this lock for the remainder of a 4412 ms prime while the
+/// window read *"Sending your message / Waiting for Rich to accept it"* and his sentence existed
+/// nowhere but the webview. `Spine::prime_front_desk` now opens the intake log's road for this
+/// thread while it primes and drains it before returning, so `send_message` takes the sentence in
+/// the time one `fsync` costs and the prime hands it over on its way out.
+///
+/// **What that does NOT do, so this doc never has to be corrected a second time.** It does not
+/// make his first words arrive sooner. The priming is a model turn, the lease is serial
+/// (continuity §3.1) and an already-primed thread never primes twice, so the contended cost is
+/// `prime_remainder + turn` whichever road the message took. The pre-prime is a bet that he is
+/// slower than the prime, and this only changes what happens when he wins that race. Recovering
+/// the seconds needs a desk that is already primed when the thread opens — a different slice,
+/// raised as `esc-20260918T195518Z-79f7b0d9`.
 ///
 /// **One attempt per thread opened.** The verdict is reported on stderr and nowhere else: this is
 /// an optimization of WHEN the waiting happens, so a failure is not his business, and a UI that
@@ -824,8 +839,9 @@ fn send_wait_notice(waited: std::time::Duration) -> Option<String> {
     (millis > 0).then(|| format!(
         "[richos] his Send waited {millis} ms for the front desk before the turn could start — \
          that is time on screen as \"Sending your message / Waiting for Rich to accept it\", and \
-         it is his (CEO §55). A brand-new thread's pre-prime holds the same lock, so this is \
-         what is left of it when he types faster than it finishes."
+         it is his (CEO §55). The pre-prime is no longer a cause of it — a Send into a thread \
+         being primed is taken off this lock entirely — so whatever held it is something else, \
+         and this line is the only thing that will say so."
     ))
 }
 
@@ -848,12 +864,14 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     // HOW LONG HE WAITED BEFORE HIS TURN EVEN STARTED — and why this line exists
     // ===================================================================================
     //
-    // `ready_the_front_desk` holds THIS mutex for the whole of `prime_front_desk`. So a Send
-    // issued while the pre-prime is still running blocks here for the remainder of it, and
-    // the UI honestly shows "Sending your message / Waiting for Rich to accept it"
-    // (`ui/main.js`) the entire time. That wait is his, it is charged against §55's clock,
+    // `ready_the_front_desk` holds THIS mutex for the whole of `prime_front_desk`. A Send
+    // issued while the pre-prime was still running USED TO block here for the remainder of
+    // it, with the UI honestly showing "Sending your message / Waiting for Rich to accept it"
+    // (`ui/main.js`) the entire time. That wait was his, it was charged against §55's clock,
     // and until this line NOTHING wrote it down: `app.log` carried the prime's own duration
-    // and never the part of it he paid for.
+    // and never the part of it he paid for. The pre-prime no longer reaches this line at all
+    // — see the block below — and the measurement stays, because it is now the only thing
+    // that would name a DIFFERENT holder of this lock.
     //
     // **What that cost.** On candidate .10, Ray's first measurement bracketed "On it!" at
     // 11-12 s on the window while the same turn measured ~6 s in process
@@ -866,6 +884,47 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     // **No threshold and no tuning.** An uncontended `Mutex::lock` returns in well under a
     // millisecond and rounds to 0, so the ordinary send stays silent by arithmetic rather
     // than by a number somebody picked.
+    // ===================================================================================
+    // AND THE ROAD THAT DOES NOT WAIT FOR IT
+    // ===================================================================================
+    //
+    // `TurnControl::defer_send` answers `Some` only while `prime_front_desk` has this
+    // thread's road open, and it makes that decision and its `fsync` under ONE guard — the
+    // same guard the priming turn needs in order to close the road. So there is no ordering
+    // in which a record is accepted here and nobody drains it (`steering.rs` has the two
+    // cases). `None` means nothing is priming, which is the overwhelming majority of sends,
+    // and the line below takes the lock exactly as it always did.
+    //
+    // **The seconds themselves are not recovered by this and nothing here claims they are.**
+    // The priming turn is a model turn and the lease is serial (continuity §3.1), so his
+    // prompt reaches the provider when the prime ends either way. What changes is that his
+    // sentence is on disk the instant he presses Send — before this, it lived only in the
+    // webview for the length of the prime and quitting in that window lost it — and that the
+    // Send itself is instant.
+    //
+    // A failure to write is NOT a refusal of his message: it falls through to the blocking
+    // path, which is what this function did before the road existed. The only thing lost is
+    // the wait.
+    match state.control.defer_send(&thread_id, state.entity.lock().unwrap().clone(), &text) {
+        Ok(Some(record)) => {
+            eprintln!(
+                "[richos] his Send was taken while the front desk was still being primed \
+                 (intake {}) — durable now, and handed over the moment the prime ends (CEO §55)",
+                record.id()
+            );
+            // NO SNAPSHOT, AND NO CALLER WANTS ONE. This return has always been advisory —
+            // `ui/main.js` discards it and renders from the live stream (its own comment at
+            // the send path says so), because the command may not return for hours. The
+            // deferred branch could only produce a snapshot by taking the very lock it just
+            // declined to wait for, so it returns none rather than a stale or invented one.
+            return Ok(Vec::new());
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!(
+            "[richos] his Send could not be taken off the spine ({e}); it waits for the front \
+             desk the way it did before, which is the only cost"
+        ),
+    }
     let asked_at = std::time::Instant::now();
     let mut spine = state.spine.lock().unwrap();
     if let Some(line) = send_wait_notice(asked_at.elapsed()) {
@@ -4907,6 +4966,47 @@ mod send_wait_tests {
 
         // The smallest wait that is still a wait — the boundary itself, stated.
         assert!(super::send_wait_notice(Duration::from_millis(1)).is_some());
+    }
+
+    /// INVARIANT: `send_message` asks for the deferred road BEFORE it takes the spine's
+    /// mutex, and the pre-prime is no longer a reason for that mutex to be held against him.
+    ///
+    /// **Why this is a scrape of the source rather than a call.** The ordering is the whole
+    /// property — `defer_send` after `spine.lock()` would compile, pass every behavioral test
+    /// in `richos-core`, and do exactly nothing, because by the time it ran the wait it exists
+    /// to avoid would already have been paid. There is no return value that distinguishes the
+    /// two orders, so the only honest place to check it is where it is written. The BEHAVIOR —
+    /// the handover, the durability, the exactly-once — is pinned on real spines in
+    /// `crates/richos-core/tests/deferred_send_tests.rs`; this pins the wiring that reaches it.
+    ///
+    /// The needles are assembled rather than written for the reason `lease_gate_tests` gives:
+    /// `SOURCE` is this file, and a literal needle would match itself.
+    #[test]
+    fn the_send_asks_for_the_deferred_road_before_it_takes_the_spine() {
+        const SOURCE: &str = include_str!("main.rs");
+        let start = SOURCE.find(concat!("fn send_", "message(state: State<AppState>")).unwrap();
+        let end = SOURCE[start..].find(concat!("fn refused_", "send(")).unwrap() + start;
+        let body = &SOURCE[start..end];
+
+        let defer = concat!("state.control.defer_", "send(");
+        let lock = concat!("state.spine.", "lock()");
+        let defer_at = body.find(defer).expect("send_message must offer the deferred road at all");
+        let lock_at = body.find(lock).expect("send_message still takes the spine on the ordinary path");
+        assert!(
+            defer_at < lock_at,
+            "the deferred road must be asked for BEFORE the mutex — after it, it can only run \
+             once the wait it exists to avoid has already been paid"
+        );
+
+        // The thread he typed into, not the active one. A deferral filed against whatever
+        // thread happened to be active would launder his words across an entity boundary,
+        // which is the thing `IntakeRecord::Steer`'s own comment refuses.
+        let call = &body[defer_at..];
+        assert!(
+            call[..call.find(')').unwrap()].contains("&thread_id"),
+            "the deferral must name the thread he typed into: {}",
+            &call[..80]
+        );
     }
 }
 
