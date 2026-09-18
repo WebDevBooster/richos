@@ -409,17 +409,297 @@ async function openSheet(browser, theme, preset) {
     return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
   });
 
+  // ---- 11-16. CEO §61.1: the identity trap, made crystal-clear -----------------------------
+  //
+  // His ruling, verbatim: *"this barrier or I would call it stupidity would need to be made
+  // ABSOLUTELY UBER MEGA SUPER CRYSTAL-CLEAR to ever user of RichOS"*. What he hit on his own
+  // devices: Tailscale has no email-and-password sign-in; the account IS the network; he signed in
+  // with Apple on the Mac and Google on the Android, got two networks that cannot see each other,
+  // and reinstalled Tailscale on the Android THREE TIMES looking for a "connect to Mac" step that
+  // does not exist.
+  //
+  // None of the four checks below could have been written before this run: `mock.js` reported no
+  // `tailnet` at all, so every Tailscale screen was unreachable in a browser.
+
+  /// Open the sheet and take the Anywhere route, which is where §61.1's flow begins.
+  ///
+  /// It also reads the identity screen when one is up, because every screen after it is BEHIND
+  /// it — which is the property check 11 is about, and the reason every other check has to pass
+  /// through it to reach anything.
+  async function takeTheTailscaleRoute(theme, tailnet) {
+    const page = await openSheet(browser, theme, { phoneTailnet: tailnet });
+    await page.waitForSelector("#phone-route:not([hidden])");
+    await page.click("#phone-route-anywhere");
+    if (await page.isVisible("#phone-identity")) await page.click("#phone-identity-ok");
+    return page;
+  }
+
+  await run.check("11  the identity trap is stated BEFORE the download step, and it states all five things", async () => {
+    const page = await openSheet(browser, "dark", { phoneTailnet: { state: "absent" } });
+    await page.waitForSelector("#phone-route:not([hidden])");
+    await page.click("#phone-route-anywhere");
+    const shown = await page.evaluate(() => ({
+      identity: !document.getElementById("phone-identity").hidden,
+      wait: !document.getElementById("phone-ts-wait").hidden,
+      text: document.getElementById("phone-identity").textContent.replace(/\s+/g, " "),
+      heading: document.querySelector("#phone-identity .phone-step-title").textContent,
+    }));
+    // FIRST, and that is the whole point: by the time somebody is on the download screen the next
+    // thing they do is create the account, inside somebody else's sign-in sheet.
+    assert(shown.identity, "picking Anywhere went straight past the identity screen");
+    assert(!shown.wait, "the download screen is up at the same time as the identity screen");
+    assert(
+      /no password/i.test(shown.heading),
+      "the heading does not state the trap: " + JSON.stringify(shown.heading)
+    );
+    // The five things §61.1 requires, each one checked for the thing it actually says.
+    const required = [
+      [/no username and password/i, "that Tailscale has no username and password"],
+      [/Google.*Apple.*Microsoft.*GitHub/i, "the four sign-in providers it offers instead"],
+      [/identity <?is>? your private network|identity is your private network/i, "that the identity IS the network"],
+      [/same/i, "that both devices must use the same one"],
+      [/new Google account|only for this/i, "the dedicated-identity way out for somebody who keeps them apart"],
+    ];
+    for (const [pattern, what] of required) {
+      assert(pattern.test(shown.text), "the identity screen never says " + what + ": " + shown.text);
+    }
+    // And his own loop, named: reinstalling is what he did three times, and it never helps.
+    assert(
+      /reinstalling tailscale will not help/i.test(shown.text),
+      "the screen does not say that reinstalling will not help, which is the thing he did three times"
+    );
+    // AND THE DOWNLOAD SCREEN IS WHAT IS BEHIND IT — a warning that leads nowhere is a dead end.
+    const after = await page.evaluate(() => {
+      document.getElementById("phone-identity-ok").click();
+      return new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              identity: !document.getElementById("phone-identity").hidden,
+              heading: document.getElementById("phone-ts-heading").textContent,
+            }),
+          200
+        )
+      );
+    });
+    await page.close();
+    assert(!after.identity, "the identity screen does not go away when it has been read");
+    assertEqual(
+      after.heading,
+      "Install Tailscale on this Mac",
+      "reading the warning does not lead to the download step"
+    );
+    return "the identity screen precedes the download step and states all five things, plus the reinstall loop";
+  });
+
+  await run.check("12  once the Mac is signed in, the screen names the provider and the login name it used", async () => {
+    const page = await takeTheTailscaleRoute("dark", {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+    });
+    const shown = await page.evaluate(() => ({
+      identity: !document.getElementById("phone-identity").hidden,
+      ready: !document.getElementById("phone-ts-ready").hidden,
+      name: document.getElementById("phone-ts-name").textContent.trim(),
+      account: document.getElementById("phone-ts-account").textContent.trim(),
+    }));
+    await page.close();
+    // The warning has done its job the moment detection can name the account, and it does not
+    // come back: from here on the screens say WHICH one rather than warning about the choice.
+    assert(!shown.identity, "the identity warning is still up after the account is known");
+    assert(shown.ready, "the ready screen is not shown for a ready Mac");
+    assertEqual(shown.name, "mm1.tail9a3b2.ts.net", "the tailnet name is not shown verbatim");
+    assertEqual(
+      shown.account,
+      "You signed in with Google as someone@gmail.com. Use exactly this on your phone.",
+      "the Mac does not name the provider and login name it signed in with"
+    );
+    return "the ready screen names the machine and " + JSON.stringify(shown.account);
+  });
+
+  await run.check("13  the phone step opens with the why, with that account filled in", async () => {
+    // Reached the way a person reaches it: the route, the ready screen, then "Set my phone up".
+    // A preset that starts mid-pairing would land on the HOME screen, because the route is not
+    // remembered across an open — Urban's §1, and `phone.js`'s own `route = null` on open.
+    const page = await takeTheTailscaleRoute("dark", {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Apple as someone@icloud.com",
+    });
+    await page.click("#phone-ts-start");
+    await page.waitForSelector("#phone-ts-steps:not([hidden])");
+    const shown = await page.evaluate(() => {
+      const steps = document.getElementById("phone-ts-steps");
+      const why = document.getElementById("phone-ts-why");
+      const nodes = [...steps.querySelectorAll("p, ol")];
+      return {
+        why: why.textContent.replace(/\s+/g, " "),
+        step2: document.getElementById("phone-ts-step2").textContent.replace(/\s+/g, " "),
+        whyIsFirst: nodes.indexOf(why) === 0,
+      };
+    });
+    await page.close();
+    assert(shown.whyIsFirst, "the why does not come first on the phone step, so the instruction arrives bare");
+    assert(
+      /private network/i.test(shown.why),
+      "the why does not say the account is the network: " + shown.why
+    );
+    assert(
+      shown.why.includes("Apple as someone@icloud.com"),
+      "the why does not name the provider and address the Mac used: " + shown.why
+    );
+    assert(
+      shown.step2.includes("Apple as someone@icloud.com"),
+      "step 2 does not name the account either: " + shown.step2
+    );
+    return "the phone step opens with the why and names " + JSON.stringify("Apple as someone@icloud.com");
+  });
+
+  await run.check("14  a phone that is registered and switched off is told to switch it on, not to sign in again", async () => {
+    // MEASURED ON THIS MAC, 2026-09-19: the CEO's Android was in the daemon's Peer map TWICE, one
+    // stale registration per reinstall, and both were `"Online": false` because Tailscale on the
+    // phone was switched off. Read as "your phone is on this network", that state sends somebody
+    // who has done everything right back to check their identity.
+    const off = await takeTheTailscaleRoute("dark", {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+      phone: "HONOR X6b",
+      phoneOnline: false,
+    });
+    const offLine = (await off.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();
+    await off.close();
+    assert(
+      /switched off on it/i.test(offLine) && /Turn it on in the Tailscale app/i.test(offLine),
+      "a registered, offline phone is not told to switch Tailscale on: " + JSON.stringify(offLine)
+    );
+    assert(
+      !/sign in with/i.test(offLine),
+      "an offline phone is told to sign in again, which is the wrong fix: " + JSON.stringify(offLine)
+    );
+
+    const on = await takeTheTailscaleRoute("dark", {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+      phone: "HONOR X6b",
+      phoneOnline: true,
+    });
+    const onLine = (await on.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();
+    await on.close();
+    assert(
+      /is on this network\.?$/i.test(onLine),
+      "a live phone is not simply reported as present: " + JSON.stringify(onLine)
+    );
+    return "offline says " + JSON.stringify(offLine) + "; online says " + JSON.stringify(onLine);
+  });
+
+  await run.check("15  with no phone at all, the screen waits and then names the account to use", async () => {
+    // The mismatch itself. A phone signed in to a DIFFERENT identity is in a different tailnet and
+    // appears nowhere at all, so absence is the evidence — but only after a wait, because before
+    // that "not here yet" and "still signing in" are the same thing.
+    const page = await takeTheTailscaleRoute("dark", {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+    });
+    const waiting = (await page.textContent("#phone-ts-peer-ready")).trim();
+    assert(
+      /waiting for your phone/i.test(waiting),
+      "before the grace window the screen already calls it a mistake: " + JSON.stringify(waiting)
+    );
+
+    // THE CLOCK IS MOVED, NOT WAITED OUT. `setSystemTime` changes what `Date.now()` answers and
+    // triggers no timers, so the sheet's own two-second poll is what redraws — the same path a
+    // real minute would take, without spending one.
+    await page.clock.setSystemTime(Date.now() + 61000);
+    await page.waitForFunction(
+      () => !/waiting/i.test(document.getElementById("phone-ts-peer-ready").textContent),
+      { timeout: 15000 }
+    );
+    const said = (await page.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();
+    await page.close();
+    assert(
+      /not on this network yet/i.test(said),
+      "after the wait the screen does not say the phone is absent: " + JSON.stringify(said)
+    );
+    assert(
+      said.includes("Google as someone@gmail.com"),
+      "the mismatch line does not name the account to sign in with: " + JSON.stringify(said)
+    );
+    return "waits with " + JSON.stringify(waiting) + ", then says " + JSON.stringify(said);
+  });
+
+  await run.check("16  each link has a control AND its address in writing, and the control asks for that address", async () => {
+    // Urban's §2: "a control that opens somewhere the user cannot see first is a control that asks
+    // for trust it has not earned". So both, on every screen that names an address — and the
+    // written-out form is also the fallback for a Mac where the opener does not work.
+    const cases = [
+      ["absent", "Get Tailscale", "tailscale.com/download/mac"],
+      ["needs-sign-in", "Open Tailscale", "Tailscale.app"],
+      ["certificates-off", "Open the Tailscale console", "console.tailscale.com/admin/dns"],
+    ];
+    const seen = [];
+    for (const [state, label, target] of cases) {
+      const page = await takeTheTailscaleRoute("dark", { state, name: "mm1.tail9a3b2.ts.net" });
+      const shown = await page.evaluate(() => ({
+        label: document.getElementById("phone-ts-open").textContent.trim(),
+        visible: !document.getElementById("phone-ts-open").hidden,
+        url: document.getElementById("phone-ts-url").textContent.trim(),
+        urlVisible: !document.getElementById("phone-ts-url").hidden,
+      }));
+      assertEqual(shown.label, label, "wrong control label for " + state);
+      assert(shown.visible, "the control is hidden on " + state);
+      await page.click("#phone-ts-open");
+      const asked = await page.evaluate(() => window.__RICHOS_OPENED__ || []);
+      await page.close();
+      assertEqual(asked, [target], "the control on " + state + " asked to open the wrong thing");
+      // The sign-in screen names no address, because what it opens is an app the user already has.
+      if (target !== "Tailscale.app") {
+        assert(shown.urlVisible && shown.url === target, "the address is not written out on " + state);
+      }
+      seen.push(label + " -> " + target);
+    }
+    return seen.join("; ");
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
+    let combinations = 0;
     for (const theme of ["dark", "light"]) {
       for (const preset of [{ phonePairing: true }, { phonePaired: true }]) {
         const page = await openSheet(browser, theme, preset);
         await page.close();
         errors.push(...page.__errors);
+        combinations += 1;
+      }
+      // AND THE FOUR TAILSCALE SCREENS, which no theme sweep reached until this run because the
+      // harness reported no tailnet at all.
+      for (const tailnet of [
+        { state: "absent" },
+        { state: "needs-sign-in" },
+        { state: "certificates-off", name: "mm1.tail9a3b2.ts.net" },
+        {
+          state: "ready",
+          name: "mm1.tail9a3b2.ts.net",
+          origin: "https://mm1.tail9a3b2.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+      ]) {
+        const page = await takeTheTailscaleRoute(theme, tailnet);
+        await page.close();
+        errors.push(...page.__errors);
+        combinations += 1;
       }
     }
     assertEqual(errors, [], "the pairing screen raised a page error or logged to console.error");
-    return "4 combination(s) of theme and state opened with no page error and nothing on console.error";
+    return combinations + " combination(s) of theme and state opened with no page error and nothing on console.error";
   });
 
   await browser.close();

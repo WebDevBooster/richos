@@ -35,6 +35,30 @@
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
     openedAt: window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true ? now() - 61000 : now(),
   };
+  // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
+  // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
+  // §61's path was unreachable in a browser — which is exactly why it shipped with no browser
+  // check over it. The shape is `TailnetView` (`src-tauri/src/phone/mod.rs`): a state token, a
+  // name, an origin, a sentence, the account phrase, the phone's name and whether it is online.
+  //
+  // The default is `absent`, which is what a Mac with no Tailscale reports and what the real
+  // `TailnetView::from(&TailnetState::Absent)` serializes.
+  const TAILNET_ABSENT = {
+    state: "absent",
+    name: null,
+    origin: null,
+    sentence:
+      "Tailscale is not on this Mac. Installing it here and on your phone, and signing in to the " +
+      "same free account on both, is what lets you reach me when you are away from home.",
+    account: null,
+    phone: null,
+    phoneOnline: false,
+  };
+  function tailnetOf() {
+    const preset = window.__RICHOS_MOCK_PRESET__?.phoneTailnet;
+    if (!preset) return TAILNET_ABSENT;
+    return Object.assign({}, TAILNET_ABSENT, preset);
+  }
   function phoneStatusOf() {
     const elapsed = now() - mockPhone.openedAt;
     const secondsLeft = Math.max(0, Math.ceil((60000 - elapsed) / 1000));
@@ -53,6 +77,7 @@
           ? ["127.0.0.1:8443", "192.168.1.249:8443"]
           : [],
       pairingSecondsLeft: open ? secondsLeft : null,
+      tailnet: tailnetOf(),
     };
   }
 
@@ -1998,6 +2023,13 @@
           mockPhone.pairing = true;
           mockPhone.openedAt = now();
           return phoneStatusOf();
+        // THE HOW-TO SCREENS' LINKS (§61.1). Recorded rather than only answered: what a test needs
+        // to know is WHICH address the control asked for, and `opener.rs` is where the allowlist
+        // that governs it is proved.
+        case "open_external":
+          window.__RICHOS_OPENED__ = window.__RICHOS_OPENED__ || [];
+          window.__RICHOS_OPENED__.push(args?.target ?? null);
+          return null;
         case "phone_forget":
           mockPhone.paired = false;
           mockPhone.pairing = false;
